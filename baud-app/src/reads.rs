@@ -1585,6 +1585,53 @@ mod tests {
         }
     }
 
+    /// **A held window report is answered in the `paced` call that read
+    /// it**, from the window the driver's `after` reads at the question, as
+    /// `pump`'s does (`report_now`): ahead of the CPR the same read asks
+    /// next, and, where the question is the read's last byte -- the common
+    /// case, a program that asks and waits -- on the empty rest the hold
+    /// leaves, with nothing more read. The driver reads its window once a
+    /// question.
+    #[test]
+    fn a_held_window_report_is_answered_in_the_call_that_read_it() {
+        use baud_core::{ScreenCoord, ScreenPoint, WindowAsked, WindowFacts, WindowHold};
+        let now = WindowFacts {
+            position: Some(ScreenPoint {
+                x: ScreenCoord::of(300),
+                y: ScreenCoord::of(20),
+            }),
+            ..WindowFacts::UNKNOWN
+        };
+        for (read, want) in [
+            (&b"\x1b[13tA\x1b[6n"[..], &b"\x1b[3;300;20t\x1b[1;2R"[..]),
+            (&b"A\x1b[13t"[..], &b"\x1b[3;300;20t"[..]),
+        ] {
+            let mut s = Owned::new(&WS);
+            let mut t = Term::new(s.storage(), &WS);
+            t.set_window_hold(WindowHold::On);
+            let mut pace = Pace::new();
+            let mut out = Vec::new();
+            let mut reads = 0;
+            let fed = paced(
+                &mut t,
+                &mut pace,
+                Instant::now(),
+                [read],
+                |b| out.extend_from_slice(b),
+                |t| {
+                    if t.window_asked() != WindowAsked::No {
+                        reads += 1;
+                        t.answer_window(now);
+                    }
+                },
+                &mut crate::hostlog::NoLog,
+            );
+            assert_eq!(reads, 1, "{read:?}: the window read once");
+            assert_eq!((fed, out.as_slice()), (Fed::Some, want), "{read:?}");
+            assert_eq!(t.window_asked(), WindowAsked::No, "{read:?}");
+        }
+    }
+
     /// **A held `p=alive` waits for the driver's platform list, and the
     /// reads behind it wait for the answer**: nothing is answered or drawn
     /// until the driver answers, from the live table its list left -- here

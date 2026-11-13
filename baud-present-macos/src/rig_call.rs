@@ -203,9 +203,33 @@ pub enum RigWindow {
     /// window's core was told so on a turn of its own, waited for through
     /// the probe's door (`probe::expirations`) within the bound.
     Expired,
+    /// That it moved, its size kept: moved by `setFrameOrigin:`, which
+    /// keeps the size, since AppKit tells a move that also resizes only as
+    /// a resize, then `NSWindowDidMoveNotification` posted
+    /// (`window_facts::rig_post`).
+    Moved,
+    /// That it was resized: `NSWindowDidResizeNotification` posted, its
+    /// frame left as it is.
+    Resized,
+    /// That it moved onto or off of a screen:
+    /// `NSWindowDidChangeScreenNotification` posted.
+    ChangedScreen,
+    /// That its backing scale or colour space changed:
+    /// `NSWindowDidChangeBackingPropertiesNotification` posted.
+    ChangedBacking,
+    /// That it was minimized: `NSWindowDidMiniaturizeNotification` posted,
+    /// the window not minimized.
+    Miniaturized,
+    /// That it is no longer minimized:
+    /// `NSWindowDidDeminiaturizeNotification` posted.
+    Deminiaturized,
+    /// That the displays' configuration changed:
+    /// `NSApplicationDidChangeScreenParametersNotification` posted with the
+    /// shared application as its object.
+    ScreenParameters,
 }
 
-const WINDOW: [(RigWindow, &str); 15] = [
+const WINDOW: [(RigWindow, &str); 22] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
     (RigWindow::BecameKey, "became-key"),
@@ -221,6 +245,13 @@ const WINDOW: [(RigWindow, &str); 15] = [
     (RigWindow::ReleasedLate, "released-late"),
     (RigWindow::ShownFirst, "shown-first"),
     (RigWindow::Expired, "expired"),
+    (RigWindow::Moved, "moved"),
+    (RigWindow::Resized, "resized"),
+    (RigWindow::ChangedScreen, "changed-screen"),
+    (RigWindow::ChangedBacking, "changed-backing"),
+    (RigWindow::Miniaturized, "miniaturized"),
+    (RigWindow::Deminiaturized, "deminiaturized"),
+    (RigWindow::ScreenParameters, "screen-parameters"),
 ];
 
 /// **How the frame rig's act is sent**: as a line to the shell, a newline

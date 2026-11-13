@@ -1578,6 +1578,9 @@ impl App {
         // A read stops at a page-width request, and `pump` resizes the grid
         // before the rest of it is parsed (`width.rs`).
         term.set_width_hold(baud_core::WidthHold::On);
+        // And at a window report a drag moves, which `pump` answers from the
+        // window as it is then before the rest is parsed (`report_now`).
+        hold_window_reports(&mut term);
         // A read stops once its answers fill the reply buffer past one
         // control's worth, and `pump` sends them before the rest is parsed.
         crate::reads::hold_replies(&mut term);
@@ -4986,6 +4989,8 @@ struct Driver {
     keyed: Option<Keyed>,
     /// The window's key changes, heard (`KeyHeard`).
     key_heard: KeyHeard,
+    /// The changes of the window's facts, heard (`WindowHeard`).
+    window_heard: WindowHeard,
     /// **The window's occlusion changes, heard**
     /// (`closing::when_occlusion_changes`): each wakes the view, whose turn
     /// starts a splash waiting for its window (`splash_check`). Dropping it
@@ -5044,7 +5049,8 @@ struct Driver {
     /// marks the turn their notification wakes takes (`follow_settings`).
     settings: baud_present_macos::settings::Watch,
     /// The window and screen as last handed to the core for XTWINOPS's
-    /// reports, read on the tick (`poll_window`).
+    /// reports, read at opening and on the turn one of their notifications
+    /// woke (`poll_window`, `WindowHeard`).
     window_facts: baud_core::WindowFacts,
     /// The frame a program's maximise saved, which its restore returns to
     /// (`crate::winops`), as xterm's `RequestMaximize` keeps the frame
@@ -5239,6 +5245,67 @@ mod notice_support_tests {
             None,
             "after a refusal, none"
         );
+    }
+}
+
+#[cfg(test)]
+mod window_hold_tests {
+    use super::{Heard, WindowMark, WindowRead, hold_window_reports};
+    use baud_core::{Owned, Term, WindowAsked, WindowQuery};
+    use baud_domain::{BytePos, ReadLen, WinSize};
+
+    const WS: WinSize = WinSize {
+        ws_row: 24,
+        ws_col: 80,
+    };
+
+    /// **The app's terminal stops a read at `CSI 13 t`**, owing the
+    /// window's position, through the function `App::new` sets its
+    /// terminal up with: the rest of the read is held and the question
+    /// waits for `pump`'s `report_now`. The control: a terminal not set up
+    /// so reads on and owes nothing, which is every report answered from
+    /// the facts last handed over. Named break: `WindowHold::Off` in
+    /// `hold_window_reports`.
+    #[test]
+    fn the_apps_terminal_stops_a_read_at_a_window_report_a_drag_moves() {
+        let read = b"\x1b[13tA";
+        let run = |set_up: bool| {
+            let mut s = Owned::new(&WS);
+            let mut t = Term::new(s.storage(), &WS);
+            if set_up {
+                hold_window_reports(&mut t);
+            }
+            t.write_at(BytePos::ZERO, read);
+            t.feed(BytePos::ZERO, ReadLen::from_index(read.len()));
+            (
+                t.take_held().map(|r| (r.at.index(), r.len.index())),
+                t.window_asked(),
+            )
+        };
+        assert_eq!(run(false), (None, WindowAsked::No), "the control");
+        assert_eq!(
+            run(true),
+            (Some((5, 1)), WindowAsked::Owed(WindowQuery::WindowPosition)),
+            "stopped at the question, the A held"
+        );
+    }
+
+    /// **The window's mark: read at opening, on a notification, and again
+    /// after a read that found no window**, and on no other turn. Named
+    /// break: `after` leaving it unmarked on `NoWindow`.
+    #[test]
+    fn a_window_read_that_found_no_window_is_owed_again() {
+        let mark = WindowMark::new();
+        assert_eq!(mark.take(), Heard::Changed, "marked at opening");
+        assert_eq!(mark.take(), Heard::Unchanged, "a take unmarks it");
+        mark.after(WindowRead::Done);
+        assert_eq!(mark.take(), Heard::Unchanged, "a read done owes none");
+        mark.after(WindowRead::NoWindow);
+        assert_eq!(mark.take(), Heard::Changed, "no window: owed again");
+        assert_eq!(mark.take(), Heard::Unchanged);
+        mark.clone().heard();
+        assert_eq!(mark.take(), Heard::Changed, "a notification marks it");
+        assert_eq!(mark.take(), Heard::Unchanged);
     }
 }
 
@@ -5603,6 +5670,86 @@ impl KeyHeard {
     fn take(&self) -> Heard {
         self.heard.replace(Heard::Unchanged)
     }
+}
+
+/// **The changes of the window's facts, heard**
+/// (`window_facts::when_window_changes`): a move, a resize, a change of
+/// screen or of backing, a minimize and its undoing, and the displays'
+/// change mark the cell and wake the view, and the pump reads the facts
+/// on the turn one woke, so no tick reads them. It starts marked, so the
+/// opening pump reads the facts the window has, and **a read that found no
+/// window yet leaves it marked** ([`WindowRead::NoWindow`]): the opening
+/// pump can run before the view is in its window. Dropping it removes the
+/// observers.
+struct WindowHeard {
+    mark: WindowMark,
+    _watch: baud_present_macos::window_facts::WindowWatch,
+}
+
+impl WindowHeard {
+    fn new(window: &NSWindow, view: &DrawableView) -> WindowHeard {
+        let mark = WindowMark::new();
+        let (heard, waker) = (mark.clone(), view.waker());
+        // The block runs inside AppKit's change, which may be inside one
+        // of the view's own callbacks: it marks and wakes, nothing more.
+        let _watch = baud_present_macos::window_facts::when_window_changes(window, move || {
+            heard.heard();
+            waker.wake();
+        });
+        WindowHeard { mark, _watch }
+    }
+
+    /// Whether a change was heard since the last take, or a read is still
+    /// owed ([`WindowMark::take`]).
+    fn take(&self) -> Heard {
+        self.mark.take()
+    }
+
+    /// What the read the take led to found ([`WindowMark::after`]).
+    fn after(&self, read: WindowRead) {
+        self.mark.after(read);
+    }
+}
+
+/// **The mark [`WindowHeard`] keeps**, apart from the observers that set
+/// it, so it is what a test holds with no window: marked at its start,
+/// marked by each notification (`heard`), unmarked by a take, and marked
+/// again by a read that found no window.
+#[derive(Clone)]
+struct WindowMark(std::rc::Rc<std::cell::Cell<Heard>>);
+
+impl WindowMark {
+    /// Marked, so the opening pump reads the facts the window has.
+    fn new() -> WindowMark {
+        WindowMark(std::rc::Rc::new(std::cell::Cell::new(Heard::Changed)))
+    }
+
+    /// A notification that changes the window's facts was posted.
+    fn heard(&self) {
+        self.0.set(Heard::Changed);
+    }
+
+    /// Whether a change was heard since the last take, or a read is still
+    /// owed.
+    fn take(&self) -> Heard {
+        self.0.replace(Heard::Unchanged)
+    }
+
+    /// **What the read the take led to found**: a read that found no
+    /// window owes the next turn another.
+    fn after(&self, read: WindowRead) {
+        if read == WindowRead::NoWindow {
+            self.0.set(Heard::Changed);
+        }
+    }
+}
+
+/// **Whether `poll_window` read the facts**, or found no window to read
+/// them from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum WindowRead {
+    Done,
+    NoWindow,
 }
 
 /// **The config's watch** (`reload.rs`): the kernel's events heard on the
@@ -11715,25 +11862,41 @@ mod motion_tests {
         assert_eq!(asked.get(), 1, "the system's: asked once");
     }
 
-    /// **The window's facts are read before every feed**, on a wake as on a
-    /// tick: `pump` is AppKit-bound, so its source is what can fail.
+    /// **The window's facts are read only on a turn one of their
+    /// notifications woke**, and at opening, which `WindowHeard` starts
+    /// marked for, outside the tick's arm and before the feed; a read that
+    /// found no window is owed again. `pump` is AppKit-bound, so its source
+    /// is what can fail. Perturbation: an unconditional
+    /// `self.poll_window();` back in `pump`, and the count of reads fails.
     #[test]
-    fn every_turn_reads_the_window_before_it_feeds() {
+    fn a_turn_reads_the_window_only_when_a_notification_woke_it() {
         const SRC: &str = include_str!("app.rs");
         let pump = SRC
             .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .map(|(_, rest)| rest)
+            .and_then(|(_, rest)| rest.split_once("\n    fn "))
+            .map(|(body, _)| body)
             .expect("pump");
-        let poll = pump
-            .find("self.poll_window();")
-            .expect("pump polls the window");
+        assert_eq!(
+            pump.matches(concat!("self.poll_", "window()")).count(),
+            1,
+            "the window read once, under its mark"
+        );
+        let read = pump
+            .find(concat!(
+                "if self.window_heard.take() == Heard::Changed {\n",
+                "            let read = self.poll_",
+                "window();\n",
+                "            self.window_heard.after(read);\n",
+                "        }"
+            ))
+            .expect("the window read only when its mark is taken");
         let tick = pump
             .find(concat!("if let Trigger::", "Tick = trigger {"))
             .expect("the tick arm");
         let arm_end = tick + pump[tick..].find('}').expect("its end");
-        assert!(poll > arm_end, "the poll is outside the tick arm");
+        assert!(read > arm_end, "the read is outside the tick arm");
         let feed = pump.find("crate::reads::paced(").expect("the feed");
-        assert!(poll < feed, "the poll comes before the feed");
+        assert!(read < feed, "the read comes before the feed");
     }
 
     /// **The cursor follows the window's key state on every poll**:
@@ -12080,6 +12243,9 @@ mod motion_tests {
                         && printing == crate::config::Printing::On
                         && watch.ask(Instant::now(), crate::print::Ask::Now)
                     { printer_list.read(); }
+                    if t.window_asked() != baud_core::WindowAsked::No {
+                        t.answer_window(report_now(view, pad));
+                    }
                     asked.extend_from_slice(t.window_requests());
                     t.clear_"#,
             r#"window_requests();
@@ -13886,10 +14052,15 @@ impl Driver {
         // The printer list a read brought back: the core's printer, which
         // answers a held DSR `?15` before the reads behind it are fed.
         self.printers_read();
-        // **The window's facts before any byte is fed**, on every turn and
-        // not only on a tick: a report answers the window as it is when the
-        // program's question is read.
-        self.poll_window();
+        // **The window's facts before any byte is fed**, at opening and on
+        // the turn one of the notifications that change them woke
+        // (`WindowHeard`), never on a turn that heard none: the reports a
+        // drag or a live resize moves are read at their question instead
+        // (`report_now`). A read that found no window reads on the next turn.
+        if self.window_heard.take() == Heard::Changed {
+            let read = self.poll_window();
+            self.window_heard.after(read);
+        }
         // **The parser is not held here, and that is research decision D4
         // arriving.** This used to return while a frame was in flight,
         // because the shader read the core's grid where the core writes it,
@@ -13996,6 +14167,12 @@ impl Driver {
         );
         let osc52 = self.app.clipboard.osc52;
         let host = self.app.sizing.host();
+        // The view a held window report reads its window through, and the
+        // grid's letterbox in it (`report_now`).
+        let (view, pad) = (
+            &self.view,
+            (self.app.pad_px.0.value(), self.app.pad_px.1.value()),
+        );
         let mut resized = None;
         // AA, for a reply the feed queued: one store a reply, not a byte's.
         let mut answered = Answered::No;
@@ -14043,6 +14220,11 @@ impl Driver {
                     && watch.ask(Instant::now(), crate::print::Ask::Now)
                 {
                     printer_list.read();
+                }
+                // A window report a drag moves, held: the window read at
+                // its question and answered before the rest is fed.
+                if t.window_asked() != baud_core::WindowAsked::No {
+                    t.answer_window(report_now(view, pad));
                 }
                 asked.extend_from_slice(t.window_requests());
                 t.clear_window_requests();
@@ -15880,6 +16062,7 @@ impl Opening {
         let style = PendingStyle::default();
         let hiding = crate::hide::Hiding::new(&probe.term);
         let key_heard = KeyHeard::new(window.ns_window(), &view);
+        let window_heard = WindowHeard::new(window.ns_window(), &view);
         let occluded = {
             let waker = view.waker();
             // Inside AppKit's change: it wakes, nothing more.
@@ -15900,6 +16083,7 @@ impl Opening {
             key_kind: KeyEventKind::Press,
             keyed: None,
             key_heard,
+            window_heard,
             _occluded: occluded,
             handed: Handed::NONE,
             downs: Downs::NONE,
@@ -16693,34 +16877,25 @@ impl Driver {
     /// included (`[[source: apple-nsscreen-frame]]`), against the primary
     /// screen, "whose origin is at the point (0, 0)" (`[[source:
     /// apple-nsscreen-screens]]`), and the backing scale (`[[source:
-    /// apple-nswindow-backingscalefactor]]`). Read on every turn of the
-    /// loop, before the bytes are fed, and handed to the core when it
-    /// changed; `window_facts` does the arithmetic.
-    fn poll_window(&mut self) {
-        let Some(w) = self.view.window() else {
-            return;
+    /// apple-nswindow-backingscalefactor]]`) (`placed`). Read at opening and
+    /// on the turn one of the notifications that change them woke
+    /// (`WindowHeard`), before the bytes are fed, and handed to the core
+    /// when they changed; `window_facts` does the arithmetic. What a drag
+    /// or a live resize moves is read again at its question
+    /// (`report_now`).
+    fn poll_window(&mut self) -> WindowRead {
+        let pad = (self.app.pad_px.0.value(), self.app.pad_px.1.value());
+        let Some(p) = placed(&self.view, pad) else {
+            return WindowRead::NoWindow;
         };
-        let Some(mtm) = MainThreadMarker::new() else {
-            return;
-        };
-        let primary = NSScreen::screens(mtm).firstObject().map(|s| s.frame());
-        let view = w.convertRectToScreen(self.view.convertRect_toView(self.view.bounds(), None));
-        let facts = window_facts(&Placed {
-            minimized: match w.isMiniaturized() {
-                true => Miniaturized::Yes,
-                false => Miniaturized::No,
-            },
-            frame: w.frame(),
-            view,
-            pad: (self.app.pad_px.0.value(), self.app.pad_px.1.value()),
-            screen: w.screen().map(|s| s.frame()),
-            primary,
-            scale: w.backingScaleFactor(),
-        });
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::window_read();
+        let facts = window_facts(&p);
         if facts != self.window_facts {
             self.window_facts = facts;
             self.app.term.set_window(facts);
         }
+        WindowRead::Done
     }
 
     /// The macOS window as AppKit has it now, for the window operations'
@@ -20444,6 +20619,52 @@ fn line_under(
 enum Miniaturized {
     Yes,
     No,
+}
+
+/// **What AppKit says of `view`'s window now** (`poll_window`): whether
+/// it is minimized, its frame, the view taken to the screen through it,
+/// its screen and the primary one, and its backing scale; `pad` is the
+/// grid's letterbox in the view. None while the view is in no window.
+fn placed(view: &DrawableView, pad: (u32, u32)) -> Option<Placed> {
+    let w = view.window()?;
+    let mtm = MainThreadMarker::new()?;
+    let primary = NSScreen::screens(mtm).firstObject().map(|s| s.frame());
+    let rect = w.convertRectToScreen(view.convertRect_toView(view.bounds(), None));
+    Some(Placed {
+        minimized: match w.isMiniaturized() {
+            true => Miniaturized::Yes,
+            false => Miniaturized::No,
+        },
+        frame: w.frame(),
+        view: rect,
+        pad,
+        screen: w.screen().map(|s| s.frame()),
+        primary,
+        scale: w.backingScaleFactor(),
+    })
+}
+
+/// **The window at a held report's question** (`Term::answer_window`):
+/// `CSI 13 t`, `CSI 13 ; 2 t` and `CSI 14 ; 2 t`, the window's position,
+/// the text area's and the window's size, which a drag or a live resize
+/// moves and no notification is said to tell before its end
+/// (`window_facts.rs`), read as they are when the program's question is
+/// parsed. Nothing is kept: the cache stays what the notifications fed
+/// (`poll_window`). With no window, nothing is known, and the core answers
+/// with silence.
+fn report_now(view: &DrawableView, pad: (u32, u32)) -> baud_core::WindowFacts {
+    #[cfg(feature = "effect-probe")]
+    baud_present_macos::probe::window_reported();
+    placed(view, pad).map_or(baud_core::WindowFacts::UNKNOWN, |p| window_facts(&p))
+}
+
+/// **The app's terminal stops a read at a window report a drag moves**
+/// (`WindowHold::On`), and `pump` answers it from the window read then
+/// (`report_now`) before the rest is parsed. `App::new` sets it up through
+/// this, which needs a window no more than the core does, so a test holds
+/// the same setup the app makes (`window_hold_tests`).
+fn hold_window_reports(term: &mut Term<'_>) {
+    term.set_window_hold(baud_core::WindowHold::On);
 }
 
 /// What `poll_window` reads from AppKit, in points with AppKit's origin at

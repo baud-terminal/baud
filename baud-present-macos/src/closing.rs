@@ -105,7 +105,8 @@ impl Drop for Closing {
 }
 
 /// **The frame rig's window told it became or resigned the key window, or
-/// that its occlusion changed** (`rig_call::RigWindow`; its other events
+/// that its occlusion changed** (`rig_call::RigWindow`; a fact of the
+/// window's changed is `window_facts::rig_post`'s, and its other events
 /// post nothing): the notification AppKit posts, posted to the window's
 /// observers with the window as its object, as AppKit's names it
 /// (`[[source: apple-nswindow-didbecomekeynotification]]`,
@@ -115,6 +116,7 @@ impl Drop for Closing {
 #[cfg(feature = "effect-probe")]
 pub fn rig_post(window: &NSWindow, told: crate::rig_call::RigWindow) {
     use crate::rig_call::RigWindow;
+    use crate::window_facts::Notice;
     // SAFETY: framework constants, valid strings for the process's life.
     let name = match told {
         RigWindow::Untold
@@ -129,6 +131,24 @@ pub fn rig_post(window: &NSWindow, told: crate::rig_call::RigWindow) {
         | RigWindow::ReleasedLate
         | RigWindow::ShownFirst
         | RigWindow::Expired => return,
+        // A fact of the window's changed: its own module's post.
+        RigWindow::Moved => return crate::window_facts::rig_post(window, Notice::Moved),
+        RigWindow::Resized => return crate::window_facts::rig_post(window, Notice::Resized),
+        RigWindow::ChangedScreen => {
+            return crate::window_facts::rig_post(window, Notice::ChangedScreen);
+        }
+        RigWindow::ChangedBacking => {
+            return crate::window_facts::rig_post(window, Notice::ChangedBacking);
+        }
+        RigWindow::Miniaturized => {
+            return crate::window_facts::rig_post(window, Notice::Miniaturized);
+        }
+        RigWindow::Deminiaturized => {
+            return crate::window_facts::rig_post(window, Notice::Deminiaturized);
+        }
+        RigWindow::ScreenParameters => {
+            return crate::window_facts::rig_post(window, Notice::ScreenParameters);
+        }
         RigWindow::BecameKey => unsafe { NSWindowDidBecomeKeyNotification },
         RigWindow::ResignedKey => unsafe { NSWindowDidResignKeyNotification },
         RigWindow::Shown => unsafe { NSWindowDidChangeOcclusionStateNotification },

@@ -1633,6 +1633,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let notice_reads = probe::notice_state_reads();
     let tips = probe::lights_reads();
     let (looks, edges) = (probe::looks_made(), probe::edges_reads());
+    let (facts, reported) = (probe::window_reads(), probe::window_reports());
     let followed = || {
         [
             probe::Followed::Scroller,
@@ -1657,7 +1658,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         let (link, sends_after) = probe::link();
         let holders = probe::holders();
         println!(
-            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={} gpu_overdue={} gpu_late={} gpu_gave_up={} gpu_whole={} opened={} gpu_use={} switched={} layer={} gpu_made={} gpu_held={} lit={} expired={} notices={} alive={} notice_reads={} tips={} looks={} edges={}",
+            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={} gpu_overdue={} gpu_late={} gpu_gave_up={} gpu_whole={} opened={} gpu_use={} switched={} layer={} gpu_made={} gpu_held={} lit={} expired={} notices={} alive={} notice_reads={} tips={} looks={} edges={} facts={} reported={}",
             match link {
                 baud_present_macos::display_link::LinkState::Run => "run",
                 baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -1766,6 +1767,8 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             probe::lights_reads().0.saturating_sub(tips.0),
             probe::looks_made().0.saturating_sub(looks.0),
             probe::edges_reads().0.saturating_sub(edges.0),
+            probe::window_reads().0.saturating_sub(facts.0),
+            probe::window_reports().0.saturating_sub(reported.0),
         );
         // Each path asked about since the settle, on a line of its own: a
         // row about one path reads which, not only how many.
@@ -1977,6 +1980,29 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         RigWindow::Settings => baud_present_macos::settings::rig_post_settings(),
         RigWindow::Shown => probe::set_shown(probe::Shown::Yes),
         RigWindow::ShownFirst => {}
+        // **Moved and not resized**: AppKit sends the move's notification
+        // only "when the window that moved didn’t also change size"
+        // (`[[source: apple-nswindow-didmovenotification]]`), so the frame's
+        // origin alone is set, which keeps the size, and the row ends if it
+        // did not; the notification itself is posted below, as for the
+        // others, the window never shown.
+        RigWindow::Moved => {
+            let w = window.ns_window();
+            let was = w.frame();
+            w.setFrameOrigin(NSPoint::new(was.origin.x + 40.0, was.origin.y - 30.0));
+            let now = w.frame();
+            if now.size != was.size || now.origin == was.origin {
+                println!("the move did not move the window alone");
+                return std::process::ExitCode::from(1);
+            }
+        }
+        // The rest change nothing of the window: their notification alone.
+        RigWindow::Resized
+        | RigWindow::ChangedScreen
+        | RigWindow::ChangedBacking
+        | RigWindow::Miniaturized
+        | RigWindow::Deminiaturized
+        | RigWindow::ScreenParameters => {}
         // The act's notice expired, its `w` passed, on a turn of the
         // window's own: waited for through the probe's door, within the
         // bound.

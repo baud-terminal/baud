@@ -42,8 +42,8 @@
 
 use baud_present_macos::probe::{EffectKind, Nested, Record, Responder, Where};
 use baud_present_macos::rig_call::{
-    EventRig, FrameRig, Iterations, RigAct, RigCall, RigEnd, RigFocus, RigFrameTicks, RigHolders,
-    RigKeys, RigTicks, RigWindow,
+    EventRig, FrameRig, Iterations, RigAct, RigCall, RigEnd, RigEvent, RigFocus, RigFrameTicks,
+    RigHolders, RigKeys, RigTicks, RigWindow,
 };
 use baud_present_macos::unwind::SiteName;
 use std::path::{Path, PathBuf};
@@ -393,6 +393,20 @@ fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
         (RowState::Pending { recorded, .. }, Observed::Failed(f)) if f == recorded => Verdict::Pass,
         (RowState::Pending { .. }, Observed::Failed(f)) => Verdict::FailedOtherwise(f),
     }
+}
+
+/// **A window report's reply read to its final**, `t`, a byte at a time
+/// into `r`, echo and line editing off for it, and the line's settings put
+/// back: a macro, so the rows can `concat!` it.
+macro_rules! to_t {
+    () => {
+        concat!(
+            r#"e=$(printf '\033'); r=; "#,
+            r#"while c=$(dd bs=1 count=1 2>/dev/null); [ -n "$c" ]; do "#,
+            r#"r="$r$c"; [ "$c" = t ] && break; done; "#,
+            r"stty echo icanon; ",
+        )
+    };
 }
 
 /// **The reply read to its terminator**, ST (`ESC \`), a byte at a time
@@ -1893,6 +1907,12 @@ struct Counters {
     /// The title strip's ends read from the window after the settle: only
     /// after a resize or a change of backing.
     edges: u32,
+    /// The window's facts read for the core's cache after the settle: once
+    /// for a turn one of their notifications woke, never on another.
+    facts: u32,
+    /// The window read at a held report's question after the settle: once
+    /// for each `CSI 13 t`, `CSI 13 ; 2 t` or `CSI 14 ; 2 t` a row asks.
+    reported: u32,
     /// What answered the last held `p=alive`.
     alive: AliveSeen,
 }
@@ -2073,6 +2093,8 @@ impl Counters {
             tips: count("tips")?,
             looks: count("looks")?,
             edges: count("edges")?,
+            facts: count("facts")?,
+            reported: count("reported")?,
             alive: match field("alive")? {
                 "unanswered" => AliveSeen::Unanswered,
                 "list" => AliveSeen::List,
@@ -2316,6 +2338,12 @@ enum Settles {
     /// **A job come to the front lights OH with no tick polling for it**:
     /// OH lit at the end.
     OffHook,
+    /// **The window read as its notifications and questions ask, with no
+    /// tick**: nothing delivered, the window's facts read `facts` times for
+    /// the core's cache -- once for a notification, none for none -- and
+    /// the window read `reported` times at a held report's question. Its
+    /// run ends on quiet ([`RigEnd::Quiet`]), its act's clear among it.
+    WindowRead { facts: u32, reported: u32 },
 }
 
 impl Settles {
@@ -2450,6 +2478,9 @@ impl Settles {
                 c.by.is_some_and(|by| by.ended >= 1 && c.asked == 0 && c.marked == 0)
             }
             Settles::OffHook => c.lit.iter().any(|l| l == "OH"),
+            Settles::WindowRead { facts, reported } => {
+                c.delivered == 0 && c.facts == facts && c.reported == reported
+            }
             Settles::Darkened => {
                 !c.lit.iter().any(|l| l == "RD") && c.drawn >= 1 && c.link == LinkSeen::Pause
             }
@@ -2496,6 +2527,9 @@ impl Settles {
 ///   offered there ([`RigEnd::QuietOffered`]). On the CPU path a frame has
 ///   no completion to wake the window from another thread, and the twins
 ///   reach no producer quiet does not count once their setup has settled.
+/// - the window's reads ([`Settles::WindowRead`]): quiet, on the CPU path
+///   for the same reason; the act's clear, where it has one, is a part of
+///   it.
 /// - every other: a count of passes, for now. Each of these but the
 ///   splash's first frame sets no `BAUD_GPU` and so draws on the GPU where
 ///   there is one, whose completion wakes the window from the GPU's
@@ -2522,6 +2556,7 @@ fn rig_end(expect: Settles) -> RigEnd {
         | Settles::MarkedOnD
         | Settles::PastFloor(..) => RigEnd::Ticks,
         Settles::StillOnCpu => RigEnd::QuietOffered,
+        Settles::WindowRead { .. } => RigEnd::Quiet(RigEvent::Settled),
         Settles::Still
         | Settles::AliveAtBound
         | Settles::Restarts { .. }
@@ -2621,7 +2656,7 @@ const FULL: &str = r"seq 1 300; printf 'baud\033]52;c;!\007'";
 /// thirty a flip at 250 ms.
 const TICKS_A_FLIP: u64 = 3;
 
-const FRAME_SITES: [FrameSite; 44] = [
+const FRAME_SITES: [FrameSite; 53] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -3627,6 +3662,193 @@ const FRAME_SITES: [FrameSite; 44] = [
             recorded: Failure::Remade,
         },
     },
+    // **FS-A1: the window's facts are read once for each notification that
+    // changes them, and on no other turn**: the window is told one, with
+    // the ticks withheld, and the turn its wake brings reads the facts
+    // once (`WindowHeard`), not zero and not on every turn after. Moved,
+    // resized, its screen or its backing changed, minimized and back, and
+    // the displays' configuration. Breaks: a name left out of the
+    // registration (`window_facts::Notice::name`), and that row reads 0;
+    // the read back on every turn, and every other row reads it.
+    FrameSite {
+        name: SiteName("a window moved is read once, with no tick"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Moved,
+        env: &[("BAUD_GPU", "cpu")],
+        config: STEADY_DARK,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::WindowRead {
+            facts: 1,
+            reported: 0,
+        },
+        state: RowState::Green,
+    },
+    FrameSite {
+        name: SiteName("a window resized is read once, with no tick"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Resized,
+        env: &[("BAUD_GPU", "cpu")],
+        config: STEADY_DARK,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::WindowRead {
+            facts: 1,
+            reported: 0,
+        },
+        state: RowState::Green,
+    },
+    FrameSite {
+        name: SiteName("a window moved onto another screen is read once, with no tick"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::ChangedScreen,
+        env: &[("BAUD_GPU", "cpu")],
+        config: STEADY_DARK,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::WindowRead {
+            facts: 1,
+            reported: 0,
+        },
+        state: RowState::Green,
+    },
+    FrameSite {
+        name: SiteName("a window's backing changed is read once, with no tick"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::ChangedBacking,
+        env: &[("BAUD_GPU", "cpu")],
+        config: STEADY_DARK,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::WindowRead {
+            facts: 1,
+            reported: 0,
+        },
+        state: RowState::Green,
+    },
+    FrameSite {
+        name: SiteName("a window minimized is read once, with no tick"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Miniaturized,
+        env: &[("BAUD_GPU", "cpu")],
+        config: STEADY_DARK,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::WindowRead {
+            facts: 1,
+            reported: 0,
+        },
+        state: RowState::Green,
+    },
+    FrameSite {
+        name: SiteName("a window no longer minimized is read once, with no tick"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Deminiaturized,
+        env: &[("BAUD_GPU", "cpu")],
+        config: STEADY_DARK,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::WindowRead {
+            facts: 1,
+            reported: 0,
+        },
+        state: RowState::Green,
+    },
+    FrameSite {
+        name: SiteName("the displays changed is read once, with no tick"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::ScreenParameters,
+        env: &[("BAUD_GPU", "cpu")],
+        config: STEADY_DARK,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::WindowRead {
+            facts: 1,
+            reported: 0,
+        },
+        state: RowState::Green,
+    },
+    // **FS-A1, opening**: the facts are read at opening with no
+    // notification (`WindowHeard` starts marked), so the setup's
+    // `CSI 15 t`, answered from them, gets its `CSI 5 ; h ; w t`: the setup
+    // reads the reply to its `t` and clears the pasteboard on that answer
+    // alone, so a report never answered leaves the screen unsigned. Break:
+    // the mark cleared by a read that found no window, and an opening whose
+    // first turn comes before the view is in its window reads nothing until
+    // a notification.
+    FrameSite {
+        name: SiteName("the screen's size is answered from the facts read at opening"),
+        setup: concat!(
+            r"stty -echo -icanon min 1 time 0; printf '\033[15t'; ",
+            to_t!(),
+            r#"case $r in "$e[5;"*t) printf 'baud\033]52;c;!\007';; *) printf '\033]52;c;aGk=\007';; esac"#,
+        ),
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Untold,
+        env: &[("BAUD_GPU", "cpu")],
+        config: STEADY_DARK,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::WindowRead {
+            facts: 0,
+            reported: 0,
+        },
+        state: RowState::Green,
+    },
+    // **FS-A1, at the question**: the setup's `CSI 13 t` stops the read
+    // (`WindowHold::On`), the window is read there (`report_now`) and the
+    // answer, `CSI 3 ; x ; y t`, goes before the rest of the read is
+    // parsed; the setup reads it to its `t` and clears only on that answer.
+    // The question is the setup's and not the act's: an act that runs
+    // `dd` and `stty` has exits and a prompt quiet does not count yet
+    // (`rig_end`), so the read at the question is counted before the
+    // settle, and the row holds the turns after it to no read. Break: the
+    // pump's `after` answering nothing, and the setup never reads its
+    // reply.
+    FrameSite {
+        name: SiteName("a window position report is answered from the window read at its question"),
+        setup: concat!(
+            r"stty -echo -icanon min 1 time 0; printf '\033[13t'; ",
+            to_t!(),
+            r#"case $r in "$e[3;"*t) printf 'baud\033]52;c;!\007';; *) printf '\033]52;c;aGk=\007';; esac"#,
+        ),
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Untold,
+        env: &[("BAUD_GPU", "cpu")],
+        config: STEADY_DARK,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::WindowRead {
+            facts: 0,
+            reported: 0,
+        },
+        state: RowState::Green,
+    },
 ];
 
 /// **The polls a row's settle names**: [`HOLDERS`], whatever the row
@@ -3785,7 +4007,7 @@ fn a_row_filter_names_what_it_skipped_and_one_naming_no_row_is_red() {
 fn a_row_about_its_own_path_is_met_by_that_path_alone() {
     let counts = |link: &str, delivered: u32, lines: &str| {
         let text = format!(
-            "frames link={link} delivered={delivered} sends=2 made=1 drawn=1 holders=- owed=Nothing styled=0 focus=gained motion=0 display=0 preview=unset reads=0 fed=2 reaped=0 followed=0,0,0 hands=0 greeted=0 asked=1 held=0 batches=1 marked=0 flips=0 first=0 offered=0 gpu_failed=0 gpu_slowest_us=0 gpu_overdue=0 gpu_late=0 gpu_gave_up=0 gpu_whole=0 opened=unset gpu_use=live switched=none layer=unset gpu_made=1 gpu_held=0 lit=- expired=0 notices=0 alive=unanswered notice_reads=0 tips=0 looks=0 edges=0\n{lines}"
+            "frames link={link} delivered={delivered} sends=2 made=1 drawn=1 holders=- owed=Nothing styled=0 focus=gained motion=0 display=0 preview=unset reads=0 fed=2 reaped=0 followed=0,0,0 hands=0 greeted=0 asked=1 held=0 batches=1 marked=0 flips=0 first=0 offered=0 gpu_failed=0 gpu_slowest_us=0 gpu_overdue=0 gpu_late=0 gpu_gave_up=0 gpu_whole=0 opened=unset gpu_use=live switched=none layer=unset gpu_made=1 gpu_held=0 lit=- expired=0 notices=0 alive=unanswered notice_reads=0 tips=0 looks=0 edges=0 facts=0 reported=0\n{lines}"
         );
         Counters::parse(&text).expect("the counts")
     };
@@ -3813,6 +4035,45 @@ fn a_row_about_its_own_path_is_met_by_that_path_alone() {
 /// Whether a frame row posts a notification or asks one (`OSC 99`).
 fn mentions_notices(site: &FrameSite) -> bool {
     [site.setup, site.act].iter().any(|s| s.contains("]99;"))
+}
+
+/// **Whether a frame row tells the window one of its facts changed**: one
+/// of the seven notifications `window_facts::Notice` observes. A row that
+/// resized the window for real -- a program's page width, the legacy
+/// scrollbar's gutter -- would be heard as a resize too; no row does.
+fn mentions_window(site: &FrameSite) -> bool {
+    match site.window {
+        RigWindow::Moved
+        | RigWindow::Resized
+        | RigWindow::ChangedScreen
+        | RigWindow::ChangedBacking
+        | RigWindow::Miniaturized
+        | RigWindow::Deminiaturized
+        | RigWindow::ScreenParameters => true,
+        RigWindow::Untold
+        | RigWindow::Restyled
+        | RigWindow::BecameKey
+        | RigWindow::ResignedKey
+        | RigWindow::Refocused
+        | RigWindow::DisplayOptions
+        | RigWindow::PointerOver
+        | RigWindow::CommandExits
+        | RigWindow::Settings
+        | RigWindow::HostNamed
+        | RigWindow::Shown
+        | RigWindow::Released
+        | RigWindow::ReleasedLate
+        | RigWindow::ShownFirst
+        | RigWindow::Expired => false,
+    }
+}
+
+/// Whether a frame row's act asks a report a drag moves: `CSI 13 t`,
+/// `CSI 13 ; 2 t` or `CSI 14 ; 2 t`, held and read at the question.
+fn asks_window(site: &FrameSite) -> bool {
+    ["[13t", "[13;2t", "[14;2t"]
+        .iter()
+        .any(|q| site.act.contains(q))
 }
 
 /// **Each frame row, its kept arm and its lifted arm**, read like a
@@ -3879,6 +4140,22 @@ fn every_frame_row_comes_to_its_state() {
                     "the window read {} times for no notice",
                     lifted.notice_reads
                 ),
+            ));
+        }
+        // **No turn reads the window's facts but on one of their
+        // notifications** (`WindowHeard`): a caret's ticks, a fed turn and a
+        // key alike read nothing of the window a row did not tell it of,
+        // and no turn reads it at a question no row asked (`report_now`).
+        if !mentions_window(site) && lifted.facts != 0 {
+            red.push((
+                site.name,
+                format!("the window's facts read {} times unheard", lifted.facts),
+            ));
+        }
+        if !asks_window(site) && lifted.reported != 0 {
+            red.push((
+                site.name,
+                format!("the window read at {} questions unasked", lifted.reported),
             ));
         }
         // **A caret's ticks read no light's place**: a blinking caret runs

@@ -300,6 +300,10 @@ thread_local! {
     static LOOKS_MADE: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The title strip's ends read from the window (`edges_read`).
     static EDGES_READS: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The window's facts read for the core's cache (`window_read`).
+    static WINDOW_READS: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The window read at a held report's question (`window_reported`).
+    static WINDOW_REPORTS: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The focus baud last set (`Focused`).
     static FOCUSED: Cell<Focused> = const { Cell::new(Focused::Unset) };
     /// What the last read found under the pointer (`Previewed`).
@@ -732,6 +736,30 @@ pub fn edges_read() {
 /// How many times the title strip's ends were read.
 pub fn edges_reads() -> Taken {
     EDGES_READS.with(Cell::get)
+}
+
+/// **The window's facts read for the core's cache**: its state, frame,
+/// screen and backing scale, which baud-app reads at opening and on the
+/// turn one of their notifications woke (`window_facts`), never on a tick.
+pub fn window_read() {
+    WINDOW_READS.with(|n| n.set(Taken(n.get().0.saturating_add(1))));
+}
+
+/// How many times the window's facts were read for the cache.
+pub fn window_reads() -> Taken {
+    WINDOW_READS.with(Cell::get)
+}
+
+/// **The window read at a held report's question**: `CSI 13 t`,
+/// `CSI 13 ; 2 t` or `CSI 14 ; 2 t` under `WindowHold::On`, answered from
+/// the window as it is then.
+pub fn window_reported() {
+    WINDOW_REPORTS.with(|n| n.set(Taken(n.get().0.saturating_add(1))));
+}
+
+/// How many times the window was read at a held report's question.
+pub fn window_reports() -> Taken {
+    WINDOW_REPORTS.with(Cell::get)
 }
 
 /// **The focus baud last set**, as the frame rig prints it: none before
