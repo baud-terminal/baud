@@ -294,6 +294,10 @@ thread_local! {
     static NOTICE_STATE_READS: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The lights' places read for their hover text (`lights_read`).
     static LIGHTS_READS: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The lights' look made from the theme (`look_made`).
+    static LOOKS_MADE: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The title strip's ends read from the window (`edges_read`).
+    static EDGES_READS: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The focus baud last set (`Focused`).
     static FOCUSED: Cell<Focused> = const { Cell::new(Focused::Unset) };
     /// What the last read found under the pointer (`Previewed`).
@@ -702,6 +706,30 @@ pub fn lights_read() {
 /// How many times the lights' places were read for their hover text.
 pub fn lights_reads() -> Taken {
     LIGHTS_READS.with(Cell::get)
+}
+
+/// **The lights' look made from the theme**, which baud-app keeps and
+/// makes again only where the theme, the lights' colours or the glow
+/// changed.
+pub fn look_made() {
+    LOOKS_MADE.with(|n| n.set(Taken(n.get().0.saturating_add(1))));
+}
+
+/// How many times the lights' look was made.
+pub fn looks_made() -> Taken {
+    LOOKS_MADE.with(Cell::get)
+}
+
+/// **The title strip's ends read from the window**: the traffic lights'
+/// frames and the window's width, which baud-app keeps and reads again
+/// only after a resize or a change of backing.
+pub fn edges_read() {
+    EDGES_READS.with(|n| n.set(Taken(n.get().0.saturating_add(1))));
+}
+
+/// How many times the title strip's ends were read.
+pub fn edges_reads() -> Taken {
+    EDGES_READS.with(Cell::get)
 }
 
 /// **The focus baud last set**, as the frame rig prints it: none before

@@ -4919,6 +4919,26 @@ impl Tips {
     }
 }
 
+/// **The lights' look, made again only for a glow other than the kept
+/// one's or with none kept**: what `make` returns is kept in `kept` with
+/// the glow it was made at. The theme and the lights' colours, its other
+/// inputs, empty `kept` where they change (`Driver::show_theme`, the
+/// reload's `Part::ActivityLights`).
+fn kept_look(
+    kept: &mut Option<(baud_render::Glow, baud_render::LightsLook)>,
+    glow: baud_render::Glow,
+    make: impl FnOnce(baud_render::Glow) -> baud_render::LightsLook,
+) -> baud_render::LightsLook {
+    match *kept {
+        Some((at, look)) if at == glow => look,
+        Some(_) | None => {
+            let look = make(glow);
+            *kept = Some((glow, look));
+            look
+        }
+    }
+}
+
 /// The view's responder, with the view it reports to.
 struct Driver {
     app: App,
@@ -5078,6 +5098,14 @@ struct Driver {
     /// (`place_tips`): read again only where they may have moved, never on
     /// a tick that moved nothing.
     tips: Tips,
+    /// **The lights' look as last made, and the glow it was made at**
+    /// (`kept_look`): none until the first, and again after the theme or
+    /// the lights' colours change.
+    look: Option<(baud_render::Glow, baud_render::LightsLook)>,
+    /// **The title strip's ends as last read** (`strip_edges`): none
+    /// until the first, and again after a resize or a change of backing,
+    /// which full screen's transitions reach through the view's resize.
+    edges: Option<crate::strip::Edges>,
     /// OH's and CD's sampler of the job in front, and the kernel's reads
     /// it makes, on the tick while the lights are on (`front.rs`).
     front: crate::front::Front,
@@ -14839,6 +14867,8 @@ impl Responder for Driver {
         // The window's corner, which a resize or a change of backing may
         // move, read here rather than on every tick (`strip::read_corner`).
         crate::strip::read_corner(self.window.ns_window());
+        // And the strip's ends, which the same events move.
+        self.edges = None;
         if scale != self.app.scale {
             // A different scale is a different pixel size for the font: the
             // renderer's metrics, scales, run cache and atlas are rebuilt,
@@ -15753,6 +15783,8 @@ impl Opening {
             icon_inset: inset,
             lights: crate::lights::Strip::new(None, None, NSSize::new(0.0, 0.0)),
             tips: Tips::Owed,
+            look: None,
+            edges: None,
             front: crate::front::Front::new(),
             procs: crate::front::Live::new(),
             front_read: None,
@@ -17803,6 +17835,8 @@ impl Driver {
                         c.activity_lights_colours,
                         baud_render::Halo::of(c.activity_lights_glow),
                     );
+                    // The lights' look is these colours' (`kept_look`).
+                    self.look = None;
                     self.app.owe_frame();
                     self.app
                         .renderer
@@ -18015,6 +18049,8 @@ impl Driver {
     fn show_theme(&mut self, appearance: Appearance) {
         let theme = accessible(self.themes.get(appearance).clone(), self.display);
         self.app.renderer.set_theme(theme);
+        // The lights' look is the theme's (`kept_look`).
+        self.look = None;
     }
 
     /// Record a focus transition and report it if the application asked.
@@ -18996,14 +19032,15 @@ impl Driver {
         let glow = crate::lights::glow(self.app.flashing);
         let wanted = crate::lights::Drawn {
             scale: self.app.scale,
-            look: self.app.renderer.lights_look(glow),
+            look: self.lights_look(glow),
         };
+        let edges = self.strip_edges();
         let laid = self.lights.show(
             setting,
             wanted,
             shown,
             &self.app.renderer,
-            self.strip_edges(),
+            edges,
             self.icon_inset,
         );
         if laid == crate::lights::Laid::Again {
@@ -19143,11 +19180,37 @@ impl Driver {
         self.tip_at((v.x, v.y), in_view);
     }
 
-    /// **The title strip's ends now** (`strip.rs`): the window's width,
-    /// the traffic lights' end and the plate's gap at the right, read from
-    /// the window as AppKit has laid it out.
-    fn strip_edges(&self) -> crate::strip::Edges {
-        crate::strip::edges(self.window.ns_window())
+    /// **The title strip's ends** (`strip.rs`): the window's width and the
+    /// traffic lights' end, read from the window as AppKit has laid it out
+    /// and kept until a resize or a change of backing reads them again
+    /// (`resized`); and the plate's gap at the right as the corner was
+    /// last read, taken fresh, since the full-screen observer reads the
+    /// corner with no driver to reach (`strip::kept_right`, a
+    /// thread-local, no AppKit call).
+    fn strip_edges(&mut self) -> crate::strip::Edges {
+        let right = crate::strip::kept_right();
+        if let Some(edges) = self.edges {
+            return crate::strip::Edges { right, ..edges };
+        }
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::edges_read();
+        let (edges, buttons) = crate::strip::edges_laid(self.window.ns_window());
+        // A stand-in for buttons AppKit has not laid out yet is read again.
+        if buttons == crate::strip::Buttons::Laid {
+            self.edges = Some(edges);
+        }
+        crate::strip::Edges { right, ..edges }
+    }
+
+    /// **The lights' look at `glow`**, kept, and made again only where its
+    /// inputs changed (`kept_look`).
+    fn lights_look(&mut self, glow: baud_render::Glow) -> baud_render::LightsLook {
+        let renderer = &self.app.renderer;
+        kept_look(&mut self.look, glow, |glow| {
+            #[cfg(feature = "effect-probe")]
+            baud_present_macos::probe::look_made();
+            renderer.lights_look(glow)
+        })
     }
 
     /// **The activity lights' pictures, and the plate, before the window's
@@ -19156,16 +19219,17 @@ impl Driver {
         let glow = crate::lights::glow(self.app.flashing);
         let wanted = crate::lights::Drawn {
             scale: self.app.scale,
-            look: self.app.renderer.lights_look(glow),
+            look: self.lights_look(glow),
         };
         let pace = crate::access::lights_pace(self.app.motion);
         let shown = self.app.activity.step(host_now(), pace);
+        let edges = self.strip_edges();
         let laid = self.lights.show(
             self.app.activity_lights,
             wanted,
             shown,
             &self.app.renderer,
-            self.strip_edges(),
+            edges,
             self.icon_inset,
         );
         if laid == crate::lights::Laid::Again {
@@ -19179,7 +19243,8 @@ impl Driver {
     /// (`Mark::fit`). The views moved with the window: the tip reads their
     /// places again (`Tips::Owed`).
     fn place_lights(&mut self) {
-        let plate = self.lights.place(self.strip_edges());
+        let edges = self.strip_edges();
+        let plate = self.lights.place(edges);
         if let Some(mark) = &self.icon {
             mark.fit(self.window.ns_window(), plate, self.lights.fitted());
         }
@@ -26172,5 +26237,149 @@ mod tips_tests {
             tip.contains(concat!("self.lights_", "at()")),
             "the pointer reads them at once\n{tip}"
         );
+    }
+}
+
+#[cfg(test)]
+mod kept_lights_tests {
+    use super::link_pointer_tests::body;
+    use super::*;
+    use baud_render::{Glow, Halo, LightsColours, Theme};
+
+    /// **The lights' look is made once a glow, and again only for another
+    /// glow or once its kept one is emptied** (`kept_look`): the second
+    /// call at the same glow makes nothing, a change of Dim Flashing Lights
+    /// makes it once, and an emptied keep (the theme or the colours
+    /// changed) makes it once. Perturbation: the guard dropped, and the
+    /// second call makes it again.
+    #[test]
+    fn the_lights_look_is_made_again_only_for_another_glow_or_an_emptied_keep() {
+        let theme = Theme::dark();
+        let made = std::cell::Cell::new(0_u32);
+        let make = |glow| {
+            made.set(made.get() + 1);
+            baud_render::LightsLook::of(
+                &theme.palette,
+                theme.fg,
+                theme.bg,
+                LightsColours::Meaning,
+                glow,
+                Halo::default(),
+            )
+        };
+        let mut kept = None;
+        let full = kept_look(&mut kept, Glow::Full, make);
+        assert_eq!(made.get(), 1, "the first");
+        assert_eq!(kept_look(&mut kept, Glow::Full, make), full);
+        assert_eq!(made.get(), 1, "a tick at the same glow makes none");
+        let dimmed = kept_look(&mut kept, Glow::Dimmed, make);
+        assert_eq!(made.get(), 2, "another glow");
+        assert_eq!(kept, Some((Glow::Dimmed, dimmed)));
+        kept = None;
+        kept_look(&mut kept, Glow::Dimmed, make);
+        assert_eq!(made.get(), 3, "an emptied keep");
+    }
+
+    /// **A tick makes no look and reads no strip's ends**
+    /// (`Driver::show_lights`): the look comes from the kept one, emptied
+    /// where the theme (`show_theme`) or the lights' colours (the
+    /// reload's `Part::ActivityLights`) change; the ends from the kept
+    /// ones, emptied where a resize or a change of backing reads the
+    /// corner (`resized`). AppKit-bound, so the source is what can fail.
+    /// Red on the base: the tick made the look and read the ends itself.
+    #[test]
+    fn a_tick_makes_no_look_and_reads_no_strip_ends() {
+        const SRC: &str = include_str!("app.rs");
+        let show = body(
+            SRC,
+            concat!("    fn show_", "lights(&mut self, target: f64) {"),
+        );
+        for not in [
+            concat!("renderer.lights_", "look("),
+            concat!("crate::strip::", "edges("),
+            concat!("crate::strip::", "edges_laid("),
+        ] {
+            assert!(!show.contains(not), "the tick calls {not}");
+        }
+        assert!(show.contains(concat!("look: self.lights_", "look(glow),")));
+        assert!(show.contains(concat!("let edges = self.strip_", "edges();")));
+        let look = body(
+            SRC,
+            concat!(
+                "    fn lights_",
+                "look(&mut self, glow: baud_render::Glow) -> baud_render::LightsLook {"
+            ),
+        );
+        assert!(
+            look.contains("kept_look(&mut self.look, glow, |glow| {"),
+            "{look}"
+        );
+        let ends = body(
+            SRC,
+            concat!("    fn strip_", "edges(&mut self) -> crate::strip::Edges {"),
+        );
+        assert!(
+            ends.contains(concat!(
+                "if buttons == crate::strip::Buttons::Laid {\n",
+                "            self.edges = Some(",
+                "edges);"
+            )),
+            "{ends}"
+        );
+        // The right inset is the corner's as last read, kept or not.
+        assert!(
+            ends.starts_with(concat!(
+                "\n        let right = crate::strip::kept_",
+                "right();\n"
+            )),
+            "{ends}"
+        );
+        assert_eq!(
+            ends.matches(concat!("crate::strip::Edges { right, ..", "edges }"))
+                .count(),
+            2,
+            "{ends}"
+        );
+        assert_eq!(SRC.matches(concat!("renderer.lights_", "look(")).count(), 1);
+        assert_eq!(SRC.matches(concat!("crate::strip::", "edges(")).count(), 0);
+        assert_eq!(
+            SRC.matches(concat!("crate::strip::", "edges_laid("))
+                .count(),
+            1
+        );
+        // The colours change at one call, which empties the kept look; the
+        // theme at one too, `show_theme`'s
+        // (`every_theme_reaches_the_renderer_through_the_display_settings`).
+        assert_eq!(SRC.matches(concat!(".set_lights_", "colours(")).count(), 1);
+        let theme = body(
+            SRC,
+            concat!("    fn show_", "theme(&mut self, appearance: Appearance) {"),
+        );
+        let emptied = concat!("self.look = ", "None;");
+        assert!(theme.contains(emptied), "the theme\n{theme}");
+        let colours = SRC
+            .split_once(concat!("Part::Activity", "Lights => {"))
+            .and_then(|(_, rest)| rest.split_once("\n                }\n"))
+            .map(|(arm, _)| arm)
+            .expect("the colours' arm");
+        assert!(colours.contains(emptied), "the colours\n{colours}");
+        assert_eq!(SRC.matches(emptied).count(), 2, "emptied at those two");
+        let resized = SRC
+            .split_once(concat!(
+                "crate::strip::read_",
+                "corner(self.window.ns_window());\n",
+                "        // And the strip's ends, which the same events move.\n",
+                "        self.edges = ",
+                "None;\n"
+            ))
+            .map(|(head, _)| head)
+            .expect("the ends emptied beside the corner's reading");
+        assert!(
+            resized.ends_with(
+                "// move, read here rather than on every tick (`strip::read_corner`).\n        "
+            ),
+            "in resized"
+        );
+        assert_eq!(SRC.matches(concat!("self.edges = ", "None;")).count(), 1);
     }
 }

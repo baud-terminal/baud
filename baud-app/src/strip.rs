@@ -286,8 +286,10 @@ fn keep(corner: Corner) {
 }
 
 /// The plate's right inset as the corner was last read, or
-/// `baud_render::lights::PANEL_RIGHT` before it was.
-fn kept_right() -> CGFloat {
+/// `baud_render::lights::PANEL_RIGHT` before it was: a thread-local
+/// read, no AppKit call, so a driver keeping the strip's other ends
+/// takes this one fresh each time (`Driver::strip_edges`).
+pub(crate) fn kept_right() -> CGFloat {
     RIGHT
         .with(Cell::get)
         .unwrap_or(CGFloat::from(baud_render::lights::PANEL_RIGHT))
@@ -309,26 +311,57 @@ pub(crate) fn right_inset(corner: Corner, kept: &Cell<Option<CGFloat>>) -> CGFlo
     }
 }
 
+/// **Whether the traffic lights were laid out** when the strip's edges
+/// were read: until they are, the left edge is a stand-in
+/// ([`PAST_THE_BUTTONS`]), which a driver keeping the edges reads again.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Buttons {
+    Laid,
+    Unlaid,
+}
+
+/// **The strip's left edge from the traffic lights' frames**: past the
+/// zoom button by the gap between the close and miniaturize buttons, all
+/// three laid out; [`PAST_THE_BUTTONS`] while any is not.
+fn left_edge(
+    close: Option<NSRect>,
+    mini: Option<NSRect>,
+    zoom: Option<NSRect>,
+) -> (CGFloat, Buttons) {
+    match (close, mini, zoom) {
+        (Some(c), Some(m), Some(z)) => (
+            z.origin.x + z.size.width + (m.origin.x - (c.origin.x + c.size.width)).max(0.0),
+            Buttons::Laid,
+        ),
+        _ => (PAST_THE_BUTTONS, Buttons::Unlaid),
+    }
+}
+
 /// **The strip's edges in `window` now**: the plate starts past the
 /// traffic lights, by the gap between two of them, and ends the window's
 /// [`right_inset`] short of the right, as its corner was last read
 /// ([`read_corner`]).
 pub(crate) fn edges(window: &NSWindow) -> Edges {
-    let left = match (
+    edges_laid(window).0
+}
+
+/// **The strip's edges in `window` now, and whether the traffic lights
+/// were laid out** ([`Buttons`]): [`edges`] for a driver that keeps them,
+/// which keeps only the laid-out ones.
+pub(crate) fn edges_laid(window: &NSWindow) -> (Edges, Buttons) {
+    let (left, buttons) = left_edge(
         laid(window, NSWindowButton::CloseButton),
         laid(window, NSWindowButton::MiniaturizeButton),
         laid(window, NSWindowButton::ZoomButton),
-    ) {
-        (Some(c), Some(m), Some(z)) => {
-            z.origin.x + z.size.width + (m.origin.x - (c.origin.x + c.size.width)).max(0.0)
-        }
-        _ => PAST_THE_BUTTONS,
-    };
-    Edges {
-        width: window.frame().size.width,
-        left,
-        right: kept_right(),
-    }
+    );
+    (
+        Edges {
+            width: window.frame().size.width,
+            left,
+            right: kept_right(),
+        },
+        buttons,
+    )
 }
 
 /// **The lights' accessory's width**, in points: from `pad` before a plate
@@ -416,6 +449,27 @@ mod tests {
         &src[at..at + end]
     }
 
+    /// **The left edge is the laid-out traffic lights' and says so; a
+    /// stand-in says it is one** (`left_edge`): a driver keeps only the
+    /// first (`Driver::strip_edges`), so a window shown before AppKit laid
+    /// its buttons out reads them again. Perturbation: the stand-in
+    /// called laid, and the second assertion fails.
+    #[test]
+    fn the_left_edge_says_whether_the_buttons_were_laid_out() {
+        let at = |x: CGFloat| Some(NSRect::new(NSPoint::new(x, 0.0), NSSize::new(14.0, 16.0)));
+        assert_eq!(
+            left_edge(at(8.0), at(28.0), at(48.0)),
+            (48.0 + 14.0 + 6.0, Buttons::Laid)
+        );
+        for (c, m, z) in [
+            (None, at(28.0), at(48.0)),
+            (at(8.0), None, at(48.0)),
+            (at(8.0), at(28.0), None),
+        ] {
+            assert_eq!(left_edge(c, m, z), (PAST_THE_BUTTONS, Buttons::Unlaid));
+        }
+    }
+
     /// **Nothing on the display-link tick reads the window's corner**:
     /// `Corner::of`, which sends AppKit five messages and makes a region,
     /// is called from `read_corner` alone, and `read_corner` from the
@@ -428,11 +482,13 @@ mod tests {
         let strip = include_str!("strip.rs");
         let code = strip.split_once("#[cfg(test)]").map_or(strip, |(c, _)| c);
         let of = concat!("Corner::", "of(");
-        let edges = body(code, "pub(crate) fn edges(", "\n}\n");
-        assert!(
-            !edges.contains(of) && !edges.contains("read_corner"),
-            "edges reads the corner: {edges}"
-        );
+        for head in ["pub(crate) fn edges(", "pub(crate) fn edges_laid("] {
+            let edges = body(code, head, "\n}\n");
+            assert!(
+                !edges.contains(of) && !edges.contains("read_corner"),
+                "{head} reads the corner: {edges}"
+            );
+        }
         assert_eq!(code.matches(of).count(), 1, "one call of {of}");
         let read = body(code, "pub(crate) fn read_corner(", "\n}\n");
         assert!(read.contains(of), "{read}");
@@ -448,7 +504,7 @@ mod tests {
         }
         for sig in [
             "fn show_lights(&mut self, target: f64) {",
-            "fn strip_edges(&self) -> crate::strip::Edges {",
+            "fn strip_edges(&mut self) -> crate::strip::Edges {",
             "fn place_lights(&mut self) {",
             "fn draw_lights(&mut self) {",
         ] {

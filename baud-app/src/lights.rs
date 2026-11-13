@@ -1424,7 +1424,7 @@ mod tests {
         for want in [
             "crate::access::lights_pace(self.app.motion)",
             "let glow = crate::lights::glow(self.app.flashing);",
-            "look: self.app.renderer.lights_look(glow),",
+            "look: self.lights_look(glow),",
             "self.lights.show(",
         ] {
             assert!(show.contains(want), "{want}\n{show}");
@@ -1491,7 +1491,7 @@ mod tests {
         );
         let place = body(concat!("    fn place_lights(&mut self) ", "{"));
         for want in [
-            "let plate = self.lights.place(self.strip_edges());",
+            "let edges = self.strip_edges();\n        let plate = self.lights.place(edges);",
             "mark.fit(self.window.ns_window(), plate, self.lights.fitted());",
         ] {
             assert!(place.contains(want), "{want}\n{place}");
