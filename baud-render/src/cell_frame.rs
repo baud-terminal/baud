@@ -361,6 +361,11 @@ where
             cell.lent_cells.clear();
             cell.lent_cells
                 .extend_from_slice(&cell.copies_mem[set][..vrows * stride]);
+            crate::counters::add(
+                crate::counters::Counter::CellsCopied,
+                crate::counters::Site::Lent,
+                Tally::of(vrows * stride),
+            );
             cell.lent_used.clear();
             for y in 0..vrows {
                 let r = Row::from_index(y);

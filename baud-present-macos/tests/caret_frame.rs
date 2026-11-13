@@ -14,11 +14,14 @@
 //! it was built. The arms: (a) the first frames, which build everything;
 //! (b) frames where only the cursor's blink phase changes; (c) one cell
 //! written mid-screen, then a frame; (d) the pointer at rest over a link;
-//! and a screen with a blinking cell whose text blink flips, apart. Only
-//! the controls are asserted -- that each counter moves on a full frame,
-//! that the caret frame blinks the cursor, that a written cell repaints its
-//! row alone and draws the pixels a full frame does -- and every count is
-//! printed, for the rows that bring each one down to assert their own.
+//! and a screen with a blinking cell whose text blink flips, apart; and
+//! the slot arm, the screen on an opaque page with colour 8 a light grey,
+//! where the struck link is lent a slot. Only the controls are asserted --
+//! that each counter moves on a full frame, that the caret frame blinks
+//! the cursor, that a written cell repaints its row alone and draws the
+//! pixels a full frame does, that the slot arm's struck link is lent a
+//! slot -- and every count is printed, for the rows that bring each one
+//! down to assert their own.
 //!
 //! The cell path's driver is pinned to `App::present`: both build the
 //! frame through `build`, once, every call the driver makes before it is
@@ -40,7 +43,7 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 18] = [
+const NAMES: [&str; 19] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_caret_frame_drawn_as_stored_copies_and_compares_no_cell",
@@ -55,6 +58,7 @@ const NAMES: [&str; 18] = [
     "a_cell_written_on_a_sized_line_converts_it_again",
     "a_converted_row_costs_a_caret_frame_no_allocation",
     "the_pointer_at_rest_costs_a_caret_frame_no_allocation",
+    "a_struck_link_lent_a_slot_counts_what_its_caret_frames_cost",
     "a_caret_frame_tallies_the_rows_it_converts",
     "the_frames_totals_follow_every_write_of_a_row",
     "the_cell_driver_builds_as_present_builds",
@@ -120,6 +124,9 @@ fn main() {
             }
             "the_pointer_at_rest_costs_a_caret_frame_no_allocation" => {
                 checks::the_pointer_at_rest_costs_a_caret_frame_no_allocation();
+            }
+            "a_struck_link_lent_a_slot_counts_what_its_caret_frames_cost" => {
+                checks::a_struck_link_lent_a_slot_counts_what_its_caret_frames_cost();
             }
             "a_caret_frame_tallies_the_rows_it_converts" => {
                 checks::a_caret_frame_tallies_the_rows_it_converts();
@@ -215,8 +222,8 @@ mod checks {
     use baud_render::counters::{self, Counter, Counts, Site};
     use baud_render::{
         Blend, Blink, BlinkPhases, Candidate, CursorPhase, Damage, GlyphMap, HoverPaint, Instance,
-        Leaving, Lent, LineStyle, LinkHover, LinkLine, LinkSpan, Overlay, OverlayStats, PxSize,
-        Renderer, Resolved, Stack, StyleStamp, Tally, Target, Theme,
+        Leaving, Lent, LineStyle, LinkHover, LinkLine, LinkSpan, MissingPaint, Overlay,
+        OverlayStats, PxSize, Renderer, Resolved, Stack, StyleStamp, Tally, Target, Theme,
     };
 
     const WS: WinSize = WinSize {
@@ -287,18 +294,39 @@ mod checks {
         }
     }
 
+    /// **The slot arm's page** (FS-C14): C0's theme with the page opaque,
+    /// so a colour reads against the page alone and not over the window's
+    /// material. It finds no picture drawn in text: only a page dimmed
+    /// below opaque does.
+    fn opaque() -> Theme {
+        Theme {
+            bg_alpha: baud_domain::Chan::from_u8(0xFF),
+            ..theme()
+        }
+    }
+
+    /// Colour 8 a light grey (`baud-render/tests/strike_lending.rs`'s
+    /// `GRAY`), which reads `baud_render::MISSING_CONTRAST` on the opaque
+    /// page.
+    const GREY: &[u8] = b"\x1b]4;8;rgb:c0/c0/c0\x1b\\";
+
     fn renderer<'f, 'a>(faces: &'f [Face<'a>]) -> Renderer<'f, 'a> {
-        let r = Renderer::new(
+        let r = renderer_on(faces, theme());
+        assert!(r.theme().finds_pictures(), "the theme finds pictures");
+        r
+    }
+
+    /// A renderer of `faces` on `theme`.
+    fn renderer_on<'f, 'a>(faces: &'f [Face<'a>], theme: Theme) -> Renderer<'f, 'a> {
+        Renderer::new(
             Stack::new(faces).expect("a stack of the two faces"),
             PxSize::of(14.0).expect("a size"),
-            theme(),
+            theme,
             Blend::Native,
             Cols::of_index(usize::from(WS.ws_col)),
             Rows::of_index(usize::from(WS.ws_row)),
         )
-        .expect("a renderer");
-        assert!(r.theme().finds_pictures(), "the theme finds pictures");
-        r
+        .expect("a renderer")
     }
 
     /// The columns `s` takes: a combining mark none, every other
@@ -810,9 +838,28 @@ mod checks {
         None,
     }
 
+    /// The page a screen is drawn on: C0's, dimmed over the window's
+    /// material, or the slot arm's, opaque with colour 8 a light grey.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Page {
+        Dimmed,
+        Opaque,
+    }
+
     /// A screen of `bytes`, its two links set at rest with the first
     /// struck where `strike` says, handed to `f` with the faces' renderer.
     fn with_screen_of(
+        bytes: &[u8],
+        strike: Strike,
+        f: impl FnOnce(&mut Term<'_>, &mut Renderer<'_, '_>),
+    ) {
+        with_screen_on(Page::Dimmed, bytes, strike, f);
+    }
+
+    /// [`with_screen_of`] on `page`: on the opaque page, the renderer on
+    /// [`opaque`] and colour 8 set to [`GREY`] before `bytes` are written.
+    fn with_screen_on(
+        page: Page,
         bytes: &[u8],
         strike: Strike,
         f: impl FnOnce(&mut Term<'_>, &mut Renderer<'_, '_>),
@@ -821,9 +868,15 @@ mod checks {
             Face::parse(JETBRAINS).expect("JetBrains Mono"),
             Face::parse(CASCADIA).expect("Cascadia Mono"),
         ];
-        let mut r = renderer(&faces);
+        let mut r = match page {
+            Page::Dimmed => renderer(&faces),
+            Page::Opaque => renderer_on(&faces, opaque()),
+        };
         let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
         let mut t = Term::new(owned.storage(), &WS);
+        if page == Page::Opaque {
+            feed(&mut t, GREY);
+        }
         feed(&mut t, bytes);
         let lines = links(&t);
         assert_eq!(lines.len(), 2, "two links on screen");
@@ -1861,6 +1914,155 @@ mod checks {
             "the pointer at rest cost caret frames more than its runs:\n{}",
             wrong.join("\n")
         );
+    }
+
+    /// The cell path's caret frames on the fixture's screen on `page`, its
+    /// first link struck where `strike` says, each into the next set round:
+    /// each frame's cost, and the slots its set lent and left short.
+    fn slot_cell_frames(page: Page, strike: Strike) -> Vec<(Cost, Tally, Tally)> {
+        let mut out = Vec::new();
+        with_screen_on(page, &fixture(Blinking::No), strike, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            Cost::take();
+            for k in Nth::ALL.before() {
+                let inputs = Inputs::at(caret_at(k));
+                Cost::take();
+                cell_frame(r, t, &inputs, &mut cells, k.set());
+                let cost = Cost::take();
+                let lent = &cells.lent[k.set().0];
+                out.push((cost, lent.lent(), lent.short()));
+            }
+        });
+        out
+    }
+
+    /// The CPU path's caret frames on the fixture's screen on `page`, its
+    /// first link struck where `strike` says, each read for its cost.
+    fn slot_cpu_frames(page: Page, strike: Strike) -> Vec<Cost> {
+        let mut out = Vec::new();
+        with_screen_on(page, &fixture(Blinking::No), strike, |t, r| {
+            let mut pixels = Pixels::of(r);
+            let mut target = pixels.target();
+            Cost::take();
+            for k in Nth::ALL.before() {
+                let damage = match k {
+                    Nth(0) => Damage::Full,
+                    _ => Damage::Incremental,
+                };
+                let inputs = Inputs::at(caret_at(k));
+                Cost::take();
+                let f = cpu_frame(r, t, &inputs, &mut target, damage);
+                let cost = Cost::take();
+                out.push(Cost {
+                    rows_dirty: Some(f.rows_dirty),
+                    ..cost
+                });
+            }
+        });
+        out
+    }
+
+    /// The CPU path's first frame of the fixture's screen on `page`, its
+    /// first link struck and drawn with `missing` as `[link]
+    /// missing_color`.
+    fn struck_pixels(page: Page, missing: MissingPaint) -> Vec<u32> {
+        let mut px = Vec::new();
+        with_screen_on(page, &fixture(Blinking::No), Strike::First, |t, r| {
+            r.set_link_missing(missing);
+            let mut a = Pixels::of(r);
+            let still = Inputs::at(CursorPhase::SHOWN);
+            cpu_frame(r, t, &still, &mut a.target(), Damage::Full);
+            px = a.px;
+        });
+        px
+    }
+
+    /// **The slot arm: a struck link lent a slot, and what its caret
+    /// frames cost** (FS-C14): the fixture's screen on an opaque page
+    /// with colour 8 a light grey ([`opaque`], [`GREY`]), so its struck
+    /// link's text reads `[link] missing_color` at
+    /// `baud_render::MISSING_CONTRAST` and is drawn in a slot lent to it.
+    /// On C0's own page, dimmed over the window's material, no colour
+    /// reads, so nothing is lent there and the lent view is never copied.
+    /// Each path's caret frames on the slot arm are printed beside the
+    /// same frames with no link struck: the cells copied and compared by
+    /// site -- the lent view's copy at `Site::Lent` among them -- the link
+    /// records placed and the allocations, none asserted.
+    ///
+    /// The controls, asserted: on the cell path, every frame on the slot
+    /// arm lends the struck link a slot, is short of none and copies the
+    /// lent view, counted at `Site::Lent`; with no link struck, or on C0's
+    /// page, a frame lends nothing and copies nothing there. On the CPU
+    /// path, the struck link drawn in `missing_color` is drawn otherwise
+    /// than under `"none"` on the opaque page, and alike on C0's: the
+    /// colour reads, which is what the CPU path lends its text.
+    pub fn a_struck_link_lent_a_slot_counts_what_its_caret_frames_cost() {
+        let lent_copied = |c: &Cost| c.counts.at(Site::Lent, Counter::CellsCopied).value();
+        let (struck, none, dimmed) = (
+            slot_cell_frames(Page::Opaque, Strike::First),
+            slot_cell_frames(Page::Opaque, Strike::None),
+            slot_cell_frames(Page::Dimmed, Strike::First),
+        );
+        print("slot", "cell", struck.iter().map(|c| c.0));
+        print("slot unstruck", "cell", none.iter().map(|c| c.0));
+        for (k, ((s, s_lent, s_short), (n, n_lent, _))) in struck.iter().zip(&none).enumerate() {
+            println!(
+                "slot cell frame {k}: lent={} short={} lent_copied={}, allocations struck={} \
+                 unstruck={}, other_threads struck={} unstruck={}",
+                s_lent.value(),
+                s_short.value(),
+                lent_copied(s),
+                s.heap.here.value(),
+                n.heap.here.value(),
+                s.heap.elsewhere.value(),
+                n.heap.elsewhere.value(),
+            );
+            assert!(
+                s_lent.value() > 0 && s_short.value() == 0,
+                "the control: cell frame {k} lends the struck link a slot, none short"
+            );
+            assert!(
+                lent_copied(s) > 0,
+                "the control: cell frame {k} copies the lent view, counted at {}",
+                Site::Lent.name()
+            );
+            assert!(
+                n_lent.value() == 0 && lent_copied(n) == 0,
+                "the control: cell frame {k} with no link struck lends nothing"
+            );
+        }
+        for (k, (d, d_lent, _)) in dimmed.iter().enumerate() {
+            assert!(
+                d_lent.value() == 0 && lent_copied(d) == 0,
+                "the control: cell frame {k} on C0's page lends nothing"
+            );
+        }
+        let (struck, none) = (
+            slot_cpu_frames(Page::Opaque, Strike::First),
+            slot_cpu_frames(Page::Opaque, Strike::None),
+        );
+        print("slot", "cpu", struck.iter().copied());
+        print("slot unstruck", "cpu", none.iter().copied());
+        for (k, (s, n)) in struck.iter().zip(&none).enumerate() {
+            println!(
+                "slot cpu frame {k}: allocations struck={} unstruck={}, other_threads \
+                 struck={} unstruck={}",
+                s.heap.here.value(),
+                n.heap.here.value(),
+                s.heap.elsewhere.value(),
+                n.heap.elsewhere.value(),
+            );
+        }
+        for (page, reads) in [(Page::Opaque, true), (Page::Dimmed, false)] {
+            let grey = struck_pixels(page, MissingPaint::Gray);
+            let kept = struck_pixels(page, MissingPaint::Kept);
+            assert_eq!(
+                grey != kept,
+                reads,
+                "the control: on the {page:?} page, missing_color reads on the struck link"
+            );
+        }
     }
 
     /// **A sized line costs a caret frame no allocation** (FS-C12): a line

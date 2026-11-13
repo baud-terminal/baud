@@ -38,7 +38,8 @@ pub enum Counter {
     CellsCompared,
     /// Cells copied out of the window or the status line: the
     /// conversion's copy, the layout's copy in drawn order and of a row it
-    /// tests, and the cell path's copy into a set.
+    /// tests, the cell path's copy into a set, and the set's copy into the
+    /// view a slot is lent in.
     CellsCopied,
     /// Cells a row's conversion into instances read.
     CellsConverted,
@@ -134,11 +135,15 @@ pub enum Site {
     Images,
     /// The frame's totals of its instances (`crate::per_row`).
     Totals,
+    /// The cell path's lent view: the frame's set with every rendition
+    /// a struck link or a frozen cell names lent a slot
+    /// (`crate::cell_frame`).
+    Lent,
 }
 
 impl Site {
     /// Every site, in the order a harness prints them.
-    pub const ALL: [Site; 12] = [
+    pub const ALL: [Site; 13] = [
         Site::Screens,
         Site::Convert,
         Site::Status,
@@ -151,6 +156,7 @@ impl Site {
         Site::Links,
         Site::Images,
         Site::Totals,
+        Site::Lent,
     ];
 
     /// The site's name, as a harness prints it.
@@ -168,6 +174,7 @@ impl Site {
             Site::Links => "links",
             Site::Images => "images",
             Site::Totals => "totals",
+            Site::Lent => "lent",
         }
     }
 }
@@ -263,6 +270,7 @@ mod on {
             Site::Links => &of[9],
             Site::Images => &of[10],
             Site::Totals => &of[11],
+            Site::Lent => &of[12],
         }
     }
 
