@@ -69,9 +69,11 @@ pub struct RunRange {
 ///
 /// Physical, not screen, so a `RowRot` scroll leaves every mark where it is:
 /// the rotation changes which screen row *reads* a physical row, not what that
-/// row contains. The two places that genuinely move content --
-/// `Grid::insert_lines_in`/`delete_lines_in` and `Term::viewport`'s
-/// un-rotation -- permute the marks in the same loop that permutes the rows.
+/// row contains. The operations that genuinely move content -- the line moves
+/// (`View::insert_lines_in`, `View::delete_lines_in`, `View::copy_row`), the
+/// band scroll (`View::scroll_rect`) and the re-cut (`View::reflow`) -- carry
+/// each row's mark with its cells, through the same store that stamps the row
+/// (`grid/store.rs`).
 ///
 /// The word is a `u16` rather than `Col`'s `usize`: `MAX_COLS` is 2048 so it
 /// fits, and with the path and the side margins a row wrapped at beside it

@@ -98,21 +98,19 @@ use baud_domain::*;
 /// one extent. An empty row declines the line, as an empty `cells3`
 /// declines that table: DECSSDT 1 and 2 are then counted and show nothing.
 pub struct StatusBuf<'b> {
-    pub(crate) cells: &'b mut [PackedCell],
-    pub(crate) used: &'b mut [RowExtent],
+    /// Named apart from every surface field, so the one move into the
+    /// store (`Storage::with_status_line`) is the only place a source
+    /// check finds them used.
+    pub(crate) lent_cells: &'b mut [PackedCell],
+    pub(crate) lent_used: &'b mut [RowExtent],
 }
 
 impl<'b> StatusBuf<'b> {
     /// The row, for [`crate::Storage::with_status_line`].
     pub fn new(cells: &'b mut [PackedCell], used: &'b mut [RowExtent]) -> StatusBuf<'b> {
-        StatusBuf { cells, used }
-    }
-
-    /// No row: the line cannot be shown.
-    pub(crate) fn none() -> StatusBuf<'b> {
         StatusBuf {
-            cells: &mut [],
-            used: &mut [],
+            lent_cells: cells,
+            lent_used: used,
         }
     }
 }
@@ -525,22 +523,35 @@ pub(crate) fn lamp_under(
     })
 }
 
-/// The line `cols` wide as the indicator, every cell in `style`.
+/// The line `cols` wide as the indicator, every cell in `style`: the status
+/// row, stamped when it was taken, written to its first `n` cells, or no row
+/// at all for [`Line::whole`]'s measure.
 struct Line<'c> {
-    cells: &'c mut [PackedCell],
+    row: Option<RowMut<'c>>,
+    n: Cols,
     style: StyleId,
+}
+
+impl Line<'_> {
+    /// Cell `x` of the line, when it has one.
+    fn cell(&mut self, x: Col) -> Option<&mut PackedCell> {
+        match x.index() < self.n.index() {
+            true => self.row.as_mut().and_then(|r| r.get_mut(x.index())),
+            false => None,
+        }
+    }
 }
 
 impl Line<'_> {
     /// `text` from `at`, nothing written past the line's end; the column
     /// after it. [`Line::whole`] measures a field by writing it to a line with no cells.
     fn put(&mut self, at: Col, text: &[u8]) -> Col {
-        let mut x = at;
+        let (mut x, style) = (at, self.style);
         for b in text {
-            if let Some(c) = self.cells.get_mut(x.index()) {
+            if let Some(c) = self.cell(x) {
                 *c = PackedCell {
                     content: Content::codepoint(Codepoint::from_ascii(StreamByte::from_stream(*b))),
-                    style: self.style,
+                    style,
                     flags: CellFlags::NONE,
                 };
             }
@@ -551,10 +562,11 @@ impl Line<'_> {
 
     /// `cp` at `at`, nothing written past the line's end; the column after.
     fn put_codepoint(&mut self, at: Col, cp: Codepoint) -> Col {
-        if let Some(c) = self.cells.get_mut(at.index()) {
+        let style = self.style;
+        if let Some(c) = self.cell(at) {
             *c = PackedCell {
                 content: Content::codepoint(cp),
-                style: self.style,
+                style,
                 flags: CellFlags::NONE,
             };
         }
@@ -583,16 +595,18 @@ impl Line<'_> {
     /// line of no cells, where it writes nothing and ends where it would.
     fn whole(&mut self, at: Col, field: impl Fn(&mut Line<'_>, Col) -> Col) {
         let mut none = Line {
-            cells: &mut [],
+            row: None,
+            n: Cols::of_index(0),
             style: self.style,
         };
-        if field(&mut none, at).index() <= self.cells.len() {
+        if field(&mut none, at).index() <= self.n.index() {
             field(self, at);
         }
     }
 }
 
-/// Write the indicator into `cells`, `cols` of them, in `style`.
+/// Write the indicator into `row`, `cols` of its cells, in `style`. The row
+/// is a [`RowMut`], so taking it stamped the status line's generation.
 ///
 /// **Each field is shown whole or left out whole**, so no field on the
 /// line is a cut, wrong value: cut at the window's edge, 52 columns read
@@ -611,16 +625,17 @@ impl Line<'_> {
 /// columns no layout of the line meets that: a field the window cannot
 /// hold is a required indicator not shown, as a cut one is a wrong one.
 /// What is shown is never wrong.
-pub(crate) fn compose(cells: &mut [PackedCell], cols: Cols, style: StyleId, ind: Indicators) {
-    let n = cols.index().min(cells.len());
+pub(crate) fn compose(mut row: RowMut<'_>, cols: Cols, style: StyleId, ind: Indicators) {
+    let n = cols.index().min(row.len());
     let blank = PackedCell {
         content: Content::EMPTY,
         style,
         flags: CellFlags::NONE,
     };
-    cells[..n].fill(blank);
+    row[..n].fill(blank);
     let mut line = Line {
-        cells: &mut cells[..n],
+        row: Some(row),
+        n: Cols::of_index(n),
         style,
     };
     line.whole(Col::at_index(AT_PAGE), |l, x| {
@@ -832,10 +847,9 @@ impl Paint<'_, '_> {
     /// the main display is live.
     pub(crate) fn clear_status(&mut self) {
         let cols = self.cols;
-        if let Some(u) = self.status.used.first_mut() {
-            *u = RowExtent::ZERO;
-        }
-        self.status.cells.fill(PackedCell::EMPTY);
+        let (mut cells, mut marks) = self.status.store_mut().all_mut();
+        marks.fill(RowExtent::ZERO);
+        cells.fill(PackedCell::EMPTY);
         self.strs.status.park = Parked::fresh(cols);
         self.strs.status.mark = None;
     }
@@ -853,10 +867,9 @@ impl Paint<'_, '_> {
             return;
         }
         if !self.cold.modes.is_set(ModeBit::NoClearOnColumn) {
-            if let Some(u) = self.status.used.first_mut() {
-                *u = RowExtent::ZERO;
-            }
-            self.status.cells.fill(PackedCell::EMPTY);
+            let (mut cells, mut marks) = self.status.store_mut().all_mut();
+            marks.fill(RowExtent::ZERO);
+            cells.fill(PackedCell::EMPTY);
         }
         self.strs.status.park.home();
     }
@@ -934,7 +947,9 @@ impl Paint<'_, '_> {
             printer: PrinterShown::of(&self.strs.print),
             lamps: self.strs.status.lamps,
         };
-        compose(self.status.cells, self.cols, style, ind);
+        if let Some(row) = self.status.store_mut().get_row_mut(0) {
+            compose(row, self.cols, style, ind);
+        }
     }
 }
 
@@ -952,13 +967,18 @@ impl Term<'_> {
     pub(crate) fn status_resized(&mut self, old: Cols) {
         let cols = self.cols;
         let (lo, hi) = (old.index().min(cols.index()), old.index().max(cols.index()));
-        if let Some(cells) = self.store.status.cells.get_mut(lo..hi) {
-            cells.fill(PackedCell::EMPTY);
+        if let Some(mut span) = self
+            .store
+            .surfaces
+            .stamped(Which::Status)
+            .get_span_mut(0, lo..hi)
+        {
+            span.fill(PackedCell::EMPTY);
         }
         let r = self
             .store
-            .status
-            .used
+            .surfaces
+            .used(Which::Status)
             .first()
             .map_or(LineRendition::Single, |u| u.rendition());
         let right = Col::at_index(cols.index().saturating_sub(1));
@@ -1013,6 +1033,8 @@ impl Term<'_> {
             printer: PrinterShown::of(&self.store.strs.print),
             lamps: self.store.strs.status.lamps,
         };
-        compose(self.store.status.cells, self.cols, style, ind);
+        if let Some(row) = self.store.surfaces.stamped(Which::Status).get_row_mut(0) {
+            compose(row, self.cols, style, ind);
+        }
     }
 }

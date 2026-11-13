@@ -50,6 +50,10 @@ colour-in-match = []
 # Identical work, so every counter and every extent is unchanged and the cost
 # is exactly one.
 probe-double-extent = []
+# **`SurfaceStore::start_writes_at`**: sets the write generation, so a
+# test reaches the wrap without 2^32 seals. baud-core's own feature of the
+# name turns it on; nothing that ships does.
+write-gen-probe = []
 # **The cell stores, and nothing else.** `ceiling-no-write` in the core stops
 # the cursor advancing too, so it also removes every wrap and every scroll and
 # its `cells_written` falls by 60% -- it prices the whole write *path*, not the

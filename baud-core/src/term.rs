@@ -2786,14 +2786,14 @@ impl<'b> Term<'b> {
     fn surface(&self) -> (&[PackedCell], &[RowExtent], Rows, RowRot) {
         match self.cold.screen {
             Screen::Normal => (
-                self.store.vp,
-                self.store.used,
+                self.store.surfaces.cells(Which::Primary),
+                self.store.surfaces.used(Which::Primary),
                 self.store.ring_rows(),
                 self.rot,
             ),
             Screen::Alternate => (
-                self.store.alt.cells,
-                self.store.alt.used,
+                self.store.surfaces.cells(Which::Alternate),
+                self.store.surfaces.used(Which::Alternate),
                 self.store.row_capacity(),
                 self.store.alt.rot,
             ),
@@ -2869,9 +2869,7 @@ impl<'b> Term<'b> {
         let n = book.top.since(book.swept).unwrap_or(Rows::ZERO);
         book.swept = book.top;
         self.cells_written += View::new(
-            self.store.vp,
-            self.store.used,
-            self.stride,
+            self.store.surfaces.stamped(Which::Primary),
             self.cols,
             self.rows,
             ring,
@@ -3144,14 +3142,21 @@ impl<'b> Term<'b> {
         // marked as the safe direction: no test yet fails without them,
         // because `Term::links_unread` checks to the live width.
         if (rows, cols) != (old_rows, old_cols) {
-            for used in [&mut *self.store.used, &mut *self.store.alt.used] {
-                for e in used.iter_mut() {
-                    *e = e.with_links(RowLinks::May);
-                }
+            for w in [Which::Primary, Which::Alternate] {
+                let mut s = self.store.surfaces.stamped(w);
+                let n = s.rows();
+                s.rows_mut(0..n, |_, _, mut e| *e = e.with_links(RowLinks::May));
             }
         }
         self.status_resized(old_cols);
         self.frozen_resized(frozen, recut);
+        // **Every row of every surface stamped, last**: a resize moves and
+        // reveals rows by more paths than are worth stamping one by one --
+        // the re-cut, the reveal fills, `widened`, `settle_growth`, the
+        // marks above -- and it is O(ring) once a resize.
+        for w in [Which::Primary, Which::Alternate, Which::Status] {
+            self.store.surfaces.stamped(w).stamp_all();
+        }
         let resized = match over {
             true => Resized::Truncated { cols, rows },
             false => Resized::Ok,
@@ -3267,9 +3272,7 @@ impl<'b> Term<'b> {
             // it, so text the re-cut wraps into view counts, and the
             // new one otherwise.
             let v = View::new(
-                self.store.vp,
-                self.store.used,
-                self.stride,
+                self.store.surfaces.stamped(Which::Primary),
                 old_cols,
                 rows,
                 ring,
@@ -3279,6 +3282,8 @@ impl<'b> Term<'b> {
                 .rev()
                 .find(|i| v.ring_row_holds(self.rot.advance(from + i, ring), shown) == Holds::Text)
                 .map_or(0, |i| i + 1);
+            // The view's borrow ends here, its `Drop` the surface's last write.
+            drop(v);
             let reveal = k.min(content);
             hidden -= reveal;
             // **And a growth brings them back**, which is the other
@@ -3313,9 +3318,7 @@ impl<'b> Term<'b> {
             let rest = (k - reveal - pull).min(hidden);
             hidden -= rest;
             let mut v = View::new(
-                self.store.vp,
-                self.store.used,
-                self.stride,
+                self.store.surfaces.stamped(Which::Primary),
                 Cols::of_index(old_cols.index().max(cols.index())),
                 rows,
                 ring,
@@ -3565,9 +3568,7 @@ impl<'b> Term<'b> {
             _ => Some(&mut hook),
         };
         let r = View::new(
-            self.store.vp,
-            self.store.used,
-            self.stride,
+            self.store.surfaces.stamped(Which::Primary),
             Cols::of_index(old_cols.index().max(cols.index())),
             rows,
             ring,
@@ -3701,23 +3702,20 @@ impl<'b> Term<'b> {
             ..
         } = g;
         if cols.index() > old_cols.index() {
+            let (ring, cap) = (self.store.ring_rows(), self.store.row_capacity());
             View::new(
-                self.store.vp,
-                self.store.used,
-                self.stride,
+                self.store.surfaces.stamped(Which::Primary),
                 cols,
                 rows,
-                self.store.ring_rows(),
+                ring,
                 self.rot,
             )
             .settle_growth(old_cols);
             View::new(
-                self.store.alt.cells,
-                self.store.alt.used,
-                self.stride,
+                self.store.surfaces.stamped(Which::Alternate),
                 cols,
                 rows,
-                self.store.row_capacity(),
+                cap,
                 self.store.alt.rot,
             )
             .widened(old_cols);
@@ -3744,13 +3742,12 @@ impl<'b> Term<'b> {
             cols,
         } = g;
         if rows.index() > old_rows.index() {
+            let cap = self.store.row_capacity();
             let mut v = View::new(
-                self.store.alt.cells,
-                self.store.alt.used,
-                self.stride,
+                self.store.surfaces.stamped(Which::Alternate),
                 Cols::of_index(old_cols.index().max(cols.index())),
                 rows,
-                self.store.row_capacity(),
+                cap,
                 self.store.alt.rot,
             );
             let mut n = 0;
@@ -3781,9 +3778,7 @@ impl<'b> Term<'b> {
         let book = &mut self.store.book;
         book.reach = match widest.index() > cols.index() {
             true => View::new(
-                self.store.vp,
-                self.store.used,
-                self.stride,
+                self.store.surfaces.stamped(Which::Primary),
                 cols,
                 rows,
                 ring,
@@ -3931,7 +3926,7 @@ impl<'b> Term<'b> {
             rows.clamp(MAX_ROWS),
         );
         store.book.reach = cols;
-        let room = match store.status.cells.is_empty() {
+        let room = match store.surfaces.cells(Which::Status).is_empty() {
             true => crate::status::Room::Declined,
             false => crate::status::Room::Lent,
         };
@@ -4052,16 +4047,16 @@ impl<'b> Term<'b> {
     pub fn record_surface(&self, screen: Screen) -> (Viewport<'_>, LineIdx, Rows) {
         let (cells, used, ring, rot, top, hist) = match screen {
             Screen::Normal => (
-                &self.store.vp[..],
-                &self.store.used[..],
+                self.store.surfaces.cells(Which::Primary),
+                self.store.surfaces.used(Which::Primary),
                 self.store.ring_rows(),
                 self.rot,
                 self.store.book.top,
                 self.store.book.hist,
             ),
             Screen::Alternate => (
-                &self.store.alt.cells[..],
-                &self.store.alt.used[..],
+                self.store.surfaces.cells(Which::Alternate),
+                self.store.surfaces.used(Which::Alternate),
                 self.store.row_capacity(),
                 self.store.alt.rot,
                 self.cold.alt_top,
@@ -4431,8 +4426,8 @@ impl<'b> Term<'b> {
     /// [`Depth::NONE`], whose ring is the screen.
     pub fn scrollback(&self) -> Scrollback<'_> {
         let s = Scrollback::new(
-            self.store.vp,
-            self.store.used,
+            self.store.surfaces.cells(Which::Primary),
+            self.store.surfaces.used(Which::Primary),
             self.stride.index(),
             self.cols,
             self.store.ring_rows(),
@@ -4541,8 +4536,7 @@ impl<'b> Term<'b> {
         let n = m.hist.index() + m.rows.index() + m.hidden.index();
         let base = m.rot.retreat(m.hist.index(), ring);
         let slots = self.store.tmpl.len();
-        let used = &mut *self.store.used;
-        let cells = &mut *self.store.vp;
+        let mut prim = self.store.surfaces.stamped(Which::Primary);
         let live = &*self.store.tmpl;
         let Some(f) = self.store.style_log.frozen.as_mut() else {
             return;
@@ -4554,10 +4548,10 @@ impl<'b> Term<'b> {
         while i < n {
             let start = i;
             let mut k = 1;
-            if !sized(used, start) {
+            if !sized(prim.used(), start) {
                 while start + k < n
-                    && used[lin(start + k - 1).index()].wrapped()
-                    && !sized(used, start + k)
+                    && prim.used()[lin(start + k - 1).index()].wrapped()
+                    && !sized(prim.used(), start + k)
                 {
                     k += 1;
                 }
@@ -4589,8 +4583,7 @@ impl<'b> Term<'b> {
                             f.forget_map();
                             from = src;
                         }
-                        let row = &mut cells[p.index() * s..(p.index() + 1) * s];
-                        let _ = f.refreeze_row(cur, row, src, live);
+                        let _ = f.refreeze_row(cur, prim.row_mut(p.index()), src, live);
                     }
                     for j in start..start + k {
                         f.set_spare(lin(j), Some(cur));
@@ -4600,8 +4593,7 @@ impl<'b> Term<'b> {
                 None => {
                     for j in start..start + k - 1 {
                         if f.spare(lin(j)) != f.spare(lin(j + 1)) {
-                            let p = lin(j).index();
-                            used[p] = used[p].ended();
+                            prim.mark_with(lin(j).index(), |e| e.ended());
                         }
                     }
                     f.counted_split();
@@ -4708,11 +4700,15 @@ impl<'b> Term<'b> {
             return None;
         }
         let st = &self.store.strs.status;
-        let cells = self.store.status.cells.get(..self.cols.index())?;
+        let cells = self
+            .store
+            .surfaces
+            .cells(Which::Status)
+            .get(..self.cols.index())?;
         let rendition = self
             .store
-            .status
-            .used
+            .surfaces
+            .used(Which::Status)
             .first()
             .map_or(LineRendition::Single, |u| u.rendition());
         let cursor = (st.active == ActiveDisplay::Status)
@@ -4734,8 +4730,8 @@ impl<'b> Term<'b> {
     /// line is shown.
     pub fn status_view(&self) -> Option<Viewport<'_>> {
         self.status_line()?;
-        let cells = &*self.store.status.cells;
-        let used = &*self.store.status.used;
+        let cells = self.store.surfaces.cells(Which::Status);
+        let used = self.store.surfaces.used(Which::Status);
         (cells.len() >= self.cols.index() && !used.is_empty()).then(|| {
             Viewport::new(
                 cells,
@@ -5583,8 +5579,8 @@ impl<'b> Term<'b> {
     /// debug builds, not a frame.
     pub fn past_edge_check(&self) -> PastEdgeCheck {
         Viewport::new(
-            self.store.vp,
-            self.store.used,
+            self.store.surfaces.cells(Which::Primary),
+            self.store.surfaces.used(Which::Primary),
             self.stride,
             self.cols,
             self.rows,
@@ -5927,6 +5923,77 @@ impl<'b> Term<'b> {
     /// cells the power-on state does not have. See [`Resets`].
     pub fn resets(&self) -> Resets {
         self.store.book.resets
+    }
+
+    /// **Close the current write generation**, once a frame, before anything
+    /// reads: every store before it carries a generation the returned seal
+    /// covers, and every store after it a later one. A renderer keeps
+    /// [`Term::sealed`] beside each copy it builds and asks
+    /// [`Term::row_gens`] which rows were written since. A driver that never
+    /// seals is correct and slow: every row reads as written every frame.
+    pub fn seal_writes(&mut self) -> Seal {
+        self.store.surfaces.seal()
+    }
+
+    /// The seal a copy read now is built under, for a reader holding
+    /// `&Term`: a store after the read reads as after it, and one between
+    /// the last seal and the read reads as after it again next frame -- a
+    /// row redrawn, never one missed.
+    pub fn sealed(&self) -> Seal {
+        self.store.surfaces.sealed()
+    }
+
+    /// Whether any surface -- the primary, the alternate screen or the
+    /// status line -- was written after `kept`, or `kept` is from another
+    /// terminal or from before a wrap. Four compares.
+    pub fn wrote_since(&self, kept: &Seal) -> bool {
+        self.store.surfaces.wrote_since(kept)
+    }
+
+    /// **The window `back` lines into the history, as physical rows, with
+    /// each row's write generation**, read in place: the one question to ask
+    /// is [`RowGens::after`]. The window's top is the row [`Term::view`]
+    /// draws, through [`Term::looking_back`]'s clamp, so two windows that
+    /// draw the same rows compare equal ([`RowGens::window`]).
+    pub fn row_gens(&self, back: Rows) -> RowGens<'_> {
+        let (screen, ring, rot) = match self.cold.screen {
+            Screen::Normal => (Which::Primary, self.store.ring_rows(), self.rot),
+            Screen::Alternate => (
+                Which::Alternate,
+                self.store.row_capacity(),
+                self.store.alt.rot,
+            ),
+        };
+        self.store.surfaces.row_gens(WindowAt {
+            screen,
+            top: rot.retreat(self.looking_back(back).index(), ring),
+            ring,
+            rows: self.rows,
+        })
+    }
+
+    /// The status line's write generation, while a row is lent for it.
+    pub fn status_gen(&self) -> Option<StatusGen> {
+        self.store.surfaces.status_gen()
+    }
+
+    /// **Every physical row of a surface, live or not**, with its cells at
+    /// the pitch, its mark, and whether it was written after `kept`: what a
+    /// test snapshots to hold every store to its stamp.
+    pub fn stored_rows(
+        &self,
+        w: Which,
+        kept: &Seal,
+    ) -> impl Iterator<Item = (RowAt, &[PackedCell], RowExtent, RowDirt)> + '_ {
+        self.store.surfaces.stored_rows(w, kept)
+    }
+
+    /// **Set the write generation stores are stamped with**, and nothing
+    /// else: how a test reaches the seal's wrap without 2^32 seals. Behind
+    /// `write-gen-probe`, which nothing that ships enables.
+    #[cfg(feature = "write-gen-probe")]
+    pub fn start_writes_at(&mut self, at: WriteGen) {
+        self.store.surfaces.start_writes_at(at);
     }
 
     /// The scrolling region DECSTBM set, as its first and last screen row:
@@ -6409,8 +6476,14 @@ impl<'b> Term<'b> {
         let (s, cols) = (self.stride.index(), self.cols.index());
         let mut n = 0;
         for (cells, used) in [
-            (&*self.store.vp, &*self.store.used),
-            (&*self.store.alt.cells, &*self.store.alt.used),
+            (
+                self.store.surfaces.cells(Which::Primary),
+                self.store.surfaces.used(Which::Primary),
+            ),
+            (
+                self.store.surfaces.cells(Which::Alternate),
+                self.store.surfaces.used(Which::Alternate),
+            ),
         ] {
             for (p, e) in used.iter().enumerate() {
                 let Some(row) = cells.get(p * s..p * s + cols) else {

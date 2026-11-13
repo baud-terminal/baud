@@ -61,6 +61,10 @@ read-record = []
 # it, which the corpus feeds. Enabled by the dev-dependency below, never by
 # a build of the core.
 record-test = []
+# **Tests only**: `Term::start_writes_at`, which sets the write generation
+# so a test reaches the seal's wrap without 2^32 seals. Enabled by the
+# dev-dependency below, never by a build that ships.
+write-gen-probe = ["baud-domain/write-gen-probe"]
 # `Owned`, for hosts that have an allocator. The core itself never
 # allocates; this is a convenience for callers who would otherwise have to find
 # the storage themselves. It turns on `baud-domain/alloc` for
@@ -279,6 +283,7 @@ baud-core = { path = ".", default-features = false, features = [
   "alloc",
   "neon-scan",
   "record-test",
+  "write-gen-probe",
 ] }
 # **Tests only.** `every_national_replacement_renders_as_its_table_says` reads
 # `nrcs_table` so its expectations come from the generated tables rather than

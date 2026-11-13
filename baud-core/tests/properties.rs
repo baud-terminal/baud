@@ -1465,6 +1465,58 @@ const ALPHABET: &[Atom] = &[
         stride: 3,
         count: 2,
     },
+    // **The erases, each a store path of its own** (`View::fill_raw`, the
+    // history's `erase_outside` and `selective_wipe_behind`, the full
+    // reset's `erase_ring` and the other surface's): what
+    // `writes_move_the_rows_they_touch` needs the generator to reach.
+    Atom {
+        name: "ed",
+        bytes: b"\x1b[J",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ed1",
+        bytes: b"\x1b[1J",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ed2",
+        bytes: b"\x1b[2J",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ech",
+        bytes: b"\x1b[3X",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decsed",
+        bytes: b"\x1b[?J",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ed3",
+        bytes: b"\x1b[3J",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decsed3",
+        bytes: b"\x1b[?3J",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ris",
+        bytes: b"\x1bc",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -2841,4 +2893,163 @@ fn the_prompt_mark_atoms_reach_a_redraw_and_a_prompt_drawn_again() {
         assert_eq!(t.prompt_erases, 1, "a redraw");
         assert_eq!(t.cursor().0, Row::ZERO);
     });
+}
+
+/// The content of screen cell `(y, x)`.
+fn content_at(t: &Term<'_>, y: usize, x: usize) -> Content {
+    t.row(Row::from_index(y)).expect("a row")[x].content
+}
+
+/// **The erase atoms reach their operations**, each with the positive
+/// control the C1 atoms have: a written row, then the atom, then what it
+/// erased read back. An atom that silently reached nothing would leave the
+/// write-generation property below green over stores it never made.
+#[test]
+fn the_erase_atoms_reach_their_operations() {
+    let a = Content::codepoint(Codepoint::from_char('a'));
+    // ED from the cursor, at column 1 of the written row: the cursor's cell
+    // and the rest go, the cell before it stays.
+    fed_after(b"abc\x1b[1;2H", "ed", &|t| {
+        assert_eq!(content_at(t, 0, 0), a);
+        assert!(content_at(t, 0, 1).is_empty() && content_at(t, 0, 2).is_empty());
+    });
+    // ED 1 to the cursor, inclusive: column 2 stays.
+    fed_after(b"abc\x1b[1;2H", "ed1", &|t| {
+        assert!(content_at(t, 0, 0).is_empty() && content_at(t, 0, 1).is_empty());
+        assert!(!content_at(t, 0, 2).is_empty());
+    });
+    fed_after(b"abc\r\nxyz", "ed2", &|t| {
+        assert!((0..3).all(|x| content_at(t, 0, x).is_empty() && content_at(t, 1, x).is_empty()));
+    });
+    // ECH 3 from column 1: columns 1 to 3 go, 0 and 4 stay.
+    fed_after(b"abcde\x1b[1;2H", "ech", &|t| {
+        assert_eq!(content_at(t, 0, 0), a);
+        assert!((1..4).all(|x| content_at(t, 0, x).is_empty()));
+        assert!(!content_at(t, 0, 4).is_empty());
+    });
+    // DECSED spares the cell DECSCA protected and erases the other, to the
+    // space its erased form is.
+    fed_after(b"a\x1b[1\"qb\x1b[0\"q\x1b[H", "decsed", &|t| {
+        assert_ne!(content_at(t, 0, 0), a);
+        assert_eq!(
+            content_at(t, 0, 1),
+            Content::codepoint(Codepoint::from_char('b'))
+        );
+    });
+    // Sixty lines on a fifty-row screen leave history; ED 3 erases it.
+    let history: Vec<u8> = (0..60).flat_map(|_| *b"hist\r\n").collect();
+    let (none, fresh) = support::with_term(&ws(), |t| (t.history_erasures(), t.resets()));
+    fed_after(&history, "ed3", &|t| {
+        assert_eq!(t.scrollback().len(), 0, "the history is gone");
+        assert_ne!(t.history_erasures(), none, "history_erasures rises");
+    });
+    // DECSED's form of ED 3 turns the history's erasable characters into
+    // spaces in their own rendition, and keeps the rows.
+    fed_after(&history, "decsed3", &|t| {
+        let sb = t.scrollback();
+        assert!(!sb.is_empty(), "the rows stay");
+        let (line, _) = sb.line(baud_domain::Back::of(0)).expect("a line");
+        let erased = PackedCell::selectively_erased(PackedCell::glyph(
+            Codepoint::from_char('h'),
+            baud_domain::StyleId::DEFAULT,
+            baud_domain::CellFlags::NONE,
+        ));
+        assert_eq!(
+            line[0], erased,
+            "the history's cells read DECSED's erased form"
+        );
+    });
+    fed("ris", &|t| {
+        assert_ne!(t.resets(), fresh, "a full reset is counted")
+    });
+}
+
+/// One snapshot of every physical row of the three surfaces: its cells at
+/// the pitch and its mark.
+type Rows3 = Vec<(Which, usize, Vec<PackedCell>, RowExtent)>;
+
+fn rows3(t: &Term<'_>, kept: &Seal) -> (Rows3, std::collections::BTreeSet<(usize, usize)>) {
+    let mut all = Vec::new();
+    let mut written = std::collections::BTreeSet::new();
+    for (k, w) in [Which::Primary, Which::Alternate, Which::Status]
+        .into_iter()
+        .enumerate()
+    {
+        for (at, cells, mark, dirt) in t.stored_rows(w, kept) {
+            all.push((w, at.p.index(), cells.to_vec(), mark));
+            if dirt == RowDirt::Written {
+                written.insert((k, at.p.index()));
+            }
+        }
+    }
+    (all, written)
+}
+
+proptest! {
+    /// **Every store moves the row it touches** (the core write generation):
+    /// fed in reads split where the generator says -- mid-character and
+    /// mid-sequence included -- with a seal after every read, every
+    /// physical row of the primary ring, the alternate screen and the
+    /// status line is read back after each read, and
+    ///
+    /// 1. a row whose cells or mark differ from the last read is written
+    ///    against the last seal;
+    /// 2. any such row means [`Term::wrote_since`] says so;
+    /// 3. a row written against a kept seal stays written against it at
+    ///    every later read, for the last eight seals.
+    ///
+    /// A store that skipped its stamp leaves a changed row reading clean,
+    /// which a renderer keeping its copy would draw stale. A history of
+    /// twenty lines, so the ring wraps under a program and a snapshot stays
+    /// cheap.
+    #[test]
+    fn writes_move_the_rows_they_touch(prog in program(), cuts in proptest::collection::vec(0usize..4096, 0..8)) {
+        let b = bytes_of(&prog);
+        let mut at: Vec<usize> = cuts.iter().map(|c| c % (b.len() + 1)).collect();
+        at.push(0);
+        at.push(b.len());
+        at.sort_unstable();
+        at.dedup();
+        let w = ws();
+        let mut owned = Owned::with_history(&w, &CacheGeometry::UNKNOWN, Depth::of(20)).with_clipboard(CLIP);
+        let mut t = Term::new(owned.storage(), &w);
+        let mut kept: std::collections::VecDeque<(Seal, std::collections::BTreeSet<(usize, usize)>)> =
+            std::collections::VecDeque::new();
+        let mut last = t.seal_writes();
+        let (mut before, _) = rows3(&t, &last);
+        for pair in at.windows(2) {
+            let (lo, hi) = (pair[0], pair[1]);
+            t.write_at(BytePos::ZERO, &b[lo..hi]);
+            t.feed(BytePos::ZERO, ReadLen::from_index(hi - lo));
+            let (now, written) = rows3(&t, &last);
+            let mut changed = 0;
+            for (old, new) in before.iter().zip(&now) {
+                prop_assert_eq!((old.0, old.1), (new.0, new.1));
+                if old.2 != new.2 || old.3 != new.3 {
+                    changed += 1;
+                    let k = [Which::Primary, Which::Alternate, Which::Status]
+                        .iter()
+                        .position(|w| *w == new.0)
+                        .unwrap();
+                    prop_assert!(
+                        written.contains(&(k, new.1)),
+                        "{:?} row {} changed in read {}..{} and reads clean",
+                        new.0, new.1, lo, hi
+                    );
+                }
+            }
+            prop_assert!(changed == 0 || t.wrote_since(&last), "rows changed and wrote_since is false");
+            for (seal, was) in kept.iter_mut() {
+                let (_, still) = rows3(&t, seal);
+                prop_assert!(was.is_subset(&still), "a row written against a kept seal reads clean again");
+                *was = still;
+            }
+            kept.push_back((last, written));
+            if kept.len() > 8 {
+                kept.pop_front();
+            }
+            last = t.seal_writes();
+            before = now;
+        }
+    }
 }

@@ -115,6 +115,12 @@ pub use baud_domain::{
     InputEncoding, KeypadMode, LineRendition, PackedCell, PastEdge, ReadLen, Row, RowBlock,
     RowExtent, Rows, StyleWord, Width, WinSize,
 };
+// **The write generation's vocabulary**: what [`Term::seal_writes`],
+// [`Term::row_gens`] and [`Term::status_gen`] hand a renderer, so it can
+// keep the rows nothing wrote since its copy.
+pub use baud_domain::{
+    RowAt, RowDirt, RowGen, RowGens, Seal, SealEpoch, StatusGen, Which, WindowAt, WriteGen,
+};
 // **The key API's own vocabulary.** `Term::key` takes a `KeyEvent`, so a
 // caller that cannot name one cannot call it -- an entry point whose argument
 // type is unreachable is the same failure as a mode recorded and never read.

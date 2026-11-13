@@ -416,17 +416,14 @@ impl<'a, 'b> Paint<'a, 'b> {
     ) -> Paint<'a, 'b> {
         let Storage {
             arena,
-            stride,
             depth,
-            vp,
-            used,
+            surfaces,
             cells3,
             tmpl,
             style_log,
             tabs,
             reply,
             alt,
-            status,
             book,
             clusters,
             strs,
@@ -445,35 +442,25 @@ impl<'a, 'b> Paint<'a, 'b> {
         // alternate is a ring of the capacity alone, so a scroll there
         // rotates blanks into blanks as it always did. Whichever is not live
         // rides as `other`, ready to be swapped in.
-        let ring = Rows::of_index(used.len());
-        let cap = Rows::of_index(used.len() - depth.lines());
-        let (vp, used): (&'a mut [PackedCell], &'a mut [RowExtent]) = (vp, used);
-        let (acells, aused, arot): (&'a mut [PackedCell], &'a mut [RowExtent], RowRot) =
-            (alt.cells, alt.used, alt.rot);
-        let status = Surface {
-            cells: status.cells,
-            used: status.used,
-            ring: Rows::of_count(1),
-            rot: RowRot::NONE,
+        // Each surface comes out of the store as a `Stamped`: every write
+        // through the view, `other` or the status line stamps its row.
+        let ring = surfaces.rows(Which::Primary);
+        let cap = Rows::of_index(ring.index() - depth.lines());
+        let arot = alt.rot;
+        let up = match cold.screen {
+            crate::term::Screen::Normal => Which::Primary,
+            crate::term::Screen::Alternate => Which::Alternate,
         };
+        let (live, away, line) = surfaces.split(up);
+        let status = Surface::new(line, Rows::of_count(1), RowRot::NONE);
         let (view, other) = match cold.screen {
             crate::term::Screen::Normal => (
-                View::new(vp, used, *stride, cols, rows, ring, rot),
-                Surface {
-                    cells: acells,
-                    used: aused,
-                    ring: cap,
-                    rot: arot,
-                },
+                View::new(live, cols, rows, ring, rot),
+                Surface::new(away, cap, arot),
             ),
             crate::term::Screen::Alternate => (
-                View::new(acells, aused, *stride, cols, rows, cap, arot),
-                Surface {
-                    cells: vp,
-                    used,
-                    ring,
-                    rot,
-                },
+                View::new(live, cols, rows, cap, arot),
+                Surface::new(away, ring, rot),
             ),
         };
         // The three-byte cell table is read only by `put_one` under
@@ -1582,10 +1569,10 @@ impl<'a, 'b> Paint<'a, 'b> {
     fn sweep_and_intern(&mut self, base: Content, cps: &[u32]) -> ClusterId {
         let mut live = ClusterLive::new();
         live.mark(self.view.ring_cells());
-        live.mark(self.other.cells);
+        live.mark(self.other.store().cells());
         // The status line's row, or the main display's surface while the
         // line is written (`status.rs`).
-        live.mark(self.status.cells);
+        live.mark(self.status.store().cells());
         self.clusters.sweep(&live);
         self.clusters.intern(base, cps)
     }

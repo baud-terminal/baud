@@ -11,10 +11,15 @@ fn a_growth_raises_a_wrapped_rows_mark_to_the_new_width() {
     let (s, ring) = (24usize, 3usize);
     let mut cells = vec![PackedCell::EMPTY; s * ring];
     let mut used = vec![RowExtent::ZERO; ring];
-    let mut v = View::new(
-        &mut cells,
-        &mut used,
+    let mut gens = vec![RowGen::ZERO; ring];
+    let (mut ac, mut au, mut ag) = (vec![], vec![], vec![]);
+    let mut store = SurfaceStore::new(
         Stride::of_cells(s),
+        (&mut cells, &mut used, &mut gens),
+        (&mut ac, &mut au, &mut ag),
+    );
+    let mut v = View::new(
+        store.stamped(Which::Primary),
         Cols::of_index(13),
         Rows::of_index(ring),
         Rows::of_index(ring),

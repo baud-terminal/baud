@@ -96,13 +96,18 @@ pub struct Storage<'b> {
     /// Bytes as they arrived. A read writes here and the parser reads here;
     /// nothing copies between.
     pub(crate) arena: &'b mut [u8],
-    /// The primary screen's rows and the lines behind them: `used.len()`
-    /// physical rows at the pitch, of which the screen is a window.
-    pub(crate) vp: &'b mut [PackedCell],
-    /// How many of `vp`'s rows are scrollback: the ring is the screen's
+    /// **Every surface's cells, marks and generations**: the primary's ring
+    /// (its rows and the lines behind them, of which the screen is a
+    /// window), the alternate screen and the status line's row, each row
+    /// with the write generation that last stamped it
+    /// (`baud_domain::SurfaceStore`). The only way to write one is a
+    /// `Stamped` it mints, which stamps every row it hands out; nothing else
+    /// here reaches a surface's memory (`tests/one_store.rs`).
+    pub(crate) surfaces: SurfaceStore<'b>,
+    /// How many of the primary's rows are scrollback: the ring is the screen's
     /// capacity plus this.
     pub(crate) depth: Depth,
-    /// The pitch `vp` and `alt` are laid out at: row `p` begins at
+    /// The pitch every surface is laid out at: row `p` begins at
     /// `p * stride` cells. **Fixed for the life of the storage** and at least
     /// the provisioned width, so a resize is a change of how many cells in
     /// each row are live and moves none of them. Chosen by [`grid_stride`]
@@ -110,9 +115,6 @@ pub struct Storage<'b> {
     /// it aliases no way, stepped clear of a wrap of every L1 way -- or by
     /// [`Stride::of_cells`] in a bench arm reproducing another layout.
     pub(crate) stride: Stride,
-    /// How far each physical row stops being uniform. Blanking stops here, so
-    /// a mostly-empty row costs a fraction of its width.
-    pub(crate) used: &'b mut [RowExtent],
     /// **The cells a three-byte character becomes, indexed by its bytes.**
     ///
     /// `table[b0][b1][b2]` -- 1024 prefixes x 256 entries -- so the write is a
@@ -154,10 +156,10 @@ pub struct Storage<'b> {
     pub(crate) clusters: ClusterStore<'b>,
     /// Everything a control string writes. See [`StrBuf`].
     pub(crate) strs: StrBuf<'b>,
-    /// **The alternate screen's own surface**: its cells, its extents and its
-    /// rotation, whichever screen is up. `vp`, `used` and the terminal's
-    /// rotation are always the primary's, and this is always the alternate
-    /// screen's.
+    /// **The alternate screen's rotation**, whichever screen is up: its cells
+    /// and extents are `surfaces`' alternate plane. The primary plane and
+    /// the terminal's rotation are always the primary's, and this is always
+    /// the alternate screen's.
     ///
     /// This was once where the primary waited: `?1049` copied the primary out
     /// and back and the grid was handed over, which is also why `?47` --
@@ -172,12 +174,7 @@ pub struct Storage<'b> {
     ///
     /// The per-character loop still never learns which screen is up:
     /// `View` is built **once per read**, over whichever surface is live.
-    pub(crate) alt: AltBuf<'b>,
-    /// **The status line's row**, beside the main display and never one of
-    /// its rows: DECSSDT shows it and the host writes it while DECSASD
-    /// selects it (`status.rs`). Lent by [`Storage::with_status_line`];
-    /// without it the line cannot be shown.
-    pub(crate) status: crate::status::StatusBuf<'b>,
+    pub(crate) alt: AltBuf,
     /// The primary ring's bookkeeping; see [`Book`].
     pub(crate) book: Book<'b>,
     /// Bytes the terminal owes the host: the answer to a `DA`, a `DSR`, a
@@ -202,19 +199,16 @@ pub struct Storage<'b> {
     pub(crate) images: ImageStore<'b>,
 }
 
-/// The alternate screen's surface: its cells, its extents and its rotation.
+/// The alternate screen's rotation, kept beside its cells and extents in
+/// the store's alternate plane.
 ///
-/// **One struct rather than three fields, so they cannot be swapped
-/// separately.** `RowExtent` is indexed by *physical* row and `RowRot` is what
-/// makes a physical row out of a screen row, so the three are one value; a
-/// swap missing either gives a grid whose rows are in the wrong order or
-/// whose blanking stops at the other surface's marks. `View::swap_surface`
-/// exchanges all three, and the ring, in one call for the same reason, and
-/// `Paint` carries the screen that is not up as one `Surface`.
-pub struct AltBuf<'b> {
-    pub(crate) cells: &'b mut [PackedCell],
-    pub(crate) used: &'b mut [RowExtent],
-    /// The alternate screen's rotation, into a ring of `used.len()` rows.
+/// `RowExtent` is indexed by *physical* row and `RowRot` is what makes a
+/// physical row out of a screen row, so the three are one value;
+/// `View::swap_surface` exchanges the store, the rotation and the ring in
+/// one call, and `Paint` carries the screen that is not up as one
+/// `Surface`, so a swap cannot miss one.
+pub struct AltBuf {
+    /// The alternate screen's rotation, into a ring of its plane's rows.
     /// Kept while it is not up: `?1049` resets it on entry, because it
     /// clears the screen and blanks rotate to blanks, and `?47` keeps it,
     /// because it shows the rows as they were left and in that order.
@@ -731,6 +725,7 @@ pub struct Owned {
     arena: alloc::vec::Vec<u8>,
     vp: alloc::vec::Vec<PackedCell>,
     used: alloc::vec::Vec<RowExtent>,
+    gens: alloc::vec::Vec<RowGen>,
     past: alloc::vec::Vec<PastEdge>,
     cells3: alloc::vec::Vec<PackedCell>,
     tmpl: alloc::vec::Vec<Option<StyleWord>>,
@@ -747,6 +742,7 @@ pub struct Owned {
     reply: alloc::vec::Vec<u8>,
     alt: alloc::vec::Vec<PackedCell>,
     alt_used: alloc::vec::Vec<RowExtent>,
+    alt_gens: alloc::vec::Vec<RowGen>,
     status: alloc::vec::Vec<PackedCell>,
     status_used: alloc::vec::Vec<RowExtent>,
     clusters: alloc::vec::Vec<ClusterSlot>,
@@ -842,6 +838,8 @@ impl Owned {
             arena: vec![0u8; ARENA],
             vp: vec![PackedCell::EMPTY; ring.len()],
             used: vec![RowExtent::ZERO; rows.index() + depth.lines()],
+            // A write generation a row, beside the marks: 4 B a row of the ring.
+            gens: vec![RowGen::ZERO; rows.index() + depth.lines()],
             past: vec![PastEdge::Clear; rows.index() + depth.lines()],
             cells3: vec::Vec::new(),
             tmpl: vec![None; styles],
@@ -861,6 +859,7 @@ impl Owned {
             reply: vec![0u8; REPLY],
             alt: vec![PackedCell::EMPTY; span.len()],
             alt_used: vec![RowExtent::ZERO; rows.index()],
+            alt_gens: vec![RowGen::ZERO; rows.index()],
             // The status line's row, at the pitch: the widest the main
             // display can be.
             status: vec![PackedCell::EMPTY; stride.index()],
@@ -1022,6 +1021,7 @@ impl Owned {
             self.depth,
             vp,
             &mut self.used,
+            &mut self.gens,
             &mut self.past,
             &mut self.cells3,
             StyleTable {
@@ -1034,6 +1034,7 @@ impl Owned {
             &mut self.reply,
             alt,
             &mut self.alt_used,
+            &mut self.alt_gens,
             &mut self.clusters,
             StrBuf {
                 pending: &mut self.pending,
@@ -1129,6 +1130,7 @@ impl Owned {
             self.depth,
             &mut self.vp,
             &mut self.used,
+            &mut self.gens,
             &mut self.past,
             &mut self.cells3,
             StyleTable {
@@ -1141,6 +1143,7 @@ impl Owned {
             &mut self.reply,
             &mut self.alt,
             &mut self.alt_used,
+            &mut self.alt_gens,
             &mut self.clusters,
             StrBuf {
                 pending: &mut self.pending,
@@ -1551,21 +1554,21 @@ impl<'b> Storage<'b> {
     /// How many rows the caller provisioned, which is not the live row count.
     ///
     /// **The number is already in the struct**, so this is a read rather than
-    /// a field: `used` has one entry per physical row, and `Storage::new`
-    /// asserts `vp` holds that many rows' worth of cells. It matters because
+    /// a field: the primary has one mark per physical row, and `Storage::new`
+    /// asserts its cells hold that many rows' worth of cells. It matters because
     /// the storage is caller-provided: a `Term` can be resized *down* freely
     /// and can only grow into rows somebody allocated. `Owned::new` sizes to
     /// the geometry it is given, so growing past it is `Resized::Truncated`
     /// rather than a silent clamp -- an embedder that wants headroom
     /// provisions for it, and this is the number it provisions.
     pub fn row_capacity(&self) -> Rows {
-        Rows::of_index(self.used.len() - self.depth.lines())
+        Rows::of_index(self.surfaces.rows(Which::Primary).index() - self.depth.lines())
     }
 
     /// Physical rows in the primary ring: the screen's capacity plus the
     /// scrollback.
     pub fn ring_rows(&self) -> Rows {
-        Rows::of_index(self.used.len())
+        self.surfaces.rows(Which::Primary)
     }
 
     /// **Lend the rendition table its generations** (`crate::freeze`): the
@@ -1582,7 +1585,7 @@ impl<'b> Storage<'b> {
             true => None,
             false => Some(FrozenStore::new(
                 buf,
-                Rows::of_index(self.used.len()),
+                self.surfaces.rows(Which::Primary),
                 self.tmpl.len(),
             )),
         };
@@ -1596,11 +1599,16 @@ impl<'b> Storage<'b> {
     /// # Panics
     /// If `row` is shorter than the pitch or has no extent, and is not empty.
     pub fn with_status_line(mut self, row: crate::status::StatusBuf<'b>) -> Storage<'b> {
+        // **The row's one move into the store**, its only use: from here on
+        // the status line is the store's third surface and written only
+        // through it (`tests/one_store.rs` holds these two lines to that).
+        let cells: &'b mut [PackedCell] = row.lent_cells;
+        let used: &'b mut [RowExtent] = row.lent_used;
         assert!(
-            row.cells.is_empty() || row.cells.len() >= self.stride.index() && !row.used.is_empty(),
+            cells.is_empty() || cells.len() >= self.stride.index() && !used.is_empty(),
             "the status line is shorter than the pitch, or has no extent"
         );
-        self.status = row;
+        self.surfaces.lend_status(cells, used);
         self
     }
 
@@ -1615,6 +1623,7 @@ impl<'b> Storage<'b> {
         depth: Depth,
         vp: &'b mut [PackedCell],
         used: &'b mut [RowExtent],
+        gens: &'b mut [RowGen],
         past: &'b mut [PastEdge],
         cells3: &'b mut [PackedCell],
         styles: StyleTable<'b>,
@@ -1622,6 +1631,7 @@ impl<'b> Storage<'b> {
         answers: &'b mut [u8],
         alt: &'b mut [PackedCell],
         alt_used: &'b mut [RowExtent],
+        alt_gens: &'b mut [RowGen],
         clusters: &'b mut [ClusterSlot],
         strs: StrBuf<'b>,
         images: ImageStore<'b>,
@@ -1693,6 +1703,16 @@ impl<'b> Storage<'b> {
             alt_used.len() >= used.len() - depth.lines(),
             "the alternate screen's extents are one per row"
         );
+        // **A generation a row**, which every store to the row stamps: what
+        // a renderer reads to keep the rows nothing wrote.
+        assert!(
+            gens.len() == used.len(),
+            "the primary's generations are one per row of the ring"
+        );
+        assert!(
+            alt_gens.len() >= alt_used.len(),
+            "the alternate screen's generations are one per row"
+        );
         assert!(
             cells3.len() == CELLS3 || cells3.is_empty(),
             "the three-byte cell table is 1024 x 256 entries, or absent"
@@ -1725,8 +1745,7 @@ impl<'b> Storage<'b> {
             arena,
             stride,
             depth,
-            vp,
-            used,
+            surfaces: SurfaceStore::new(stride, (vp, used, gens), (alt, alt_used, alt_gens)),
             cells3,
             tmpl: styles.slots,
             style_log: StyleLog {
@@ -1738,12 +1757,7 @@ impl<'b> Storage<'b> {
             tabs,
             reply: crate::outgoing::Outgoing::new(answers),
             clusters: ClusterStore::new(clusters),
-            alt: AltBuf {
-                cells: alt,
-                used: alt_used,
-                rot: RowRot::NONE,
-            },
-            status: crate::status::StatusBuf::none(),
+            alt: AltBuf { rot: RowRot::NONE },
             book: Book {
                 hist: Rows::ZERO,
                 hidden: Rows::ZERO,

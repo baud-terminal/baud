@@ -4165,8 +4165,9 @@ impl Paint<'_, '_> {
         }
         // The line's row, while the main display is written: its fence is
         // taken again when it is swapped in.
-        if let Some(u) = self.status.used.first_mut() {
+        if self.status.store().rows() > 0 {
             let cols = self.cols;
+            let mut u = self.status.store_mut().mark_mut(0);
             self.strs
                 .status
                 .park
@@ -5981,9 +5982,11 @@ impl Paint<'_, '_> {
         // baud clears it from either screen, because its slots are freed on
         // the promise that no cell a reader can reach still names one.
         let n = self.view.erase_ring();
-        self.other.cells.fill(PackedCell::EMPTY);
-        self.other.used.fill(RowExtent::ZERO);
-        self.cells = self.cells.plus(n + self.other.cells.len());
+        let (mut cells, mut marks) = self.other.store_mut().all_mut();
+        cells.fill(PackedCell::EMPTY);
+        marks.fill(RowExtent::ZERO);
+        let away = cells.len();
+        self.cells = self.cells.plus(n + away);
         // No cell names a generation now, so every one goes at once
         // (`crate::freeze`).
         if self.any_frozen() {

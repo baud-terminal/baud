@@ -347,13 +347,13 @@ fn a_cursor_restore_brings_back_origin_mode_and_leaves_autowrap() {
 
 /// **Shrinking after a scroll must not panic, and this is the one that bites.**
 ///
-/// `Term::viewport` un-rotates in place with `rotate_left_by`, and a rotation
-/// is an index into the row count that was live when the scroll happened.
-/// Scroll a 50-row screen eleven times, shrink to ten rows, ask for the
-/// viewport: the rotation is 11 and the slice is 10, and `rotate_left` panics
-/// `mid <= self.len()`. That is why `resize` un-rotates **over the old
-/// height** before it changes the row count -- and the rows around the
-/// cursor survive, in order, with the rows above them retired to history. It is also the reason a resize entry
+/// A rotation is an index into the ring, set when the scroll happened, and a
+/// shrink changes the row count under it: scroll a 50-row screen sixty lines,
+/// shrink to ten rows, and the rotation must still address the ten rows
+/// that stay. An earlier `Term::viewport` un-rotated the buffer in place
+/// with `rotate_left`, which panicked `mid <= self.len()` on exactly this,
+/// and nothing un-rotates now: the rows around the cursor survive, in
+/// order, with the rows above them retired to history. It is also the reason a resize entry
 /// point that nothing calls is dangerous rather than merely untested --
 /// `baud-core2`'s equivalent had a panic in it and no caller for long enough
 /// to keep it.

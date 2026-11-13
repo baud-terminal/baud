@@ -27,7 +27,7 @@
 //! active screen thaws it, and every one that takes a screen row off clears
 //! its tag (`baud-core`'s `freeze.rs`).
 
-use crate::{LineIdx, PackedCell, RowRot, Rows, StyleId, StyleWord};
+use crate::{LineIdx, RowMut, RowRot, Rows, StyleId, StyleWord};
 
 /// **Which generation record a frozen row names.**
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -538,7 +538,8 @@ impl<'a> FrozenStore<'a> {
         });
     }
 
-    /// **Row `row`'s cells rewritten to generation `g`'s ids**, each live
+    /// **Row `row`'s cells rewritten to generation `g`'s ids**, the row a
+    /// [`RowMut`] already stamped, each live
     /// slot resolved through `table` and given the generation's next id the
     /// first time it is met. Nothing is written unless the whole row fits:
     /// the generation holds at most `table.len()` words, so its ids index a
@@ -546,7 +547,7 @@ impl<'a> FrozenStore<'a> {
     pub fn freeze_row(
         &mut self,
         g: GenIdx,
-        row: &mut [PackedCell],
+        mut row: RowMut<'_>,
         table: &[Option<StyleWord>],
     ) -> RowFreeze {
         let rec = self.gens[g.index()];
@@ -591,7 +592,7 @@ impl<'a> FrozenStore<'a> {
     pub fn refreeze_row(
         &mut self,
         g: GenIdx,
-        row: &mut [PackedCell],
+        mut row: RowMut<'_>,
         from: Option<GenIdx>,
         live: &[Option<StyleWord>],
     ) -> RowFreeze {

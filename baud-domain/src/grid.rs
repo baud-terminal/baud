@@ -1,7 +1,9 @@
 use crate::*;
 
 mod reflow;
+mod store;
 pub use reflow::{Follow, Recut, Reflowed};
+pub use store::*;
 
 /// A grid indexed by [`Row`] and [`Col`], never by an integer.
 ///
@@ -130,7 +132,7 @@ impl<'a> ViewRef<'a> {
     /// `c` itself, unless `c` names a double-width character's tail, in which
     /// case the character lives one column back. **This is the only way to
     /// build a [`LeadCol`]**, because the grid is the only thing that knows
-    /// which columns hold tails -- the same reason `snap_at` widens a fill to
+    /// which columns hold tails -- the same reason `snap_row` widens a fill to
     /// whole characters rather than trusting the caller's bounds.
     pub fn lead(&self, r: Row, c: Col) -> LeadCol {
         match c.index() > 0 && self.get(r, c).content.is_wide_tail() {
@@ -156,17 +158,27 @@ impl<'a> ViewRef<'a> {
 ///
 /// The 26 occurrences of `y * MAX_COLS + x` this replaces were 26 chances to
 /// transpose the axes or forget the clamp. Here the arithmetic happens once.
+///
+/// Its memory is a [`Stamped`]: no method hands out the surface's cells
+/// unstamped.
+///
+/// ```compile_fail,E0599
+/// fn f(v: &mut baud_domain::View<'_>) { let _ = v.ring_cells_mut(); }
+/// ```
+/// ```
+/// fn f(v: &mut baud_domain::View<'_>) { let _ = v.ring_cells(); }
+/// ```
 pub struct View<'a> {
-    cells: &'a mut [PackedCell],
-    /// How far glyphs have reached in each **physical** row. See [`RowExtent`].
+    /// The surface's cells, its marks -- how far glyphs have reached in
+    /// each **physical** row, see [`RowExtent`] -- and its rows'
+    /// generations, as one [`Stamped`]: every store this view makes goes
+    /// through it and stamps the row it writes, so a renderer can keep the
+    /// rows nothing wrote.
     ///
-    /// Carried here rather than maintained by the caller so that the two
-    /// cannot drift: every mutator on this type bumps it, and the line moves
-    /// permute it in the same loop that permutes the rows. A caller holding the
-    /// marks separately would have to remember both, which is the shape of
-    /// invariant this crate keeps moving *into* `View` rather than out of it.
-    used: &'a mut [RowExtent],
-    stride: Stride,
+    /// The marks are carried here rather than maintained by the caller so
+    /// that the two cannot drift: every mutator on this type bumps them, and
+    /// the line moves permute them in the same loop that permutes the rows.
+    store: Stamped<'a>,
     cols: Cols,
     rows: Rows,
     /// **Physical rows in the buffer -- the modulus of the rotation.** The
@@ -672,10 +684,35 @@ impl core::ops::Index<core::ops::RangeFrom<usize>> for Viewport<'_> {
 /// depth and rotation, held so the two can be swapped without a copy when
 /// `?1049` switches screens.
 pub struct Surface<'a> {
-    pub cells: &'a mut [PackedCell],
-    pub used: &'a mut [RowExtent],
-    pub ring: Rows,
-    pub rot: RowRot,
+    store: Stamped<'a>,
+    ring: Rows,
+    rot: RowRot,
+}
+
+/// ```compile_fail,E0616
+/// fn f(s: &baud_domain::Surface<'_>) -> baud_domain::RowRot { s.rot }
+/// ```
+impl<'a> Surface<'a> {
+    /// A surface over `store`: a ring of `ring` rows under rotation `rot`.
+    pub fn new(store: Stamped<'a>, ring: Rows, rot: RowRot) -> Surface<'a> {
+        Surface { store, ring, rot }
+    }
+    /// Its rotation.
+    pub fn rot(&self) -> RowRot {
+        self.rot
+    }
+    /// Its ring's depth.
+    pub fn ring(&self) -> Rows {
+        self.ring
+    }
+    /// Its memory, to read.
+    pub fn store(&self) -> &Stamped<'a> {
+        &self.store
+    }
+    /// Its memory, to write: every store through it stamps.
+    pub fn store_mut(&mut self) -> &mut Stamped<'a> {
+        &mut self.store
+    }
 }
 
 impl<'a> View<'a> {
@@ -697,36 +734,24 @@ impl<'a> View<'a> {
             rot,
         }
     }
-    pub fn new(
-        cells: &'a mut [PackedCell],
-        used: &'a mut [RowExtent],
-        stride: Stride,
-        cols: Cols,
-        rows: Rows,
-        ring: Rows,
-        rot: RowRot,
-    ) -> View<'a> {
+    /// A view of `rows` x `cols` over `store`, a ring of `ring` rows under
+    /// rotation `rot`, each row at the store's pitch.
+    ///
+    /// # Panics
+    /// If `cols` exceeds the pitch: a column past it would land in the next
+    /// row, which a one-character writer's [`RowWrite`] does not check.
+    pub fn new(store: Stamped<'a>, cols: Cols, rows: Rows, ring: Rows, rot: RowRot) -> View<'a> {
+        assert!(
+            cols.index() <= store.stride().index(),
+            "a view wider than its pitch"
+        );
         View {
-            cells,
-            used,
-            stride,
+            store,
             cols,
             rows,
             ring,
             rot,
         }
-    }
-
-    /// Record that a write reached column `to` (exclusive) on screen row `r`.
-    ///
-    /// Monotone: `RowExtent::reached` takes a max, so a caller that
-    /// over-reports costs a few stores and one that under-reports would leave
-    /// stale text. Every mutator below calls this, and
-    /// `tests/row_extent.rs` fails the build if one stops.
-    #[inline(always)]
-    fn reached(&mut self, r: Row, to: usize) {
-        let p = self.phys(r);
-        self.used[p] = self.used[p].reached(to);
     }
 
     /// The rotation this view holds.
@@ -739,21 +764,22 @@ impl<'a> View<'a> {
     #[cold]
     #[inline(never)]
     fn fill_past_edge(&mut self, p: usize, a: usize, cell: PackedCell) -> usize {
-        let base = p * self.stride.index();
-        let (to, bidi) = (self.used[p].index(), self.used[p].bidi());
+        let base = p * self.stride().index();
+        let (to, bidi) = (self.store.used()[p].index(), self.store.used()[p].bidi());
         let mark = self
             .mark_after_fill(base, to, cell, RowExtent::of(a))
             .with_bidi(bidi)
-            .with_links(links_after(self.used[p], cell));
+            .with_links(links_after(self.store.used()[p], cell));
         // From column 0 the row is erased whole, and DECRLM's mark goes.
-        self.used[p] = match a == 0 {
+        let (mut row, mut m) = self.store.row_and_mark(p);
+        *m = match a == 0 {
             true => mark.erased(),
             false => mark,
         };
         if a >= to {
             return 0;
         }
-        self.cells[base + a..base + to].fill(cell);
+        row[a..to].fill(cell);
         to - a
     }
 
@@ -778,9 +804,9 @@ impl<'a> View<'a> {
         cell: PackedCell,
         low: RowExtent,
     ) -> RowExtent {
-        let (cols, s) = (self.cols.index(), self.stride.index());
+        let (cols, s) = (self.cols.index(), self.stride().index());
         match to <= cols
-            || (cell == PackedCell::EMPTY && (to >= s || self.cells[base + to] == cell))
+            || (cell == PackedCell::EMPTY && (to >= s || self.store.cells()[base + to] == cell))
         {
             true => low,
             false => RowExtent::of(to),
@@ -801,7 +827,10 @@ impl<'a> View<'a> {
     #[inline(never)]
     pub fn set_wrapped(&mut self, r: Row) {
         let p = self.phys(r);
-        self.used[p] = self.used[p].wrapping(self.cols.index()).at_edge();
+        self.store.mark(
+            p,
+            self.store.used()[p].wrapping(self.cols.index()).at_edge(),
+        );
     }
 
     /// Row `r` ends where it stops: a newline left it. Clears the wrap.
@@ -809,7 +838,7 @@ impl<'a> View<'a> {
     #[inline(never)]
     pub fn set_ended(&mut self, r: Row) {
         let p = self.phys(r);
-        self.used[p] = self.used[p].ended();
+        self.store.mark(p, self.store.used()[p].ended());
     }
 
     /// Exchange this view's surface with `other`: the cells, marks, depth
@@ -817,8 +846,7 @@ impl<'a> View<'a> {
     /// alternate screen is a second surface rather than a place to park the
     /// primary, so entering and leaving it copies nothing.
     pub fn swap_surface(&mut self, other: &mut Surface<'a>) {
-        core::mem::swap(&mut self.cells, &mut other.cells);
-        core::mem::swap(&mut self.used, &mut other.used);
+        core::mem::swap(&mut self.store, &mut other.store);
         core::mem::swap(&mut self.ring, &mut other.ring);
         core::mem::swap(&mut self.rot, &mut other.rot);
     }
@@ -838,9 +866,9 @@ impl<'a> View<'a> {
     /// [`View::window_into`] otherwise. Most of the time it does not: the
     /// window wraps for `rows` of every `ring` positions.
     pub fn window(&self) -> Option<&[PackedCell]> {
-        let (a, n, s) = (self.rot.index(), self.rows.index(), self.stride.index());
+        let (a, n, s) = (self.rot.index(), self.rows.index(), self.stride().index());
         match a + n <= self.ring.index() {
-            true => Some(&self.cells[a * s..(a + n) * s]),
+            true => Some(&self.store.cells()[a * s..(a + n) * s]),
             false => None,
         }
     }
@@ -848,10 +876,10 @@ impl<'a> View<'a> {
     /// The screen's rows into `dst` in screen order, a row at a time, for
     /// the window that wraps.
     pub fn window_into(&self, dst: &mut [PackedCell]) {
-        let s = self.stride.index();
+        let s = self.stride().index();
         for y in 0..self.rows.index() {
             let a = self.phys(Row::from_index(y)) * s;
-            dst[y * s..(y + 1) * s].copy_from_slice(&self.cells[a..a + s]);
+            dst[y * s..(y + 1) * s].copy_from_slice(&self.store.cells()[a..a + s]);
         }
     }
 
@@ -902,24 +930,26 @@ impl<'a> View<'a> {
             Col::at_index(old_cols.index()),
             Col::at_index(self.cols.index()),
         );
-        let (rows, s) = (self.rows, self.stride.index());
+        let rows = self.rows;
         self.rows = self.ring;
         for y in 0..self.ring.index() {
             let r = Row::from_index(y);
             let (a, b) = self.snap(r, from, to);
             let p = self.phys(r);
-            let kept = self.used[p].rendition();
-            if self.used[p].index() > self.cols.index() {
+            let kept = self.store.used()[p].rendition();
+            if self.store.used()[p].index() > self.cols.index() {
                 self.fill_past_edge(p, a, PackedCell::EMPTY);
-                self.used[p] = self.used[p].with_rendition(kept, self.cols);
+                self.store
+                    .mark(p, self.store.used()[p].with_rendition(kept, self.cols));
                 continue;
             }
-            self.cells[p * s + a..p * s + b].fill(PackedCell::EMPTY);
+            let (mut row, mut m) = self.store.row_and_mark(p);
+            row[a..b].fill(PackedCell::EMPTY);
             // The line keeps its rendition: a growth reveals columns, it does
             // not erase the line (`[[source: dec-std-070]]` resets a rendition
             // only where a line is erased whole or scrolled in, pp. 5-156 and
             // 5-210).
-            self.used[p] = self.used[p].refilled(a).with_rendition(kept, self.cols);
+            *m = m.refilled(a).with_rendition(kept, self.cols);
         }
         self.rows = rows;
     }
@@ -950,35 +980,38 @@ impl<'a> View<'a> {
     /// direction for a mark; a re-cut reads a wrapped row's cells by the
     /// width, not by its mark.
     pub fn settle_growth(&mut self, old: Cols) -> usize {
-        let (old, new, s) = (old.index(), self.cols.index(), self.stride.index());
+        let (old, new, s) = (old.index(), self.cols.index(), self.stride().index());
         if new <= old || old == 0 {
             return 0;
         }
         let mut raised = 0;
         for p in 0..self.ring.index() {
-            let m = self.used[p].index();
+            let m = self.store.used()[p].index();
             if m >= new {
                 continue;
             }
             // A sized row's mark is the width it was sized at, and `reached`
             // keeps it by `max` alone on the same promise the wrap's makes.
-            if self.used[p].flagged() {
-                self.used[p] = self.used[p].raised_to(new);
+            if self.store.used()[p].flagged() {
+                self.store.mark(p, self.store.used()[p].raised_to(new));
                 raised += 1;
                 continue;
             }
             let base = p * s;
             let from = m.max(old);
-            let u = self.cells[base + if m < old { old - 1 } else { m }];
-            if self.cells[base + from..base + new].iter().all(|c| *c == u) {
+            let u = self.store.cells()[base + if m < old { old - 1 } else { m }];
+            if self.store.cells()[base + from..base + new]
+                .iter()
+                .all(|c| *c == u)
+            {
                 continue;
             }
-            let last = self.cells[base + new - 1];
+            let last = self.store.cells()[base + new - 1];
             let mut k = new;
-            while k > m && self.cells[base + k - 1] == last {
+            while k > m && self.store.cells()[base + k - 1] == last {
                 k -= 1;
             }
-            self.used[p] = self.used[p].raised_to(k);
+            self.store.mark(p, self.store.used()[p].raised_to(k));
             raised += 1;
         }
         raised
@@ -998,8 +1031,8 @@ impl<'a> View<'a> {
             .rot
             .advance(self.rows.index() + ahead, self.ring)
             .index();
-        let base = p * self.stride.index();
-        &self.cells[base..base + self.cols.index()]
+        let base = p * self.stride().index();
+        &self.store.cells()[base..base + self.cols.index()]
     }
 
     /// Advance the rotation by `n` rows: a scroll, from the view's side.
@@ -1039,9 +1072,10 @@ impl<'a> View<'a> {
     /// past the screen writes into them without clearing past its width.
     /// Returns the cells written.
     pub fn erase_ring(&mut self) -> usize {
-        self.cells.fill(PackedCell::EMPTY);
-        self.used.fill(RowExtent::ZERO);
-        self.cells.len()
+        let (mut cells, mut marks) = self.store.all_mut();
+        cells.fill(PackedCell::EMPTY);
+        marks.fill(RowExtent::ZERO);
+        cells.len()
     }
 
     /// Erase every row of the ring but the `keep` rows from the window's top,
@@ -1057,15 +1091,16 @@ impl<'a> View<'a> {
     /// after it.
     pub fn erase_outside(&mut self, keep: Rows) -> (usize, RowLinks) {
         let mut links = RowLinks::None;
-        let (ring, s) = (self.ring.index(), self.stride.index());
+        let (ring, s) = (self.ring.index(), self.stride().index());
         let mut n = 0;
         for k in keep.index().min(ring)..ring {
             let p = self.rot.advance(k, self.ring).index();
-            self.cells[p * s..(p + 1) * s].fill(PackedCell::EMPTY);
-            if self.used[p].links() == RowLinks::May {
+            let (mut row, mut m) = self.store.row_and_mark(p);
+            row.fill(PackedCell::EMPTY);
+            if m.links() == RowLinks::May {
                 links = RowLinks::May;
             }
-            self.used[p] = RowExtent::ZERO;
+            *m = RowExtent::ZERO;
             n += s;
         }
         (n, links)
@@ -1078,15 +1113,16 @@ impl<'a> View<'a> {
     /// and so does what DECSED does on the screen. The rows stay rows of the history. A mark only rises, as
     /// [`View::put`]'s does. Returns the cells written.
     pub fn selective_wipe_behind(&mut self, hist: Rows) -> usize {
-        let (s, cols) = (self.stride.index(), self.cols.index());
+        let cols = self.cols.index();
         let mut n = 0;
         for k in 1..=hist.index().min(self.ring.index()) {
             let p = self.rot.retreat(k, self.ring).index();
+            let (mut row, mut m) = self.store.row_and_mark(p);
             for x in 0..cols {
-                let old = self.cells[p * s + x];
+                let old = row[x];
                 if !old.is_protected() && !old.content.is_empty() {
-                    self.cells[p * s + x] = PackedCell::selectively_erased(old);
-                    self.used[p] = self.used[p].reached(x + 1);
+                    row[x] = PackedCell::selectively_erased(old);
+                    *m = m.reached(x + 1);
                     n += 1;
                 }
             }
@@ -1127,19 +1163,14 @@ impl<'a> View<'a> {
             return 0;
         }
         let w = self.cols.index();
-        let n = self.used[a].index().max(self.used[b].index()).min(w);
-        let stride = self.stride.index();
-        let (lo, hi) = match a < b {
-            true => (a, b),
-            false => (b, a),
-        };
-        let (head, tail) = self.cells.split_at_mut(hi * stride);
-        let (src, dst) = match a < b {
-            true => (&head[lo * stride..lo * stride + w], &mut tail[..w]),
-            false => (&tail[..w], &mut head[lo * stride..lo * stride + w]),
-        };
+        let n = self.store.used()[a]
+            .index()
+            .max(self.store.used()[b].index())
+            .min(w);
+        let (src, from, mut row, mut m) = self.store.from_into(a, b);
+        let (src, dst) = (&src[..w], &mut row[..w]);
         dst[..n].copy_from_slice(&src[..n]);
-        self.used[b] = self.used[a];
+        *m = from;
         if n == w {
             return n;
         }
@@ -1190,7 +1221,7 @@ impl<'a> View<'a> {
         reach: Cols,
         past: &mut PastRows<'_>,
     ) -> usize {
-        let s = self.stride.index();
+        let s = self.stride().index();
         let (w, end) = (self.cols.index(), reach.index().min(s));
         if end <= w {
             return 0;
@@ -1217,12 +1248,11 @@ impl<'a> View<'a> {
         end: usize,
         past: &mut PastRows<'_>,
     ) -> usize {
-        let s = self.stride.index();
         let from = past.get(a);
         if a == b || (from == PastEdge::Clear && past.get(b) == PastEdge::Clear) {
             return 0;
         }
-        self.cells.copy_within(a * s + w..a * s + end, b * s + w);
+        self.store.copy_within_rows(a, w..end, b, w);
         past.set(b, from);
         end - w
     }
@@ -1247,7 +1277,7 @@ impl<'a> View<'a> {
         past: &mut PastRows<'_>,
     ) -> usize {
         let (cy, bot) = (at.index(), bottom.index().min(self.rows.index() - 1));
-        let (w, end) = (self.cols.index(), reach.index().min(self.stride.index()));
+        let (w, end) = (self.cols.index(), reach.index().min(self.stride().index()));
         if cy > bot || end <= w {
             return 0;
         }
@@ -1282,7 +1312,7 @@ impl<'a> View<'a> {
         past: &mut PastRows<'_>,
     ) -> usize {
         let (cy, bot) = (at.index(), bottom.index().min(self.rows.index() - 1));
-        let (w, end) = (self.cols.index(), reach.index().min(self.stride.index()));
+        let (w, end) = (self.cols.index(), reach.index().min(self.stride().index()));
         if cy > bot || end <= w {
             return 0;
         }
@@ -1370,7 +1400,7 @@ impl<'a> View<'a> {
         whole: (RowRot, Rows),
         past: &mut PastRows<'_>,
     ) -> Cols {
-        let s = self.stride.index();
+        let s = self.stride().index();
         let (w, end) = (self.cols.index(), reach.index().min(s));
         let was = was.index().min(end);
         if kept == Kept::Nothing {
@@ -1393,16 +1423,16 @@ impl<'a> View<'a> {
         }
         let mut held = w;
         let mut count = 0;
-        for p in 0..self.ring.index() {
-            let reach_p = match past.flags[p] {
-                PastEdge::Held => reach_of_row(self.cells, self.used, s, p, w, end),
-                PastEdge::Clear if w < was => match self.cells[p * s + was - 1] {
+        for (p, f) in past.flags.iter_mut().enumerate().take(self.ring.index()) {
+            let reach_p = match *f {
+                PastEdge::Held => reach_of_row(self.store.cells(), self.store.used(), s, p, w, end),
+                PastEdge::Clear if w < was => match self.store.cells()[p * s + was - 1] {
                     c if c != PackedCell::EMPTY => was,
-                    _ => self.used[p].index().min(end).max(w),
+                    _ => self.store.used()[p].index().min(end).max(w),
                 },
                 PastEdge::Clear => w,
             };
-            past.flags[p] = match reach_p > w {
+            *f = match reach_p > w {
                 true => {
                     count += 1;
                     PastEdge::Held
@@ -1500,11 +1530,11 @@ impl<'a> View<'a> {
 
     /// [`View::clear_past_edge`] on physical row `p`.
     fn clear_past_edge_at(&mut self, p: usize, reach: Cols, past: &mut PastRows<'_>) -> usize {
-        let s = self.stride.index();
+        let s = self.stride().index();
         if past.get(p) == PastEdge::Clear {
             return 0;
         }
-        let (w, m) = (self.cols.index(), self.used[p].index());
+        let (w, m) = (self.cols.index(), self.store.used()[p].index());
         let from = w.max(m);
         let end = reach.index().min(s);
         if m <= w {
@@ -1513,28 +1543,28 @@ impl<'a> View<'a> {
         if end <= from {
             return 0;
         }
-        self.cells[p * s + from..p * s + end].fill(PackedCell::EMPTY);
+        self.store.span_mut(p, from..end).fill(PackedCell::EMPTY);
         end - from
     }
 
     /// The mark for screen row `r`.
     pub fn extent(&self, r: Row) -> RowExtent {
-        self.used[self.phys(r)]
+        self.store.used()[self.phys(r)]
     }
 
     /// Screen row `r`'s line rendition.
     pub fn rendition(&self, r: Row) -> LineRendition {
-        self.used[self.phys(r)].rendition()
+        self.store.used()[self.phys(r)].rendition()
     }
 
     /// Screen row `r`'s character path.
     pub fn path(&self, r: Row) -> CharacterPath {
-        self.used[self.phys(r)].path()
+        self.store.used()[self.phys(r)].path()
     }
 
     /// Screen row `r`'s paragraph properties ([`LineBidi`]).
     pub fn bidi(&self, r: Row) -> LineBidi {
-        self.used[self.phys(r)].bidi()
+        self.store.used()[self.phys(r)].bidi()
     }
 
     /// Give screen row `r` the paragraph properties `to`: the cells and
@@ -1546,7 +1576,7 @@ impl<'a> View<'a> {
             return;
         }
         let p = self.phys(r);
-        self.used[p] = self.used[p].with_bidi(to);
+        self.store.mark(p, self.store.used()[p].with_bidi(to));
     }
 
     /// **Screen row `r` wrapped at side margins `m`**, narrower than the
@@ -1558,14 +1588,14 @@ impl<'a> View<'a> {
             return;
         }
         let p = self.phys(r);
-        self.used[p] = self.used[p].with_margins(m);
+        self.store.mark(p, self.store.used()[p].with_margins(m));
     }
 
     /// The paragraph properties of the row `back` rows behind the window's
     /// top, the newest at zero: a line of the history, read as
     /// [`View::set_bidi_behind`] writes it.
     pub fn bidi_behind(&self, back: Rows) -> LineBidi {
-        self.used[self.rot.retreat(back.index() + 1, self.ring).index()].bidi()
+        self.store.used()[self.rot.retreat(back.index() + 1, self.ring).index()].bidi()
     }
 
     /// Give the row `back` rows behind the window's top the paragraph
@@ -1576,7 +1606,7 @@ impl<'a> View<'a> {
     #[inline(never)]
     pub fn set_bidi_behind(&mut self, back: Rows, to: LineBidi) {
         let p = self.rot.retreat(back.index() + 1, self.ring).index();
-        self.used[p] = self.used[p].with_bidi(to);
+        self.store.mark(p, self.store.used()[p].with_bidi(to));
     }
 
     /// The row `back` rows behind the window's top ends where it stops: a
@@ -1585,13 +1615,13 @@ impl<'a> View<'a> {
     #[inline(never)]
     pub fn set_ended_behind(&mut self, back: Rows) {
         let p = self.rot.retreat(back.index() + 1, self.ring).index();
-        self.used[p] = self.used[p].ended();
+        self.store.mark(p, self.store.used()[p].ended());
     }
 
     /// Whether the row `back` rows behind the window's top continues onto
     /// the next.
     pub fn wrapped_behind(&self, back: Rows) -> Wrap {
-        match self.used[self.rot.retreat(back.index() + 1, self.ring).index()].wrapped() {
+        match self.store.used()[self.rot.retreat(back.index() + 1, self.ring).index()].wrapped() {
             true => Wrap::Continues,
             false => Wrap::Ended,
         }
@@ -1608,12 +1638,17 @@ impl<'a> View<'a> {
             return;
         }
         let p = self.phys(r);
-        self.used[p] = self.used[p].with_rendition(to, self.cols);
+        self.store
+            .mark(p, self.store.used()[p].with_rendition(to, self.cols));
     }
 
     /// **Mark screen row `r` as the scroll area's top, or unmark it**,
     /// through [`RowExtent::with_region_top`], which raises the mark to the
-    /// live width to mark it ([`RegionTop`]).
+    /// live width to mark it ([`RegionTop`]). The mark is stored through
+    /// the store, which stamps the row; a row already marked as asked
+    /// stores nothing and is not stamped, so the move that marks the top
+    /// again on every row change (`Fences::ByRow`, in `baud-core`) moves
+    /// a generation only where a fill rebuilt the mark.
     #[cold]
     #[inline(never)]
     pub fn set_region_top(&mut self, r: Row, t: RegionTop) {
@@ -1621,8 +1656,9 @@ impl<'a> View<'a> {
             return;
         }
         let p = self.phys(r);
-        if self.used[p].region_top() != t {
-            self.used[p] = self.used[p].with_region_top(t, self.cols);
+        let m = self.store.mark_at(p);
+        if m.region_top() != t {
+            self.store.mark(p, m.with_region_top(t, self.cols));
         }
     }
 
@@ -1632,7 +1668,13 @@ impl<'a> View<'a> {
     pub fn rows(&self) -> Rows {
         self.rows
     }
+    /// # Panics
+    /// If `cols` exceeds the pitch, as [`View::new`].
     pub fn set_geometry(&mut self, cols: Cols, rows: Rows) {
+        assert!(
+            cols.index() <= self.stride().index(),
+            "a view wider than its pitch"
+        );
         self.cols = cols;
         self.rows = rows;
     }
@@ -1653,7 +1695,7 @@ impl<'a> View<'a> {
 
     #[inline(always)]
     pub(crate) fn at(&self, r: Row, c: Col) -> usize {
-        self.phys(r) * self.stride.index() + c.index()
+        self.phys(r) * self.stride().index() + c.index()
     }
 
     /// One cell, at `(r, c)`: a rectangle's copy or fill, an attribute
@@ -1663,10 +1705,9 @@ impl<'a> View<'a> {
     pub fn put(&mut self, r: Row, c: Col, cell: PackedCell) {
         if r.index() < self.rows.index() && c.index() < self.cols.index() {
             let p = self.phys(r);
-            self.cells[p * self.stride.index() + c.index()] = cell;
-            self.used[p] = self.used[p]
-                .reached(c.index() + 1)
-                .with_links(links_after(self.used[p], cell));
+            let (mut row, mut m) = self.store.row_and_mark(p);
+            row[c.index()] = cell;
+            *m = m.reached(c.index() + 1).with_links(links_after(*m, cell));
         }
     }
 
@@ -1675,7 +1716,8 @@ impl<'a> View<'a> {
     pub fn link_row(&mut self, r: Row) {
         if r.index() < self.rows.index() {
             let p = self.phys(r);
-            self.used[p] = self.used[p].with_links(RowLinks::May);
+            self.store
+                .mark(p, self.store.used()[p].with_links(RowLinks::May));
         }
     }
 
@@ -1683,18 +1725,12 @@ impl<'a> View<'a> {
     /// rows [`RowLinks::May`] says may hold one, each to its mark and its
     /// last live cell ([`mark_linked_rows`]). Returns what it read.
     pub fn mark_links(&mut self, live: &mut LinkLive) -> Cells {
-        mark_linked_rows(
-            self.cells,
-            self.used,
-            self.stride.index(),
-            self.cols.index(),
-            live,
-        )
+        mark_linked_rows(&mut self.store, self.cols.index(), live)
     }
     #[inline(always)]
     pub fn get(&self, r: Row, c: Col) -> PackedCell {
         if r.index() < self.rows.index() && c.index() < self.cols.index() {
-            self.cells[self.at(r, c)]
+            self.store.cells()[self.at(r, c)]
         } else {
             PackedCell::EMPTY
         }
@@ -1737,11 +1773,15 @@ impl<'a> View<'a> {
             return;
         }
         let p = self.phys(r);
-        let base = p * self.stride.index();
+        let cols = self.cols.index();
         let start = at.index();
-        let n = src.len().min(self.cols.index().saturating_sub(start));
+        let n = src.len().min(cols.saturating_sub(start));
+        // **One stamp a run**, before the cut tests and every arm below: the
+        // row's cells and its mark, minted together. `ceiling-no-store` keeps
+        // it whichever arm runs.
+        let (mut row, mut mark) = self.store.row_and_mark(p);
         // **Clear whatever this run is about to orphan**, inline against the
-        // `base` already computed rather than through `View::clear_partners`.
+        // row already in hand rather than through `View::clear_partners`.
         // Calling that from `baud-core2`'s `blit` needed a second `self.view()`
         // per run and measured **-6 to -9%** on every payload; here it is two
         // loads and two compares against a pointer that already exists, per
@@ -1758,19 +1798,19 @@ impl<'a> View<'a> {
         // for the test and not for the repair.
         if n > 0 {
             let end = start + n;
-            let cut_lead = start > 0 && self.cells[base + start].content.is_wide_tail();
-            let cut_tail = end < self.cols.index() && self.cells[base + end].content.is_wide_tail();
+            let cut_lead = start > 0 && row[start].content.is_wide_tail();
+            let cut_tail = end < cols && row[end].content.is_wide_tail();
             if cut_lead || cut_tail {
                 let blank = PackedCell::empty_with(style);
                 if cut_lead {
-                    self.cells[base + start - 1] = blank;
+                    row[start - 1] = blank;
                 }
                 if cut_tail {
-                    self.cells[base + end] = blank;
+                    row[end] = blank;
                 }
             }
         }
-        self.used[p] = self.used[p].reached(start + n);
+        *mark = mark.reached(start + n);
         // Two loops, and the duplication is the point.
         //
         // Threading `flags` as a *runtime* value into the per-cell store cost
@@ -1794,33 +1834,21 @@ impl<'a> View<'a> {
                 style,
                 flags,
             };
-            Self::put_designated_run(
-                &mut self.cells[base + start..base + start + n],
-                &src[..n],
-                proto,
-                set,
-            );
+            Self::put_designated_run(&mut row[start..start + n], &src[..n], proto, set);
         } else if flags == CellFlags::NONE {
             let proto = PackedCell {
                 content: Content::EMPTY,
                 style,
                 flags: CellFlags::NONE,
             };
-            Self::put_ascii_vectored(
-                &mut self.cells[base + start..base + start + n],
-                &src[..n],
-                proto,
-            );
+            Self::put_ascii_vectored(&mut row[start..start + n], &src[..n], proto);
         } else {
             let proto = PackedCell {
                 content: Content::EMPTY,
                 style,
                 flags,
             };
-            for (d, &b) in self.cells[base + start..base + start + n]
-                .iter_mut()
-                .zip(&src[..n])
-            {
+            for (d, &b) in row[start..start + n].iter_mut().zip(&src[..n]) {
                 *d = proto.with_ascii(StreamByte::from_stream(b));
             }
         }
@@ -1860,21 +1888,22 @@ impl<'a> View<'a> {
             return RowExtent::ZERO;
         }
         let p = self.phys(r);
-        let base = p * self.stride.index();
         let end = x + 2 * n;
         // The orphan rule, once for the whole run rather than once per
-        // character: only its two edges can cut a pair.
+        // character: only its two edges can cut a pair. Read through the
+        // row minted for the run, so its base is computed once.
         let blank = PackedCell::empty_with(style);
-        let (sa, sb) = self.snap_at(base, x, end);
+        let (mut row, mut mark) = self.store.row_and_mark(p);
+        let (sa, sb) = snap_row(|i| row[i].content.is_wide_tail(), cols, x, end);
         if sa < x {
-            self.cells[base + sa] = blank;
+            row[sa] = blank;
         }
         if sb > end {
-            self.cells[base + sb - 1] = blank;
+            row[sb - 1] = blank;
         }
         let proto = PackedCell::wide_tail(style, flags);
-        Self::put_wide_vectored(&mut self.cells[base + x..base + end], &cps[..n], proto);
-        self.used[p] = self.used[p].reached(sb.max(end));
+        Self::put_wide_vectored(&mut row[x..end], &cps[..n], proto);
+        *mark = mark.reached(sb.max(end));
         RowExtent::of(2 * n)
     }
 
@@ -1909,19 +1938,19 @@ impl<'a> View<'a> {
             return RowExtent::ZERO;
         }
         let p = self.phys(r);
-        let base = p * self.stride.index();
         let end = x + n;
         let blank = PackedCell::empty_with(style);
-        let (sa, sb) = self.snap_at(base, x, end);
+        let (mut row, mut mark) = self.store.row_and_mark(p);
+        let (sa, sb) = snap_row(|i| row[i].content.is_wide_tail(), cols, x, end);
         if sa < x {
-            self.cells[base + sa] = blank;
+            row[sa] = blank;
         }
         if sb > end {
-            self.cells[base + sb - 1] = blank;
+            row[sb - 1] = blank;
         }
         let proto = PackedCell::glyph(Codepoint::REPLACEMENT, style, flags);
-        Self::put_narrow_vectored(&mut self.cells[base + x..base + end], &cps[..n], proto);
-        self.used[p] = self.used[p].reached(sb.max(end));
+        Self::put_narrow_vectored(&mut row[x..end], &cps[..n], proto);
+        *mark = mark.reached(sb.max(end));
         RowExtent::of(n)
     }
 
@@ -2097,20 +2126,26 @@ impl<'a> View<'a> {
             return;
         }
         let p = self.phys(r);
-        let base = p * self.stride.index();
         let cols = self.cols.index();
         let (a, b) = (from.index().min(cols), to.index().min(cols));
-        let (sa, sb) = self.snap_at(base, from.index(), to.index());
+        let mut row = self.store.row_at(p);
+        let (sa, sb) = snap_row(
+            |i| row.get(i).content.is_wide_tail(),
+            cols,
+            from.index(),
+            to.index(),
+        );
         if sa < a {
-            self.cells[base + sa] = blank;
+            row.set(sa, blank);
         }
         if sb > b {
-            self.cells[base + sb - 1] = blank;
+            row.set(sb - 1, blank);
             // **Past the mark, so the mark must move.** Everything beyond the
             // extent has to stay equal to the blank last written across the
             // row, or the O(1) "has the template changed" test that reads the
             // *last* cell stops implying anything about the cells before it.
-            self.used[p] = self.used[p].reached(sb);
+            let mut mark = row.mark();
+            *mark = mark.reached(sb);
         }
     }
 
@@ -2132,9 +2167,11 @@ impl<'a> View<'a> {
             return;
         }
         let p = self.phys(r);
-        let base = p * self.stride.index();
+        // One stamp, before the stores and kept by `ceiling-no-store`; the
+        // row's base once, and each store one compare against the cells.
+        let mut row = self.store.row_at(p);
         #[cfg(feature = "ceiling-no-store")]
-        let _ = (lead, base);
+        let _ = (lead, &mut row);
         // **Two stores, and combining them lost.** A lead and its `WIDE_TAIL`
         // are sixteen contiguous bytes, so one wide store should serve --
         // `copy_from_slice(&[lead, t])` measured **662-690 against 690-709**,
@@ -2144,22 +2181,23 @@ impl<'a> View<'a> {
         // sees them), which is why it was worth trying and worth recording.
         #[cfg(not(feature = "ceiling-no-store"))]
         {
-            self.cells[base + x] = lead;
+            row.set(x, lead);
         }
         let end = match tail {
             Some(_t) if x + 1 < cols => {
                 #[cfg(not(feature = "ceiling-no-store"))]
                 {
-                    self.cells[base + x + 1] = _t;
+                    row.set(x + 1, _t);
                 }
                 x + 2
             }
             _ => x + 1,
         };
-        self.used[p] = self.used[p].reached(end);
+        let mut mark = row.mark();
+        *mark = mark.reached(end);
         #[cfg(feature = "probe-double-extent")]
         {
-            self.used[p] = self.used[p].reached(end);
+            *mark = mark.reached(end);
         }
     }
 
@@ -2196,26 +2234,27 @@ impl<'a> View<'a> {
             return;
         }
         let p = self.phys(r);
-        let base = p * self.stride.index();
         let end = match tail {
             Some(_) => (x + 2).min(cols),
             None => x + 1,
         };
-        let (sa, sb) = self.snap_at(base, x, end);
+        let mut row = self.store.row_at(p);
+        let (sa, sb) = snap_row(|i| row.get(i).content.is_wide_tail(), cols, x, end);
         if sa < x {
-            self.cells[base + sa] = blank;
+            row.set(sa, blank);
         }
         if sb > end {
-            self.cells[base + sb - 1] = blank;
+            row.set(sb - 1, blank);
         }
-        self.cells[base + x] = lead;
+        row.set(x, lead);
         if let Some(t) = tail {
             if x + 1 < cols {
-                self.cells[base + x + 1] = t;
+                row.set(x + 1, t);
             }
         }
         // One extent update covering the glyph and whatever the repair touched.
-        self.used[p] = self.used[p].reached(sb.max(end));
+        let mut mark = row.mark();
+        *mark = mark.reached(sb.max(end));
     }
 
     /// [`Grid::snap`] for callers outside this type, in `Col`s.
@@ -2253,8 +2292,13 @@ impl<'a> View<'a> {
     /// five call sites each remembering a two-line invariant is five chances to
     /// forget it.
     fn snap(&self, r: Row, from: Col, to: Col) -> (usize, usize) {
-        let base = self.at(r, Col::ZERO);
-        self.snap_at(base, from.index(), to.index())
+        let row = self.store.row(self.phys(r));
+        snap_row(
+            |i| row[i].content.is_wide_tail(),
+            self.cols.index(),
+            from.index(),
+            to.index(),
+        )
     }
 
     /// Which cell owns the character at `c`. Mirrors [`ViewRef::lead`], which
@@ -2271,7 +2315,7 @@ impl<'a> View<'a> {
     /// extending it.
     pub fn cell_at(&self, r: Row, c: LeadCol) -> PackedCell {
         match r.index() < self.rows.index() && c.col().index() < self.cols.index() {
-            true => self.cells[self.phys(r) * self.stride.index() + c.col().index()],
+            true => self.store.cells()[self.phys(r) * self.stride().index() + c.col().index()],
             false => PackedCell::EMPTY,
         }
     }
@@ -2280,19 +2324,31 @@ impl<'a> View<'a> {
     /// word ([`Content::cluster`]), whose slot holds the base the content
     /// held, and its flags take [`CellFlags::MARKED`].
     ///
-    /// Raises `RowExtent` for the same reason [`View::set_marked`] does, and
-    /// that reason is written out there: a cell carrying continuations is not
-    /// equal to the blank in front of it, so a row left non-uniform beyond its
-    /// own mark has a later erase skip it.
+    /// **And the extent moves with it.** `RowExtent` records where the row
+    /// stops being *uniform*, not where the glyphs are, and a cell carrying
+    /// `MARKED` is not equal to the blank in front of it. Setting the bit
+    /// without raising the mark left the row non-uniform beyond its own
+    /// extent, so a later erase skipped the cell: `CSI ? 1 J` cleared a mark
+    /// that `CSI 1 J` left alone, which core2's DECSED-subset property
+    /// reported -- the defect `ECH` at the last column had too: an operation
+    /// that makes a cell differ from the blank must say so.
+    ///
+    /// **And the row is stamped whether or not the mark moves**: the base was
+    /// written to this cell, usually in an earlier frame, so the mark is
+    /// almost always past it already, and a renderer that kept the row would
+    /// draw the base without its mark.
     pub fn set_cluster(&mut self, r: Row, c: LeadCol, id: ClusterId) {
         if r.index() >= self.rows.index() || c.col().index() >= self.cols.index() {
             return;
         }
-        let p = self.phys(r);
-        let i = p * self.stride.index() + c.col().index();
-        self.cells[i].content = Content::cluster(id);
-        self.cells[i].flags = self.cells[i].flags.with(CellFlags::MARKED);
-        self.used[p] = self.used[p].reached(c.col().index() + 1);
+        let (p, x) = (self.phys(r), c.col().index());
+        let mut row = self.store.row_at(p);
+        let mut cell = row.get(x);
+        cell.content = Content::cluster(id);
+        cell.flags = cell.flags.with(CellFlags::MARKED);
+        row.set(x, cell);
+        let mut mark = row.mark();
+        *mark = mark.reached(x + 1);
     }
 
     /// Give a U+10EEEE cell its diacritics: its content becomes the
@@ -2303,94 +2359,44 @@ impl<'a> View<'a> {
         if r.index() >= self.rows.index() || c.col().index() >= self.cols.index() {
             return;
         }
-        let p = self.phys(r);
-        let i = p * self.stride.index() + c.col().index();
-        self.cells[i].content = word;
-        self.cells[i].flags = self.cells[i].flags.with(CellFlags::MARKED);
-        self.used[p] = self.used[p].reached(c.col().index() + 1);
+        let (p, x) = (self.phys(r), c.col().index());
+        let mut row = self.store.row_at(p);
+        let mut cell = row.get(x);
+        cell.content = word;
+        cell.flags = cell.flags.with(CellFlags::MARKED);
+        row.set(x, cell);
+        let mut mark = row.mark();
+        *mark = mark.reached(x + 1);
     }
 
     /// The pitch: cells from one row of the buffer to the next.
+    ///
+    /// **The store's, and only the store's.** The view carried a copy beside
+    /// the one its [`Stamped`] cuts rows by, and the per-byte writers loaded
+    /// both and computed a row's base twice: once to snap the run's edges,
+    /// once to mint the row ([`Stamped::row_and_mark`]).
+    #[inline(always)]
     pub fn stride(&self) -> Stride {
-        self.stride
+        self.store.stride()
     }
 
     /// Every cell of this surface's buffer -- the screen, the history behind
     /// it and the rows held past a narrower edge -- for the cluster store's
     /// sweep, which must see every cell that can name a slot.
     pub fn ring_cells(&self) -> &[PackedCell] {
-        self.cells
+        self.store.cells()
     }
 
-    /// The surface's whole buffer, to rewrite: a freeze moving rows off the
+    /// The surface's memory, to read.
+    pub fn store(&self) -> &Stamped<'a> {
+        &self.store
+    }
+
+    /// **The surface's memory, to rewrite**: a freeze moving rows off the
     /// active screen into a generation, and a thaw bringing them back
-    /// (`baud-core`'s `freeze.rs`). Rendition ids only; the text and the
-    /// marks are not touched.
-    pub fn ring_cells_mut(&mut self) -> &mut [PackedCell] {
-        &mut *self.cells
-    }
-
-    /// Record that a cell carries entries in the marks table.
-    ///
-    /// The inverse needs no code: every write builds a fresh [`PackedCell`]
-    /// from the terminal's current flags, which never carry
-    /// [`CellFlags::MARKED`], so overwriting a cell un-records its marks. That
-    /// is the whole point of keeping the bit here rather than in the table --
-    /// a table keyed on cell identity cannot see a cell rewritten in place.
-    pub fn set_marked(&mut self, r: Row, c: LeadCol) {
-        if r.index() >= self.rows.index() || c.col().index() >= self.cols.index() {
-            return;
-        }
-        let p = self.phys(r);
-        let i = p * self.stride.index() + c.col().index();
-        self.cells[i].flags = self.cells[i].flags.with(CellFlags::MARKED);
-        // **And the extent has to move with it.** `RowExtent` records where the
-        // row stops being *uniform*, not where the glyphs are, and a cell
-        // carrying `MARKED` is not equal to the blank in front of it. Setting
-        // the bit without raising the mark left the row non-uniform beyond its
-        // own extent, so a later erase skipped the cell: `CSI ? 1 J` cleared a
-        // mark that `CSI 1 J` left alone, which core2's DECSED-subset property
-        // reported.
-        //
-        // This is the same defect `ECH` at the last column already had, and
-        // that this file records: an operation that makes a cell differ from
-        // the blank must say so.
-        // **Only when it would actually raise.** The base character was just
-        // written to this same cell and already moved the extent past it, so
-        // the mark is inside it in almost every case -- and an unconditional
-        // store dirties a line in a hot array to write back the value that was
-        // already there.
-        let to = c.col().index() + 1;
-        if self.used[p].index() < to {
-            self.used[p] = self.used[p].reached(to);
-        }
-    }
-
-    /// The boundary rule itself, against a row base the caller already has.
-    ///
-    /// Split out so `clear_partners` -- which runs once per non-ASCII
-    /// codepoint -- computes `phys` **once**. Going through `snap` cost three
-    /// per call there (`snap`'s, `at`'s and `reached`'s), and it profiled at
-    /// 7% of the CJK path for two loads and two compares of actual work.
-    ///
-    /// No `#[inline(always)]`: it carried one, stranded for a long time onto
-    /// `lead` by an insertion between this comment and the signature, and
-    /// re-attaching it measured cat-cjk 0.98x, disjoint from an A/A copy.
-    /// LLVM inlines this private function on its own judgement, and the
-    /// forced form is the one that costs.
-    fn snap_at(&self, base: usize, a: usize, b: usize) -> (usize, usize) {
-        let cols = self.cols.index();
-        let (mut a, mut b) = (a.min(cols), b.min(cols));
-        if a >= b {
-            return (a, b);
-        }
-        if a > 0 && self.cells[base + a].content.is_wide_tail() {
-            a -= 1;
-        }
-        if b < cols && self.cells[base + b].content.is_wide_tail() {
-            b += 1;
-        }
-        (a, b)
+    /// (`baud-core`'s `freeze.rs`). Every way in through it stamps.
+    pub fn store_mut(&mut self) -> &mut Stamped<'a> {
+        &mut self.store
     }
 
     /// Fill a half-open column span of one row. Clamped to the visible width,
@@ -2424,11 +2430,11 @@ impl<'a> View<'a> {
             return 0;
         }
         let p = self.phys(r);
-        let base = p * self.stride.index();
-        for c in &mut self.cells[base + a..base + b] {
+        let (mut row, mut mark) = self.store.row_and_mark(p);
+        for c in &mut row[a..b] {
             c.flags = c.flags.with(CellFlags::GUARDED);
         }
-        self.used[p] = self.used[p].reached(b);
+        *mark = mark.reached(b);
         b - a
     }
 
@@ -2459,9 +2465,9 @@ impl<'a> View<'a> {
         };
         let (mut n, mut x) = (0, a);
         while x < b {
-            let g = self.cells[base + x].flags.is_guarded();
+            let g = self.store.cells()[base + x].flags.is_guarded();
             let mut y = x + 1;
-            while y < b && self.cells[base + y].flags.is_guarded() == g {
+            while y < b && self.store.cells()[base + y].flags.is_guarded() == g {
                 y += 1;
             }
             n += match (g, how) {
@@ -2510,7 +2516,6 @@ impl<'a> View<'a> {
         // measured -7 to -8% for bookkeeping that changes no output.
         let p = self.phys(r);
         let cols = self.cols.index();
-        let base = p * self.stride.index();
         // A span is erased or filled with a character no link names
         // (`DECFRA` drops it), so its row's `RowLinks` stands.
         debug_assert!(cell.flags.link().is_none());
@@ -2531,26 +2536,27 @@ impl<'a> View<'a> {
         // the application erased comes back with a tail. Rare -- it needs a
         // resize -- so it is a cold call, and the body below is the one that
         // was measured.
-        if to_end && self.used[p].index() > cols {
+        if to_end && self.store.mark_at(p).index() > cols {
             return self.fill_past_edge(p, a, cell);
         }
-        let b = match to_end && self.cells[base + cols - 1] == cell {
-            true => self.used[p].index().max(a).min(b),
+        let (mut row, mut mark) = self.store.row_and_mark(p);
+        let b = match to_end && row[cols - 1] == cell {
+            true => mark.index().max(a).min(b),
             false => b,
         };
         // From column 0 to the end the row is erased whole, and DECRLM's
         // mark goes with what it wrote ([`RowExtent::erased`]).
         match to_end {
-            true if a == 0 => self.used[p] = self.used[p].refilled(0).erased(),
-            true => self.used[p] = self.used[p].refilled(a),
-            false => self.used[p] = self.used[p].reached(b),
+            true if a == 0 => *mark = mark.refilled(0).erased(),
+            true => *mark = mark.refilled(a),
+            false => *mark = mark.reached(b),
         }
         if a >= b {
             return 0;
         }
         // `slice::fill`, not an indexed loop: one bounds check instead of one
         // per cell, and it lowers to a vector store rather than a scalar one.
-        self.cells[base + a..base + b].fill(cell);
+        row[a..b].fill(cell);
         b - a
     }
 
@@ -2618,18 +2624,19 @@ impl<'a> View<'a> {
             return RowExtent::ZERO;
         }
         let p = self.phys(r);
-        let base = p * self.stride.index();
         let blanking = cell.content == Content::EMPTY;
         // Through the mark when it lies past the live edge: see `fill_raw`.
-        if self.used[p].index() > cols {
+        if self.store.mark_at(p).index() > cols {
             let low = match blanking {
                 true => RowExtent::ZERO,
                 false => RowExtent::of(cols),
             };
             return RowExtent::of(self.fill_past_edge_row(p, cell, low));
         }
-        let to = match blanking && self.cells[base + cols - 1] == cell {
-            true => self.used[p].index().min(cols),
+        // One stamp, before the store and kept by `ceiling-no-rowfill`.
+        let (mut row, mut m) = self.store.row_and_mark(p);
+        let to = match blanking && row[cols - 1] == cell {
+            true => m.index().min(cols),
             false => cols,
         };
         // **Ceiling arm: the blank itself, and only the blank.** The ring
@@ -2640,7 +2647,9 @@ impl<'a> View<'a> {
         // disagreed with the real arm and it could not show the effect it
         // existed to measure.
         #[cfg(not(feature = "ceiling-no-rowfill"))]
-        self.cells[base..base + to].fill(cell);
+        row[..to].fill(cell);
+        #[cfg(feature = "ceiling-no-rowfill")]
+        let _ = &mut row;
         let mark = match blanking {
             true => 0,
             false => cols,
@@ -2648,9 +2657,9 @@ impl<'a> View<'a> {
         // A blank names no link, so a row erased whole holds none; `DECALN`
         // under an open link writes one into every cell.
         debug_assert!(fill == RowFill::Erased || cell.flags.link().is_none());
-        self.used[p] = match fill {
+        *m = match fill {
             RowFill::Erased => {
-                let e = self.used[p].refilled(mark).erased();
+                let e = m.refilled(mark).erased();
                 e.with_links(match blanking {
                     true => RowLinks::None,
                     false => links_after(e, cell),
@@ -2683,9 +2692,9 @@ impl<'a> View<'a> {
     /// test a row the same way (note V, V9). `width` is clamped to the
     /// pitch.
     pub fn ring_row_holds(&self, at: RowRot, width: Cols) -> Holds {
-        let w = width.index().min(self.stride.index());
-        let a = (at.index() % self.ring.index()) * self.stride.index();
-        match self.cells[a..a + w]
+        let w = width.index().min(self.stride().index());
+        let a = (at.index() % self.ring.index()) * self.stride().index();
+        match self.store.cells()[a..a + w]
             .iter()
             .any(|c| c.content != Content::EMPTY)
         {
@@ -2729,17 +2738,19 @@ impl<'a> View<'a> {
             return RowExtent::ZERO;
         }
         let p = at.index();
-        if self.used[p].index() > cols {
+        if self.store.mark_at(p).index() > cols {
             return RowExtent::of(self.fill_past_edge_row(p, cell, RowExtent::ZERO));
         }
-        let base = p * self.stride.index();
-        let to = match self.cells[base + cols - 1] == cell {
-            true => self.used[p].index().min(cols),
+        let (mut row, mut m) = self.store.row_and_mark(p);
+        let to = match row[cols - 1] == cell {
+            true => m.index().min(cols),
             false => cols,
         };
         #[cfg(not(feature = "ceiling-no-rowfill"))]
-        self.cells[base..base + to].fill(cell);
-        self.used[p] = self.used[p].refilled(0).erased();
+        row[..to].fill(cell);
+        #[cfg(feature = "ceiling-no-rowfill")]
+        let _ = &mut row;
+        *m = m.refilled(0).erased();
         RowExtent::of(to)
     }
 
@@ -2750,15 +2761,21 @@ impl<'a> View<'a> {
     #[cold]
     #[inline(never)]
     fn fill_past_edge_row(&mut self, p: usize, cell: PackedCell, low: RowExtent) -> usize {
-        let base = p * self.stride.index();
-        let (to, bidi) = (self.used[p].index(), self.used[p].bidi());
-        #[cfg(not(feature = "ceiling-no-rowfill"))]
-        self.cells[base..base + to].fill(cell);
-        self.used[p] = self
+        let base = p * self.stride().index();
+        let was = self.store.mark_at(p);
+        let to = was.index();
+        // The mark reads the cell at `to`, which the fill does not reach.
+        let mark = self
             .mark_after_fill(base, to, cell, low)
-            .with_bidi(bidi)
-            .with_links(links_after(self.used[p], cell))
+            .with_bidi(was.bidi())
+            .with_links(links_after(was, cell))
             .erased();
+        let (mut row, mut m) = self.store.row_and_mark(p);
+        #[cfg(not(feature = "ceiling-no-rowfill"))]
+        row[..to].fill(cell);
+        #[cfg(feature = "ceiling-no-rowfill")]
+        let _ = &mut row;
+        *m = mark;
         to
     }
     /// Shift a row's cells left by `n`, blanking the tail. `CSI P`.
@@ -2768,7 +2785,6 @@ impl<'a> View<'a> {
         // Tighter bookkeeping is possible -- a left shift can only shrink the
         // used extent -- but shrinking a high-water mark is the direction that
         // loses text, and this operation is rare next to blanking.
-        self.reached(r, cols);
         let (cx, n) = (at.index(), (n.get_raw() as usize).min(cols - at.index()));
         // The deleted span is what must cover whole characters: shifting from
         // the middle of a pair drags a lone tail leftwards into a cell with no
@@ -2777,12 +2793,13 @@ impl<'a> View<'a> {
             let (a, b) = self.snap(r, Col::at_index(cx), Col::at_index(cx + n));
             (a, b - a)
         };
-        let base = self.at(r, Col::ZERO);
+        let (mut row, mut mark) = self.store.row_and_mark(self.phys(r));
+        *mark = mark.reached(cols);
         for x in cx..cols - n {
-            self.cells[base + x] = self.cells[base + x + n];
+            row[x] = row[x + n];
         }
         for x in cols - n..cols {
-            self.cells[base + x] = blank;
+            row[x] = blank;
         }
     }
     /// Shift right, inserting blanks. `CSI @`.
@@ -2792,7 +2809,6 @@ impl<'a> View<'a> {
         // Tighter bookkeeping is possible -- a left shift can only shrink the
         // used extent -- but shrinking a high-water mark is the direction that
         // loses text, and this operation is rare next to blanking.
-        self.reached(r, cols);
         let (cx, n) = (at.index(), (n.get_raw() as usize).min(cols - at.index()));
         // Inserting *at* a tail would put blanks between a lead and its
         // partner. `[[source: ghostty-screen]]`'s `insertBlanks` erases the
@@ -2801,14 +2817,15 @@ impl<'a> View<'a> {
         // leaves no orphan either way.
         let cx = self.snap(r, Col::at_index(cx), Col::at_index(cx + 1)).0;
         let n = n.min(cols - cx);
-        let base = self.at(r, Col::ZERO);
+        let (mut row, mut mark) = self.store.row_and_mark(self.phys(r));
+        *mark = mark.reached(cols);
         let mut x = cols;
         while x > cx + n {
             x -= 1;
-            self.cells[base + x] = self.cells[base + x - n];
+            row[x] = row[x - n];
         }
         for x in cx..cx + n {
-            self.cells[base + x] = blank;
+            row[x] = blank;
         }
     }
     /// Shift left within `[at, right)`, filling at the right edge. `CSI P` with
@@ -2828,7 +2845,6 @@ impl<'a> View<'a> {
         // Rewrites everything from the cursor to the margin. Same reasoning as
         // `delete_chars`: raise to the far edge rather than compute a tighter
         // bound, because the tighter bound is the one that can be too small.
-        self.reached(r, end);
         let n = (n.get_raw() as usize).min(end - cx);
         // **The deleted span, not the surviving one.** Both boundaries can
         // split a character: a start on a tail orphans the lead in front of it,
@@ -2840,12 +2856,13 @@ impl<'a> View<'a> {
             let (a, b) = self.snap(r, Col::at_index(cx), Col::at_index(cx + n));
             (a, (b - a).min(end - a))
         };
-        let base = self.at(r, Col::ZERO);
+        let (mut row, mut mark) = self.store.row_and_mark(self.phys(r));
+        *mark = mark.reached(end);
         for x in cx..end - n {
-            self.cells[base + x] = self.cells[base + x + n];
+            row[x] = row[x + n];
         }
         for x in end - n..end {
-            self.cells[base + x] = blank;
+            row[x] = blank;
         }
     }
 
@@ -2860,31 +2877,31 @@ impl<'a> View<'a> {
         // Rewrites everything from the cursor to the margin. Same reasoning as
         // `delete_chars`: raise to the far edge rather than compute a tighter
         // bound, because the tighter bound is the one that can be too small.
-        self.reached(r, end);
         // Inserting *at* a tail would put blanks between a lead and its
         // partner. Snapping the start back to the lead moves the whole pair
         // instead, which keeps the character rather than deleting it and
         // leaves no orphan either way.
         let cx = self.snap(r, Col::at_index(cx), Col::at_index(cx + 1)).0;
         let n = (n.get_raw() as usize).min(end - cx);
-        let base = self.at(r, Col::ZERO);
+        let (mut row, mut mark) = self.store.row_and_mark(self.phys(r));
+        *mark = mark.reached(end);
         // **The character shifted off the right edge takes its partner with
         // it.** The cell at `end - n` is pushed past `end` and lost; if it is a
         // tail, its lead lands at `end - 1` with nothing after it.
         // `[[source: ghostty-screen]]`'s `insertBlanks` clears that cell for
         // the same reason. Read before the shift, because the shift overwrites
         // the evidence.
-        let orphans_at_edge = end > n && n > 0 && self.cells[base + end - n].content.is_wide_tail();
+        let orphans_at_edge = end > n && n > 0 && row[end - n].content.is_wide_tail();
         let mut x = end;
         while x > cx + n {
             x -= 1;
-            self.cells[base + x] = self.cells[base + x - n];
+            row[x] = row[x - n];
         }
         for x in cx..cx + n {
-            self.cells[base + x] = blank;
+            row[x] = blank;
         }
         if orphans_at_edge {
-            self.cells[base + end - 1] = blank;
+            row[end - 1] = blank;
         }
     }
 
@@ -2926,12 +2943,14 @@ impl<'a> View<'a> {
             return;
         }
         let n = (n.get_raw() as usize).min(bot + 1 - cy);
-        let (s, cols) = (self.stride.index(), self.cols.index());
+        let cols = self.cols.index();
         let mut y = bot + 1;
         while y > cy + n {
             y -= 1;
-            let src = self.phys(Row::from_index(y - n)) * s;
-            let dst = self.phys(Row::from_index(y)) * s;
+            let (ps, pd) = (
+                self.phys(Row::from_index(y - n)),
+                self.phys(Row::from_index(y)),
+            );
             // `split_at_mut` and `copy_from_slice`, not `copy_within`. Two
             // distinct rows never overlap, and saying so gets a `memcpy`;
             // `copy_within` must promise overlap-safety and pays for a
@@ -2941,33 +2960,23 @@ impl<'a> View<'a> {
             // **The rotation is why the order is tested.** `phys` maps screen
             // rows onto physical ones, so `y - n` can sit *after* `y` in the
             // buffer, and a split taken on the wrong side panics.
-            match src < dst {
-                true => {
-                    let (lo, hi) = self.cells.split_at_mut(dst);
-                    hi[..cols].copy_from_slice(&lo[src..src + cols]);
-                }
-                false => {
-                    let (lo, hi) = self.cells.split_at_mut(src);
-                    lo[dst..dst + cols].copy_from_slice(&hi[..cols]);
-                }
-            }
+            // [`Stamped::from_into`] takes the split on the right side and
+            // stamps the destination once, for its cells and its mark.
+            let (src, from, mut row, mut m) = self.store.from_into(ps, pd);
+            row[..cols].copy_from_slice(&src[..cols]);
             // **The mark travels with the row**, in the same loop and under
             // the same `phys`. Kept here rather than in a second pass because a
             // second pass over the same indices is a second chance to compute
             // them differently -- and a mark left behind on a moved row is
             // stale text, which is the failure this whole mechanism must not
             // have.
-            let (ps, pd) = (
-                self.phys(Row::from_index(y - n)),
-                self.phys(Row::from_index(y)),
-            );
-            self.used[pd] = self.used[ps];
+            *m = from;
         }
         for y in cy..cy + n {
             let p = self.phys(Row::from_index(y));
-            let a = p * s;
-            self.cells[a..a + cols].fill(blank);
-            self.used[p] = self.used[p]
+            let (mut row, mut m) = self.store.row_and_mark(p);
+            row[..cols].fill(blank);
+            *m = m
                 .refilled(match blank.content == Content::EMPTY {
                     true => 0,
                     false => cols,
@@ -2985,7 +2994,7 @@ impl<'a> View<'a> {
             return;
         }
         let n = (n.get_raw() as usize).min(bot + 1 - cy);
-        let (s, cols) = (self.stride.index(), self.cols.index());
+        let cols = self.cols.index();
         // `cy..(bot + 1 - n)`, not `cy..=(bot - n)`: with n saturated to the
         // region height, `bot - n` underflows when the whole region is deleted
         // (n == bot + 1, cy == 0). The half-open form is empty in that case
@@ -2999,14 +3008,15 @@ impl<'a> View<'a> {
                 self.phys(Row::from_index(y + n)),
                 self.phys(Row::from_index(y)),
             );
-            self.cells.copy_within(ps * s..ps * s + cols, pd * s);
-            self.used[pd] = self.used[ps];
+            let (src, from, mut row, mut m) = self.store.from_into(ps, pd);
+            row[..cols].copy_from_slice(&src[..cols]);
+            *m = from;
         }
         for y in bot + 1 - n..=bot {
             let p = self.phys(Row::from_index(y));
-            let a = p * s;
-            self.cells[a..a + cols].fill(blank);
-            self.used[p] = self.used[p]
+            let (mut row, mut m) = self.store.row_and_mark(p);
+            row[..cols].fill(blank);
+            *m = m
                 .refilled(match blank.content == Content::EMPTY {
                     true => 0,
                     false => cols,
@@ -3016,7 +3026,7 @@ impl<'a> View<'a> {
     }
     pub fn row_slice(&self, r: Row) -> &[PackedCell] {
         let a = self.at(r, Col::ZERO);
-        &self.cells[a..a + self.cols.index()]
+        &self.store.cells()[a..a + self.cols.index()]
     }
     /// **Scroll the rectangle** rows `top..=bottom`, columns `left..right`,
     /// `n` rows `way`, blanking the `n` rows it opens, and leave every cell
@@ -3057,7 +3067,7 @@ impl<'a> View<'a> {
         way: BandMove,
         blank: PackedCell,
     ) -> usize {
-        let (cols, s) = (self.cols.index(), self.stride.index());
+        let cols = self.cols.index();
         let (cy, bot) = (top.index(), bottom.index().min(self.rows.index() - 1));
         let (l, r) = (left.index(), right.index().min(cols));
         if cy > bot || l >= r {
@@ -3066,46 +3076,49 @@ impl<'a> View<'a> {
         let n = (n.get_raw() as usize).min(bot + 1 - cy);
         let mut written = 0;
         for y in cy..=bot {
-            let row = Row::from_index(y);
-            let base = self.at(row, Col::ZERO);
+            let p = self.phys(Row::from_index(y));
+            let (mut cells, mut mark) = self.store.row_and_mark(p);
             let mut far = r;
-            if l > 0 && self.cells[base + l].content.is_wide_tail() {
-                self.cells[base + l - 1] = blank;
-                self.cells[base + l] = blank;
+            if l > 0 && cells[l].content.is_wide_tail() {
+                cells[l - 1] = blank;
+                cells[l] = blank;
                 written += 2;
             }
-            if r < cols && self.cells[base + r].content.is_wide_tail() {
-                self.cells[base + r - 1] = blank;
-                self.cells[base + r] = blank;
+            if r < cols && cells[r].content.is_wide_tail() {
+                cells[r - 1] = blank;
+                cells[r] = blank;
                 written += 2;
                 far = r + 1;
             }
-            self.reached(row, far);
+            *mark = mark.reached(far);
         }
         let w = r - l;
         let inside = crate::WrapMargins::of(left, Col::at_index(r - 1));
         let ours = move |e: RowExtent| e.margins() == Some(inside);
         let copy = |v: &mut Self, from: usize, to: usize| {
             let (ps, pd) = (v.phys(Row::from_index(from)), v.phys(Row::from_index(to)));
-            v.cells.copy_within(ps * s + l..ps * s + l + w, pd * s + l);
-            let (src, dst) = (v.used[ps], v.used[pd]);
+            let (src, dst) = (v.store.mark_at(ps), v.store.mark_at(pd));
+            v.store.copy_within_rows(ps, l..l + w, pd, l);
             let moved = match (ours(src), ours(dst)) {
                 (true, _) => dst.wrapping(cols).with_margins(inside),
                 (false, true) => dst.ended().at_edge(),
                 (false, false) => dst,
             };
             // The band's cells carry their links to the row they land on.
-            v.used[pd] = match src.links() {
-                RowLinks::May => moved.with_links(RowLinks::May),
-                RowLinks::None => moved,
-            };
+            v.store.mark(
+                pd,
+                match src.links() {
+                    RowLinks::May => moved.with_links(RowLinks::May),
+                    RowLinks::None => moved,
+                },
+            );
         };
         let blank_row = |v: &mut Self, y: usize| {
-            let a = v.at(Row::from_index(y), left);
-            v.cells[a..a + w].fill(blank);
             let p = v.phys(Row::from_index(y));
-            if ours(v.used[p]) {
-                v.used[p] = v.used[p].ended().at_edge();
+            let (mut cells, mut m) = v.store.row_and_mark(p);
+            cells[l..l + w].fill(blank);
+            if ours(*m) {
+                *m = m.ended().at_edge();
             }
         };
         match way {
@@ -3130,6 +3143,41 @@ impl<'a> View<'a> {
     }
 }
 
+/// **The boundary rule itself** ([`View::snap`]), against a row the caller
+/// already holds: `[a, b)` clamped to `cols` and widened to whole
+/// characters.
+///
+/// Split out so `clear_partners` -- which runs once per non-ASCII
+/// codepoint -- computes `phys` **once**. Going through `snap` cost three
+/// per call there (`snap`'s, `at`'s and `reached`'s), and it profiled at
+/// 7% of the CJK path for two loads and two compares of actual work.
+///
+/// **Over the row the writer has already minted**, not over the store: the
+/// per-byte writers take their [`RowMut`] or [`RowWrite`] first and snap
+/// through it, so a row's base is computed once and the store's cells are
+/// not loaded a second time to read two edges of a row already in hand.
+/// `tail(i)` says whether column `i` of that row is a wide tail: one rule
+/// for the cut row and the token alike.
+///
+/// No `#[inline(always)]`: it carried one, stranded for a long time onto
+/// `lead` by an insertion between this comment and the signature, and
+/// re-attaching it measured cat-cjk 0.98x, disjoint from an A/A copy.
+/// LLVM inlines this private function on its own judgement, and the
+/// forced form is the one that costs.
+fn snap_row(tail: impl Fn(usize) -> bool, cols: usize, a: usize, b: usize) -> (usize, usize) {
+    let (mut a, mut b) = (a.min(cols), b.min(cols));
+    if a >= b {
+        return (a, b);
+    }
+    if a > 0 && tail(a) {
+        a -= 1;
+    }
+    if b < cols && tail(b) {
+        b += 1;
+    }
+    (a, b)
+}
+
 /// The [`RowLinks`] a row has once `cell` is written into it: `May` for a
 /// linked cell, else what `was` said.
 #[inline(always)]
@@ -3140,8 +3188,8 @@ fn links_after(was: RowExtent, cell: PackedCell) -> RowLinks {
     }
 }
 
-/// **Every link the cells of `cells` may name, marked in `live`**: one row
-/// a [`RowExtent`] of `used`, `stride` cells apart, `cols` of them live.
+/// **Every link the cells of `store` may name, marked in `live`**: one row a
+/// [`RowExtent`], at the store's pitch, `cols` of them live.
 ///
 /// **Only the rows [`RowLinks::May`] says may hold one, and each only to
 /// its mark** ([`RowExtent::index`]) **and its last live cell.** A linked
@@ -3152,27 +3200,25 @@ fn links_after(was: RowExtent, cell: PackedCell) -> RowLinks {
 /// (`baud-core`'s `links.rs`), and the alternate screen's is blanked
 /// before a growth shows it ([`View::widened`]). A row read and found to
 /// name none is marked [`RowLinks::None`], so a row that held a link once
-/// costs one read and no more. Returns the cells read, every row's mark
+/// costs one read and no more, and only such a row is stamped: the mark
+/// changes and no cell does. Returns the cells read, every row's mark
 /// counted as one.
 ///
 /// No program the tests run leaves a linked cell past a row's mark, so the
 /// read of the last live cell is kept as the safe direction, and no test
 /// yet fails without it.
-pub fn mark_linked_rows(
-    cells: &[PackedCell],
-    used: &mut [RowExtent],
-    stride: usize,
-    cols: usize,
-    live: &mut LinkLive,
-) -> Cells {
-    let rows = used.len().min(cells.len() / stride.max(1));
+pub fn mark_linked_rows(store: &mut Stamped<'_>, cols: usize, live: &mut LinkLive) -> Cells {
+    let stride = store.stride().index();
+    let rows = store.rows().min(store.cells().len() / stride.max(1));
     let mut read = rows;
-    for (p, e) in used.iter_mut().enumerate().take(rows) {
+    for p in 0..rows {
+        let e = store.mark_at(p);
         if e.links() == RowLinks::None {
             continue;
         }
         let base = p * stride;
         let to = e.index().min(stride);
+        let cells = store.cells();
         let mut named = live.mark(&cells[base..base + to]);
         read += to;
         let last = cols.min(stride);
@@ -3181,7 +3227,7 @@ pub fn mark_linked_rows(
             read += 1;
         }
         if !named {
-            *e = e.with_links(RowLinks::None);
+            store.mark(p, e.with_links(RowLinks::None));
         }
     }
     Cells::of(read)

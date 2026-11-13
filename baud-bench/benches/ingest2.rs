@@ -292,6 +292,9 @@ fn main() {
     let mut arena = vec![0u8; ARENA];
     let mut vp = vec![PackedCell::EMPTY; ring.len()];
     let mut used = vec![RowExtent::ZERO; ring_rows.index()];
+    // A write generation a row, beside the marks, as `Owned` allocates it:
+    // outside the timed loop, and stamped by every store inside it.
+    let mut gens = vec![baud_domain::RowGen::ZERO; ring_rows.index()];
     let mut past = vec![PastEdge::Clear; ring_rows.index()];
     // **An empty table is how this benchmark declines it.** The only read is
     // behind `cell-table`; passing the full 2 MiB otherwise costs 262,144
@@ -309,6 +312,7 @@ fn main() {
     let mut reply = vec![0u8; REPLY];
     let mut alt = vec![PackedCell::EMPTY; span.len()];
     let mut alt_used = vec![RowExtent::ZERO; rows.index()];
+    let mut alt_gens = vec![baud_domain::RowGen::ZERO; rows.index()];
     let mut clusters = vec![ClusterSlot::EMPTY; NCLUSTER];
     let mut pending = vec![0u8; OSC_MAX];
     let mut title = vec![0u8; OSC_MAX];
@@ -364,6 +368,7 @@ fn main() {
             depth,
             &mut vp,
             &mut used,
+            &mut gens,
             &mut past,
             &mut cells3,
             baud_core::StyleTable {
@@ -376,6 +381,7 @@ fn main() {
             &mut reply,
             &mut alt,
             &mut alt_used,
+            &mut alt_gens,
             &mut clusters,
             StrBuf::new(
                 &mut pending,

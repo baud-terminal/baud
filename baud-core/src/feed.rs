@@ -251,9 +251,12 @@ impl Term<'_> {
             }
             self.cy = p.cy;
             self.cx = p.cx;
-            let rots = (p.view.rot(), p.other.rot);
+            let rots = (p.view.rot(), p.other.rot());
             self.cells_written += p.cells.index();
             p.strs.link_book.read_ends(p.cells, n);
+            // The read's borrow ends here, as below: its `Drop` stores each
+            // surface's last write.
+            drop(p);
             self.set_rots(rots);
             return;
         }
@@ -377,7 +380,7 @@ impl Term<'_> {
         self.last_cp = p.last_cp;
         self.cy = p.cy;
         self.cx = p.cx;
-        let rots = (p.view.rot(), p.other.rot);
+        let rots = (p.view.rot(), p.other.rot());
         self.style = p.style;
         self.style_raw = p.style_raw;
         self.flags = p.flags;
@@ -442,6 +445,11 @@ impl Term<'_> {
                 *a += *b;
             }
         }
+        // **The read's borrow of the store ends here**: its `Drop` writes each
+        // surface's last write once, for every store the read made
+        // (`baud_domain::Stamped`), and the rest of this function reads the
+        // terminal again.
+        drop(p);
         // **A request that was the read's last byte holds an empty rest**:
         // the parser is still `Held`, with no byte left to take the action
         // that would have said so, and the next read goes on from the node

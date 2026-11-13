@@ -13,11 +13,13 @@
 //! what these check, and they check it as an inequality rather than an
 //! equality, because over-reporting is allowed by design.
 //!
-//! This file exists as its own gate because the mark is maintained in eleven
-//! places -- every mutator on `View`, both line moves, and `Term::viewport`'s
-//! un-rotation -- and a mark kept at many sites is an invariant to maintain at
-//! every write site, where a site that forgets leaves stale text on screen
-//! rather than merely being slow.
+//! This file exists as its own gate because the mark is maintained at every
+//! store -- every mutator on `View`, the line moves and the re-cut, each
+//! through the one store that also stamps the row (`baud_domain::Stamped`)
+//! -- and a mark kept at many sites is an invariant to maintain at every
+//! write site, where a site that forgets leaves stale text on screen rather
+//! than merely being slow. Nothing moves a row's content but those stores:
+//! a scroll moves the window, not the rows.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -184,17 +186,13 @@ fn decaln_fills_the_row_so_the_mark_is_full() {
 
 /// **A renderer reading the screen between scrolls does not shift the marks.**
 ///
-/// `Term::viewport` is the one place that changes which physical row holds
-/// which content without going through `Grid`: it un-rotates the buffer in
-/// place with `rotate_left` and sets `rot` back to `NONE`. `RowExtent` is
-/// indexed physically, so the marks have to rotate by the same amount in the
-/// same call.
-///
-/// The other tests here never call `viewport`, so they pass unchanged with the
-/// mark rotation deleted -- verified by doing exactly that. This one fails,
-/// which is the only reason it exists: a renderer calls `viewport` once a
-/// frame, between scrolls, and that is the ordinary case rather than an exotic
-/// one.
+/// `Term::viewport` is a view: the ring's own cells, read through the
+/// rotation, which it leaves where it is. It once un-rotated the buffer in
+/// place, which moved every row's content and so had to move every mark with
+/// it; nothing does that now, and a scroll moves the window rather than the
+/// rows. `RowExtent` is indexed physically, so the marks stay with their rows
+/// however often a renderer reads -- what this holds, over the ordinary case
+/// of a renderer reading once a frame, between scrolls.
 #[test]
 fn reading_the_viewport_between_scrolls_keeps_the_marks_aligned() {
     let ws = support::CORPUS;

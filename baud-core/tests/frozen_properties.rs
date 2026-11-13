@@ -154,6 +154,20 @@ fn read(t: &Term<'_>, lines: usize) -> Vec<Vec<(Content, StyleWord)>> {
     out
 }
 
+/// Every physical row of the small terminal's three surfaces: its cells,
+/// its mark, and whether it was written after `kept`.
+type Snap = Vec<(Which, usize, Vec<PackedCell>, RowExtent, RowDirt)>;
+
+fn snap(t: &Term<'_>, kept: &Seal) -> Snap {
+    [Which::Primary, Which::Alternate, Which::Status]
+        .into_iter()
+        .flat_map(|w| {
+            t.stored_rows(w, kept)
+                .map(move |(at, c, m, d)| (w, at.p.index(), c.to_vec(), m, d))
+        })
+        .collect()
+}
+
 /// What one program did to the small table: its freezes and thaws.
 fn run(prog: &[Atom]) -> Result<baud_domain::FreezeCounts, TestCaseError> {
     let mut small_owned = Owned::new(&WS);
@@ -169,13 +183,30 @@ fn run(prog: &[Atom]) -> Result<baud_domain::FreezeCounts, TestCaseError> {
                     ws_col: cols,
                     ws_row: rows,
                 };
+                let kept = s.seal_writes();
+                let before = snap(&s, &kept);
                 let _ = s.resize(&ws);
                 let _ = b.resize(&ws);
+                moved(&s, &kept, &before, k, a)?;
             }
             _ => {
+                // The switch back from the alternate screen in a read of its
+                // own, under a seal of its own: the thaw it runs rewrites
+                // rows the flood before it froze, and the freeze stamped
+                // them already under a seal shared by both.
                 let bytes = bytes(a, &mut next);
-                feed(&mut s, &bytes);
-                feed(&mut b, &bytes);
+                let back = b"\x1b[?1049l";
+                let cut = bytes
+                    .windows(back.len())
+                    .position(|w| w == back)
+                    .unwrap_or(bytes.len());
+                for part in [&bytes[..cut], &bytes[cut..]] {
+                    let kept = s.seal_writes();
+                    let before = snap(&s, &kept);
+                    feed(&mut s, part);
+                    feed(&mut b, part);
+                    moved(&s, &kept, &before, k, a)?;
+                }
             }
         }
         let lines = s.scrollback().len().min(b.scrollback().len());
@@ -187,6 +218,26 @@ fn run(prog: &[Atom]) -> Result<baud_domain::FreezeCounts, TestCaseError> {
         prop_assert_eq!(s.style_reclaims().refusals, 0, "step {}: refused", k);
     }
     Ok(s.frozen().counts)
+}
+
+/// **A seal a step, and every row the step changed moves**: the freezes
+/// rewrite rows' ids, the thaws in two passes, the rebuild and a re-cut's
+/// `frozen_normalized` too, and a row whose ids changed under a stamp that
+/// did not move would be drawn by a renderer through its old copy.
+fn moved(s: &Term<'_>, kept: &Seal, before: &Snap, k: usize, a: Atom) -> Result<(), TestCaseError> {
+    for (old, new) in before.iter().zip(snap(s, kept)) {
+        if new.4 == RowDirt::Clean {
+            prop_assert!(
+                old.2 == new.2 && old.3 == new.3,
+                "step {} {:?}: {:?} row {} changed and reads clean",
+                k,
+                a,
+                new.0,
+                new.1
+            );
+        }
+    }
+    Ok(())
 }
 
 proptest! {

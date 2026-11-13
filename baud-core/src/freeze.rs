@@ -138,9 +138,9 @@ impl Main {
 }
 
 /// The surfaces a freeze rewrites, split from the rest of `Paint`.
-struct Parts<'p, 'b> {
-    prim: &'p mut [PackedCell],
-    alt: &'p mut [PackedCell],
+struct Parts<'p, 's, 'b> {
+    prim: &'p mut Stamped<'s>,
+    alt: &'p mut Stamped<'s>,
     frz: &'p mut FrozenStore<'b>,
     tmpl: &'p [Option<StyleWord>],
     stride: Stride,
@@ -162,14 +162,7 @@ fn drop_stale(frz: &mut FrozenStore<'_>, m: &Main) {
 /// built with while its rows expire one at a time, so many such can hold
 /// more words than the cells that name them. The rows' ids are rewritten,
 /// and each generation gets a new serial.
-fn rebuild_all(
-    frz: &mut FrozenStore<'_>,
-    prim: &mut [PackedCell],
-    alt: &mut [PackedCell],
-    m: &Main,
-    stride: Stride,
-) {
-    let s = stride.index();
+fn rebuild_all(frz: &mut FrozenStore<'_>, prim: &mut Stamped<'_>, alt: &mut Stamped<'_>, m: &Main) {
     let ring = m.ring.index();
     for i in 0..frz.gen_records() {
         let Some(g) = frz.gen_at(i) else {
@@ -181,11 +174,11 @@ fn rebuild_all(
                 .tag(RowRot::NONE.advance(p, m.ring))
                 .is_some_and(|t| t.generation == g)
             {
-                named.mark(&prim[p * s..(p + 1) * s]);
+                named.mark(prim.row(p));
             }
         }
         if frz.alt() == Some(g) {
-            named.mark(alt);
+            named.mark(alt.cells());
         }
         frz.rebuild(g, &named);
         for p in 0..ring {
@@ -193,13 +186,13 @@ fn rebuild_all(
                 .tag(RowRot::NONE.advance(p, m.ring))
                 .is_some_and(|t| t.generation == g)
             {
-                for c in prim[p * s..(p + 1) * s].iter_mut() {
+                for c in prim.row_mut(p).iter_mut() {
                     c.style = frz.rebuilt(c.style);
                 }
             }
         }
         if frz.alt() == Some(g) {
-            for c in alt.iter_mut() {
+            for c in alt.all_mut().0.iter_mut() {
                 c.style = frz.rebuilt(c.style);
             }
         }
@@ -222,8 +215,8 @@ impl<'a, 'b> Paint<'a, 'b> {
         };
         let (rot, ring) = match (on_status, up) {
             (false, Up::Primary) => (self.view.rotation(), self.view.ring()),
-            (true, Up::Primary) => (self.status.rot, self.status.ring),
-            (_, Up::Alternate) => (self.other.rot, self.other.ring),
+            (true, Up::Primary) => (self.status.rot(), self.status.ring()),
+            (_, Up::Alternate) => (self.other.rot(), self.other.ring()),
         };
         Main {
             up,
@@ -236,7 +229,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
-    fn parts(&mut self) -> Option<Parts<'_, 'b>> {
+    fn parts(&mut self) -> Option<Parts<'_, 'a, 'b>> {
         let stride = self.view.stride();
         let screen = match self.on_status() {
             true => (true, self.strs.status.park_screen()),
@@ -244,11 +237,11 @@ impl<'a, 'b> Paint<'a, 'b> {
         };
         let frz = self.style_log.frozen.as_mut()?;
         let tmpl: &[Option<StyleWord>] = &*self.tmpl;
-        let (prim, alt): (&mut [PackedCell], &mut [PackedCell]) = match screen {
-            (false, Screen::Normal) => (self.view.ring_cells_mut(), &mut *self.other.cells),
-            (false, Screen::Alternate) => (&mut *self.other.cells, self.view.ring_cells_mut()),
-            (true, Screen::Normal) => (&mut *self.status.cells, &mut *self.other.cells),
-            (true, Screen::Alternate) => (&mut *self.other.cells, &mut *self.status.cells),
+        let (prim, alt): (&mut Stamped<'a>, &mut Stamped<'a>) = match screen {
+            (false, Screen::Normal) => (self.view.store_mut(), self.other.store_mut()),
+            (false, Screen::Alternate) => (self.other.store_mut(), self.view.store_mut()),
+            (true, Screen::Normal) => (self.status.store_mut(), self.other.store_mut()),
+            (true, Screen::Alternate) => (self.other.store_mut(), self.status.store_mut()),
         };
         Some(Parts {
             prim,
@@ -286,12 +279,11 @@ impl<'a, 'b> Paint<'a, 'b> {
         frz.mark(m.top);
         let s = stride.index();
         drop_stale(frz, &m);
-        let row = |p: RowRot| p.index() * s..(p.index() + 1) * s;
-        let alt_due = m.up == Up::Primary && frz.alt().is_none() && names_any(alt);
+        let alt_due = m.up == Up::Primary && frz.alt().is_none() && names_any(alt.cells());
         let mut due = 0;
         for l in m.lines() {
             let (at, p) = (m.at(l), m.phys(l));
-            if m.may_freeze(at) && frz.valid(p, l, at).is_none() && names_any(&prim[row(p)]) {
+            if m.may_freeze(at) && frz.valid(p, l, at).is_none() && names_any(prim.row(p.index())) {
                 due += 1;
             }
         }
@@ -301,21 +293,24 @@ impl<'a, 'b> Paint<'a, 'b> {
         // Room for every row due and a default word each, before a row is
         // touched: the dead generations' words first, then every
         // generation's words no row names.
-        let need = due * (s + 1) + if alt_due { alt.len() + 1 } else { 0 };
+        let need = due * (s + 1) + if alt_due { alt.cells().len() + 1 } else { 0 };
         if frz.room() < need {
             frz.reclaim();
         }
         if frz.room() < need {
-            rebuild_all(frz, prim, alt, &m, stride);
+            rebuild_all(frz, prim, alt, &m);
             frz.reclaim();
         }
         let mut froze = Froze::Nothing;
         // The alternate screen as one generation, so it thaws as one when
         // it is up again; a screen whose cells pass the table cannot be.
         if alt_due {
-            match (alt.len() < tmpl.len()).then(|| frz.begin()).flatten() {
+            match (alt.cells().len() < tmpl.len())
+                .then(|| frz.begin())
+                .flatten()
+            {
                 Some(g) => {
-                    if frz.freeze_row(g, alt, tmpl) == RowFreeze::Frozen {
+                    if frz.freeze_row(g, alt.all_mut().0, tmpl) == RowFreeze::Frozen {
                         frz.set_alt(Some(g));
                         froze = Froze::Rows;
                     }
@@ -330,8 +325,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             if !m.may_freeze(at) || frz.valid(p, l, at).is_some() {
                 continue;
             }
-            let cells = &mut prim[row(p)];
-            if !names_any(cells) {
+            if !names_any(prim.row(p.index())) {
                 continue;
             }
             let placed = loop {
@@ -340,7 +334,7 @@ impl<'a, 'b> Paint<'a, 'b> {
                     None => break None,
                 };
                 g = Some(cur);
-                match frz.freeze_row(cur, cells, tmpl) {
+                match frz.freeze_row(cur, prim.row_mut(p.index()), tmpl) {
                     RowFreeze::Frozen => break Some(cur),
                     // A generation that took nothing has no room in the
                     // pool either: no later row fits.
@@ -389,13 +383,14 @@ impl<'a, 'b> Paint<'a, 'b> {
         let on_status = self.on_status();
         match on_status {
             true => live.mark(self.view.ring_cells()),
-            false => live.mark(self.status.cells),
+            false => live.mark(self.status.store().cells()),
         }
+        let (other, line) = (self.other.store().cells(), self.status.store().cells());
         let (prim, alt): (&[PackedCell], &[PackedCell]) = match (on_status, m.up) {
-            (false, Up::Primary) => (self.view.ring_cells(), self.other.cells),
-            (false, Up::Alternate) => (self.other.cells, self.view.ring_cells()),
-            (true, Up::Primary) => (self.status.cells, self.other.cells),
-            (true, Up::Alternate) => (self.other.cells, self.status.cells),
+            (false, Up::Primary) => (self.view.ring_cells(), other),
+            (false, Up::Alternate) => (other, self.view.ring_cells()),
+            (true, Up::Primary) => (line, other),
+            (true, Up::Alternate) => (other, line),
         };
         let frz = self.style_log.frozen.as_ref();
         if frz.is_none_or(|f| f.alt().is_none()) {
@@ -418,23 +413,26 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
-    /// The surface `up` names, whole: the primary's ring or the alternate
-    /// screen's buffer.
-    fn surface_cells(&mut self, up: Up) -> &mut [PackedCell] {
+    /// The surface `up` names, whole -- the primary's ring or the alternate
+    /// screen's buffer -- and the frozen store beside it, two disjoint
+    /// borrows.
+    fn surface(&mut self, up: Up) -> (&mut Stamped<'a>, Option<&mut FrozenStore<'b>>) {
         let on_status = self.on_status();
         let screen = match on_status {
             true => self.strs.status.park_screen(),
             false => self.cold.screen,
         };
-        match (on_status, screen, up) {
+        let frozen = self.style_log.frozen.as_mut();
+        let s = match (on_status, screen, up) {
             (false, Screen::Normal, Up::Primary) | (false, Screen::Alternate, Up::Alternate) => {
-                self.view.ring_cells_mut()
+                self.view.store_mut()
             }
             (true, Screen::Normal, Up::Primary) | (true, Screen::Alternate, Up::Alternate) => {
-                &mut *self.status.cells
+                self.status.store_mut()
             }
-            _ => &mut *self.other.cells,
-        }
+            _ => self.other.store_mut(),
+        };
+        (s, frozen)
     }
 
     /// Frozen id `id` of generation `g` interned into the table, once a
@@ -455,21 +453,35 @@ impl<'a, 'b> Paint<'a, 'b> {
         l
     }
 
-    /// Physical row `p` of surface `up` thawed through generation `g`.
+    /// Physical row `p` of surface `up` thawed through generation `g`, in
+    /// **two passes and one stamp**. The first reads each id and interns it
+    /// (`thaw_id`), which may sweep; the second takes the row once and
+    /// rewrites each id from the map the first filled. Nothing between the
+    /// two forgets the map: a sweep while the thaw is busy keeps every slot
+    /// it interned (`FrozenStore::pin`), the freezes that forget it return at
+    /// once while it is busy, and `thaw_screen` forgets it only after this
+    /// returns. An id the map lacks in the second pass would leave a frozen
+    /// id read through the live table -- the recolour the `tmpl` rule
+    /// forbids -- so it is a real assert, on a cold path.
     fn thaw_row(&mut self, up: Up, g: GenIdx, p: RowRot) {
         let s = self.view.stride().index();
-        let (a, b) = (p.index() * s, (p.index() + 1) * s);
-        for i in a..b {
-            let id = self.surface_cells(up)[i].style;
-            if id == StyleId::DEFAULT {
+        for i in 0..s {
+            let id = self.surface(up).0.row(p.index())[i].style;
+            if id != StyleId::DEFAULT {
+                let _ = self.thaw_id(g, id);
+            }
+        }
+        let (surface, frozen) = self.surface(up);
+        let f = frozen.expect("a thaw runs only with a frozen store");
+        for c in surface.row_mut(p.index()).iter_mut() {
+            if c.style == StyleId::DEFAULT {
                 continue;
             }
-            let l = self.thaw_id(g, id);
-            self.surface_cells(up)[i].style = l;
+            c.style = f
+                .thawed(c.style)
+                .expect("every id the first pass met is in the thaw's map");
         }
-        if let Some(f) = self.style_log.frozen.as_mut() {
-            f.counted_thaw(b - a);
-        }
+        f.counted_thaw(s);
     }
 
     /// **The active screen's frozen rows interned again into the table**:

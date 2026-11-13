@@ -362,6 +362,16 @@ impl RowCount {
 /// operands the wrong way round produces a plausible number and a silently
 /// wrong slice, which is the same class of mistake `Grid::at` already exists to
 /// prevent for single cells.
+///
+/// It rotates nothing: a surface's rows move only through the store that
+/// stamps them (`grid/store.rs`).
+///
+/// ```compile_fail,E0599
+/// fn f(b: baud_domain::RowBlock, buf: &mut [u8]) { b.rotate_left_by(buf, b) }
+/// ```
+/// ```
+/// fn f(b: baud_domain::RowBlock, buf: &mut [u8]) { let _ = b.of_mut(buf); }
+/// ```
 #[derive(Clone, Copy)]
 pub struct RowBlock {
     start: usize,
@@ -413,14 +423,6 @@ impl RowBlock {
     /// without being handed the arithmetic back.
     pub fn fits<T>(self, buf: &[T]) -> bool {
         buf.len() >= self.start + self.len
-    }
-    /// Rotate a buffer left by this block's worth of entries.
-    ///
-    /// Takes the shift as a block rather than a count so the row count and the
-    /// stride cannot be transposed at the call site -- which is a plausible
-    /// number and a silently wrong grid.
-    pub fn rotate_left_by<T>(self, buf: &mut [T], by: RowBlock) {
-        self.of_mut(buf).rotate_left(by.len);
     }
 }
 

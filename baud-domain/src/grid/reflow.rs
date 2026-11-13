@@ -155,7 +155,7 @@ impl<'a> View<'a> {
     }
 
     fn cell(&self, p: usize, x: usize) -> PackedCell {
-        self.cells[p * self.stride.index() + x]
+        self.store.cells()[p * self.stride().index() + x]
     }
 
     /// The cell at ordinal `k` of the line starting at `start`, the source
@@ -197,7 +197,7 @@ impl<'a> View<'a> {
 
     /// Whether the row at linear index `i` is not single-width.
     fn sized(&self, c: Cut, i: usize) -> bool {
-        self.used[self.lin(c, i)].rendition().is_double()
+        self.store.used()[self.lin(c, i)].rendition().is_double()
     }
 
     fn line_at(&self, c: Cut, start: usize, n_src: usize) -> Line {
@@ -212,16 +212,17 @@ impl<'a> View<'a> {
         let n_src = n_src.min(c.keep);
         let mut rows = 1;
         while start + rows < n_src
-            && self.used[self.lin(c, start + rows - 1)].wrapped()
+            && self.store.used()[self.lin(c, start + rows - 1)].wrapped()
             && !self.sized(c, start + rows)
         {
             rows += 1;
         }
         let last = self.lin(c, start + rows - 1);
-        let mark = self.used[last].index().min(old);
+        let mark = self.store.used()[last].index().min(old);
         let cells = (rows - 1) * old + mark;
-        let s = self.stride.index();
-        let tail = crate::history::blank_past_mark(&self.cells[last * s..last * s + s], mark, old);
+        let s = self.stride().index();
+        let tail =
+            crate::history::blank_past_mark(&self.store.cells()[last * s..last * s + s], mark, old);
         let spacers = self.spacers(c, start, cells);
         let dest = (cells + spacers).div_ceil(new).max(1);
         Line {
@@ -232,7 +233,7 @@ impl<'a> View<'a> {
             dest,
             tail,
             rendition: LineRendition::Single,
-            bidi: self.used[self.lin(c, start)].bidi(),
+            bidi: self.store.used()[self.lin(c, start)].bidi(),
             shape: Shape::Cut,
         }
     }
@@ -244,12 +245,12 @@ impl<'a> View<'a> {
         Line {
             start,
             rows: 1,
-            cells: self.stride.index(),
+            cells: self.stride().index(),
             spacers: 0,
             dest: 1,
             tail: PackedCell::EMPTY,
-            rendition: self.used[p].rendition(),
-            bidi: self.used[p].bidi(),
+            rendition: self.store.used()[p].rendition(),
+            bidi: self.store.used()[p].bidi(),
             shape: Shape::Kept,
         }
     }
@@ -257,11 +258,11 @@ impl<'a> View<'a> {
     /// A kept row copied to row `dst`: every cell to the pitch and its
     /// mark, as they were.
     fn copy_kept(&mut self, c: Cut, l: &Line, dst: usize) {
-        let s = self.stride.index();
+        let s = self.stride().index();
         let (ps, pd) = (self.lin(c, l.start), self.lin(c, dst));
         if ps != pd {
-            self.cells.copy_within(ps * s..ps * s + s, pd * s);
-            self.used[pd] = self.used[ps];
+            self.store.copy_within_rows(ps, 0..s, pd, 0);
+            self.store.copy_mark(ps, pd);
         }
     }
 
@@ -278,12 +279,12 @@ impl<'a> View<'a> {
         Line {
             start,
             rows: 1,
-            cells: self.used[p].index().min(self.stride.index()),
+            cells: self.store.used()[p].index().min(self.stride().index()),
             spacers: 0,
             dest: 1,
             tail: PackedCell::EMPTY,
-            rendition: self.used[p].rendition(),
-            bidi: self.used[p].bidi(),
+            rendition: self.store.used()[p].rendition(),
+            bidi: self.store.used()[p].bidi(),
             shape: Shape::Sized,
         }
     }
@@ -293,13 +294,14 @@ impl<'a> View<'a> {
     /// width. Rows are distinct or the same, and the order the module's head
     /// states puts the read first either way.
     fn copy_sized(&mut self, c: Cut, l: &Line, dst: usize) {
-        let s = self.stride.index();
+        let s = self.stride().index();
         let (ps, pd) = (self.lin(c, l.start), self.lin(c, dst));
         if ps != pd {
-            self.cells.copy_within(ps * s..ps * s + l.cells, pd * s);
+            self.store.copy_within_rows(ps, 0..l.cells, pd, 0);
         }
-        self.cells[pd * s + l.cells..pd * s + s].fill(PackedCell::EMPTY);
-        self.used[pd] = RowExtent::of(l.cells)
+        let (mut row, mut mark) = self.store.row_and_mark(pd);
+        row[l.cells..s].fill(PackedCell::EMPTY);
+        *mark = RowExtent::of(l.cells)
             .with_rendition(l.rendition, Cols::of_index(c.new))
             .with_bidi(l.bidi);
     }
@@ -312,7 +314,7 @@ impl<'a> View<'a> {
         }
         let mut start = end - 1;
         while start > first
-            && self.used[self.lin(c, start - 1)].wrapped()
+            && self.store.used()[self.lin(c, start - 1)].wrapped()
             && !self.sized(c, start - 1)
             && !self.sized(c, start)
         {
@@ -323,7 +325,7 @@ impl<'a> View<'a> {
 
     fn write_ord(&mut self, c: Cut, dst: usize, d: usize, cell: PackedCell) {
         let p = self.lin(c, dst + d / c.new);
-        self.cells[p * self.stride.index() + d % c.new] = cell;
+        *self.store.cell_mut(p, d % c.new) = cell;
     }
 
     /// The marks and the tail of a line copied to `dst`, and **nothing past
@@ -335,18 +337,19 @@ impl<'a> View<'a> {
     /// blank past the new width to the pitch: its reads are all behind it,
     /// by the order the module's head states.
     fn finish_line(&mut self, c: Cut, l: &Line, dst: usize) {
-        let (new, s) = (c.new, self.stride.index());
+        let (new, s) = (c.new, self.stride().index());
         for j in 0..l.dest - 1 {
             let p = self.lin(c, dst + j);
-            self.used[p] = RowExtent::ZERO.wrapping(new).with_bidi(l.bidi);
-            self.cells[p * s + new..p * s + s].fill(PackedCell::EMPTY);
+            let (mut row, mut m) = self.store.row_and_mark(p);
+            *m = RowExtent::ZERO.wrapping(new).with_bidi(l.bidi);
+            row[new..s].fill(PackedCell::EMPTY);
         }
         let mark = l.cells + l.spacers - (l.dest - 1) * new;
         let p = self.lin(c, dst + l.dest - 1);
-        let at = p * s;
-        self.cells[at + mark..at + new].fill(l.tail);
-        self.cells[at + new..at + s].fill(PackedCell::EMPTY);
-        self.used[p] = RowExtent::of(mark).with_bidi(l.bidi);
+        let (mut row, mut m) = self.store.row_and_mark(p);
+        row[mark..new].fill(l.tail);
+        row[new..s].fill(PackedCell::EMPTY);
+        *m = RowExtent::of(mark).with_bidi(l.bidi);
     }
 
     /// Widening: cells ascending, every write at or before its read.
@@ -546,9 +549,9 @@ impl<'a> View<'a> {
         // Rows the window shows past the last re-cut row hold stale lines.
         for j in last..top + rows {
             let p = self.lin(c, j);
-            let at = p * self.stride.index();
-            self.cells[at..at + new].fill(PackedCell::EMPTY);
-            self.used[p] = RowExtent::ZERO;
+            let (mut row, mut m) = self.store.row_and_mark(p);
+            row[..new].fill(PackedCell::EMPTY);
+            *m = RowExtent::ZERO;
         }
         Reflowed {
             rot: RowRot(self.lin(c, top)),

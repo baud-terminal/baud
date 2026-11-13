@@ -96,19 +96,12 @@ impl Paint<'_, '_> {
         let (s, cols) = (self.view.stride(), self.cols);
         let mut read = self.view.mark_links(&mut live).index();
         for surface in [&mut self.other, &mut self.status] {
-            read += mark_linked_rows(
-                surface.cells,
-                surface.used,
-                s.index(),
-                cols.index(),
-                &mut live,
-            )
-            .index();
+            read += mark_linked_rows(surface.store_mut(), cols.index(), &mut live).index();
         }
         // The status line whole, wherever it is: one row.
         let (line, main) = match self.on_status() {
-            true => (self.view.ring_cells(), &*self.status.cells),
-            false => (&*self.status.cells, self.view.ring_cells()),
+            true => (self.view.ring_cells(), self.status.store().cells()),
+            false => (self.status.store().cells(), self.view.ring_cells()),
         };
         live.mark(line);
         read += line.len();
@@ -123,7 +116,7 @@ impl Paint<'_, '_> {
         if reach.index() > cols.index() {
             let primary = match screen {
                 Screen::Normal => main,
-                Screen::Alternate => &*self.other.cells,
+                Screen::Alternate => self.other.store().cells(),
             };
             let (a, b) = (cols.index(), reach.index().min(s.index()));
             for (p, f) in self.book.past.iter().enumerate() {
