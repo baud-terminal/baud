@@ -12,7 +12,7 @@
 //! images), the GPU's buffers the slices here are lent from, which set is
 //! free to build into, and what it hands the GPU after.
 
-use crate::screens::{Built, Compare, Held, Screens, SetIx, Taking};
+use crate::screens::{Built, Compare, Screens, SetIx, Taking};
 use crate::{
     Candidate, Composition, GlyphMap, Highlight, Instance, Leaving, Lent, Overlay, Renderer,
     Resolved, Scene, StyleStamp, Tally, WalkKey,
@@ -60,6 +60,8 @@ pub struct CellParts<'a, 'g, 'm> {
     pub candidates: &'a mut Vec<Candidate>,
     pub records: &'a mut Vec<Instance>,
     pub grounds: &'a mut Vec<Instance>,
+    /// Unread: the window in drawn order is the renderer's own, kept with
+    /// its key (`crate::bidi::DrawnOrder`). Goes with the app's buffer.
     pub bidi_cells: &'a mut Vec<PackedCell>,
     pub bidi_used: &'a mut Vec<RowExtent>,
     pub lent_cells: &'a mut Vec<PackedCell>,
@@ -125,10 +127,25 @@ where
     // its echo will be.
     let joins_seen = renderer.joins_seen();
     renderer.set_predicted(inputs.predictions.clone().filter(|_| back.index() == 0));
+    // With BDSM reset and every row's joins to find again
+    // (`crate::Rejoin::Every`), a frame that returns below before its
+    // rejoin leaves that answer owed, so the next frame's is `Every`
+    // again (`crate::Reorder::rejoined`).
     let rejoin = renderer.lay_out_bidi_copied(term, back);
-    let view = renderer
-        .bidi()
-        .window(term, back, cell.bidi_cells, cell.bidi_used);
+    // Which buffers this frame may write: any set no frame in
+    // flight was committed with. `None` would mean every one is
+    // held and there is nowhere to build that a live draw is not
+    // reading -- which cannot happen while one frame is in
+    // flight and three sets exist, and is a refusal rather than
+    // a corruption if it ever does.
+    let at = building()?;
+    let set = at.0;
+    // **The window in drawn order, the renderer's own, lent by move with
+    // its key** once the frame has a set to build into, and put back once
+    // it is built: each row permuted again only where it was laid out or
+    // written since the last frame drew it (`crate::Orders::window_kept`).
+    let mut drawn = renderer.take_drawn_order();
+    let view = renderer.bidi().window_kept(term, back, &mut drawn.window);
     // Smooth scroll: at the live screen on the primary surface, a
     // non-zero pan draws one leaving row above the window.
     // The leaving row's glyphs are one row up, not in `view`, so
@@ -140,14 +157,6 @@ where
     // the overlay's records name `above`'s rows -- the whole
     // screen one line up -- and every mark and ligature is drawn
     // a row off its cell for the length of the slide.
-    // Which buffers this frame may write: any set no frame in
-    // flight was committed with. `None` would mean every one is
-    // held and there is nowhere to build that a live draw is not
-    // reading -- which cannot happen while one frame is in
-    // flight and three sets exist, and is a refusal rather than
-    // a corruption if it ever does.
-    let at = building()?;
-    let set = at.0;
     // **The ids this set's copy was lent, put back**, and the
     // slots this set lent its last frame's frozen and struck
     // cells after them: no frame in flight reads this set, so
@@ -218,12 +227,11 @@ where
     let stride = term.stride().index();
     let (vcols, vrows) = (view.cols().index(), view.rows().index());
     // The status line in its drawn order, the row after the
-    // window's in the renderer's maps.
-    let mut status_cells = Vec::new();
+    // window's in the renderer's maps, kept with its key as the window is.
     let status = term.status_line().map(|line| {
         renderer
             .bidi()
-            .status_line(Row::from_index(vrows), line, &mut status_cells)
+            .status_kept(term, Row::from_index(vrows), line, &mut drawn.status)
     });
     let lined = usize::from(status.is_some());
     let screens = &mut cell.screens;
@@ -250,10 +258,9 @@ where
         .last_set()
         .and_then(|l| cell.lent.get(l.0))
         .map_or(&[][..], crate::Lent::rewrites);
-    // Which rows the layout drew in another order, the status line's
-    // after the window's, and whether it re-broke a display: rows whose
-    // drawn cells read more of the terminal than their stored ones.
-    let orders = renderer.bidi();
+    // The maps the window was drawn through: which rows they laid out
+    // again since each set's copy, the status line's after the window's,
+    // and the display they re-broke.
     let built = screens.take_lent(
         cell.copies_mem,
         at,
@@ -263,8 +270,7 @@ where
             back,
             view: &view,
             status: status.as_ref(),
-            reordered: &|r| orders.reordered(r),
-            held: Held::of(orders),
+            orders: renderer.bidi(),
             stride: term.stride(),
             leaving,
         },
@@ -608,7 +614,7 @@ where
     let chrome = Tally::of(cell.records.len() - chrome_from);
     used.clear();
     used.extend((0..view.rows().index()).map(|y| view.extent(Row::from_index(y))));
-    Some(CellFrame {
+    let frame = CellFrame {
         at,
         built,
         cols: view.cols(),
@@ -618,5 +624,7 @@ where
         walked: Tally::of(walked),
         moving,
         chrome,
-    })
+    };
+    renderer.put_drawn_order(drawn);
+    Some(frame)
 }

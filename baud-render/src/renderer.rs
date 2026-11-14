@@ -2769,10 +2769,10 @@ enum LentRows {
 use mirror::Mirror;
 
 /// **The CPU path's copy of the window, and the key it was taken under**
-/// (FS-C5): its cells, each row's line rendition, and the seal and window
-/// a convert last brought it up to date under, so the next convert takes
-/// from the terminal only the rows written since, and those drawn from
-/// more than their stored cells.
+/// (FS-C5): its cells, each row's line rendition, and the seals, window
+/// and display a convert last brought it up to date under, so the next
+/// convert takes from the terminal only the rows written or laid out again
+/// since.
 ///
 /// At the end of every convert the copy equals the last frame's, `prev`,
 /// row for row, so a row the key keeps is neither read nor compared. That
@@ -2784,7 +2784,8 @@ use mirror::Mirror;
 /// written is read as no key at all** (`Keeps::Nothing`): the next
 /// convert takes every row and compares it, as a full frame does.
 mod mirror {
-    use crate::screens::{Keeps, Now, Reordered, ScreenGen, SetKey};
+    use crate::Orders;
+    use crate::screens::{Dirt, Keeps, Now, ScreenGen, SetKey};
     use baud_core::Term;
     use baud_domain::{Cols, LineRendition, PackedCell, Row, Rows, Seal, Viewport};
 
@@ -2833,39 +2834,36 @@ mod mirror {
             (&mut self.cells, &mut self.sizes)
         }
 
-        /// How much of the copy the key keeps for `now` (`SetKey::keeps`):
-        /// nothing once scribbled or resized.
-        pub(super) fn keeps(
-            &self,
-            term: &Term<'_>,
-            now: &Now<'_>,
-            reordered: &[Reordered],
-        ) -> Keeps {
-            self.key.keeps(term, now, reordered)
+        /// How much of the copy the key keeps for `now`, drawn through
+        /// `orders` (`SetKey::keeps`): nothing once scribbled or resized.
+        pub(super) fn keeps(&self, term: &Term<'_>, now: &Now<'_>, orders: &Orders) -> Keeps {
+            self.key.keeps(term, now, orders)
         }
 
-        /// Whether row `r` may not be the window's now (`SetKey::dirty`).
+        /// Whether row `r` may not be the window's now: written or laid out
+        /// again since the key's seals (`SetKey::dirt`).
         pub(super) fn dirty(
             &self,
             now: &Now<'_>,
-            reordered: &[Reordered],
+            orders: &Orders,
             view: &Viewport<'_>,
             r: Row,
         ) -> bool {
-            self.key.dirty(now, reordered, view, r)
+            self.key.dirt(now, orders, view, r) != Dirt::Kept
         }
 
         /// **The convert done**, the copy equal to the frame drawn: keyed
-        /// under `seal`, the term's as it was read.
+        /// under `seal`, the term's as it was read, and the seal of
+        /// `orders`, the maps it was drawn through.
         pub(super) fn settle(
             &mut self,
             seal: Seal,
             now: &Now<'_>,
             view: &Viewport<'_>,
-            reordered: &[Reordered],
+            orders: &Orders,
         ) {
             self.key
-                .record((seal, ScreenGen::default()), now, view, reordered);
+                .record((seal, ScreenGen::default()), now, view, orders);
         }
     }
 }
@@ -3556,10 +3554,8 @@ pub struct Renderer<'f, 'a> {
     /// changes how the row is drawn and no cell.
     cur: Mirror,
     prev_size: Vec<LineRendition>,
-    /// This frame's reordered rows for the key, the status line's after
-    /// the window's, and what the frame does with each row of `cur`, in
-    /// buffers kept across frames.
-    mirror_reordered: Vec<crate::screens::Reordered>,
+    /// What the frame does with each row of `cur`, in a buffer kept
+    /// across frames.
     mirror_rows: Vec<MirrorRow>,
     /// The rows the last frame and this one veiled, composed over or
     /// noticed in `cur`, and whether either lent every row: the rows the
@@ -3589,29 +3585,21 @@ pub struct Renderer<'f, 'a> {
     /// made the first time a frame has any: one pointer on a renderer that
     /// never composes, predicts or slides.
     beside: Option<Box<Beside>>,
-    /// The window in that order, for the pictures drawn in text, which are
-    /// found over the cells as they are drawn on every path.
-    bidi_cells: Vec<PackedCell>,
-    /// Each row's joined cells and their words as the last conversion drew
-    /// them: a form, or a letter a joined cell's shaping reads, moves with
-    /// no cell of its row changing -- a letter typed on the next row of a
-    /// wrapped word -- so a row whose joins moved is converted again.
-    joins_prev: Vec<Option<crate::bidi::RowJoins>>,
-    /// Each row's mirrored cells as the last conversion drew them
-    /// ([`crate::bidi::Orders::mirrors`]): a cell is flipped or given a
-    /// mirror for its base by its level, which can change with no cell of
-    /// its row changing -- a row of the same characters either way round,
-    /// its paragraph's direction set by the row before -- so a row whose
-    /// mirrors moved is converted again. Empty while no row holds one.
-    mirrors_prev: Vec<Vec<(Col, crate::bidi::Mirrored)>>,
-    /// Each row's cells SAPV 17 slanted left as the last conversion drew
-    /// them ([`crate::bidi::Orders::slants`]), compared as `mirrors_prev`
-    /// is and for its reason: a slant goes by its cell's level. Empty while
-    /// no row holds one.
-    slants_prev: Vec<Vec<Col>>,
-    /// Whether `joins_prev` holds a row's joins: a frame whose window holds
-    /// none, after one that held none, compares no row's.
-    joins_held: crate::bidi::Joins,
+    /// **The window and the status line in that order, kept with their
+    /// keys** (`crate::bidi::DrawnOrder`): for the pictures drawn in text,
+    /// which are found over the cells as they are drawn on every path, and
+    /// lent by move to the cell path's frame (`crate::cell_frame::build`).
+    drawn_order: crate::bidi::DrawnOrder,
+    /// **The seal of the maps the last conversion drew through**
+    /// ([`crate::bidi::Orders::laid_seal`]): a form, a mirror or a slant
+    /// moves with no cell of its row changing -- a letter typed on the
+    /// next row of a wrapped word, a row of the same characters either way
+    /// round, its paragraph's direction set by the row before -- and the
+    /// row's maps are written then, so a row laid out again otherwise since
+    /// is converted again, and no row's maps are copied or compared here:
+    /// the layout compares a row it lays out again with what it held, and
+    /// one that came out as it was reads as not laid out again.
+    laid_drawn: Option<crate::bidi::LaidSeal>,
     /// Whether this renderer has shaped a letter that takes a joining form:
     /// until it has, a layout with BDSM reset reads no row for joins
     /// ([`crate::bidi::Joins`]).
@@ -3619,13 +3607,13 @@ pub struct Renderer<'f, 'a> {
     /// Whether a finished paragraph is drawn at its words
     /// ([`Renderer::set_word_wrap`]).
     word_wrap: crate::WordWrap,
-    bidi_used: Vec<baud_domain::RowExtent>,
     /// The find marks' wash, from the palette `set_find` read, so a frame's
     /// layout can draw the marks again through its order.
     find_wash: Argb,
     /// What the find marks and the link underline were last drawn from
-    /// past the layout's order, by [`Renderer::marks_after_layout`].
-    marks_laid: Option<MarksKey>,
+    /// past the layout's order, and the seal of the maps they were drawn
+    /// through, by [`Renderer::marks_after_layout`].
+    marks_laid: Option<(MarksKey, crate::bidi::LaidSeal)>,
     /// **The CPU and instance paths' resolved rendition table**, kept from
     /// frame to frame and brought up to date by [`Renderer::sync_styles`]:
     /// only the slots the core wrote since, or every live slot when the table
@@ -4320,7 +4308,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             known: Prev::Unknown,
             cur: Mirror::default(),
             prev_size: Vec::new(),
-            mirror_reordered: Vec::new(),
             mirror_rows: Vec::new(),
             veiled_last: Vec::new(),
             veiled_now: Vec::new(),
@@ -4330,14 +4317,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             placeholder_bidi: None,
             placeholder_leaving: None,
             beside: None,
-            bidi_cells: Vec::new(),
-            joins_prev: Vec::new(),
-            mirrors_prev: Vec::new(),
-            slants_prev: Vec::new(),
-            joins_held: crate::bidi::Joins::Unseen,
+            drawn_order: crate::bidi::DrawnOrder::default(),
+            laid_drawn: None,
             joins_seen: crate::bidi::Joins::Unseen,
             word_wrap: crate::WordWrap::default(),
-            bidi_used: Vec::new(),
             find_wash: Argb(0),
             marks_laid: None,
             styles: Vec::new(),
@@ -5098,9 +5081,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// **The find marks and the link underline drawn again through the
     /// order just laid out**, where the frame before was drawn in another
-    /// order or this one is (`was`), unless the layout kept every row's
-    /// order whole ([`crate::Reorder::held`]) and nothing else the two are
-    /// drawn from moved since they were drawn through it ([`MarksKey`]): a
+    /// order or this one is (`was`), unless no row's maps were written
+    /// since they were drawn through them ([`crate::Orders::moved_since`])
+    /// and nothing else the two are drawn from moved ([`MarksKey`]): a
     /// frame that wrote nothing collects no run of either. What else moves
     /// them draws them again itself: [`Renderer::set_find`],
     /// [`Renderer::set_link`] and [`Renderer::rebuild_overlays`].
@@ -5112,14 +5095,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
             defaults: self.defaults,
             wash: self.find_wash,
         };
+        let orders = self.bidi.orders();
         if (was, now) == (Reordered::No, Reordered::No)
-            || (self.bidi.held() && self.marks_laid == Some(key))
+            || self
+                .marks_laid
+                .is_some_and(|(k, laid)| k == key && !orders.moved_since(&laid))
         {
             return;
         }
         self.build_find();
         self.build_link();
-        self.marks_laid = Some(key);
+        self.marks_laid = Some((key, self.bidi.orders().laid_seal()));
     }
 
     /// Whether the last layout drew any row in another order, or a
@@ -5331,6 +5317,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The order the last layout drew each row in.
     pub fn bidi(&self) -> &crate::bidi::Orders {
         self.bidi.orders()
+    }
+
+    /// **The window and the status line in drawn order, with their keys,
+    /// lent by move** to the cell path's frame, which puts them back
+    /// ([`Renderer::put_drawn_order`]): the buffers and the key that
+    /// describes them go together, and a frame that never puts them back
+    /// leaves none, so the next one draws every row.
+    pub(crate) fn take_drawn_order(&mut self) -> crate::bidi::DrawnOrder {
+        core::mem::take(&mut self.drawn_order)
+    }
+
+    /// What [`Renderer::take_drawn_order`] lent, put back.
+    pub(crate) fn put_drawn_order(&mut self, drawn: crate::bidi::DrawnOrder) {
+        self.drawn_order = drawn;
     }
 
     /// Whether this renderer has shaped a letter that takes a joining form,
@@ -10194,21 +10194,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             Some(d) => d.window(),
             None => term.view(back),
         };
-        // Whether any row's joins are compared with the last frame's: none
-        // while neither frame holds one.
-        let joins_kept = rejoin.is_some()
-            || self.bidi.orders().any_joined()
-            || self.joins_held == crate::bidi::Joins::Seen;
-        // Whether any row's mirrors are compared with the last frame's: none
-        // while neither frame holds one.
-        let mirrors_now = self.bidi.orders().any()
-            && (0..main.index())
-                .any(|r| !self.bidi.orders().mirrors(Row::from_index(r)).is_empty());
-        let mirrors_kept = mirrors_now || !self.mirrors_prev.is_empty();
-        // And its slanted cells.
-        let slants_now = self.bidi.orders().any()
-            && (0..main.index()).any(|r| !self.bidi.orders().slants(Row::from_index(r)).is_empty());
-        let slants_kept = slants_now || !self.slants_prev.is_empty();
         // **The status line's row, below the main display's**, whatever the
         // window looks back on: it is no line of the history. In the order
         // its own layout gives it, the maps' row after the window's.
@@ -10219,29 +10204,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let notice = self.notice_field();
         // **Which rows `cur` takes from the terminal again** (FS-C5): every
         // row when its key does not hold -- none yet, another window, other
-        // scalars, a frame that knows nothing of the last; else the rows
-        // written since its seal, drawn in another order now or then, or
-        // under a display held now or then, and the status line's by its
-        // own generation. And the rows the last frame veiled, composed over
-        // or noticed, or every row if it lent them: `cur` holds those as
-        // drawn, not as stored. Every other row is the terminal's already,
-        // and the last frame's: it is neither read nor compared.
+        // scalars, another display, a frame that knows nothing of the
+        // last; else the rows written since its seal or laid out again
+        // since its layout's, and the status line's by its own generation
+        // and its own row of the maps. And the rows the last frame veiled,
+        // composed over or noticed, or every row if it lent them: `cur`
+        // holds those as drawn, not as stored. Every other row is the
+        // terminal's already, and the last frame's: it is neither read nor
+        // compared.
         let orders = self.bidi.orders();
-        crate::screens::Reordered::rows_into(
-            &mut self.mirror_reordered,
-            Rows::of_index(main.index() + lined),
-            |r| orders.reordered(r),
-        );
-        let now = crate::screens::Now::of(
-            term,
-            back,
-            (&vp, status.as_ref()),
-            crate::screens::Held::of(orders),
-            term.stride(),
-        );
+        let now = crate::screens::Now::of(term, back, (&vp, status.as_ref()), term.stride());
         let keeps = match self.known {
             Prev::Unknown => crate::screens::Keeps::Nothing,
-            Prev::Known => self.cur.keeps(term, &now, &self.mirror_reordered),
+            Prev::Known => self.cur.keeps(term, &now, orders),
         };
         self.mirror_rows.clear();
         for r in 0..rows.index() {
@@ -10250,9 +10225,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 crate::screens::Keeps::All => false,
                 crate::screens::Keeps::Rows => {
                     r < main.index() + lined
-                        && self
-                            .cur
-                            .dirty(&now, &self.mirror_reordered, &vp, Row::from_index(r))
+                        && self.cur.dirty(&now, orders, &vp, Row::from_index(r))
                 }
             };
             self.mirror_rows.push(match taken {
@@ -10410,12 +10383,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let lent = self.cpu_lent.held();
             match lent.words().is_live() {
                 true => {
-                    let drawn = self.bidi.orders().window(
-                        term,
-                        back,
-                        &mut self.bidi_cells,
-                        &mut self.bidi_used,
-                    );
+                    let drawn =
+                        self.bidi
+                            .orders()
+                            .window_kept(term, back, &mut self.drawn_order.window);
                     self.pictures.find(term, &drawn, self.video);
                 }
                 // The copy lent its frozen cells slots: read it, in the
@@ -10677,17 +10648,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let tipped = tip_changed && tip_on(&self.tip, row) != tip_on(&self.last_tip, row);
             // The notice come, gone or changed on this row.
             let noticed = field_at(&notice, row) != field_at(&self.last_notice, row);
-            // A joining form moved on this row.
-            let rejoined = joins_kept
-                && self.bidi.orders().row_joins(row)
-                    != self.joins_prev.get(r).and_then(Option::as_ref);
-            // Or a mirrored cell.
-            let remirrored = mirrors_kept
-                && self.bidi.orders().mirrors(row)
-                    != self.mirrors_prev.get(r).map_or(&[][..], Vec::as_slice);
-            let reslanted = slants_kept
-                && self.bidi.orders().slants(row)
-                    != self.slants_prev.get(r).map_or(&[][..], Vec::as_slice);
+            // A row whose maps -- its order, its joining forms, its mirrored
+            // and slanted cells -- were laid out or joined again otherwise
+            // since the last conversion drew through them: any of them may
+            // have moved with no cell of the row changing. One laid out
+            // again as it was is not read so, and a frame drawn by rows
+            // stays drawn by rows.
+            let relaid = self
+                .laid_drawn
+                .is_none_or(|laid| self.bidi.orders().laid_after(row, &laid));
             // An image the CPU path blitted over this row last frame is not
             // there now: see `render_at`.
             let imaged = images == ImageRows::Repainted
@@ -10737,9 +10706,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || linked
                 || tipped
                 || noticed
-                || rejoined
-                || remirrored
-                || reslanted;
+                || relaid;
             beyond_cursor |= beyond;
             let whole = full || beyond || cursor_moved || glow_moved || guide_moved;
             self.dirty[r] = whole || trail_moved || splashed;
@@ -10755,35 +10722,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if rejoin.is_some() {
             self.bidi.rejoined();
         }
-        if mirrors_kept {
-            self.mirrors_prev.clear();
-            if mirrors_now {
-                self.mirrors_prev.extend(
-                    (0..rows.index())
-                        .map(|r| self.bidi.orders().mirrors(Row::from_index(r)).to_vec()),
-                );
-            }
-        }
-        if slants_kept {
-            self.slants_prev.clear();
-            if slants_now {
-                self.slants_prev.extend(
-                    (0..rows.index())
-                        .map(|r| self.bidi.orders().slants(Row::from_index(r)).to_vec()),
-                );
-            }
-        }
-        if joins_kept {
-            self.joins_prev.clear();
-            self.joins_prev.extend(
-                (0..rows.index())
-                    .map(|r| self.bidi.orders().row_joins(Row::from_index(r)).cloned()),
-            );
-            self.joins_held = match self.bidi.orders().any_joined() {
-                true => crate::bidi::Joins::Seen,
-                false => crate::bidi::Joins::Unseen,
-            };
-        }
+        self.laid_drawn = Some(self.bidi.orders().laid_seal());
         if images == ImageRows::Repainted {
             self.last_image_places.clone_from(&self.image_places);
         }
@@ -10891,7 +10830,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.prev_size.clear();
         self.prev_size.extend_from_slice(self.cur.sizes());
         self.cur
-            .settle(term.sealed(), &now, &vp, &self.mirror_reordered);
+            .settle(term.sealed(), &now, &vp, self.bidi.orders());
         core::mem::swap(&mut self.veiled_last, &mut self.veiled_now);
         self.lent_last = lent_now;
         self.known = Prev::Known;

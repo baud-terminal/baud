@@ -43,11 +43,13 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 22] = [
+const NAMES: [&str; 24] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_caret_frame_drawn_as_stored_copies_and_compares_no_cell",
-    "a_caret_frame_compares_only_the_rows_drawn_in_another_order",
+    "a_caret_frame_compares_no_row_drawn_in_another_order",
+    "a_write_outside_every_reordered_paragraph_compares_no_row_drawn_otherwise",
+    "a_display_made_again_compares_no_cell_of_the_copy",
     "a_caret_frame_over_a_re_broken_display_lays_out_and_reads_nothing_at_the_re_cut",
     "a_write_outside_the_display_reads_its_rows_once",
     "a_caret_frame_lays_out_no_paragraph",
@@ -95,8 +97,14 @@ fn main() {
             "a_caret_frame_drawn_as_stored_copies_and_compares_no_cell" => {
                 checks::a_caret_frame_drawn_as_stored_copies_and_compares_no_cell();
             }
-            "a_caret_frame_compares_only_the_rows_drawn_in_another_order" => {
-                checks::a_caret_frame_compares_only_the_rows_drawn_in_another_order();
+            "a_caret_frame_compares_no_row_drawn_in_another_order" => {
+                checks::a_caret_frame_compares_no_row_drawn_in_another_order();
+            }
+            "a_write_outside_every_reordered_paragraph_compares_no_row_drawn_otherwise" => {
+                checks::a_write_outside_every_reordered_paragraph_compares_no_row_drawn_otherwise();
+            }
+            "a_display_made_again_compares_no_cell_of_the_copy" => {
+                checks::a_display_made_again_compares_no_cell_of_the_copy();
             }
             "a_caret_frame_over_a_re_broken_display_lays_out_and_reads_nothing_at_the_re_cut" => {
                 checks::a_caret_frame_over_a_re_broken_display_lays_out_and_reads_nothing_at_the_re_cut();
@@ -692,11 +700,42 @@ mod checks {
         r.render_at(t, back, target, damage)
     }
 
+    /// **The CPU path's frame, then the control that it was drawn into a
+    /// target of its size**: [`cpu_frame`] makes `present`'s calls alone
+    /// (`the_cell_driver_builds_as_present_builds`), and `present` draws
+    /// into the target AppKit hands it without asking the renderer its
+    /// size, so the harness asks it here, after the frame's own fit.
+    fn cpu_frame_sized(
+        r: &mut Renderer<'_, '_>,
+        t: &mut Term<'_>,
+        inputs: &Inputs,
+        target: &mut Target<'_>,
+        damage: Damage,
+    ) -> baud_render::Frame {
+        let frame = cpu_frame(r, t, inputs, target, damage);
+        let (w, h) = r.pixel_size();
+        assert_eq!(
+            target.pixels().len(),
+            usize::try_from(w.value() * h.value()).unwrap(),
+            "the control: the frame is drawn into a target of its size"
+        );
+        frame
+    }
+
     /// Pixels the size of `r`'s frame.
     struct Pixels {
         px: Vec<u32>,
         w: Px,
         h: Px,
+    }
+
+    /// **Pixels the size of `r`'s frame of `t`, `r` fitted to `t` first**:
+    /// sized before the renderer's first fit, a frame is drawn into a
+    /// target one row short of the status line's, and every compare of it
+    /// leaves that row out.
+    fn fitted(r: &mut Renderer<'_, '_>, t: &Term<'_>) -> Pixels {
+        r.fit(t);
+        Pixels::of(r)
     }
 
     impl Pixels {
@@ -919,7 +958,7 @@ mod checks {
     ) -> Vec<Cost> {
         let mut costs = Vec::new();
         with_screen(blinking, |t, r| {
-            let mut pixels = Pixels::of(r);
+            let mut pixels = fitted(r, t);
             let mut target = pixels.target();
             Cost::take();
             for k in n.before() {
@@ -929,7 +968,7 @@ mod checks {
                     _ => inputs.damage,
                 };
                 Cost::take();
-                let f = cpu_frame(r, t, &inputs, &mut target, damage);
+                let f = cpu_frame_sized(r, t, &inputs, &mut target, damage);
                 let cost = Cost::take();
                 costs.push(Cost {
                     rows_dirty: Some(f.rows_dirty),
@@ -1029,9 +1068,9 @@ mod checks {
     pub fn a_caret_frame_blinks_the_cursor_and_counts_what_it_costs() {
         let n = Nth::ALL;
         with_screen(Blinking::No, |t, r| {
-            let mut a = Pixels::of(r);
+            let mut a = fitted(r, t);
             let style = t.cursor_style();
-            cpu_frame(
+            cpu_frame_sized(
                 r,
                 t,
                 &Inputs::at(CursorPhase::SHOWN),
@@ -1040,7 +1079,7 @@ mod checks {
             );
             assert!(r.cursor_drawn(style), "the shown phase draws the cursor");
             let shown = a.px.clone();
-            let f = cpu_frame(
+            let f = cpu_frame_sized(
                 r,
                 t,
                 &Inputs::at(CursorPhase::HIDDEN),
@@ -1074,10 +1113,15 @@ mod checks {
         // pointer is drawn, on the CPU path in other pixels and on the cell
         // path as a bar.
         with_screen(Blinking::No, |t, r| {
-            let (mut a, mut b) = (Pixels::of(r), Pixels::of(r));
+            let (mut a, mut b) = (fitted(r, t), fitted(r, t));
             let still = Inputs::at(CursorPhase::SHOWN);
-            cpu_frame(r, t, &still, &mut a.target(), Damage::Full);
-            cpu_frame(r, t, &hover(t, Nth(0)), &mut b.target(), Damage::Full);
+            cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Full);
+            cpu_frame_sized(r, t, &hover(t, Nth(0)), &mut b.target(), Damage::Full);
+            assert_eq!(
+                a.px.len(),
+                b.px.len(),
+                "the control: both frames are drawn at one size"
+            );
             assert!(a.px != b.px, "the link under the pointer is drawn");
         });
         with_screen(Blinking::No, |t, r| {
@@ -1122,9 +1166,14 @@ mod checks {
             "the first frame after the first ones hides"
         );
         with_screen(Blinking::Yes, |t, r| {
-            let (mut a, mut b) = (Pixels::of(r), Pixels::of(r));
-            cpu_frame(r, t, &text_blink(t, Nth(0)), &mut a.target(), Damage::Full);
-            cpu_frame(r, t, &text_blink(t, hidden), &mut b.target(), Damage::Full);
+            let (mut a, mut b) = (fitted(r, t), fitted(r, t));
+            cpu_frame_sized(r, t, &text_blink(t, Nth(0)), &mut a.target(), Damage::Full);
+            cpu_frame_sized(r, t, &text_blink(t, hidden), &mut b.target(), Damage::Full);
+            assert_eq!(
+                a.px.len(),
+                b.px.len(),
+                "the control: both frames are drawn at one size"
+            );
             assert!(a.px != b.px, "the blinking cell is hidden");
         });
         with_screen(Blinking::Yes, |t, r| {
@@ -1169,7 +1218,7 @@ mod checks {
         let ltr = fixture_of(Blinking::No, &LTR_SEEDS, LTR_STATUS);
         let (mut cpu, mut cell) = (Vec::new(), Vec::new());
         with_screen_of(&ltr, Strike::None, |t, r| {
-            let mut pixels = Pixels::of(r);
+            let mut pixels = fitted(r, t);
             let mut target = pixels.target();
             Cost::take();
             for k in Nth::ALL.before() {
@@ -1179,7 +1228,7 @@ mod checks {
                     _ => inputs.damage,
                 };
                 Cost::take();
-                let f = cpu_frame(r, t, &inputs, &mut target, damage);
+                let f = cpu_frame_sized(r, t, &inputs, &mut target, damage);
                 cpu.push((Cost::take(), f.rows_dirty));
             }
         });
@@ -1275,7 +1324,7 @@ mod checks {
         let held = fixture_held();
         let (mut cpu, mut cell) = (Vec::new(), Vec::new());
         with_screen_of(&held, Strike::First, |t, r| {
-            let mut pixels = Pixels::of(r);
+            let mut pixels = fitted(r, t);
             let mut target = pixels.target();
             Cost::take();
             for k in Nth::ALL.before() {
@@ -1285,7 +1334,7 @@ mod checks {
                     _ => inputs.damage,
                 };
                 Cost::take();
-                let _ = cpu_frame(r, t, &inputs, &mut target, damage);
+                let _ = cpu_frame_sized(r, t, &inputs, &mut target, damage);
                 cpu.push((Cost::take(), r.bidi().display().is_some()));
             }
         });
@@ -1381,20 +1430,20 @@ mod checks {
         let after = [Nth::WARM, Nth(Nth::WARM.0 + 1)];
         let mut got: Vec<(&str, Vec<Cost>, u64)> = Vec::new();
         with_screen_of(&held, Strike::First, |t, r| {
-            let mut pixels = Pixels::of(r);
+            let mut pixels = fitted(r, t);
             let mut target = pixels.target();
             for k in Nth::WARM.before() {
                 let damage = match k {
                     Nth(0) => Damage::Full,
                     _ => Damage::Incremental,
                 };
-                let _ = cpu_frame(r, t, &caret(k), &mut target, damage);
+                let _ = cpu_frame_sized(r, t, &caret(k), &mut target, damage);
             }
             let rows = write_outside(t);
             let mut costs = Vec::new();
             for k in after {
                 Cost::take();
-                let _ = cpu_frame(r, t, &caret(k), &mut target, Damage::Incremental);
+                let _ = cpu_frame_sized(r, t, &caret(k), &mut target, Damage::Incremental);
                 costs.push(Cost::take());
             }
             got.push(("cpu", costs, rows));
@@ -1449,7 +1498,7 @@ mod checks {
         for (screen, bytes) in [("stored", fixture(Blinking::No)), ("held", fixture_held())] {
             let (mut cpu, mut cell) = (Vec::new(), Vec::new());
             with_screen_of(&bytes, Strike::First, |t, r| {
-                let mut pixels = Pixels::of(r);
+                let mut pixels = fitted(r, t);
                 let mut target = pixels.target();
                 Cost::take();
                 for k in Nth::ALL.before() {
@@ -1459,7 +1508,7 @@ mod checks {
                         _ => inputs.damage,
                     };
                     Cost::take();
-                    let _ = cpu_frame(r, t, &inputs, &mut target, damage);
+                    let _ = cpu_frame_sized(r, t, &inputs, &mut target, damage);
                     cpu.push((Cost::take(), drawn_otherwise(t, r)));
                 }
             });
@@ -1517,7 +1566,7 @@ mod checks {
         let bytes = fixture(Blinking::No);
         let mut got: Vec<(&str, Vec<(Cost, Cost)>)> = Vec::new();
         with_screen_of(&bytes, Strike::First, |t, r| {
-            let mut pixels = Pixels::of(r);
+            let mut pixels = fitted(r, t);
             let mut target = pixels.target();
             let mut costs = Vec::new();
             for k in Nth::ALL.before() {
@@ -1527,7 +1576,7 @@ mod checks {
                     _ => inputs.damage,
                 };
                 Cost::take();
-                let _ = cpu_frame(r, t, &inputs, &mut target, damage);
+                let _ = cpu_frame_sized(r, t, &inputs, &mut target, damage);
                 let frame = Cost::take();
                 let back = t.window_back();
                 r.lay_out_bidi(t, back);
@@ -1577,28 +1626,30 @@ mod checks {
         (drawn, rows)
     }
 
-    /// **R1: a caret frame on the C0 screen compares and copies only the
-    /// rows drawn in another order** (FS-C5): the Hebrew and the Arabic
-    /// seeds' rows and the status line keep being compared and copied,
-    /// since their drawn order reads more of the terminal than their
-    /// cells, and no other row is. The bound is the frame's own layout's:
-    /// on the cell path, as the C0 screen is, its first link struck, the
-    /// copy of the screen (`Site::Screens`) compares at most twice the
-    /// cells of those rows -- once as copied, once through the struck
-    /// link's lending -- and copies none, since the set a caret frame is
-    /// built into already holds the last frame's screen; on the CPU path,
-    /// no link struck, the convert (`Site::Convert`) compares at most
-    /// their cells and copies at most twice them, into its copy of the
-    /// window and into the last frame's. A struck link on the CPU path
+    /// **R1: a caret frame on the C0 screen compares and copies no row,
+    /// those drawn in another order among them** (FS-C4): the Hebrew and
+    /// the Arabic seeds' rows and the status line are drawn in another
+    /// order, and none was laid out again since the last frame drew it
+    /// (`Orders::laid_after`), so no compare is asked of their cells. On
+    /// the cell path, as the C0 screen is, its first link struck, the copy
+    /// of the screen (`Site::Screens`) compares none and copies none, since
+    /// the set a caret frame is built into already holds the last frame's
+    /// screen; on the CPU path, no link struck, the convert
+    /// (`Site::Convert`) compares and copies none; and on either, the
+    /// window and the status line in drawn order (`Site::Layout`) are the
+    /// last frame's, permuted again nowhere; the layout compares no cell
+    /// on any frame, so its compared count is a guard that none comes back
+    /// there, not a check this screen can fail. A struck link on the CPU path
     /// lends every row of its copy each frame (`Renderer::lend_cpu`), so
-    /// every row is compared there. Both fall below a compare of every
-    /// row, and the controls: some rows are drawn in another order, and
-    /// not all. Named breaks: every row taken as written since the seal;
-    /// a set that holds the screen copied into again.
-    pub fn a_caret_frame_compares_only_the_rows_drawn_in_another_order() {
+    /// every row is compared there. The controls: some rows are drawn in
+    /// another order, and not all. Named break: the drawn-order copy made
+    /// whole every frame. A row drawn in another order answered as laid
+    /// out again every frame (`SetKey::dirt`) cannot go red here, since a
+    /// caret frame writes nothing and the key keeps the whole copy without
+    /// asking a row: its red is
+    /// [`a_write_outside_every_reordered_paragraph_compares_no_row_drawn_otherwise`].
+    pub fn a_caret_frame_compares_no_row_drawn_in_another_order() {
         let caret = |_: &Term<'_>, k: Nth| Inputs::at(caret_at(k));
-        let cols = usize::from(WS.ws_col);
-        let of = |rows: usize| u64::try_from(rows * cols).expect("a count");
         let (mut cell_costs, mut cpu_costs) = (Vec::new(), Vec::new());
         with_screen(Blinking::No, |t, r| {
             let mut backing = GlyphMap::backing();
@@ -1612,7 +1663,7 @@ mod checks {
             }
         });
         with_screen_of(&fixture(Blinking::No), Strike::None, |t, r| {
-            let mut pixels = Pixels::of(r);
+            let mut pixels = fitted(r, t);
             let mut target = pixels.target();
             Cost::take();
             for k in Nth::ALL.before() {
@@ -1622,15 +1673,15 @@ mod checks {
                     _ => inputs.damage,
                 };
                 Cost::take();
-                let _ = cpu_frame(r, t, &inputs, &mut target, damage);
+                let _ = cpu_frame_sized(r, t, &inputs, &mut target, damage);
                 cpu_costs.push((k, Cost::take(), drawn_otherwise(t, r)));
             }
         });
         print("c0", "cell", cell_costs.iter().map(|c| c.1));
         print("c0", "cpu", cpu_costs.iter().map(|c| c.1));
-        for (path, costs, site, (compared, copied)) in [
-            ("cell", &cell_costs, Site::Screens, (2, 0)),
-            ("cpu", &cpu_costs, Site::Convert, (1, 2)),
+        for (path, costs, site) in [
+            ("cell", &cell_costs, Site::Screens),
+            ("cpu", &cpu_costs, Site::Convert),
         ] {
             for (k, cost, (drawn, every)) in costs.iter().filter(|c| !c.0.warming()) {
                 assert!(
@@ -1638,47 +1689,196 @@ mod checks {
                     "the control: {path} caret frame {} draws some rows in another order, {drawn} of {every}",
                     k.0
                 );
-                let at = |c: Counter| cost.counts.at(site, c).value();
-                assert!(
-                    at(Counter::CellsCompared) <= compared * of(*drawn)
-                        && at(Counter::CellsCompared) < of(*every),
-                    "{path} caret frame {}: {} cells compared at {}, {drawn} of {every} rows drawn otherwise",
-                    k.0,
-                    at(Counter::CellsCompared),
-                    site.name()
-                );
-                assert!(
-                    at(Counter::CellsCopied) <= copied * of(*drawn),
-                    "{path} caret frame {}: {} cells copied at {}, {drawn} of {every} rows drawn otherwise",
-                    k.0,
-                    at(Counter::CellsCopied),
-                    site.name()
-                );
+                for (at, c) in [
+                    (site, Counter::CellsCompared),
+                    (site, Counter::CellsCopied),
+                    (Site::Layout, Counter::CellsCompared),
+                    (Site::Layout, Counter::CellsCopied),
+                ] {
+                    assert_eq!(
+                        cost.counts.at(at, c).value(),
+                        0,
+                        "{path} caret frame {}: {} at {}, {drawn} of {every} rows drawn otherwise",
+                        k.0,
+                        c.name(),
+                        at.name()
+                    );
+                }
             }
         }
+    }
+
+    /// **R1's twin with a row written: a write outside every reordered
+    /// paragraph compares no row drawn in another order** (FS-C4). R1's
+    /// caret frames write nothing, so a copy's key keeps the whole copy
+    /// and never asks a row why it may differ; here one cell is written on
+    /// the C0 screen's Latin pair of rows 24-25, which holds no row drawn
+    /// in another order, so the key asks every row (`Keeps::Rows`). On the
+    /// cell path, its first link struck, the copy of the screen
+    /// (`Site::Screens`) compares no cell: the written row is copied
+    /// without one, and every other row -- those drawn in another order,
+    /// and row 25, laid out again with its paragraph in its own order, as
+    /// it was -- is kept. On the CPU path, no link struck, the convert
+    /// (`Site::Convert`) compares the written row's cells alone. The
+    /// controls: some rows are drawn in another order, rows 24 and 25 are
+    /// not, no display is held, each path's write frame lays out rows 24
+    /// and 25 again (`Renderer::bidi_work`, the rows of each unit laid out
+    /// again: `Counter::BidiRowsLaid` counts only the rows a paragraph
+    /// that reorders or joins resolves, none of a Latin pair), and the cell
+    /// frame is a new screen. Named breaks: a row drawn in another order
+    /// answered as laid out again every frame (`SetKey::dirt`); every row
+    /// a relay lifted stamped at its end.
+    pub fn a_write_outside_every_reordered_paragraph_compares_no_row_drawn_otherwise() {
+        const WRITE: &[u8] = b"\x1b7\x1b[25;100HX\x1b8";
+        let pair = [Row::from_index(24), Row::from_index(25)];
+        let cols = u64::from(WS.ws_col);
+        let still = Inputs::at(CursorPhase::SHOWN);
+        let controls = |t: &Term<'_>, r: &Renderer<'_, '_>, path: &str| {
+            let (drawn, every) = drawn_otherwise(t, r);
+            assert!(
+                0 < drawn && drawn < every,
+                "the control: {path} draws some rows in another order, {drawn} of {every}"
+            );
+            assert!(
+                pair.iter().all(|&y| !r.bidi().reordered(y)),
+                "the control: {path} draws rows 24 and 25 in their own order"
+            );
+            assert!(
+                r.bidi().display().is_none(),
+                "the control: {path} holds no display"
+            );
+        };
+        with_screen(Blinking::No, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            for k in Nth::WARM.before() {
+                cell_frame(r, t, &still, &mut cells, k.set());
+            }
+            controls(&*t, &*r, "the cell path");
+            feed(t, WRITE);
+            Cost::take();
+            let built = cell_frame(r, t, &still, &mut cells, Nth::WARM.set());
+            let cost = Cost::take();
+            println!("write outside cell: {}", cost.line());
+            assert_eq!(
+                r.bidi_work().laid.value(),
+                2,
+                "the control: the cell path's write frame lays out rows 24 and 25 again"
+            );
+            assert_eq!(built, Built::New, "the control: a new screen");
+            assert_eq!(
+                cost.counts
+                    .at(Site::Screens, Counter::CellsCompared)
+                    .value(),
+                0,
+                "cell: the copy of the screen compares no cell"
+            );
+        });
+        with_screen_of(&fixture(Blinking::No), Strike::None, |t, r| {
+            let mut pixels = fitted(r, t);
+            let mut target = pixels.target();
+            for k in Nth::WARM.before() {
+                let damage = match k {
+                    Nth(0) => Damage::Full,
+                    _ => Damage::Incremental,
+                };
+                let _ = cpu_frame_sized(r, t, &still, &mut target, damage);
+            }
+            controls(&*t, &*r, "the CPU path");
+            feed(t, WRITE);
+            Cost::take();
+            let _ = cpu_frame_sized(r, t, &still, &mut target, Damage::Incremental);
+            let cost = Cost::take();
+            println!("write outside cpu: {}", cost.line());
+            assert_eq!(
+                r.bidi_work().laid.value(),
+                2,
+                "the control: the CPU path's write frame lays out rows 24 and 25 again"
+            );
+            let compared = cost
+                .counts
+                .at(Site::Convert, Counter::CellsCompared)
+                .value();
+            assert!(
+                compared <= cols,
+                "cpu: the convert compares {compared} cells, the written row {cols}"
+            );
+        });
+    }
+
+    /// **A display made again compares no cell of the copy** (FS-C4): on
+    /// the held screen ([`fixture_held`]), cell path, cells written inside
+    /// the first pair of rows its display re-breaks lay the display out
+    /// again, so no set's copy is kept under the display it was drawn from
+    /// and the copy of the screen (`Site::Screens`) compares no cell, each
+    /// row copied afresh. The controls: the re-cut lays a display out, a
+    /// display is held, and the frame is a new screen. Named break: a
+    /// copy's key without the display it was drawn from, which keeps the
+    /// copy's rows and compares each, every row of the maps laid out again
+    /// under the new display.
+    pub fn a_display_made_again_compares_no_cell_of_the_copy() {
+        let still = Inputs::at(CursorPhase::SHOWN);
+        with_screen_of(&fixture_held(), Strike::First, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            for k in Nth::WARM.before() {
+                cell_frame(r, t, &still, &mut cells, k.set());
+            }
+            feed(t, b"\x1b7\x1b[5;5HQQQQQQQQ\x1b8");
+            Cost::take();
+            let built = cell_frame(r, t, &still, &mut cells, Nth::WARM.set());
+            let cost = Cost::take();
+            println!("display made again cell: {}", cost.line());
+            assert!(
+                at_rebreak(&cost, Counter::DisplaysLaid) > 0,
+                "the control: the re-cut lays the display out again"
+            );
+            assert!(r.bidi().display().is_some(), "the control: a display held");
+            assert_eq!(built, Built::New, "the control: a new screen");
+            assert_eq!(
+                cost.counts
+                    .at(Site::Screens, Counter::CellsCompared)
+                    .value(),
+                0,
+                "the copy of the screen compares no cell"
+            );
+        });
     }
 
     /// **(c) One cell written mid-screen repaints its row alone**, and
     /// the frame is the one a full frame draws, pixel for pixel; the cell
     /// path takes it as a new screen. The control the caret rows are
-    /// checked against: a fix that stops repainting also stops this.
+    /// checked against: a fix that stops repainting also stops this. The
+    /// control on the CPU path: the write frame lays out the written row's
+    /// paragraph, rows 24 and 25, again (`Renderer::bidi_work`), so row 25,
+    /// laid out again in its own order as it was, is not repainted.
     pub fn a_written_cell_repaints_its_row_alone() {
         with_screen(Blinking::No, |t, r| {
-            let (mut a, mut b) = (Pixels::of(r), Pixels::of(r));
+            let (mut a, mut b) = (fitted(r, t), fitted(r, t));
             let still = Inputs::at(CursorPhase::SHOWN);
-            cpu_frame(r, t, &still, &mut a.target(), Damage::Full);
-            cpu_frame(r, t, &still, &mut a.target(), Damage::Incremental);
+            cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Full);
+            cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Incremental);
             feed(t, b"\x1b7\x1b[25;100HX\x1b8");
             Cost::take();
-            let f = cpu_frame(r, t, &still, &mut a.target(), Damage::Incremental);
+            let f = cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Incremental);
             let cost = Cost::take();
             println!(
                 "written cpu: {} rows_dirty={}",
                 cost.line(),
                 f.rows_dirty.value()
             );
+            assert_eq!(
+                r.bidi_work().laid.value(),
+                2,
+                "the control: the write frame lays out rows 24 and 25 again"
+            );
             assert_eq!(f.rows_dirty.value(), 1, "the written row alone repaints");
-            cpu_frame(r, t, &still, &mut b.target(), Damage::Full);
+            cpu_frame_sized(r, t, &still, &mut b.target(), Damage::Full);
+            assert_eq!(
+                a.px.len(),
+                b.px.len(),
+                "the control: both frames are drawn at one size"
+            );
             assert!(
                 a.px == b.px,
                 "the incremental frame is the full frame's pixels"
@@ -1774,7 +1974,7 @@ mod checks {
         let mut out = Vec::new();
         with_screen(Blinking::No, |t, r| {
             feed(t, more);
-            let mut pixels = Pixels::of(r);
+            let mut pixels = fitted(r, t);
             let mut target = pixels.target();
             for k in Nth::ALL.before() {
                 let damage = match k {
@@ -1782,7 +1982,7 @@ mod checks {
                     _ => Damage::Incremental,
                 };
                 Cost::take();
-                let f = cpu_frame(r, t, &Inputs::at(caret_at(k)), &mut target, damage);
+                let f = cpu_frame_sized(r, t, &Inputs::at(caret_at(k)), &mut target, damage);
                 let cost = Cost::take();
                 out.push((
                     Cost {
@@ -2014,7 +2214,7 @@ mod checks {
         for (paint, first) in [(HoverPaint::Box, true), (HoverPaint::Line, false)] {
             let mut composed = Vec::new();
             with_screen(Blinking::No, |t, r| {
-                let mut pixels = Pixels::of(r);
+                let mut pixels = fitted(r, t);
                 let mut target = pixels.target();
                 for k in n.before() {
                     let damage = match k {
@@ -2022,7 +2222,7 @@ mod checks {
                         _ => Damage::Incremental,
                     };
                     let before = r.veils_composed().value();
-                    cpu_frame(r, t, &at_rest(paint)(t, k), &mut target, damage);
+                    cpu_frame_sized(r, t, &at_rest(paint)(t, k), &mut target, damage);
                     composed.push(r.veils_composed().value() - before);
                 }
             });
@@ -2088,7 +2288,7 @@ mod checks {
     fn slot_cpu_frames(page: Page, strike: Strike) -> Vec<Cost> {
         let mut out = Vec::new();
         with_screen_on(page, &fixture(Blinking::No), strike, |t, r| {
-            let mut pixels = Pixels::of(r);
+            let mut pixels = fitted(r, t);
             let mut target = pixels.target();
             Cost::take();
             for k in Nth::ALL.before() {
@@ -2098,7 +2298,7 @@ mod checks {
                 };
                 let inputs = Inputs::at(caret_at(k));
                 Cost::take();
-                let f = cpu_frame(r, t, &inputs, &mut target, damage);
+                let f = cpu_frame_sized(r, t, &inputs, &mut target, damage);
                 let cost = Cost::take();
                 out.push(Cost {
                     rows_dirty: Some(f.rows_dirty),
@@ -2116,9 +2316,9 @@ mod checks {
         let mut px = Vec::new();
         with_screen_on(page, &fixture(Blinking::No), Strike::First, |t, r| {
             r.set_link_missing(missing);
-            let mut a = Pixels::of(r);
+            let mut a = fitted(r, t);
             let still = Inputs::at(CursorPhase::SHOWN);
-            cpu_frame(r, t, &still, &mut a.target(), Damage::Full);
+            cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Full);
             px = a.px;
         });
         px
@@ -2204,6 +2404,11 @@ mod checks {
             let grey = struck_pixels(page, MissingPaint::Gray);
             let kept = struck_pixels(page, MissingPaint::Kept);
             assert_eq!(
+                grey.len(),
+                kept.len(),
+                "the control: both frames are drawn at one size"
+            );
+            assert_eq!(
                 grey != kept,
                 reads,
                 "the control: on the {page:?} page, missing_color reads on the struck link"
@@ -2282,19 +2487,19 @@ mod checks {
                     Nth(0) => Damage::Full,
                     _ => Damage::Incremental,
                 };
-                cpu_frame(r, t, &still, &mut a.target(), damage);
+                cpu_frame_sized(r, t, &still, &mut a.target(), damage);
             }
             let lines = links(t);
             r.set_link_strikes(&lines[..2], &[]);
             Cost::take();
-            cpu_frame(r, t, &still, &mut a.target(), Damage::Incremental);
+            cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Incremental);
             let cost = Cost::take();
             assert!(
                 placed(&cost) > 0,
                 "the control: a frame after the strikes changed places the links again"
             );
             let mut b = Pixels::of(r);
-            cpu_frame(r, t, &still, &mut b.target(), Damage::Full);
+            cpu_frame_sized(r, t, &still, &mut b.target(), Damage::Full);
             assert_eq!(
                 a.px.len(),
                 b.px.len(),
@@ -2478,17 +2683,18 @@ mod checks {
                 with_screen(Blinking::No, |t, r| {
                     r.fit(t);
                     let mut a = Pixels::of(r);
-                    cpu_frame(r, t, &still, &mut a.target(), Damage::Full);
-                    let before = cpu_frame(r, t, &still, &mut a.target(), Damage::Incremental);
+                    cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Full);
+                    let before =
+                        cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Incremental);
                     event(t, r, &mut a);
                     r.fit(t);
                     let (mut a, mut b) = match a.px.len() == Pixels::of(r).px.len() {
                         true => (a, Pixels::of(r)),
                         false => (Pixels::of(r), Pixels::of(r)),
                     };
-                    let inc = cpu_frame(r, t, &still, &mut a.target(), Damage::Incremental);
+                    let inc = cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Incremental);
                     Totals::hold(&inc, r, what);
-                    let full = cpu_frame(r, t, &still, &mut b.target(), Damage::Full);
+                    let full = cpu_frame_sized(r, t, &still, &mut b.target(), Damage::Full);
                     Totals::hold(&full, r, what);
                     // The same screen drawn by a renderer that has drawn nothing
                     // before: its totals counted from no earlier tally.
@@ -2502,7 +2708,8 @@ mod checks {
                     fresh.set_link_strikes(&lines[..1], &[]);
                     fresh.fit(t);
                     let mut c = Pixels::of(&fresh);
-                    let afresh = cpu_frame(&mut fresh, t, &still, &mut c.target(), Damage::Full);
+                    let afresh =
+                        cpu_frame_sized(&mut fresh, t, &still, &mut c.target(), Damage::Full);
                     println!(
                         "totals {what}: before {:?}, incremental {:?}, full {:?}, afresh {:?}",
                         Totals::of(&before),
@@ -2519,6 +2726,11 @@ mod checks {
                         Totals::of(&full),
                         Totals::of(&afresh),
                         "{what}: the totals a fresh renderer counts"
+                    );
+                    assert_eq!(
+                        a.px.len(),
+                        b.px.len(),
+                        "{what}: the control, both frames are drawn at one size"
                     );
                     assert!(a.px == b.px, "{what}: the incremental frame's pixels");
                     assert_ne!(
@@ -2538,7 +2750,7 @@ mod checks {
             // The double-width row into the history, the window scrolled
             // one line, then its frame drawn before the leaving line is.
             feed(t, b"\x1b7\x1b[50;1H\n\x1b8");
-            cpu_frame(r, t, &still, &mut a.target(), Damage::Incremental);
+            cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Incremental);
             let mut out = Vec::new();
             r.sized_leaving(t, Rows::ZERO, &mut out);
             assert!(!out.is_empty(), "the leaving line is double width");
@@ -2796,7 +3008,7 @@ mod checks {
             "cell.maps.live.ensure",
             "cell.exceptions.ensure_framed",
             "self.renderer.sync_styles",
-            "self.renderer.bidi().window",
+            "self.renderer.bidi().window_kept",
         ] {
             assert!(moved.contains(control), "build's calls are read: {moved:?}");
         }

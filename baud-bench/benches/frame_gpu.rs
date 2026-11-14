@@ -80,7 +80,7 @@ fn main() {
     use baud_font::{Face, Px};
     use baud_present_macos::journal::{FrameTag, Journal, SetIx, Wheel};
     use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
-    use baud_present_macos::screens::{Built, Compare, Held, Screens, Taking};
+    use baud_present_macos::screens::{Built, Compare, Screens, Taking};
     use baud_present_macos::{
         CellInput, Completion, Deadline, Done, Drawn, Gpu, InFlight, Presenter, StillBusy,
         SurfaceHandle, SurfaceSpace, Wake,
@@ -717,8 +717,7 @@ fn main() {
                             back: Rows::ZERO,
                             view: &view,
                             status: status.as_ref(),
-                            reordered: &|_| false,
-                            held: Held::No,
+                            orders: r.bidi(),
                             stride: t.stride(),
                             leaving: Leaving::None,
                         },
@@ -1117,8 +1116,7 @@ the first cpu {:.1}, copy {:.2}",
                             back: Rows::ZERO,
                             view: &vp,
                             status: status.as_ref(),
-                            reordered: &|_| false,
-                            held: Held::No,
+                            orders: r.bidi(),
                             stride: t.stride(),
                             leaving: Leaving::None,
                         },

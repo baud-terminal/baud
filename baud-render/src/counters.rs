@@ -32,14 +32,17 @@ pub enum Counter {
     /// an upper bound, since a compare stops at the first cell that
     /// differs: the conversion's against its last frame, a kept row's
     /// lookup -- its compare and the fold that finds a row kept elsewhere
-    /// -- and the cell path's copy against the last frame's. The
+    /// -- and the cell path's copy against the last frame's, of a row the
+    /// layout laid out again with none of its cells written. The
     /// bidirectional layout compares none: it keeps a paragraph by the
-    /// write generations of the rows it read (`GensRead`).
+    /// write generations of the rows it read (`GensRead`), and its readers
+    /// keep what they drew through it by the generation that last laid each
+    /// row out (`Orders::laid_after`).
     CellsCompared,
     /// Cells copied out of the window or the status line: the
-    /// conversion's copy, the layout's copy in drawn order, the cell
-    /// path's copy into a set, and the set's copy into the view a slot is
-    /// lent in.
+    /// conversion's copy, the layout's copy in drawn order -- the rows laid
+    /// out or written since the last frame drew it -- the cell path's copy
+    /// into a set, and the set's copy into the view a slot is lent in.
     CellsCopied,
     /// Cells a row's conversion into instances read.
     CellsConverted,

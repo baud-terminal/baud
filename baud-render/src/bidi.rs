@@ -101,7 +101,13 @@
 //! a frame on which nothing was written reads no row and lays nothing out,
 //! and one on which a row was asks each row's write generation once and
 //! lays out again, whole, every paragraph that read a written row
-//! (`kept`). **What joining costs a row with no joining letter.** A row
+//! (`kept`). **Each row's maps carry the generation that wrote them**
+//! (`maps`): a reader keeps a seal beside what it drew through them
+//! ([`Orders::laid_seal`]) and asks which rows were laid out again since
+//! ([`Orders::laid_after`]), so a frame that laid nothing out compares and
+//! copies no row of its maps or of the window in drawn order
+//! (`Orders::window_kept`). **What joining costs a row with no joining
+//! letter.** A row
 //! laid out again is tested once, by the same pass with one load a cell:
 //! the table it loads from, [`baud_domain::LAYOUT_BLOCKS`], is the
 //! right-to-left blocks and the joining blocks together, compiled at
@@ -125,9 +131,9 @@ use baud_domain::{
     Bidi, BidiClass, BidiDirection, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, BoxMirror,
     CharacterPath, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, Content, JoiningForm,
     JoiningType, LamAlef, LineBidi, PackedCell, Row, RowBlocks, RowExtent, RowRot, RowWritten,
-    Rows, STRING_DEPTH, Stride, StringId, StyleId, StyleWrites, TableSerial, Viewport, Wrap,
-    alaphs, box_counterpart, chain_runs, in_layout_block, is_table_rule, join, lam_alefs,
-    mirroring_glyph, opens_rtl, order_strings, string_chain, takes_form,
+    Rows, STRING_DEPTH, Seal, Stride, StringId, StyleId, StyleWrites, TableSerial, Viewport,
+    WindowAt, Wrap, alaphs, box_counterpart, chain_runs, in_layout_block, is_table_rule, join,
+    lam_alefs, mirroring_glyph, opens_rtl, order_strings, string_chain, takes_form,
 };
 
 use std::rc::Rc;
@@ -317,22 +323,1039 @@ impl RowJoins {
     }
 }
 
+/// **Each window row's maps and the generation that last wrote them**:
+/// every write to a row's order or joins, or to the display the maps are
+/// laid over, goes through a method here that stamps the row, so a reader
+/// asks "were this row's maps written since I drew it" ([`LaidSeal`])
+/// instead of copying them and comparing them the next frame. The fields
+/// are this module's, so no write can miss its stamp. A layout that lays
+/// rows out again lifts their maps out first and compares them at its end
+/// ([`relay_quietly`]), so a row laid out again as it was is not stamped.
+mod maps {
+    use super::{RowJoins, RowOrder};
+    use crate::rebreak::Display;
+    use baud_domain::{Row, Rows};
+    use std::rc::Rc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// A count of the map writes of one [`Maps`]; a row's stamp is the
+    /// write that last wrote it.
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+    struct LayGen(u32);
+
+    /// **Which maps a generation counts in**: fresh for each [`Maps`] made,
+    /// and again when its count wraps, so a seal from another layout -- the
+    /// leaving row's, swapped in for a slide, or a renderer's made again --
+    /// or from before a wrap reads every row as written.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    struct LayEpoch(u64);
+
+    impl LayEpoch {
+        fn fresh() -> LayEpoch {
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            LayEpoch(NEXT.fetch_add(1, Ordering::Relaxed))
+        }
+    }
+
+    /// **What a reader keeps beside what it drew from the maps**
+    /// ([`super::Orders::laid_seal`]): every map write after it reads as
+    /// after it ([`super::Orders::laid_after`]). Not comparable: what a
+    /// seal says is asked of the maps, never of another seal.
+    #[derive(Clone, Copy, Debug)]
+    pub struct LaidSeal {
+        closed: LayGen,
+        epoch: LayEpoch,
+    }
+
+    /// **The token of a relay** ([`relay_quietly`]): only a relay makes
+    /// one, so a row's maps are lifted out ([`Maps::lift_row`],
+    /// [`Maps::lift_order`], [`Maps::lift_all`]) only where the relay's end
+    /// compares them with what the layout wrote.
+    pub(super) struct Relay {
+        _only: (),
+    }
+
+    /// Which of a row's maps a relay lays out again.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) enum Lifting {
+        /// Its order and its joins.
+        Both,
+        /// Its order alone: its joins stay in place, found again by a
+        /// rejoin of their own ([`rejoin_quietly`]).
+        Order,
+    }
+
+    /// Which of a row's maps a write wrote.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Map {
+        Order,
+        Joins,
+        Both,
+    }
+
+    /// **A row's joins before a relay**: what they were, where the relay
+    /// lays them out again, or left in place.
+    #[derive(Debug)]
+    enum JoinsWas {
+        InPlace,
+        Was(Option<RowJoins>),
+    }
+
+    /// **A row's maps before a relay laid it out again**, by index: not
+    /// lifted, its writes stamped as any write is; or lifted, what it held.
+    #[derive(Debug)]
+    enum Lift {
+        Kept,
+        Lifted(Option<RowOrder>, JoinsWas),
+    }
+
+    /// The display before a relay that laid every row out again: untouched,
+    /// or the one it replaced, compared at the relay's end.
+    #[derive(Debug)]
+    enum DisplayWas {
+        Untouched,
+        Was(Option<Rc<Display>>),
+    }
+
+    /// Whether a relay is running, and whether it has lifted anything:
+    /// a relay that lifted nothing, as on a frame whose layout keeps every
+    /// unit, ends with no row read.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Relaying {
+        No,
+        Running,
+        Lifted,
+    }
+
+    /// The maps of a window's rows, the display they are laid over, and
+    /// each row's stamp. A clone is maps of its own (its `Clone`).
+    #[derive(Debug)]
+    pub(super) struct Maps {
+        rows: Vec<Option<RowOrder>>,
+        joins: Vec<Option<RowJoins>>,
+        display: Option<Rc<Display>>,
+        /// Each row's stamp, by index: a row never written has none.
+        stamps: Vec<LayGen>,
+        /// The last write's generation.
+        now: LayGen,
+        epoch: LayEpoch,
+        /// The row a rejoin is finding again, whose joins' writes are
+        /// stamped once, at its end, and only if they changed: set and
+        /// cleared by [`rejoin_quietly`] alone, around the rejoin.
+        quiet: Option<Row>,
+        /// **Each row's maps as they stood before the running relay laid
+        /// it out again**, by index ([`relay_quietly`]): a lifted row's
+        /// writes are not stamped while the relay runs, and at its end the
+        /// row is stamped only where its maps came out otherwise. Every
+        /// row [`Lift::Kept`] outside a relay; kept across relays, so a
+        /// relay allocates none.
+        lifted: Vec<Lift>,
+        /// The display a relay that laid every row out again replaced.
+        display_was: DisplayWas,
+        /// Whether a relay is running: set and cleared by
+        /// [`relay_quietly`] alone.
+        relaying: Relaying,
+    }
+
+    /// The maps compare by what they hold, not by when it was written: a
+    /// kept layout equals a fresh one.
+    impl PartialEq for Maps {
+        fn eq(&self, other: &Maps) -> bool {
+            self.rows == other.rows && self.joins == other.joins && self.display == other.display
+        }
+    }
+
+    impl Eq for Maps {}
+
+    /// **A clone is maps of its own**: the same orders, joins and display
+    /// under a fresh epoch and no stamps, so a seal taken from the maps it
+    /// was cloned from -- by the overlay's copy of a frame's order, or the
+    /// pointer's (`Seat::drawn` in the app) -- reads every row as written,
+    /// never as nothing moved. Its stamps are not copied: it reads as all
+    /// written against any seal but its own. No relay runs on it.
+    impl Clone for Maps {
+        fn clone(&self) -> Maps {
+            Maps {
+                rows: self.rows.clone(),
+                joins: self.joins.clone(),
+                display: self.display.clone(),
+                ..Maps::default()
+            }
+        }
+    }
+
+    impl Default for Maps {
+        fn default() -> Maps {
+            Maps {
+                rows: Vec::new(),
+                joins: Vec::new(),
+                display: None,
+                stamps: Vec::new(),
+                now: LayGen(0),
+                epoch: LayEpoch::fresh(),
+                quiet: None,
+                lifted: Vec::new(),
+                display_was: DisplayWas::Untouched,
+                relaying: Relaying::No,
+            }
+        }
+    }
+
+    impl Maps {
+        /// **Row `y`'s joins written**: stamped, unless a rejoin is finding
+        /// them again, which stamps the row at its end if they changed, or
+        /// a relay lifted them ([`Maps::stamp_of`]).
+        fn stamp_joins(&mut self, y: Row) {
+            if self.quiet != Some(y) {
+                self.stamp_of(y, Map::Joins);
+            }
+        }
+
+        /// **`map` of row `y` written**: stamped, unless a relay is running
+        /// and lifted every map the write wrote, whose end compares them
+        /// ([`relay_quietly`]).
+        fn stamp_of(&mut self, y: Row, map: Map) {
+            let lifted = self.relaying == Relaying::Lifted
+                && matches!(
+                    (self.lifted.get(y.index()), map),
+                    (Some(Lift::Lifted(..)), Map::Order)
+                        | (
+                            Some(Lift::Lifted(_, JoinsWas::Was(_))),
+                            Map::Joins | Map::Both
+                        )
+                );
+            if !lifted {
+                self.stamp(y);
+            }
+        }
+
+        /// **Row `y` written**: a generation of its own, later than any
+        /// seal taken before, stamped on it.
+        fn stamp(&mut self, y: Row) {
+            if self.now.0 == u32::MAX {
+                self.epoch = LayEpoch::fresh();
+                self.now = LayGen(0);
+                self.stamps.fill(LayGen(0));
+            }
+            self.now = LayGen(self.now.0 + 1);
+            let at = y.index();
+            if self.stamps.len() <= at {
+                self.stamps.resize(at + 1, LayGen(0));
+            }
+            self.stamps[at] = self.now;
+        }
+
+        /// `map` of the rows from `from` down to `to`, counted from the
+        /// window's top, each written ([`Maps::stamp_of`]).
+        fn stamp_span(&mut self, from: Rows, to: Rows, map: Map) {
+            for y in from.index()..to.index() {
+                self.stamp_of(Row::from_index(y), map);
+            }
+        }
+
+        /// Each row's order, by index.
+        pub(super) fn rows(&self) -> &[Option<RowOrder>] {
+            &self.rows
+        }
+
+        /// Each row's joins, by index.
+        pub(super) fn joins(&self) -> &[Option<RowJoins>] {
+            &self.joins
+        }
+
+        /// The display the maps are laid over, if any.
+        pub(super) fn display(&self) -> Option<&Rc<Display>> {
+            self.display.as_ref()
+        }
+
+        /// **Row `y` drawn in `order`**, where the maps hold the row:
+        /// stamped. Answers whether they hold it.
+        pub(super) fn set_row(&mut self, y: Row, order: RowOrder) -> bool {
+            if y.index() >= self.rows.len() {
+                return false;
+            }
+            self.rows[y.index()] = Some(order);
+            self.stamp_of(y, Map::Order);
+            true
+        }
+
+        /// **Row `y`'s order, to change in place**, where it holds one:
+        /// stamped. None, and nothing stamped, for a row in its own order.
+        pub(super) fn row_mut(&mut self, y: Row) -> Option<&mut RowOrder> {
+            if !self.rows.get(y.index()).is_some_and(Option::is_some) {
+                return None;
+            }
+            self.stamp_of(y, Map::Order);
+            self.rows.get_mut(y.index()).and_then(Option::as_mut)
+        }
+
+        /// **Row `y`'s order set to `order`, the maps grown to hold it**:
+        /// each row gained stamped, and `y` unless it was and stays in its
+        /// own order.
+        pub(super) fn set_row_grown(&mut self, y: Row, order: Option<RowOrder>) {
+            let had = Rows::of_index(self.rows.len());
+            if had.index() <= y.index() {
+                self.rows.resize_with(y.index() + 1, || None);
+                self.stamp_span(had, Rows::of_index(y.index() + 1), Map::Order);
+            }
+            if self.rows[y.index()].is_none() && order.is_none() {
+                return;
+            }
+            self.rows[y.index()] = order;
+            self.stamp_of(y, Map::Order);
+        }
+
+        /// **Row `y`'s order, to change in place, made `made()` where it
+        /// held none**, the maps grown to hold it: stamped, each row
+        /// gained too.
+        pub(super) fn row_made(
+            &mut self,
+            y: Row,
+            made: impl FnOnce() -> RowOrder,
+        ) -> &mut RowOrder {
+            let had = Rows::of_index(self.rows.len());
+            if had.index() <= y.index() {
+                self.rows.resize_with(y.index() + 1, || None);
+                self.stamp_span(had, Rows::of_index(y.index()), Map::Order);
+            }
+            self.stamp_of(y, Map::Order);
+            self.rows[y.index()].get_or_insert_with(made)
+        }
+
+        /// **Row `y`'s joins set to `joins`**, where the maps hold the row:
+        /// stamped, unless a rejoin is finding them again. Answers whether
+        /// they hold it.
+        pub(super) fn set_joins(&mut self, y: Row, joins: RowJoins) -> bool {
+            if y.index() >= self.joins.len() {
+                return false;
+            }
+            self.joins[y.index()] = Some(joins);
+            self.stamp_joins(y);
+            true
+        }
+
+        /// **Row `y`'s joins taken out**: stamped only where it held some,
+        /// unless a rejoin is finding them again.
+        pub(super) fn take_joins(&mut self, y: Row) -> Option<RowJoins> {
+            let was = self.joins.get_mut(y.index()).and_then(Option::take)?;
+            self.stamp_joins(y);
+            Some(was)
+        }
+
+        /// **Row `y`'s joins, to change in place**, where it holds some:
+        /// stamped, unless a rejoin is finding them again.
+        pub(super) fn joins_mut(&mut self, y: Row) -> Option<&mut RowJoins> {
+            if !self.joins.get(y.index()).is_some_and(Option::is_some) {
+                return None;
+            }
+            self.stamp_joins(y);
+            self.joins.get_mut(y.index()).and_then(Option::as_mut)
+        }
+
+        /// **Row `y`'s joins set to `joins`, the maps grown to hold it**:
+        /// each row gained stamped, and `y` unless it held none and holds
+        /// none, or a rejoin is finding them again.
+        pub(super) fn set_joins_grown(&mut self, y: Row, joins: Option<RowJoins>) {
+            let had = Rows::of_index(self.joins.len());
+            if had.index() <= y.index() {
+                self.joins.resize_with(y.index() + 1, || None);
+                self.stamp_span(had, Rows::of_index(y.index() + 1), Map::Joins);
+            }
+            if self.joins[y.index()].is_none() && joins.is_none() {
+                return;
+            }
+            self.joins[y.index()] = joins;
+            self.stamp_joins(y);
+        }
+
+        /// **The joins grown to hold `n` rows**, each row gained stamped;
+        /// those past `n` -- the status line's, after the window's -- kept.
+        pub(super) fn grow_joins(&mut self, n: Rows) {
+            let had = Rows::of_index(self.joins.len());
+            if had.index() < n.index() {
+                self.joins.resize_with(n.index(), || None);
+                self.stamp_span(had, n, Map::Joins);
+            }
+        }
+
+        /// Both maps grown to hold `n` rows, each row they gain stamped.
+        pub(super) fn grow(&mut self, n: Rows) {
+            let had = Rows::of_index(self.rows.len().min(self.joins.len()));
+            if self.rows.len() < n.index() {
+                self.rows.resize_with(n.index(), || None);
+            }
+            if self.joins.len() < n.index() {
+                self.joins.resize_with(n.index(), || None);
+            }
+            self.stamp_span(had, n, Map::Both);
+        }
+
+        /// No row holds a joined cell, `n` rows of none: every row stamped.
+        pub(super) fn clear_joins(&mut self, n: Rows) {
+            let had = Rows::of_index(self.joins.len());
+            self.joins.clear();
+            self.joins.resize_with(n.index(), || None);
+            self.stamp_span(
+                Rows::ZERO,
+                Rows::of_index(had.index().max(n.index())),
+                Map::Joins,
+            );
+        }
+
+        /// The joins past row `n` let go, each stamped.
+        pub(super) fn truncate_joins(&mut self, n: Rows) {
+            let had = Rows::of_index(self.joins.len());
+            if had.index() > n.index() {
+                self.joins.truncate(n.index());
+                self.stamp_span(n, had, Map::Joins);
+            }
+        }
+
+        /// The orders and joins past row `n` let go, each stamped.
+        pub(super) fn truncate(&mut self, n: Rows) {
+            let had = Rows::of_index(self.rows.len().max(self.joins.len()));
+            if had.index() > n.index() {
+                self.rows.truncate(n.index());
+                self.joins.truncate(n.index());
+                self.stamp_span(n, had, Map::Both);
+            }
+        }
+
+        /// **Row `y`'s order and joins lifted out to be laid out again** by
+        /// the relay `_`: the row left in its own order and unjoined,
+        /// nothing stamped, and at the relay's end stamped only where the
+        /// layout wrote it otherwise.
+        pub(super) fn lift_row(&mut self, y: Row, _: &Relay) {
+            self.lift(y, Lifting::Both);
+        }
+
+        /// **Row `y`'s order lifted out** as [`Maps::lift_row`] lifts it,
+        /// its joins left in place for a rejoin of their own.
+        pub(super) fn lift_order(&mut self, y: Row, _: &Relay) {
+            self.lift(y, Lifting::Order);
+        }
+
+        /// **Every row's maps lifted out to be laid out again**, `lifting`
+        /// of each, the orders made `n` rows of none over `display`: at the
+        /// relay `_`'s end every row is stamped if the display came out
+        /// otherwise, else each row only where the layout wrote it
+        /// otherwise. A row the maps gain is stamped now.
+        pub(super) fn lift_all(
+            &mut self,
+            n: Rows,
+            display: Option<Rc<Display>>,
+            lifting: Lifting,
+            _: &Relay,
+        ) {
+            let had = Rows::of_index(self.rows.len().max(self.joins.len()));
+            for y in 0..had.index() {
+                self.lift(Row::from_index(y), lifting);
+            }
+            self.rows.clear();
+            self.rows.resize_with(n.index(), || None);
+            if let DisplayWas::Untouched = self.display_was {
+                self.display_was = DisplayWas::Was(self.display.take());
+            }
+            self.display = display;
+            self.relaying = Relaying::Lifted;
+            self.stamp_span(had, n, Map::Both);
+        }
+
+        /// Row `y`'s maps, `lifting` of them, moved out into its slot of
+        /// `lifted`; a row lifted already in this relay keeps what it held
+        /// first.
+        fn lift(&mut self, y: Row, lifting: Lifting) {
+            debug_assert!(self.relaying != Relaying::No, "a lift outside a relay");
+            self.relaying = Relaying::Lifted;
+            let at = y.index();
+            if self.lifted.len() <= at {
+                self.lifted.resize_with(at + 1, || Lift::Kept);
+            }
+            if let Lift::Lifted(..) = self.lifted[at] {
+                return;
+            }
+            let order = self.rows.get_mut(at).and_then(Option::take);
+            let joins = match lifting {
+                Lifting::Both => JoinsWas::Was(self.joins.get_mut(at).and_then(Option::take)),
+                Lifting::Order => JoinsWas::InPlace,
+            };
+            self.lifted[at] = Lift::Lifted(order, joins);
+        }
+
+        /// **The relay ended**: each row it lifted compared with what the
+        /// layout wrote, and stamped only where they differ -- every row
+        /// lifted, where the display differs by value from the one it
+        /// replaced. It leaves no row lifted and the display untouched
+        /// whatever it finds running: only a relay that lifted nothing
+        /// still reads [`Relaying::Running`], since no relay sets it over
+        /// [`Relaying::Lifted`] ([`relay_quietly`]), and that one reads no
+        /// row.
+        fn settle_relay(&mut self) {
+            let relaying = core::mem::replace(&mut self.relaying, Relaying::No);
+            let display_was = core::mem::replace(&mut self.display_was, DisplayWas::Untouched);
+            if relaying == Relaying::Running {
+                return;
+            }
+            let display_moved = match display_was {
+                DisplayWas::Untouched => false,
+                DisplayWas::Was(was) => was != self.display,
+            };
+            let mut lifted = core::mem::take(&mut self.lifted);
+            for (y, lift) in lifted.iter_mut().enumerate() {
+                let Lift::Lifted(order, joins) = core::mem::replace(lift, Lift::Kept) else {
+                    continue;
+                };
+                let moved = display_moved
+                    || self.rows.get(y) != Some(&order)
+                    || match joins {
+                        JoinsWas::InPlace => false,
+                        JoinsWas::Was(j) => self.joins.get(y) != Some(&j),
+                    };
+                if moved {
+                    self.stamp(Row::from_index(y));
+                }
+            }
+            self.lifted = lifted;
+        }
+
+        /// **A relay or a rejoin a panic left** ([`Mend`]): a fresh epoch,
+        /// so every seal taken before reads every row as written and a
+        /// reader draws whole from the maps as the panic left them; and no
+        /// row lifted or quiet, no display kept and no relay running, so
+        /// the next layout runs and stamps as any does.
+        fn unwound(&mut self) {
+            self.epoch = LayEpoch::fresh();
+            self.quiet = None;
+            self.relaying = Relaying::No;
+            self.display_was = DisplayWas::Untouched;
+            for lift in &mut self.lifted {
+                *lift = Lift::Kept;
+            }
+        }
+
+        /// The first row's order and joins, the maps let go: a line laid
+        /// out on maps of its own.
+        pub(super) fn into_first(self) -> Option<(Option<RowOrder>, Option<RowJoins>)> {
+            Some((
+                self.rows.into_iter().next()?,
+                self.joins.into_iter().next()?,
+            ))
+        }
+
+        /// **The seal a reader keeps**: never taken inside a rejoin, whose
+        /// row's joins writes are not stamped until it ends.
+        pub(super) fn seal(&self) -> LaidSeal {
+            debug_assert!(self.quiet.is_none(), "a seal taken inside a rejoin");
+            debug_assert!(self.relaying == Relaying::No, "a seal taken inside a relay");
+            LaidSeal {
+                closed: self.now,
+                epoch: self.epoch,
+            }
+        }
+
+        /// Whether row `y`'s maps were written after `kept`, or `kept` is
+        /// another layout's or from before a wrap.
+        pub(super) fn after(&self, y: Row, kept: &LaidSeal) -> bool {
+            kept.epoch != self.epoch || self.stamps.get(y.index()).is_some_and(|g| *g > kept.closed)
+        }
+
+        /// Whether any row's maps were written after `kept`.
+        pub(super) fn moved(&self, kept: &LaidSeal) -> bool {
+            kept.epoch != self.epoch || self.now > kept.closed
+        }
+    }
+
+    /// **What holds the [`Maps`] a rejoin writes through**
+    /// ([`rejoin_quietly`]): the layout, whose rejoin finds the joins.
+    pub(super) trait HoldsMaps {
+        /// The maps, to write.
+        fn maps_mut(&mut self) -> &mut Maps;
+    }
+
+    /// Which call a [`Mend`] stands beside.
+    #[derive(Clone, Copy, Debug)]
+    enum Mending {
+        /// [`relay_quietly`]: open while a relay is running.
+        Relay,
+        /// [`rejoin_quietly`]: open while a row is quiet.
+        Rejoin,
+    }
+
+    /// **What a relay or a rejoin lends its layout, put right if the
+    /// layout panics**: the app catches a frame's panic and draws on with
+    /// the same renderer (`baud-present-macos`'s `unwind.rs`), and a relay
+    /// or a rejoin left open would leave its rows changed and unstamped, a
+    /// stale draw nothing reports, and every later relay or seal refused.
+    /// Dropped with its call still open -- the relay running, the row
+    /// quiet, which only a panic leaves -- it takes a fresh epoch and
+    /// closes it ([`Maps::unwound`]); after a call that ended, nothing.
+    struct Mend<'a, T: HoldsMaps> {
+        owner: &'a mut T,
+        mending: Mending,
+    }
+
+    impl<T: HoldsMaps> Drop for Mend<'_, T> {
+        fn drop(&mut self) {
+            let m = self.owner.maps_mut();
+            let open = match self.mending {
+                Mending::Relay => m.relaying != Relaying::No,
+                Mending::Rejoin => m.quiet.is_some(),
+            };
+            if open {
+                m.unwound();
+            }
+        }
+    }
+
+    /// **Row `y`'s joins found again by `find`**
+    /// ([`super::Reorder::rejoin`]): moved out, not copied; each write
+    /// `find` makes to the row's joins unstamped; and at its end the row
+    /// stamped once, only when they are not what was moved out, so a frame
+    /// that finds every row's joins again -- a composition with BDSM reset
+    /// -- marks none whose joins it found the same. The lift and the settle
+    /// are this one call around `find`, so no return between them and no
+    /// settle of another row can leave a row's later joins writes
+    /// unstamped; a panic inside `find` leaves the row quiet no longer and
+    /// every seal taken before reading every row as written ([`Mend`]).
+    /// None, and `find` not run, where the maps do not hold the row.
+    pub(super) fn rejoin_quietly<T: HoldsMaps, R>(
+        owner: &mut T,
+        y: Row,
+        find: impl FnOnce(&mut T) -> R,
+    ) -> Option<R> {
+        let m = owner.maps_mut();
+        debug_assert!(m.quiet.is_none(), "a rejoin inside a rejoin");
+        let was = m.joins.get_mut(y.index())?.take();
+        m.quiet = Some(y);
+        let mend = Mend {
+            owner,
+            mending: Mending::Rejoin,
+        };
+        let found = find(&mut *mend.owner);
+        let m = mend.owner.maps_mut();
+        m.quiet = None;
+        if m.joins.get(y.index()) != Some(&was) {
+            m.stamp(y);
+        }
+        Some(found)
+    }
+
+    /// **A layout that lays rows out again, `lay_out`, around which each
+    /// row it lifts is compared** ([`super::Reorder::lay_out`],
+    /// [`super::Reorder::keep_displayed`]): `lay_out` lifts each row it lays
+    /// out again ([`Maps::lift_row`], [`Maps::lift_order`],
+    /// [`Maps::lift_all`]) with the token this hands it, its writes to
+    /// those rows are not stamped, and at its end each is stamped only
+    /// where its order or joins, or the display, came out otherwise -- a
+    /// frame that lays a paragraph out again as it was, its rows written
+    /// as they were or a composition over it shown again, marks none of
+    /// its rows. The lift and the compare are this one call around the
+    /// layout, so a layout that returns leaves no lifted row uncompared;
+    /// one that panics leaves no row lifted and every seal taken before
+    /// reading every row as written ([`Mend`]). A relay begun inside
+    /// another, a debug assertion, keeps what the other lifted for its
+    /// end to compare.
+    pub(super) fn relay_quietly<T: HoldsMaps, R>(
+        owner: &mut T,
+        lay_out: impl FnOnce(&mut T, &Relay) -> R,
+    ) -> R {
+        let m = owner.maps_mut();
+        debug_assert!(
+            m.relaying == Relaying::No && m.quiet.is_none(),
+            "a relay inside a relay or a rejoin"
+        );
+        if m.relaying == Relaying::No {
+            m.relaying = Relaying::Running;
+        }
+        let mend = Mend {
+            owner,
+            mending: Mending::Relay,
+        };
+        let laid = lay_out(&mut *mend.owner, &Relay { _only: () });
+        mend.owner.maps_mut().settle_relay();
+        laid
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{
+            DisplayWas, HoldsMaps, LayGen, Lift, Lifting, Maps, Relaying, RowJoins, rejoin_quietly,
+            relay_quietly,
+        };
+        use baud_domain::{Row, Rows};
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        /// Maps that hold themselves, for a rejoin with no layout around it.
+        impl HoldsMaps for Maps {
+            fn maps_mut(&mut self) -> &mut Maps {
+                self
+            }
+        }
+
+        /// The rows of `m` written after `seal`, of the first `n`.
+        fn after(m: &Maps, seal: &super::LaidSeal, n: Rows) -> Vec<usize> {
+            (0..n.index())
+                .filter(|&y| m.after(Row::from_index(y), seal))
+                .collect()
+        }
+
+        /// Whether `m` holds no relay or rejoin open: none running, no row
+        /// quiet or lifted, no display kept.
+        fn closed(m: &Maps) -> bool {
+            m.relaying == Relaying::No
+                && m.quiet.is_none()
+                && matches!(m.display_was, DisplayWas::Untouched)
+                && m.lifted.iter().all(|l| matches!(l, Lift::Kept))
+        }
+
+        /// A layout that panics, as `what`.
+        fn panics(what: &str) {
+            panic!("{what}");
+        }
+
+        /// **The wrap**: a write past the last generation draws a fresh
+        /// epoch, counts from one again and zeroes every row's stamp, so a
+        /// seal from before it reads every row as written -- rows the write
+        /// did not touch among them -- and the maps as moved. The control:
+        /// before the wrap, the seal read the one row written after it.
+        /// Named break: the wrap without a fresh epoch.
+        #[test]
+        fn a_write_past_the_last_generation_reads_every_row_as_written() {
+            let mut m = Maps::default();
+            m.grow(Rows::of_index(4));
+            m.now = LayGen(u32::MAX - 1);
+            let seal = m.seal();
+            m.stamp(Row::from_index(1));
+            assert_eq!(
+                after(&m, &seal, Rows::of_index(4)),
+                vec![1],
+                "the control: row 1 alone"
+            );
+            let old = m.epoch;
+            m.stamp(Row::from_index(2));
+            assert!(m.epoch != old, "the wrap draws a fresh epoch");
+            assert_eq!(m.now, LayGen(1), "and counts from one");
+            assert_eq!(
+                after(&m, &seal, Rows::of_index(4)),
+                vec![0, 1, 2, 3],
+                "every row"
+            );
+            assert!(m.moved(&seal), "and the maps moved");
+        }
+
+        /// **A clone is maps of its own**: the same orders, joins and
+        /// display, so it compares equal (the control), and a seal of the
+        /// maps it was cloned from reads every row of it as written and it
+        /// as moved, where the maps themselves read none. Named break: the
+        /// clone's epoch copied.
+        #[test]
+        fn a_seal_of_the_maps_cloned_reads_every_row_of_the_clone_as_written() {
+            let mut m = Maps::default();
+            m.grow(Rows::of_index(3));
+            let seal = m.seal();
+            let c = m.clone();
+            assert!(c == m, "the control: the same maps");
+            assert_eq!(
+                after(&m, &seal, Rows::of_index(3)),
+                Vec::<usize>::new(),
+                "the maps"
+            );
+            assert!(!m.moved(&seal), "the maps did not move");
+            assert_eq!(
+                after(&c, &seal, Rows::of_index(3)),
+                vec![0, 1, 2],
+                "the clone"
+            );
+            assert!(c.moved(&seal), "the clone moved");
+        }
+
+        /// **A rejoin's row is quiet only inside it** (`rejoin_quietly`):
+        /// inside, a write to the row's joins is not stamped; at its end the
+        /// row is stamped, its joins having changed, none to some (the
+        /// control); a rejoin that finds them the same stamps nothing; and
+        /// after it a write to the row's joins is stamped. Named break: the
+        /// row left quiet at a rejoin's end.
+        #[test]
+        fn a_rejoins_row_is_quiet_only_inside_it() {
+            let mut m = Maps::default();
+            m.grow(Rows::of_index(3));
+            let y = Row::from_index(1);
+            let seal = m.seal();
+            let inside = rejoin_quietly(&mut m, y, |m| {
+                let _ = m.set_joins(y, RowJoins::default());
+                m.after(y, &seal)
+            });
+            assert_eq!(inside, Some(false), "inside, the write not stamped");
+            assert!(
+                m.after(y, &seal),
+                "the control: at its end, stamped, its joins changed"
+            );
+            let seal = m.seal();
+            let _ = rejoin_quietly(&mut m, y, |m| {
+                let _ = m.set_joins(y, RowJoins::default());
+            });
+            assert!(!m.after(y, &seal), "found the same: not stamped");
+            let _ = m.take_joins(y);
+            assert!(m.after(y, &seal), "after it, a write stamped");
+        }
+
+        /// **A relay stamps only the rows it lifted and wrote otherwise**
+        /// (`relay_quietly`): rows 1 and 2 hold joins; a relay lifts both,
+        /// writes row 1's back as they were and leaves row 2 unjoined. Row
+        /// 2 alone reads as written, and the maps as moved; inside the
+        /// relay neither write was stamped. A relay that lifts row 1 and
+        /// writes it as it was marks nothing (the maps did not move), and a
+        /// write after a relay is stamped. Named break: every lifted row
+        /// stamped at the relay's end, whatever the layout wrote.
+        #[test]
+        fn a_relay_stamps_only_the_rows_it_wrote_otherwise() {
+            let mut m = Maps::default();
+            m.grow(Rows::of_index(4));
+            let (one, two) = (Row::from_index(1), Row::from_index(2));
+            let _ = m.set_joins(one, RowJoins::default());
+            let _ = m.set_joins(two, RowJoins::default());
+            let seal = m.seal();
+            let inside = relay_quietly(&mut m, |m, relay| {
+                m.lift_row(one, relay);
+                m.lift_row(two, relay);
+                let _ = m.set_joins(one, RowJoins::default());
+                (m.after(one, &seal), m.after(two, &seal))
+            });
+            assert_eq!(inside, (false, false), "inside, nothing stamped");
+            assert_eq!(after(&m, &seal, Rows::of_index(4)), vec![2], "row 2 alone");
+            assert!(m.moved(&seal), "the control: the maps moved");
+            let seal = m.seal();
+            relay_quietly(&mut m, |m, relay| {
+                m.lift_row(one, relay);
+                let _ = m.set_joins(one, RowJoins::default());
+            });
+            assert_eq!(
+                after(&m, &seal, Rows::of_index(4)),
+                Vec::<usize>::new(),
+                "laid out as it was: no row"
+            );
+            assert!(!m.moved(&seal), "and the maps did not move");
+            let _ = m.take_joins(one);
+            assert!(m.after(one, &seal), "after it, a write stamped");
+        }
+
+        /// **A relay a panic left reads every row as written**
+        /// (`relay_quietly`, its `Mend`): a layout that lifts row 1 and
+        /// panics, caught as the app catches a frame's panic. A seal taken
+        /// before reads every row as written, rows the layout never reached
+        /// among them, and no relay is left open; then a relay that lays
+        /// row 1 out as the panic left it marks no row, and one that writes
+        /// it otherwise marks it alone. The control: the layout panicked.
+        /// Named breaks: the mend without a fresh epoch; the mend leaving
+        /// the relay running.
+        #[test]
+        fn a_relay_a_panic_left_reads_every_row_as_written() {
+            let mut m = Maps::default();
+            m.grow(Rows::of_index(3));
+            let one = Row::from_index(1);
+            let _ = m.set_joins(one, RowJoins::default());
+            let seal = m.seal();
+            let caught = catch_unwind(AssertUnwindSafe(|| {
+                relay_quietly(&mut m, |m, relay| {
+                    m.lift_row(one, relay);
+                    panics("a layout that panics");
+                })
+            }));
+            assert!(caught.is_err(), "the control: the layout panicked");
+            assert_eq!(
+                after(&m, &seal, Rows::of_index(3)),
+                vec![0, 1, 2],
+                "every row read as written"
+            );
+            assert!(closed(&m), "no relay left open");
+            let seal = m.seal();
+            relay_quietly(&mut m, |m, relay| {
+                m.lift_row(one, relay);
+            });
+            assert_eq!(
+                after(&m, &seal, Rows::of_index(3)),
+                Vec::<usize>::new(),
+                "the next relay, as the panic left it: no row"
+            );
+            relay_quietly(&mut m, |m, relay| {
+                m.lift_row(one, relay);
+                let _ = m.set_joins(one, RowJoins::default());
+            });
+            assert_eq!(
+                after(&m, &seal, Rows::of_index(3)),
+                vec![1],
+                "and written otherwise, row 1 alone"
+            );
+            assert!(closed(&m), "and closed at its end");
+        }
+
+        /// **A rejoin a panic left reads every row as written**
+        /// (`rejoin_quietly`, its `Mend`): a finding that writes row 1's
+        /// joins and panics. A seal taken before reads every row as
+        /// written, the row is quiet no longer, and a write to its joins
+        /// after it is stamped. The control: the finding panicked. Named
+        /// breaks: as the relay's.
+        #[test]
+        fn a_rejoin_a_panic_left_reads_every_row_as_written() {
+            let mut m = Maps::default();
+            m.grow(Rows::of_index(3));
+            let one = Row::from_index(1);
+            let seal = m.seal();
+            let caught = catch_unwind(AssertUnwindSafe(|| {
+                rejoin_quietly(&mut m, one, |m| {
+                    let _ = m.set_joins(one, RowJoins::default());
+                    panics("a finding that panics");
+                })
+            }));
+            assert!(caught.is_err(), "the control: the finding panicked");
+            assert_eq!(
+                after(&m, &seal, Rows::of_index(3)),
+                vec![0, 1, 2],
+                "every row read as written"
+            );
+            assert!(closed(&m), "no rejoin left open");
+            let seal = m.seal();
+            let _ = m.take_joins(one);
+            assert_eq!(
+                after(&m, &seal, Rows::of_index(3)),
+                vec![1],
+                "after it, a write to the row's joins stamped"
+            );
+        }
+
+        /// **A row lifted twice in one relay is compared with what it held
+        /// first** (`Maps::lift`), as an answer to lay the window out again
+        /// lifts the status line's row with every row and the status line's
+        /// layout lifts it again: the status row, joined, lifted by
+        /// `lift_all` and again by `lift_row`, then laid out in its own
+        /// order and unjoined. It alone reads as written. The control: its
+        /// joins came out none. Named break: a second lift taking what the
+        /// first left.
+        #[test]
+        fn a_row_lifted_twice_in_a_relay_is_compared_with_what_it_held_first() {
+            let mut m = Maps::default();
+            m.grow(Rows::of_index(3));
+            let status = Row::from_index(3);
+            m.set_joins_grown(status, Some(RowJoins::default()));
+            let seal = m.seal();
+            relay_quietly(&mut m, |m, relay| {
+                m.lift_all(Rows::of_index(3), None, Lifting::Both, relay);
+                m.lift_row(status, relay);
+                m.truncate(Rows::of_index(3));
+                m.set_row_grown(status, None);
+                m.set_joins_grown(status, None);
+            });
+            assert_eq!(
+                m.joins().get(3),
+                Some(&None),
+                "the control: the status row unjoined"
+            );
+            assert_eq!(
+                after(&m, &seal, Rows::of_index(4)),
+                vec![3],
+                "the status row alone"
+            );
+        }
+
+        /// **A relay that lays every row out again as it was marks no row**
+        /// (`Maps::lift_all`, as an answer to lay the window out again
+        /// lifts it): every row lifted and the maps made again, the same
+        /// rows over the same display (none), marks none; made again a row
+        /// taller, the row gained alone (the control). Named break: every
+        /// row stamped as the maps are made again, as a reset did.
+        #[test]
+        fn a_relay_of_every_row_marks_none_over_the_same_display() {
+            let mut m = Maps::default();
+            m.grow(Rows::of_index(3));
+            let seal = m.seal();
+            relay_quietly(&mut m, |m, relay| {
+                m.lift_all(Rows::of_index(3), None, Lifting::Both, relay);
+            });
+            assert_eq!(
+                after(&m, &seal, Rows::of_index(3)),
+                Vec::<usize>::new(),
+                "the same rows: none"
+            );
+            let seal = m.seal();
+            relay_quietly(&mut m, |m, relay| {
+                m.lift_all(Rows::of_index(4), None, Lifting::Both, relay);
+            });
+            assert_eq!(
+                after(&m, &seal, Rows::of_index(4)),
+                vec![3],
+                "the control: the row gained alone"
+            );
+        }
+    }
+}
+
+pub use maps::LaidSeal;
+
+/// **A window in the order each row is drawn in, kept from frame to frame**
+/// ([`Orders::window_kept`]), with what it was drawn under: the window's
+/// physical rows, the core's seal and the layout's, the display, and its
+/// size. Owned by the renderer and lent by move, the buffer and its key
+/// together, so no key outlives the cells it describes.
+#[derive(Default)]
+pub(crate) struct DrawnRows {
+    cells: Vec<PackedCell>,
+    used: Vec<RowExtent>,
+    key: Option<DrawnKey>,
+}
+
+/// What a [`DrawnRows`] copy was drawn under.
+struct DrawnKey {
+    at: WindowAt,
+    seal: Seal,
+    laid: LaidSeal,
+    shown: Option<Rc<Display>>,
+    cols: Cols,
+    rows: Rows,
+}
+
+/// **The status line in its drawn order, kept** ([`Orders::status_kept`]),
+/// with the core's seal, the layout's and the line's width it was drawn
+/// under.
+#[derive(Default)]
+pub(crate) struct DrawnLine {
+    cells: Vec<PackedCell>,
+    key: Option<(Seal, LaidSeal, usize)>,
+}
+
+/// **The window and the status line in their drawn order**, as the cell
+/// path and the CPU path's picture finder read them, each kept with its
+/// key.
+#[derive(Default)]
+pub(crate) struct DrawnOrder {
+    pub(crate) window: DrawnRows,
+    pub(crate) status: DrawnLine,
+}
+
+/// Whether two layouts drew the same display, or both none: the same
+/// `Rc`, never a value at a freed address.
+pub(crate) fn same_shown(a: Option<&Rc<Display>>, b: Option<&Rc<Display>>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+        _ => false,
+    }
+}
+
 /// **Which logical cell each visual cell of the window shows**, for the
 /// rows that are drawn in another order: what every consumer of a frame
 /// maps through. Cheap to clone: a row in its own order holds nothing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Orders {
-    rows: Vec<Option<RowOrder>>,
+    /// **Each window row's order and joined cells, and the window as the
+    /// display wraps it**, where a finished paragraph is drawn at its words
+    /// ([`crate::rebreak`]): every row of these maps is then a display
+    /// line, and a stored cell is found in it through [`Orders::shown_at`].
+    ///
+    /// Each row is stamped when it is written ([`Orders::laid_after`]).
+    maps: maps::Maps,
     cols: Cols,
     any: Any,
-    /// Each window row's joined cells, for the rows that hold one.
-    joins: Vec<Option<RowJoins>>,
     joined_any: Any,
-    /// **The window as the display wraps it**, where a finished paragraph
-    /// is drawn at its words ([`crate::rebreak`]): every row of these maps
-    /// is then a display line, and a stored cell is found in it through
-    /// [`Orders::shown_at`].
-    display: Option<Rc<Display>>,
     /// **Whether each window row may hold a syllable or a word**
     /// (`crate::syllable::may_hold`), as this layout's test of the row
     /// found it in the pass it made for its own answers, the row read from
@@ -345,12 +1368,10 @@ pub struct Orders {
 impl Default for Orders {
     fn default() -> Self {
         Orders {
-            rows: Vec::new(),
+            maps: maps::Maps::default(),
             cols: Cols::of_index(0),
             any: Any::No,
-            joins: Vec::new(),
             joined_any: Any::No,
-            display: None,
             syllables: Vec::new(),
         }
     }
@@ -361,11 +1382,11 @@ impl Orders {
     /// joined cell, found again over the maps: after a layout that laid
     /// some units out again and kept the rest.
     fn recount(&mut self) {
-        self.any = match self.rows.iter().any(Option::is_some) {
+        self.any = match self.maps.rows().iter().any(Option::is_some) {
             true => Any::Yes,
             false => Any::No,
         };
-        self.joined_any = match self.joins.iter().any(Option::is_some) {
+        self.joined_any = match self.maps.joins().iter().any(Option::is_some) {
             true => Any::Yes,
             false => Any::No,
         };
@@ -403,20 +1424,20 @@ impl Orders {
     /// is drawn at its words ([`crate::rebreak`]); none where every row is
     /// drawn as stored.
     pub fn display(&self) -> Option<&Display> {
-        self.display.as_deref()
+        self.maps.display().map(|d| &**d)
     }
 
     /// The display, held: what a caller reads the window from while it
     /// lays the renderer out again.
     pub(crate) fn display_held(&self) -> Option<Rc<Display>> {
-        self.display.clone()
+        self.maps.display().cloned()
     }
 
     /// **The stored window cell logical column `l` of display row `y`
     /// shows**: the same cell where nothing is re-broken; none for a
     /// re-broken line's padding.
     pub fn stored_at(&self, y: Row, l: Col) -> Option<(Row, Col)> {
-        match &self.display {
+        match self.maps.display() {
             Some(d) => d.stored(y, l),
             None => Some((y, l)),
         }
@@ -426,7 +1447,7 @@ impl Orders {
     /// window is drawn at**: the same cell where nothing is re-broken; none
     /// where a re-broken paragraph pushed it out of the window.
     pub fn shown_at(&self, r: Row, c: Col) -> Option<(Row, Col)> {
-        match &self.display {
+        match self.maps.display() {
             Some(d) => d.shown(r, c),
             None => Some((r, c)),
         }
@@ -438,7 +1459,7 @@ impl Orders {
     /// window row or of a line past the window its paragraph runs on from
     /// or into; none for padding.
     pub fn stored_line_at(&self, y: Row, l: Col) -> Option<(WindowLine, Col)> {
-        match &self.display {
+        match self.maps.display() {
             Some(d) => d.stored_line(y, l),
             None => Some((WindowLine::of(y), l)),
         }
@@ -446,7 +1467,7 @@ impl Orders {
 
     /// The display row stored row `r` of the window starts on.
     pub fn row_of(&self, r: Row) -> Option<Row> {
-        match &self.display {
+        match self.maps.display() {
             Some(d) => d.row_of(r),
             None => Some(r),
         }
@@ -459,7 +1480,7 @@ impl Orders {
     /// the line's logical order.
     pub fn pointer(&self, y: Row, col: Col) -> (Row, Col) {
         let l = self.pointer_col(y, col);
-        let Some(d) = &self.display else {
+        let Some(d) = self.maps.display() else {
             return (y, l);
         };
         if let Some(at) = d.stored(y, l) {
@@ -481,7 +1502,7 @@ impl Orders {
     /// addresses no line past the window.
     pub fn pointer_line(&self, y: Row, col: Col) -> (WindowLine, Col) {
         let l = self.pointer_col(y, col);
-        let Some(d) = &self.display else {
+        let Some(d) = self.maps.display() else {
             return (WindowLine::of(y), l);
         };
         if let Some(at) = d.stored_line(y, l) {
@@ -518,12 +1539,12 @@ impl Orders {
     /// past it: where a line past the window is drawn on a window line,
     /// the runs its cells are drawn in there; none where it is not drawn.
     pub fn line_runs(&self, line: WindowLine, from: Col, to: Col) -> Vec<(Row, Col, Cols)> {
-        let Some(d) = &self.display else {
+        let Some(d) = self.maps.display() else {
             // A line past a laid-out window is drawn on none of its rows.
             let Some(r) = line
                 .since(WindowLine::of(Row::ZERO))
                 .map(|k| Row::from_index(k.index()))
-                .filter(|r| self.rows.is_empty() || r.index() < self.rows.len())
+                .filter(|r| self.maps.rows().is_empty() || r.index() < self.maps.rows().len())
             else {
                 return Vec::new();
             };
@@ -560,7 +1581,8 @@ impl Orders {
     /// part in a lam-alef pair, or `None` for a cell drawn as it would be
     /// alone.
     pub fn joined(&self, r: Row, v: Col) -> Option<Joined> {
-        self.joins
+        self.maps
+            .joins()
             .get(r.index())
             .and_then(Option::as_ref)
             .and_then(|j| j.cells.get(v.index()).copied().flatten())
@@ -576,7 +1598,7 @@ impl Orders {
     /// a letter its shaping reads on the row a soft wrap joins, can change
     /// with no cell of the row changing.
     pub fn row_joins(&self, r: Row) -> Option<&RowJoins> {
-        self.joins.get(r.index()).and_then(Option::as_ref)
+        self.maps.joins().get(r.index()).and_then(Option::as_ref)
     }
 
     /// The cells of the word around the joined cell `j` of row `r`
@@ -631,11 +1653,11 @@ impl Orders {
 
     /// Whether row `r` is drawn in another order.
     pub fn reordered(&self, r: Row) -> bool {
-        matches!(self.rows.get(r.index()), Some(Some(_)))
+        matches!(self.maps.rows().get(r.index()), Some(Some(_)))
     }
 
     fn row(&self, r: Row) -> Option<&RowOrder> {
-        self.rows.get(r.index()).and_then(Option::as_ref)
+        self.maps.rows().get(r.index()).and_then(Option::as_ref)
     }
 
     /// **The logical column each visual column of row `r` shows**, where
@@ -800,7 +1822,7 @@ impl Orders {
         y: Row,
     ) -> RowSource<'t> {
         let back = term.looking_back(back);
-        match &self.display {
+        match self.maps.display() {
             Some(d) => {
                 RowSource::Runs(d.line_sources(term, back, isize::try_from(y.index()).unwrap_or(0)))
             }
@@ -844,7 +1866,7 @@ impl Orders {
         if !vp.any_frozen() {
             return false;
         }
-        match &self.display {
+        match self.maps.display() {
             Some(d) => d.any_frozen(term, back),
             None => (0..vp.rows().index()).any(|y| !vp.styles(Row::from_index(y)).is_live()),
         }
@@ -860,7 +1882,7 @@ impl Orders {
         cells: &'a mut Vec<PackedCell>,
         used: &'a mut Vec<RowExtent>,
     ) -> Viewport<'a> {
-        if let Some(d) = self.display.clone() {
+        if let Some(d) = self.maps.display().cloned() {
             return self.copied(&d.window(), cells, used);
         }
         let vp = term.view(back);
@@ -907,6 +1929,161 @@ impl Orders {
             vp.rows(),
             RowRot::NONE,
         )
+    }
+
+    /// **The seal a reader keeps beside what it drew from these maps**:
+    /// every map write after it -- a row's order or joins laid out again
+    /// otherwise than they were, or another display -- reads as after it
+    /// ([`Orders::laid_after`]); a row laid out again as it was does not
+    /// (`maps::relay_quietly`).
+    pub fn laid_seal(&self) -> LaidSeal {
+        self.maps.seal()
+    }
+
+    /// **Whether row `r`'s maps were written after `kept`** -- the status
+    /// line's at the row after the window's -- or `kept` is another
+    /// layout's: what a reader asks in place of copying a row's maps and
+    /// comparing them the next frame.
+    pub fn laid_after(&self, r: Row, kept: &LaidSeal) -> bool {
+        self.maps.after(r, kept)
+    }
+
+    /// Whether any row's maps, or the display, were written after `kept`;
+    /// one compare.
+    pub fn moved_since(&self, kept: &LaidSeal) -> bool {
+        self.maps.moved(kept)
+    }
+
+    /// The display the maps are laid over, as held: what a key compares by
+    /// `Rc::ptr_eq`.
+    pub(crate) fn display_rc(&self) -> Option<&Rc<Display>> {
+        self.maps.display()
+    }
+
+    /// **[`Orders::window`], kept in `kept` from the last frame**: the
+    /// core's own view when no row is reordered and no display held, else
+    /// the window in drawn order, each row permuted again only where its
+    /// maps were laid out or its cells written since the copy was made --
+    /// none on a frame where nothing was written. Every row again for
+    /// another window, size or display.
+    pub(crate) fn window_kept<'a>(
+        &self,
+        term: &'a Term<'_>,
+        back: Rows,
+        kept: &'a mut DrawnRows,
+    ) -> Viewport<'a> {
+        let held = self.maps.display().cloned();
+        if held.is_none() && self.any == Any::No {
+            return term.view(back);
+        }
+        let gens = term.row_gens(back);
+        let at = gens.window();
+        let src = match &held {
+            Some(d) => d.window(),
+            None => term.view(back),
+        };
+        let (nrows, ncols) = (src.rows().index(), src.cols().index());
+        let whole = kept.key.as_ref().is_none_or(|k| {
+            k.at != at
+                || k.cols != src.cols()
+                || k.rows != src.rows()
+                || !same_shown(k.shown.as_ref(), held.as_ref())
+        }) || kept.cells.len() != nrows * ncols
+            || kept.used.len() != nrows;
+        if whole {
+            kept.cells.clear();
+            kept.cells.resize(nrows * ncols, PackedCell::EMPTY);
+            kept.used.clear();
+            kept.used.resize(nrows, RowExtent::of(ncols));
+        }
+        let mut copied = 0;
+        for y in 0..nrows {
+            let r = Row::from_index(y);
+            let again = whole
+                || kept
+                    .key
+                    .as_ref()
+                    .is_none_or(|k| self.laid_after(r, &k.laid) || gens.after(r, &k.seal));
+            if !again {
+                continue;
+            }
+            self.permute(r, src.row(r), &mut kept.cells[y * ncols..(y + 1) * ncols]);
+            let mut e = RowExtent::of(ncols).with_rendition(src.rendition(r), src.cols());
+            if src.wrapped(r) == Wrap::Continues {
+                e = e.wrapping(ncols);
+            }
+            kept.used[y] = e;
+            copied += ncols;
+        }
+        crate::counters::add(
+            crate::counters::Counter::CellsCopied,
+            crate::counters::Site::Layout,
+            Tally::of(copied),
+        );
+        kept.key = Some(DrawnKey {
+            at,
+            seal: term.sealed(),
+            laid: self.laid_seal(),
+            shown: held.clone(),
+            cols: src.cols(),
+            rows: src.rows(),
+        });
+        let kept: &'a DrawnRows = kept;
+        let out = Viewport::new(
+            &kept.cells,
+            &kept.used,
+            Stride::of_cells(ncols),
+            src.cols(),
+            src.rows(),
+            src.rows(),
+            RowRot::NONE,
+        );
+        match held {
+            Some(_) => out,
+            None => out.styled_from(&term.view(back)),
+        }
+    }
+
+    /// **[`Orders::status_line`], kept in `kept` from the last frame**: the
+    /// line itself while its row, the maps' row `r` after the window's, is
+    /// in its own order, else its cells in drawn order, permuted again only
+    /// when its maps were laid out again or its width moved. Its plane's
+    /// generation (`StatusGen`) is read too, a belt with no red: every
+    /// write to the status plane lays the line out again (`kept::Line`
+    /// keys on it) and so stamps its row.
+    pub(crate) fn status_kept<'a>(
+        &self,
+        term: &Term<'_>,
+        r: Row,
+        line: StatusLine<'a>,
+        kept: &'a mut DrawnLine,
+    ) -> StatusLine<'a> {
+        if !self.reordered(r) {
+            return line;
+        }
+        let n = line.cells.len();
+        let again = kept.cells.len() != n
+            || kept.key.as_ref().is_none_or(|(seal, laid, len)| {
+                *len != n
+                    || self.laid_after(r, laid)
+                    || term.status_gen().is_none_or(|g| g.after(seal))
+            });
+        if again {
+            kept.cells.clear();
+            kept.cells.resize(n, PackedCell::EMPTY);
+            self.permute(r, line.cells, &mut kept.cells);
+            crate::counters::add(
+                crate::counters::Counter::CellsCopied,
+                crate::counters::Site::Layout,
+                Tally::of(n),
+            );
+        }
+        kept.key = Some((term.sealed(), self.laid_seal(), n));
+        let kept: &'a DrawnLine = kept;
+        StatusLine {
+            cells: &kept.cells,
+            ..line
+        }
     }
 }
 
@@ -1122,11 +2299,18 @@ pub struct Reorder {
     /// it: scratch, kept so a frame allocates neither.
     out: Vec<kept::Para>,
     written_now: Vec<Row>,
-    /// Whether the last layout kept the window's and the status line's
-    /// order whole ([`Reorder::held`]).
-    held: Held,
     /// How the joins the maps hold were found.
     last: Last,
+    /// **The key a [`Rejoin::Every`] was answered under**, kept as `last`
+    /// only once the caller's rejoin of every row ends
+    /// ([`Reorder::rejoined`]).
+    owed: Option<Last>,
+    /// **Each window row, rejoined since that answer or not**
+    /// ([`Reorder::rejoin`]): the key is kept only once every row was, so
+    /// a caller that rejoins only the rows it saw change under that answer
+    /// is answered it again. Kept across frames, so a frame allocates
+    /// nothing.
+    owing: Vec<Owing>,
     bidi: Box<Bidi<CONTEXT>>,
     text: Vec<char>,
     owner: Vec<Owner>,
@@ -1199,13 +2383,6 @@ pub struct Work {
     pub laid: Tally,
 }
 
-/// Whether a layout kept the last one's order of every row whole.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Held {
-    No,
-    Yes,
-}
-
 /// How the joins the maps hold were found: by [`Reorder::lay_out`], which
 /// finds every row's, or kept from the frame before by
 /// [`Reorder::keep_displayed`] for a window of this size and cluster epoch,
@@ -1235,6 +2412,21 @@ pub enum Changes {
 pub enum Rejoin {
     Changed,
     Every,
+}
+
+/// Whether a window row was rejoined since an answer of [`Rejoin::Every`]
+/// (`Reorder::owing`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Owing {
+    Owed,
+    Rejoined,
+}
+
+/// The layout holds the maps its rejoin writes through.
+impl maps::HoldsMaps for Reorder {
+    fn maps_mut(&mut self) -> &mut maps::Maps {
+        &mut self.orders.maps
+    }
 }
 
 /// Whether a row holds a character that can make its paragraph reorder.
@@ -1410,8 +2602,9 @@ impl Reorder {
             status: kept::Line::default(),
             out: Vec::new(),
             written_now: Vec::new(),
-            held: Held::No,
             last: Last::LaidOut,
+            owed: None,
+            owing: Vec::new(),
             bidi: Box::new(Bidi::new()),
             text: Vec::new(),
             owner: Vec::new(),
@@ -1443,7 +2636,7 @@ impl Reorder {
     /// The window `back` lines up as the last layout drew it: the display's
     /// lines where it re-broke a paragraph, else the core's own view.
     pub fn view<'a>(&'a self, term: &'a Term<'_>, back: Rows) -> Viewport<'a> {
-        match &self.orders.display {
+        match self.orders.maps.display() {
             Some(d) => d.window(),
             None => term.view(term.looking_back(back)),
         }
@@ -1506,7 +2699,10 @@ impl Reorder {
         self.lay_out_over(term, back, joins, &Unwritten, Extent::Top);
     }
 
-    // Inlined into each caller, so its `extent` is a constant there.
+    // Inlined into each caller, so its `extent` is a constant there. One
+    // relay around the window's layout, its variants and the status line's
+    // (`maps::relay_quietly`): each row laid out again is stamped only
+    // where its maps came out otherwise.
     #[inline(always)]
     fn lay_out_over(
         &mut self,
@@ -1516,11 +2712,27 @@ impl Reorder {
         written: &impl Over,
         extent: Extent,
     ) {
-        let (answer, nrows) = self.lay_out_window(term, back, joins, written, extent);
+        maps::relay_quietly(self, |o, relay| {
+            o.lay_out_relayed(term, back, joins, written, extent, relay);
+        });
+    }
+
+    /// [`Reorder::lay_out_over`] inside its relay.
+    #[inline(always)]
+    fn lay_out_relayed(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        joins: Joins,
+        written: &impl Over,
+        extent: Extent,
+        relay: &maps::Relay,
+    ) {
+        let (answer, nrows) = self.lay_out_window(term, back, joins, written, extent, relay);
         // SAPV's variants on the rows laid out again alone: a kept row
         // holds its own already, and they are not made twice.
         if answer != kept::Answer::Holds && term.variants_seen() {
-            let held = self.orders.display.clone();
+            let held = self.orders.maps.display().cloned();
             let vp = match &held {
                 Some(d) => d.window(),
                 None => term.view(term.looking_back(back)),
@@ -1533,22 +2745,9 @@ impl Reorder {
             self.vary_rows(term, &vp, n, &units, written);
             self.out = units;
         }
-        let status = match extent {
-            Extent::Window => self.lay_out_status(term, joins, nrows),
-            Extent::Top => kept::Answer::Holds,
-        };
-        self.held = match (answer, status) {
-            (kept::Answer::Holds, kept::Answer::Holds) => Held::Yes,
-            _ => Held::No,
-        };
-    }
-
-    /// **Whether the last layout kept every row's order, the status
-    /// line's included, as the layout before it left it**: what a reader
-    /// that draws through the order keeps its own work by while nothing
-    /// else it reads moved.
-    pub(crate) fn held(&self) -> bool {
-        self.held == Held::Yes
+        if extent == Extent::Window {
+            self.lay_out_status(term, joins, nrows, relay);
+        }
     }
 
     /// Row `cells`, its ids named in `words`, tested once for what its
@@ -1571,13 +2770,18 @@ impl Reorder {
     /// `nrows`, where every draw path reads the status line's row. Nothing
     /// while no status line is shown. Kept while its plane was not written
     /// since it was laid out (`kept::Line`).
-    fn lay_out_status(&mut self, term: &Term<'_>, joins: Joins, nrows: Rows) -> kept::Answer {
+    fn lay_out_status(
+        &mut self,
+        term: &Term<'_>,
+        joins: Joins,
+        nrows: Rows,
+        relay: &maps::Relay,
+    ) -> kept::Answer {
         let Some(line) = term.status_view() else {
             // A status line let go takes its order with it.
-            let gone =
-                self.orders.rows.len() > nrows.index() || self.orders.joins.len() > nrows.index();
-            self.orders.rows.truncate(nrows.index());
-            self.orders.joins.truncate(nrows.index());
+            let gone = self.orders.maps.rows().len() > nrows.index()
+                || self.orders.maps.joins().len() > nrows.index();
+            self.orders.maps.truncate(nrows);
             self.status.forget();
             return match gone {
                 true => kept::Answer::Again,
@@ -1604,8 +2808,12 @@ impl Reorder {
         if answer == kept::Answer::Holds {
             return answer;
         }
-        self.orders.rows.truncate(nrows.index());
-        self.orders.joins.truncate(nrows.index());
+        // Its row of the maps lifted, so a line laid out again as it was
+        // marks nothing.
+        self.orders
+            .maps
+            .lift_row(Row::from_index(nrows.index()), relay);
+        self.orders.maps.truncate(nrows);
         // Its row is the status line's own, read through the live table.
         let sourced = core::mem::take(&mut self.sourced);
         self.lay_out_status_row(term, joins, &line);
@@ -1616,12 +2824,11 @@ impl Reorder {
     }
 
     fn lay_out_status_row<'t>(&mut self, term: &'t Term<'_>, joins: Joins, line: &Viewport<'t>) {
-        let at = self.orders.rows.len();
+        let at = self.orders.maps.rows().len();
         let main = core::mem::take(&mut self.orders);
         self.strung.styles_moved(term);
         self.orders.cols = line.cols();
-        self.orders.rows.push(None);
-        self.orders.joins.push(None);
+        self.orders.maps.grow(Rows::of_index(1));
         match term.bidi_support() {
             BidiSupport::Explicit => {
                 self.reverse_paths(term, line, &Unwritten);
@@ -1647,22 +2854,19 @@ impl Reorder {
             self.vary_rows(term, line, line.rows(), &one, &Unwritten);
         }
         let status = core::mem::replace(&mut self.orders, main);
-        let (Some(row), Some(joined)) = (
-            status.rows.into_iter().next(),
-            status.joins.into_iter().next(),
-        ) else {
+        let Some((row, joined)) = status.maps.into_first() else {
             return;
         };
-        self.orders.rows.resize_with(at + 1, || None);
-        self.orders.joins.resize_with(at + 1, || None);
         if row.is_some() {
             self.orders.any = Any::Yes;
         }
         if joined.is_some() {
             self.orders.joined_any = Any::Yes;
         }
-        self.orders.rows[at] = row;
-        self.orders.joins[at] = joined;
+        self.orders.maps.set_row_grown(Row::from_index(at), row);
+        self.orders
+            .maps
+            .set_joins_grown(Row::from_index(at), joined);
     }
 
     /// **Where row `y` of the view laid out names its cells' ids**, `y`
@@ -1688,6 +2892,7 @@ impl Reorder {
         joins: Joins,
         written: &impl Over,
         extent: Extent,
+        relay: &maps::Relay,
     ) -> (kept::Answer, Rows) {
         let back = term.looking_back(back);
         // **The display's own wrap** of the finished paragraphs in the
@@ -1698,7 +2903,7 @@ impl Reorder {
             Some(d) => Sourced::Window(d.clone(), back),
             None => Sourced::Rows,
         };
-        self.lay_out_held(term, back, held, joins, written, extent)
+        self.lay_out_held(term, back, held, joins, written, extent, relay)
     }
 
     /// **Lays out `d`, a display of one paragraph alone**
@@ -1709,14 +2914,17 @@ impl Reorder {
     pub(crate) fn lay_out_display(&mut self, term: &Term<'_>, d: Rc<Display>) {
         self.sourced = Sourced::Rows;
         self.laid.forget();
-        self.lay_out_held(
-            term,
-            Rows::ZERO,
-            Some(d),
-            Joins::Unseen,
-            &Unwritten,
-            Extent::Window,
-        );
+        maps::relay_quietly(self, |o, relay| {
+            o.lay_out_held(
+                term,
+                Rows::ZERO,
+                Some(d),
+                Joins::Unseen,
+                &Unwritten,
+                Extent::Window,
+                relay,
+            )
+        });
     }
 
     /// [`Reorder::lay_out_window`] past its display: the window's rows, or
@@ -1726,6 +2934,7 @@ impl Reorder {
     /// maps cleared first, so no row of a paragraph is ever laid out alone.
     /// Answers what was kept, and the window's height.
     #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
     fn lay_out_held(
         &mut self,
         term: &Term<'_>,
@@ -1734,6 +2943,7 @@ impl Reorder {
         joins: Joins,
         written: &impl Over,
         extent: Extent,
+        relay: &maps::Relay,
     ) -> (kept::Answer, Rows) {
         let (vp, around) = match &held {
             Some(d) => {
@@ -1745,6 +2955,7 @@ impl Reorder {
         let nrows = vp.rows().index();
         self.work = Work::default();
         self.last = Last::LaidOut;
+        self.owed = None;
         let explicit = term.bidi_support() == BidiSupport::Explicit;
         let key = kept::Key {
             pass: kept::Pass::Window(extent),
@@ -1772,11 +2983,11 @@ impl Reorder {
         match answer {
             kept::Answer::Holds => return (answer, vp.rows()),
             kept::Answer::Again => {
-                self.orders.display = held.clone();
+                self.orders
+                    .maps
+                    .lift_all(vp.rows(), held.clone(), maps::Lifting::Both, relay);
                 self.orders.cols = vp.cols();
                 self.orders.any = Any::No;
-                self.orders.rows.clear();
-                self.orders.rows.resize_with(nrows, || None);
                 self.orders.syllables.clear();
                 self.orders.syllables.resize(nrows, Opens::Unknown);
                 self.forget_joins(vp.rows());
@@ -1784,13 +2995,12 @@ impl Reorder {
                 kept::cut(&vp, cut, &mut self.out);
             }
             kept::Answer::Units => {
+                // Each row of a unit laid out again lets go of its maps,
+                // lifted out and compared at the relay's end: a row that
+                // comes out in the order and with the joins it held, as it
+                // was, reads as not laid out again.
                 for y in self.out.iter().flat_map(kept::Para::rows) {
-                    if let Some(o) = self.orders.rows.get_mut(y) {
-                        *o = None;
-                    }
-                    if let Some(j) = self.orders.joins.get_mut(y) {
-                        *j = None;
-                    }
+                    self.orders.maps.lift_row(Row::from_index(y), relay);
                     if let Some(s) = self.orders.syllables.get_mut(y) {
                         *s = Opens::Unknown;
                     }
@@ -1863,8 +3073,11 @@ impl Reorder {
     /// by [`Reorder::rejoin`] on each row that changed, then
     /// [`Reorder::rejoined`]. [`Rejoin::Every`] when there is no frame
     /// before to keep: the last was laid out otherwise, or at another width,
-    /// height or cluster epoch, or kept for the other compare (`changes`).
-    /// A row that did not change is neither compared nor tested here, and
+    /// height or cluster epoch, or kept for the other compare (`changes`),
+    /// or the last answer was [`Rejoin::Every`] and its rejoin did not end
+    /// in [`Reorder::rejoined`] with every window row rejoined. The caller
+    /// then finds every row's joins again, each against those it held, and
+    /// the status line's are its own layout's. A row that did not change is neither compared nor tested here, and
     /// each row's order is kept while the row was not written
     /// (`kept::Laid::answer`).
     ///
@@ -1880,11 +3093,28 @@ impl Reorder {
         changes: Changes,
         written: &Written,
     ) -> Rejoin {
+        maps::relay_quietly(self, |o, relay| {
+            o.keep_relayed(term, back, changes, written, relay)
+        })
+    }
+
+    /// [`Reorder::keep_displayed`] inside its relay
+    /// (`maps::relay_quietly`): each row whose order it lays out again is
+    /// stamped only where it came out otherwise.
+    fn keep_relayed(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        changes: Changes,
+        written: &Written,
+        relay: &maps::Relay,
+    ) -> Rejoin {
         let back = term.looking_back(back);
         let vp = term.view(back);
         let nrows = vp.rows().index();
         self.sourced = Sourced::Rows;
         self.work = Work::default();
+        self.owed = None;
         // No row is tested here: a caller tests each row for its syllables.
         self.orders.syllables.clear();
         let key = kept::Key {
@@ -1905,22 +3135,20 @@ impl Reorder {
         match answer {
             kept::Answer::Holds => {}
             kept::Answer::Again => {
-                self.orders.display = None;
+                self.orders
+                    .maps
+                    .lift_all(vp.rows(), None, maps::Lifting::Order, relay);
                 self.orders.cols = vp.cols();
                 self.orders.any = Any::No;
-                self.orders.rows.clear();
-                self.orders.rows.resize_with(nrows, || None);
                 // The status line's joins, after the window's, are found
                 // again below whatever the window keeps.
-                self.orders.joins.truncate(nrows);
+                self.orders.maps.truncate_joins(vp.rows());
                 self.status.forget();
                 kept::cut(&vp, kept::Cut::Rows, &mut self.out);
             }
             kept::Answer::Units => {
                 for y in self.out.iter().flat_map(kept::Para::rows) {
-                    if let Some(o) = self.orders.rows.get_mut(y) {
-                        *o = None;
-                    }
+                    self.orders.maps.lift_order(Row::from_index(y), relay);
                 }
             }
         }
@@ -1958,18 +3186,24 @@ impl Reorder {
         let rejoin = match self.last == now && same_paths && read == Any::No {
             true => Rejoin::Changed,
             false => {
-                self.orders.joins.truncate(nrows);
-                self.forget_joins(vp.rows());
-                self.status.forget();
+                // Every row's joins are found again by the caller, each
+                // against the joins it held ([`Reorder::rejoin`]): left in
+                // place, so a row whose joins come out the same is not
+                // read as laid out again. The status line's, after the
+                // window's, are its own layout's (`kept::Line`) and stay.
+                self.orders.maps.grow_joins(vp.rows());
+                // **Owed until that rejoin ends** ([`Reorder::rejoined`])
+                // with every window row rejoined: a caller that returns
+                // before it, or rejoins only some rows, is answered this
+                // again, so no row keeps joins found under another key.
+                self.last = Last::LaidOut;
+                self.owed = Some(now);
+                self.owing.clear();
+                self.owing.resize(nrows, Owing::Owed);
                 Rejoin::Every
             }
         };
-        self.last = now;
-        let status = self.lay_out_status(term, Joins::Seen, vp.rows());
-        self.held = match (answer, status) {
-            (kept::Answer::Holds, kept::Answer::Holds) => Held::Yes,
-            _ => Held::No,
-        };
+        self.lay_out_status(term, Joins::Seen, vp.rows(), relay);
         rejoin
     }
 
@@ -1979,18 +3213,26 @@ impl Reorder {
     /// `written` covers it ([`Written`]), so a composition joins, and takes
     /// SAPV's forms, as its text written will, and the letters beside it
     /// join it.
+    ///
+    /// The row's joins are moved out first and compared with those found
+    /// again, and the row reads as laid out again
+    /// ([`Orders::laid_after`]) only when they differ: one call around the
+    /// finding (`maps::rejoin_quietly`), so nothing between the two can
+    /// leave the row's later joins writes unstamped. Once it ends the row
+    /// counts toward an answer of [`Rejoin::Every`] ([`Reorder::rejoined`]).
     pub fn rejoin(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &Written) {
-        let Some(slot) = self.orders.joins.get_mut(r.index()) else {
-            return;
-        };
-        *slot = None;
-        self.work.tested.bump();
-        let cells = written.row(r).unwrap_or_else(|| vp.row(r));
-        if row_joins(term, cells) {
-            self.join_shown(term, (r, Words::Row(vp.styles(r))), cells);
-        }
-        if term.variants_seen() {
-            self.vary_joins(term, vp, r, written);
+        let found = maps::rejoin_quietly(self, r, |o| {
+            o.work.tested.bump();
+            let cells = written.row(r).unwrap_or_else(|| vp.row(r));
+            if row_joins(term, cells) {
+                o.join_shown(term, (r, Words::Row(vp.styles(r))), cells);
+            }
+            if term.variants_seen() {
+                o.vary_joins(term, vp, r, written);
+            }
+        });
+        if let Some(o) = found.and(self.owing.get_mut(r.index())) {
+            *o = Owing::Rejoined;
         }
     }
 
@@ -2023,7 +3265,6 @@ impl Reorder {
         let cols = vp.cols().index();
         let strings = term.strings_seen();
         let entry = |id: StringId| term.string_entry(id);
-        let y = r.index();
         let line = vp.bidi(r);
         // A row DECRLM wrote is drawn as its cells hold.
         if line.written() == RowWritten::RightToLeft {
@@ -2104,8 +3345,7 @@ impl Reorder {
                 Mirror::Not => {}
             }
         }
-        if let Some(slot) = self.orders.rows.get_mut(y) {
-            *slot = Some(out);
+        if self.orders.maps.set_row(r, out) {
             self.orders.any = Any::Yes;
         }
     }
@@ -2157,17 +3397,27 @@ impl Reorder {
     /// height, so a window that never held one costs one test.
     fn forget_joins(&mut self, rows: Rows) {
         let nrows = rows.index();
-        if self.orders.joined_any == Any::Yes || self.orders.joins.len() != nrows {
-            self.orders.joins.clear();
-            self.orders.joins.resize_with(nrows, || None);
+        if self.orders.joined_any == Any::Yes || self.orders.maps.joins().len() != nrows {
+            self.orders.maps.clear_joins(rows);
             self.orders.joined_any = Any::No;
         }
     }
 
-    /// The rejoining after [`Reorder::keep_displayed`] done: whether any
-    /// row holds a joined cell, found again.
+    /// **The rejoining after [`Reorder::keep_displayed`] done**: whether
+    /// any row holds a joined cell, found again, and after
+    /// [`Rejoin::Every`] the key it was answered under kept, so the next
+    /// frame keeps these joins -- only when every window row was rejoined
+    /// since that answer ([`Reorder::rejoin`]). Until then, or if a row was
+    /// not, the next frame is answered [`Rejoin::Every`] again.
     pub fn rejoined(&mut self) {
-        self.orders.joined_any = match self.orders.joins.iter().any(Option::is_some) {
+        if let Some(now) = self
+            .owed
+            .take()
+            .filter(|_| self.owing.iter().all(|o| *o == Owing::Rejoined))
+        {
+            self.last = now;
+        }
+        self.orders.joined_any = match self.orders.maps.joins().iter().any(Option::is_some) {
             true => Any::Yes,
             false => Any::No,
         };
@@ -2775,7 +4025,7 @@ impl Reorder {
                 |c| to.get(c.index()).copied().unwrap_or(c),
                 cell_of,
             );
-            self.orders.rows[y.index()] = Some(out);
+            self.orders.maps.set_row_grown(y, Some(out));
             self.orders.any = Any::Yes;
         }
         // A table row's level is its cells' each; nothing carries on.
@@ -2997,8 +4247,7 @@ impl Reorder {
             }
         }
         if let Some(r) = row {
-            if let Some(slot) = self.orders.joins.get_mut(y.index()) {
-                *slot = Some(r);
+            if self.orders.maps.set_joins(y, r) {
                 self.orders.joined_any = Any::Yes;
             }
         }
@@ -3132,7 +4381,7 @@ impl Reorder {
         if !ltr {
             return;
         }
-        let right_to_left = self.orders.joins.get_mut(r.index()).and_then(Option::take);
+        let right_to_left = self.orders.maps.take_joins(r);
         self.displayed_text(term, cells, 0..end, Reading::LeftToRight);
         let joined = self.join_text(None, Some(Reading::LeftToRight));
         let line = 0..self.text.len();
@@ -3145,11 +4394,11 @@ impl Reorder {
         );
         // Each cell's letter is one reading's, so the two never both name
         // a form for one cell.
-        let Some(slot) = self.orders.joins.get_mut(r.index()) else {
+        let Some(before) = right_to_left else {
             return;
         };
-        match (slot.as_mut(), right_to_left) {
-            (Some(now), Some(before)) => {
+        match self.orders.maps.joins_mut(r) {
+            Some(now) => {
                 // The other reading's words follow this one's, each of its
                 // cells moved to find them there.
                 let moved = now.words.len();
@@ -3171,8 +4420,9 @@ impl Reorder {
                     }
                 }
             }
-            (None, before) => *slot = before,
-            (Some(_), None) => {}
+            None => {
+                self.orders.maps.set_joins(r, before);
+            }
         }
     }
 
@@ -3583,12 +4833,8 @@ impl Reorder {
             return;
         }
         let cols = vp.cols().index();
-        let y = r.index();
-        if self.orders.rows.len() <= y {
-            self.orders.rows.resize_with(y + 1, || None);
-        }
         let width = vp.rendition(r).end_of_line(vp.cols()).index().min(cols);
-        let order = self.orders.rows[y].get_or_insert_with(|| RowOrder {
+        let order = self.orders.maps.row_made(r, || RowOrder {
             from: (0..cols).map(Col::at_index).collect(),
             to: (0..cols).map(Col::at_index).collect(),
             level: vec![BidiLevel::LTR; cols],
@@ -3615,7 +4861,7 @@ impl Reorder {
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
         let src = self.row_source(term, vp, isize::try_from(r.index()).unwrap_or(0));
         let words = src.words();
-        let Some(order) = self.orders.rows.get_mut(r.index()).and_then(Option::as_mut) else {
+        let Some(order) = self.orders.maps.row_mut(r) else {
             return;
         };
         order.slants.clear();
@@ -3644,14 +4890,19 @@ impl Reorder {
         let src = self.row_source(term, vp, isize::try_from(r.index()).unwrap_or(0));
         let words = src.words();
         let cols = cells.len();
-        let y = r.index();
-        if self.orders.joins.len() <= y {
-            self.orders.joins.resize_with(y + 1, || None);
-        }
-        let mut row: RowJoins = self.orders.joins[y].clone().unwrap_or_else(|| RowJoins {
-            cells: vec![None; cols],
-            words: Vec::new(),
-        });
+        // Read, not written: the row is stamped below only where a
+        // variant changed its joins.
+        let mut row: RowJoins = self
+            .orders
+            .maps
+            .joins()
+            .get(r.index())
+            .cloned()
+            .flatten()
+            .unwrap_or_else(|| RowJoins {
+                cells: vec![None; cols],
+                words: Vec::new(),
+            });
         let mut changed = false;
         for w in &mut row.words {
             let var = variants_of(term, w.words(), Col::ZERO, w.cell);
@@ -3721,7 +4972,7 @@ impl Reorder {
             }
         }
         let any = row.cells.iter().any(Option::is_some);
-        self.orders.joins[y] = any.then_some(row);
+        self.orders.maps.set_joins_grown(r, any.then_some(row));
         if any {
             self.orders.joined_any = Any::Yes;
         }

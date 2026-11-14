@@ -17,11 +17,11 @@ use baud_domain::{
     BytePos, Codepoint, Col, Cols, PackedCell, ReadLen, Row, RowStyles, Rows, WinSize,
 };
 use baud_font::Face;
-use baud_render::screens::{Built, Held, SETS, Screens, SetIx, Taking};
+use baud_render::screens::{Built, SETS, Screens, SetIx, Taking};
 use baud_render::{
     Blend, Caret, Composition, Damage, Field, FindLook, Ground, Hints, HoverPaint, Leaving,
-    LineStyle, LinkHover, LinkLine, LinkLook, LinkSpan, Measure, PxSize, Renderer, Stack, Target,
-    Theme, TipArea, TipLook,
+    LineStyle, LinkHover, LinkLine, LinkLook, LinkSpan, Measure, Orders, PxSize, Renderer, Stack,
+    Target, Theme, TipArea, TipLook,
 };
 use support::font;
 
@@ -302,11 +302,12 @@ fn on_the_cpu_path(faces: &[Face<'_>], case: &Case) -> Option<String> {
 
 /// **A frame taken into `set` as the cell path's build takes it**: one
 /// generation sealed, then the window `back` lines into the history and
-/// the status line, no row in another order and no display held.
+/// the status line, drawn through `orders`, maps no layout writes: no row
+/// in another order and no display held.
 fn take(
     s: &mut Screens,
     t: &mut Term<'_>,
-    back: Rows,
+    (back, orders): (Rows, &Orders),
     sets: &mut [Vec<PackedCell>; SETS],
     set: SetIx,
 ) -> Built {
@@ -324,8 +325,7 @@ fn take(
             back,
             view: &view,
             status: status.as_ref(),
-            reordered: &|_: Row| false,
-            held: Held::No,
+            orders,
             stride: t.stride(),
             leaving: Leaving::None,
         },
@@ -345,12 +345,13 @@ fn on_the_cell_path(case: &Case) -> Option<String> {
     let len = t.stride().index() * (ROWS + 1);
     let mut sets: [Vec<PackedCell>; SETS] = core::array::from_fn(|_| vec![PackedCell::EMPTY; len]);
     let mut s = Screens::new();
+    let orders = Orders::default();
     let mut order = (0..).map(|k| SetIx(k % SETS));
     let mut next = || order.next().expect("a set");
     for _ in 0..=SETS {
-        take(&mut s, &mut t, back, &mut sets, next());
+        take(&mut s, &mut t, (back, &orders), &mut sets, next());
     }
-    if take(&mut s, &mut t, back, &mut sets, next()) != Built::Last {
+    if take(&mut s, &mut t, (back, &orders), &mut sets, next()) != Built::Last {
         return Some(format!(
             "{}: the control, a steady frame is the last screen",
             case.what
@@ -358,7 +359,7 @@ fn on_the_cell_path(case: &Case) -> Option<String> {
     }
     case.op.apply(&mut t);
     let set = next();
-    let built = take(&mut s, &mut t, back, &mut sets, set);
+    let built = take(&mut s, &mut t, (back, &orders), &mut sets, set);
     let mut wrong = Vec::new();
     if built != Built::New {
         wrong.push("built from the last screen".to_string());

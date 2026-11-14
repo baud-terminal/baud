@@ -22,7 +22,7 @@ use baud_domain::{
 use baud_font::{Face, Px};
 use baud_present_macos::journal::SetIx;
 use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
-use baud_present_macos::screens::{Compare, Held, Screens, Taking};
+use baud_present_macos::screens::{Compare, Screens, Taking};
 use baud_present_macos::{
     Cause, CellInput, Deadline, Done, Drawn, FaultCode, Gpu, GpuFrame, GridBuffer, Inject, Landed,
     MapBuffer, OverlayBuffer, StylesBuffer, premultiply,
@@ -480,8 +480,7 @@ impl Arms<'_, '_> {
                 back: self.back,
                 view: &view,
                 status: status.as_ref(),
-                reordered: &|r| orders.reordered(r),
-                held: Held::of(orders),
+                orders,
                 stride: t.stride(),
                 leaving: match self.slide {
                     Some(_) => baud_render::Leaving::Drawn,
@@ -16564,8 +16563,7 @@ fn the_cell_path_rejoins_only_the_rows_the_copy_finds_changed() {
                 back: Rows::ZERO,
                 view: &view,
                 status: status.as_ref(),
-                reordered: &|row| orders.reordered(row),
-                held: Held::of(orders),
+                orders,
                 stride: t.stride(),
                 leaving: baud_render::Leaving::None,
             },

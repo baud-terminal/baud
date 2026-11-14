@@ -743,7 +743,19 @@ fn a_kept_layout_reads_what_is_written_and_rejoins_around_it() {
     );
     let none = Written::default();
     let mut o = Reorder::new();
-    let keep = |o: &mut Reorder, w: &Written| o.keep_displayed(&t, Rows::ZERO, Changes::Copied, w);
+    // Each frame as a caller draws it: every row joined again where the
+    // answer is `Rejoin::Every`, then the rejoin ended, which that answer
+    // waits on (`Reorder::rejoined`).
+    let keep = |o: &mut Reorder, w: &Written| {
+        let how = o.keep_displayed(&t, Rows::ZERO, Changes::Copied, w);
+        if how == Rejoin::Every {
+            for y in 0..usize::from(WS.ws_row) {
+                o.rejoin(&t, &vp, Row::from_index(y), w);
+            }
+        }
+        o.rejoined();
+        how
+    };
     let lead = |o: &Reorder| o.orders().visual_col(Row::ZERO, Col::at_index(1)).index();
     assert_eq!(keep(&mut o, &none), Rejoin::Every, "the first frame");
     assert_eq!(keep(&mut o, &none), Rejoin::Changed, "kept");

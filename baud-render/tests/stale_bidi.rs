@@ -6,18 +6,31 @@
 //! before it (what it wrote and did not), applies it, and draws two
 //! incremental frames, each equal to a fresh renderer's full frame, pixels
 //! and grounds, with the kept order equal to the fresh renderer's.
+//!
+//! **And on the cell path** where a case changes the cells a copy of the
+//! screen holds (`baud_render::cell_frame::build`, as the app builds it,
+//! its sets taken in turn): the frames after the operation are new screens
+//! whose sets hold the window and the status line as a fresh layout draws
+//! them (`Orders::window`, `Orders::status_line`), so a set's key and the
+//! renderer's own copy in drawn order are each held to what the layout
+//! laid out again with no cell written.
 
 mod support;
 
 use baud_core::{BidiSupport, Owned, Term};
 use baud_domain::{
-    BytePos, Codepoint, Col, Cols, ReadLen, Row, Rows, Seal, WinSize, WindowAt, Wrap,
+    BytePos, Chan, Codepoint, Col, Cols, PackedCell, ReadLen, Row, RowExtent, Rows, Seal, Video,
+    WinSize, WindowAt, Wrap,
 };
-use baud_font::Face;
+use baud_font::{Face, Px};
+use baud_render::cell_frame::{CellInputs, CellParts, build};
+use baud_render::screens::{Built, SETS, Screens, SetIx};
 use baud_render::{
-    Blend, Caret, Composition, Current, Damage, Field, FindLook, Ground, Hints, Joins, LinkLook,
-    LinkSpan, Mark, Measure, Orders, PxSize, Renderer, Reorder, Stack, Target, Theme, WindowLine,
-    WordWrap,
+    AppBg, Blend, Candidate, Caret, Composition, Current, Damage, FaceRole, FaceStyle, Field,
+    FindLook, FontSlot, GlyphMap, Ground, Hints, Instance, Joins, Leaving, Lent, LinkLook,
+    LinkSpan, MapEntry, Mark, Measure, Orders, Overlay, PictureBg, Pictures, PxSize, Redraw,
+    Renderer, Reorder, Resolved, Stack, StyleStamp, Target, TextFace, Theme, WindowLine, WordWrap,
+    Written,
 };
 use support::font;
 
@@ -76,13 +89,39 @@ fn faces_data() -> Vec<Vec<u8>> {
 }
 
 /// What a renderer of a case is set to beyond the screen: its size, a
-/// composition, and whether it shows a find mark and a link underline.
+/// composition, whether it shows a find mark and a link underline, the
+/// page it draws on, and how its faces are stacked.
 #[derive(Clone)]
 struct Setting {
     size: f32,
     wrap: WordWrap,
     composition: Option<(Row, Col, &'static str)>,
     marks: Marks,
+    page: Page,
+    faces: Faces,
+}
+
+/// **The page a renderer draws on**: opaque, which finds no picture drawn
+/// in text, or dimmed below opaque with pictures drawn solid, which finds
+/// them (`Theme::finds_pictures`), as the app's default page does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Page {
+    Opaque,
+    Dimmed,
+}
+
+impl Page {
+    fn theme(self) -> Theme {
+        match self {
+            Page::Opaque => Theme::dark(),
+            Page::Dimmed => Theme {
+                bg_alpha: Chan::from_u8(56),
+                app_bg: AppBg::Dimmed,
+                picture_bg: PictureBg::Opaque,
+                ..Theme::dark()
+            },
+        }
+    }
 }
 
 /// Whether a renderer shows a find mark and a link underline.
@@ -92,11 +131,57 @@ enum Marks {
     Shown,
 }
 
+/// **The faces a renderer draws with, and how they are stacked**:
+/// `Regular`, the faces a case is handed as a chain of fallbacks
+/// (`Stack::new`), no face in a style of its own, so an italic cell is
+/// drawn upright from the regular face and SAPV 17 leans it neither way;
+/// `RegularItalic`, the app's built Regular and Italic, the Italic in the
+/// italic's role (`Stack::with_roles`, as `composition.rs`'s SAPV 17 case
+/// stacks them), so an italic cell SAPV 17 slants leans by the Italic's
+/// angle (`Stack::lean`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Faces {
+    Regular,
+    RegularItalic,
+}
+
+impl Faces {
+    /// The faces' data: the test face for `Regular`, the app's built pair
+    /// for `RegularItalic`.
+    fn data(self) -> Vec<Vec<u8>> {
+        match self {
+            Faces::Regular => faces_data(),
+            Faces::RegularItalic => ["Regular", "Italic"]
+                .iter()
+                .map(|name| {
+                    std::fs::read(format!(
+                        "{}/../baud-app/fonts/built/{name}.ttf",
+                        env!("CARGO_MANIFEST_DIR")
+                    ))
+                    .unwrap()
+                })
+                .collect(),
+        }
+    }
+
+    /// `faces` stacked as these faces are.
+    fn stack<'f, 'a>(self, faces: &'f [Face<'a>]) -> Stack<'f, 'a> {
+        match self {
+            Faces::Regular => Stack::new(faces).unwrap(),
+            Faces::RegularItalic => Stack::with_roles(
+                faces,
+                &[FaceRole::Fallback, FaceRole::Style(FaceStyle::Italic)],
+            )
+            .expect("a regular face and an italic one"),
+        }
+    }
+}
+
 fn made<'f, 'a>(faces: &'f [Face<'a>], s: &Setting, t: &Term<'_>) -> Renderer<'f, 'a> {
     let mut r = Renderer::new(
-        Stack::new(faces).unwrap(),
+        s.faces.stack(faces),
         PxSize::of(14.0).unwrap(),
-        Theme::dark(),
+        s.page.theme(),
         Blend::Native,
         Cols::of_index(COLS),
         Rows::of_index(ROWS),
@@ -218,14 +303,19 @@ impl Step {
 }
 
 fn apply_composition(r: &mut Renderer<'_, '_>, c: Option<(Row, Col, &'static str)>) {
-    r.set_composition(c.map(|(row, col, text)| Composition {
+    r.set_composition(composition_of(c));
+}
+
+/// The composition a case's setting shows, as the app hands it over.
+fn composition_of(c: Option<(Row, Col, &'static str)>) -> Option<Composition> {
+    c.map(|(row, col, text)| Composition {
         row,
         col,
         text: text.chars().map(Codepoint::from_char).collect(),
         measure: Measure::default(),
         hints: Vec::new(),
         caret: Caret::End,
-    }));
+    })
 }
 
 /// How a case's control knows the operation did what it is there for.
@@ -261,6 +351,8 @@ const PLAIN: Setting = Setting {
     wrap: WordWrap::On,
     composition: None,
     marks: Marks::None,
+    page: Page::Opaque,
+    faces: Faces::Regular,
 };
 
 /// The window's rows written after `w`'s seal.
@@ -346,18 +438,259 @@ fn on_the_cpu_path(case: &Case, data: &[Vec<u8>]) {
 }
 
 fn run(case: Case) {
-    on_the_cpu_path(&case, &faces_data());
+    on_the_cpu_path(&case, &case.setting.faces.data());
+}
+
+/// The cell path's buffers, one set a frame in flight, as the app keeps
+/// them.
+struct Cells<'m> {
+    map: GlyphMap<'m>,
+    exceptions: Overlay,
+    screens: Screens,
+    copies_mem: [Vec<PackedCell>; SETS],
+    styles_mem: [Vec<Resolved>; SETS],
+    overlay_mem: [Vec<u8>; SETS],
+    style_stamps: [StyleStamp; SETS],
+    lent: [Lent; SETS],
+    candidates: Vec<Candidate>,
+    records: Vec<Instance>,
+    grounds: Vec<Instance>,
+    bidi_cells: Vec<PackedCell>,
+    bidi_used: Vec<RowExtent>,
+    lent_cells: Vec<PackedCell>,
+    lent_used: Vec<RowExtent>,
+    used: Vec<RowExtent>,
+}
+
+impl<'m> Cells<'m> {
+    fn new(backing: &'m mut [MapEntry], t: &Term<'_>) -> Cells<'m> {
+        let stride = t.stride().index();
+        Cells {
+            map: GlyphMap::over(backing),
+            exceptions: Overlay::new(),
+            screens: Screens::new(),
+            copies_mem: core::array::from_fn(|_| vec![PackedCell::EMPTY; (ROWS + 2) * stride]),
+            styles_mem: core::array::from_fn(|_| vec![Resolved::default(); t.styles().len()]),
+            overlay_mem: core::array::from_fn(|_| vec![0u8; COLS * (ROWS + 1)]),
+            style_stamps: [StyleStamp::default(); SETS],
+            lent: core::array::from_fn(|_| Lent::default()),
+            candidates: Vec::new(),
+            records: Vec::new(),
+            grounds: Vec::new(),
+            bidi_cells: Vec::new(),
+            bidi_used: Vec::new(),
+            lent_cells: Vec::new(),
+            lent_used: Vec::new(),
+            used: Vec::new(),
+        }
+    }
+}
+
+/// [`cell_frame_on`] into set `at`, which is free.
+fn cell_frame(
+    r: &mut Renderer<'_, '_>,
+    t: &mut Term<'_>,
+    shown: (Rows, &Option<Composition>),
+    cell: &mut Cells<'_>,
+    at: SetIx,
+) -> Built {
+    cell_frame_on(r, t, shown, cell, Some(at)).expect("the set is free")
+}
+
+/// **The cell frame `r` builds into set `at`**, the window `back` lines
+/// into the history, as the app's `present` builds it with `composition`
+/// shown, which `r` was handed too, and no prediction or slide, the
+/// frame's writes sealed first. With no set free (`at` none) the build
+/// returns after its layout, and nothing is built.
+fn cell_frame_on(
+    r: &mut Renderer<'_, '_>,
+    t: &mut Term<'_>,
+    (back, composition): (Rows, &Option<Composition>),
+    cell: &mut Cells<'_>,
+    at: Option<SetIx>,
+) -> Option<Built> {
+    let seal = t.seal_writes();
+    let t = &*t;
+    r.fit(t);
+    r.set_images(t, back);
+    r.splash_yields_to(t, Px::of(0));
+    r.place_marks(t, back, Leaving::None, Px::of(0));
+    r.place_lights(t);
+    let inputs = CellInputs {
+        back,
+        predictions: core::iter::empty(),
+        live: None,
+        composition,
+        highlight: None,
+        leaving: Leaving::None,
+        pan: Px::of(0),
+    };
+    let mut copies = cell.copies_mem.each_mut().map(|c| &mut c[..]);
+    let mut styles = cell.styles_mem.each_mut().map(|c| &mut c[..]);
+    let mut overlay = cell.overlay_mem.each_mut().map(|c| &mut c[..]);
+    build(
+        r,
+        t,
+        seal,
+        &inputs,
+        &mut CellParts {
+            map: &mut cell.map,
+            exceptions: &mut cell.exceptions,
+            screens: &mut cell.screens,
+            copies_mem: &mut copies,
+            styles_mem: &mut styles,
+            overlay_mem: &mut overlay,
+            style_stamps: &mut cell.style_stamps,
+            lent: &mut cell.lent,
+            candidates: &mut cell.candidates,
+            records: &mut cell.records,
+            grounds: &mut cell.grounds,
+            bidi_cells: &mut cell.bidi_cells,
+            bidi_used: &mut cell.bidi_used,
+            lent_cells: &mut cell.lent_cells,
+            lent_used: &mut cell.lent_used,
+        },
+        &mut cell.used,
+        move || at,
+    )
+    .map(|f| f.built)
+}
+
+/// **What a set's copy holds as a fresh layout draws it**: the window
+/// `back` lines into the history in drawn order (`Orders::window`), then
+/// the status line's row (`Orders::status_line`), each at the copy's
+/// pitch, the columns past the window's left out. A composition shown on
+/// the live window is read as its text written, in the rendition of the
+/// cell it starts on, as the renderer writes it over the window.
+fn fresh_copy(t: &Term<'_>, s: &Setting, back: Rows) -> Vec<Vec<PackedCell>> {
+    let mut o = Reorder::new();
+    o.set_word_wrap(s.wrap);
+    match composition_of(s.composition).filter(|_| t.looking_back(back).index() == 0) {
+        Some(c) => {
+            let vp = t.view(Rows::ZERO);
+            let style = vp
+                .row(c.row)
+                .get(c.col.index())
+                .map_or(PackedCell::EMPTY.style, |cell| cell.style);
+            let mut written = Written::default();
+            written.write(&vp, c.row, c.col, &c.written(c.width_on(&vp), style));
+            o.lay_out_written(t, back, Joins::Seen, &written);
+        }
+        None => o.lay_out(t, back),
+    }
+    let (mut cells, mut used) = (Vec::new(), Vec::new());
+    let view = o.orders().window(t, back, &mut cells, &mut used);
+    let (cols, rows) = (view.cols().index(), view.rows().index());
+    let mut out: Vec<Vec<PackedCell>> = (0..rows)
+        .map(|y| view.row(Row::from_index(y))[..cols].to_vec())
+        .collect();
+    if let Some(line) = t.status_line() {
+        let mut drawn = Vec::new();
+        let line = o
+            .orders()
+            .status_line(Row::from_index(rows), line, &mut drawn);
+        out.push(line.cells[..cols.min(line.cells.len())].to_vec());
+    }
+    out
+}
+
+/// What set `at`'s copy holds, row for row, as [`fresh_copy`] reads it.
+fn held_copy(
+    cell: &Cells<'_>,
+    t: &Term<'_>,
+    at: SetIx,
+    rows: &[Vec<PackedCell>],
+) -> Vec<Vec<PackedCell>> {
+    let stride = t.stride().index();
+    let copy = &cell.copies_mem[at.0];
+    rows.iter()
+        .enumerate()
+        .map(|(y, r)| copy[y * stride..y * stride + r.len()].to_vec())
+        .collect()
+}
+
+/// **One case on the cell path**: a frame into each set in turn until
+/// every set was built from, and a steady one, the last screen -- the
+/// control -- then the operation and two frames into the sets in turn,
+/// each a new screen or the last as the copy says, whose set holds the
+/// window and the status line as a fresh layout draws them.
+fn on_the_cell_path(case: &Case, data: &[Vec<u8>]) {
+    let faces: Vec<Face<'_>> = data.iter().map(|d| Face::parse(d).unwrap()).collect();
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, case.setup.as_bytes());
+    let back = case.back;
+    let mut s = case.setting.clone();
+    let mut r = made(&faces, &s, &t);
+    let mut backing = GlyphMap::backing();
+    let mut cells = Cells::new(&mut backing, &t);
+    let mut order = (0..).map(|k| SetIx(k % SETS));
+    let mut next = || order.next().expect("a set");
+    for _ in 0..=SETS {
+        let shown = composition_of(s.composition);
+        cell_frame(&mut r, &mut t, (back, &shown), &mut cells, next());
+    }
+    let shown = composition_of(s.composition);
+    if cell_frame(&mut r, &mut t, (back, &shown), &mut cells, next()) != Built::Last {
+        panic!(
+            "{}: the control, a steady frame is the last screen",
+            case.what
+        );
+    }
+    let before = fresh_copy(&t, &s, back);
+    for (k, step) in case.steps.iter().enumerate() {
+        if k > 0 {
+            let shown = composition_of(s.composition);
+            cell_frame(&mut r, &mut t, (back, &shown), &mut cells, next());
+        }
+        step.apply(&mut t, &mut r, &mut s);
+    }
+    let after = fresh_copy(&t, &s, back);
+    assert!(
+        before != after,
+        "{}: the control, the operation moves what a copy holds",
+        case.what
+    );
+    let mut wrong = Vec::new();
+    for frame in ["the frame after", "the frame after that"] {
+        let at = next();
+        let shown = composition_of(s.composition);
+        let built = cell_frame(&mut r, &mut t, (back, &shown), &mut cells, at);
+        let now = held_copy(&cells, &t, at, &after);
+        if frame == "the frame after" && built != Built::New {
+            wrong.push(format!("{frame}: built from the last screen"));
+        }
+        for (y, (held, fresh)) in now.iter().zip(&after).enumerate() {
+            if held != fresh {
+                wrong.push(format!("{frame}: row {y}"));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} on the cell path, drawn stale: {wrong:?}",
+        case.what
+    );
+}
+
+/// [`run`], and on the cell path too.
+fn run_both(case: Case) {
+    let data = case.setting.faces.data();
+    on_the_cpu_path(&case, &data);
+    on_the_cell_path(&case, &data);
 }
 
 /// **S1: a row another row of its paragraph orders is drawn again** (UAX
 /// #9 P2-P3): row 2, digits and spaces, laid out right to left by row 3's
 /// Hebrew; row 3's Hebrew written over in Latin. The isolation: row 3
-/// alone written. Named break: only the written row laid out again, which
-/// keeps row 2 reversed. Its W7 twin is `stale_rows.rs`'s
+/// alone written. Named breaks: only the written row laid out again, which
+/// keeps row 2 reversed; and on the cell path, row 2, laid out again with
+/// none of its cells written, kept by a set's key or by the renderer's copy
+/// in drawn order. Its W7 twin is `stale_rows.rs`'s
 /// `a_row_another_row_reorders_is_drawn_again`.
 #[test]
 fn a_row_its_paragraphs_first_strong_letter_orders_is_drawn_again() {
-    run(Case {
+    run_both(Case {
         what: "the paragraph's first strong letter",
         setup: two_paragraphs(),
         back: Rows::ZERO,
@@ -380,7 +713,7 @@ fn a_row_its_paragraphs_first_strong_letter_orders_is_drawn_again() {
 /// its own was written, which keeps rows 5-6 reversed.
 #[test]
 fn a_split_paragraphs_lower_part_is_drawn_in_its_own_order() {
-    run(Case {
+    run_both(Case {
         what: "a split paragraph",
         setup: four_rows(),
         back: Rows::ZERO,
@@ -405,7 +738,7 @@ fn a_split_paragraphs_lower_part_is_drawn_in_its_own_order() {
 /// and still held. Named break: the rows above not read.
 #[test]
 fn a_paragraphs_line_above_the_window_is_read() {
-    run(Case {
+    run_both(Case {
         what: "a line above the window",
         setup: format!(
             "{HIDE}\x1b[1;1H{}{}12 34\x1b[10;1H\n",
@@ -436,7 +769,7 @@ fn a_paragraphs_line_above_the_window_is_read() {
 /// written. Named break: the rows below not read.
 #[test]
 fn a_paragraphs_line_below_the_window_is_read() {
-    run(Case {
+    run_both(Case {
         what: "a line below the window",
         setup: format!(
             "{HIDE}\x1b[10;1H\n\n\n\x1b[8;1H{}\u{5d0}\u{5d1}\u{5d2}",
@@ -471,7 +804,7 @@ fn a_scroll_under_a_held_window_is_drawn() {
             _ => setup.push_str(&format!("line {i}\r\n")),
         }
     }
-    run(Case {
+    run_both(Case {
         what: "a scroll under a held window",
         setup,
         back: Rows::of_count(5),
@@ -527,7 +860,7 @@ fn each_line_property_is_drawn() {
 /// BDSM's place in the key.
 #[test]
 fn bdsm_is_drawn() {
-    run(Case {
+    run_both(Case {
         what: "BDSM reset",
         setup: two_paragraphs(),
         back: Rows::ZERO,
@@ -542,7 +875,7 @@ fn bdsm_is_drawn() {
             )
         },
     });
-    run(Case {
+    run_both(Case {
         what: "BDSM set",
         setup: format!("\x1b[8l{}", two_paragraphs()),
         back: Rows::ZERO,
@@ -569,7 +902,7 @@ fn the_status_lines_layout_follows_its_plane() {
         "{}\x1b[2$~\x1b[1$}}\u{5d0}\u{5d1}\u{5d2} 12 ab\x1b[0$}}",
         two_paragraphs()
     );
-    run(Case {
+    run_both(Case {
         what: "the status line written",
         setup,
         back: Rows::ZERO,
@@ -581,6 +914,142 @@ fn the_status_lines_layout_follows_its_plane() {
                 (written(t, w).is_empty() && t.status_gen().is_some_and(|g| g.after(&w.seal)))
                     .then_some(()),
                 "the status line written, no window row",
+            )
+        },
+    });
+}
+
+/// **D4: the status line's drawn order follows its layout where its plane
+/// was not written**: a status line whose path SCP set right to left under
+/// DECSASD, holding Hebrew then Latin, is drawn reversed whole with BDSM
+/// reset and with its Latin run left to right with it set; BDSM set. The
+/// isolation: no window row and not the status line's plane written. Named
+/// break: the status line's copy in drawn order kept on its plane's
+/// generation alone, not its row of the maps.
+#[test]
+fn the_status_lines_order_follows_bdsm() {
+    let setup = format!(
+        "\x1b[8l{}\x1b[2$~\x1b[1$}}\x1b[2 k\u{5d0}\u{5d1}\u{5d2} 12 ab\x1b[0$}}",
+        two_paragraphs()
+    );
+    run_both(Case {
+        what: "the status line under BDSM set",
+        setup,
+        back: Rows::ZERO,
+        setting: PLAIN,
+        steps: vec![Step::Bytes("\x1b[8h".into())],
+        shows: Shows::Drawn,
+        alone: |t, w| {
+            isolated(
+                (written(t, w).is_empty() && t.status_gen().is_some_and(|g| !g.after(&w.seal)))
+                    .then_some(()),
+                "no window row and not the status line written",
+            )
+        },
+    });
+}
+
+/// **D6: a row's mirrored cells follow its paragraph's direction**: row 2
+/// forty N-ARY SUMMATIONs, Bidi_Mirrored with no mirroring glyph, so drawn
+/// flipped at a right-to-left level, soft-wrapped into row 3's Hebrew;
+/// row 3 written Latin. Row 2's cells, the same character either way
+/// round, are drawn at the same columns in either order: only its mirrors
+/// moved. The isolation: row 3 alone written. Named break: the conversion
+/// asking no row whether its maps were laid out again since it drew them.
+#[test]
+fn a_rows_mirrors_follow_its_paragraph_with_no_cell_of_it_written() {
+    run(Case {
+        what: "the mirrors of a row",
+        setup: format!(
+            "{HIDE}\x1b[3;1H{}\u{5d0}\u{5d1}\u{5d2}",
+            "\u{2211}".repeat(COLS)
+        ),
+        back: Rows::ZERO,
+        setting: PLAIN,
+        steps: vec![Step::Bytes("\x1b[4;1Habc".into())],
+        shows: Shows::Drawn,
+        alone: |t, w| {
+            isolated(
+                (written(t, w) == vec![3]).then_some(()),
+                "row 3 alone written",
+            )
+        },
+    });
+}
+
+/// Row `y` of a fresh renderer's full frame of `bytes` under `s`, drawn
+/// with `faces`.
+fn fresh_row(faces: &[Face<'_>], s: &Setting, bytes: &str, y: usize) -> Vec<u32> {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, bytes.as_bytes());
+    let mut r = made(faces, s, &t);
+    let drawn = draw(&mut r, &mut t, Rows::ZERO, &mut Vec::new(), Damage::Full);
+    let w = usize::try_from(r.pixel_size().0.value()).unwrap();
+    let h = usize::try_from(r.metrics().cell_h.value()).unwrap();
+    drawn.pixels[y * h * w..(y + 1) * h * w].to_vec()
+}
+
+/// **D7: a row's slanted cells follow its paragraph's direction**: row 2
+/// forty vertical lines, neither mirrored nor strong, written italic under
+/// SAPV 17, which slants an italic cell
+/// left at a right-to-left level (`[[source: ecma48]]` 8.3.108),
+/// soft-wrapped into row 3's Hebrew; row 3 written Latin. Row 2's cells
+/// are the same at every column in either order: only its slants moved.
+/// Drawn with the built Regular and Italic (`Faces::RegularItalic`), so an
+/// italic cell has a face that leans. The isolation: row 3 alone written.
+/// The controls, on the case's own setting: its stack leans an italic of
+/// the primary face, and a fresh frame's row 2 differs between row 3
+/// Hebrew and row 3 Latin, where with faces that lean nothing it is the
+/// same (so what is compared is row 2 alone). Named break: the conversion
+/// asking no row whether its maps were laid out again since it drew them.
+#[test]
+fn a_rows_slants_follow_its_paragraph_with_no_cell_of_it_written() {
+    let setup = format!(
+        "{HIDE}\x1b[3;1H\x1b[17 ]\x1b[3m{}\x1b[0m\x1b[0 ]\u{5d0}\u{5d1}\u{5d2}",
+        "|".repeat(COLS)
+    );
+    let write = "\x1b[4;1Habc";
+    let slanted = Setting {
+        faces: Faces::RegularItalic,
+        ..PLAIN
+    };
+    let data = slanted.faces.data();
+    let faces: Vec<Face<'_>> = data.iter().map(|d| Face::parse(d).unwrap()).collect();
+    let italic = TextFace {
+        style: FaceStyle::Italic,
+        font: FontSlot::PRIMARY,
+    };
+    assert!(
+        slanted.faces.stack(&faces).lean(italic).is_some(),
+        "the control: the case's faces lean an italic of the primary face"
+    );
+    let latin = format!("{setup}{write}");
+    let upright_data = PLAIN.faces.data();
+    let upright: Vec<Face<'_>> = upright_data
+        .iter()
+        .map(|d| Face::parse(d).unwrap())
+        .collect();
+    assert!(
+        fresh_row(&upright, &PLAIN, &setup, 2) == fresh_row(&upright, &PLAIN, &latin, 2),
+        "the control's band: with faces that lean nothing, row 2 is drawn alike under row 3 \
+         Hebrew and row 3 Latin, so the band holds none of row 3"
+    );
+    assert!(
+        fresh_row(&faces, &slanted, &setup, 2) != fresh_row(&faces, &slanted, &latin, 2),
+        "the control: row 2 drawn otherwise under row 3 Hebrew than under row 3 Latin"
+    );
+    run(Case {
+        what: "the slants of a row",
+        setup,
+        back: Rows::ZERO,
+        setting: slanted,
+        steps: vec![Step::Bytes(write.into())],
+        shows: Shows::Drawn,
+        alone: |t, w| {
+            isolated(
+                (written(t, w) == vec![3]).then_some(()),
+                "row 3 alone written",
             )
         },
     });
@@ -627,7 +1096,7 @@ fn the_join_reach_is_kept_by() {
 fn a_held_display_is_drawn_when_made_again_or_let_go() {
     let words = "\u{5d0}\u{5d1}\u{5d2} \u{5d3}\u{5d4} ".repeat(10);
     let setup = format!("{HIDE}\x1b[3;1H{words}\x1b[10;1H{PROMPT}");
-    run(Case {
+    run_both(Case {
         what: "the display made again",
         setup: setup.clone(),
         back: Rows::ZERO,
@@ -636,7 +1105,7 @@ fn a_held_display_is_drawn_when_made_again_or_let_go() {
         shows: Shows::Drawn,
         alone: |t, w| isolated((written(t, w).contains(&2)).then_some(()), "row 2 written"),
     });
-    run(Case {
+    run_both(Case {
         what: "the display let go",
         setup,
         back: Rows::ZERO,
@@ -650,12 +1119,16 @@ fn a_held_display_is_drawn_when_made_again_or_let_go() {
 /// **S12: a composition over a paragraph is laid out while shown, and the
 /// paragraph again the frame after**: row 3's Hebrew written over by a
 /// composition for a frame, then none. The isolation: nothing written.
-/// Named break: the rows written over at the last layout not laid out
-/// again.
+/// The composition shown on the cell path too, its copy held to a fresh
+/// layout's over the composition's text written (`fresh_copy`); its let
+/// go ends on the picture it began on, which that path's control, a copy
+/// that moved, does not take. Named breaks: the rows written over at the
+/// last layout not laid out again; and a copy kept whole while the maps
+/// moved with nothing written.
 #[test]
 fn a_composition_over_a_paragraph_is_laid_out_and_let_go() {
     let over = Some((Row::from_index(3), Col::ZERO, "abcdef"));
-    run(Case {
+    run_both(Case {
         what: "a composition shown",
         setup: two_paragraphs(),
         back: Rows::ZERO,
@@ -810,4 +1283,375 @@ fn the_leaving_rows_layout_follows_a_write() {
     let after = top(&t);
     assert!(before != after, "the control: the write moves the maps");
     assert!(*o.orders() == after, "the kept maps follow the write");
+}
+
+/// **D8: a picture drawn in text over a row drawn in another order is
+/// found where the row is drawn**: row 2 twenty cells each on a background
+/// of its own, a picture drawn in text (`baud_render::Pictures`), then
+/// digits and spaces, soft-wrapped into row 3's Hebrew, so row 2 is drawn
+/// right to left and the picture at its right; row 3's first word written
+/// Latin, which draws row 2 in its own order and the picture at its left,
+/// and leaves row 3's last word Hebrew, so a row of the window is still
+/// drawn in another order. On a dimmed page, which finds pictures and
+/// draws them solid: the CPU path's picture finder reads the window in
+/// drawn order (`Orders::window_kept`), the renderer's kept copy while any
+/// row of the window is drawn in another order. The isolation: row 3
+/// alone written. The controls: the page finds pictures, row 2 is drawn in
+/// another order, the picture is found, and after the write row 2 is in
+/// its own order, row 3 in another, and the window holds a reordered row.
+/// Named break: the renderer's copy in drawn order kept without the
+/// layout's seal.
+#[test]
+fn a_picture_over_a_row_drawn_in_another_order_is_found_where_it_is_drawn() {
+    let picture: String = (0..20u8)
+        .map(|i| format!("\x1b[48;2;{};{};90m ", 40 + i * 10, 200 - i * 5))
+        .collect();
+    let setup = format!(
+        "{HIDE}\x1b[3;1H{picture}\x1b[0m{}\u{5d0}\u{5d1}\u{5d2} \u{5d3}\u{5d4}",
+        "1 ".repeat(10)
+    );
+    let dimmed = Setting {
+        page: Page::Dimmed,
+        ..PLAIN
+    };
+    assert!(
+        dimmed.page.theme().finds_pictures(),
+        "the control: the page finds pictures"
+    );
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, setup.as_bytes());
+    let mut o = Reorder::new();
+    o.lay_out(&t, Rows::ZERO);
+    assert!(
+        o.orders().reordered(Row::from_index(2)),
+        "the control: row 2 drawn in another order"
+    );
+    let (mut cells, mut used) = (Vec::new(), Vec::new());
+    let drawn = o.orders().window(&t, Rows::ZERO, &mut cells, &mut used);
+    assert_eq!(
+        Pictures::new().find(&t, &drawn, Video::Normal).value(),
+        20,
+        "the control: the picture found"
+    );
+    let write = "\x1b[4;1Habc";
+    feed(&mut t, write.as_bytes());
+    let mut o = Reorder::new();
+    o.lay_out(&t, Rows::ZERO);
+    assert!(
+        !o.orders().reordered(Row::from_index(2))
+            && o.orders().reordered(Row::from_index(3))
+            && o.orders().any(),
+        "the control: after the write row 2 is in its own order, row 3 in another, and the \
+         window holds a reordered row"
+    );
+    run(Case {
+        what: "a picture over a row drawn in another order",
+        setup,
+        back: Rows::ZERO,
+        setting: dimmed,
+        steps: vec![Step::Bytes(write.into())],
+        shows: Shows::Drawn,
+        alone: |t, w| {
+            isolated(
+                (written(t, w) == vec![3]).then_some(()),
+                "row 3 alone written",
+            )
+        },
+    });
+}
+
+/// **A row laid out again in its own order, as it was, is not repainted**
+/// (the CPU path): one paragraph over rows 2 and 3, row 2 all Latin
+/// soft-wrapped onto row 3, Latin then Hebrew, so row 2 is in its own order
+/// and row 3 in another; a write in row 3, the cursor put back, lays both
+/// out again, and the frame after repaints row 3 alone, its pixels a
+/// fresh renderer's. The controls: row 2 in its own order, row 3 in
+/// another, and the frame lays out both rows again (`Renderer::bidi_work`).
+/// Named break: every row a relay lifted stamped at its end, which
+/// repaints row 2 whole.
+#[test]
+fn a_row_laid_out_again_in_its_own_order_is_not_repainted() {
+    let data = faces_data();
+    let faces: Vec<Face<'_>> = data.iter().map(|d| Face::parse(d).unwrap()).collect();
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(
+        &mut t,
+        format!(
+            "{HIDE}\x1b[3;1H{}xyz \u{5d0}\u{5d1}\u{5d2}",
+            "abc ".repeat(10)
+        )
+        .as_bytes(),
+    );
+    let mut r = made(&faces, &PLAIN, &t);
+    let mut px = Vec::new();
+    draw(&mut r, &mut t, Rows::ZERO, &mut px, Damage::Full);
+    for _ in 0..2 {
+        draw(&mut r, &mut t, Rows::ZERO, &mut px, Damage::Incremental);
+    }
+    assert!(
+        !r.bidi().reordered(Row::from_index(2)) && r.bidi().reordered(Row::from_index(3)),
+        "the control: row 2 in its own order, row 3 in another"
+    );
+    feed(&mut t, b"\x1b7\x1b[4;1Hpq\x1b8");
+    r.fit(&t);
+    let (w, h) = r.pixel_size();
+    let f = {
+        let mut target = Target::new(&mut px[..], w, w, h).unwrap();
+        r.render_at(&mut t, Rows::ZERO, &mut target, Damage::Incremental)
+    };
+    assert_eq!(
+        r.bidi_work().laid.value(),
+        2,
+        "the control: rows 2 and 3 laid out again"
+    );
+    assert_eq!(f.rows_dirty.value(), 1, "row 3 alone repainted");
+    let (full, _) = fresh(&faces, &PLAIN, &mut t, Rows::ZERO);
+    assert!(px == full.pixels, "the frame is a fresh renderer's");
+}
+
+/// **A cell frame with no free set leaves every row's joins owed**
+/// (`cell_frame::build`, as the app builds it, with BDSM reset): Arabic on
+/// row 4, joined; a composition over its letters in Latin for two frames,
+/// which reads the row as unjoined; the composition let go and a frame
+/// with no set free, which returns after its layout answered that every
+/// row's joins be found again; then a frame into a set. That frame finds
+/// every row's joins again (`Renderer::bidi_work`), so row 4 is joined as
+/// a fresh layout joins it and the set's copy is a fresh layout's; the
+/// frame after keeps them, finding fewer. Row 4's cells are the same in
+/// every copy, so no compare finds it changed: only the answer, owed,
+/// finds its joins again. The controls: the joins open, row 4 joined, then
+/// read as its Latin under the composition, nothing built with no set
+/// free, and a fresh layout joins row 4. Named breaks: the key kept when
+/// the answer is given, not when its rejoin ends, which finds row 4's
+/// joins on no frame; and a rejoin of no row ended above `building()?`,
+/// which leaves the answer given on every frame.
+#[test]
+fn a_cell_frame_with_no_free_set_leaves_every_rows_joins_owed() {
+    let data = faces_data();
+    let faces: Vec<Face<'_>> = data.iter().map(|d| Face::parse(d).unwrap()).collect();
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(
+        &mut t,
+        format!("{HIDE}\x1b[8l\x1b[5;1H\u{628}\u{64a}\u{62a}").as_bytes(),
+    );
+    let four = Row::from_index(4);
+    let mut r = made(&faces, &PLAIN, &t);
+    // A composition that holds a joining letter opens the joins, whatever
+    // the faces draw.
+    apply_composition(
+        &mut r,
+        Some((Row::from_index(8), Col::ZERO, "\u{628}\u{628}")),
+    );
+    apply_composition(&mut r, None);
+    assert_eq!(r.joins_seen(), Joins::Seen, "the control: the joins open");
+    let mut backing = GlyphMap::backing();
+    let mut cells = Cells::new(&mut backing, &t);
+    let mut order = (0..).map(|k| SetIx(k % SETS));
+    let mut next = || order.next().expect("a set");
+    let none: Option<Composition> = None;
+    for _ in 0..=SETS {
+        cell_frame(&mut r, &mut t, (Rows::ZERO, &none), &mut cells, next());
+    }
+    assert!(
+        r.bidi().row_joins(four).is_some(),
+        "the control: row 4 joined"
+    );
+    let latin = Some((four, Col::ZERO, "abc"));
+    apply_composition(&mut r, latin);
+    let shown = composition_of(latin);
+    for _ in 0..2 {
+        cell_frame(&mut r, &mut t, (Rows::ZERO, &shown), &mut cells, next());
+    }
+    assert!(
+        r.bidi().row_joins(four).is_none(),
+        "the control: row 4 read as its Latin"
+    );
+    apply_composition(&mut r, None);
+    assert!(
+        cell_frame_on(&mut r, &mut t, (Rows::ZERO, &none), &mut cells, None).is_none(),
+        "the control: no set free, nothing built"
+    );
+    let at = next();
+    cell_frame(&mut r, &mut t, (Rows::ZERO, &none), &mut cells, at);
+    let rows = u64::from(WS.ws_row);
+    assert_eq!(
+        r.bidi_work().tested.value(),
+        rows,
+        "the frame after one with no set free finds every row's joins again"
+    );
+    let mut fresh = Reorder::new();
+    fresh.lay_out(&t, Rows::ZERO);
+    assert!(
+        fresh.orders().row_joins(four).is_some(),
+        "the control: a fresh layout joins row 4"
+    );
+    assert!(
+        r.bidi().row_joins(four).is_some(),
+        "row 4 joined, as a fresh layout joins it"
+    );
+    let after = fresh_copy(&t, &PLAIN, Rows::ZERO);
+    assert!(
+        held_copy(&cells, &t, at, &after) == after,
+        "the set's copy is a fresh layout's"
+    );
+    cell_frame(&mut r, &mut t, (Rows::ZERO, &none), &mut cells, next());
+    let found = r.bidi_work().tested.value();
+    assert!(
+        found < rows,
+        "the frame after that keeps the joins: {found} of {rows} rows found again"
+    );
+}
+
+/// **One way a paragraph is laid out again as it was**, as
+/// [`converts_no_row`] draws it: the screen, the composition shown, the
+/// bytes of the frame, the row it reorders, and whether a display holds the
+/// window.
+struct Again {
+    what: &'static str,
+    setup: String,
+    composition: Option<(Row, Col, &'static str)>,
+    again: &'static str,
+    row: Row,
+    held: Held,
+}
+
+/// Whether the window is drawn as stored or a display re-breaks it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Held {
+    Stored,
+    Display,
+}
+
+/// **A paragraph laid out again as it was converts no row**
+/// (`Renderer::convert`, as the instance path converts, and
+/// `Renderer::redraw`): a frame that lays a paragraph out again whose maps
+/// come out as they were changes no row: its cells, its order and its
+/// joins are the last frame's. Each frame is sealed first, as the app's
+/// frame seals it. The instance path draws a frame by rows only where
+/// nothing but the cursor's own rows changed (`Gpu::draw_since`), so a row
+/// read as laid out again draws the frame whole. The controls: the case's
+/// row is drawn in another order; where a display holds the window, it is
+/// held, and after the frame another display is (a display made again);
+/// the frame lays the paragraph out again (`Renderer::bidi_work`); and a
+/// letter written otherwise draws the frame whole.
+fn converts_no_row(case: Again) {
+    // One frame as the instance path draws it: the writes sealed, the
+    // window converted, and what it changed of the frame before.
+    fn frame(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, damage: Damage) -> Redraw {
+        let _ = t.seal_writes();
+        let _ = r.convert(t, Rows::ZERO, damage);
+        r.take_redraw()
+    }
+    let Again {
+        what,
+        setup,
+        composition,
+        again,
+        row,
+        held,
+    } = case;
+    let data = faces_data();
+    let faces: Vec<Face<'_>> = data.iter().map(|d| Face::parse(d).unwrap()).collect();
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, setup.as_bytes());
+    let setting = Setting {
+        composition,
+        ..PLAIN
+    };
+    let mut r = made(&faces, &setting, &t);
+    let _ = frame(&mut r, &mut t, Damage::Full);
+    for _ in 0..2 {
+        let _ = frame(&mut r, &mut t, Damage::Incremental);
+    }
+    assert!(
+        r.bidi().reordered(row),
+        "{what}, the control: row {} drawn in another order",
+        row.index()
+    );
+    let before = r.bidi().display().map(core::ptr::from_ref);
+    if held == Held::Display {
+        assert!(before.is_some(), "{what}, the control: a display held");
+    }
+    feed(&mut t, again.as_bytes());
+    let redraw = frame(&mut r, &mut t, Damage::Incremental);
+    if held == Held::Display {
+        let now = r.bidi().display().map(core::ptr::from_ref);
+        assert!(
+            now.is_some() && now != before,
+            "{what}, the control: another display held"
+        );
+    }
+    assert!(
+        r.bidi_work().laid.value() > 0,
+        "{what}, the control: the paragraph laid out again"
+    );
+    assert_eq!(redraw, Redraw::NOTHING, "{what}: no row");
+    feed(
+        &mut t,
+        format!("\x1b7\x1b[{};1Hz\x1b8", row.index() + 1).as_bytes(),
+    );
+    assert_eq!(
+        frame(&mut r, &mut t, Damage::Incremental),
+        Redraw::Whole,
+        "{what}, the control: a letter written otherwise draws the frame whole"
+    );
+}
+
+/// **A row drawn in another order written again with the letter it held
+/// converts no row** ([`converts_no_row`]): two paragraphs, row 7's first
+/// letter written as it was. Named breaks: every row a relay lifted
+/// stamped at its end, whatever the layout wrote; a lifted row's writes
+/// stamped while the relay runs.
+#[test]
+fn a_row_drawn_in_another_order_written_as_it_was_converts_no_row() {
+    converts_no_row(Again {
+        what: "a row drawn in another order written as it was",
+        setup: two_paragraphs(),
+        composition: None,
+        again: "\x1b7\x1b[7;1H\u{5d0}\x1b8",
+        row: Row::from_index(6),
+        held: Held::Stored,
+    });
+}
+
+/// **A held display made again as it was converts no row**
+/// ([`converts_no_row`]): word wrap on over a right-to-left paragraph the
+/// display re-breaks, finished by a prompt, its first letter written as it
+/// was, which makes the display again, another one equal to it. Named
+/// breaks: every row a relay lifted stamped at its end, whatever the
+/// layout wrote; the display compared by its `Rc` at the relay's end, not
+/// by value.
+#[test]
+fn a_held_display_made_again_as_it_was_converts_no_row() {
+    let words = "\u{5d0}\u{5d1}\u{5d2} \u{5d3}\u{5d4} ".repeat(10);
+    converts_no_row(Again {
+        what: "a held display made again as it was",
+        setup: format!("{HIDE}\x1b[3;1H{words}\x1b[10;1H{PROMPT}"),
+        composition: None,
+        again: "\x1b7\x1b[3;1H\u{5d0}\x1b8",
+        row: Row::from_index(2),
+        held: Held::Display,
+    });
+}
+
+/// **A composition over a row drawn in another order shown again converts
+/// no row** ([`converts_no_row`]): two paragraphs, a composition at row 7,
+/// read as written on every frame, so its paragraph is laid out again on
+/// each, with nothing written. Named breaks: every row a relay lifted
+/// stamped at its end, whatever the layout wrote; a lifted row's writes
+/// stamped while the relay runs.
+#[test]
+fn a_composition_shown_again_converts_no_row() {
+    converts_no_row(Again {
+        what: "a composition shown again",
+        setup: two_paragraphs(),
+        composition: Some((Row::from_index(6), Col::at_index(10), "xy")),
+        again: "",
+        row: Row::from_index(6),
+        held: Held::Stored,
+    });
 }
