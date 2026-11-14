@@ -156,6 +156,7 @@ fn an_insert_line_records_the_text_it_moves() {
             screen: Screen::Normal,
             from: Span::of(line(1), line(8)),
             by: LineShift::Down(Rows::of_count(1)),
+            replaced: Replaced::Whole,
         }]
     );
     assert!(r.off_path(Screen::Normal).is_some_and(|s| s.holds(line(1))));
@@ -176,6 +177,7 @@ fn a_top_region_scrolled_fifty_times_is_one_move() {
             screen: Screen::Normal,
             from: Span::of(line(9), line(9)),
             by: LineShift::Down(Rows::of_count(50)),
+            replaced: Replaced::Whole,
         }]
     );
 }

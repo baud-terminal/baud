@@ -3162,10 +3162,13 @@ impl Paths {
     /// a group a batch has yet to name, the lines it wrote kept until the
     /// answer -- so the answer is filed where the text went, not where it
     /// was read: an exact move shifts the part of the span it moved and
-    /// leaves the rest, the hull of both taken; a move within a band takes
-    /// the band's hull, as does the fold the record makes of more moves
-    /// than it keeps. The span as it was on another surface, or where
-    /// `lines` places nothing.
+    /// leaves the rest, the hull of both taken; a copy, which replaced part
+    /// of each line it wrote (`DECCRA`, [`baud_core::Replaced::Part`]),
+    /// leaves the span where it was, since the lines it read keep their
+    /// text, and each line it wrote is held under the span
+    /// ([`Paths::carried`]); a move within a band takes the band's hull, as
+    /// does the fold the record makes of more moves than it keeps. The
+    /// span as it was on another surface, or where `lines` places nothing.
     pub fn carried_span(
         &self,
         rec: &baud_core::ReadRecord,
@@ -3173,7 +3176,7 @@ impl Paths {
         screens: &[Screen],
         span: LineSpan,
     ) -> LineSpan {
-        use baud_core::{Move, Span};
+        use baud_core::{Move, Replaced, Span};
         let Some(&screen) = screens.iter().find(|&&sc| self.surface(sc) == span.surface) else {
             return span;
         };
@@ -3188,6 +3191,10 @@ impl Paths {
         for m in rec.moves().iter() {
             at = match m {
                 Move::Exact { screen: s, .. } | Move::Within { screen: s, .. } if s != screen => at,
+                Move::Exact {
+                    replaced: Replaced::Part,
+                    ..
+                } => at,
                 Move::Exact { from, by, .. } if overlaps(at, from) => {
                     let inside = Span::of(at.first().max(from.first()), at.last().min(from.last()));
                     match inside.moved(by) {
@@ -7820,6 +7827,56 @@ mod tests {
         let p = Paths::new(None, Forms::DEFAULT);
         let alt = LineSpan::on(p.surface(Screen::Alternate), at(3), at(3));
         assert_eq!(carried(up, alt), alt, "another surface");
+    }
+
+    /// **A copy leaves a span still to be named where its text is, and
+    /// holds the line it wrote under it** (B10, `Paths::carried_span`):
+    /// `DECCRA` copies "a rectangular area of characters from one section
+    /// to another" (`[[source: vt510-deccra]]`), so the lines it reads keep
+    /// their text and each line it writes keeps its own outside the
+    /// rectangle. On a six-row screen it copies row 3 from its second
+    /// column two rows down, to row 5: a span on row 3 stays on row 3,
+    /// where the answer finds the text it was asked about; a span from row
+    /// 2 to row 4, the source within it, stays as it was; and row 5, which
+    /// holds a copy of part of that text beside its own, is held under the
+    /// span on row 3 (`Paths::carried`), so the answer reaches it too. The
+    /// control: `IL` on row 3 replaces whole lines and carries the span on
+    /// row 3 to row 4, exactly. Named break: a move that replaced part of
+    /// each line it wrote carried as one that replaced them whole -- the
+    /// span leaves row 3 for row 5, and the answer never reaches row 3.
+    #[test]
+    fn a_copy_leaves_a_span_still_to_be_named_where_its_text_is() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let at = |n: usize| AbsLine::at(Rows::of_count(n));
+        let span = |a, b| LineSpan::on(Surface::Primary, at(a), at(b));
+        let carried = |bytes: &[u8], s: LineSpan| {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            let _ = t.take_record();
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let rec = t.take_record();
+            let lines = CoreLines::of(Some((t.history_mark().line(), Scrolled::START)))
+                .part(Some(t.history_mark().line()));
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            p.set(Turned::On);
+            p.set_pending([s].into_iter(), core::iter::empty());
+            let screens = [Screen::Normal, Screen::Alternate];
+            let went = p.carried_span(&rec, &lines, &screens, s);
+            (went, p.carried(&rec, &lines, &screens))
+        };
+        let copy = b"\x1b[4;2;4;20;1;6;2;1$v";
+        assert_eq!(carried(copy, span(3, 3)).0, span(3, 3), "the copy's source");
+        assert_eq!(carried(copy, span(2, 4)).0, span(2, 4), "a span holding it");
+        assert_eq!(
+            carried(copy, span(3, 3)).1,
+            [(span(5, 5), span(3, 3))],
+            "the line the copy wrote, held"
+        );
+        assert_eq!(carried(b"\x1b[4H\x1b[L", span(3, 3)).0, span(4, 4), "IL");
     }
 
     /// **A part the core says renumbered lines leaves each surface it

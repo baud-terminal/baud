@@ -172,6 +172,7 @@ pub fn named(rec: &ReadRecord, screen: Screen, line: LineIdx) -> bool {
             screen: s,
             from,
             by,
+            ..
         } => s == screen && from.moved(by).is_some_and(|to| to.holds(line)),
         Move::Within { screen: s, band } => s == screen && band.holds(line),
     });

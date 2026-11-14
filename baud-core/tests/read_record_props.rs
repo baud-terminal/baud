@@ -287,7 +287,9 @@ proptest! {
 /// after carry it on**: `DECCRA` copies rows 1-4 one row down from the
 /// second column, so rows 2-5 keep their markers in the first; `IL 3` on
 /// row 2 then moves rows 2-5 down three. The record holds the two moves,
-/// and a marker now on row 5 came from row 2, which only the `IL` names.
+/// the copy's replacing part of each line it wrote and the `IL`'s whole
+/// (`Replaced`), and a marker now on row 5 came from row 2, which only the
+/// `IL` names.
 /// The read the property found, by hand to these two operations (the
 /// watcher's own bytes are the next test). Break: `DECCRA` recorded as
 /// replacing its lines whole (`copy_area`), which folds the two to one move
@@ -310,11 +312,13 @@ fn a_line_a_copy_wrote_keeps_its_text_through_the_lines_inserted_after() {
                 screen: Screen::Normal,
                 from: Span::of(line(6), line(9)),
                 by: LineShift::Down(Rows::of_count(1)),
+                replaced: Replaced::Part,
             },
             Move::Exact {
                 screen: Screen::Normal,
                 from: Span::of(line(7), line(10)),
                 by: LineShift::Down(Rows::of_count(3)),
+                replaced: Replaced::Whole,
             },
         ]
     );
@@ -355,8 +359,10 @@ fn the_read_the_property_found_names_every_line_its_moves_wrote() {
 /// which replaces its lines whole, and `?1047 l`, which clears that screen
 /// and with it the `IL`'s move. The copy is the last move again, and the
 /// `IL 3` on the primary after it stays a move of its own: the markers it
-/// carries from rows 2-5 are named by it alone. Break: no reset of the last
-/// move's replacement in `Recording::cleared_alternate`.
+/// carries from rows 2-5 are named by it alone: the copy says itself that
+/// it replaced part of each line (`Move::Exact`'s `replaced`), whatever
+/// move was cleared after it. Break: a chain folded whatever its moves
+/// replaced (`Move::then`).
 #[test]
 fn a_move_cleared_with_the_alternate_screen_leaves_no_chain_onto_a_copy() {
     let (rec, unsaid) = with(|t| {
