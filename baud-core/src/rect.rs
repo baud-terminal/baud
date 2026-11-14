@@ -319,7 +319,10 @@ impl Paint<'_, '_> {
         if h > 0 {
             let bottom = Row::from_index(top.index() + h - 1);
             self.edit_reaches(EditRows::Span(top, bottom));
-            // The source's text stands on the destination's lines now.
+            // The source's text stands on the destination's lines now, the
+            // rectangle's part of each: a line it writes keeps the rest of
+            // its own text, so this and the move before or after it never
+            // fold to one exact move (`Move::then`).
             #[cfg(feature = "read-record")]
             {
                 let src_bottom = Row::from_index(src.top.index() + h - 1);
@@ -330,7 +333,7 @@ impl Paint<'_, '_> {
                     }
                 };
                 if top != src.top {
-                    self.record_move((src.top, src_bottom), by);
+                    self.record_move((src.top, src_bottom), by, crate::record::Replaced::Part);
                 }
             }
         }

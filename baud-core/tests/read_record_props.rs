@@ -35,7 +35,7 @@
 mod record_check;
 
 use baud_core::*;
-use baud_domain::{BytePos, InputEncoding, ReadLen};
+use baud_domain::{BytePos, InputEncoding, LineIdx, ReadLen, Rows};
 use proptest::prelude::*;
 use record_check::*;
 
@@ -281,4 +281,94 @@ proptest! {
         let bytewise: Vec<ReadRecord> = bytewise(&reads).into_iter().map(|(r, _)| r).collect();
         prop_assert_eq!(whole, bytewise);
     }
+}
+
+/// **A line a rectangle copy wrote keeps its own text, and lines inserted
+/// after carry it on**: `DECCRA` copies rows 1-4 one row down from the
+/// second column, so rows 2-5 keep their markers in the first; `IL 3` on
+/// row 2 then moves rows 2-5 down three. The record holds the two moves,
+/// and a marker now on row 5 came from row 2, which only the `IL` names.
+/// The read the property found, by hand to these two operations (the
+/// watcher's own bytes are the next test). Break: `DECCRA` recorded as
+/// replacing its lines whole (`copy_area`), which folds the two to one move
+/// from rows 1-4 down four.
+#[test]
+fn a_line_a_copy_wrote_keeps_its_text_through_the_lines_inserted_after() {
+    let (rec, unsaid) = with(|t| checked(t, b"\x1b[1;2;4;12;1;2;2;1$v\n\x1b[3L"));
+    assert!(
+        unsaid.displaced.is_empty(),
+        "{:?} by {rec:?}",
+        unsaid.displaced
+    );
+    assert!(unsaid.unnamed.is_empty(), "{:?} by {rec:?}", unsaid.unnamed);
+    let line = |i: usize| LineIdx::FIRST.plus(Rows::of_count(i));
+    let moves: Vec<Move> = rec.moves().iter().collect();
+    assert_eq!(
+        moves,
+        [
+            Move::Exact {
+                screen: Screen::Normal,
+                from: Span::of(line(6), line(9)),
+                by: LineShift::Down(Rows::of_count(1)),
+            },
+            Move::Exact {
+                screen: Screen::Normal,
+                from: Span::of(line(7), line(10)),
+                by: LineShift::Down(Rows::of_count(3)),
+            },
+        ]
+    );
+}
+
+/// **Lines inserted, then a copy onto them, name where each line's text
+/// came from**: `IL 2` on row 2 of a region of rows 1-6 moves rows 2-4 to
+/// 4-6, and `DECCRA` copies rows 4-6 one down from the second column, so
+/// row 5 keeps the marker the `IL` brought from row 3. Break: as above.
+#[test]
+fn a_copy_onto_lines_inserted_names_the_lines_they_came_from() {
+    let (rec, unsaid) = with(|t| checked(t, b"\x1b[1;6r\x1b[2H\x1b[2L\x1b[4;2;6;12;1;5;2;1$v"));
+    assert!(
+        unsaid.displaced.is_empty(),
+        "{:?} by {rec:?}",
+        unsaid.displaced
+    );
+}
+
+/// **The read the watcher's run of the property found**, on the alternate
+/// screen, its bytes as the property printed them: the copy and the lines
+/// inserted under it, with a `DECSTBM` of top past bottom, which sets no
+/// region and does not move the cursor (`Paint::set_scroll_region`), and
+/// an `APC G` left open at the end. Break: as above.
+#[test]
+fn the_read_the_property_found_names_every_line_its_moves_wrote() {
+    let bytes = b"\x1b[?1047h\x1b[0;4;4;8;1;2;9;1$v\r\n\x1b[3L\x1b[?7l\x1b[?7l\x1bD\x1b[8;1r\x1b[13G\x1b]133;D\x1b\\\x1b[2$~\x1b[2'~\x1bPq#0;2;100;0;0#0~~~~-~~\x1b\\\x1b]8;;file:///etc/passwd\x07\xe6\xbc\xa2\xe5\xad\x97\x1b_Ga=d;\x1b[?1049l\x1b[2X";
+    let (rec, unsaid) = with(|t| checked(t, bytes));
+    assert!(
+        unsaid.displaced.is_empty(),
+        "{:?} by {rec:?}",
+        unsaid.displaced
+    );
+}
+
+/// **Clearing the alternate screen's moves leaves nothing to chain onto**:
+/// a copy on the primary as above, then on the alternate screen an `IL`,
+/// which replaces its lines whole, and `?1047 l`, which clears that screen
+/// and with it the `IL`'s move. The copy is the last move again, and the
+/// `IL 3` on the primary after it stays a move of its own: the markers it
+/// carries from rows 2-5 are named by it alone. Break: no reset of the last
+/// move's replacement in `Recording::cleared_alternate`.
+#[test]
+fn a_move_cleared_with_the_alternate_screen_leaves_no_chain_onto_a_copy() {
+    let (rec, unsaid) = with(|t| {
+        checked(
+            t,
+            b"\x1b[1;2;4;12;1;2;2;1$v\x1b[?1047h\x1b[2H\x1b[L\x1b[?1047l\x1b[2H\x1b[3L",
+        )
+    });
+    assert!(
+        unsaid.displaced.is_empty(),
+        "{:?} by {rec:?}",
+        unsaid.displaced
+    );
+    assert_eq!(rec.cleared(), Cleared::Alternate, "the control: {rec:?}");
 }

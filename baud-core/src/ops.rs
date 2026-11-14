@@ -1090,6 +1090,7 @@ impl Paint<'_, '_> {
                         Row::from_index(self.rows.index().saturating_sub(2)),
                     ),
                     crate::record::LineShift::Down(Rows::of_count(1)),
+                    crate::record::Replaced::Whole,
                 );
                 if self.cold.watched == crate::term::Watched::Rows {
                     self.cold.watch_uncounted(Scroll::Down, self.book.top);
@@ -1209,6 +1210,7 @@ impl Paint<'_, '_> {
                 self.record_move(
                     (Row::from_index(bot.index() + 1), Row::from_index(last)),
                     crate::record::LineShift::Down(Rows::of_count(k)),
+                    crate::record::Replaced::Whole,
                 );
             }
             #[cfg(feature = "diag")]

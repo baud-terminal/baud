@@ -165,7 +165,10 @@ impl LineShift {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Move {
     /// The text on `from` now stands on `from` moved `by`, the rows it left
-    /// written by the move: exact.
+    /// written by the move: exact. `DECCRA` copies the part of each line its
+    /// rectangle holds, the source keeping it, and a line it wrote keeps the
+    /// rest of its own text, which [`ReadRecord::carried_from`] names with
+    /// it.
     Exact {
         screen: Screen,
         from: Span,
@@ -197,7 +200,18 @@ impl Move {
     /// carries the same text the same way again, exactly, as the rows under
     /// a top region do at each line it retires; or two moves within one
     /// band, as a region scrolled line by line, as moves within it.
-    fn then(self, next: Move) -> Option<Move> {
+    ///
+    /// **The chain only where both replaced whole the lines they wrote**
+    /// (`replaced`). The one move takes a line back past the line the
+    /// second read it from, to where the first found its text: that line
+    /// held nothing else only where the first replaced it whole, and the
+    /// line written keeps nothing of its own only where the second did.
+    /// `DECCRA` copies "a rectangular area of characters from one section
+    /// to another" (`[[source: vt510-deccra]]`), so a line it wrote keeps
+    /// its text outside the rectangle; an `IL` after it carries that text
+    /// on, and one move from the copy's source would leave the `IL`'s own
+    /// source unnamed. A band holds every line of it either way.
+    fn then(self, next: Move, replaced: Replaced) -> Option<Move> {
         if self.screen() != next.screen() {
             return None;
         }
@@ -208,7 +222,7 @@ impl Move {
             },
         ) = (self, next)
         {
-            if from.moved(by) == Some(f2) {
+            if replaced == Replaced::Whole && from.moved(by) == Some(f2) {
                 if let Some(by) = by.then(b2) {
                     return Some(Move::Exact { screen, from, by });
                 }
@@ -222,6 +236,17 @@ impl Move {
             false => None,
         }
     }
+}
+
+/// **How much of each line it wrote a move replaced** ([`Recording::moved`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Replaced {
+    /// Every cell: a scroll, `IL` and `DL` move whole lines, and the rows
+    /// under a top region keep theirs whole under new numbers.
+    Whole,
+    /// Some: `DECCRA`'s rectangle, and a scroll under side margins, leave
+    /// each line text of its own beside what they moved.
+    Part,
 }
 
 /// What a folder report did ([`FolderEvent`]).
@@ -463,6 +488,14 @@ pub struct ReadRecord {
     marks: Events<MarkEvent, 8>,
     moves: Events<Move, 8>,
     erased: Events<Erasure, 4>,
+    /// **How much of each line it wrote the last of `moves` replaced**: a
+    /// move folds onto it as one exact move only where both replaced whole
+    /// (`Move::then`). The recording's, kept here because the record's
+    /// seven one-byte fields leave it a byte of padding, where a field of
+    /// `Recording`'s own would round to eight and grow `Cold`, whose size
+    /// is pinned (`term::Cold`). Every record handed out holds `Part`
+    /// (`Recording::ended`).
+    last_move: Replaced,
 }
 
 impl ReadRecord {
@@ -677,6 +710,8 @@ impl Recording {
                 marks: Events::EMPTY,
                 moves: Events::EMPTY,
                 erased: Events::EMPTY,
+                // No move yet: none to fold onto.
+                last_move: Replaced::Part,
             },
             str_at: BytePos::ZERO,
         }
@@ -722,6 +757,8 @@ impl Recording {
         ReadRecord {
             end,
             ended,
+            // The recording's own, not the read's: the same in every record.
+            last_move: Replaced::Part,
             // Handed out as the fact alone: whether text could still have
             // landed on the line is the read's, not the record's.
             start_row: match self.rec.start_row {
@@ -758,6 +795,8 @@ impl Recording {
         self.rec.cleared = Cleared::Alternate;
         self.rec.alternate = None;
         self.rec.moves.keep(|m| m.screen() != Screen::Alternate);
+        // The last move may be another now: nothing folds onto it as one.
+        self.rec.last_move = Replaced::Part;
         self.rec.erased.keep(|e| e.screen != Screen::Alternate);
     }
 
@@ -804,17 +843,22 @@ impl Recording {
     /// one**, within the hull of their bands, so a read of more moves than
     /// the record holds -- a progress display redrawn in a region, line by
     /// line -- still says which lines its text moved among, and nothing is
-    /// dropped.
-    pub(crate) fn moved(&mut self, m: Move) {
+    /// dropped. `replaced` is how much of each line it wrote `m` replaced.
+    pub(crate) fn moved(&mut self, m: Move, replaced: Replaced) {
         // An erasure the move reaches is dropped: the line may hold text
         // moved onto it, or its blank text gone elsewhere.
         let (screen, band) = (m.screen(), m.band());
         self.rec
             .erased
             .keep(|e| e.screen != screen || !e.span.meets(band));
+        let both = match (self.rec.last_move, replaced) {
+            (Replaced::Whole, Replaced::Whole) => Replaced::Whole,
+            _ => Replaced::Part,
+        };
         if let Some(last) = self.rec.moves.last_mut() {
-            if let Some(both) = last.then(m) {
-                *last = both;
+            if let Some(folded) = last.then(m, both) {
+                *last = folded;
+                self.rec.last_move = both;
                 return;
             }
         }
@@ -835,9 +879,11 @@ impl Recording {
                 .into_iter()
                 .flatten()
                 .for_each(|w| self.rec.moves.push(w));
+            self.rec.last_move = Replaced::Part;
             return;
         }
         self.rec.moves.push(m);
+        self.rec.last_move = replaced;
     }
 }
 
@@ -926,20 +972,25 @@ impl crate::paint::Paint<'_, '_> {
         self.cold.record.erased(a.screen, Span::of(a.line, b.line));
     }
 
-    /// Text moved on the live screen, as rows (`from` and `by`).
+    /// Text moved on the live screen, as rows (`from` and `by`), replacing
+    /// as much of each line it wrote as `replaced` says.
     #[cold]
     #[inline(never)]
     pub(crate) fn record_move(
         &mut self,
         from: (baud_domain::Row, baud_domain::Row),
         by: LineShift,
+        replaced: Replaced,
     ) {
         let (a, b) = (self.record_line(from.0), self.record_line(from.1));
-        self.cold.record.moved(Move::Exact {
-            screen: a.screen,
-            from: Span::of(a.line, b.line),
-            by,
-        });
+        self.cold.record.moved(
+            Move::Exact {
+                screen: a.screen,
+                from: Span::of(a.line, b.line),
+                by,
+            },
+            replaced,
+        );
     }
 }
 
@@ -1011,7 +1062,8 @@ impl crate::term::Cold {
     /// `SD`, `IL` and `DL` with such a count, each among the control
     /// functions that write a cell (`write::writes_no_cell`). `LF`, `IND`,
     /// `NEL` and `RI` shift one row in a band of at least two -- `DECSTBM`
-    /// takes no region of one row -- and always record one.
+    /// takes no region of one row -- and always record one. Full-width rows,
+    /// each replaced whole.
     pub(crate) fn record_band(
         &mut self,
         (from, to): (baud_domain::Row, baud_domain::Row),
@@ -1034,7 +1086,8 @@ impl crate::term::Cold {
             base.plus(Rows::of_count(first)),
             base.plus(Rows::of_count(last)),
         );
-        self.record.moved(Move::Exact { screen, from, by });
+        self.record
+            .moved(Move::Exact { screen, from, by }, Replaced::Whole);
     }
 
     /// **Text moved within rows `from` to `to` more than one way**, as a
@@ -1049,7 +1102,8 @@ impl crate::term::Cold {
             base.plus(Rows::of_count(from.index())),
             base.plus(Rows::of_count(to.index())),
         );
-        self.record.moved(Move::Within { screen, band });
+        self.record
+            .moved(Move::Within { screen, band }, Replaced::Part);
     }
 }
 
@@ -1075,6 +1129,7 @@ impl crate::paint::Paint<'_, '_> {
                     baud_domain::Row::from_index(self.rows.index().saturating_sub(2)),
                 ),
                 LineShift::Down(Rows::of_count(1)),
+                Replaced::Whole,
             ),
         }
     }
