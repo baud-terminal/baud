@@ -426,25 +426,110 @@ fn a_reshape_waits_for_the_last_frame_not_the_first() {
 /// The app shows the window to its launch logo at each
 /// (`every_frame_on_the_layer_shows_the_window_to_the_splash`), so another
 /// would leave the logo waiting on the frames it draws.
+///
+/// Each of the four sets it through `sends::set_surface`, the one send
+/// that shows a surface and counts it, so the count is of that call. Any
+/// crate that depends on this one can reach the view, so the walk below
+/// reads the source of every crate in the workspace and sorts each
+/// `set_surface(` it finds by what is written before it: `fn ` is the
+/// send's definition, `sends::` a call of the send, and anything else (a
+/// method call on the view, `DrawableView::set_surface`, a bare call
+/// after a `use`) sets the layer without the send. The send is called
+/// from those four functions in `lib.rs` and nowhere else, and the only
+/// call that sets the view's surface is the one inside the send, so no
+/// set goes around the count and none is counted outside the four places.
 #[test]
 fn the_layer_is_set_in_four_places_and_handed_over_in_one() {
+    // The workspace's root, walked for every `.rs` file under a `src`
+    // directory (the crates outside the workspace's members under
+    // `tools/` and `bench-others/` included). It skips `target`
+    // directories (build output), `docs` (the vendored sources the
+    // research reads, the drawable view's own among them), and every
+    // directory whose name starts with a dot (`.git`, `.devenv` and the
+    // rest), and follows no symbolic link.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the workspace");
+    let mut files = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("a directory") {
+            let entry = entry.expect("an entry");
+            let kind = entry.file_type().expect("a file type");
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let path = entry.path();
+            if kind.is_dir() {
+                if name != "target" && name != "docs" && !name.starts_with('.') {
+                    stack.push(path);
+                }
+            } else if kind.is_file()
+                && name.ends_with(".rs")
+                && path
+                    .strip_prefix(root)
+                    .is_ok_and(|file| file.components().any(|part| part.as_os_str() == "src"))
+            {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+
+    let needle = concat!("set_", "surface(");
+    let mut sent: Vec<(String, String)> = Vec::new();
+    let mut direct: Vec<(String, String)> = Vec::new();
+    for path in &files {
+        let text = std::fs::read_to_string(path).expect("a source");
+        let file = path.strip_prefix(root).expect("under the workspace");
+        let file = file.to_string_lossy().into_owned();
+        for (i, _) in text.match_indices(needle) {
+            let before = &text[..i];
+            if before.ends_with(|c: char| c.is_alphanumeric() || c == '_')
+                || before.ends_with("fn ")
+            {
+                continue;
+            }
+            let site = (file.clone(), enclosing(before).to_owned());
+            if before.ends_with("sends::") {
+                sent.push(site);
+            } else {
+                direct.push(site);
+            }
+        }
+    }
+    assert_eq!(
+        direct,
+        [(
+            "baud-present-macos/src/sends.rs".to_owned(),
+            "set_surface".to_owned()
+        )],
+        "the view's surface is set only inside sends::set_surface"
+    );
+    let lib = |name: &str| ("baud-present-macos/src/lib.rs".to_owned(), name.to_owned());
+    assert_eq!(
+        sent,
+        [
+            lib("present_changed"),
+            lib("present_on_cpu"),
+            lib("draw_now"),
+            lib("draw_cells_now")
+        ],
+        "sends::set_surface is called in lib.rs's four places and nowhere else"
+    );
+
     const SRC: &str = include_str!("../src/lib.rs");
-    let set = concat!("view.set_", "surface(");
-    let at: Vec<&str> = SRC
-        .match_indices(set)
-        .map(|(i, _)| {
-            let (_, f) = SRC[..i].rsplit_once(" fn ").expect("a function");
+    assert_eq!(SRC.matches(concat!("waker.", "present(")).count(), 1);
+}
+
+/// The name of the last function `before` opens, indented or not: the
+/// name a site found in a source is reported under.
+fn enclosing(before: &str) -> &str {
+    [" fn ", "\nfn "]
+        .into_iter()
+        .filter_map(|open| before.rfind(open))
+        .max()
+        .map_or("-", |at| {
+            let f = &before[at + 4..];
             f.split_once(['(', '<']).map_or(f, |(name, _)| name)
         })
-        .collect();
-    assert_eq!(
-        at,
-        [
-            "present_changed",
-            "present_on_cpu",
-            "draw_now",
-            "draw_cells_now"
-        ]
-    );
-    assert_eq!(SRC.matches(concat!("waker.", "present(")).count(), 1);
 }
