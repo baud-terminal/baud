@@ -232,12 +232,13 @@ fn a_changed_word_repaints_the_row_of_the_letter_that_reads_it() {
 
 /// **A frame reads only the rows that changed to find what joins, and with
 /// BDSM reset none until a joining letter is drawn.** With the mode reset
-/// no row is compared or tested while the renderer has shaped no letter
-/// that takes a form; the frame that shapes the first is converted again,
-/// every row tested, and after it each frame tests only the rows its own
-/// compare finds changed. With BDSM set each row is compared with its last
-/// copy once a frame, as before joining existed, and a row that changed is
-/// tested once, for what reorders and what joins together.
+/// no row is tested while the renderer has shaped no letter that takes a
+/// form; the frame that shapes the first is converted again, every row
+/// tested, and after it each frame tests only the rows its own compare
+/// finds changed. A frame on which nothing was written asks no row's write
+/// generation; one on which a row was asks each row's once (here each row
+/// is a paragraph of its own), and the row written is tested once, for what
+/// reorders and what joins together. A new BDSM lays out every row again.
 #[test]
 fn a_frame_reads_only_the_rows_that_changed_for_joining() {
     use baud_core::{Owned, Term};
@@ -249,18 +250,22 @@ fn a_frame_reads_only_the_rows_that_changed_for_joining() {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
     let rows = u64::from(WS.ws_row);
+    // A step with no bytes feeds nothing: a feed borrows the screen to
+    // write, which is a write to the layout whatever it stores.
     let mut step = |bytes: &str| {
-        t.write_at(BytePos::ZERO, bytes.as_bytes());
-        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        if !bytes.is_empty() {
+            t.write_at(BytePos::ZERO, bytes.as_bytes());
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        }
         paint(&mut r, &mut t, &mut c, Damage::Incremental);
         let w = r.bidi_work();
-        (w.compared.value(), w.tested.value())
+        (w.gens.value(), w.tested.value())
     };
     let none = "no joining letter drawn, BDSM reset";
     assert_eq!(step("\x1b[?25l\x1b[8lhello"), (0, 0), "{none}");
-    assert_eq!(step("\r\nworld"), (0, 0), "{none}, a row changed");
-    assert_eq!(step("\x1b[8h"), (rows, rows), "the first frame, BDSM set");
-    assert_eq!(step(""), (rows, 0), "nothing changed, BDSM set");
+    assert_eq!(step("\r\nworld"), (rows, 0), "{none}, a row changed");
+    assert_eq!(step("\x1b[8h"), (0, rows), "the first frame, BDSM set");
+    assert_eq!(step(""), (0, 0), "nothing changed, BDSM set");
     assert_eq!(step("\x1b[1;1Hy"), (rows, 1), "one row changed, BDSM set");
     assert_eq!(
         step("\x1b[8l\x1b[3;1H\u{0628}\u{0628}"),
@@ -268,7 +273,7 @@ fn a_frame_reads_only_the_rows_that_changed_for_joining() {
         "the first joining letter, BDSM reset: every row"
     );
     assert_eq!(step(""), (0, 0), "nothing changed, BDSM reset");
-    assert_eq!(step("\x1b[1;1Hj"), (0, 1), "one row changed, BDSM reset");
+    assert_eq!(step("\x1b[1;1Hj"), (rows, 1), "one row changed, BDSM reset");
 }
 
 /// **With BDSM reset, the joins the renderer keeps are the screen's**:

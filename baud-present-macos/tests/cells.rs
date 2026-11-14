@@ -16585,7 +16585,7 @@ fn the_cell_path_rejoins_only_the_rows_the_copy_finds_changed() {
             );
         }
         let w = r.bidi_work();
-        (w.compared.value(), w.tested.value())
+        (w.gens.value(), w.tested.value())
     };
     feed(
         &mut t,
@@ -16601,11 +16601,15 @@ fn the_cell_path_rejoins_only_the_rows_the_copy_finds_changed() {
     assert_eq!(frame(&mut r, &mut t), (0, 0), "the same screen");
     assert_eq!(frame(&mut r, &mut t), (0, 0), "and again");
     feed(&mut t, b"\x1b[1;1Hj");
-    assert_eq!(frame(&mut r, &mut t), (0, 1), "one Latin row changed");
+    assert_eq!(frame(&mut r, &mut t), (rows, 1), "one Latin row changed");
     feed(&mut t, b"\x1b[3;1Hxx");
-    assert_eq!(frame(&mut r, &mut t), (0, 1), "the Arabic row made Latin");
+    assert_eq!(
+        frame(&mut r, &mut t),
+        (rows, 1),
+        "the Arabic row made Latin"
+    );
     feed(&mut t, "\x1b[5;1H\u{0628}\u{0628}\u{0628}".as_bytes());
-    assert_eq!(frame(&mut r, &mut t), (0, 1), "a Latin row made Arabic");
+    assert_eq!(frame(&mut r, &mut t), (rows, 1), "a Latin row made Arabic");
     assert!(
         r.bidi().joins(Row::from_index(4)).is_some(),
         "its behs joined"

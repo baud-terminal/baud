@@ -43,13 +43,15 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 19] = [
+const NAMES: [&str; 21] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_caret_frame_drawn_as_stored_copies_and_compares_no_cell",
     "a_caret_frame_compares_only_the_rows_drawn_in_another_order",
     "a_caret_frame_over_a_re_broken_display_lays_out_and_reads_nothing_at_the_re_cut",
     "a_write_outside_the_display_reads_its_rows_once",
+    "a_caret_frame_lays_out_no_paragraph",
+    "a_caret_frames_layout_allocates_nothing",
     "every_driver_seals_once_a_frame_before_it_builds",
     "a_written_cell_repaints_its_row_alone",
     "a_marked_cell_costs_a_caret_frame_no_allocation",
@@ -100,6 +102,10 @@ fn main() {
             }
             "a_write_outside_the_display_reads_its_rows_once" => {
                 checks::a_write_outside_the_display_reads_its_rows_once();
+            }
+            "a_caret_frame_lays_out_no_paragraph" => checks::a_caret_frame_lays_out_no_paragraph(),
+            "a_caret_frames_layout_allocates_nothing" => {
+                checks::a_caret_frames_layout_allocates_nothing();
             }
             "every_driver_seals_once_a_frame_before_it_builds" => {
                 checks::every_driver_seals_once_a_frame_before_it_builds();
@@ -1421,6 +1427,142 @@ mod checks {
         }
     }
 
+    /// `c`'s count at the bidirectional layout (`Site::Layout`) in `cost`.
+    fn at_layout(cost: &Cost, c: Counter) -> u64 {
+        cost.counts.at(Site::Layout, c).value()
+    }
+
+    /// **H1: a caret frame lays out no paragraph** (FS-C4): on the C0
+    /// screen ([`fixture`], its rows stored) and on the held screen
+    /// ([`fixture_held`], a display held), on both paths, every caret frame
+    /// after the first lays out no row, reads no row's generation and
+    /// compares no cell at `Site::Layout`, since nothing was written after
+    /// the seal its layout is kept under. The control: every frame draws
+    /// some rows in another order, and not all. Named break: an answer
+    /// that never holds, which lays out every paragraph on every frame.
+    pub fn a_caret_frame_lays_out_no_paragraph() {
+        let caret = |k: Nth| Inputs::at(caret_at(k));
+        for (screen, bytes) in [("stored", fixture(Blinking::No)), ("held", fixture_held())] {
+            let (mut cpu, mut cell) = (Vec::new(), Vec::new());
+            with_screen_of(&bytes, Strike::First, |t, r| {
+                let mut pixels = Pixels::of(r);
+                let mut target = pixels.target();
+                Cost::take();
+                for k in Nth::ALL.before() {
+                    let inputs = caret(k);
+                    let damage = match k {
+                        Nth(0) => Damage::Full,
+                        _ => inputs.damage,
+                    };
+                    Cost::take();
+                    let _ = cpu_frame(r, t, &inputs, &mut target, damage);
+                    cpu.push((Cost::take(), drawn_otherwise(t, r)));
+                }
+            });
+            with_screen_of(&bytes, Strike::First, |t, r| {
+                let mut backing = GlyphMap::backing();
+                let mut cells = Cells::new(&mut backing, t);
+                Cost::take();
+                for k in Nth::ALL.before() {
+                    let inputs = caret(k);
+                    Cost::take();
+                    let _ = cell_frame(r, t, &inputs, &mut cells, k.set());
+                    cell.push((Cost::take(), drawn_otherwise(t, r)));
+                }
+            });
+            print(screen, "cpu", cpu.iter().map(|c| c.0));
+            print(screen, "cell", cell.iter().map(|c| c.0));
+            for (path, costs) in [("cpu", &cpu), ("cell", &cell)] {
+                for (k, (cost, (drawn, rows))) in costs.iter().enumerate() {
+                    assert!(
+                        0 < *drawn && drawn < rows,
+                        "the control: {screen} {path} frame {k} draws {drawn} of {rows} rows \
+                         in another order"
+                    );
+                    if k == 0 {
+                        continue;
+                    }
+                    for c in [
+                        Counter::BidiRowsLaid,
+                        Counter::GensRead,
+                        Counter::CellsCompared,
+                    ] {
+                        assert_eq!(
+                            at_layout(cost, c),
+                            0,
+                            "{screen} {path} caret frame {k}: {} at the layout",
+                            c.name()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// **H2: a caret frame's layout allocates nothing** (FS-C4): on the C0
+    /// screen, on both paths, after each caret frame the path's own layout
+    /// is asked once more -- the CPU path's `Renderer::lay_out_bidi`, the
+    /// cell path's `Renderer::lay_out_bidi_copied`, each with the find
+    /// marks and the link underline it draws through the order -- and on
+    /// every caret frame after the first that ask allocates nothing and
+    /// lays out no row. The frame's own allocations are printed, not
+    /// asserted: other rows' work still allocates. Named break: an answer
+    /// that never holds.
+    pub fn a_caret_frames_layout_allocates_nothing() {
+        let caret = |k: Nth| Inputs::at(caret_at(k));
+        let bytes = fixture(Blinking::No);
+        let mut got: Vec<(&str, Vec<(Cost, Cost)>)> = Vec::new();
+        with_screen_of(&bytes, Strike::First, |t, r| {
+            let mut pixels = Pixels::of(r);
+            let mut target = pixels.target();
+            let mut costs = Vec::new();
+            for k in Nth::ALL.before() {
+                let inputs = caret(k);
+                let damage = match k {
+                    Nth(0) => Damage::Full,
+                    _ => inputs.damage,
+                };
+                Cost::take();
+                let _ = cpu_frame(r, t, &inputs, &mut target, damage);
+                let frame = Cost::take();
+                let back = t.window_back();
+                r.lay_out_bidi(t, back);
+                costs.push((frame, Cost::take()));
+            }
+            got.push(("cpu", costs));
+        });
+        with_screen_of(&bytes, Strike::First, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            let mut costs = Vec::new();
+            for k in Nth::ALL.before() {
+                Cost::take();
+                let _ = cell_frame(r, t, &caret(k), &mut cells, k.set());
+                let frame = Cost::take();
+                let back = t.window_back();
+                let _ = r.lay_out_bidi_copied(t, back);
+                costs.push((frame, Cost::take()));
+            }
+            got.push(("cell", costs));
+        });
+        for (path, costs) in &got {
+            print("frame", path, costs.iter().map(|c| c.0));
+            print("layout asked again", path, costs.iter().map(|c| c.1));
+            for (k, (_, again)) in costs.iter().enumerate().skip(1) {
+                assert_eq!(
+                    again.heap.here.value(),
+                    0,
+                    "{path} caret frame {k}: the layout asked again allocates"
+                );
+                assert_eq!(
+                    at_layout(again, Counter::BidiRowsLaid),
+                    0,
+                    "{path} caret frame {k}: the layout asked again lays out a row"
+                );
+            }
+        }
+    }
+
     /// The rows of `t`'s window and its status line that `r`'s last layout
     /// drew in another order, and how many rows there are.
     fn drawn_otherwise(t: &Term<'_>, r: &Renderer<'_, '_>) -> (usize, usize) {
@@ -2071,9 +2213,12 @@ mod checks {
     /// whether they still hold is compared with the line where it stands,
     /// so the fixture with four more such lines -- rows 10 to 13 made
     /// double-width and a double-height pair before the first frame --
-    /// allocates on each caret frame exactly what the fixture alone does:
+    /// allocates on each caret frame no more than the fixture alone does:
     /// the control that the four draw more than a hundred more records.
-    /// Named break: the line's cells copied into a key each frame.
+    /// Not exactly as much: once the layout allocates nothing on a caret
+    /// frame (FS-C4), the fixture alone reads one allocation more than the
+    /// four more sized lines. Named break: the line's cells copied into a
+    /// key each frame.
     pub fn a_sized_line_costs_a_caret_frame_no_allocation() {
         let more = b"\x1b7\x1b[10;1H\x1b#6\x1b[11;1H\x1b#6\x1b[12;1H\x1b#3\x1b[13;1H\x1b#4\x1b8";
         let (base, sized) = (caret_cell_records(None), caret_cell_records(Some(more)));
@@ -2089,10 +2234,11 @@ mod checks {
                 "frame {k}: the sized lines drawn"
             );
             if !Nth(k).warming() {
-                assert_eq!(
+                assert!(
+                    s.heap.here.value() <= b.heap.here.value(),
+                    "caret frame {k}: a sized line allocated: {} against {}",
                     s.heap.here.value(),
-                    b.heap.here.value(),
-                    "caret frame {k}: a sized line allocated"
+                    b.heap.here.value()
                 );
             }
         }

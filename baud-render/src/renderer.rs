@@ -2609,6 +2609,26 @@ enum Predicted {
 /// Nothing written over any row, for a layout with no [`Beside`].
 static NOTHING_WRITTEN: crate::bidi::Written = crate::bidi::Written::NOTHING;
 
+/// Whether a layout drew any row in another order, or a display: what the
+/// find marks and the link underline follow.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Reordered {
+    No,
+    Yes,
+}
+
+/// **What the find marks and the link underline are drawn from past the
+/// layout's order**: the cell and line metrics their bands and lines are
+/// placed by, the window's height they are clipped to, and the colours
+/// they are drawn in.
+#[derive(Clone, Copy, PartialEq)]
+struct MarksKey {
+    metrics: Metrics,
+    rows: Rows,
+    defaults: (Argb, Argb),
+    wash: Argb,
+}
+
 /// **What a renderer's layout reads besides the window's cells**: the
 /// composition and, on the cell path, the predicted echoes, written over
 /// the rows they are on (`bidi::Written`), and the echoes the cell path
@@ -3314,6 +3334,9 @@ pub struct Renderer<'f, 'a> {
     /// The find marks' wash, from the palette `set_find` read, so a frame's
     /// layout can draw the marks again through its order.
     find_wash: Argb,
+    /// What the find marks and the link underline were last drawn from
+    /// past the layout's order, by [`Renderer::marks_after_layout`].
+    marks_laid: Option<MarksKey>,
     /// **The CPU and instance paths' resolved rendition table**, kept from
     /// frame to frame and brought up to date by [`Renderer::sync_styles`]:
     /// only the slots the core wrote since, or every live slot when the table
@@ -4032,6 +4055,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             word_wrap: crate::WordWrap::default(),
             bidi_used: Vec::new(),
             find_wash: Argb(0),
+            marks_laid: None,
             styles: Vec::new(),
             styles_stamp: StyleStamp::default(),
             cpu_lent: crate::frozen::Lent::default(),
@@ -4772,9 +4796,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// calls it; the cell path calls it before it reads the window
     /// ([`crate::Orders::window`]) through [`Renderer::lay_out_bidi_copied`].
     /// While BDSM is reset nothing is reordered, and once the renderer has
-    /// shaped a letter that takes a joining form each row is compared with
-    /// its last copy to know whether its joins changed: this is the layout
-    /// for a caller with no compare of its own.
+    /// shaped a letter that takes a joining form each row's joins are kept
+    /// while the row was not written: this is the layout for a caller with
+    /// no compare of its own. The marks are drawn again only where the
+    /// layout did not keep every row's order (`Renderer::marks_after_layout`).
     pub fn lay_out_bidi(&mut self, term: &Term<'_>, back: Rows) {
         self.lay_out_bidi_with(term, back, Predicted::Unread);
     }
@@ -4782,7 +4807,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn lay_out_bidi_with(&mut self, term: &Term<'_>, back: Rows, with: Predicted) {
         // A display ([`crate::rebreak`]) moves cells between rows with no
         // row reordered, so the marks follow it as they follow an order.
-        let was = self.bidi.orders().any() || self.bidi.orders().display().is_some();
+        let was = self.reordered();
         self.write_over(term, back, with);
         match self.beside.as_deref().filter(|b| !b.written.is_empty()) {
             Some(b) => self
@@ -4790,9 +4815,42 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .lay_out_written(term, back, self.joins_seen, &b.written),
             None => self.bidi.lay_out_as(term, back, self.joins_seen),
         }
-        if was || self.bidi.orders().any() || self.bidi.orders().display().is_some() {
-            self.build_find();
-            self.build_link();
+        self.marks_after_layout(was);
+    }
+
+    /// **The find marks and the link underline drawn again through the
+    /// order just laid out**, where the frame before was drawn in another
+    /// order or this one is (`was`), unless the layout kept every row's
+    /// order whole ([`crate::Reorder::held`]) and nothing else the two are
+    /// drawn from moved since they were drawn through it ([`MarksKey`]): a
+    /// frame that wrote nothing collects no run of either. What else moves
+    /// them draws them again itself: [`Renderer::set_find`],
+    /// [`Renderer::set_link`] and [`Renderer::rebuild_overlays`].
+    fn marks_after_layout(&mut self, was: Reordered) {
+        let now = self.reordered();
+        let key = MarksKey {
+            metrics: self.metrics,
+            rows: self.rows,
+            defaults: self.defaults,
+            wash: self.find_wash,
+        };
+        if (was, now) == (Reordered::No, Reordered::No)
+            || (self.bidi.held() && self.marks_laid == Some(key))
+        {
+            return;
+        }
+        self.build_find();
+        self.build_link();
+        self.marks_laid = Some(key);
+    }
+
+    /// Whether the last layout drew any row in another order, or a
+    /// display ([`crate::rebreak`]), which moves cells between rows with
+    /// no row reordered: what the marks follow.
+    fn reordered(&self) -> Reordered {
+        match self.bidi.orders().any() || self.bidi.orders().display().is_some() {
+            true => Reordered::Yes,
+            false => Reordered::No,
         }
     }
 
@@ -4809,7 +4867,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         back: Rows,
         changes: crate::bidi::Changes,
     ) -> crate::bidi::Rejoin {
-        let was = self.bidi.orders().any() || self.bidi.orders().display().is_some();
+        let was = self.reordered();
         let rejoin = match self.composition.is_some() || self.beside.is_some() {
             true => self.keep_written(term, back, changes),
             false => {
@@ -4817,10 +4875,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     .keep_displayed(term, back, changes, &crate::bidi::Written::default())
             }
         };
-        if was || self.bidi.orders().any() {
-            self.build_find();
-            self.build_link();
-        }
+        self.marks_after_layout(was);
         rejoin
     }
 
@@ -5009,7 +5064,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// What the last layout read to find its answers
-    /// ([`crate::Reorder::work`]).
+    /// ([`crate::Reorder::work`]): the rows whose write generation it
+    /// asked, the rows it tested, and the rows it laid out again.
     pub fn bidi_work(&self) -> crate::bidi::Work {
         self.bidi.work()
     }

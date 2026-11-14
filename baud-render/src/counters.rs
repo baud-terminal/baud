@@ -30,16 +30,16 @@ use baud_domain::PackedCell;
 pub enum Counter {
     /// Cells a compare of two copies of a row may read -- both rows whole,
     /// an upper bound, since a compare stops at the first cell that
-    /// differs: the conversion's
-    /// against its last frame, the layout's cache against the rows it was
-    /// found on, a kept row's lookup -- its
-    /// compare and the fold that finds a row kept elsewhere -- and the
-    /// cell path's copy against the last frame's.
+    /// differs: the conversion's against its last frame, a kept row's
+    /// lookup -- its compare and the fold that finds a row kept elsewhere
+    /// -- and the cell path's copy against the last frame's. The
+    /// bidirectional layout compares none: it keeps a paragraph by the
+    /// write generations of the rows it read (`GensRead`).
     CellsCompared,
     /// Cells copied out of the window or the status line: the
-    /// conversion's copy, the layout's copy in drawn order and of a row it
-    /// tests, the cell path's copy into a set, and the set's copy into the
-    /// view a slot is lent in.
+    /// conversion's copy, the layout's copy in drawn order, the cell
+    /// path's copy into a set, and the set's copy into the view a slot is
+    /// lent in.
     CellsCopied,
     /// Cells a row's conversion into instances read.
     CellsConverted,
@@ -63,9 +63,11 @@ pub enum Counter {
     /// window's finished paragraphs at their words that the last one kept
     /// did not answer (`crate::rebreak`).
     DisplaysLaid,
-    /// Rows whose write generation the re-cut's kept layout read, to know
-    /// whether a row it was laid out from was written since the seal it was
-    /// read under (`crate::rebreak`).
+    /// Rows whose write generation a kept layout read, to know whether a
+    /// row it was laid out from was written since the seal it was read
+    /// under: the re-cut's (`crate::rebreak`), and the bidirectional
+    /// layout's, a paragraph's rows and its context's and the status
+    /// line's (`crate::bidi`).
     GensRead,
 }
 
