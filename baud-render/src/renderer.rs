@@ -659,9 +659,32 @@ fn lines_on(l: &[LinkLine], row: Row) -> impl Iterator<Item = &LinkLine> {
 }
 
 /// The runs of the link under the pointer on `row`.
-fn hover_on(h: &Option<LinkHover>, row: Row) -> impl Iterator<Item = &crate::linked::LinkSpan> {
-    h.iter()
+fn hover_on(h: Option<&LinkHover>, row: Row) -> impl Iterator<Item = &crate::linked::LinkSpan> {
+    h.into_iter()
         .flat_map(move |h| h.spans.iter().filter(move |s| s.row == row))
+}
+
+/// **The visual runs stored columns `from..=to` of window row `r` are
+/// drawn in, each handed to `each`**: on a row drawn in its own order with
+/// no display held, the one run of its own cells, with no list built, as
+/// [`crate::bidi::Orders::stored_runs`] finds it on a window row;
+/// elsewhere the runs that finds.
+fn each_run(
+    orders: &crate::bidi::Orders,
+    (r, from, to): (Row, Col, Col),
+    mut each: impl FnMut(Row, Col, Cols),
+) {
+    if orders.display().is_none() && !orders.reordered(r) {
+        each(
+            r,
+            from,
+            Cols::of_index(to.index().saturating_sub(from.index()) + 1),
+        );
+        return;
+    }
+    for (row, at, n) in orders.stored_runs(r, from, to) {
+        each(row, at, n);
+    }
 }
 
 /// The fields the link under the pointer draws on `row`.
@@ -1650,6 +1673,272 @@ mod veils {
         /// Every veil this path composed, over the renderer's life.
         pub(super) fn composed(&self) -> Tally {
             self.composed
+        }
+    }
+}
+
+use links::{KeptSolids, LinkInputs, OwnOrder, Placing, Set, SolidsKey};
+
+/// **The frame's links, kept** (FS-C6): what the lines at rest, the strikes
+/// and `hover = "line"`'s solids are drawn from -- the driver's part held
+/// behind the setters that alone write it -- and the solids last placed,
+/// with the key they were placed under. No cell is read for a solid: a
+/// line's place is its row, its columns and the row's order, and its colour
+/// its rendition's word resolved under the frame's colours. So a caret frame
+/// over links nothing moved places none.
+mod links {
+    use super::{Force, Instance, StyleInputs, Tally};
+    use crate::cellmap::Hilite;
+    use crate::linked::{LineColour, LineStyle, LinkHover, LinkLine, MissingPaint};
+    use crate::message::MessageColours;
+    use crate::metrics::Metrics;
+
+    /// **How many times the driver's link inputs moved**: one more each
+    /// time a setter of [`LinkInputs`] is handed a value other than the one
+    /// it holds, and never otherwise, so the driver's own compare of its
+    /// lists each frame is where a Paths answer, a pointer or a config read
+    /// reaches the key.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+    pub(super) struct InputsGen(Tally);
+
+    /// Whether a setter was handed another value than the one it held.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) enum Set {
+        Same,
+        Moved,
+    }
+
+    /// **What a frame's links are drawn from, as the driver set it**: the
+    /// lines at rest and their style and colour, the strikes and those the
+    /// gesture holds, `[link] missing_color`, and the link under the
+    /// pointer. Each field is written only by its setter, which moves
+    /// [`InputsGen`] when, and only when, the value differs, and is read
+    /// through its accessor.
+    pub(super) struct LinkInputs {
+        lines: Vec<LinkLine>,
+        style: LineStyle,
+        colour: LineColour,
+        strikes: Vec<LinkLine>,
+        held: Vec<LinkLine>,
+        missing: MissingPaint,
+        hover: Option<LinkHover>,
+        moves: InputsGen,
+    }
+
+    impl LinkInputs {
+        /// No link, the lines solid in the box's colour, the strikes'
+        /// text grey.
+        pub(super) fn none() -> LinkInputs {
+            LinkInputs {
+                lines: Vec::new(),
+                style: LineStyle::Solid,
+                colour: LineColour::Box,
+                strikes: Vec::new(),
+                held: Vec::new(),
+                missing: MissingPaint::Gray,
+                hover: None,
+                moves: InputsGen::default(),
+            }
+        }
+
+        pub(super) fn moves(&self) -> InputsGen {
+            self.moves
+        }
+
+        pub(super) fn lines(&self) -> &[LinkLine] {
+            &self.lines
+        }
+
+        pub(super) fn style(&self) -> LineStyle {
+            self.style
+        }
+
+        pub(super) fn colour(&self) -> LineColour {
+            self.colour
+        }
+
+        /// The runs struck at rest, then the ones the gesture holds.
+        pub(super) fn strikes(&self) -> &[LinkLine] {
+            &self.strikes
+        }
+
+        pub(super) fn held(&self) -> &[LinkLine] {
+            &self.held
+        }
+
+        pub(super) fn missing(&self) -> MissingPaint {
+            self.missing
+        }
+
+        pub(super) fn hover(&self) -> Option<&LinkHover> {
+            self.hover.as_ref()
+        }
+
+        fn moved(&mut self) -> Set {
+            self.moves.0.bump();
+            Set::Moved
+        }
+
+        /// The lines at rest, copied only when they changed.
+        pub(super) fn set_lines(&mut self, lines: &[LinkLine]) -> Set {
+            if self.lines == lines {
+                return Set::Same;
+            }
+            self.lines.clear();
+            self.lines.extend_from_slice(lines);
+            self.moved()
+        }
+
+        pub(super) fn set_style(&mut self, style: LineStyle) -> Set {
+            if self.style == style {
+                return Set::Same;
+            }
+            self.style = style;
+            self.moved()
+        }
+
+        pub(super) fn set_colour(&mut self, colour: LineColour) -> Set {
+            if self.colour == colour {
+                return Set::Same;
+            }
+            self.colour = colour;
+            self.moved()
+        }
+
+        /// The strikes at rest then the held ones, and the held ones
+        /// apart, each copied only when it changed.
+        pub(super) fn set_strikes(&mut self, at_rest: &[LinkLine], held: &[LinkLine]) -> Set {
+            let mut set = Set::Same;
+            let same = self.strikes.len() == at_rest.len() + held.len()
+                && self.strikes.iter().eq(at_rest.iter().chain(held));
+            if !same {
+                self.strikes.clear();
+                self.strikes.extend_from_slice(at_rest);
+                self.strikes.extend_from_slice(held);
+                set = self.moved();
+            }
+            if self.held != held {
+                self.held.clear();
+                self.held.extend_from_slice(held);
+                set = self.moved();
+            }
+            set
+        }
+
+        pub(super) fn set_missing(&mut self, paint: MissingPaint) -> Set {
+            if self.missing == paint {
+                return Set::Same;
+            }
+            self.missing = paint;
+            self.moved()
+        }
+
+        /// The link under the pointer, compared before it is copied into
+        /// the buffer the last one left.
+        pub(super) fn set_hover(&mut self, hover: Option<&LinkHover>) -> Set {
+            if self.hover.as_ref() == hover {
+                return Set::Same;
+            }
+            match (hover, &mut self.hover) {
+                (Some(h), Some(mine)) => mine.clone_from(h),
+                (h, mine) => *mine = h.cloned(),
+            }
+            self.moved()
+        }
+    }
+
+    /// **Everything a placement's solids are drawn from but the rows'
+    /// order**: the driver's inputs, the colours a word resolves to (the
+    /// theme, the video and the core's colours), the fields' selection
+    /// colours, `[message]`'s colours and the cell geometry.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) struct SolidsKey {
+        pub(super) inputs: InputsGen,
+        pub(super) colours: StyleInputs,
+        pub(super) hilite: Hilite,
+        pub(super) message: MessageColours,
+        pub(super) metrics: Metrics,
+    }
+
+    /// **Whether every row a link's solid is drawn on is drawn in its own
+    /// order, and no display is held**: there a run is its own cells,
+    /// whatever wrote the row's paragraph, so a key that held then and
+    /// holds now places the solids where they are.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) enum OwnOrder {
+        Every,
+        NotEvery,
+    }
+
+    /// The solids to place again, into a kept buffer, and the key they are
+    /// placed under: none for a placement on a row in another order.
+    pub(super) struct Placement {
+        key: Option<SolidsKey>,
+        solids: Vec<Instance>,
+    }
+
+    impl Placement {
+        pub(super) fn solids(&mut self) -> &mut Vec<Instance> {
+            &mut self.solids
+        }
+    }
+
+    /// What [`KeptSolids::hold`] found.
+    pub(super) enum Placing {
+        /// The solids kept are this frame's.
+        Kept,
+        /// The solids are placed again.
+        Place(Placement),
+    }
+
+    /// **The solids of the lines at rest, the strikes and `hover = "line"`,
+    /// and the key they were placed under**: `None` when they were placed
+    /// with a carrying row in another order, or a display held, which no
+    /// key holds.
+    pub(super) struct KeptSolids {
+        key: Option<SolidsKey>,
+        solids: Vec<Instance>,
+    }
+
+    impl KeptSolids {
+        pub(super) fn none() -> KeptSolids {
+            KeptSolids {
+                key: None,
+                solids: Vec::new(),
+            }
+        }
+
+        /// **Holds the key `now`**: the solids kept are this frame's only
+        /// where they were placed under it with every carrying row in its
+        /// own order, every one is now (`order`), and the frame is not one
+        /// that draws everything again (`force`). Otherwise their buffer is
+        /// handed out, emptied, to be placed into and given back
+        /// ([`KeptSolids::placed`]); the key is forgotten until then.
+        pub(super) fn hold(&mut self, now: SolidsKey, order: OwnOrder, force: Force) -> Placing {
+            if force == Force::No && order == OwnOrder::Every && self.key == Some(now) {
+                return Placing::Kept;
+            }
+            self.key = None;
+            let mut solids = core::mem::take(&mut self.solids);
+            solids.clear();
+            Placing::Place(Placement {
+                key: match order {
+                    OwnOrder::Every => Some(now),
+                    OwnOrder::NotEvery => None,
+                },
+                solids,
+            })
+        }
+
+        /// The solids `p` placed, kept under its key.
+        pub(super) fn placed(&mut self, p: Placement) {
+            self.key = p.key;
+            self.solids = p.solids;
+        }
+
+        /// The solids the last placement made: the one read of them.
+        pub(super) fn solids(&self) -> &[Instance] {
+            &self.solids
         }
     }
 }
@@ -3548,29 +3837,24 @@ pub struct Renderer<'f, 'a> {
     /// under the find field.
     link: Option<LinkLook>,
     last_link: Option<LinkLook>,
-    /// **A link's line at rest** on this frame and the last, how it is
-    /// drawn, and its solids (`Renderer::place_links`): a row whose lines
-    /// changed is dirty.
-    link_lines: Vec<LinkLine>,
+    /// **The frame's links as the driver set them** (`links`): the lines
+    /// at rest and how they are drawn, the struck links -- the runs at rest,
+    /// then those the gesture's modifier strikes
+    /// ([`Renderer::set_link_strikes`]), each struck through with the lines'
+    /// solids and its text drawn grey by its own cells, through slots the
+    /// frame's table lends it ([`Renderer::struck_cells`], `crate::frozen`)
+    /// -- `[link] missing_color`, and the link under the pointer, whose
+    /// `hover = "line"` goes with the lines' solids and `"box"` and
+    /// `"text"` with the bar, over the images.
+    links: LinkInputs,
+    /// **The solids of the lines, the strikes and `hover = "line"`**
+    /// (`Renderer::place_links`), kept while nothing they are drawn from
+    /// moved.
+    kept_solids: KeptSolids,
+    /// The lines at rest, the strikes and the link under the pointer the
+    /// last frame drew: a row whose lines changed is dirty.
     last_link_lines: Vec<LinkLine>,
-    line_style: LineStyle,
-    line_colour: LineColour,
-    line_inst: Vec<Instance>,
-    /// **A struck link** on this frame and the last: the runs at rest, then
-    /// those the gesture's modifier strikes ([`Renderer::set_link_strikes`]),
-    /// each struck through with the lines' solids and its text drawn grey by
-    /// its own cells, through slots the frame's table lends it
-    /// ([`Renderer::struck_cells`], `crate::frozen`).
-    link_strikes: Vec<LinkLine>,
-    /// The strikes the gesture's modifier made over the link under the
-    /// pointer, whose line takes the text's colour.
-    link_held: Vec<LinkLine>,
     last_link_strikes: Vec<LinkLine>,
-    pub(crate) missing_paint: MissingPaint,
-    /// **The link under the pointer** on this frame and the last, and the
-    /// fields it is drawn as: `hover = "line"` goes with the lines' solids,
-    /// `"box"` and `"text"` with the bar, over the images.
-    link_hover: Option<LinkHover>,
     last_link_hover: Option<LinkHover>,
     hover_bars: Vec<HoverBar>,
     last_hover_bars: Vec<HoverBar>,
@@ -4135,16 +4419,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             find_caret: Vec::new(),
             link: None,
             last_link: None,
-            link_lines: Vec::new(),
+            links: LinkInputs::none(),
+            kept_solids: KeptSolids::none(),
             last_link_lines: Vec::new(),
-            line_style: LineStyle::Solid,
-            line_colour: LineColour::Box,
-            line_inst: Vec::new(),
-            link_strikes: Vec::new(),
-            link_held: Vec::new(),
             last_link_strikes: Vec::new(),
-            missing_paint: MissingPaint::Gray,
-            link_hover: None,
             last_link_hover: None,
             hover_bars: Vec::new(),
             last_hover_bars: Vec::new(),
@@ -5141,12 +5419,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// unchanged, since no cell and no run moved. A config read again, so
     /// the whole frame.
     pub fn set_link_lines(&mut self, lines: &[LinkLine], style: LineStyle) {
-        if self.link_lines != lines {
-            self.link_lines.clear();
-            self.link_lines.extend_from_slice(lines);
-        }
-        if self.line_style != style {
-            self.line_style = style;
+        self.links.set_lines(lines);
+        if self.links.set_style(style) == Set::Moved {
             self.known = Prev::Unknown;
         }
     }
@@ -5156,8 +5430,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// every row**, as a change of the lines' style does
     /// ([`Renderer::set_link_lines`]).
     pub fn set_line_colour(&mut self, colour: LineColour) {
-        if self.line_colour != colour {
-            self.line_colour = colour;
+        if self.links.set_colour(colour) == Set::Moved {
             self.known = Prev::Unknown;
         }
     }
@@ -5168,17 +5441,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// so a frame with none allocates nothing. Nothing of them reaches a
     /// cell: a struck link selects and copies as it is written.
     pub fn set_link_strikes(&mut self, at_rest: &[LinkLine], held: &[LinkLine]) {
-        let same = self.link_strikes.len() == at_rest.len() + held.len()
-            && self.link_strikes.iter().eq(at_rest.iter().chain(held));
-        if !same {
-            self.link_strikes.clear();
-            self.link_strikes.extend_from_slice(at_rest);
-            self.link_strikes.extend_from_slice(held);
-        }
-        if self.link_held != held {
-            self.link_held.clear();
-            self.link_held.extend_from_slice(held);
-        }
+        self.links.set_strikes(at_rest, held);
     }
 
     /// `[link] missing_color`, read at draw against the colours in force.
@@ -5187,10 +5450,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// the selection covers -- keeps its id, so only its strike moves
     /// colour, and its row compares as unchanged.
     pub fn set_link_missing(&mut self, paint: MissingPaint) {
-        if self.missing_paint != paint {
-            self.missing_paint = paint;
+        if self.links.set_missing(paint) == Set::Moved {
             self.known = Prev::Unknown;
         }
+    }
+
+    /// `[link] missing_color`, as [`Renderer::set_link_missing`] last set
+    /// it.
+    pub(crate) fn missing_paint(&self) -> MissingPaint {
+        self.links.missing()
     }
 
     /// **The cells of each of a copy's first `rows` rows a struck link's
@@ -5207,12 +5475,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         order: CopyOrder,
     ) -> Vec<Vec<core::ops::Range<usize>>> {
         let mut out: Vec<Vec<core::ops::Range<usize>>> = Vec::new();
-        if self.link_strikes.is_empty() || self.missing_paint == MissingPaint::Kept {
+        if self.links.strikes().is_empty() || self.links.missing() == MissingPaint::Kept {
             return out;
         }
         out.resize(rows.index(), Vec::new());
         let orders = self.bidi.orders();
-        for l in &self.link_strikes {
+        for l in self.links.strikes() {
             for (row, at, n) in orders.stored_runs(l.row, l.from, l.to) {
                 let Some(cols) = out.get_mut(row.index()) else {
                     continue;
@@ -5244,12 +5512,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **The link under the pointer for the next frame**, or none, copied
-    /// into the buffer the last one left.
+    /// into the buffer the last one left where it is another.
     pub fn set_link_hover(&mut self, hover: Option<&LinkHover>) {
-        match (hover, &mut self.link_hover) {
-            (Some(h), Some(mine)) => mine.clone_from(h),
-            (h, mine) => *mine = h.cloned(),
-        }
+        self.links.set_hover(hover);
     }
 
     /// **The solids and fields of the frame's links, once its layout is
@@ -5260,9 +5525,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// not draw; and the look of the link under the pointer. The
     /// instance and CPU paths call it from their convert, the cell path
     /// before its walk, which reads the look's fields as empty; `view` is
-    /// the window as that path's cells name their renditions.
+    /// the window as that path's cells name their renditions. **The solids
+    /// are kept** while nothing they are drawn from moved (`links`); the
+    /// look's fields read cells, and are built every frame.
     pub fn place_links(&mut self, term: &Term<'_>, view: &Viewport<'_>) {
-        self.place_links_with(term, view, |y, _, l| {
+        self.place_links_with(term, view, Force::No, |y, _, l| {
             view.row(y)
                 .get(l.index())
                 .copied()
@@ -5271,15 +5538,97 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// [`Renderer::place_links`], `under` naming the cell a field's ground
-    /// is read from: its row, visual column and logical column.
+    /// is read from: its row, visual column and logical column; `force`
+    /// places the solids again whatever their key says.
     fn place_links_with(
         &mut self,
         term: &Term<'_>,
         view: &Viewport<'_>,
+        force: Force,
         under: impl Fn(Row, Col, Col) -> PackedCell,
     ) {
-        let mut out = core::mem::take(&mut self.line_inst);
-        out.clear();
+        let now = SolidsKey {
+            inputs: self.links.moves(),
+            colours: self.style_inputs(term),
+            hilite: self.field_hilite,
+            message: self.message_colours,
+            metrics: self.metrics,
+        };
+        let order = self.own_order();
+        if let Placing::Place(mut p) = self.kept_solids.hold(now, order, force) {
+            self.place_solids(term, p.solids());
+            crate::counters::add(
+                Counter::LinkInstancesBuilt,
+                Site::Links,
+                Tally::of(p.solids().len()),
+            );
+            self.kept_solids.placed(p);
+        }
+        let mut bars = core::mem::take(&mut self.hover_bars);
+        let mut spare = core::mem::take(&mut self.hover_spare);
+        spare.append(&mut bars);
+        // The link under the pointer drawn as a box or as its text: fields
+        // whose ground is read from the cells under them.
+        if let Some(h) = self
+            .links
+            .hover()
+            .filter(|h| matches!(h.paint, HoverPaint::Box | HoverPaint::Text))
+        {
+            let words = self.frame_held();
+            let orders = self.bidi.orders();
+            for s in &h.spans {
+                each_run(orders, (s.row, s.from, s.to), |row, at, n| {
+                    hover_fields(
+                        (term, words.words()),
+                        orders,
+                        view,
+                        (row, at, n),
+                        h.paint,
+                        &under,
+                        (&mut bars, &mut spare),
+                    );
+                });
+            }
+        }
+        self.hover_bars = bars;
+        self.hover_spare = spare;
+    }
+
+    /// **Whether every row a link's solid is drawn on is drawn in its own
+    /// order, with no display held**: the rows of the lines at rest, of the
+    /// strikes and of `hover = "line"`'s spans. One question a row, and
+    /// none where no row of the window is reordered.
+    fn own_order(&self) -> OwnOrder {
+        let orders = self.bidi.orders();
+        if orders.display().is_some() {
+            return OwnOrder::NotEvery;
+        }
+        if !orders.any() {
+            return OwnOrder::Every;
+        }
+        let hovered = self
+            .links
+            .hover()
+            .filter(|h| h.paint == HoverPaint::Line)
+            .into_iter()
+            .flat_map(|h| h.spans.iter().map(|s| s.row));
+        let mut rows = self
+            .links
+            .lines()
+            .iter()
+            .chain(self.links.strikes())
+            .map(|l| l.row)
+            .chain(hovered);
+        match rows.any(|r| orders.reordered(r)) {
+            true => OwnOrder::NotEvery,
+            false => OwnOrder::Every,
+        }
+    }
+
+    /// **The solids of the lines at rest, the strikes and `hover = "line"`,
+    /// appended to `out`**: from the driver's links, the frame's colours,
+    /// the cell geometry and the rows' order, and from no cell.
+    fn place_solids(&self, term: &Term<'_>, out: &mut Vec<Instance>) {
         let cw = self.metrics.cell_w.value();
         let thick = self.metrics.thickness;
         let under_y = self.metrics.underline.value();
@@ -5287,9 +5636,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             i32::try_from(u32::try_from(c.index()).unwrap_or(0).saturating_mul(cw))
                 .unwrap_or(i32::MAX)
         };
-        let y = |this: &Self, r: Row| {
+        let y = |r: Row| {
             screen(
-                i32::try_from(this.band(r).top.value().saturating_add(under_y)).unwrap_or(i32::MAX),
+                i32::try_from(self.band(r).top.value().saturating_add(under_y)).unwrap_or(i32::MAX),
             )
         };
         // No row reordered and none re-broken: a run is its own cells, and
@@ -5298,15 +5647,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut last: Option<(baud_domain::StyleWord, Option<Argb>)> = None;
         // The box's colour as this frame resolves it, as the box itself
         // takes it: `"none"` reads the selection's colours now.
-        let rest = match self.line_colour {
+        let rest = match self.links.colour() {
             LineColour::Box => Some(
                 self.message_rendition(self.resolve_slot(term, Default::default()))
                     .bg,
             ),
             LineColour::Text => None,
         };
-        let lines = core::mem::take(&mut self.link_lines);
-        for l in &lines {
+        let style = self.links.style();
+        for l in self.links.lines() {
             let colour = match last {
                 Some((word, c)) if word == l.word => c,
                 _ => {
@@ -5322,13 +5671,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 (false, Some(rest)) => rest,
                 _ => colour,
             };
-            if self.line_style == LineStyle::Off {
+            if style == LineStyle::Off {
                 continue;
             }
-            let style = self.line_style;
             let mut push = |row: Row, at: Col, n: usize| {
                 let w = u32::try_from(n).unwrap_or(0).saturating_mul(cw);
-                line_solids(&mut out, style, (x(at), y(self, row)), (w, thick), colour);
+                line_solids(out, style, (x(at), y(row)), (w, thick), colour);
             };
             match plain {
                 true => push(
@@ -5343,10 +5691,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
         }
-        self.link_lines = lines;
-        let mut bars = core::mem::take(&mut self.hover_bars);
-        let mut spare = core::mem::take(&mut self.hover_spare);
-        spare.append(&mut bars);
         // **The struck links**: a strike at the face's strike position over
         // each run, in the colour its text is drawn in -- `missing_color`
         // where that reads, through the slot each struck cell is lent
@@ -5358,24 +5702,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // takes them; at `Metrics::struck_underline`, which keeps it clear of
         // the strike. None with `line = "off"`, and none over a cell a
         // program underlines itself, whose own line is drawn.
-        if !self.link_strikes.is_empty() {
+        if !self.links.strikes().is_empty() {
             let strike_y = self.metrics.strike.value();
-            let sy = |this: &Self, r: Row| {
+            let sy = |r: Row| {
                 screen(
-                    i32::try_from(this.band(r).top.value().saturating_add(strike_y))
+                    i32::try_from(self.band(r).top.value().saturating_add(strike_y))
                         .unwrap_or(i32::MAX),
                 )
             };
             let struck_under = self.metrics.struck_underline().value();
-            let uy = |this: &Self, r: Row| {
+            let uy = |r: Row| {
                 screen(
-                    i32::try_from(this.band(r).top.value().saturating_add(struck_under))
+                    i32::try_from(self.band(r).top.value().saturating_add(struck_under))
                         .unwrap_or(i32::MAX),
                 )
             };
-            let style = self.line_style;
             let mut last: Option<(baud_domain::StyleWord, Option<Argb>)> = None;
-            for l in &self.link_strikes {
+            for l in self.links.strikes() {
                 let colour = match last {
                     Some((word, c)) if word == l.word => c,
                     _ => {
@@ -5386,7 +5729,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     }
                 };
                 let Some(colour) = colour else { continue };
-                let under = self.link_held.contains(l) || self.hovered_line(l);
+                let under = self.links.held().contains(l) || self.hovered_line(l);
                 let line = match (under, rest) {
                     (false, Some(rest)) => rest,
                     _ => colour,
@@ -5394,69 +5737,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let own = l.word.attrs().only(Attrs::UNDERLINES) != Attrs::NONE;
                 for (row, at, n) in self.bidi.orders().stored_runs(l.row, l.from, l.to) {
                     let w = u32::try_from(n.index()).unwrap_or(0).saturating_mul(cw);
-                    out.push(solid(
-                        screen(x(at)),
-                        sy(self, row),
-                        Px::of(w),
-                        thick,
-                        colour,
-                    ));
+                    out.push(solid(screen(x(at)), sy(row), Px::of(w), thick, colour));
                     if !own {
-                        line_solids(&mut out, style, (x(at), uy(self, row)), (w, thick), line);
+                        line_solids(out, style, (x(at), uy(row)), (w, thick), line);
                     }
                 }
             }
         }
-        // The link under the pointer.
-        if let Some(h) = self.link_hover.take() {
-            match h.paint {
-                HoverPaint::Line => {
-                    let pair = self.message_rendition(self.resolve_slot(term, Default::default()));
-                    for s in &h.spans {
-                        for (row, at, n) in self.bidi.orders().stored_runs(s.row, s.from, s.to) {
-                            let w = u32::try_from(n.index()).unwrap_or(0).saturating_mul(cw);
-                            out.push(solid(
-                                screen(x(at)),
-                                y(self, row),
-                                Px::of(w),
-                                thick,
-                                pair.bg,
-                            ));
-                        }
-                    }
-                }
-                HoverPaint::Box | HoverPaint::Text => {
-                    let words = self.frame_held();
-                    for s in &h.spans {
-                        for (row, at, n) in self.bidi.orders().stored_runs(s.row, s.from, s.to) {
-                            hover_fields(
-                                (term, words.words()),
-                                self.bidi.orders(),
-                                view,
-                                (row, at, n),
-                                h.paint,
-                                &under,
-                                (&mut bars, &mut spare),
-                            );
-                        }
-                    }
+        // The link under the pointer drawn as a line.
+        if let Some(h) = self.links.hover().filter(|h| h.paint == HoverPaint::Line) {
+            let pair = self.message_rendition(self.resolve_slot(term, Default::default()));
+            for s in &h.spans {
+                for (row, at, n) in self.bidi.orders().stored_runs(s.row, s.from, s.to) {
+                    let w = u32::try_from(n.index()).unwrap_or(0).saturating_mul(cw);
+                    out.push(solid(screen(x(at)), y(row), Px::of(w), thick, pair.bg));
                 }
             }
-            self.link_hover = Some(h);
         }
-        self.hover_bars = bars;
-        self.hover_spare = spare;
-        crate::counters::add(
-            Counter::LinkInstancesBuilt,
-            Site::Links,
-            Tally::of(out.len()),
-        );
-        self.line_inst = out;
     }
 
     /// Whether line `l` lies under the link the pointer is over.
     fn hovered_line(&self, l: &LinkLine) -> bool {
-        self.link_hover.as_ref().is_some_and(|h| {
+        self.links.hover().is_some_and(|h| {
             h.spans
                 .iter()
                 .any(|s| s.row == l.row && s.from <= l.from && l.to <= s.to)
@@ -5499,7 +5801,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// they lie under.
     pub fn link_lines_lowered(&self, pan: Px, out: &mut Vec<Instance>) {
         let down = i16::try_from(pan.value()).unwrap_or(i16::MAX);
-        out.extend(self.line_inst.iter().map(|g| Instance {
+        out.extend(self.kept_solids.solids().iter().map(|g| Instance {
             y: Screen(g.y.0.saturating_add(down)),
             ..*g
         }));
@@ -5608,7 +5910,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// neighbours and a program's `SGR 58` colour stays. Elsewhere, and for
     /// `"none"`, the cell as it is.
     pub(crate) fn missing_rendition(&self, term: &Term<'_>, under: Resolved) -> Resolved {
-        let text = match self.missing_paint {
+        let text = match self.links.missing() {
             MissingPaint::Kept => return under,
             MissingPaint::Colour(c) => c,
             MissingPaint::Gray => {
@@ -10020,16 +10322,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // lending: a frame lent otherwise than the last repaints every row
         // where that moved what an unchanged cell draws (`full` below,
         // `Lent::moved_from`).
-        if self.bidi.orders().window_frozen(term, back) || !self.link_strikes.is_empty() {
+        if self.bidi.orders().window_frozen(term, back) || !self.links.strikes().is_empty() {
             self.lend_cpu(term, back);
             lent_now = LentRows::Every;
         }
         self.frame_words = self.cpu_lent.held();
         // The frame's links, on this frame's layout, a field's ground read
-        // from this path's copy, whose ids the lending above named.
+        // from this path's copy, whose ids the lending above named; the
+        // solids placed again on a frame drawn whole.
         {
             let cur = core::mem::take(&mut self.cur);
-            self.place_links_with(term, &vp, |y, v, _| {
+            let force = match damage {
+                Damage::Full => Force::Full,
+                Damage::Incremental => Force::No,
+            };
+            self.place_links_with(term, &vp, force, |y, v, _| {
                 cur.get(y.index() * ncols + v.index())
                     .copied()
                     .unwrap_or(PackedCell::EMPTY)
@@ -10186,10 +10493,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let find_changed = self.find != self.last_find;
         let link_changed = self.link != self.last_link;
-        let lines_changed = self.link_lines != self.last_link_lines;
-        let strikes_changed = self.link_strikes != self.last_link_strikes;
-        let over_changed =
-            self.link_hover != self.last_link_hover || self.hover_bars != self.last_hover_bars;
+        let lines_changed = self.links.lines() != self.last_link_lines;
+        let strikes_changed = self.links.strikes() != self.last_link_strikes;
+        let over_changed = self.links.hover() != self.last_link_hover.as_ref()
+            || self.hover_bars != self.last_hover_bars;
         let tip_changed = self.tip != self.last_tip;
         let mut rows_dirty = Tally::default();
         let mut rows_partial = Tally::default();
@@ -10358,12 +10665,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // gone or moved on this row.
             let linked = linked
                 || (lines_changed
-                    && lines_on(&self.link_lines, row).ne(lines_on(&self.last_link_lines, row)))
+                    && lines_on(self.links.lines(), row).ne(lines_on(&self.last_link_lines, row)))
                 || (strikes_changed
-                    && lines_on(&self.link_strikes, row)
+                    && lines_on(self.links.strikes(), row)
                         .ne(lines_on(&self.last_link_strikes, row)))
                 || (over_changed
-                    && (hover_on(&self.link_hover, row).ne(hover_on(&self.last_link_hover, row))
+                    && (hover_on(self.links.hover(), row)
+                        .ne(hover_on(self.last_link_hover.as_ref(), row))
                         || bars_on(&self.hover_bars, row).ne(bars_on(&self.last_hover_bars, row))));
             // A tip's line come, gone or changed on this row.
             let tipped = tip_changed && tip_on(&self.tip, row) != tip_on(&self.last_tip, row);
@@ -10488,7 +10796,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // go over the images (`chrome_inst`).
         self.compose_inst.extend_from_slice(&self.find_inst);
         self.compose_inst.extend_from_slice(&self.link_inst);
-        self.compose_inst.extend_from_slice(&self.line_inst);
+        self.compose_inst
+            .extend_from_slice(self.kept_solids.solids());
         self.chrome_inst.clear();
         // baud's veils over the images: the link under the pointer's
         // fields under baud's own, the find field with its caret, the
@@ -10605,9 +10914,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_composition = composition;
         self.last_find.clone_from(&self.find);
         self.last_link.clone_from(&self.link);
-        self.last_link_lines.clone_from(&self.link_lines);
-        self.last_link_strikes.clone_from(&self.link_strikes);
-        self.last_link_hover.clone_from(&self.link_hover);
+        self.last_link_lines.clear();
+        self.last_link_lines.extend_from_slice(self.links.lines());
+        self.last_link_strikes.clear();
+        self.last_link_strikes
+            .extend_from_slice(self.links.strikes());
+        match (self.links.hover(), &mut self.last_link_hover) {
+            (Some(h), Some(mine)) => mine.clone_from(h),
+            (h, mine) => *mine = h.cloned(),
+        }
         self.last_hover_bars.clone_from(&self.hover_bars);
         self.last_tip.clone_from(&self.tip);
         self.last_notice = notice;

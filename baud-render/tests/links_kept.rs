@@ -4,7 +4,8 @@
 //! are drawn with is set again to another value, no cell and no run moved,
 //! and the incremental frame after it draws, pixel for pixel and ground for
 //! ground, what a renderer of its own draws in one full frame given the
-//! same inputs; and its solids are that renderer's. The rows a line is on
+//! same inputs; and the solids it keeps for the lines, the strikes and
+//! `hover = "line"` are those that renderer places. The rows a line is on
 //! compare as unchanged, since nothing in them was written, so only the
 //! setter can say they draw otherwise.
 //!
@@ -155,12 +156,22 @@ fn made<'f, 'a>(faces: &'f [Face<'a>]) -> Renderer<'f, 'a> {
 }
 
 /// **What a CPU frame drew**: its pixels, each cell's ground, and the
-/// links' solids it placed.
+/// solids it keeps for the links ([`kept_solids`]).
 #[derive(Clone, PartialEq)]
 struct Drawn {
     pixels: Vec<u32>,
     grounds: Vec<Ground>,
     solids: Vec<Instance>,
+}
+
+/// **The solids `r` keeps for the lines at rest, the strikes and
+/// `hover = "line"`**, as a path that draws records of its own takes them
+/// (`Renderer::link_lines_lowered`, with no slide): what its last frame
+/// placed, or kept from an earlier one while their key held.
+fn kept_solids(r: &Renderer<'_, '_>) -> Vec<Instance> {
+    let mut out = Vec::new();
+    r.link_lines_lowered(Px::of(0), &mut out);
+    out
 }
 
 /// One CPU frame of `t`'s screen onto `px`, as `damage` says.
@@ -180,7 +191,7 @@ fn draw(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut Vec<u32>, damage: D
     Drawn {
         pixels: px.clone(),
         grounds,
-        solids: r.link_solids().to_vec(),
+        solids: kept_solids(r),
     }
 }
 
@@ -235,6 +246,9 @@ fn changed(from: Look, to: Look) -> Option<String> {
     let after = fresh(&faces, &mut t, &to);
     if after.pixels == before.pixels {
         return Some("the control: the change shows".to_string());
+    }
+    if before.solids.is_empty() || after.solids.is_empty() {
+        return Some("the control: a full frame places solids".to_string());
     }
     set(&mut r, &t, &to);
     for frame in ["the frame after", "the frame after that"] {
@@ -566,7 +580,7 @@ fn frame(
     Drawn {
         pixels: px.clone(),
         grounds,
-        solids: r.link_solids().to_vec(),
+        solids: kept_solids(r),
     }
 }
 
@@ -691,6 +705,12 @@ fn kept(case: &Case) -> Option<String> {
     let after = fresh_under(&faces, &mut t, &host);
     if after.pixels == before.pixels {
         return Some(format!("{}: the control, the change shows", case.what));
+    }
+    if before.solids.is_empty() || after.solids.is_empty() {
+        return Some(format!(
+            "{}: the control, a full frame places solids",
+            case.what
+        ));
     }
     for frame_is in ["the frame after", "the frame after that"] {
         let now = frame(&mut r, &mut t, &host, &mut px, Damage::Incremental);
@@ -854,24 +874,36 @@ fn a_palette_change_with_nothing_written_recolours_the_links() {
     assert!(wrong.is_empty(), "{wrong:?}");
 }
 
-/// **C6-11: a theme set with nothing written recolours the links.** Named
-/// break: the resolved colours left out of the key.
+/// **C6-11: a theme set with nothing written recolours the links**: the
+/// lines at rest in their text's colour, which the theme resolves -- in
+/// the box's colour, `[message]`'s own, no line would move. Named break:
+/// the resolved colours left out of the key.
 #[test]
 fn a_theme_change_recolours_the_links() {
+    let from = with(Links {
+        colour: LineColour::Text,
+        ..RESTING
+    });
     let to = Host {
         theme: Palette::Light,
-        ..BASE
+        ..from
     };
-    let case = input("the theme", BASE, vec![Step::Host(to)]);
+    let case = input("the theme", from, vec![Step::Host(to)]);
     assert_eq!(kept(&case), None);
 }
 
 /// **C6-12: reverse video set with nothing written recolours the links**:
-/// `?5` is a mode bit, and moves no colour epoch. Named break: the
-/// resolved colours left out of the key.
+/// `?5` is a mode bit, and moves no colour epoch; the lines at rest in
+/// their text's colour, which the video resolves -- in the box's colour,
+/// `[message]`'s own, no line would move. Named break: the resolved
+/// colours left out of the key.
 #[test]
 fn reverse_video_with_nothing_written_recolours_the_links() {
-    let case = input("?5", BASE, vec![Step::Bytes("\x1b[?5h".into())]);
+    let text = with(Links {
+        colour: LineColour::Text,
+        ..RESTING
+    });
+    let case = input("?5", text, vec![Step::Bytes("\x1b[?5h".into())]);
     assert_eq!(kept(&case), None);
 }
 
@@ -1177,6 +1209,10 @@ fn struck_caret_frames_draw_a_fresh_frame() {
             "the isolation: a caret frame"
         );
         let full = fresh_under(&faces, &mut t, &host);
+        assert!(
+            !full.solids.is_empty(),
+            "the control: a full frame places solids"
+        );
         differs(&now, &full, &format!("caret frame {k}"), &mut wrong);
     }
     assert!(wrong.is_empty(), "{wrong:?}");
@@ -1229,7 +1265,8 @@ impl<'m> Cells<'m> {
 
 /// **What a cell frame draws a struck link with**: the lent view's cells,
 /// which the walk and the overlay read each cell's id from, the slots
-/// lent and left short, and the links' solids.
+/// lent and left short, and the solids it keeps for the links
+/// ([`kept_solids`]).
 #[derive(PartialEq, Debug)]
 struct LentDrawn {
     cells: Vec<PackedCell>,
@@ -1304,7 +1341,7 @@ fn cell_frame(
         cells: cell.lent_cells.get(..n).unwrap_or_default().to_vec(),
         lent: cell.lent[at.0].lent(),
         short: cell.lent[at.0].short(),
-        solids: r.link_solids().to_vec(),
+        solids: kept_solids(r),
     }
 }
 
@@ -1340,6 +1377,10 @@ fn struck_caret_frames_lend_a_fresh_cell_frame() {
         assert!(
             first.lent.value() > 0 && first.short.value() == 0,
             "the control: a slot lent, none short"
+        );
+        assert!(
+            !first.solids.is_empty(),
+            "the control: a fresh cell frame places solids"
         );
         if now != first {
             wrong.push(k);

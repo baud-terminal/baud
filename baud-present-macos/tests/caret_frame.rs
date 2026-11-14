@@ -43,7 +43,7 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 21] = [
+const NAMES: [&str; 22] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_caret_frame_drawn_as_stored_copies_and_compares_no_cell",
@@ -61,6 +61,7 @@ const NAMES: [&str; 21] = [
     "a_converted_row_costs_a_caret_frame_no_allocation",
     "the_pointer_at_rest_costs_a_caret_frame_no_allocation",
     "a_struck_link_lent_a_slot_counts_what_its_caret_frames_cost",
+    "a_caret_frame_places_no_link_record",
     "a_caret_frame_tallies_the_rows_it_converts",
     "the_frames_totals_follow_every_write_of_a_row",
     "the_cell_driver_builds_as_present_builds",
@@ -133,6 +134,9 @@ fn main() {
             }
             "a_struck_link_lent_a_slot_counts_what_its_caret_frames_cost" => {
                 checks::a_struck_link_lent_a_slot_counts_what_its_caret_frames_cost();
+            }
+            "a_caret_frame_places_no_link_record" => {
+                checks::a_caret_frame_places_no_link_record();
             }
             "a_caret_frame_tallies_the_rows_it_converts" => {
                 checks::a_caret_frame_tallies_the_rows_it_converts();
@@ -2205,6 +2209,107 @@ mod checks {
                 "the control: on the {page:?} page, missing_color reads on the struck link"
             );
         }
+    }
+
+    /// **A caret frame places no link record** (FS-C6): the solids of the
+    /// lines at rest, the strikes and `hover = "line"` read no cell, and are
+    /// kept while nothing they are drawn from moved, so on C0's screen, the
+    /// first link struck, each caret frame past the first ones places none
+    /// on either path -- with the pointer at rest over the second link,
+    /// drawn as a box or as a line, too. Its controls: each arm's first
+    /// frame places them, and a CPU frame after the strikes changed with
+    /// nothing written places them again and draws what a full frame,
+    /// which places them whatever their key, draws. Named break: the
+    /// solids never kept.
+    pub fn a_caret_frame_places_no_link_record() {
+        let n = Nth::ALL;
+        let placed = |c: &Cost| {
+            c.counts
+                .at(Site::Links, Counter::LinkInstancesBuilt)
+                .value()
+        };
+        let at_rest = |paint: Option<HoverPaint>| {
+            move |t: &Term<'_>, k: Nth| Inputs {
+                hover: paint.map(|paint| LinkHover {
+                    paint,
+                    ..hover_over(t)
+                }),
+                ..Inputs::at(caret_at(k))
+            }
+        };
+        let mut wrong = Vec::new();
+        for (arm, paint) in [
+            ("caret", None),
+            ("hover box", Some(HoverPaint::Box)),
+            ("hover line", Some(HoverPaint::Line)),
+        ] {
+            let cpu = cpu_costs(Blinking::No, at_rest(paint), n);
+            let cell: Vec<Cost> = cell_costs(Blinking::No, at_rest(paint), n)
+                .into_iter()
+                .map(|c| c.0)
+                .collect();
+            for (path, costs) in [("cpu", &cpu), ("cell", &cell)] {
+                assert!(
+                    placed(&costs[0]) > 0,
+                    "the control: the {arm} arm's first {path} frame places the links"
+                );
+                for (k, c) in costs.iter().enumerate() {
+                    println!(
+                        "placed {arm} {path} frame {k}: link_instances_built={}",
+                        placed(c)
+                    );
+                    if !Nth(k).warming() && placed(c) != 0 {
+                        wrong.push(format!(
+                            "{arm} {path} caret frame {k}: {} link records placed\n  {}",
+                            placed(c),
+                            c.line()
+                        ));
+                    }
+                }
+            }
+        }
+        // The control that a kept placement still moves: both links struck
+        // with nothing written, on the CPU path.
+        with_screen(Blinking::No, |t, r| {
+            let still = Inputs::at(CursorPhase::SHOWN);
+            // Fitted before `a` is sized: the fixture shows a status line,
+            // whose row the renderer counts only once fitted, and `b` below
+            // is sized after the frames have fitted it.
+            r.fit(t);
+            let mut a = Pixels::of(r);
+            for k in Nth::WARM.before() {
+                let damage = match k {
+                    Nth(0) => Damage::Full,
+                    _ => Damage::Incremental,
+                };
+                cpu_frame(r, t, &still, &mut a.target(), damage);
+            }
+            let lines = links(t);
+            r.set_link_strikes(&lines[..2], &[]);
+            Cost::take();
+            cpu_frame(r, t, &still, &mut a.target(), Damage::Incremental);
+            let cost = Cost::take();
+            assert!(
+                placed(&cost) > 0,
+                "the control: a frame after the strikes changed places the links again"
+            );
+            let mut b = Pixels::of(r);
+            cpu_frame(r, t, &still, &mut b.target(), Damage::Full);
+            assert_eq!(
+                a.px.len(),
+                b.px.len(),
+                "the control: both frames are drawn at one size"
+            );
+            assert!(
+                a.px == b.px,
+                "the control: the frame after the strikes changed draws what a full frame draws"
+            );
+        });
+        assert!(
+            wrong.is_empty(),
+            "caret frames placed link records:\n{}",
+            wrong.join("\n")
+        );
     }
 
     /// **A sized line costs a caret frame no allocation** (FS-C12): a line

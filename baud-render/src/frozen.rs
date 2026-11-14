@@ -586,7 +586,7 @@ impl Renderer<'_, '_> {
         }
         // The strike's pass, over what the frozen one left, from the top:
         // a slot a source rendition, the rule decided once for each.
-        let paint = self.missing_paint;
+        let paint = self.missing_paint();
         let mut top = out.len();
         let mut slots: Vec<Option<StyleId>> = Vec::with_capacity(sources.len());
         for &(source, word) in &sources {
