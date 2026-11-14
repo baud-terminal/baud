@@ -8390,6 +8390,37 @@ mod locator_tests {
             FRAME
         );
     }
+
+    /// **A button the route gave the child ends a one-shot ReGIS input**
+    /// with no DECELR set: the route judges by the input's tracking
+    /// (`gesture::pointer_tracking`), and so does the press told to the
+    /// core, which sends Ky1's default down string, `CSI 241 ~` (070-13
+    /// § 5.4), and ends the input. Perturbation: the press told under the
+    /// mouse tracking alone, off here, so it reaches the core as a move
+    /// and the input waits on.
+    #[test]
+    fn a_button_ends_a_one_shot_regis_input() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_locator_device(LocatorDevice::Present);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        feed(&mut t, b"\x1bPpR(P(I))");
+        assert_eq!(t.regis_input(), baud_domain::RegisInput::OneShot);
+        let at = Some(LocatorAt {
+            col: Col::ZERO,
+            row: Row::ZERO,
+            px: Some(baud_domain::PointerPx {
+                x: baud_domain::ImagePx::of(40),
+                y: baud_domain::ImagePx::of(30),
+            }),
+        });
+        let down = (ViewMouseKind::Down, ViewButton::Left);
+        let left = LocatorButtons::NONE.pressed(LocatorButton::Left);
+        let owed = tell_locator(&mut t, down, LocatorHalf::Routed(To::Child), at, left);
+        assert_eq!(owed.reply, Reply::Queued);
+        assert!(t.reply().starts_with(b"\x1b[241~"), "{:?}", t.reply());
+        assert_ne!(t.regis_input(), baud_domain::RegisInput::OneShot);
+    }
 }
 
 #[cfg(test)]
@@ -20827,8 +20858,12 @@ struct LocatorOwed {
 /// `at` is the cell under the event, `None` off the text area, and a leave
 /// is `None` wherever it was, the pointer having left the view; `held` the
 /// buttons after it (`held_after`). A press the route gave the selection
-/// is a move to the locator (`locator_input`). The indicator line owes a
-/// frame whenever it is shown and the locator was told (`locator_redraws`).
+/// is a move to the locator (`locator_input`); one it gave the child is a
+/// press under the tracking the route judged by, a one-shot ReGIS input's
+/// included (`gesture::pointer_tracking`), so the button's string goes and
+/// ends the input (`Term::locator`) with no DECELR set, as on Linux
+/// (`seat.rs`). The indicator line owes a frame whenever it is shown and
+/// the locator was told (`locator_redraws`).
 fn tell_locator(
     term: &mut Term<'_>,
     (view_kind, view_button): (ViewMouseKind, ViewButton),
@@ -20850,7 +20885,7 @@ fn tell_locator(
         }),
         (LocatorHalf::Routed(to), Kind::Down | Kind::Up) => Some(locator_input(
             (kind, button, to),
-            term.mouse_tracking(),
+            crate::gesture::pointer_tracking(term.mouse_tracking(), term.regis_input()),
             at,
             held,
         )),
