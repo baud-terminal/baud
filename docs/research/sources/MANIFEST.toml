@@ -653,6 +653,15 @@ group  = "C"
 # SCREEN MODE, "Note: Conforming software should not depend on the speed of execution
 # when changing Screen Mode. It may take as long as the time required to repaint the
 # entire screen, depending on the hardware implementation" (p. 5-94, PDF 349).
+# Read for the reads a ReGIS hold keeps on macOS (lane statics), on a text extraction
+# made earlier from this copy [text], witnessed as this copy's text layer by its DECRQSS
+# control returning the pages note AN's script records (446, 447, 451, 482, 1045), not
+# extracted again: 070-8 § 8.7.1.4.3, S(T<n>) - Timer, "the number of device dependent
+# timer "ticks" for which ReGIS interpretation should be suspended ... measured from the
+# time the S(T<n>) is interpreted by the device" (PDF 853); 070-13 § 5.1, "While the
+# terminal is in graphics input mode, no further data from the application (screen
+# output) is processed until the locator input is complete and a report is generated"
+# (PDF 1026).
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"

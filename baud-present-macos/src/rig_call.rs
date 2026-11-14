@@ -395,6 +395,13 @@ pub enum RigAct {
     /// every time, its effects checked after it; [`SENTINEL_BACKSTOP`] the
     /// backstop, as for [`RigAct::TypeUntil`].
     TypeToSentinel,
+    /// A key pressed in the view, Return, as the view's own `keyDown:`
+    /// takes one, over `arg`'s screen, with no wake of the rig's after it.
+    Key,
+    /// The left button pressed and let go on the first row's first cell,
+    /// as the view's own `mouseDown:` and `mouseUp:` take them, over
+    /// `arg`'s screen, with no wake of the rig's after it.
+    Button,
 }
 
 /// **How long [`RigAct::TypeHeld`] holds a reply**: past the second a
@@ -415,6 +422,15 @@ pub const SENTINEL_BACKSTOP: std::time::Duration = std::time::Duration::from_sec
 /// once was, two hundred passes of the run loop at most 10 ms each, so a
 /// run that ends on that count ends before the second stage is written.
 pub const LATE_RELEASE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// **The child's line when a one-shot ReGIS input's held reads went on
+/// on the wake the act's end asked for** (`App::input_released`): printed
+/// once, at the run's end, by a run of [`RigAct::Key`] or
+/// [`RigAct::Button`] whose every turn that fed held reads and no read of
+/// its own was woken by that wake, matched in the child by the wake's type
+/// (`rig::Carrier::Released`) and never by a line of the source. The
+/// parent passes those rows only with it; one spelling for both sides.
+pub const RELEASED_ON_THE_ACTS_WAKE: &str = "held reads released on the act's wake";
 
 /// Whether the frame is driven, and whether a turn runs inline.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -442,7 +458,7 @@ pub enum RigFocus {
     Believed,
 }
 
-const ACTS: [(RigAct, &str); 11] = [
+const ACTS: [(RigAct, &str); 13] = [
     (RigAct::Path, "path"),
     (RigAct::Type, "type"),
     (RigAct::Link, "link"),
@@ -454,6 +470,8 @@ const ACTS: [(RigAct, &str); 11] = [
     (RigAct::TypeUntil, "type-until"),
     (RigAct::TypeHeld, "type-held"),
     (RigAct::TypeToSentinel, "type-to-sentinel"),
+    (RigAct::Key, "key"),
+    (RigAct::Button, "button"),
 ];
 
 const TICKS: [(RigTicks, &str); 6] = [

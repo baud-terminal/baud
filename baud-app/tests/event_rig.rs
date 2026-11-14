@@ -42,8 +42,8 @@
 
 use baud_present_macos::probe::{EffectKind, Nested, Record, Responder, Where};
 use baud_present_macos::rig_call::{
-    EventRig, FrameRig, Iterations, QUIET_WAKES, RigAct, RigCall, RigEnd, RigEvent, RigFocus,
-    RigFrameTicks, RigHolders, RigKeys, RigTicks, RigWindow,
+    EventRig, FrameRig, Iterations, QUIET_WAKES, RELEASED_ON_THE_ACTS_WAKE, RigAct, RigCall,
+    RigEnd, RigEvent, RigFocus, RigFrameTicks, RigHolders, RigKeys, RigTicks, RigWindow,
 };
 use baud_present_macos::unwind::SiteName;
 use std::path::{Path, PathBuf};
@@ -94,6 +94,20 @@ enum Failure {
     /// master's room woke wrote the rest, so whatever wrote it was
     /// something else.
     Unwitnessed,
+    /// **The held reads went on, but not on the wake the act's end asked
+    /// for** (`App::input_released`): a row whose act the rig leaves alone
+    /// ([`Witness::ActsWake`]) had no line from the child saying every turn
+    /// that fed held reads and no read of its own was woken by that wake,
+    /// matched there by its type (`rig::Carrier::Released`). A turn the act
+    /// did not ask for fed them, and the copy after it says nothing of the
+    /// product's wake.
+    Unreleased,
+    /// **Never still before an act the rig leaves alone**: a wake in
+    /// flight, the effect queue's turn, the printed paths' worker or a
+    /// frame on the GPU still to come at the child's bound (`rig::quiet`
+    /// before the act), so a turn after the act could have been one the
+    /// act did not ask for. The child's line says which.
+    NeverStill,
     /// The effect ran other than once in an iteration, or another effect
     /// ran.
     Times,
@@ -198,7 +212,7 @@ impl Cause {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Gesture {
     /// The child's act: a link's click, a selection, the Edit menu's
-    /// copy, or a notification's click.
+    /// copy, a notification's click, or a key.
     act: RigAct,
     /// The shell line that draws the screen, `{file}` the row's own
     /// scratch file; it ends with an `OSC 52` clear, the sign it was read.
@@ -514,7 +528,7 @@ const REPLY_FLOOD: &str = concat!(
     r"printf '\033]52;c;!\007'",
 );
 
-const SITES: [Site; 33] = [
+const SITES: [Site; 35] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -649,6 +663,71 @@ const SITES: [Site; 33] = [
             line: r"printf '\033PpS(T30)\033\\\033]52;c;aGk=\007'",
             config: "",
             shape: DELAYS,
+        }),
+        expect: Expect {
+            each: &[EffectKind::Copy],
+            paced: &[EffectKind::Announce],
+        },
+        state: RowState::Green,
+    },
+    // **A one-shot ReGIS input's held reads go on when an event ends it,
+    // with no tick**: `R(P(I))` holds what follows it until a key or a
+    // button ends the input, "no further data from the application
+    // (screen output) is processed until the locator input is complete"
+    // (`[[source: dec-std-070]]` 070-13 § 5.1), and the copy after it is
+    // made once the wake the ended input asks for releases it
+    // (`App::input_released`), the frame undriven as from a covered window.
+    // Nothing else may pump after the act, or the row proves nothing: any
+    // pump feeds the held reads once the input has ended. So the shell does
+    // not echo and the program swallows the report, and nothing read after
+    // the act can release it; the rig posts no wake of its own after the
+    // act (`rig::After::Alone`); the cursor is steady (`DECSCUSR 2`), so no
+    // blink's restart is scheduled; the activity lights are off, so the
+    // program in front is not listed again on a wake every second
+    // (`front_turn`), a wake that renews itself, so no wait before the act
+    // ends ([`Failure::NeverStill`]) and its turn feeds the held reads
+    // after the act with no ask of the act's; the child draws on the CPU
+    // ([`drawn_with`]), so no frame's completion wakes it; and the rig
+    // waits before the act until no wake, effect turn or path is still to
+    // come ([`Failure::NeverStill`]), printing how many wakes the act then
+    // asks (`asked by the act`). The row passes only on the copy and the
+    // child's witness that the turn that fed the held reads was woken by
+    // the ended input's own wake ([`Witness::ActsWake`]). Break: the ask
+    // left out of the key's funnel (`App::send`), and the row never
+    // copies, the act asking no wake.
+    Site {
+        name: SiteName(
+            "a one-shot ReGIS input's held reads, released by the key that ends it, with no tick",
+        ),
+        cause: Cause::Gesture(Gesture {
+            act: RigAct::Key,
+            setup: r"stty -echo; printf '\033[2 q\033]52;c;!\007\033PpR(P(I))\033\\\033]52;c;aGk=\007'; cat >/dev/null",
+            config: "[window]\nactivity_lights = \"off\"\n",
+            focus: RigFocus::Believed,
+            shape: ONCE,
+        }),
+        expect: Expect {
+            each: &[EffectKind::Copy],
+            paced: &[EffectKind::Announce],
+        },
+        state: RowState::Green,
+    },
+    // **The same, ended by a button**: a click on the first cell, the
+    // press routed to the input as a tracking child's is and told to the
+    // core under the input's tracking, with no DECELR, so Ky1's default
+    // down string goes and ends it (`tell_locator`); held to the same
+    // stillness, the lights off, and the same witness. Break: the ask left
+    // out of the button's funnel (`Driver::locator_owed`).
+    Site {
+        name: SiteName(
+            "a one-shot ReGIS input's held reads, released by the button that ends it, with no tick",
+        ),
+        cause: Cause::Gesture(Gesture {
+            act: RigAct::Button,
+            setup: r"stty -echo; printf '\033[2 q\033]52;c;!\007\033PpR(P(I))\033\\\033]52;c;aGk=\007'; cat >/dev/null",
+            config: "[window]\nactivity_lights = \"off\"\n",
+            focus: RigFocus::Believed,
+            shape: ONCE,
         }),
         expect: Expect {
             each: &[EffectKind::Copy],
@@ -1340,14 +1419,33 @@ fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
         .env("PATH", "/usr/bin:/bin")
         .env("BAUD_CONFIG", &conf)
         .env("BAUD_TYPING", "off")
+        .envs(drawn_with(site).map(|path| ("BAUD_GPU", path)))
         .current_dir(&dir)
         .output()
         .expect("the child");
     judge(expect, iterations(site), witness(site, ticks), &out, &dir)
 }
 
+/// **The path a row's child draws with** (`BAUD_GPU`): the CPU for a row
+/// whose act the rig leaves alone (`RigAct::Key`, `RigAct::Button`, as
+/// `rig::After::Alone` is chosen), so nothing but a wake the rig counts can
+/// pump after the act -- a GPU frame's completion wakes the window from the
+/// GPU's thread, counted by nothing and ordered behind no barrier, and the
+/// child's wait before the act fails on any frame drawn there
+/// ([`Failure::NeverStill`]); the machine's own choice for every other row.
+fn drawn_with(site: &Site) -> Option<&'static str> {
+    match site.cause {
+        Cause::Gesture(Gesture {
+            act: RigAct::Key | RigAct::Button,
+            ..
+        }) => Some("cpu"),
+        _ => None,
+    }
+}
+
 /// Whether an arm asks the child's witness that its writes were taken
-/// short, and that the master's room woke a turn to write the rest.
+/// short, and that the master's room woke a turn to write the rest; or
+/// that the held reads went on on the act's own wake.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Witness {
     Any,
@@ -1355,6 +1453,9 @@ enum Witness {
     Short,
     /// `short writes` and `room turns` each at least one.
     ShortAndRoom,
+    /// The child's [`RELEASED_ON_THE_ACTS_WAKE`]: every turn that fed held
+    /// reads and no read of its own woken by the ended input's wake.
+    ActsWake,
 }
 
 /// For [`Until::SentinelShort`]'s rows alone: [`Witness::ShortAndRoom`] on
@@ -1362,11 +1463,21 @@ enum Witness {
 /// kernel did not take, and [`Witness::Short`] on the driven ones, where
 /// a tick and the room's wake race for the same owed bytes and the tick
 /// winning is correct, so a room count asked there would pass or fail by
-/// timing. Their room count stays in the census, unjudged.
+/// timing. Their room count stays in the census, unjudged. A row whose
+/// act the rig leaves alone (`RigAct::Key`, `RigAct::Button`) asks
+/// [`Witness::ActsWake`]: the copy alone says the held reads went on, not
+/// that the product's wake took them on.
 fn witness(site: &Site, ticks: Ticks) -> Witness {
     match (site.cause, ticks) {
         (Cause::ProgramUntil(_, Until::SentinelShort), Ticks::None) => Witness::ShortAndRoom,
         (Cause::ProgramUntil(_, Until::SentinelShort), _) => Witness::Short,
+        (
+            Cause::Gesture(Gesture {
+                act: RigAct::Key | RigAct::Button,
+                ..
+            }),
+            _,
+        ) => Witness::ActsWake,
         _ => Witness::Any,
     }
 }
@@ -1389,8 +1500,10 @@ fn judge(
     }
     // The child's count of short writes and of the turns the master's room
     // woke, each printed once at the run's end, and no record; nor is its
-    // census of what carried the bytes no read fed, kept in the row's
-    // `stdout` for whoever reads a run.
+    // census of what carried the bytes no read fed, nor of what woke the
+    // turns that fed held reads alone, nor its count of the wakes an act
+    // left alone asked, each kept in the row's `stdout` for whoever reads a
+    // run; nor its witness that the act's own wake fed them.
     let short = text
         .lines()
         .find_map(|l| l.strip_prefix("short writes "))
@@ -1399,12 +1512,16 @@ fn judge(
         .lines()
         .find_map(|l| l.strip_prefix("room turns "))
         .and_then(|c| c.parse::<u32>().ok());
+    let released = text.lines().any(|l| l == RELEASED_ON_THE_ACTS_WAKE);
     let lines: Vec<&str> = text
         .lines()
         .filter(|l| {
             !l.starts_with("short writes ")
                 && !l.starts_with("carried ")
                 && !l.starts_with("room turns ")
+                && !l.starts_with("released by ")
+                && !l.starts_with("asked by the act ")
+                && *l != RELEASED_ON_THE_ACTS_WAKE
         })
         .collect();
     let iterations = usize::from(n.0);
@@ -1415,6 +1532,13 @@ fn judge(
     }
     if lines.contains(&"unanswered") {
         return Observed::Failed(Failure::Unanswered);
+    }
+    // Before the act, so nothing after it is read: the child's own line.
+    if lines
+        .iter()
+        .any(|l| l.starts_with("never still before the act"))
+    {
+        return Observed::Failed(Failure::NeverStill);
     }
     // Before the records: the line is no record, and a row whose bound
     // passed with an effect owed reads as that bound, not as the child's
@@ -1467,13 +1591,15 @@ fn judge(
         return Observed::Failed(Failure::NeverPaced(expect.paced[at]));
     }
     let (short, room) = (short.unwrap_or(0), room.unwrap_or(0));
-    let witnessed = match witness {
-        Witness::Any => true,
-        Witness::Short => short >= 1,
-        Witness::ShortAndRoom => short >= 1 && room >= 1,
-    };
-    if !witnessed {
-        return Observed::Failed(Failure::Unwitnessed);
+    match witness {
+        Witness::Any => {}
+        Witness::Short if short >= 1 => {}
+        Witness::ShortAndRoom if short >= 1 && room >= 1 => {}
+        Witness::ActsWake if released => {}
+        Witness::Short | Witness::ShortAndRoom => {
+            return Observed::Failed(Failure::Unwitnessed);
+        }
+        Witness::ActsWake => return Observed::Failed(Failure::Unreleased),
     }
     match out.status.success() {
         true => Observed::Passed,

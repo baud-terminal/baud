@@ -1957,9 +1957,11 @@ impl App {
             self.activity.seen(Led::Aa, host_now());
         }
         let encoded = crate::reads::input(&mut self.term, |t| t.key(e), |b| self.outbox.push(b));
+        // A key that ended a one-shot ReGIS input: the reads it held are
+        // fed on the wake this asks for, with no tick.
+        self.input_released();
         // An arrow key moved a ReGIS input cursor, or a key ended the input
-        // and took it away: a frame, and the tick's pump feeds the reads
-        // the input held (`reads::Pace`).
+        // and took it away: a frame.
         if self.term.images().generation() != drawn {
             self.owe_frame();
         }
@@ -1973,6 +1975,19 @@ impl App {
         match (encoded, self.flush_reply(Asked::Typed)) {
             (true, Sent::Bytes) => Sent::Bytes,
             _ => Sent::Nothing,
+        }
+    }
+
+    /// **A one-shot ReGIS input an event ended**: the reads it held are
+    /// owed a feed on a turn of their own, so a wake is posted for now,
+    /// once an input ([`crate::reads::Pace::release`]), whose pump feeds
+    /// them -- with no tick, as from a covered window or a paused link.
+    /// Asked by the two funnels an input can end through, a key's
+    /// ([`App::send`]) and a button's (`Driver::locator_owed`); not a pump
+    /// of its own, since both run inside a responder method.
+    fn input_released(&mut self) {
+        if self.pace.release(&self.term) == crate::reads::Release::Wake {
+            let _ = wake_holding(self.waker, Instant::now(), InputEnded);
         }
     }
 
@@ -8395,9 +8410,9 @@ mod locator_tests {
     /// with no DECELR set: the route judges by the input's tracking
     /// (`gesture::pointer_tracking`), and so does the press told to the
     /// core, which sends Ky1's default down string, `CSI 241 ~` (070-13
-    /// § 5.4), and ends the input. Perturbation: the press told under the
-    /// mouse tracking alone, off here, so it reaches the core as a move
-    /// and the input waits on.
+    /// § 5.4), and ends the input -- the end `Pace::release` asks a wake
+    /// for. Perturbation: the press told under the mouse tracking alone,
+    /// off here, so it reaches the core as a move and the input waits on.
     #[test]
     fn a_button_ends_a_one_shot_regis_input() {
         let mut owned = Owned::new(&WS);
@@ -14219,9 +14234,11 @@ impl Driver {
         let mut fonts_asked = Vec::new();
         // And its print jobs, taken after each part of a read as the core
         // finishes them, for the print panel (`print.rs`).
-        // **A ReGIS delay holds the reads behind it** until the tick its
-        // deadline falls on; every tick calls this, so the held reads go
-        // on with no chunk of their own.
+        // **A ReGIS delay holds the reads behind it** until its deadline,
+        // and a one-shot ReGIS input until an event ends it: the wake
+        // posted for the deadline (`Driver::pace_wake`) and the wake the
+        // ended input asks for (`App::input_released`) each call this, so
+        // the held reads go on with no chunk of their own and no tick.
         // The reads it fed, each with what it was taken with, held ones
         // when their bytes go on.
         let mut took = Vec::new();
@@ -14580,7 +14597,7 @@ impl Driver {
         // The find's matches after the read: the lines it retired dropped,
         // the lines it wrote read again, and the current match selected
         // again when it moved -- after reads a ReGIS delay held too, fed
-        // on a tick with no chunk of their own.
+        // on a wake with no chunk of their own.
         if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {
             if let Some(f) = self.app.finding.as_mut() {
                 if f.refresh(&self.app.term) == crate::find::Moved::Yes {
@@ -14590,6 +14607,15 @@ impl Driver {
                 }
                 self.app.owe_frame();
             }
+        }
+        // The event rig's release census: a turn that fed held reads and no
+        // read of its own -- a ReGIS delay's deadline come, a one-shot input
+        // ended -- kept by what woke it (`rig::released`). Here, after the
+        // find's refresh, because the statements after the feed are held to
+        // follow it straight.
+        #[cfg(feature = "effect-probe")]
+        if drained.chunks.is_empty() && fed == crate::reads::Fed::Some {
+            rig::released();
         }
         // The link under a resting pointer, on a turn an event marked -- the
         // focus, a worker's answer, this machine's names, the config -- so
@@ -14699,6 +14725,10 @@ impl Driver {
         self.record_lamps_due();
         // The notices' next timed step, after this turn took its own.
         self.notice_schedule();
+        // The event rig's census turn ends: a write from here to the next
+        // pump's turn is a responder method's (`rig::turn_end`).
+        #[cfg(feature = "effect-probe")]
+        rig::turn_end();
     }
 }
 
@@ -20518,8 +20548,9 @@ impl Driver {
         )
     }
 
-    /// What telling DEC's locator left owed: its report written, and a
-    /// frame for the indicator line.
+    /// What telling DEC's locator left owed: its report written, the
+    /// reads a one-shot ReGIS input held released when a button ended it
+    /// ([`App::input_released`]), and a frame for the indicator line.
     fn locator_owed(&mut self, owed: LocatorOwed) {
         if owed.reply == Reply::Queued {
             self.app.flush_reply(Asked::Typed);
@@ -20527,6 +20558,7 @@ impl Driver {
         if owed.frame == LineFrame::Owed {
             self.app.owe_frame();
         }
+        self.app.input_released();
     }
 
     /// The same point for DEC's locator: `None` off the text area.
@@ -24540,7 +24572,9 @@ mod wake_count_tests {
     /// tests, which every test build runs; this holds the rig to them, and to
     /// handing them the real reads: every part's read in `quiet`, the wakes
     /// in flight read there alone, and the barrier posted and its
-    /// performance read in `quiet_at` alone. Read from the source, which
+    /// performance read in `quiet_at` alone; and the moment before an act
+    /// the rig leaves alone is waited on through `quiet_at` too, under its
+    /// own scope (`still_before_the_act`). Read from the source, which
     /// every build has; the rig is the probe build's. Perturbations: a part
     /// judged in the rig instead, a part handed as a constant (the wakes as
     /// none in flight), `quiet` read outside `quiet_at`, `closed` passed by,
@@ -24555,7 +24589,7 @@ mod wake_count_tests {
             let end = at + RIG[at..].find("\n}\n").expect("its end");
             &RIG[at..end]
         };
-        const PARTS: &str = "quiet(event, signed)";
+        const PARTS: &str = "quiet(event, signed, scope)";
         const JUDGE: &str = "quiet_judge::judge(";
         const CLOSED: &str = "quiet_judge::closed(";
         assert_eq!(RIG.matches(PARTS).count(), 1, "the parts read once");
@@ -24568,6 +24602,8 @@ mod wake_count_tests {
             "probe::link().0 ==",
             "probe::frame_owed()",
             "probe::owes()",
+            "probe::gpu_committed()",
+            "crate::os_effect::due()",
             "WAKES_IN_FLIGHT.load(",
             "probe::paths_due()",
             "signed == Signed::Yes",
@@ -24602,10 +24638,21 @@ mod wake_count_tests {
             assert!(judged.contains(barrier), "{what} in quiet_at: {judged}");
         }
         assert_eq!(
-            RIG.matches("quiet_at(event, signed, &mut at_quiet)")
+            RIG.matches("quiet_at(event, signed, Scope::End, &mut at_quiet)")
                 .count(),
             2,
             "the run's end judged through quiet_at, before its loop and on each pass"
+        );
+        let still = body("fn still_before_the_act(");
+        assert!(
+            still.contains("Scope::BeforeAct")
+                && still.contains("quiet_at(event, signed, scope, &mut at_still)"),
+            "the moment before an act left alone judged through quiet_at: {still}"
+        );
+        assert_eq!(
+            RIG.matches("quiet_at(").count(),
+            4,
+            "quiet_at defined, and called twice at the run's end and once before an act"
         );
         let done = body("pub(super) fn wake_done(");
         assert!(
@@ -24638,16 +24685,40 @@ mod quiet_judge {
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub(crate) struct WakesRun(pub(crate) u64);
 
+    /// **What a quiet is judged for.**
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum Scope {
+        /// A frame row's end (`RigEnd::Quiet` and the rest): the link
+        /// paused and nothing owed, the wakes in flight, the printed paths'
+        /// worker, the row's event and the act's clear.
+        End,
+        /// **The moment before an act the event rig leaves alone**
+        /// (`rig::After::Alone`): nothing still to come that could pump
+        /// after the act and feed what it released -- no frame drawn on the
+        /// GPU, whose completion wakes the window from the GPU's thread
+        /// with no count and no barrier ordered after it; the effect
+        /// queue's turn not posted, a main-queue block with no count; no
+        /// wake in flight; the paths' worker idle. The link and a frame
+        /// owed are not judged: an undriven arm's settle can leave the link
+        /// run with a frame owed and no tick to draw it, and neither pumps.
+        BeforeAct,
+    }
+
     /// **Quiet's parts, as read**, in the order they are judged: the row's
     /// event (`Err`, the event not yet seen), the link paused, nothing owed
     /// -- no frame, and the last settle owing no restart at a deadline --,
+    /// no frame ever drawn on the GPU, the effect queue's turn not posted,
     /// the wakes in flight, the printed paths' worker (`Err`, what it still
-    /// owes), and the act's clear read, or none to read.
+    /// owes), and the act's clear read, or none to read; which of them are
+    /// judged is the [`Scope`]'s.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub(crate) struct Parts<E, P> {
+        pub(crate) scope: Scope,
         pub(crate) event: Result<(), E>,
         pub(crate) paused: Met,
         pub(crate) owed_nothing: Met,
+        pub(crate) on_cpu: Met,
+        pub(crate) effects: Met,
         pub(crate) wakes: InFlight,
         pub(crate) paths: Result<(), P>,
         pub(crate) signed: Met,
@@ -24664,6 +24735,11 @@ mod quiet_judge {
         /// A frame owed and not drawn, or the last settle owing one or a
         /// restart at a deadline.
         Owed,
+        /// A frame drawn on the GPU, before an act left alone.
+        Gpu,
+        /// The effect queue's turn posted and not yet run, before an act
+        /// left alone.
+        Effects,
         /// Wakes posted for a moment still to run: how many.
         Wakes(InFlight),
         /// The printed paths' worker owing a turn: a batch due or out, or
@@ -24682,6 +24758,10 @@ mod quiet_judge {
                 Unquiet::Event(event) => write!(f, "the row's event, {event:?}, never seen"),
                 Unquiet::Link => f.write_str("the link never paused"),
                 Unquiet::Owed => f.write_str("a frame or a restart still owed"),
+                Unquiet::Gpu => {
+                    f.write_str("a frame drawn on the GPU, whose completion no count sees")
+                }
+                Unquiet::Effects => f.write_str("the effect queue's turn still to run"),
                 Unquiet::Wakes(InFlight(n)) => {
                     write!(f, "{n} wakes posted for a moment still to run")
                 }
@@ -24692,17 +24772,31 @@ mod quiet_judge {
         }
     }
 
-    /// **Every part met, or the first that is not**, in [`Parts`]' order. A
-    /// wake in flight holds quiet off however still the rest reads: the
-    /// moment it was posted for has not come, and what its turn does --
+    /// **Every part its [`Scope`] judges met, or the first that is not**,
+    /// in [`Parts`]' order: the link and a frame owed at a row's end, the
+    /// GPU and the effect queue before an act left alone, and the rest at
+    /// both. A wake in flight holds quiet off however still the rest reads:
+    /// the moment it was posted for has not come, and what its turn does --
     /// owe a frame, set a title, answer a held read -- is still to happen.
     pub(crate) fn judge<E, P>(parts: Parts<E, P>) -> Result<(), Unquiet<E, P>> {
         parts.event.map_err(Unquiet::Event)?;
-        if parts.paused == Met::No {
-            return Err(Unquiet::Link);
-        }
-        if parts.owed_nothing == Met::No {
-            return Err(Unquiet::Owed);
+        match parts.scope {
+            Scope::End => {
+                if parts.paused == Met::No {
+                    return Err(Unquiet::Link);
+                }
+                if parts.owed_nothing == Met::No {
+                    return Err(Unquiet::Owed);
+                }
+            }
+            Scope::BeforeAct => {
+                if parts.on_cpu == Met::No {
+                    return Err(Unquiet::Gpu);
+                }
+                if parts.effects == Met::No {
+                    return Err(Unquiet::Effects);
+                }
+            }
         }
         if parts.wakes != InFlight(0) {
             return Err(Unquiet::Wakes(parts.wakes));
@@ -24776,9 +24870,12 @@ mod quiet_judge {
 
         /// Every part met, as each case starts from.
         const MET: Parts<&str, &str> = Parts {
+            scope: Scope::End,
             event: Ok(()),
             paused: Met::Yes,
             owed_nothing: Met::Yes,
+            on_cpu: Met::Yes,
+            effects: Met::Yes,
             wakes: InFlight(0),
             paths: Ok(()),
             signed: Met::Yes,
@@ -24850,9 +24947,12 @@ mod quiet_judge {
                 assert_eq!(judge(parts), Err(unmet), "{parts:?}");
             }
             let none = Parts {
+                scope: Scope::End,
                 event: Err("event"),
                 paused: Met::No,
                 owed_nothing: Met::No,
+                on_cpu: Met::No,
+                effects: Met::No,
                 wakes: InFlight(1),
                 paths: Err("owed"),
                 signed: Met::No,
@@ -24869,6 +24969,65 @@ mod quiet_judge {
                 ..seen
             };
             assert_eq!(judge(settled), Err(Unquiet::Wakes(InFlight(1))));
+        }
+
+        /// **Before an act left alone, what could pump holds quiet off, and
+        /// the link and a frame owed do not** ([`Scope::BeforeAct`]): the
+        /// link running and a frame owed, every other part met, is still; a
+        /// frame drawn on the GPU, the effect queue's turn posted, a wake in
+        /// flight and the paths' worker owing each hold it off alone, named;
+        /// and a row's end judges neither the GPU nor the effect queue. What
+        /// the rig reads into it is `rig::quiet`'s, waited on by
+        /// `rig::still_before_the_act`. Break: the two scopes' parts
+        /// swapped, so the link is judged before an act -- red here.
+        #[test]
+        fn before_an_act_left_alone_what_could_pump_holds_quiet_off() {
+            let before = Parts {
+                scope: Scope::BeforeAct,
+                paused: Met::No,
+                owed_nothing: Met::No,
+                ..MET
+            };
+            assert_eq!(judge(before), Ok(()), "the link running, a frame owed");
+            let cases = [
+                (
+                    Parts {
+                        on_cpu: Met::No,
+                        ..before
+                    },
+                    Unquiet::Gpu,
+                ),
+                (
+                    Parts {
+                        effects: Met::No,
+                        ..before
+                    },
+                    Unquiet::Effects,
+                ),
+                (
+                    Parts {
+                        wakes: InFlight(1),
+                        ..before
+                    },
+                    Unquiet::Wakes(InFlight(1)),
+                ),
+                (
+                    Parts {
+                        paths: Err("owed"),
+                        ..before
+                    },
+                    Unquiet::Paths("owed"),
+                ),
+            ];
+            for (parts, unmet) in cases {
+                assert_eq!(judge(parts), Err(unmet), "{parts:?}");
+            }
+            let end = Parts {
+                on_cpu: Met::No,
+                effects: Met::No,
+                ..MET
+            };
+            assert_eq!(judge(end), Ok(()), "a row's end judges neither");
         }
 
         /// **Quiet closes only behind a barrier performed with no callback
@@ -24936,6 +25095,149 @@ mod quiet_judge {
     }
 }
 
+/// **The event rig's census, judged from what it heard** (`rig::carried`,
+/// `rig::released`): where a write no read fed is billed, and whether the
+/// held reads an act left alone released went on on its own wake. No
+/// reads of its own, so its rules are held by tests every test build
+/// runs, while the rig that hears the carriers is the probe build's alone.
+#[cfg(any(test, feature = "effect-probe"))]
+mod census_judge {
+    /// Whether a pump's census turn runs: from `rig::turn` to
+    /// `rig::turn_end`.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum Pumping {
+        No,
+        Yes,
+    }
+
+    /// Whether a turn fed a read.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum Fed {
+        No,
+        Yes,
+    }
+
+    /// Whether a turn's carriers are in the census yet: once a turn.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum Counted {
+        No,
+        Yes,
+    }
+
+    /// **Where a write of bytes no read fed is billed.**
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum Bill {
+        /// To `responder`: a write outside any pump.
+        Responder,
+        /// To the running turn's carriers, which are then counted.
+        Turn,
+        /// Nowhere: the turn fed a read, or is counted already.
+        Nothing,
+    }
+
+    /// **A write no read fed, billed** (`rig::carried`): outside a pump to
+    /// the responder, every time, whatever the turn before it; inside one
+    /// to the turn's carriers, once a turn, unless the turn fed a read.
+    pub(crate) fn bill(pumping: Pumping, fed: Fed, counted: Counted) -> Bill {
+        match (pumping, fed, counted) {
+            (Pumping::No, ..) => Bill::Responder,
+            (Pumping::Yes, Fed::No, Counted::No) => Bill::Turn,
+            (Pumping::Yes, ..) => Bill::Nothing,
+        }
+    }
+
+    /// A carrier as the release's witness reads it, by its type: the wake
+    /// an ended input asks for (`rig::Carrier::Released`), or any other.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum Woke {
+        Released,
+        Other,
+    }
+
+    /// Whether an act left alone was released on its own wake.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum Witnessed {
+        Yes,
+        No,
+    }
+
+    /// **The held reads went on on the act's own wake**: at least one turn
+    /// fed held reads and no read of its own (`rig::released`), and every
+    /// such turn was woken by the wake an ended input asks for -- whatever
+    /// else woke it with that wake. A turn the act did not ask for, the
+    /// first to feed them, is a turn that comes by coincidence, and the
+    /// copy after it says nothing of the product's wake.
+    pub(crate) fn released_by_the_act(turns: &[Vec<Woke>]) -> Witnessed {
+        match !turns.is_empty() && turns.iter().all(|t| t.contains(&Woke::Released)) {
+            true => Witnessed::Yes,
+            false => Witnessed::No,
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// **A write outside a pump is billed to the responder, every time;
+        /// one inside a pump to its turn, once** ([`bill`]): outside a pump,
+        /// whatever the turn before it fed or had counted, the bill is the
+        /// responder's; inside, a turn that fed no read and is not yet
+        /// counted is billed, and one that fed a read or is counted is not.
+        /// An act's own report, written in the responder method that ended a
+        /// one-shot ReGIS input, was billed to the pump before it. Break:
+        /// the pump not read, so a write outside one is billed to the turn
+        /// before it -- red here.
+        #[test]
+        fn a_write_outside_a_pump_is_billed_to_the_responder() {
+            for fed in [Fed::No, Fed::Yes] {
+                for counted in [Counted::No, Counted::Yes] {
+                    assert_eq!(
+                        bill(Pumping::No, fed, counted),
+                        Bill::Responder,
+                        "{fed:?} {counted:?}"
+                    );
+                }
+            }
+            assert_eq!(bill(Pumping::Yes, Fed::No, Counted::No), Bill::Turn);
+            assert_eq!(bill(Pumping::Yes, Fed::Yes, Counted::No), Bill::Nothing);
+            assert_eq!(bill(Pumping::Yes, Fed::No, Counted::Yes), Bill::Nothing);
+            assert_eq!(bill(Pumping::Yes, Fed::Yes, Counted::Yes), Bill::Nothing);
+        }
+
+        /// **Only the act's own wake releases an act left alone**
+        /// ([`released_by_the_act`]): no release at all is no witness; one
+        /// turn woken by the ended input's wake, with anything else, is; a
+        /// turn woken by anything else alone, or by nothing heard, is not;
+        /// and a second release woken by another is not either. Break: any
+        /// release taken for every one, so a turn by coincidence beside the
+        /// act's own passes -- red here.
+        #[test]
+        fn only_the_acts_wake_releases_an_act_left_alone() {
+            use Woke::{Other, Released};
+            assert_eq!(released_by_the_act(&[]), Witnessed::No, "never");
+            assert_eq!(
+                released_by_the_act(&[vec![Other, Released]]),
+                Witnessed::Yes
+            );
+            assert_eq!(
+                released_by_the_act(&[vec![Other]]),
+                Witnessed::No,
+                "another wake"
+            );
+            assert_eq!(
+                released_by_the_act(&[vec![]]),
+                Witnessed::No,
+                "nothing heard"
+            );
+            assert_eq!(
+                released_by_the_act(&[vec![Released], vec![Other]]),
+                Witnessed::No,
+                "a second release, another's"
+            );
+        }
+    }
+}
+
 /// Whether a wake posted for a moment wakes the window once what it held
 /// is let go.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -24954,6 +25256,21 @@ trait Held: Send + 'static {
 /// A plain wake.
 impl Held for () {
     fn let_go(self, _: Waker) -> Wakes {
+        Wakes::Yes
+    }
+}
+
+/// **The wake an ended one-shot ReGIS input asks for**
+/// (`App::input_released`): a plain wake, heard by the event rig's census
+/// by its type as its callback lets it go (`rig::Carrier::Released`), so a
+/// row it releases is judged by what woke the turn that fed the held
+/// reads, never by a line of this file.
+struct InputEnded;
+
+impl Held for InputEnded {
+    fn let_go(self, _: Waker) -> Wakes {
+        #[cfg(feature = "effect-probe")]
+        rig::heard(rig::Carrier::Released);
         Wakes::Yes
     }
 }
@@ -27376,5 +27693,108 @@ mod kept_lights_tests {
             "in resized"
         );
         assert_eq!(SRC.matches(concat!("self.edges = ", "None;")).count(), 1);
+    }
+}
+
+#[cfg(test)]
+mod release_tests {
+    use super::link_pointer_tests::body;
+
+    /// **The two funnels a one-shot ReGIS input can end through ask for
+    /// its held reads' wake**: a key's, `App::send`, after the key reached
+    /// the core (`reads::input`, where `Term::key` hands it to the input
+    /// first), and a button's, `Driver::locator_owed`, after its report;
+    /// and the ask posts a wake (`wake_holding`), never a pump inside the
+    /// responder method that asked. Perturbations: either call removed.
+    #[test]
+    fn the_input_funnels_ask_the_release() {
+        const SRC: &str = include_str!("app.rs");
+        let send = body(
+            SRC,
+            concat!("    fn send(&mut self, e: ", "KeyEvent) -> Sent {"),
+        );
+        let input = send.find("crate::reads::input(").expect("the key");
+        let asked = send.find(concat!("self.input_", "released();"));
+        assert!(asked.is_some_and(|a| a > input), "{send}");
+        let locator = body(
+            SRC,
+            concat!("    fn locator_owed(&mut self, ", "owed: LocatorOwed) {"),
+        );
+        let flush = locator.find("flush_reply(").expect("the report");
+        let asked = locator.find(concat!("self.app.input_", "released();"));
+        assert!(asked.is_some_and(|a| a > flush), "{locator}");
+        let released = body(SRC, concat!("    fn input_", "released(&mut self) {"));
+        assert!(
+            released.contains(concat!("wake_", "holding(")),
+            "{released}"
+        );
+        assert!(!released.contains(concat!("pump", "(")), "{released}");
+    }
+}
+
+#[cfg(test)]
+mod census_pin_tests {
+    use super::link_pointer_tests::body;
+
+    /// **The rig's census bills and releases through its one judge, and
+    /// the pump marks both** (`rig::carried`, `rig::released`,
+    /// `rig::turn_end`): `carried` reads whether a pump runs and hands it,
+    /// with the turn, to `census_judge::bill`; `turn` marks a pump running
+    /// and `turn_end` ended; `pump` calls `released` after `reads::paced`
+    /// and the find's refresh, for a turn that fed held reads and no read
+    /// of its own, and `turn_end` last; the ended input's wake is heard by
+    /// its type in its own `Held`; and the release is judged at the run's
+    /// end by `census_judge::released_by_the_act`, once. What each rule
+    /// does is held by `census_judge`'s own tests, which every test build
+    /// runs; this holds the rig to them. Read from the source; the rig is
+    /// the probe build's. Perturbations: `turn_end` moved before the pump's
+    /// last step, `released` asked before the feed, or `bill` passed by --
+    /// each fails here.
+    #[test]
+    fn the_rig_bills_and_releases_through_the_census_judge() {
+        const SRC: &str = include_str!("app.rs");
+        const RIG: &str = include_str!("app/rig.rs");
+        // Spelled apart, so this test's own text is not what it finds.
+        const RELEASED: &str = concat!("rig::", "released();");
+        const TURN_END: &str = concat!("rig::turn_", "end();");
+        const HEARD: &str = concat!("rig::heard(rig::Carrier::", "Released);");
+        let rig = |head: &str| {
+            assert_eq!(RIG.matches(head).count(), 1, "one {head}");
+            let at = RIG.find(head).expect("its head");
+            let end = at + RIG[at..].find("\n}\n").expect("its end");
+            &RIG[at..end]
+        };
+        let carried = rig("pub(super) fn carried() {");
+        assert!(
+            carried.contains("IN_PUMP.with(") && carried.contains("super::census_judge::bill("),
+            "{carried}"
+        );
+        assert!(rig("pub(super) fn turn(").contains("Pumping::Yes"));
+        assert!(rig("pub(super) fn turn_end() {").contains("Pumping::No"));
+        let pump = body(
+            SRC,
+            concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
+        );
+        let find = |what: &str| pump.find(what).unwrap_or_else(|| panic!("no {what}"));
+        assert!(
+            find("crate::reads::paced(") < find("f.refresh(&self.app.term) == ")
+                && find("f.refresh(&self.app.term) == ") < find(RELEASED),
+            "released after the feed, and after the find's refresh"
+        );
+        assert!(
+            pump.contains("if drained.chunks.is_empty() && fed == crate::reads::Fed::Some {"),
+            "released for a turn that fed held reads and no read"
+        );
+        assert!(pump.trim_end().ends_with(TURN_END), "the turn ends last");
+        for (what, n) in [(RELEASED, 1), (TURN_END, 1), (HEARD, 1)] {
+            assert_eq!(SRC.matches(what).count(), n, "{what}");
+        }
+        let ended = body(SRC, concat!("impl Held for ", "InputEnded {"));
+        assert!(ended.contains(HEARD), "{ended}");
+        assert_eq!(
+            RIG.matches("super::census_judge::released_by_the_act(")
+                .count(),
+            1
+        );
     }
 }

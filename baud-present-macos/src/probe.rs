@@ -1834,6 +1834,59 @@ pub fn press(view: &DrawableView, press: Press, at: NSPoint, chord: Chord) {
     }
 }
 
+/// **A key [`key_down`] presses**, named rather than given as a number:
+/// each key carries its own virtual key code and characters, so a caller
+/// cannot pair a code with another key's text.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ViewKey {
+    /// Return: virtual key code `0x24` (`kVK_Return`), characters `\r`.
+    /// The responder consumes it, so it reaches the terminal without the
+    /// input manager, which a window that is never key may not run.
+    Return,
+}
+
+/// **A key pressed in the view**: an `NSEvent` made here and handed to
+/// the view's own `keyDown:`, the method AppKit calls with a key down,
+/// outside any turn the rig drives. It is never posted to the application
+/// or the window server, so it reaches nothing but this view.
+pub fn key_down(view: &DrawableView, key: ViewKey) {
+    use macos_liquid_glass::objc2::runtime::AnyObject;
+    use macos_liquid_glass::objc2::{class, rc::Retained as R};
+    use macos_liquid_glass::objc2_app_kit::{NSEventModifierFlags, NSEventType};
+    use macos_liquid_glass::objc2_foundation::NSString;
+    let (code, text): (u16, &str) = match key {
+        ViewKey::Return => (0x24, "\r"),
+    };
+    let number = view.window().map_or(0, |w| w.windowNumber());
+    let text = NSString::from_str(text);
+    // SAFETY: `+keyEventWithType:location:modifierFlags:timestamp:
+    // windowNumber:context:characters:charactersIgnoringModifiers:
+    // isARepeat:keyCode:`, with a nil context, which the header asks for;
+    // nullable.
+    let event: Option<R<AnyObject>> = unsafe {
+        msg_send![
+            class!(NSEvent),
+            keyEventWithType: NSEventType::KeyDown,
+            location: NSPoint::new(0.0, 0.0),
+            modifierFlags: NSEventModifierFlags(0),
+            timestamp: 0.0f64,
+            windowNumber: number,
+            context: Option::<&AnyObject>::None,
+            characters: &*text,
+            charactersIgnoringModifiers: &*text,
+            isARepeat: false,
+            keyCode: code
+        ]
+    };
+    let Some(event) = event else {
+        return;
+    };
+    // SAFETY: the view's own key-down method, taking an `NSEvent`.
+    unsafe {
+        let () = msg_send![view, keyDown: &*event];
+    }
+}
+
 /// Send the view a menu item's action, `copy:` and the like, as the menu
 /// sends it to the first responder: the view's own method, a nil sender.
 pub fn menu(view: &DrawableView, action: macos_liquid_glass::objc2::runtime::Sel) {

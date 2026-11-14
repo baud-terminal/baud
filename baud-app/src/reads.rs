@@ -58,8 +58,9 @@ pub fn feed_parts<'r, T: Part>(
 /// § 8.7.1.4.3), and under `RegisHold::On` the core stops the read there
 /// (`Term::take_held`, `Term::take_regis_wait`). What is left of the read
 /// and every read after it wait here, in order, until the deadline, which
-/// the driver's loop schedules -- the display link's tick on macOS, the
-/// `poll` timeout on Linux -- and nothing sleeps.
+/// the driver's loop schedules -- a wake posted for it on macOS
+/// (`Driver::pace_wake`), the `poll` timeout on Linux -- and nothing
+/// sleeps.
 ///
 /// **Bounded at [`HELD_MAX`]**: a program that keeps writing through a
 /// long delay ends it early once that much waits, counted in `cut`.
@@ -68,9 +69,11 @@ pub fn feed_parts<'r, T: Part>(
 /// from the application (screen output) is processed until the locator
 /// input is complete" (`[[source: dec-std-070]]` 070-13 § 5.1). The reads
 /// wait with no deadline until a key or a button ends the input, and are
-/// fed by the next call after it, which [`Pace::released`] tells a driver
-/// to make at once. Past [`HELD_MAX`] the input is given up with the empty
-/// report (`Term::regis_input_abandon`), counted in the core.
+/// fed by the next call after it, which the driver makes at once: Linux's
+/// loop on [`Pace::released`], the macOS driver on the wake
+/// [`Pace::release`] asks for. Past [`HELD_MAX`] the input is given up
+/// with the empty report (`Term::regis_input_abandon`), counted in the
+/// core.
 ///
 /// **And the reads behind a DSR `?15` the core holds** (`Term::printer_asked`,
 /// under `PrinterHold::On`): they wait until the driver, which reads its
@@ -120,6 +123,20 @@ pub enum NoticesBound {
 enum Input {
     Free,
     Waits,
+    /// The input an event ended, its held reads owed a feed on the wake
+    /// [`Pace::release`] asked for.
+    #[cfg(any(target_os = "macos", test))]
+    Ended,
+}
+
+/// **What an input event owes the reads a one-shot input held**
+/// ([`Pace::release`]): a wake, once, for the input it ended.
+#[cfg(any(target_os = "macos", test))]
+#[must_use]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Release {
+    Nothing,
+    Wake,
 }
 
 /// Whether a [`paced`] call with no read has anything to act on
@@ -139,7 +156,7 @@ impl<T> Pace<T> {
     /// driver's answer to a held question comes while its deadline stands,
     /// so the call that sends it is never skipped.
     fn idle(&self, term: &Term<'_>) -> Idle {
-        let waits = self.until.is_some() || self.input == Input::Waits || !self.held.is_empty();
+        let waits = self.until.is_some() || self.input != Input::Free || !self.held.is_empty();
         match waits || !term.reply().is_empty() {
             true => Idle::No,
             false => Idle::Yes,
@@ -221,7 +238,24 @@ impl<T: Copy> Pace<T> {
     /// are owed a feed now.
     #[cfg(any(target_os = "linux", test))]
     pub fn released(&self, term: &Term<'_>) -> bool {
-        self.input == Input::Waits && term.regis_input() != RegisInput::OneShot
+        self.input != Input::Free && term.regis_input() != RegisInput::OneShot
+    }
+
+    /// **A one-shot input this event ended**: its held reads are owed a
+    /// feed on a turn of their own, asked once -- "no further data from
+    /// the application (screen output) is processed until the locator
+    /// input is complete" (`[[source: dec-std-070]]` 070-13 § 5.1), and
+    /// once it is, nothing else is waited on. An event that ended no input,
+    /// or a second event before the wake's turn, asks for nothing.
+    #[cfg(any(target_os = "macos", test))]
+    pub fn release(&mut self, term: &Term<'_>) -> Release {
+        match self.input == Input::Waits && term.regis_input() != RegisInput::OneShot {
+            true => {
+                self.input = Input::Ended;
+                Release::Wake
+            }
+            false => Release::Nothing,
+        }
     }
 
     fn keep(&mut self, bytes: &[u8], tag: T) {
@@ -455,7 +489,7 @@ pub fn paced<'r, T: Part>(
     notice_wait(term, pace, now);
     owed(term, &mut sink);
     log.follow(term);
-    if pace.input == Input::Waits {
+    if pace.input != Input::Free {
         let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
         if term.regis_input() == RegisInput::OneShot {
             if waiting <= HELD_MAX {
@@ -1470,6 +1504,122 @@ mod tests {
         );
         assert_eq!((fed, row0(&t).as_str()), (Fed::Some, "ABCDEF"));
         assert!(!pace.released(&t));
+    }
+
+    /// **A one-shot input an event ended asks for one wake, and the wake's
+    /// call feeds what it held** ([`Pace::release`]): the macOS driver's
+    /// funnels ask after every key and button, so an event that ends no
+    /// input -- an arrow moves the input cursor (070-8 § 8.8.5.3) -- asks
+    /// for nothing, the key that ends it asks once, a second ask before
+    /// the wake's turn asks for nothing, and the wake's call with no read
+    /// feeds the held output behind the report. Perturbations: `release`
+    /// not marking the input ended (the second ask wakes again), and
+    /// `release` not asking whether the input still runs (the first ask
+    /// wakes while it waits).
+    #[test]
+    fn a_one_shot_input_ended_asks_one_wake() {
+        use baud_core::{KeyCode, KeyEvent, Modifiers};
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = Pace::new();
+        let t0 = Instant::now();
+        let mut child = Vec::new();
+        paced(
+            &mut t,
+            &mut pace,
+            t0,
+            [&b"\x1bPpR(P(I))\x1b\\AB"[..]],
+            |b| child.extend_from_slice(b),
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        let mut asked = vec![pace.release(&t)];
+        let right = KeyEvent::press(KeyCode::Right, Modifiers::NONE);
+        input(&mut t, |t| t.key(right), |b| child.extend_from_slice(b));
+        asked.push(pace.release(&t));
+        assert_eq!(child, b"", "an arrow ends nothing");
+        let q = KeyEvent::press(
+            KeyCode::Char(baud_domain::Codepoint::from_char('q')),
+            Modifiers::NONE,
+        );
+        input(&mut t, |t| t.key(q), |b| child.extend_from_slice(b));
+        assert!(
+            child.starts_with(b"q[") && child.ends_with(b"]\r"),
+            "{child:?}"
+        );
+        asked.push(pace.release(&t));
+        asked.push(pace.release(&t));
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            t0,
+            [],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((fed, row0(&t).as_str()), (Fed::Some, "AB"));
+        asked.push(pace.release(&t));
+        assert_eq!(
+            asked,
+            [
+                Release::Nothing,
+                Release::Nothing,
+                Release::Wake,
+                Release::Nothing,
+                Release::Nothing
+            ]
+        );
+    }
+
+    /// **The wake an ended input asked for is not idle**: the read ends
+    /// where the input holds it, after `R(P(I))`, so nothing is held
+    /// behind the input, no deadline stands and no reply is owed, and the
+    /// ended input alone keeps its call from being idle ([`Pace::idle`]).
+    /// That call takes the ended input off, so the pace waits on nothing
+    /// after it. Perturbation: `idle` asking `== Waits`, and the wake's
+    /// call is idle and the ended input outlives it.
+    #[test]
+    fn an_ended_input_is_not_idle() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = Pace::new();
+        let t0 = Instant::now();
+        let mut child = Vec::new();
+        paced(
+            &mut t,
+            &mut pace,
+            t0,
+            [&b"\x1bPpR(P(I))"[..]],
+            |b| child.extend_from_slice(b),
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!(
+            (t.regis_input(), pace.input),
+            (RegisInput::OneShot, Input::Waits)
+        );
+        let key = baud_core::KeyEvent::press(
+            baud_domain::KeyCode::Char(baud_domain::Codepoint::from_char('q')),
+            baud_domain::Modifiers::NONE,
+        );
+        input(&mut t, |t| t.key(key), |b| child.extend_from_slice(b));
+        assert_eq!(pace.release(&t), Release::Wake);
+        assert!(pace.held.is_empty(), "the read ended at the hold");
+        assert_eq!((pace.deadline(), t.reply().is_empty()), (None, true));
+        assert_eq!((pace.input, pace.idle(&t)), (Input::Ended, Idle::No));
+        paced(
+            &mut t,
+            &mut pace,
+            t0,
+            [],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((pace.input, pace.idle(&t)), (Input::Free, Idle::Yes));
     }
 
     /// **A program writing more than [`HELD_MAX`] while one-shot input

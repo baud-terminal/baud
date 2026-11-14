@@ -1312,6 +1312,14 @@ const SITES: &[Site] = &[
         Kind::Bound("a read left to a frame no tick fed"),
         "a split read still waiting is ticked for; reached, the row fails",
     ),
+    site(
+        RIG,
+        "if still.is_ok() || start.elapsed() >= RELEASE_BOUND {",
+        Times(1),
+        Kind::Bound("never still before the act"),
+        "an act the rig leaves alone waits until nothing that could pump after it is still to come; reached, \
+         the row fails with a line of its own",
+    ),
     // The frame rig's child (`run_frames`).
     site(
         RIG,

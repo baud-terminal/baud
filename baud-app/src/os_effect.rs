@@ -340,9 +340,20 @@ enum Owed {
 
 /// Whether a turn is already posted for what has been asked.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Due {
+pub(crate) enum Due {
     No,
     Posted,
+}
+
+/// **Whether the runner's turn is posted and has not yet run**, read by
+/// the event rig before an act it leaves alone (`rig::quiet`): the turn is
+/// a main-queue block (`turn::soon`), which no wake count sees and no
+/// barrier the rig posts is ordered against, and the end of its batch
+/// wakes the window, whose pump feeds what a one-shot ReGIS input held
+/// once the input has ended.
+#[cfg(feature = "effect-probe")]
+pub(crate) fn due() -> Due {
+    DUE.with(Cell::get)
 }
 
 thread_local! {

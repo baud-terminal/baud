@@ -35,6 +35,8 @@
 //! one that brings the window forward; AppKit's key state is untouched,
 //! and checked never key after every iteration.
 
+use super::census_judge::{Bill, Counted, Fed, Pumping, Witnessed, Woke};
+use super::quiet_judge::Scope;
 use super::*;
 use baud_present_macos::probe;
 use baud_present_macos::rig_call as probe_call;
@@ -65,7 +67,7 @@ enum Act {
 }
 
 /// A gesture over the screen's first row, sent to the view's own methods
-/// (`probe::press`, `probe::menu`).
+/// (`probe::press`, `probe::menu`, `probe::key_down`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Gesture {
     /// Cmd-click on the second cell, a link's.
@@ -81,6 +83,43 @@ enum Gesture {
     /// (`on_close`): the queue told and the window taken down on a later
     /// turn, with no call to the window itself.
     Close,
+    /// Return pressed, sent to the view's own `keyDown:`, outside any
+    /// turn the rig drives: a key that ends a one-shot ReGIS input reaches
+    /// the core through the key's own funnel (`App::send`), with no pump
+    /// of the rig's to feed what the input held ([`After::Alone`]).
+    Key,
+    /// The left button pressed and let go on the first cell, sent to the
+    /// view's own `mouseDown:` and `mouseUp:`, outside any turn the rig
+    /// drives: a press that ends a one-shot ReGIS input reaches the core
+    /// through the button's own funnel (`Driver::locator_owed`), with no
+    /// pump of the rig's to feed what the input held ([`After::Alone`]).
+    Button,
+}
+
+/// **Whether the rig posts a wake of its own after an act** ([`post`]).
+/// Its turn pumps, and a pump feeds whatever a one-shot ReGIS input held
+/// once the input has ended (`reads::paced`), so after an act that ends
+/// one it would feed the held reads whether or not the product asked a
+/// wake for them: a row of [`Gesture::Key`] or [`Gesture::Button`] proves
+/// the product's own wake (`App::input_released`) only with none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum After {
+    /// The rig's wake posted after the act, so its turn runs what the act
+    /// left: every act but those below.
+    Posted,
+    /// Nothing of the rig's after the act: what it owes runs on the
+    /// product's own wakes or not at all.
+    Alone,
+}
+
+impl Act {
+    /// What the rig does after the act ([`After`]).
+    fn after(&self) -> After {
+        match self {
+            Act::Gesture(Gesture::Key | Gesture::Button, _) => After::Alone,
+            Act::Click(_) | Act::Type(_) | Act::Gesture(..) | Act::TypeTwo(..) => After::Posted,
+        }
+    }
 }
 
 thread_local! {
@@ -468,6 +507,11 @@ pub(super) enum Carrier {
     /// The rig's line to the shell, written on the turn that takes it
     /// ([`take_typed`]).
     Typed,
+    /// The wake an ended one-shot ReGIS input asks for
+    /// (`App::input_released`), heard by its type where its callback lets
+    /// it go (`InputEnded`), beside where it was asked: what a row whose
+    /// act the rig leaves alone is judged by ([`released`]).
+    Released,
 }
 
 impl Carrier {
@@ -478,22 +522,22 @@ impl Carrier {
             Carrier::Scheduled(at) => format!("scheduled at {}:{}", at.file(), at.line()),
             Carrier::Posted => "posted".to_owned(),
             Carrier::Typed => "typed".to_owned(),
+            Carrier::Released => "released".to_owned(),
         }
     }
-}
 
-/// Whether a turn fed a read.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Fed {
-    No,
-    Yes,
-}
-
-/// Whether a turn's carriers are in the census yet: once a turn.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Counted {
-    No,
-    Yes,
+    /// What the release's witness reads of a carrier: its type, never
+    /// where it was asked (`census_judge::released_by_the_act`).
+    fn woke(self) -> Woke {
+        match self {
+            Carrier::Released => Woke::Released,
+            Carrier::Room
+            | Carrier::Landed
+            | Carrier::Scheduled(_)
+            | Carrier::Posted
+            | Carrier::Typed => Woke::Other,
+        }
+    }
 }
 
 /// The turn running: what woke it, whether it fed a read, and whether it
@@ -517,11 +561,27 @@ thread_local! {
     };
     /// Each counted turn's carriers, named and joined, the run's census.
     static CARRIED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// Whether a pump's census turn runs: from [`turn`] to [`turn_end`].
+    static IN_PUMP: core::cell::Cell<Pumping> = const { core::cell::Cell::new(Pumping::No) };
+    /// What woke each turn that fed held reads and no read of its own
+    /// ([`released`]), the release census.
+    static RELEASED: RefCell<Vec<Vec<Carrier>>> = const { RefCell::new(Vec::new()) };
+    /// **What woke the window while the rig waited before an act it leaves
+    /// alone** ([`still_before_the_act`]), none outside that wait: named on
+    /// the line of a wait that never ends ([`waited`]), so a wake that
+    /// renews itself says where it was asked.
+    static WAITED: RefCell<Option<Vec<Carrier>>> = const { RefCell::new(None) };
 }
 
-/// **A wake's source, heard** as it wakes the window ([`Carrier`]).
+/// **A wake's source, heard** as it wakes the window ([`Carrier`]), and
+/// kept for the wait before an act left alone while it runs ([`WAITED`]).
 pub(super) fn heard(by: Carrier) {
     WOKE.with_borrow_mut(|w| w.push(by));
+    WAITED.with_borrow_mut(|w| {
+        if let Some(waited) = w {
+            waited.push(by);
+        }
+    });
 }
 
 /// **A turn begins its feed** (`pump`): what woke it, taken, and whether
@@ -540,47 +600,133 @@ pub(super) fn turn(drained: &crate::pty::Drained) {
             counted: Counted::No,
         }
     });
+    IN_PUMP.with(|p| p.set(Pumping::Yes));
 }
 
-/// **A write of bytes no read on this turn fed** (`flush_reply`): the
-/// turn's carriers counted, once a turn; "nothing heard" when no source
-/// the census hears woke it; and the turn counted in `ROOM` as well when
-/// the master's room is among them.
+/// **A pump's census turn ends** (`pump`'s last call): a write from here
+/// to the next [`turn`] is made outside any pump, by a responder method
+/// ([`carried`]).
+pub(super) fn turn_end() {
+    IN_PUMP.with(|p| p.set(Pumping::No));
+}
+
+/// **A write of bytes no read on this turn fed** (`flush_reply`), billed
+/// by `census_judge::bill`: inside a pump, to the turn's carriers, once a
+/// turn, and the turn counted in `ROOM` as well when the master's room is
+/// among them; outside one, to `responder`, every time, the running turn
+/// left as it was -- an act's own report, written in the responder method
+/// that ended a one-shot ReGIS input (`App::send`, `Driver::locator_owed`),
+/// was billed to whichever pump ran last before it, and read as a turn
+/// that carried it. A write a pump makes before its turn begins (a focus
+/// report, a zoom's size) is billed to `responder` too.
 pub(super) fn carried() {
-    TURN.with_borrow_mut(|t| {
-        if t.fed == Fed::No && t.counted == Counted::No {
-            t.counted = Counted::Yes;
-            let mut names: Vec<String> = t.woke.iter().copied().map(Carrier::name).collect();
-            names.sort();
-            names.dedup();
-            let named = match names.is_empty() {
-                true => "nothing heard".to_owned(),
-                false => names.join("+"),
-            };
-            CARRIED.with_borrow_mut(|c| c.push(named));
-            if t.woke.contains(&Carrier::Room) {
-                ROOM.with(|r| r.set(r.get().saturating_add(1)));
+    let pumping = IN_PUMP.with(core::cell::Cell::get);
+    TURN.with_borrow_mut(
+        |t| match super::census_judge::bill(pumping, t.fed, t.counted) {
+            Bill::Nothing => {}
+            Bill::Responder => CARRIED.with_borrow_mut(|c| c.push("responder".to_owned())),
+            Bill::Turn => {
+                t.counted = Counted::Yes;
+                CARRIED.with_borrow_mut(|c| c.push(named(&t.woke)));
+                if t.woke.contains(&Carrier::Room) {
+                    ROOM.with(|r| r.set(r.get().saturating_add(1)));
+                }
             }
-        }
-    });
+        },
+    );
 }
 
-/// **The census, one line**: the turns counted, then each set of carriers
+/// **A turn that fed held reads and no read of its own** (`pump`, after
+/// `reads::paced`): a ReGIS delay's deadline come, or a one-shot input an
+/// event ended. What woke it is kept for the release census, printed at
+/// the run's end as `released by`, and judged for a row whose act the rig
+/// leaves alone ([`After::Alone`]). A release on a read's own turn is not
+/// counted: neither row that judges it reads anything after its act.
+pub(super) fn released() {
+    let woke = TURN.with_borrow(|t| t.woke.clone());
+    RELEASED.with_borrow_mut(|r| r.push(woke));
+}
+
+/// A turn's carriers by their names, sorted and joined with `+`;
+/// "nothing heard" when no source the census hears woke it.
+fn named(woke: &[Carrier]) -> String {
+    let mut names: Vec<String> = woke.iter().copied().map(Carrier::name).collect();
+    names.sort();
+    names.dedup();
+    match names.is_empty() {
+        true => "nothing heard".to_owned(),
+        false => names.join("+"),
+    }
+}
+
+/// **A census, one line**: the turns in it, then each set of carriers
 /// with how many turns it woke, in the order first met.
-fn census() -> String {
-    CARRIED.with_borrow(|all| {
-        let mut kinds: Vec<&String> = Vec::new();
-        for k in all {
-            if !kinds.contains(&k) {
-                kinds.push(k);
-            }
+fn tally(all: &[String]) -> String {
+    format!("{} turns: {}", all.len(), each(all))
+}
+
+/// Each name in `all` with how many times it is there, in the order first
+/// met, joined with `, `.
+fn each(all: &[String]) -> String {
+    let mut kinds: Vec<&String> = Vec::new();
+    for k in all {
+        if !kinds.contains(&k) {
+            kinds.push(k);
         }
-        let each: Vec<String> = kinds
-            .iter()
-            .map(|k| format!("{k} {}", all.iter().filter(|n| n == k).count()))
-            .collect();
-        format!("{} turns: {}", all.len(), each.join(", "))
+    }
+    let counted: Vec<String> = kinds
+        .iter()
+        .map(|k| format!("{k} {}", all.iter().filter(|n| n == k).count()))
+        .collect();
+    counted.join(", ")
+}
+
+/// **What woke the window while the rig waited before an act it leaves
+/// alone** ([`WAITED`]), the wait over and the record dropped: each source
+/// by name with how many times it was heard, in the order first heard, or
+/// "nothing heard".
+fn waited() -> String {
+    let heard: Vec<String> = WAITED
+        .with_borrow_mut(Option::take)
+        .unwrap_or_default()
+        .into_iter()
+        .map(Carrier::name)
+        .collect();
+    match heard.is_empty() {
+        true => "nothing heard".to_owned(),
+        false => each(&heard),
+    }
+}
+
+/// The census of what carried bytes no read fed ([`carried`]).
+fn census() -> String {
+    CARRIED.with_borrow(|all| tally(all.as_slice()))
+}
+
+/// The release census: what woke each turn that fed held reads alone
+/// ([`released`]).
+fn release_census() -> String {
+    RELEASED.with_borrow(|turns| {
+        tally(
+            &turns
+                .iter()
+                .map(|w| named(w.as_slice()))
+                .collect::<Vec<_>>(),
+        )
     })
+}
+
+/// **Whether the held reads went on on the act's own wake**: every turn
+/// that fed held reads alone was woken by `App::input_released`'s, read
+/// by the carrier's type (`census_judge::released_by_the_act`).
+fn released_by_the_act() -> Witnessed {
+    let turns: Vec<Vec<Woke>> = RELEASED.with_borrow(|turns| {
+        turns
+            .iter()
+            .map(|w| w.iter().copied().map(Carrier::woke).collect())
+            .collect()
+    });
+    super::census_judge::released_by_the_act(&turns)
 }
 
 /// **The wakes posted for a moment and not yet run** (`wake_holding`):
@@ -608,9 +754,15 @@ static WAKES_IN_FLIGHT: std::sync::atomic::AtomicU32 = std::sync::atomic::Atomic
 /// callback run after it posts its `wake:` behind the barrier.
 static WAKES_RUN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// A wake posted for a moment ([`WAKES_IN_FLIGHT`]).
+/// **The wakes posted for a moment, ever** ([`wake_posted`]): read before
+/// and after an act the rig leaves alone, the difference the wakes the act
+/// asked (`asked by the act`).
+static WAKES_POSTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A wake posted for a moment ([`WAKES_IN_FLIGHT`], [`WAKES_POSTED`]).
 pub(super) fn wake_posted() {
     WAKES_IN_FLIGHT.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    WAKES_POSTED.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 }
 
 /// A wake posted for a moment run, or never posted ([`WAKES_IN_FLIGHT`],
@@ -693,7 +845,16 @@ enum Signed {
 /// thread, and a barrier posted from the main thread is ordered after
 /// neither. So no such row ends on quiet until a frame in flight is a
 /// part of it; a row on the CPU path (`BAUD_GPU=cpu`) has no completion.
-fn quiet(event: probe_call::RigEvent, signed: Signed) -> Result<(), Unquiet> {
+///
+/// **Before an act the rig leaves alone** ([`Scope::BeforeAct`],
+/// [`still_before_the_act`]) the same reads are judged for what could pump
+/// after the act instead: the wakes in flight and the printed paths'
+/// worker, as above; the effect queue's turn not posted
+/// (`os_effect::due`), a main-queue block with no count; and no frame ever
+/// drawn on the GPU (`probe::gpu_committed`), the row on the CPU path, so
+/// no completion can wake the window. The link and a frame owed are not
+/// judged there: neither pumps.
+fn quiet(event: probe_call::RigEvent, signed: Signed, scope: Scope) -> Result<(), Unquiet> {
     let seen = match event {
         probe_call::RigEvent::Settled => true,
         probe_call::RigEvent::AliveAnswered => {
@@ -706,12 +867,15 @@ fn quiet(event: probe_call::RigEvent, signed: Signed) -> Result<(), Unquiet> {
         false => super::quiet_judge::Met::No,
     };
     super::quiet_judge::judge(super::quiet_judge::Parts {
+        scope,
         event: match seen {
             true => Ok(()),
             false => Err(event),
         },
         paused: met(probe::link().0 == baud_present_macos::display_link::LinkState::Pause),
         owed_nothing: met(probe::frame_owed() == probe::FrameOwed::No && probe::owes() == "Nothing"),
+        on_cpu: met(probe::gpu_committed() == baud_render::Tally::ZERO),
+        effects: met(crate::os_effect::due() == crate::os_effect::Due::No),
         wakes: super::quiet_judge::InFlight(
             WAKES_IN_FLIGHT.load(std::sync::atomic::Ordering::Acquire),
         ),
@@ -733,10 +897,11 @@ fn quiet(event: probe_call::RigEvent, signed: Signed) -> Result<(), Unquiet> {
 fn quiet_at(
     event: probe_call::RigEvent,
     signed: Signed,
+    scope: Scope,
     at: &mut Option<super::quiet_judge::AtQuiet<probe::Barrier>>,
 ) -> Result<(), Unquiet> {
     super::quiet_judge::closed(
-        quiet(event, signed),
+        quiet(event, signed, scope),
         super::quiet_judge::WakesRun(WAKES_RUN.load(std::sync::atomic::Ordering::Acquire)),
         at,
         |barrier| match probe::reached(barrier) {
@@ -745,6 +910,34 @@ fn quiet_at(
         },
         probe::barrier,
     )
+}
+
+/// **Still before an act the rig leaves alone** ([`After::Alone`]):
+/// passes of the run loop until nothing that could pump after the act is
+/// still to come ([`quiet`] under [`Scope::BeforeAct`], closed by its
+/// barrier), so a turn after the act is one the act asked for. A title's
+/// pace, a paused link's restart, a frame's bound and a printed path's
+/// hang are wakes posted for a moment, and wait here until they have run;
+/// a frame's completion cannot come, the row on the CPU path; and the
+/// steady cursor the row's setup asks leaves no blink to restart for. A
+/// wake that renews itself never stops being to come, and is no wait's to
+/// pass: the job in front listed again every second while the activity
+/// lights read it (`front_turn`, `Front::next_listing`), whose rows turn
+/// the lights off. Bounded by [`RELEASE_BOUND`], past a printed path's
+/// hang: reaching it says which part never came and what woke the window
+/// while it waited ([`waited`]), on a line of its own, and the row fails.
+fn still_before_the_act() -> Result<(), Unquiet> {
+    let (event, signed, scope) = (probe_call::RigEvent::Settled, Signed::Yes, Scope::BeforeAct);
+    let mut at_still = None;
+    WAITED.with_borrow_mut(|w| *w = Some(Vec::new()));
+    let start = Instant::now();
+    loop {
+        let still = quiet_at(event, signed, scope, &mut at_still);
+        if still.is_ok() || start.elapsed() >= RELEASE_BOUND {
+            return still;
+        }
+        probe::pass(0.01);
+    }
 }
 
 /// **The rig, as `main`'s door admitted it** (`rig_door.rs`): the call
@@ -789,6 +982,8 @@ pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
         RigAct::CopyMenu => Act::Gesture(Gesture::CopyMenu, line()),
         RigAct::NoticeClick => Act::Gesture(Gesture::NoticeClick, line()),
         RigAct::Close => Act::Gesture(Gesture::Close, line()),
+        RigAct::Key => Act::Gesture(Gesture::Key, line()),
+        RigAct::Button => Act::Gesture(Gesture::Button, line()),
         RigAct::TypeTwo => {
             let (first, second) = arg.split_once('\n').unwrap_or((arg.as_str(), ""));
             Act::TypeTwo(
@@ -867,6 +1062,11 @@ fn gesture(
                 super::on_close(closer, *id);
             }
         }),
+        Gesture::Key => probe::key_down(view, probe::ViewKey::Return),
+        Gesture::Button => {
+            press(view, Press::Down, first, Chord::Plain);
+            press(view, Press::Up, first, Chord::Plain);
+        }
     }
 }
 
@@ -1005,13 +1205,42 @@ fn run(
             println!("a stale sentinel from the last iteration");
             failed = true;
         }
+        // **An act left alone starts still** ([`still_before_the_act`]),
+        // or the row stops here, what woke the window while the rig waited
+        // and this iteration's records printed.
+        if act.after() == After::Alone {
+            let still = still_before_the_act();
+            let heard = waited();
+            if let Err(unmet) = still {
+                println!("never still before the act: {unmet}; heard while it waited: {heard}");
+                for r in &got {
+                    println!("{}", r.line());
+                }
+                failed = true;
+                break;
+            }
+        }
+        let posted = WAKES_POSTED.load(std::sync::atomic::Ordering::Acquire);
         match &act {
             Act::Click(file) => CLICK.with(|c| *c.borrow_mut() = Some(file.clone())),
             Act::Type(line) => TYPED.with(|c| *c.borrow_mut() = Some(line.clone())),
             Act::Gesture(g, _) => gesture(&view, *g, cells, Iteration(i)),
             Act::TypeTwo(first, _) => TYPED.with(|c| *c.borrow_mut() = Some(first.clone())),
         }
-        post(view.waker());
+        match act.after() {
+            After::Posted => post(view.waker()),
+            // **What the act asked**: the wakes posted for a moment from
+            // inside its responder call and the settle after it, which ran
+            // with no pass of the run loop since the count was read -- the
+            // ended input's own wake among them, and nothing else on a row
+            // whose wait above found nothing to come.
+            After::Alone => println!(
+                "asked by the act {}",
+                WAKES_POSTED
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    .saturating_sub(posted)
+            ),
+        }
         let start = Instant::now();
         // **The second line once the first's first effect has run**, so
         // the two are two reads, the shell writing the second only after
@@ -1197,6 +1426,13 @@ fn run(
     // And how many of those turns the master's room woke, the field a row
     // that asks its witness reads (`ROOM`).
     println!("room turns {}", ROOM.with(core::cell::Cell::get));
+    // And what woke each turn that fed held reads alone (`released`).
+    println!("released by {}", release_census());
+    // **An act left alone, released on its own wake**: the witness its row
+    // passes only with, judged here by the carrier's type.
+    if act.after() == After::Alone && released_by_the_act() == Witnessed::Yes {
+        println!("{}", probe_call::RELEASED_ON_THE_ACTS_WAKE);
+    }
     match failed {
         true => std::process::ExitCode::from(1),
         false => std::process::ExitCode::SUCCESS,
@@ -2435,7 +2671,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             let mut reach = || {
                 let mut at_quiet = None;
                 let start = Instant::now();
-                let mut unmet = quiet_at(event, signed, &mut at_quiet).err();
+                let mut unmet = quiet_at(event, signed, Scope::End, &mut at_quiet).err();
                 while unmet.is_some() && start.elapsed() < probe_call::SENTINEL_BACKSTOP {
                     run(1);
                     if probe::take()
@@ -2444,7 +2680,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                     {
                         signed = Signed::Yes;
                     }
-                    unmet = quiet_at(event, signed, &mut at_quiet).err();
+                    unmet = quiet_at(event, signed, Scope::End, &mut at_quiet).err();
                 }
                 unmet
             };
