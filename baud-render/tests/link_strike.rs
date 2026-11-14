@@ -222,8 +222,8 @@ fn renderer<'f>(faces: &'f [Face<'f>]) -> Renderer<'f, 'f> {
 /// colour the same selection draws with nothing struck, its ground
 /// included, which reverse video takes from the text. The text never moves
 /// out of the cells, so no record of baud's own is drawn over them.
-/// Perturbation, run red: leave the selected cells in
-/// `Renderer::struck_cells`.
+/// Perturbation, run red: leave the selected cells in the struck cells
+/// `Renderer::take_struck` finds.
 #[test]
 fn a_struck_links_text_is_grey_in_its_cells_and_the_selection_wins() {
     use baud_render::{Highlight, Region};

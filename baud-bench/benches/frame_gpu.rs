@@ -725,15 +725,22 @@ fn main() {
                     );
                     // The struck cells lent their grey, and the frame the
                     // last's only under the same lending, as the app has it.
+                    // The struck cells are the renderer's kept ones, taken
+                    // and put back as `cell_frame::build` takes them; the
+                    // copy's rows are still collected into a `Vec` each frame
+                    // and lent through `Renderer::lend`, not in place as
+                    // `build` lends them, so this arm's lend time carries
+                    // that `Vec`.
                     let vrows = view.rows().index();
                     parts[1] = tk.map_or(Duration::ZERO, |t| t.elapsed());
                     let tl = strike.then(Instant::now);
-                    let struck = r.struck_cells(&view, view.rows(), CopyOrder::Stored);
+                    let struck =
+                        r.take_struck(&t, Rows::ZERO, &view, view.rows(), CopyOrder::Stored);
                     parts[4] = tl.map_or(Duration::ZERO, |t| t.elapsed());
-                    struck_cells += struck.iter().flatten().map(|c| c.len()).sum::<usize>();
-                    let lend = match struck.iter().any(|c| !c.is_empty()) {
-                        false => Lend::Nothing,
-                        true => {
+                    struck_cells += struck.cells().iter().map(|(_, c)| c.len()).sum::<usize>();
+                    let lend = match struck.cells().is_empty() {
+                        true => Lend::Nothing,
+                        false => {
                             let st = t.stride().index();
                             let cols = view.cols().index();
                             let mut rows: Vec<(&mut [PackedCell], Words<'_>)> = m.copies_mem[si]
@@ -744,13 +751,14 @@ fn main() {
                             r.lend(
                                 &t,
                                 &mut rows,
-                                &struck,
+                                struck.cells(),
                                 &mut styles_mem[si][..],
                                 &mut stamps[si],
                                 &mut lents[si],
                             )
                         }
                     };
+                    r.put_struck(struck);
                     parts[2] = tl.map_or(Duration::ZERO, |t| t.elapsed());
                     let tv = strike.then(Instant::now);
                     let lending = lents[si].lending();

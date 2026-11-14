@@ -39,9 +39,11 @@
 //! is the rendition table's rule (DEC STD 070's SGR note 3, above) kept for
 //! the frame's copy as it is for the core's.
 
-use crate::{Renderer, Resolved, StyleStamp};
+use crate::{Orders, Renderer, Resolved, StyleStamp};
 use baud_core::Term;
-use baud_domain::{Col, FrozenSerial, PackedCell, RowStyles, SlotSet, Stride, StyleId, StyleWord};
+use baud_domain::{
+    Col, Cols, FrozenSerial, PackedCell, Row, RowStyles, Rows, SlotSet, Stride, StyleId, StyleWord,
+};
 use core::ops::Range;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -169,11 +171,15 @@ const STRUCK_KEPT: usize = 64;
 const LENDINGS_KEPT: usize = 8;
 
 impl Lendings {
-    fn number(&mut self, given: Vec<Given>) -> Lending {
+    /// **The number of the lending that gave `given`**, in order: the one
+    /// it had, where it was seen among the last [`LENDINGS_KEPT`], else a
+    /// new one, `given` copied into the list the oldest kept lending
+    /// leaves. A lending seen again copies nothing.
+    fn number(&mut self, given: &[Given]) -> Lending {
         if given.is_empty() {
             return Lending::default();
         }
-        if let Some(i) = self.seen.iter().position(|(g, _)| *g == given) {
+        if let Some(i) = self.seen.iter().position(|(g, _)| g.as_slice() == given) {
             let e = self.seen.remove(i);
             let n = e.1;
             self.seen.push(e);
@@ -181,11 +187,43 @@ impl Lendings {
         }
         self.made.bump();
         let n = Lending(self.made);
-        if self.seen.len() == LENDINGS_KEPT {
-            self.seen.remove(0);
-        }
-        self.seen.push((given, n));
+        let mut kept = match self.seen.len() == LENDINGS_KEPT {
+            true => self.seen.remove(0).0,
+            false => Vec::new(),
+        };
+        kept.clear();
+        kept.extend_from_slice(given);
+        self.seen.push((kept, n));
         n
+    }
+}
+
+/// **What one lending works in**, kept with the table it lends so a
+/// lending allocates only where it finds more than the last one did: each
+/// struck cell's source rendition and the cell, the slots the frozen pass
+/// gave by generation and id, the slots in the order given, and the slot
+/// each source rendition was lent. Reached only through
+/// [`LendScratch::begin`], which empties every one, so no lending reads
+/// what the last one left.
+#[derive(Default)]
+struct LendScratch {
+    sources: Vec<(Source, StyleWord)>,
+    marked: Vec<(usize, usize, usize)>,
+    given: HashMap<(FrozenSerial, usize), StyleId>,
+    order: Vec<Given>,
+    slots: Vec<Option<StyleId>>,
+}
+
+impl LendScratch {
+    /// Every buffer emptied, its room kept: the one way a lending reaches
+    /// them.
+    fn begin(&mut self) -> &mut LendScratch {
+        self.sources.clear();
+        self.marked.clear();
+        self.given.clear();
+        self.order.clear();
+        self.slots.clear();
+        self
     }
 }
 
@@ -195,10 +233,13 @@ impl Lendings {
 #[derive(Default)]
 pub struct Lent {
     slots: Vec<(StyleId, Resolved)>,
-    /// The word each lent slot was given, by slot: sized to the table at
-    /// the first lending, `None` where nothing is lent. Shared, so a reader
-    /// that converts through the renderer can hold it while it does.
-    words: Rc<Vec<Option<StyleWord>>>,
+    /// The word each lent slot was given, by slot: made at the first
+    /// lending, sized to the table, `None` where nothing is lent. Shared, so
+    /// a reader that converts through the renderer can hold it while it
+    /// does. None before that lending, so a `Lent` made empty -- each time a
+    /// path takes its own out of the renderer to lend it -- allocates
+    /// nothing.
+    words: Option<Rc<Vec<Option<StyleWord>>>>,
     /// The resolved word of a frozen id, kept by its generation's serial,
     /// under the inputs it was resolved under: a generation's words never
     /// change, and a rebuilt one has a new serial.
@@ -222,6 +263,8 @@ pub struct Lent {
     frozen: FrozenLent,
     /// The lending its table holds now.
     lending: Lending,
+    /// The buffers the next lending works in.
+    scratch: LendScratch,
 }
 
 impl Lent {
@@ -236,16 +279,21 @@ impl Lent {
     }
 
     /// **What each slot lent holds**, read from `out`, the table lent from,
-    /// before it is given back; and whether the frozen pass lent any.
-    pub(crate) fn lent_values(&self, out: &[Resolved]) -> LentValues {
-        LentValues {
-            slots: self
-                .slots
+    /// before it is given back, into `into`, whose room is kept; and
+    /// whether the frozen pass lent any.
+    pub(crate) fn lent_values_into(&self, out: &[Resolved], into: &mut LentValues) {
+        into.slots.clear();
+        into.slots.extend(
+            self.slots
                 .iter()
-                .filter_map(|&(k, _)| out.get(k.index()).map(|&r| (k, r)))
-                .collect(),
-            frozen: self.frozen,
-        }
+                .filter_map(|&(k, _)| out.get(k.index()).map(|&r| (k, r))),
+        );
+        into.frozen = self.frozen;
+    }
+
+    /// Whether the frozen pass lent a slot since the last give-back.
+    pub(crate) fn frozen_lent(&self) -> FrozenLent {
+        self.frozen
     }
 
     /// **Whether a copy drawn under the last lending may draw otherwise
@@ -308,7 +356,7 @@ impl Lent {
     pub fn words(&self) -> Words<'_> {
         match self.slots.is_empty() {
             true => Words::Lent(&[]),
-            false => Words::Lent(&self.words[..]),
+            false => Words::Lent(self.words.as_deref().map_or(&[], |w| &w[..])),
         }
     }
 
@@ -316,7 +364,16 @@ impl Lent {
     /// the renderer while it reads them keeps ([`Held::words`]). Nothing
     /// is held where nothing is lent.
     pub(crate) fn held(&self) -> Held {
-        Held((!self.slots.is_empty()).then(|| self.words.clone()))
+        Held(self.words.clone().filter(|_| !self.slots.is_empty()))
+    }
+
+    /// **The words, one a slot of `table`**: made, or made again at another
+    /// size, where they are not -- the first lending, or a table grown --
+    /// and kept otherwise.
+    fn size_words(words: &mut Option<Rc<Vec<Option<StyleWord>>>>, table: &[Resolved]) {
+        if words.as_ref().is_none_or(|w| w.len() != table.len()) {
+            *words = Some(Rc::new(vec![None; table.len()]));
+        }
     }
 }
 
@@ -362,6 +419,177 @@ pub(crate) struct LentValues {
     frozen: FrozenLent,
 }
 
+impl LentValues {
+    /// Whether the frozen pass had lent a slot.
+    pub(crate) fn frozen_lent(&self) -> FrozenLent {
+        self.frozen
+    }
+}
+
+/// **The rows of a frame's copy, as [`Renderer::lend`] reads them**: how
+/// many, whether a cell of one names a row the core froze, each row's
+/// cells with where its ids name their words, and one cell to rewrite.
+pub(crate) trait LendRows {
+    /// The rows of the copy.
+    fn rows(&self) -> Rows;
+    /// Whether a cell of a row names a table the core froze.
+    fn frozen(&self) -> bool;
+    /// Row `y`'s cells and where they name their words, handed to `f`;
+    /// none past the last row. `orders` and `term` are the frame's, for a
+    /// copy that asks the layout where a row names its words.
+    fn with_row<T>(
+        &mut self,
+        orders: &Orders,
+        term: &Term<'_>,
+        y: Row,
+        f: impl FnOnce(&mut [PackedCell], Words<'_>) -> T,
+    ) -> Option<T>;
+    /// Cell `x` of row `y`, if the copy holds it.
+    fn cell(&mut self, y: Row, x: Col) -> Option<&mut PackedCell>;
+}
+
+/// The rows as a caller lists them, each its cells and its words.
+impl LendRows for [(&mut [PackedCell], Words<'_>)] {
+    fn rows(&self) -> Rows {
+        Rows::of_count(self.len())
+    }
+
+    fn frozen(&self) -> bool {
+        !self.iter().all(|(_, w)| w.is_live())
+    }
+
+    fn with_row<T>(
+        &mut self,
+        _: &Orders,
+        _: &Term<'_>,
+        y: Row,
+        f: impl FnOnce(&mut [PackedCell], Words<'_>) -> T,
+    ) -> Option<T> {
+        let (cells, words) = self.get_mut(y.index())?;
+        Some(f(cells, *words))
+    }
+
+    fn cell(&mut self, y: Row, x: Col) -> Option<&mut PackedCell> {
+        self.get_mut(y.index())
+            .and_then(|(cells, _)| cells.get_mut(x.index()))
+    }
+}
+
+/// **Where each row of a [`FlatCopy`] names its words.**
+pub(crate) enum CopyWords<'s> {
+    /// Every row the live table's: no cell of the copy is frozen.
+    Live,
+    /// The window `back` lines up in its first `window` rows, each asked
+    /// of the layout a row at a time ([`Orders::row_source`]): with no
+    /// display held, each one table, so nothing is made for it. The row
+    /// after them `after`'s, and every later row live.
+    Window {
+        back: Rows,
+        window: Rows,
+        after: Words<'s>,
+    },
+    /// The window's rows as the caller found them -- a display held, whose
+    /// lines name runs -- the row after them `after`'s, every later row
+    /// live.
+    Each {
+        rows: &'s [RowSource<'s>],
+        after: Words<'s>,
+    },
+}
+
+/// **A frame's copy of the window, lent in place**: one slice of cells at
+/// its pitch, `width` of each row lent, `rows` rows, and where each names
+/// its words. No list of rows or of their sources is made to lend it.
+pub(crate) struct FlatCopy<'c, 's> {
+    cells: &'c mut [PackedCell],
+    pitch: Stride,
+    width: Cols,
+    rows: Rows,
+    words: CopyWords<'s>,
+}
+
+impl<'c, 's> FlatCopy<'c, 's> {
+    pub(crate) fn new(
+        cells: &'c mut [PackedCell],
+        pitch: Stride,
+        width: Cols,
+        rows: Rows,
+        words: CopyWords<'s>,
+    ) -> FlatCopy<'c, 's> {
+        FlatCopy {
+            cells,
+            pitch,
+            width,
+            rows,
+            words,
+        }
+    }
+
+    /// Row `y`'s lent cells, if the copy holds the row.
+    fn row(&mut self, y: Row) -> Option<&mut [PackedCell]> {
+        if y.index() >= self.rows.index() {
+            return None;
+        }
+        let at = y.index().checked_mul(self.pitch.index())?;
+        let cells = self.cells.get_mut(at..)?;
+        let n = self.width.index().min(cells.len());
+        cells.get_mut(..n)
+    }
+}
+
+impl LendRows for FlatCopy<'_, '_> {
+    fn rows(&self) -> Rows {
+        self.rows
+    }
+
+    fn frozen(&self) -> bool {
+        !matches!(self.words, CopyWords::Live)
+    }
+
+    fn with_row<T>(
+        &mut self,
+        orders: &Orders,
+        term: &Term<'_>,
+        y: Row,
+        f: impl FnOnce(&mut [PackedCell], Words<'_>) -> T,
+    ) -> Option<T> {
+        if y.index() >= self.rows.index() {
+            return None;
+        }
+        let at = y.index().checked_mul(self.pitch.index())?;
+        let cells = self.cells.get_mut(at..)?;
+        let n = self.width.index().min(cells.len());
+        let cells = cells.get_mut(..n)?;
+        match &self.words {
+            CopyWords::Live => Some(f(cells, Words::LIVE)),
+            CopyWords::Window {
+                back,
+                window,
+                after,
+            } => match y.index().cmp(&window.index()) {
+                core::cmp::Ordering::Less => {
+                    let source = orders.row_source(term, *back, y);
+                    Some(f(cells, source.words()))
+                }
+                core::cmp::Ordering::Equal => Some(f(cells, *after)),
+                core::cmp::Ordering::Greater => Some(f(cells, Words::LIVE)),
+            },
+            CopyWords::Each { rows, after } => {
+                let words = match rows.get(y.index()) {
+                    Some(s) => s.words(),
+                    None if y.index() == rows.len() => *after,
+                    None => Words::LIVE,
+                };
+                Some(f(cells, words))
+            }
+        }
+    }
+
+    fn cell(&mut self, y: Row, x: Col) -> Option<&mut PackedCell> {
+        self.row(y).and_then(|cells| cells.get_mut(x.index()))
+    }
+}
+
 /// What lending did to a frame's copy.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Lend {
@@ -389,7 +617,8 @@ impl Renderer<'_, '_> {
             .frame_words
             .0
             .as_ref()
-            .is_some_and(|w| Rc::ptr_eq(w, &lent.words))
+            .zip(lent.words.as_ref())
+            .is_some_and(|(w, l)| Rc::ptr_eq(w, l))
         {
             self.frame_words = Held::default();
         }
@@ -398,7 +627,7 @@ impl Renderer<'_, '_> {
             stamp.set_lending(Lending::default());
             return;
         }
-        let words = Rc::make_mut(&mut lent.words);
+        let words = Rc::make_mut(lent.words.get_or_insert_with(Rc::default));
         for (k, was) in lent.slots.drain(..).rev() {
             if let Some(w) = words.get_mut(k.index()) {
                 *w = None;
@@ -432,9 +661,10 @@ impl Renderer<'_, '_> {
 
     /// **[`Renderer::lend_frozen`], and each struck cell drawn grey through
     /// a slot of its own** -- the second lender of the table, after the
-    /// frozen cells: `struck[y]` holds the columns of `rows[y]` a link that
-    /// opens nothing covers, a selected cell left out by the caller, since
-    /// the selection's colours win.
+    /// frozen cells: `struck` holds, row by row of `rows` in order, runs of
+    /// the columns a link that opens nothing covers, a selected cell left
+    /// out by the caller, since the selection's colours win
+    /// ([`Renderer::take_struck`]).
     ///
     /// **One lending, frozen first.** The frozen pass runs as it always
     /// has: every slot a live cell names is kept from it, and it takes the
@@ -462,13 +692,31 @@ impl Renderer<'_, '_> {
         &mut self,
         term: &Term<'_>,
         rows: &mut [(&mut [PackedCell], Words<'_>)],
-        struck: &[Vec<Range<usize>>],
+        struck: &[(Row, Range<usize>)],
         out: &mut [Resolved],
         stamp: &mut StyleStamp,
         lent: &mut Lent,
     ) -> Lend {
-        let frozen = !rows.iter().all(|(_, w)| w.is_live());
-        let struck_any = struck.iter().any(|r| !r.is_empty());
+        self.lend_rows(term, rows, struck, out, stamp, lent)
+    }
+
+    /// **[`Renderer::lend`] over any copy's rows** ([`LendRows`]): the
+    /// paths' own copies lend as a [`FlatCopy`], in place. Every buffer the
+    /// lending works in is `lent`'s, emptied first and kept after
+    /// ([`LendScratch`]), and its number copies the slots given only for a
+    /// lending it has not seen, so a frame lent as the last allocates
+    /// nothing.
+    pub(crate) fn lend_rows<R: LendRows + ?Sized>(
+        &mut self,
+        term: &Term<'_>,
+        rows: &mut R,
+        struck: &[(Row, Range<usize>)],
+        out: &mut [Resolved],
+        stamp: &mut StyleStamp,
+        lent: &mut Lent,
+    ) -> Lend {
+        let frozen = rows.frozen();
+        let struck_any = struck.iter().any(|(_, r)| !r.is_empty());
         if !frozen && !struck_any {
             return Lend::Nothing;
         }
@@ -478,39 +726,40 @@ impl Renderer<'_, '_> {
             lent.struck_cache.clear();
             lent.inputs = Some(inputs);
         }
-        if lent.words.len() != out.len() {
-            lent.words = Rc::new(vec![None; out.len()]);
-        }
+        Lent::size_words(&mut lent.words, out);
+        let scratch = lent.scratch.begin();
+        let orders = self.bidi();
         // Each struck cell by the source rendition it names, and each source
         // rendition's word, read before the frozen pass rewrites a frozen
         // cell's id: a handful a screen, so a list, its last hit first.
-        let mut sources: Vec<(Source, StyleWord)> = Vec::new();
-        let mut marked: Vec<(usize, usize, usize)> = Vec::new();
         if struck_any {
             let mut hit = usize::MAX;
-            for (y, (cells, w)) in rows.iter().enumerate() {
-                for x in struck.get(y).into_iter().flatten().flat_map(Clone::clone) {
-                    let Some(c) = cells.get(x) else { continue };
-                    let source = match w.styles_at(Col::at_index(x)) {
-                        RowStyles::Frozen(table) => (Some(table.serial()), c.style),
-                        _ => (None, c.style),
-                    };
-                    let ix = match sources.get(hit) {
-                        Some(e) if e.0 == source => hit,
-                        _ => match sources.iter().position(|e| e.0 == source) {
-                            Some(i) => i,
-                            None => {
-                                sources.push((source, w.word(term, Col::at_index(x), *c)));
-                                sources.len() - 1
-                            }
-                        },
-                    };
-                    hit = ix;
-                    marked.push((y, x, ix));
-                }
+            for (row, cols) in struck {
+                let (sources, marked) = (&mut scratch.sources, &mut scratch.marked);
+                rows.with_row(orders, term, *row, |cells, w| {
+                    for x in cols.clone() {
+                        let Some(c) = cells.get(x) else { continue };
+                        let source = match w.styles_at(Col::at_index(x)) {
+                            RowStyles::Frozen(table) => (Some(table.serial()), c.style),
+                            _ => (None, c.style),
+                        };
+                        let ix = match sources.get(hit) {
+                            Some(e) if e.0 == source => hit,
+                            _ => match sources.iter().position(|e| e.0 == source) {
+                                Some(i) => i,
+                                None => {
+                                    sources.push((source, w.word(term, Col::at_index(x), *c)));
+                                    sources.len() - 1
+                                }
+                            },
+                        };
+                        hit = ix;
+                        marked.push((row.index(), x, ix));
+                    }
+                });
             }
         }
-        let words = Rc::make_mut(&mut lent.words);
+        let words = Rc::make_mut(lent.words.get_or_insert_with(Rc::default));
         // The slots the live cells name, and slot 0, which a frozen row's
         // default names too: read off the copy for the frozen pass, which
         // may lend a slot the live table holds and no cell of the frame
@@ -519,8 +768,9 @@ impl Renderer<'_, '_> {
         // frozen row is not read for it.
         let mut named = SlotSet::new();
         named.insert(StyleId::DEFAULT);
-        for (cells, w) in rows.iter().filter(|_| frozen) {
-            match w {
+        let count = rows.rows().index();
+        for y in (0..count).filter(|_| frozen) {
+            rows.with_row(orders, term, Row::from_index(y), |cells, w| match w {
                 Words::Row(s) if s.is_live() => named.mark(cells),
                 Words::Row(_) => {}
                 _ => {
@@ -530,66 +780,66 @@ impl Renderer<'_, '_> {
                         }
                     }
                 }
-            }
+            });
         }
-        let mut given: HashMap<(FrozenSerial, usize), StyleId> = HashMap::new();
-        let mut order: Vec<Given> = Vec::new();
         let mut next = 1usize;
         let mut lend = match frozen {
             true => Lend::Rows,
             false => Lend::Nothing,
         };
-        for (y, (cells, w)) in rows.iter_mut().enumerate() {
-            let w = *w;
-            if w.is_live() {
-                continue;
-            }
-            for (x, c) in cells.iter_mut().enumerate() {
-                let RowStyles::Frozen(table) = w.styles_at(Col::at_index(x)) else {
-                    continue;
-                };
-                if c.style == StyleId::DEFAULT {
-                    continue;
+        for y in (0..count).filter(|_| frozen) {
+            rows.with_row(orders, term, Row::from_index(y), |cells, w| {
+                if w.is_live() {
+                    return;
                 }
-                let key = (table.serial(), c.style.index());
-                let k = match given.get(&key) {
-                    Some(k) => *k,
-                    None => {
-                        while next < out.len() && named.has(next) {
-                            next += 1;
-                        }
-                        let Some(dst) = out.get_mut(next) else {
-                            lend = Lend::Short;
-                            continue;
-                        };
-                        let word = table.word(c.style);
-                        let res = *lent
-                            .cache
-                            .entry(key)
-                            .or_insert_with(|| self.resolve_slot(term, word));
-                        let k = StyleId::from_index(next);
-                        lent.slots.push((k, *dst));
-                        words[next] = Some(word);
-                        stamp.lent_lose(dst.shapes);
-                        stamp.lent_gain(res.shapes);
-                        *dst = res;
-                        given.insert(key, k);
-                        order.push((k, Lender::Frozen(table.serial()), c.style));
-                        lent.frozen = FrozenLent::Yes;
-                        named.insert(k);
-                        k
+                for (x, c) in cells.iter_mut().enumerate() {
+                    let RowStyles::Frozen(table) = w.styles_at(Col::at_index(x)) else {
+                        continue;
+                    };
+                    if c.style == StyleId::DEFAULT {
+                        continue;
                     }
-                };
-                lent.rewrote.push((y, x, c.style));
-                c.style = k;
-            }
+                    let key = (table.serial(), c.style.index());
+                    let k = match scratch.given.get(&key) {
+                        Some(k) => *k,
+                        None => {
+                            while next < out.len() && named.has(next) {
+                                next += 1;
+                            }
+                            let Some(dst) = out.get_mut(next) else {
+                                lend = Lend::Short;
+                                continue;
+                            };
+                            let word = table.word(c.style);
+                            let res = *lent
+                                .cache
+                                .entry(key)
+                                .or_insert_with(|| self.resolve_slot(term, word));
+                            let k = StyleId::from_index(next);
+                            lent.slots.push((k, *dst));
+                            words[next] = Some(word);
+                            stamp.lent_lose(dst.shapes);
+                            stamp.lent_gain(res.shapes);
+                            *dst = res;
+                            scratch.given.insert(key, k);
+                            scratch
+                                .order
+                                .push((k, Lender::Frozen(table.serial()), c.style));
+                            lent.frozen = FrozenLent::Yes;
+                            named.insert(k);
+                            k
+                        }
+                    };
+                    lent.rewrote.push((y, x, c.style));
+                    c.style = k;
+                }
+            });
         }
         // The strike's pass, over what the frozen one left, from the top:
         // a slot a source rendition, the rule decided once for each.
         let paint = self.missing_paint();
         let mut top = out.len();
-        let mut slots: Vec<Option<StyleId>> = Vec::with_capacity(sources.len());
-        for &(source, word) in &sources {
+        for &(source, word) in &scratch.sources {
             let found = lent.struck_cache.iter().find(|e| e.0 == (word, paint));
             let (under, res) = match found {
                 Some(e) => e.1,
@@ -606,7 +856,7 @@ impl Renderer<'_, '_> {
             // A cell the rule leaves as it is -- too little contrast,
             // concealed -- needs no slot.
             if res == under {
-                slots.push(None);
+                scratch.slots.push(None);
                 continue;
             }
             let held = |k: usize| named.has(k) || term.styles().get(k).is_some_and(Option::is_some);
@@ -615,7 +865,7 @@ impl Renderer<'_, '_> {
             }
             if top <= next || top <= 1 {
                 lent.short.bump();
-                slots.push(None);
+                scratch.slots.push(None);
                 continue;
             }
             top -= 1;
@@ -626,15 +876,17 @@ impl Renderer<'_, '_> {
             stamp.lent_lose(dst.shapes);
             stamp.lent_gain(res.shapes);
             *dst = res;
-            order.push((k, Lender::Struck(source.0, paint), source.1));
+            scratch
+                .order
+                .push((k, Lender::Struck(source.0, paint), source.1));
             named.insert(k);
-            slots.push(Some(k));
+            scratch.slots.push(Some(k));
         }
-        for (y, x, ix) in marked {
-            let Some(k) = slots.get(ix).copied().flatten() else {
+        for &(y, x, ix) in &scratch.marked {
+            let Some(k) = scratch.slots.get(ix).copied().flatten() else {
                 continue;
             };
-            if let Some(c) = rows.get_mut(y).and_then(|(cells, _)| cells.get_mut(x)) {
+            if let Some(c) = rows.cell(Row::from_index(y), Col::at_index(x)) {
                 lent.rewrote.push((y, x, c.style));
                 c.style = k;
                 if lend == Lend::Nothing {
@@ -642,7 +894,7 @@ impl Renderer<'_, '_> {
                 }
             }
         }
-        lent.lending = self.lendings.number(order);
+        lent.lending = self.lendings.number(&scratch.order);
         stamp.set_lending(lent.lending);
         lend
     }
@@ -679,10 +931,8 @@ impl Renderer<'_, '_> {
             core::mem::take(&mut self.cpu_lent),
         );
         let mut stamp = self.styles_stamp;
-        if lent.words.len() != out.len() {
-            lent.words = Rc::new(vec![None; out.len()]);
-        }
-        let words = Rc::make_mut(&mut lent.words);
+        Lent::size_words(&mut lent.words, &out);
+        let words = Rc::make_mut(lent.words.get_or_insert_with(Rc::default));
         let from = self.frame_words.0.as_deref().map_or(&[][..], |w| &w[..]);
         for &k in &self.frame_slots {
             let (Some(dst), Some(&res)) = (out.get_mut(k.index()), table.get(k.index())) else {
@@ -697,5 +947,90 @@ impl Renderer<'_, '_> {
         lent.lending = self.frame_lending;
         stamp.set_lending(self.frame_lending);
         (self.styles, self.styles_stamp, self.cpu_lent) = (out, stamp, lent);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Given, LENDINGS_KEPT, LendScratch, Lender, Lending, Lendings};
+    use crate::MissingPaint;
+    use baud_domain::{FrozenSerial, StyleId, StyleWord};
+
+    /// A lending of one slot, `slot`, given a struck rendition `id`.
+    fn one(slot: StyleId, id: StyleId) -> [Given; 1] {
+        [(slot, Lender::Struck(None, MissingPaint::Gray), id)]
+    }
+
+    /// **A lending seen again is numbered as it was**, among the kept
+    /// ones, and none is numbered for nothing given. Named break: `number`
+    /// never finding a lending among the kept ones, so each is numbered
+    /// anew.
+    #[test]
+    fn a_lending_seen_again_is_numbered_as_it_was() {
+        let mut l = Lendings::default();
+        let (a, b) = (
+            one(StyleId::from_index(9), StyleId::from_index(1)),
+            one(StyleId::from_index(9), StyleId::from_index(2)),
+        );
+        let (na, nb) = (l.number(&a), l.number(&b));
+        assert_ne!(na, nb, "two lendings, two numbers");
+        assert_ne!(na, Lending::default(), "a lending is numbered");
+        assert_eq!(l.number(&a), na, "the first again");
+        assert_eq!(l.number(&b), nb, "the second again");
+        assert_eq!(l.number(&[]), Lending::default(), "nothing given");
+    }
+
+    /// **A lending past the kept ones is numbered anew, into the list the
+    /// oldest leaves**: the oldest, given again, is another number, and
+    /// the lending that took its list is found as itself after it -- the
+    /// list was emptied before it was filled. Named break: the oldest's
+    /// list filled without being emptied.
+    #[test]
+    fn a_lending_past_the_kept_ones_is_numbered_anew() {
+        let mut l = Lendings::default();
+        let first: Vec<Lending> = (0..LENDINGS_KEPT)
+            .map(|k| l.number(&one(StyleId::from_index(100), StyleId::from_index(k + 1))))
+            .collect();
+        let past = one(StyleId::from_index(100), StyleId::from_index(50));
+        let n = l.number(&past);
+        assert!(!first.contains(&n), "a new number for a new lending");
+        assert_eq!(l.number(&past), n, "and the same again");
+        let oldest = one(StyleId::from_index(100), StyleId::from_index(1));
+        let again = l.number(&oldest);
+        assert!(
+            !first.contains(&again) && again != n,
+            "the oldest, past the kept ones, is numbered anew"
+        );
+        assert_eq!(l.number(&past), n, "the newer lending is still itself");
+    }
+
+    /// **A lending begun reads nothing the last one left**: every buffer
+    /// empty, its room kept. Named break: one buffer left as it was.
+    #[test]
+    fn a_lending_begun_reads_nothing_the_last_one_left() {
+        let mut s = LendScratch::default();
+        let k = StyleId::from_index(3);
+        s.sources.push(((None, k), StyleWord::DEFAULT));
+        s.marked.push((1, 2, 0));
+        s.order.extend(one(k, k));
+        s.slots.push(Some(k));
+        s.given.insert((FrozenSerial::default(), 3), k);
+        let begun = s.begin();
+        assert!(
+            begun.sources.is_empty()
+                && begun.marked.is_empty()
+                && begun.given.is_empty()
+                && begun.order.is_empty()
+                && begun.slots.is_empty(),
+            "every buffer empty"
+        );
+        assert!(
+            begun.sources.capacity() > 0
+                && begun.marked.capacity() > 0
+                && begun.given.capacity() > 0
+                && begun.order.capacity() > 0
+                && begun.slots.capacity() > 0,
+            "its room kept"
+        );
     }
 }

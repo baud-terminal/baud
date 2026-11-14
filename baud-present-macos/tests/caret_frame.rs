@@ -1634,23 +1634,28 @@ mod checks {
     /// the cell path, as the C0 screen is, its first link struck, the copy
     /// of the screen (`Site::Screens`) compares none and copies none, since
     /// the set a caret frame is built into already holds the last frame's
-    /// screen; on the CPU path, no link struck, the convert
-    /// (`Site::Convert`) compares and copies none; and on either, the
-    /// window and the status line in drawn order (`Site::Layout`) are the
-    /// last frame's, permuted again nowhere; the layout compares no cell
-    /// on any frame, so its compared count is a guard that none comes back
-    /// there, not a check this screen can fail. A struck link on the CPU path
-    /// lends every row of its copy each frame (`Renderer::lend_cpu`), so
-    /// every row is compared there. The controls: some rows are drawn in
-    /// another order, and not all. Named break: the drawn-order copy made
-    /// whole every frame. A row drawn in another order answered as laid
+    /// screen; on the CPU path, its first link struck too, the convert
+    /// (`Site::Convert`) compares and copies none (FS-C14): the struck
+    /// link's lending rewrites only the rows its cells are on, each the
+    /// terminal's again at the next frame's start, and a row it lends as
+    /// the last frame lent it is the last frame's -- on C0's page, where
+    /// no colour reads `[link] missing_color` and nothing is lent, and on
+    /// the slot arm's ([`Page::Opaque`]), where a slot is lent the struck
+    /// text every frame. On either path, the window and the status line in
+    /// drawn order (`Site::Layout`) are the last frame's, permuted again
+    /// nowhere; the layout compares no cell on any frame, so its compared
+    /// count is a guard that none comes back there, not a check this
+    /// screen can fail. The controls: some rows are drawn in another order,
+    /// and not all. Named breaks: the drawn-order copy made whole every
+    /// frame; the struck links' lending marking every row of the CPU
+    /// path's copy as lent. A row drawn in another order answered as laid
     /// out again every frame (`SetKey::dirt`) cannot go red here, since a
     /// caret frame writes nothing and the key keeps the whole copy without
     /// asking a row: its red is
     /// [`a_write_outside_every_reordered_paragraph_compares_no_row_drawn_otherwise`].
     pub fn a_caret_frame_compares_no_row_drawn_in_another_order() {
         let caret = |_: &Term<'_>, k: Nth| Inputs::at(caret_at(k));
-        let (mut cell_costs, mut cpu_costs) = (Vec::new(), Vec::new());
+        let mut cell_costs = Vec::new();
         with_screen(Blinking::No, |t, r| {
             let mut backing = GlyphMap::backing();
             let mut cells = Cells::new(&mut backing, t);
@@ -1662,26 +1667,33 @@ mod checks {
                 cell_costs.push((k, Cost::take(), drawn_otherwise(t, r)));
             }
         });
-        with_screen_of(&fixture(Blinking::No), Strike::None, |t, r| {
-            let mut pixels = fitted(r, t);
-            let mut target = pixels.target();
-            Cost::take();
-            for k in Nth::ALL.before() {
-                let inputs = caret(t, k);
-                let damage = match k {
-                    Nth(0) => Damage::Full,
-                    _ => inputs.damage,
-                };
+        let cpu_on = |page: Page| {
+            let mut costs = Vec::new();
+            with_screen_on(page, &fixture(Blinking::No), Strike::First, |t, r| {
+                let mut pixels = fitted(r, t);
+                let mut target = pixels.target();
                 Cost::take();
-                let _ = cpu_frame_sized(r, t, &inputs, &mut target, damage);
-                cpu_costs.push((k, Cost::take(), drawn_otherwise(t, r)));
-            }
-        });
+                for k in Nth::ALL.before() {
+                    let inputs = caret(t, k);
+                    let damage = match k {
+                        Nth(0) => Damage::Full,
+                        _ => inputs.damage,
+                    };
+                    Cost::take();
+                    let _ = cpu_frame_sized(r, t, &inputs, &mut target, damage);
+                    costs.push((k, Cost::take(), drawn_otherwise(t, r)));
+                }
+            });
+            costs
+        };
+        let (cpu_dimmed, cpu_opaque) = (cpu_on(Page::Dimmed), cpu_on(Page::Opaque));
         print("c0", "cell", cell_costs.iter().map(|c| c.1));
-        print("c0", "cpu", cpu_costs.iter().map(|c| c.1));
+        print("c0", "cpu", cpu_dimmed.iter().map(|c| c.1));
+        print("c0 slot", "cpu", cpu_opaque.iter().map(|c| c.1));
         for (path, costs, site) in [
             ("cell", &cell_costs, Site::Screens),
-            ("cpu", &cpu_costs, Site::Convert),
+            ("cpu", &cpu_dimmed, Site::Convert),
+            ("cpu slot", &cpu_opaque, Site::Convert),
         ] {
             for (k, cost, (drawn, every)) in costs.iter().filter(|c| !c.0.warming()) {
                 assert!(

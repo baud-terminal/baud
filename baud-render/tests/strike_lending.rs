@@ -82,7 +82,7 @@ fn a_struck_rendition_is_lent_the_top_free_slot_and_never_a_held_one() {
     let lend = r.lend(
         &t,
         &mut [(&mut cells[..], Words::LIVE)],
-        &[std::iter::once(0..5).collect()],
+        &[(Row::ZERO, 0..5)],
         &mut out,
         &mut stamp,
         &mut lent,
@@ -162,7 +162,7 @@ fn frozen_rows_and_strikes_near_the_budget_never_leave_frozen_short() {
         sources.iter().any(|s| !s.words().is_live()),
         "the control: the window shows frozen rows"
     );
-    let lent_with = |r: &mut Renderer<'_, '_>, struck: &[Vec<core::ops::Range<usize>>]| {
+    let lent_with = |r: &mut Renderer<'_, '_>, struck: &[(Row, core::ops::Range<usize>)]| {
         let mut cells = copy.clone();
         let mut out = vec![Resolved::default(); n];
         let (mut stamp, mut lent) = (StyleStamp::default(), Lent::default());
@@ -177,11 +177,9 @@ fn frozen_rows_and_strikes_near_the_budget_never_leave_frozen_short() {
     };
     let (ref_lend, ref_cells, ref_out, ref_lent) = lent_with(&mut r, &[]);
     assert_eq!(ref_lend, Lend::Rows, "the control: frozen cells lent");
-    let struck: Vec<Vec<core::ops::Range<usize>>> = (0..rows)
-        .map(|y| match y % 2 {
-            0 => std::iter::once(0..40).collect(),
-            _ => Vec::new(),
-        })
+    let struck: Vec<(Row, core::ops::Range<usize>)> = (0..rows)
+        .filter(|y| y % 2 == 0)
+        .map(|y| (Row::from_index(y), 0..40))
         .collect();
     let (lend, cells, out, lent) = lent_with(&mut r, &struck);
     assert_eq!(lend, Lend::Rows, "the frozen pass is never short");

@@ -90,7 +90,7 @@ fn link(t: &Term<'_>) -> LinkLine {
 
 /// Whether the link is struck, and so lent no slot: the selection covers
 /// its row, and a selected cell keeps the selection's colours
-/// (`Renderer::struck_cells`), so the strike is all `missing_color` moves.
+/// (`Renderer::take_struck`), so the strike is all `missing_color` moves.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Strike {
     No,
@@ -334,6 +334,14 @@ enum At {
     /// "then", on the paragraph's second row as the terminal cut it
     /// ([`cut_paragraph`]).
     Then,
+    /// "do", the cells of "dog" on the paragraph's first row as the
+    /// terminal cut it ([`cut_paragraph`]), which its display draws on the
+    /// row below.
+    Do,
+    /// The cells of [`At::First`]'s columns on the row above it, which the
+    /// window one line back shows on [`At::First`]'s window row
+    /// ([`wide_above`]).
+    Above,
 }
 
 /// A link's cells as the screen holds them: its row before any look
@@ -353,6 +361,8 @@ impl At {
             At::Second => (SECOND_ROW, 4, 24),
             At::RunOn => (RUN_ON_ROW, 4, 24),
             At::Then => (3, 6, 9),
+            At::Do => (2, 38, 39),
+            At::Above => (LINK_ROW - 1, LINK.0, LINK.1),
         };
         Run {
             row: Row::from_index(row),
@@ -398,8 +408,19 @@ struct Links {
     strikes: &'static [At],
     held: &'static [At],
     hover: Option<(At, HoverPaint)>,
-    /// A link's row selected whole.
+    /// A link's row selected, from [`Links::selected_from`] to its end.
     selected: Option<At>,
+    /// Where [`Links::selected`] starts on its row.
+    selected_from: SelectionStart,
+}
+
+/// Where a selected row's selection starts.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SelectionStart {
+    /// Its first column: the whole row.
+    Row,
+    /// [`EDGE`], inside [`FIRST`]'s link.
+    Edge,
 }
 
 /// Both links a line at rest, none struck, none under the pointer.
@@ -413,6 +434,7 @@ const RESTING: Links = Links {
     held: &[],
     hover: None,
     selected: None,
+    selected_from: SelectionStart::Row,
 };
 
 /// A `[link] missing_color` that reads 4.5:1 on the page, so a struck
@@ -525,8 +547,12 @@ fn set_links(r: &mut Renderer<'_, '_>, t: &Term<'_>, h: &Host) {
     r.set_link_hover(hover.as_ref());
     r.set_highlight(l.selected.map(|a| {
         let row = line_at(t, h.back, a).row;
+        let from = match l.selected_from {
+            SelectionStart::Row => 0,
+            SelectionStart::Edge => EDGE,
+        };
         Highlight::new(
-            (row, Col::at_index(0)),
+            (row, Col::at_index(from)),
             (row, Col::at_index(COLS - 1)),
             Region::Stream,
         )
@@ -1105,8 +1131,10 @@ fn a_selection_over_a_struck_link_keeps_the_selections_colours() {
 }
 
 /// **C14-2: a write in a struck row finds its cells again**: a cell past
-/// the link written, the link's own cells not. Named break: the struck
-/// cells kept with no row's generation asked.
+/// the link written, the link's own cells not. That write moves no struck
+/// cell, so the struck cells kept with no row's generation asked draw it
+/// alike; that break is held by
+/// [`a_wide_write_at_the_selections_edge_finds_the_struck_cells_again`].
 #[test]
 fn a_write_in_a_struck_row_finds_its_cells_again() {
     lent_a_slot(&two_links(), with(STRUCK));
@@ -1123,8 +1151,10 @@ fn a_write_in_a_struck_row_finds_its_cells_again() {
 
 /// **C14-3: the window looked back, nothing written, finds the struck
 /// cells again**, a row lower: two lines of history under the screen.
-/// Named break: the struck cells kept with the window's rows out of their
-/// key.
+/// The driver strikes the link on the row it is looked back to, which
+/// moves its inputs, so the struck cells kept with the window's rows out
+/// of their key are found again all the same; that break is held by
+/// [`a_look_back_onto_a_wide_cell_at_the_selections_edge_finds_the_struck_cells_again`].
 #[test]
 fn a_look_back_finds_the_struck_cells_again() {
     let mut setup = String::new();
@@ -1146,12 +1176,22 @@ fn a_look_back_finds_the_struck_cells_again() {
 }
 
 /// **C14-4: a strike taken away on the CPU path redraws the text in its
-/// own colour**: the rows the lending rewrote are compared again. Named
-/// break: a lent row kept whatever the lending.
+/// own colour**: the strike alone, `[link] missing_color` left as it was
+/// -- a change to it draws the next frame whole -- so the struck row is
+/// drawn again from the copy the lending rewrote, put back as the
+/// terminal's. Named break: the lending's rewrites not put back before
+/// the next frame reads the copy.
 #[test]
 fn a_strike_taken_away_on_the_cpu_path_redraws_the_text() {
     lent_a_slot(&two_links(), with(STRUCK));
-    let case = input("a lent strike goes", with(STRUCK), vec![Step::Host(BASE)]);
+    let case = input(
+        "a lent strike goes",
+        with(STRUCK),
+        vec![Step::Host(with(Links {
+            strikes: &[],
+            ..STRUCK
+        }))],
+    );
     assert_eq!(kept(&case), None);
 }
 
@@ -1160,8 +1200,11 @@ const LAST_ROW: usize = ROWS - 1;
 
 /// **C14-5: a rendition that takes the strike's slot, with nothing written
 /// on the struck rows, repaints them**: the strike is lent another slot,
-/// so the lending's number moves. Named break: a lent row kept with the
-/// lending's number out of the test.
+/// so the lending's number moves. The slot it held names another
+/// rendition now under a cell of the copy, which draws the frame whole
+/// (`Lent::moved_from`), so a lent row kept with the lending's number out
+/// of the test is drawn alike: that number is a guard no input moves
+/// alone (`Renderer::convert`'s `lent_alike`).
 #[test]
 fn a_slot_taken_from_the_strike_repaints_the_struck_rows() {
     lent_a_slot(&two_links(), with(STRUCK));
@@ -1176,6 +1219,74 @@ fn a_slot_taken_from_the_strike_repaints_the_struck_rows() {
     assert_eq!(kept(&case), None);
 }
 
+/// **C14-7: BDSM set with nothing written moves the struck text**, to the
+/// cells the right-to-left paragraph draws the struck link on: a mode,
+/// which stamps no row, so the struck cells are found again by the rows'
+/// order alone, laid out otherwise. Named break: the layout's seal not
+/// asked when the struck cells are kept.
+#[test]
+fn bdsm_toggled_with_nothing_written_moves_the_struck_text() {
+    lent_a_slot(&hebrew_first("\x1b[8l"), as_cut(STRUCK));
+    lent_a_slot(&hebrew_first("\x1b[8h"), as_cut(STRUCK));
+    let case = Case {
+        setup: hebrew_first("\x1b[8l"),
+        moves: Some(first_reordered),
+        ..input(
+            "BDSM set over a strike",
+            as_cut(STRUCK),
+            vec![Step::Bytes("\x1b[8h".into())],
+        )
+    };
+    assert_eq!(kept(&case), None);
+}
+
+/// **C14-8: BDSM reset with nothing written moves the struck text back**:
+/// the struck cells were found with their row reordered, and the row is
+/// drawn as stored now. Named break: the layout's seal not asked when the
+/// struck cells are kept.
+#[test]
+fn bdsm_reset_with_nothing_written_moves_the_struck_text_back() {
+    lent_a_slot(&hebrew_first("\x1b[8h"), as_cut(STRUCK));
+    lent_a_slot(&hebrew_first("\x1b[8l"), as_cut(STRUCK));
+    let case = Case {
+        setup: hebrew_first("\x1b[8h"),
+        moves: Some(first_reordered),
+        ..input(
+            "BDSM reset over a strike",
+            as_cut(STRUCK),
+            vec![Step::Bytes("\x1b[8l".into())],
+        )
+    };
+    assert_eq!(kept(&case), None);
+}
+
+/// **C14-9: word wrap turned on with nothing written moves the struck
+/// text to the row and cells its display draws the word on**, and the
+/// struck cells found there are kept while the display holds: the frames
+/// after the step are drawn under a held display, each a fresh renderer's.
+/// Named break: the layout's seal not asked when the struck cells are kept.
+#[test]
+fn word_wrap_turned_on_moves_the_struck_text_to_its_display_row() {
+    let links = Links {
+        lines: &[THEN],
+        strikes: &[THEN],
+        missing: PINK,
+        ..RESTING
+    };
+    lent_a_slot(&cut_paragraph(), as_cut(links));
+    lent_a_slot(&cut_paragraph(), with(links));
+    let case = Case {
+        setup: cut_paragraph(),
+        moves: Some(|r| r.bidi().display().is_some()),
+        ..input(
+            "wrap_words on over a strike",
+            as_cut(links),
+            vec![Step::Host(with(links))],
+        )
+    };
+    assert_eq!(kept(&case), None);
+}
+
 /// [`two_links`] with the cursor shown, a steady block, so no phase of a
 /// blink can tell one frame from another.
 fn caret_screen() -> String {
@@ -1183,13 +1294,44 @@ fn caret_screen() -> String {
 }
 
 /// **C14-6: caret frames over a struck link draw a fresh frame**, each:
-/// the cursor moved, and nothing else. Named break: the lending's
-/// rewrites not put back before the next lend, which then reads lent ids
-/// as the cells' own.
+/// the cursor moved, and nothing else. The lending's rewrites not put
+/// back before the next lend, which then reads lent ids as the cells'
+/// own, draws this link alike -- its struck rendition is the one a lent
+/// id read as its own resolves to -- so that break is held by
+/// [`struck_caret_frames_on_a_page_of_their_own_draw_a_fresh_frame`].
 #[test]
 fn struck_caret_frames_draw_a_fresh_frame() {
-    let setup = caret_screen();
-    lent_a_slot(&setup, with(STRUCK));
+    caret_frames_fresh(&caret_screen());
+}
+
+/// [`caret_screen`] with [`FIRST`]'s link on a page of its own, a dark
+/// blue its strike keeps.
+fn caret_screen_paged() -> String {
+    format!(
+        "{}\x1b[{};1H\x1b[2Ksee \x1b[38;2;255;0;0;48;2;0;0;48mhttps://example.org/x\x1b[m here",
+        caret_screen(),
+        FIRST.row() + 1
+    )
+}
+
+/// **C14-6c: caret frames over a struck link on a page of its own draw a
+/// fresh frame**, each, as [`struck_caret_frames_draw_a_fresh_frame`]
+/// does: the link's cells on a dark blue page, which the strike keeps, so
+/// a lending that read a lent id left in the copy as a cell's own -- a
+/// slot the live table holds nothing in -- would draw them on another
+/// page. Named break: the lending's rewrites not put back before the next
+/// lend.
+#[test]
+fn struck_caret_frames_on_a_page_of_their_own_draw_a_fresh_frame() {
+    caret_frames_fresh(&caret_screen_paged());
+}
+
+/// **Caret frames over [`FIRST`] struck on `setup` each draw what a fresh
+/// renderer draws in one full frame**: a full frame, then the cursor moved
+/// six times, nothing else. The controls: the struck link is lent a slot,
+/// none short; each caret frame writes no row; a full frame places solids.
+fn caret_frames_fresh(setup: &str) {
+    lent_a_slot(setup, with(STRUCK));
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     let mut owned = Owned::new(&WS);
@@ -1387,4 +1529,260 @@ fn struck_caret_frames_lend_a_fresh_cell_frame() {
         }
     }
     assert!(wrong.is_empty(), "caret frames {wrong:?} lend otherwise");
+}
+
+/// [`At::Do`].
+const DO: At = At::Do;
+
+/// **C14-4b: a strike taken away under a held display redraws the row the
+/// display drew the struck text on**: "do", the cells of "dog" the
+/// terminal's cut left on the paragraph's first row, struck and drawn at
+/// its words on the row below, then the strike taken away. A strike names
+/// its stored row, so the row it was lent on is dirtied by no change to
+/// the strikes: it is compared because the lending that rewrote it is
+/// gone. The control: a renderer under the strike draws its cells on the
+/// row below theirs alone. Named break: a lent row kept whatever the
+/// lending.
+#[test]
+fn a_strike_taken_away_under_a_held_display_redraws_its_display_row() {
+    let links = Links {
+        lines: &[DO],
+        strikes: &[DO],
+        missing: PINK,
+        ..RESTING
+    };
+    lent_a_slot(&cut_paragraph(), with(links));
+    {
+        let data = font("JetBrainsMono-Regular.ttf");
+        let faces = [Face::parse(&data).unwrap()];
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, cut_paragraph().as_bytes());
+        let mut r = made(&faces);
+        set_host(&mut r, &with(links), &BASE);
+        let mut px = Vec::new();
+        frame(&mut r, &mut t, &with(links), &mut px, Damage::Full);
+        let run = DO.run();
+        let runs = r.bidi().stored_runs(run.row, run.from, run.to);
+        assert!(
+            r.bidi().display().is_some()
+                && !runs.is_empty()
+                && runs.iter().all(|&(y, _, _)| y.index() == DO.row() + 1),
+            "the control: the struck cells drawn on the row below theirs alone, {runs:?}"
+        );
+    }
+    let case = Case {
+        setup: cut_paragraph(),
+        ..input(
+            "a strike under a held display goes",
+            with(links),
+            vec![Step::Host(with(Links {
+                strikes: &[],
+                ..links
+            }))],
+        )
+    };
+    assert_eq!(kept(&case), None);
+}
+
+/// The column a selection on [`FIRST`]'s row starts at in the cases on
+/// the selection's edge: inside the link, whose cells before it are struck
+/// and lent a slot, and whose cells from it on are selected and lent none.
+const EDGE: usize = 10;
+
+/// [`FIRST`] struck in [`PINK`], the only line, and its row selected from
+/// [`EDGE`] on.
+const STRUCK_TO_EDGE: Links = Links {
+    lines: &[FIRST],
+    selected: Some(FIRST),
+    selected_from: SelectionStart::Edge,
+    ..STRUCK
+};
+
+/// **A wide character in the link's red written over [`EDGE`]'s cell and
+/// the one before it**, on `row`: [`EDGE`]'s cell becomes its tail, and a
+/// wide tail takes its lead's answer to the selection, so the cell
+/// selected under the narrow character it held is not selected under the
+/// tail.
+fn wide_at_edge(row: usize) -> String {
+    format!("\x1b[{};{}H\x1b[38;2;255;0;0m\u{4E2D}\x1b[m", row + 1, EDGE)
+}
+
+/// Whether `d`, a cell frame of the window `back` lines up, lent the cell
+/// at `row` and `col` a slot: its id in the lent view is not the one the
+/// terminal holds there.
+fn lent_at(d: &LentDrawn, t: &Term<'_>, back: Rows, row: usize, col: usize) -> bool {
+    let own = t.view(back).row(Row::from_index(row))[col].style;
+    d.cells
+        .get(row * t.stride().index() + col)
+        .is_some_and(|c| c.style != own)
+}
+
+/// **The first cell frame a renderer of its own builds** under `h`, into
+/// set 0. The controls: it lends a slot and is short of none, and places
+/// solids.
+fn fresh_cell_frame(faces: &[Face<'_>], t: &mut Term<'_>, h: &Host) -> LentDrawn {
+    let mut fresh = made(faces);
+    set_host(&mut fresh, h, &BASE);
+    let mut backing = GlyphMap::backing();
+    let mut cells = Cells::new(&mut backing, t);
+    let first = cell_frame(&mut fresh, t, h, &mut cells, SetIx(0));
+    assert!(
+        first.lent.value() > 0 && first.short.value() == 0,
+        "the control: a fresh cell frame lends a slot, none short"
+    );
+    assert!(
+        !first.solids.is_empty(),
+        "the control: a fresh cell frame places solids"
+    );
+    first
+}
+
+/// **C14-2b: a wide character written at the selection's edge in a struck
+/// row lends what a fresh renderer lends, on the cell path**: [`FIRST`]
+/// struck and its row selected from [`EDGE`] on, then a wide character
+/// written over [`EDGE`]'s cell and the one before it. The struck cells
+/// read a row's content only through the selection, so [`EDGE`]'s cell,
+/// selected before the write, is struck after it, and nothing moved but
+/// the row's write. Each cell frame after it, into each set in turn,
+/// lends what a fresh renderer's first cell frame lends. The controls: a
+/// fresh renderer lends [`EDGE`]'s cell after the write and not before
+/// it, and the write laid no row out again. Named break: the struck cells
+/// kept with no row's generation asked.
+#[test]
+fn a_wide_write_at_the_selections_edge_finds_the_struck_cells_again() {
+    let setup = two_links();
+    let host = with(STRUCK_TO_EDGE);
+    lent_a_slot(&setup, host);
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, setup.as_bytes());
+    let mut r = made(&faces);
+    let mut backing = GlyphMap::backing();
+    let mut cells = Cells::new(&mut backing, &t);
+    let mut sets = (0..).map(|k| SetIx(k % SETS));
+    let mut next = || sets.next().expect("a set");
+    for _ in 0..=SETS {
+        cell_frame(&mut r, &mut t, &host, &mut cells, next());
+    }
+    let before = fresh_cell_frame(&faces, &mut t, &host);
+    let lent_before = lent_at(&before, &t, Rows::ZERO, FIRST.row(), EDGE);
+    let laid = r.bidi().laid_seal();
+    feed(&mut t, wide_at_edge(FIRST.row()).as_bytes());
+    let after = fresh_cell_frame(&faces, &mut t, &host);
+    assert!(
+        !lent_before && lent_at(&after, &t, Rows::ZERO, FIRST.row(), EDGE),
+        "the control: a fresh renderer lends the edge's cell after the write and not before it"
+    );
+    let mut wrong = Vec::new();
+    for k in 0..SETS {
+        let now = cell_frame(&mut r, &mut t, &host, &mut cells, next());
+        assert!(
+            !r.bidi().moved_since(&laid),
+            "the control: the write laid no row out again"
+        );
+        if now != after {
+            wrong.push(k);
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "cell frames {wrong:?} after the write lend otherwise"
+    );
+}
+
+/// [`At::Above`].
+const ABOVE: At = At::Above;
+
+/// **Two lines of history under [`two_links`], and [`ABOVE`]'s row the
+/// link again with [`wide_at_edge`]'s character**: the window one line
+/// back shows that row where [`FIRST`]'s was, the link in the same red at
+/// the same columns.
+fn wide_above() -> String {
+    let mut setup = String::new();
+    for i in 0..ROWS + 2 {
+        setup.push_str(&format!("line {i}\r\n"));
+    }
+    setup.push_str(&two_links());
+    setup.push_str(&format!(
+        "\x1b[{};1H\x1b[2Ksee \x1b[38;2;255;0;0mhttps://example.org/x\x1b[m here{}",
+        ABOVE.row() + 1,
+        wide_at_edge(ABOVE.row())
+    ));
+    setup
+}
+
+/// **C14-3b: the window looked back onto a wide character at the
+/// selection's edge, the driver's inputs unmoved, lends what a fresh
+/// renderer lends, on the cell path**: [`FIRST`] struck and its row
+/// selected from [`EDGE`] on; the window one line back shows
+/// [`ABOVE`]'s row on [`FIRST`]'s window row, the link in the same red
+/// at the same columns with a wide character over [`EDGE`]'s cell, and
+/// the driver strikes, lines and selects it there -- the same strikes,
+/// lines and selection by value, so only the window's rows moved. Each
+/// cell frame after the look-back, into each set in turn, lends what a
+/// fresh renderer's first cell frame lends. The controls: the strikes and
+/// the selection the same by value, no window row written and none laid
+/// out again, and a fresh renderer lends [`EDGE`]'s cell looked back and
+/// not before. Named break: the struck cells kept with the window's rows
+/// out of their key.
+#[test]
+fn a_look_back_onto_a_wide_cell_at_the_selections_edge_finds_the_struck_cells_again() {
+    let setup = wide_above();
+    let was = with(STRUCK_TO_EDGE);
+    let now = Host {
+        links: Links {
+            lines: &[ABOVE],
+            strikes: &[ABOVE],
+            selected: Some(ABOVE),
+            ..STRUCK_TO_EDGE
+        },
+        back: Rows::of_count(1),
+        ..BASE
+    };
+    lent_a_slot(&setup, was);
+    lent_a_slot(&setup, now);
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, setup.as_bytes());
+    assert_eq!(
+        line_at(&t, was.back, FIRST),
+        line_at(&t, now.back, ABOVE),
+        "the control: the driver's strike, line and selected row the same by value"
+    );
+    let mut r = made(&faces);
+    let mut backing = GlyphMap::backing();
+    let mut cells = Cells::new(&mut backing, &t);
+    let mut sets = (0..).map(|k| SetIx(k % SETS));
+    let mut next = || sets.next().expect("a set");
+    for _ in 0..=SETS {
+        cell_frame(&mut r, &mut t, &was, &mut cells, next());
+    }
+    let (laid, seal) = (r.bidi().laid_seal(), t.sealed());
+    let before = fresh_cell_frame(&faces, &mut t, &was);
+    let after = fresh_cell_frame(&faces, &mut t, &now);
+    assert!(
+        !lent_at(&before, &t, was.back, FIRST.row(), EDGE)
+            && lent_at(&after, &t, now.back, FIRST.row(), EDGE),
+        "the control: a fresh renderer lends the edge's cell looked back and not before"
+    );
+    let mut wrong = Vec::new();
+    for k in 0..SETS {
+        let drawn = cell_frame(&mut r, &mut t, &now, &mut cells, next());
+        assert!(
+            written(&t, now.back, &seal).is_empty() && !r.bidi().moved_since(&laid),
+            "the control: no window row written and none laid out again"
+        );
+        if drawn != after {
+            wrong.push(k);
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "cell frames {wrong:?} looked back lend otherwise"
+    );
 }

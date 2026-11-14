@@ -282,40 +282,58 @@ where
     // frozen first, and the walk and the overlay reading the
     // copy, so all three resolve each id in the one table. A
     // frame with neither asks one test a row.
-    let struck = renderer.struck_cells(&view, view.rows(), crate::CopyOrder::Stored);
-    let lend = match frozen || struck.iter().any(|r| !r.is_empty()) {
+    // The struck cells are kept while nothing they are found from moved
+    // (`crate::StruckCells`), and the copy is lent in place, on buffers
+    // the set's lending keeps: a caret frame over a struck link allocates
+    // nothing for it.
+    let struck = renderer.take_struck(term, back, &view, view.rows(), crate::CopyOrder::Stored);
+    let lend = match frozen || !struck.cells().is_empty() {
         false => crate::Lend::Nothing,
         true => {
             // Each window row through the table each of its cells
             // names, in the order the copy holds them; the row
             // after the window's the leaving row while sliding,
             // else the status line's, and the notice's after it.
-            let sources: Vec<crate::RowSource<'_>> = (0..vrows)
-                .map(|y| renderer.bidi().row_source(term, back, Row::from_index(y)))
-                .collect();
-            let mut rows: Vec<(&mut [PackedCell], crate::Words<'_>)> = Vec::new();
-            for (y, chunk) in cell.copies_mem[set].chunks_mut(stride).enumerate() {
-                let words = match (sources.get(y), &leaving_source) {
-                    (Some(s), _) => s.words(),
-                    (None, Some(s)) if y == vrows => s.words(),
-                    _ => crate::Words::LIVE,
-                };
-                if y > vrows + 1 {
-                    break;
-                }
-                let n = vcols.min(chunk.len());
-                rows.push((&mut chunk[..n], words));
-            }
-            renderer.lend(
+            // With a display held a window row names runs, made as
+            // the layout finds them, once here; with none each row
+            // is one table, asked as the lending reads it.
+            let display = frozen && renderer.bidi().display().is_some();
+            let sources: Vec<crate::RowSource<'_>> = match display {
+                true => (0..vrows)
+                    .map(|y| renderer.bidi().row_source(term, back, Row::from_index(y)))
+                    .collect(),
+                false => Vec::new(),
+            };
+            let after = leaving_source
+                .as_ref()
+                .map_or(crate::Words::LIVE, crate::RowSource::words);
+            let words = match (frozen, display) {
+                (false, _) => crate::frozen::CopyWords::Live,
+                (true, false) => crate::frozen::CopyWords::Window {
+                    back,
+                    window: view.rows(),
+                    after,
+                },
+                (true, true) => crate::frozen::CopyWords::Each {
+                    rows: &sources,
+                    after,
+                },
+            };
+            let copy = &mut cell.copies_mem[set][..];
+            let rows = Rows::of_count(copy.len().div_ceil(stride.max(1)).min(vrows + 2));
+            let mut copy =
+                crate::frozen::FlatCopy::new(copy, term.stride(), view.cols(), rows, words);
+            renderer.lend_rows(
                 term,
-                &mut rows,
-                &struck,
+                &mut copy,
+                struck.cells(),
                 &mut cell.styles_mem[set][..],
                 &mut cell.style_stamps[set],
                 &mut cell.lent[set],
             )
         }
     };
+    renderer.put_struck(struck);
     // What the walk, the overlay and a sized line read the copy
     // through: the words its lent slots were given.
     renderer.set_frame_lent(&cell.lent[set]);

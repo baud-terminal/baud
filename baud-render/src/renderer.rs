@@ -1677,7 +1677,10 @@ mod veils {
     }
 }
 
-use links::{KeptSolids, LinkInputs, OwnOrder, Placing, Set, SolidsKey};
+use links::{
+    KeptSolids, LinkInputs, OwnOrder, Placing, Set, SolidsKey, StruckFound, StruckKey, StruckMoved,
+};
+pub use links::{StruckCells, StruckGen};
 
 /// **The frame's links, kept** (FS-C6): what the lines at rest, the strikes
 /// and `hover = "line"`'s solids are drawn from -- the driver's part held
@@ -1687,11 +1690,17 @@ use links::{KeptSolids, LinkInputs, OwnOrder, Placing, Set, SolidsKey};
 /// its rendition's word resolved under the frame's colours. So a caret frame
 /// over links nothing moved places none.
 mod links {
-    use super::{Force, Instance, StyleInputs, Tally};
+    use super::{CopyOrder, Force, Instance, StyleInputs, Tally};
+    use crate::Orders;
+    use crate::bidi::LaidSeal;
     use crate::cellmap::Hilite;
     use crate::linked::{LineColour, LineStyle, LinkHover, LinkLine, MissingPaint};
     use crate::message::MessageColours;
     use crate::metrics::Metrics;
+    use crate::select::Highlight;
+    use baud_domain::{Col, Content, Row, RowGens, Rows, Seal, Viewport, WindowAt};
+    use core::ops::Range;
+    use core::sync::atomic::{AtomicU64, Ordering};
 
     /// **How many times the driver's link inputs moved**: one more each
     /// time a setter of [`LinkInputs`] is handed a value other than the one
@@ -1939,6 +1948,245 @@ mod links {
         /// The solids the last placement made: the one read of them.
         pub(super) fn solids(&self) -> &[Instance] {
             &self.solids
+        }
+    }
+
+    /// **Everything the struck cells are found from but the rows' content
+    /// and order**: the driver's inputs (the strikes and `[link]
+    /// missing_color` among them), the selection, the copy's order and
+    /// rows, and the window's physical rows.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) struct StruckKey {
+        pub(super) inputs: InputsGen,
+        pub(super) highlight: Option<Highlight>,
+        pub(super) order: CopyOrder,
+        pub(super) rows: Rows,
+        pub(super) at: WindowAt,
+    }
+
+    /// Whether the struck cells a frame lends are the last frame's.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+    pub(super) enum StruckFound {
+        /// Kept: their key held and no row they are on was written.
+        Kept,
+        /// Found again.
+        #[default]
+        Again,
+    }
+
+    /// **Which struck cells a lending reads, named by value**: a value the
+    /// process gives out once -- to a renderer when it is made, to a find
+    /// that gives cells other, by value, than the find before it gave, a
+    /// run on another row or over other columns, and to cells lost and
+    /// found again from nothing ([`crate::Renderer::take_struck`]) -- and
+    /// kept by a find that gives the same cells and while they are kept.
+    /// So two equal generations, of one renderer or of two, name the same
+    /// struck cells, and a renderer made again starts at one no reader
+    /// holds: what a
+    /// reader of the struck cells keys on to know they moved without a cell
+    /// written. A change of `[link] missing_color` that strikes the same
+    /// cells moves the driver's inputs, not this.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub struct StruckGen(u64);
+
+    impl StruckGen {
+        /// A generation the process gave out no time before.
+        pub(super) fn fresh() -> StruckGen {
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            StruckGen(NEXT.fetch_add(1, Ordering::Relaxed))
+        }
+    }
+
+    /// Whether a find gave other struck cells, by value, than the find
+    /// before it.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) enum StruckMoved {
+        Same,
+        Moved,
+    }
+
+    /// **The struck runs, written only by a find that is compared**: the
+    /// runs and the buffer of the find before, which trade places at each
+    /// find, so neither is made again, and nothing outside this module
+    /// writes either. `Runs::again` is the one way in, and it says
+    /// whether the cells came out otherwise, so a generation keyed on it
+    /// cannot miss a change of the cells.
+    mod found {
+        use super::StruckMoved;
+        use baud_domain::Row;
+        use core::ops::Range;
+
+        #[derive(Default)]
+        pub(super) struct Runs {
+            cells: Vec<(Row, Range<usize>)>,
+            was: Vec<(Row, Range<usize>)>,
+        }
+
+        impl Runs {
+            /// The runs the last find gave.
+            pub(super) fn cells(&self) -> &[(Row, Range<usize>)] {
+                &self.cells
+            }
+
+            /// **The runs found again by `find`**, into the emptied buffer
+            /// of the find before the last, and compared, by value, with the
+            /// last find's.
+            pub(super) fn again(
+                &mut self,
+                find: impl FnOnce(&mut Vec<(Row, Range<usize>)>),
+            ) -> StruckMoved {
+                core::mem::swap(&mut self.cells, &mut self.was);
+                self.cells.clear();
+                find(&mut self.cells);
+                match self.cells == self.was {
+                    true => StruckMoved::Same,
+                    false => StruckMoved::Moved,
+                }
+            }
+        }
+    }
+
+    /// **The cells of a copy's rows each struck link's text covers**, as
+    /// [`crate::Renderer::lend`] takes them: a run of columns a row, the
+    /// rows in order, by visual column for a copy in drawn order
+    /// ([`CopyOrder::Visual`]) and by stored column for one in the core's
+    /// ([`CopyOrder::Stored`]). Kept with the key they were found under, the
+    /// seal the term held then and the layout's seal
+    /// ([`Orders::laid_seal`]), and found again into the same buffer only
+    /// when that key moved, a row the find read was written since -- a
+    /// selection reads its cells' content -- or any row's order or the
+    /// display was laid out otherwise since ([`Orders::moved_since`]): a
+    /// row drawn in another order keeps its struck cells while its order
+    /// holds, as one in its own does. Taken out of the renderer for the
+    /// lending it is read by and put back ([`crate::Renderer::take_struck`],
+    /// [`crate::Renderer::put_struck`]). Made only by the renderer, so the
+    /// struck cells a driver puts back are ones the renderer found.
+    pub struct StruckCells {
+        key: Option<(StruckKey, Seal, LaidSeal)>,
+        runs: found::Runs,
+        /// The rows whose cells the last find read: each strike's own, and
+        /// every row its runs were drawn from -- another than its own under
+        /// a display.
+        read: Vec<Row>,
+        found: StruckFound,
+    }
+
+    impl StruckCells {
+        /// None found yet: the first [`StruckCells::hold`] finds them.
+        pub(super) fn new() -> StruckCells {
+            StruckCells {
+                key: None,
+                runs: found::Runs::default(),
+                read: Vec::new(),
+                found: StruckFound::Again,
+            }
+        }
+
+        /// The runs, a row's in order and the rows in order.
+        pub fn cells(&self) -> &[(Row, Range<usize>)] {
+            self.runs.cells()
+        }
+
+        /// Whether the last [`StruckCells::hold`] kept them.
+        pub(super) fn found(&self) -> StruckFound {
+            self.found
+        }
+
+        /// **The cells for `now`**: kept where they were found under `now`,
+        /// no row the find read was written since the seal they were found
+        /// under (`gens`), and no row's order nor the display was laid out
+        /// otherwise since the layout's seal then (`orders`); otherwise
+        /// found again from `strikes`, drawn through `orders`, over `view`,
+        /// the window the strikes were read on, and kept under `now`, `seal`
+        /// and the layout's seal now. Whether they came out otherwise than
+        /// the last find gave, by value: kept cells did not. A selected cell
+        /// is left out, as it keeps the selection's colours, and so is every
+        /// cell while `missing_color = "none"`, which changes no colour.
+        #[allow(clippy::too_many_arguments)]
+        pub(super) fn hold(
+            &mut self,
+            now: StruckKey,
+            gens: &RowGens<'_>,
+            seal: Seal,
+            strikes: &[LinkLine],
+            missing: MissingPaint,
+            orders: &Orders,
+            view: &Viewport<'_>,
+        ) -> StruckMoved {
+            let kept = self.key.as_ref().is_some_and(|(k, was, laid)| {
+                *k == now
+                    && !orders.moved_since(laid)
+                    && !self.read.iter().any(|&r| gens.after(r, was))
+            });
+            if kept {
+                self.found = StruckFound::Kept;
+                return StruckMoved::Same;
+            }
+            self.found = StruckFound::Again;
+            self.key = Some((now, seal, orders.laid_seal()));
+            self.read.clear();
+            let read = &mut self.read;
+            self.runs.again(|cells| {
+                if !strikes.is_empty() && missing != MissingPaint::Kept {
+                    find(cells, read, now, strikes, orders, view);
+                }
+            })
+        }
+    }
+
+    /// **The cells `strikes` cover**, found into the emptied `cells` and
+    /// the rows the find read into `read`, as [`StruckCells::hold`] says.
+    fn find(
+        cells: &mut Vec<(Row, Range<usize>)>,
+        read: &mut Vec<Row>,
+        now: StruckKey,
+        strikes: &[LinkLine],
+        orders: &Orders,
+        view: &Viewport<'_>,
+    ) {
+        for l in strikes {
+            if !read.contains(&l.row) {
+                read.push(l.row);
+            }
+            for (row, at, n) in orders.stored_runs(l.row, l.from, l.to) {
+                if row.index() >= now.rows.index() {
+                    continue;
+                }
+                if !read.contains(&row) {
+                    read.push(row);
+                }
+                for v in at.index()..at.index() + n.index() {
+                    let logical = orders.logical_col(row, Col::at_index(v));
+                    let content = view
+                        .row(row)
+                        .get(logical.index())
+                        .map_or(Content::EMPTY, |c| c.content);
+                    if now
+                        .highlight
+                        .is_some_and(|h| orders.selects(&h, row, logical, content))
+                    {
+                        continue;
+                    }
+                    let x = match now.order {
+                        CopyOrder::Visual => v,
+                        CopyOrder::Stored => logical.index(),
+                    };
+                    match cells.last_mut() {
+                        Some((r, cols)) if *r == row && cols.end == x => cols.end = x + 1,
+                        _ => cells.push((row, x..x + 1)),
+                    }
+                }
+            }
+        }
+        // The rows in order, a row's runs in the order found: the order
+        // the lending meets its cells in, which numbers its slots. An
+        // insertion sort, stable and in place: a handful of runs.
+        for i in 1..cells.len() {
+            let mut j = i;
+            while j > 0 && cells[j - 1].0.index() > cells[j].0.index() {
+                cells.swap(j - 1, j);
+                j -= 1;
+            }
         }
     }
 }
@@ -2759,10 +3007,20 @@ enum MirrorRow {
     Filled,
 }
 
-/// Whether a frame lent every row of this path's copy (`Renderer::lend_cpu`).
+/// **Which rows of this path's copy a frame lent** (`Renderer::lend_cpu`):
+/// none; only the rows whose struck cells it rewrote, each the terminal's
+/// again at the next frame's start ([`Mirror::unlend`]); or every row, for
+/// a window that shows a frozen row, whose lending moves what an
+/// unchanged cell draws.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum LentRows {
     None,
+    /// The rows whose struck cells it rewrote: the one lending under which
+    /// a row it rewrote, this frame or the last, may be kept unread, where
+    /// it lent them as the last frame did (`Renderer::convert`).
+    Struck,
+    /// Every row, each taken from the terminal again and compared, this
+    /// frame and the next.
     Every,
 }
 
@@ -2787,13 +3045,19 @@ mod mirror {
     use crate::Orders;
     use crate::screens::{Dirt, Keeps, Now, ScreenGen, SetKey};
     use baud_core::Term;
-    use baud_domain::{Cols, LineRendition, PackedCell, Row, Rows, Seal, Viewport};
+    use baud_domain::{Cols, LineRendition, PackedCell, Row, Rows, Seal, StyleId, Viewport};
 
     #[derive(Default)]
     pub(super) struct Mirror {
         cells: Vec<PackedCell>,
         sizes: Vec<LineRendition>,
         key: SetKey,
+        /// **Each cell the convert's lending rewrote**, by its place in
+        /// `cells`, with the id it held, in the order rewritten: what puts
+        /// the copy back as the terminal's before the next convert reads
+        /// it ([`Mirror::unlend`]). Kept here, not with the lending, so a
+        /// give-back outside the convert cannot lose it.
+        lent: Vec<(usize, StyleId)>,
     }
 
     /// The cells, read as they stand.
@@ -2812,6 +3076,43 @@ mod mirror {
             self.cells = vec![PackedCell::EMPTY; cols.index() * rows.index()];
             self.sizes = vec![LineRendition::Single; rows.index()];
             self.key.forget();
+            self.lent.clear();
+        }
+
+        /// **The cells the convert's lending rewrote**, `rewrites` by row of
+        /// the copy, column and the id each held, `cols` cells a row
+        /// (`crate::Lent::rewrites`): kept for [`Mirror::unlend`]. Copied
+        /// on every convert, one entry a rewritten cell -- as many as the
+        /// struck cells, or every frozen cell lent -- into a buffer whose
+        /// room is kept.
+        pub(super) fn lend(&mut self, rewrites: &[(usize, usize, StyleId)], cols: Cols) {
+            self.lent.clear();
+            self.lent.extend(
+                rewrites
+                    .iter()
+                    .map(|&(y, x, was)| (y * cols.index() + x, was)),
+            );
+        }
+
+        /// **The copy put back as the terminal's** where the last convert's
+        /// lending rewrote it, the last rewrite first, before this convert
+        /// reads it: each row it touched, `cols` cells a row, into `rows`.
+        /// A copy written since by anything but the convert holds no
+        /// record ([`Mirror::scribble`]), and is taken whole.
+        pub(super) fn unlend(&mut self, cols: Cols, rows: &mut Vec<usize>) {
+            rows.clear();
+            for &(i, was) in self.lent.iter().rev() {
+                if let Some(c) = self.cells.get_mut(i) {
+                    c.style = was;
+                }
+                // A lending rewrites row after row, so a row's cells come
+                // together: the list is asked only where the row changes.
+                let y = i / cols.index().max(1);
+                if rows.last() != Some(&y) && !rows.contains(&y) {
+                    rows.push(y);
+                }
+            }
+            self.lent.clear();
         }
 
         /// Each row's line rendition, as it stands.
@@ -2823,6 +3124,7 @@ mod mirror {
         /// forgotten first, so the next convert takes every row.
         pub(super) fn scribble(&mut self) -> (&mut [PackedCell], &mut [LineRendition]) {
             self.key.forget();
+            self.lent.clear();
             (&mut self.cells, &mut self.sizes)
         }
 
@@ -3448,7 +3750,7 @@ pub struct ImageUpload {
 }
 
 /// **The order a copy of the window holds each row's cells in**
-/// ([`Renderer::struck_cells`]).
+/// ([`Renderer::take_struck`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CopyOrder {
     /// As drawn, left to right: the CPU and instance paths' row buffer.
@@ -3564,6 +3866,26 @@ pub struct Renderer<'f, 'a> {
     veiled_last: Vec<usize>,
     veiled_now: Vec<usize>,
     lent_last: LentRows,
+    /// The rows of `cur` the last frame's lending rewrote, put back as the
+    /// terminal's by [`Mirror::unlend`] at this frame's start, in a buffer
+    /// kept across frames.
+    lent_rows: Vec<usize>,
+    /// What each slot the last frame's lending gave held, read before it
+    /// is given back ([`crate::frozen::Lent::moved_from`]), in a buffer
+    /// kept across frames.
+    held_was: crate::frozen::LentValues,
+    /// **The cells the strikes cover**, kept while nothing they are found
+    /// from moved ([`StruckCells`]): made with the renderer, so none means
+    /// only that a lending has them out ([`Renderer::take_struck`]) or
+    /// lost them -- dropped with no put back, a panic between the two
+    /// among the ways.
+    struck: Option<StruckCells>,
+    /// **Their generation** ([`StruckGen`]), kept here and not with them,
+    /// so it reads true while they are out: moved by
+    /// [`Renderer::take_struck`] before it hands them out.
+    struck_gen: StruckGen,
+    /// The finds of the struck cells made since the renderer was made.
+    struck_finds: Tally,
     /// The cells of the frame being converted that belong to a picture
     /// drawn in text, whose backgrounds are drawn solid under the dim --
     /// [`Theme::finds_pictures`]. Found over the whole screen, because a
@@ -3830,7 +4152,7 @@ pub struct Renderer<'f, 'a> {
     /// then those the gesture's modifier strikes
     /// ([`Renderer::set_link_strikes`]), each struck through with the lines'
     /// solids and its text drawn grey by its own cells, through slots the
-    /// frame's table lends it ([`Renderer::struck_cells`], `crate::frozen`)
+    /// frame's table lends it ([`Renderer::take_struck`], `crate::frozen`)
     /// -- `[link] missing_color`, and the link under the pointer, whose
     /// `hover = "line"` goes with the lines' solids and `"box"` and
     /// `"text"` with the bar, over the images.
@@ -4312,6 +4634,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             veiled_last: Vec::new(),
             veiled_now: Vec::new(),
             lent_last: LentRows::None,
+            lent_rows: Vec::new(),
+            held_was: crate::frozen::LentValues::default(),
+            struck: Some(StruckCells::new()),
+            struck_gen: StruckGen::fresh(),
+            struck_finds: Tally::ZERO,
             pictures: Pictures::new(),
             bidi: crate::bidi::Reorder::new(),
             placeholder_bidi: None,
@@ -5461,54 +5788,100 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.links.missing()
     }
 
-    /// **The cells of each of a copy's first `rows` rows a struck link's
-    /// text covers**, as [`Renderer::lend`] takes them: by visual column for
-    /// a copy in drawn order ([`CopyOrder::Visual`], this path's own), by
-    /// stored column for one in the core's ([`CopyOrder::Stored`], the cell
-    /// path's). A selected cell is left out, as it keeps the selection's
-    /// colours, and so is every cell while `missing_color = "none"`, which
-    /// changes no colour. `view` is the window the strikes were read on.
-    pub fn struck_cells(
-        &self,
+    /// **The cells of a copy's first `rows` rows each struck link's text
+    /// covers**, as [`Renderer::lend`] takes them, taken out of the renderer
+    /// for the lending and put back after it ([`Renderer::put_struck`]): by
+    /// visual column for a copy in drawn order ([`CopyOrder::Visual`], this
+    /// path's own), by stored column for one in the core's
+    /// ([`CopyOrder::Stored`], the cell path's). A selected cell is left
+    /// out, as it keeps the selection's colours, and so is every cell while
+    /// `missing_color = "none"`, which changes no colour. `view` is the
+    /// window `back` lines up the strikes were read on. **Kept** while
+    /// nothing they are found from moved ([`StruckCells`]): a caret frame
+    /// over a struck link finds none. Their generation
+    /// ([`Renderer::struck_gen`]) is moved here, before they are handed
+    /// out, where a find gave other cells. **Lost** -- taken with none put
+    /// back since, by a second take or a panic between a take and its put
+    /// -- they are found again from nothing under a generation the process
+    /// gave none before, so no generation read while the lost cells were
+    /// held names what is found now.
+    pub fn take_struck(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
         view: &Viewport<'_>,
         rows: Rows,
         order: CopyOrder,
-    ) -> Vec<Vec<core::ops::Range<usize>>> {
-        let mut out: Vec<Vec<core::ops::Range<usize>>> = Vec::new();
-        if self.links.strikes().is_empty() || self.links.missing() == MissingPaint::Kept {
-            return out;
-        }
-        out.resize(rows.index(), Vec::new());
-        let orders = self.bidi.orders();
-        for l in self.links.strikes() {
-            for (row, at, n) in orders.stored_runs(l.row, l.from, l.to) {
-                let Some(cols) = out.get_mut(row.index()) else {
-                    continue;
-                };
-                for v in at.index()..at.index() + n.index() {
-                    let logical = orders.logical_col(row, Col::at_index(v));
-                    let content = view
-                        .row(row)
-                        .get(logical.index())
-                        .map_or(baud_domain::Content::EMPTY, |c| c.content);
-                    if self
-                        .highlight
-                        .is_some_and(|h| orders.selects(&h, row, logical, content))
-                    {
-                        continue;
-                    }
-                    let x = match order {
-                        CopyOrder::Visual => v,
-                        CopyOrder::Stored => logical.index(),
-                    };
-                    match cols.last_mut() {
-                        Some(r) if r.end == x => r.end = x + 1,
-                        _ => cols.push(x..x + 1),
-                    }
-                }
+    ) -> StruckCells {
+        let mut struck = match self.struck.take() {
+            Some(struck) => struck,
+            None => {
+                self.struck_gen = StruckGen::fresh();
+                StruckCells::new()
             }
+        };
+        let gens = term.row_gens(back);
+        let now = StruckKey {
+            inputs: self.links.moves(),
+            highlight: self.highlight,
+            order,
+            rows,
+            at: gens.window(),
+        };
+        let moved = struck.hold(
+            now,
+            &gens,
+            term.sealed(),
+            self.links.strikes(),
+            self.links.missing(),
+            self.bidi.orders(),
+            view,
+        );
+        if struck.found() == StruckFound::Again {
+            self.struck_finds.bump();
         }
-        out
+        if moved == StruckMoved::Moved {
+            self.struck_gen = StruckGen::fresh();
+        }
+        struck
+    }
+
+    /// **The struck cells put back** once the lending that read them is
+    /// done ([`Renderer::take_struck`]), so the next frame keeps them. Put
+    /// back once a take: a second put, with the renderer holding cells
+    /// already, is a driver's fault, asserted in a debug build.
+    pub fn put_struck(&mut self, struck: StruckCells) {
+        debug_assert!(
+            self.struck.is_none(),
+            "the struck cells put back twice for one take"
+        );
+        self.struck = Some(struck);
+    }
+
+    /// **How many times the struck cells were found again** since the
+    /// renderer was made ([`StruckCells`]): a caret frame over struck links
+    /// nothing moved finds none, on a row drawn in another order as on one
+    /// in its own.
+    pub fn struck_finds(&self) -> Tally {
+        self.struck_finds
+    }
+
+    /// **The struck cells' generation** ([`StruckGen`]): one the process
+    /// gave no other renderer, moved when a find gives other cells than
+    /// the one before it -- a strike moved to another row, or its cells
+    /// found at other columns -- and when they were lost
+    /// ([`Renderer::take_struck`]), and never on a find that gives the same
+    /// cells nor while they are kept. It reads true while the cells are
+    /// out for a lending, as it is kept here and moved before they go. It
+    /// moves only on a frame that takes the struck cells: the cell path
+    /// takes them every frame, the CPU path only on a frame it lends -- a
+    /// strike set, or a window over frozen history -- so there, with
+    /// neither, it names the cells its last lending took. A reader that
+    /// keeps what it made from the struck cells keys on it, as one keeps
+    /// rows on their generations; [`Renderer::struck_finds`] moves on every
+    /// find, the same cells or not.
+    pub fn struck_gen(&self) -> StruckGen {
+        self.struck_gen
     }
 
     /// **The link under the pointer for the next frame**, or none, copied
@@ -5694,7 +6067,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // **The struck links**: a strike at the face's strike position over
         // each run, in the colour its text is drawn in -- `missing_color`
         // where that reads, through the slot each struck cell is lent
-        // (`crate::frozen`, [`Renderer::struck_cells`]), so the text itself
+        // (`crate::frozen`, [`Renderer::take_struck`]), so the text itself
         // is drawn by the cells, as any other. **And the live line under it**:
         // `[link] line`'s style and thickness, in the box's colour at rest
         // and, under the pointer -- the gesture's strikes, or a run the
@@ -9874,20 +10247,42 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **Each frozen cell of this path's copy of the window lent a slot of
-    /// its table** ([`Renderer::lend_frozen`]): every row the copy holds,
-    /// the window's through the table each of its cells names, and the
-    /// status line's and the notice's, which are live.
-    fn lend_cpu(&mut self, term: &Term<'_>, back: Rows) {
-        let ncols = self.cols.index();
-        let main = self.main.index();
-        let sources: Vec<crate::frozen::RowSource<'_>> = (0..main)
-            .map(|r| {
-                self.bidi
-                    .orders()
-                    .row_source(term, back, Row::from_index(r))
-            })
-            .collect();
-        let struck = self.struck_cells(&term.view(back), self.main, CopyOrder::Visual);
+    /// its table** ([`Renderer::lend_frozen`]), and each struck cell its
+    /// grey ([`Renderer::lend`]): every row the copy holds, in place
+    /// ([`crate::frozen::FlatCopy`]), the window's through the table each
+    /// of its cells names, where it shows a frozen row -- and the status
+    /// line's and the notice's, which are live. Whether the struck cells
+    /// were the last frame's.
+    fn lend_cpu(&mut self, term: &Term<'_>, back: Rows) -> StruckFound {
+        let ncols = self.cols.index().max(1);
+        let frozen = self.bidi.orders().window_frozen(term, back);
+        let struck = self.take_struck(term, back, &term.view(back), self.main, CopyOrder::Visual);
+        // With a display held a window row names runs, made as the layout
+        // finds them: once, here, as before. With none each row is one
+        // table, asked of the layout as the lending reads it.
+        let display = frozen && self.bidi.orders().display().is_some();
+        let sources: Vec<crate::frozen::RowSource<'_>> = match display {
+            true => (0..self.main.index())
+                .map(|r| {
+                    self.bidi
+                        .orders()
+                        .row_source(term, back, Row::from_index(r))
+                })
+                .collect(),
+            false => Vec::new(),
+        };
+        let words = match (frozen, display) {
+            (false, _) => crate::frozen::CopyWords::Live,
+            (true, false) => crate::frozen::CopyWords::Window {
+                back,
+                window: self.main,
+                after: Words::LIVE,
+            },
+            (true, true) => crate::frozen::CopyWords::Each {
+                rows: &sources,
+                after: Words::LIVE,
+            },
+        };
         let (mut styles, mut lent, mut cur) = (
             core::mem::take(&mut self.styles),
             core::mem::take(&mut self.cpu_lent),
@@ -9895,16 +10290,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
         );
         let mut stamp = self.styles_stamp;
         {
-            let mut rows: Vec<(&mut [PackedCell], Words<'_>)> = cur
-                .converting()
-                .0
-                .chunks_mut(ncols.max(1))
-                .enumerate()
-                .map(|(r, c)| (c, sources.get(r).map_or(Words::LIVE, |s| s.words())))
-                .collect();
-            let _ = self.lend(term, &mut rows, &struck, &mut styles, &mut stamp, &mut lent);
+            let cells = cur.converting().0;
+            let rows = Rows::of_count(cells.len().div_ceil(ncols));
+            let mut copy = crate::frozen::FlatCopy::new(
+                cells,
+                baud_domain::Stride::of_cells(ncols),
+                self.cols,
+                rows,
+                words,
+            );
+            let _ = self.lend_rows(
+                term,
+                &mut copy,
+                struck.cells(),
+                &mut styles,
+                &mut stamp,
+                &mut lent,
+            );
         }
         (self.styles, self.styles_stamp, self.cpu_lent, self.cur) = (styles, stamp, lent, cur);
+        let found = struck.found();
+        self.put_struck(struck);
+        found
     }
 
     /// The renderer fitted to `term` and its rendition table brought up to
@@ -10145,9 +10552,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let t0 = Instant::now();
         self.fit(term);
         // The lending the last frame's copy was drawn under, which this one
-        // is compared with below, and what each slot it lent held.
+        // is compared with below, and what each slot it lent held, read into
+        // a kept buffer. And `cur` put back as the terminal's where that
+        // lending rewrote it, before anything reads it: the rows it touched
+        // are compared below unless this frame lends them alike.
         let lent_was = self.styles_stamp.lending;
-        let held_was = self.cpu_lent.lent_values(&self.styles);
+        self.cpu_lent
+            .lent_values_into(&self.styles, &mut self.held_was);
+        self.cur.unlend(self.cols, &mut self.lent_rows);
         self.give_back_cpu();
         let mut styles = core::mem::take(&mut self.styles);
         if styles.len() != term.styles().len() {
@@ -10208,10 +10620,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // last; else the rows written since its seal or laid out again
         // since its layout's, and the status line's by its own generation
         // and its own row of the maps. And the rows the last frame veiled,
-        // composed over or noticed, or every row if it lent them: `cur`
-        // holds those as drawn, not as stored. Every other row is the
-        // terminal's already, and the last frame's: it is neither read nor
-        // compared.
+        // composed over or noticed, or every row if it lent a frozen window
+        // slots: `cur` holds those as drawn, not as stored. The cells its
+        // struck links were lent are the terminal's again already
+        // (`Mirror::unlend`, above). Every other row is the terminal's
+        // already, and the last frame's: it is neither read nor compared.
         let orders = self.bidi.orders();
         let now = crate::screens::Now::of(term, back, (&vp, status.as_ref()), term.stride());
         let keeps = match self.known {
@@ -10294,11 +10707,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // record too, and a lent id means what it means only under its
         // lending: a frame lent otherwise than the last repaints every row
         // where that moved what an unchanged cell draws (`full` below,
-        // `Lent::moved_from`).
-        if self.bidi.orders().window_frozen(term, back) || !self.links.strikes().is_empty() {
-            self.lend_cpu(term, back);
-            lent_now = LentRows::Every;
+        // `Lent::moved_from`). A frozen window lends every row; struck
+        // links alone lend the rows whose cells the lending rewrites, each
+        // kept below while it is lent as the last frame lent it.
+        let mut struck = StruckFound::Again;
+        let frozen_window = self.bidi.orders().window_frozen(term, back);
+        if frozen_window || !self.links.strikes().is_empty() {
+            struck = self.lend_cpu(term, back);
+            lent_now = match frozen_window {
+                true => LentRows::Every,
+                false => LentRows::Struck,
+            };
         }
+        self.cur.lend(self.cpu_lent.rewrites(), cols);
         self.frame_words = self.cpu_lent.held();
         // The frame's links, on this frame's layout, a field's ground read
         // from this path's copy, whose ids the lending above named; the
@@ -10456,7 +10877,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || (self.styles_stamp.lending != lent_was
                 && self
                     .cpu_lent
-                    .moved_from(&held_was, &self.styles, &self.cur[..])
+                    .moved_from(&self.held_was, &self.styles, &self.cur[..])
                     == crate::frozen::Moved::Yes)
             || self.fade != self.last_fade
             || self.bell != self.last_bell
@@ -10509,6 +10930,44 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // other row is the last frame's, unread.
         if lent_now == LentRows::Every {
             self.mirror_rows.fill(MirrorRow::Filled);
+        }
+        // **A row whose struck cells were lent, last frame or this one**:
+        // the lending writes the same id into the same cell, so the row is
+        // the last frame's, only where this frame lent struck cells alone
+        // (`LentRows::Struck`), the struck cells were kept, the lending is
+        // the last one (the same slots for the same source renditions) and
+        // no frozen cell was lent in either frame. Else it is compared: a
+        // number made again for an evicted lending reads as another one,
+        // the safe side. (A frame that lent nothing found no struck cells,
+        // and one that lent every row compares every row above.)
+        //
+        // **The lending's term is a guard no input moves alone**, kept so a
+        // kept row's lent ids are read under the lending they were given
+        // in. With the struck cells kept, struck cells alone lent and no
+        // frozen cell lent in either frame, a lending other than the last
+        // lent the same cells (kept), from the same source renditions (a
+        // written row is taken again) and by the same lender, so only its
+        // slots differ: each a slot no cell of the frame named, holding the
+        // one struck rendition the same inputs resolve for its source, as
+        // the last lending's held it -- the same pixels. A slot the last
+        // lending gave that holds another rendition now while a cell of the
+        // copy names it makes the frame full above (`Lent::moved_from`).
+        let lent_alike = lent_now == LentRows::Struck
+            && struck == StruckFound::Kept
+            && self.styles_stamp.lending == lent_was
+            && self.held_was.frozen_lent() == crate::frozen::FrozenLent::No
+            && self.cpu_lent.frozen_lent() == crate::frozen::FrozenLent::No;
+        if !lent_alike {
+            let rewritten = self.cpu_lent.rewrites().iter().map(|&(y, _, _)| y);
+            for r in self.lent_rows.iter().copied().chain(rewritten) {
+                if let Some(m) = self
+                    .mirror_rows
+                    .get_mut(r)
+                    .filter(|m| **m == MirrorRow::Kept)
+                {
+                    *m = MirrorRow::Compared;
+                }
+            }
         }
         for &r in &self.veiled_now {
             if let Some(m) = self
