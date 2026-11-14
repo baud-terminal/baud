@@ -929,4 +929,119 @@ mod tests {
             "a row not laid out again kept"
         );
     }
+
+    /// **A row laid out again with none of its cells written is compared at
+    /// the copy, and is the one row compared** -- the count every caret
+    /// frame's zero at `Site::Screens` stands beside, seen to move: row 0,
+    /// digits, drawn right to left by row 1's Hebrew, the soft wrap's
+    /// paragraph (UAX #9 P2-P3); row 1 written Latin, which lays row 0 out
+    /// again in its own order. Against the last frame's key the take asks
+    /// each row why it may differ (`SetKey::dirt`): row 0 is laid out again
+    /// and not written, so its 20 cells are compared with the last copy's
+    /// (`row_same`); row 1 is written, so it is copied with no compare; no
+    /// other row is either. So the frame compares 20 cells and copies 40,
+    /// rows 0 and 1, and the frame after it, nothing written, compares and
+    /// copies none. Named break: the compare's count in `row_same` removed.
+    #[test]
+    fn a_row_laid_out_again_unwritten_is_the_row_compared_at_the_copy() {
+        use crate::counters::{self, Counter, Site};
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut sets = sets(&t);
+        let mut s = Screens::new();
+        let mut o = Reorder::new();
+        feed(
+            &mut t,
+            "1234567890 123456789\u{5d0}\u{5d1}\u{5d2}\r\n\r\nthree".as_bytes(),
+        );
+        let _ = frame(&mut s, &mut t, &mut o, &mut sets, SetIx(0), PLAIN);
+        assert!(
+            o.orders().reordered(Row::ZERO),
+            "the control: row 0 is drawn in another order"
+        );
+        let seal = t.seal_writes();
+        feed(&mut t, b"\x1b[2;1Habc");
+        let gens = t.row_gens(Rows::ZERO);
+        assert!(
+            !gens.after(Row::ZERO, &seal) && gens.after(Row::from_index(1), &seal),
+            "the isolation: row 1 written, row 0 not"
+        );
+        let _ = counters::take();
+        let built = frame(&mut s, &mut t, &mut o, &mut sets, SetIx(0), PLAIN);
+        let laid = counters::take();
+        assert_eq!(built, Built::New, "the control: a new screen");
+        assert!(
+            !o.orders().reordered(Row::ZERO),
+            "the control: row 0 is laid out again, in its own order"
+        );
+        let cols = u64::from(WS.ws_col);
+        let at = |c: &counters::Counts, n: Counter| c.at(Site::Screens, n).value();
+        assert_eq!(
+            at(&laid, Counter::CellsCompared),
+            cols,
+            "row 0, laid out again, compared whole, and no other row"
+        );
+        assert_eq!(
+            at(&laid, Counter::CellsCopied),
+            2 * cols,
+            "rows 0 and 1 copied"
+        );
+        assert_eq!(
+            frame(&mut s, &mut t, &mut o, &mut sets, SetIx(0), PLAIN),
+            Built::Last,
+            "the control: the frame after is the last screen"
+        );
+        let still = counters::take();
+        assert_eq!(
+            (
+                at(&still, Counter::CellsCompared),
+                at(&still, Counter::CellsCopied)
+            ),
+            (0, 0),
+            "the frame after, nothing written, compares and copies none"
+        );
+    }
+
+    /// **A row of the last copy a lending rewrote is compared again with
+    /// the rewrite undone, and both compares are counted** at
+    /// `Site::Screens` (`row_same`): a row of four cells whose cell 1 a
+    /// lending gave another rendition, read through an undo that names its
+    /// own. The first compare differs, so the row is compared again in the
+    /// scratch with the undo applied, and is the screen's: 8 cells
+    /// counted, the row's 4 twice. The control: with the undo on another
+    /// row, the row differs after the one compare, 4 cells. Named breaks:
+    /// either of `row_same`'s two counts removed.
+    #[test]
+    fn a_row_a_lending_rewrote_is_compared_again_through_its_undo() {
+        use super::row_same;
+        use crate::counters::{self, Counter, Site};
+        use baud_domain::StyleId;
+        let now = [PackedCell::EMPTY; 4];
+        let mut kept = now;
+        kept[1].style = StyleId::from_index(7);
+        assert_ne!(kept, now, "the control: the lending rewrote cell 1");
+        let compared = || {
+            counters::take()
+                .at(Site::Screens, Counter::CellsCompared)
+                .value()
+        };
+        let mut scratch = Vec::new();
+        let _ = counters::take();
+        let undone = row_same(
+            &mut scratch,
+            &[(0, 1, now[1].style)],
+            (Some(&kept[..]), Some(&now[..])),
+            Row::ZERO,
+        );
+        assert!(undone, "the row, its rewrite undone, is the screen's");
+        assert_eq!(compared(), 8, "compared as copied and again undone");
+        let elsewhere = row_same(
+            &mut scratch,
+            &[(1, 1, now[1].style)],
+            (Some(&kept[..]), Some(&now[..])),
+            Row::ZERO,
+        );
+        assert!(!elsewhere, "the control: no undo on its row, it differs");
+        assert_eq!(compared(), 4, "the control: compared once");
+    }
 }

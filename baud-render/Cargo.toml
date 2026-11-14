@@ -34,6 +34,14 @@ baud-tablegen = { workspace = true }
 # `tests/build_tables.rs` runs the build module on perturbed copies of the
 # pinned files, so each check it makes is seen to fire.
 baud-tablegen = { workspace = true }
+# **The counters, on for this crate's own tests** (`src/counters.rs`):
+# the copy of the screen's tests (`src/screens.rs`) and `tests/fed_counters.rs`
+# feed each place a caret frame is counted at and read that it moved,
+# through `counters::take`, which a build without the feature does not
+# have, so a test build of this crate alone fails to compile rather than
+# leaving them out. Without the defaults, so a test build without them
+# stays without them.
+baud-render = { path = ".", default-features = false, features = ["counters"] }
 
 [features]
 # **`baud-core`'s NEON scan, on**, as the core's own default build has it,
