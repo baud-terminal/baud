@@ -37,12 +37,23 @@ programs, and pictures.
   with Ctrl-click and worked in programs that use the mouse. Not tried
   on a real screen: the mouse, the clipboard, input methods, the bell,
   zoom and reduced motion. Seen on a real screen and not fixed: the
-  launch logo's plasma shows a hard-edged grey band, light mode reads
-  grey under the compositor's blur, and a shell's own colours are lost
-  after a light/dark change. Shift+Page Up and Down do not scroll the
+  launch logo's plasma shows a hard-edged grey band, and light mode
+  reads grey under the compositor's blur. Shift+Page Up and Down do not scroll the
   history. It draws on the CPU; drawing on the GPU is not built.
 - **A few control sequences.** The gaps are each listed with their reason
   in [vt-coverage](../vt-coverage.md), as a row at **partial** or **out**.
+
+## A program's own colours and light or dark
+
+When the desktop or macOS switches between light and dark under
+`theme = "auto"`, baud drops every colour a program set -- the palette
+(`OSC 4`, `OSC 5`), the text and page (`OSC 10`, `OSC 11`), the cursor
+(`OSC 12`) and the selection (`OSC 17`, `OSC 19`) -- and draws the theme's
+colours for the new appearance, because colours chosen for one background
+rarely read well on the other. A program that wants to choose again turns
+on colour-change notices with `CSI ? 2031 h`. On each switch, baud then
+sends it `CSI ? 997 ; 1 n` for dark or `CSI ? 997 ; 2 n` for light
+([vt-coverage](../vt-coverage.md), the `?2031` row).
 
 ## Known departures from the standards
 
