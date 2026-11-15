@@ -322,7 +322,17 @@ impl<'a> Player<'a> {
                     inputs.push_back((end, Input::Stopped));
                     Some(Doing::Holding { until: end })
                 }
-                (Step::Hover(cell), Doing::Start) => {
+                (Step::Hover(_), Doing::Start) => {
+                    // The pointer goes to the link by its text on the screen
+                    // as it is now, where the tap reads it, so a change to
+                    // the README's layout moves the hover with the link.
+                    let Some(cell) = showing(u.term, NIX_URL) else {
+                        panic!(
+                            "step {}: {NIX_URL} is not on the screen to hover:\n{}",
+                            self.at.0,
+                            crate::programs::screen(u.term).join("\n")
+                        )
+                    };
                     let at = place(self.geometry, cell, steps::MIDDLE);
                     inputs.push_back((now, Input::Moved(at.0, at.1)));
                     let settle = Duration::from_millis(steps::WHEEL_SETTLE_MS);
@@ -400,6 +410,16 @@ impl<'a> Player<'a> {
             crate::programs::screen(u.term).join("\n")
         );
     }
+}
+
+/// **The cell holding the middle of `text` on the screen now**, as a step's
+/// cell: the first row that shows it, where a click on it would land.
+fn showing(term: &Term<'_>, text: &str) -> Option<steps::Cell> {
+    let (row, col) = super::tap::cell_of(&super::tap::cells(term), text)?;
+    Some(steps::Cell {
+        row: u16::try_from(row.index()).ok()?,
+        col: u16::try_from(col.index()).ok()?,
+    })
 }
 
 /// **A point inside a cell of the grid**, `within` of the cell from its

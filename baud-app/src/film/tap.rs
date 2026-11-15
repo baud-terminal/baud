@@ -730,7 +730,7 @@ fn lit_changes(
 /// none, a wide character's tail among them, a space. What
 /// [`crate::programs::screen`] reads, its marks aside, so that a column
 /// here is a column on the grid.
-fn cells(term: &Term<'_>) -> Vec<Vec<char>> {
+pub(crate) fn cells(term: &Term<'_>) -> Vec<Vec<char>> {
     let v = term.window();
     (0..v.rows().index())
         .map(|y| {
@@ -748,7 +748,7 @@ fn cells(term: &Term<'_>) -> Vec<Vec<char>> {
 /// **Where `text` is on the screen, `rows` one character to a cell**: the
 /// first row holding it and the column of its middle cell, which a click
 /// on it would take; none where no row holds it.
-fn cell_of(rows: &[Vec<char>], text: &str) -> Option<(Row, Col)> {
+pub(crate) fn cell_of(rows: &[Vec<char>], text: &str) -> Option<(Row, Col)> {
     let want: Vec<char> = text.chars().collect();
     if want.is_empty() {
         return None;
