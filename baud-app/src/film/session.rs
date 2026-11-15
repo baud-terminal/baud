@@ -1304,34 +1304,46 @@ fn the_readme_session_lights_every_light() {
     if let Some(failed) = links_failed {
         assert_eq!(failed, Vec::<String>::new(), "the link checks");
     }
-    // The README's scene, in the container's helix: the trail plasma at
-    // every step of it, nothing changing it before the finale, and each
-    // jump's own plasma, from the search to `gg`, in its step or the hold
-    // after it; Ctrl-d is no jump, as it moves the page and the cursor
-    // together and leaves the cursor on its row.
+    // The README's scene, in its own helix after the config's: the trail
+    // liquid at every step of it, as scene 4 saved it, and each jump's own
+    // liquid, from the search to `gg`, in its step or the hold after it;
+    // Ctrl-d is no jump, as it moves the page and the cursor together and
+    // leaves the cursor on its row. Each step is found after the one before
+    // it, and a step the tour lacks fails here rather than skipping.
     let at = |want: Step| steps.iter().position(|s| *s == want);
-    if let (Some(open), Some(quit)) = (at(Step::Run("hx README.md")), at(Step::Line(":q"))) {
-        for i in (open..=quit).filter(|&i| !matches!(steps[i], Step::Hold(_))) {
-            assert_eq!(
-                trail_as(&take.trails, StepAt(i)),
-                CursorTrail::Plasma,
-                "at step {i} {:?}",
-                steps[i]
-            );
-        }
+    let after = |from: usize, want: Step| {
+        steps[from..]
+            .iter()
+            .position(|s| *s == want)
+            .map(|i| from + i)
+    };
+    let open = at(Step::Run("hx README.md")).expect("the README's helix");
+    let quit = after(open, Step::Line(":q")).expect("the README's `:q`");
+    let search = after(open, Step::Line("/character")).expect("the README's search");
+    let top = after(search, Step::Keys("gg")).expect("the README's `gg`");
+    assert!(
+        open < search && search < top && top < quit,
+        "the README's order"
+    );
+    for i in (open..=quit).filter(|&i| !matches!(steps[i], Step::Hold(_))) {
+        assert_eq!(
+            trail_as(&take.trails, StepAt(i)),
+            CursorTrail::Liquid,
+            "at step {i} {:?}",
+            steps[i]
+        );
     }
-    if let (Some(search), Some(top)) = (at(Step::Line("/character")), at(Step::Keys("gg"))) {
-        for i in (search..=top).filter(|&i| !matches!(steps[i], Step::Hold(_))) {
-            let lit = take.ignitions.iter().any(|(s, t, _)| {
-                s.is_some_and(|s| s == i || s == i + 1) && *t == CursorTrail::Plasma
-            });
-            println!("scene:   step {i} {:?}: plasma lit: {lit}", steps[i]);
-            assert!(
-                lit || matches!(steps[i], Step::Ctrl(_)),
-                "no plasma ignition at step {i} {:?}",
-                steps[i]
-            );
-        }
+    for i in (search..=top).filter(|&i| !matches!(steps[i], Step::Hold(_))) {
+        let lit = take
+            .ignitions
+            .iter()
+            .any(|(s, t, _)| s.is_some_and(|s| s == i || s == i + 1) && *t == CursorTrail::Liquid);
+        println!("scene:   step {i} {:?}: liquid lit: {lit}", steps[i]);
+        assert!(
+            lit || matches!(steps[i], Step::Ctrl(_)),
+            "no liquid ignition at step {i} {:?}",
+            steps[i]
+        );
     }
     // **The cursor blinks at every prompt the session holds at, baud's
     // shell's and the server's over ssh, and is steady while helix asks for
@@ -1373,28 +1385,26 @@ fn the_readme_session_lights_every_light() {
             drawn(i, false)
         );
     }
-    if let (Some(open), Some(quit)) = (at(Step::Run("hx README.md")), at(Step::Line(":q"))) {
-        for i in (open + 1..quit).filter(|&i| matches!(steps[i], Step::Hold(_))) {
-            assert_eq!(
-                drawn(i, true),
-                0,
-                "helix asked for a steady cursor, and step {i} {:?} drew it blinking",
-                steps[i]
-            );
-        }
+    for i in (open + 1..quit).filter(|&i| matches!(steps[i], Step::Hold(_))) {
+        assert_eq!(
+            drawn(i, true),
+            0,
+            "helix asked for a steady cursor, and step {i} {:?} drew it blinking",
+            steps[i]
+        );
     }
     // **The move down and the move up each light a plasma**: one from `4j`
-    // to `4k`, and one from `4k` to the search, the trail plasma then
-    // (`Show::ArrowTrail`). Not in the key's own step: the key goes over ssh
-    // and comes back as helix's redraw during the hold after it. Both are
-    // required in the tour, so a tour without them fails here.
+    // to `4k`, and one from `4k` to the config's search for the word, the
+    // trail plasma then (`Show::ArrowTrail`). Not in the key's own step:
+    // the key comes back as helix's redraw during the hold after it. Both
+    // are required in the tour, so a tour without them fails here.
     let down = at(Step::Keys(steps::DOWN));
     let up = at(Step::Keys(steps::UP));
-    let search = at(Step::Line("/character"));
-    for (from, to) in [(down, up), (up, search)] {
+    let word = at(Step::Line("/plasma"));
+    for (from, to) in [(down, up), (up, word)] {
         let (Some(from), Some(to)) = (from, to) else {
             panic!(
-                "the tour has no {} and {} before its search",
+                "the tour has no {} and {} before the config's search",
                 steps::DOWN,
                 steps::UP
             );
@@ -1410,7 +1420,8 @@ fn the_readme_session_lights_every_light() {
     }
     // **The finale's `sed` turns the trail to the saucer before `clear`**,
     // by baud's reading of the file again, and `clear` lights it.
-    if let Some(clear) = at(Step::Run("clear")) {
+    {
+        let clear = at(Step::Run("clear")).expect("the finale's `clear`");
         assert_eq!(
             trail_as(&take.trails, StepAt(clear)),
             CursorTrail::Ufo,
