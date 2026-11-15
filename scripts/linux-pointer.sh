@@ -32,13 +32,13 @@
 # the app asked the compositor to show. grim takes the screen with the
 # pointer drawn on it.
 #
-# The window floats at 640x408 at the origin of a 1024x768 output: 80x23
+# The window floats at 640x408 at the origin of a 1024x768 output: 80x24
 # cells of 8x17 px, so a cell's centre is (8c + 4, 17r + 8), and a point
-# past (640, 408) is off the window. The grid is the window less the
-# activity lights' own line, which baud.toml below pins to the window's
-# bottom (`[window] activity_lights = "bottom_line"`) and which these
-# checks keep: the 17 points below row 23 are that line, and the inner
-# script's ROWS is the grid's height. Each arm runs again with the output
+# past (640, 408) is off the window. baud.toml below sets `padding = 0`
+# and `[window] activity_lights = "off"`, so the grid is the whole window
+# and the inner script's ROWS is its height; where the window is not whole
+# cells, the app centres the grid in what is left over, and the edges'
+# points are computed from that origin (the table at the end). Each arm runs again with the output
 # at scale 2 and at scale 1.5, its mode 2048x1536 and 1536x1152, so the
 # layout is 1024x768 logical pixels at every scale; those runs take the
 # pointer to the grid's edges and read what the app draws its pointer and
@@ -47,9 +47,9 @@
 # does not, and its wl_output says 2, so it draws at 2 and sway scales
 # the window down. The font is 13 points, so the cell is the embedded
 # face's at 13, 19.5 and 26 pixels, 8x17, 12x26 and 16x34 (the pixels
-# bench at PIXELS_SCALE 1, 1.5 and 2): 80x23 cells and the lights' line
-# are 640x408 points at 1 and 2 and 960x624 pixels, 640x416 points, at 1.5,
-# where the window is 640x416 so the grid is 80x23 on both arms. Every check prints "ok" or
+# bench at PIXELS_SCALE 1, 1.5 and 2): 80x24 cells are 640x408 points at 1
+# and 2 and 960x624 pixels, 640x416 points, at 1.5, where the window is
+# 640x416 so the grid is 80x24 on both arms. Every check prints "ok" or
 # "FAILED" with what was read; the script exits non-zero when one failed
 # or a step could not run.
 set -euo pipefail
@@ -104,9 +104,8 @@ inner=$(
 set -u
 mkdir -p /tmp/out && D=$(mktemp -d) && cd "$D"
 O=/tmp/out
-# The grid's rows: the window's 24 less the activity lights' own line at
-# its bottom, where baud.toml pins it (the header).
-ROWS=23
+# The grid's rows: the whole window, with the lights off (the header).
+ROWS=24
 export XDG_RUNTIME_DIR=$D/xdg && mkdir -m 0700 "$XDG_RUNTIME_DIR"
 W=$(awk "BEGIN { print 1024 * $SCALE }") H=$(awk "BEGIN { print 768 * $SCALE }")
 cat > sway.conf <<C
@@ -130,7 +129,7 @@ export SWAYSOCK=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock)
 xkbcli compile-keymap --layout us > keymap.xkb
 # `[font] dpi = 72` keeps the 13-point font at the 17-pixel rows these
 # checks count in; the desktop's own point (`typesize.rs`) is larger.
-printf 'padding = 0\n[launch]\nsplash = "off"\n[font]\ndpi = 72\n[window]\nactivity_lights = "bottom_line"\n' > baud.toml
+printf 'padding = 0\n[launch]\nsplash = "off"\n[font]\ndpi = 72\n[window]\nactivity_lights = "off"\n' > baud.toml
 # xdg-open, first on the path: it writes down its arguments and opens
 # nothing.
 mkdir bin
@@ -326,8 +325,8 @@ check "a touchpad's 51 px up, three lines of 17, the top row" $D/wheel/swiped "l
 check "the thumb dragged to the top, the top row" $D/wheel/thumb 'line 1'
 check "the wheel on the primary screen sends the program nothing" $D/wheel/got ''
 # Rows 3 to ROWS - 1 three lines back against rows 0 to ROWS - 4 live,
-# short of the scrollbar's column and above the lights' line: 600 pixels
-# wide and ROWS - 3 rows of 17 tall each.
+# short of the scrollbar's column: 600 pixels wide and ROWS - 3 rows of 17
+# tall each.
 px=/target/release/examples/linux-pixels
 h=$(((ROWS - 3) * 17))
 $px crop $O/wheel-back.png 0 51 600 $h $D/wheel/back.pam
@@ -711,11 +710,29 @@ check "the prompt's click: characters, a wide one once, the prompt, past the inp
   '\033[D\033[D\033[D\033[D\033[D\033[D\033[D\033[D\033[D\033[D\033[D\033[D\033[<0;4;2M\033[<0;4;1M'
 fi
 
+# The layout at every scale, before the edges: a click at the centre of
+# the first cell and of the last, under ?1000 ?1006 on the alternate
+# screen, reports cells 1;1 and 80;ROWS. A layout the table at the end no
+# longer computes fails here, by name, as well as at the edges.
+session layout '
+printf "\033[?1049h\033[?1000h\033[?1006h"; touch $S/ready
+exec cat > $S/got' <<P
+move $CENTRE_FIRST
+tick 1000
+click left
+move $CENTRE_LAST
+tick 1000
+click left
+sleep 300
+P
+check "at scale $SCALE, the layout: the first and the last cell's centres" $D/layout/got \
+  '\033[<0;1;1M\033[<0;1;1m\033[<0;80;'"$ROWS"'M\033[<0;80;'"$ROWS"'m'
+
 # The grid's edges at every scale, under ?1000 ?1006 on the alternate
 # screen, where no history puts the scrollbar's thumb beside the last
 # column: the first cell; the last column and row from the window's last
-# point, on the lights' line below the grid, and from the first point in
-# the last cell; the cell before it; and
+# point, which may be in the leftover past the grid, and from the first
+# point in the last cell; the cell before it; and
 # the same two from half points, the extent doubled. Then the pixel
 # report, ?1016, from the first and the last point: the frame's pixel each
 # is in, which at a scale of 2 or 1.5 is not the point. The points and the
@@ -818,46 +835,55 @@ INNER
 )
 
 # Each run: the arm, the output's scale, the scale the app draws at there,
-# the window in points, the edges' points -- the window's last, the first
-# in the last cell, the one before it, and the last and the one before in
-# half points -- the pixel report at the last point, from one, and the
-# window's buffer. A point is the scale's pixels, the cell the pixel is
-# in, and a point on the lights' line below the grid, or a pixel past the
-# grid's last, is the grid's last row. The grid is 80x23 at every scale
-# (the header), its last row 22 counted from 0:
-#
-#   app 1    8x17 cells, 640x408 points, the grid 391 pixels tall: the
-#            last cell's first point (632, 374); the one before (631,
-#            373); (639, 407) is on the lights' line, reported 640;391
-#   app 2    16x34 cells, the grid 782 pixels tall; (632, 374) is (1264,
-#            748); (639, 407) is (1278, 814) and at 640x416 (639, 415) is
-#            (1278, 830), both past the grid, 1279;782
-#   app 1.5  12x26 cells, 640x416 points, the grid 598 pixels tall: the
-#            last cell's first point (632, 382), (948, 573); the one before
-#            (631, 381), (946.5, 571.5), and (631.5, 381) in half points;
-#            (639, 415) is (958.5, 622.5), past the grid, 959;598
+# the window in points and the cell in pixels. The rest is computed: the
+# window's buffer, its points times the app's scale; the grid, the whole
+# cells in it, 80xROWS; and the grid's origin in the buffer, the leftover
+# split as the app splits it, gutter + (room - room / cell * cell) / 2
+# with no gutter at `padding = 0`. A point is the scale's pixels, the
+# cell the pixel is in, and a pixel past the grid's last is the grid's
+# last row. From those: the centres of the first and the last cell; the
+# window's last point; the first point in the last cell and the one
+# before it; the last and the one before in half points; and the pixel
+# report at the last point, from one.
 runs="
-bookworm 1   1   640_408 639_407 632_374 631_373 1279_815 1263_747 640;391  640x408
-trixie   1   1   640_408 639_407 632_374 631_373 1279_815 1263_747 640;391  640x408
-bookworm 2   2   640_408 639_407 632_374 631_373 1279_815 1263_747 1279;782 1280x816
-trixie   2   2   640_408 639_407 632_374 631_373 1279_815 1263_747 1279;782 1280x816
-bookworm 1.5 2   640_416 639_415 632_374 631_373 1279_831 1263_747 1279;782 1280x832
-trixie   1.5 1.5 640_416 639_415 632_382 631_381 1279_831 1263_762 959;598  960x624
+bookworm 1   1   640x408 8x17
+trixie   1   1   640x408 8x17
+bookworm 2   2   640x408 16x34
+trixie   2   2   640x408 16x34
+bookworm 1.5 2   640x416 16x34
+trixie   1.5 1.5 640x416 12x26
 "
 status=0
-while read -r arm scale app win last first before half_last half_before pixel buffer; do
+while read -r arm scale app win cell; do
   [ -n "$arm" ] || continue
   dir=$arm && [ "$scale" = 1 ] || dir=$arm-x$scale
   mkdir -p "$out/$dir"
   echo "== $arm, scale $scale"
-  sp() { echo "${1/_/ }"; }
-  docker run --rm -i -e SCALE="$scale" -e APP="$app" -e WIN="$(sp "$win")" \
-    -e LAST="$(sp "$last")" -e FIRST="$(sp "$first")" -e BEFORE="$(sp "$before")" \
-    -e HALF_LAST="$(sp "$half_last")" -e HALF_BEFORE="$(sp "$half_before")" \
-    -e PIXEL="$pixel" -e BUFFER="$buffer" \
+  # The app's scale as num/den, so every step is whole numbers.
+  case $app in 1) n=1 d=1 ;; 2) n=2 d=1 ;; 1.5) n=3 d=2 ;; esac
+  w=${win%x*} h=${win#*x} cw=${cell%x*} ch=${cell#*x}
+  bw=$((w * n / d)) bh=$((h * n / d))
+  cols=$((bw / cw)) rows=$((bh / ch))
+  ox=$(((bw - cols * cw) / 2)) oy=$(((bh - rows * ch) / 2))
+  # The last cell's first pixel, and the first point and half point at or
+  # past it: ceil(p * d / n).
+  lx=$((ox + (cols - 1) * cw)) ly=$((oy + (rows - 1) * ch))
+  fx=$(((lx * d + n - 1) / n)) fy=$(((ly * d + n - 1) / n))
+  hx=$(((lx * 2 * d + n - 1) / n)) hy=$(((ly * 2 * d + n - 1) / n))
+  # The last point's pixel from the grid's origin, the grid's last where
+  # it is past it, counted from one.
+  px=$(((w - 1) * n / d - ox)) py=$(((h - 1) * n / d - oy))
+  [ "$px" -lt $((cols * cw)) ] || px=$((cols * cw - 1))
+  [ "$py" -lt $((rows * ch)) ] || py=$((rows * ch - 1))
+  docker run --rm -i -e SCALE="$scale" -e APP="$app" -e WIN="$w $h" \
+    -e CENTRE_FIRST="$(((ox + cw / 2) * d / n)) $(((oy + ch / 2) * d / n))" \
+    -e CENTRE_LAST="$(((lx + cw / 2) * d / n)) $(((ly + ch / 2) * d / n))" \
+    -e LAST="$((w - 1)) $((h - 1))" -e FIRST="$fx $fy" -e BEFORE="$((fx - 1)) $((fy - 1))" \
+    -e HALF_LAST="$((2 * w - 1)) $((2 * h - 1))" -e HALF_BEFORE="$((hx - 1)) $((hy - 1))" \
+    -e PIXEL="$((px + 1));$((py + 1))" -e BUFFER="${bw}x$bh" \
     -v "$root":/src:ro -v "$tag-target":/target:ro \
     "$tag-$arm" bash -c \
-    'cat > /tmp/arm.sh && chmod 755 /tmp/arm.sh && runuser -u baud -- env SCALE="$SCALE" APP="$APP" WIN="$WIN" LAST="$LAST" FIRST="$FIRST" BEFORE="$BEFORE" HALF_LAST="$HALF_LAST" HALF_BEFORE="$HALF_BEFORE" PIXEL="$PIXEL" BUFFER="$BUFFER" bash /tmp/arm.sh > /tmp/results.txt 2>&1; s=$?; mkdir -p /tmp/out; cp /tmp/results.txt /tmp/out/; tar -C /tmp/out -c .; exit $s' \
+    'cat > /tmp/arm.sh && chmod 755 /tmp/arm.sh && runuser -u baud -- env SCALE="$SCALE" APP="$APP" WIN="$WIN" CENTRE_FIRST="$CENTRE_FIRST" CENTRE_LAST="$CENTRE_LAST" LAST="$LAST" FIRST="$FIRST" BEFORE="$BEFORE" HALF_LAST="$HALF_LAST" HALF_BEFORE="$HALF_BEFORE" PIXEL="$PIXEL" BUFFER="$BUFFER" bash /tmp/arm.sh > /tmp/results.txt 2>&1; s=$?; mkdir -p /tmp/out; cp /tmp/results.txt /tmp/out/; tar -C /tmp/out -c .; exit $s' \
     <<<"$inner" 2>"$out/$dir/container.log" | tar -C "$out/$dir" -x || status=1
   cat "$out/$dir/results.txt"
 done <<<"$runs"
