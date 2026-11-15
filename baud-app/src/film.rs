@@ -684,11 +684,10 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
             let left = t.step().filter(|&s| s != step);
             t.turn(u.term, u.seat.scrolled(), Some(step), epoch.elapsed());
             if let Some(s) = left {
-                // The link's cell is found on the screen by its text: the
-                // step's cell is a placeholder until a take is filmed
-                // (`NIX_AT`), and is not where this grid shows the link.
+                // The link's cell is found on the screen by its text, where
+                // this grid shows it, whatever the step's cell.
                 if let Some(session::Step::Hover(_)) = hovers.get(s.0) {
-                    t.hover(u.term, u.seat.scrolled(), s, session::NIX_URL);
+                    t.hover(u.term, u.seat.scrolled(), s, session::LINK_URL);
                 }
             }
         }

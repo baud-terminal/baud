@@ -336,9 +336,14 @@ fn run(args: &Args) -> Result<(), String> {
         )?,
         Take::Tour => SESSION.to_vec(),
     };
-    let prep = prepare(&steps, take)?;
+    let mut prep = prepare(&steps, take)?;
     let names = machine_names(&prep.at.root)?;
     let profile = Profile::of_this_example()?;
+    if take == Take::Tour {
+        let root = provenance::repository();
+        let pins = pictures(&profile, &prep.at, &root)?;
+        prep.pins.extend(pins);
+    }
     let command = profile.command(kept_out(std::env::args().skip(1)));
     let kit = match &args.record {
         Some(out) => {
@@ -1179,6 +1184,71 @@ fn prepare(steps: &[Step], take: Take) -> Result<Prep, String> {
         port,
         faces,
     })
+}
+
+/// **The three pictures the tour draws in its working directory**:
+/// `README.md` at the take's commit, which scene 5 opens in helix; the
+/// photo, [`scratch::PHOTO_AT`], fetched by its pin
+/// (`assets/demo/photo.toml`), refused unless it hashes to it, and scaled
+/// to its width there by the pinned ffmpeg; [`session::LOGO_MP4`], scene
+/// 10's film, the dark half of `baud-pictures logo --mp4 --out DIR` -- made
+/// into the scratch directory, never into the tree, by `tools/baud-pictures`
+/// in `tools/shell.nix`, which pins the C it links -- and
+/// [`session::UFO_LOGO`], scene 9's second picture, copied from
+/// [`session::UFO_LOGO_FROM`]. Returns each file's name and SHA-256, for
+/// the provenance file.
+fn pictures(p: &Profile, at: &Layout, root: &Path) -> Result<Vec<(String, String)>, String> {
+    let work = at.work();
+    let readme = work.join("README.md");
+    fs::write(&readme, at_head(root, "README.md")?)
+        .map_err(|e| format!("{}: {e}", readme.display()))?;
+    let (pin, width) = scratch::photo()?;
+    let photo = fetch(&pin, &cache_dir()?)?;
+    let t = readme_gif::tools(nix_out)?;
+    let shown = at.root.join(scratch::PHOTO_AT);
+    let scaled = Command::new(&t.ffmpeg)
+        .args(["-v", "error", "-y", "-i"])
+        .arg(&photo)
+        .args(["-vf", &format!("scale={width}:-2")])
+        .args(["-q:v", "2"])
+        .arg(&shown)
+        .status()
+        .map_err(|e| format!("ffmpeg: {e}"))?;
+    if !scaled.success() {
+        return Err(format!("ffmpeg could not scale {}", photo.display()));
+    }
+    println!("{:<13}{} ({})", "photo", pin.name, pin.draws);
+    let mut pins = vec![(pin.file().to_string(), pin.sha256.to_string())];
+    let out = at.root.join("logo");
+    fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let quote = |s: &std::ffi::OsStr| format!("'{}'", s.to_string_lossy().replace('\'', "'\\''"));
+    let line = format!(
+        "{} run --release --manifest-path {} --target-dir {} --bin baud-pictures -- logo --mp4 \
+         --out {}",
+        quote(&cargo),
+        quote(root.join("tools/Cargo.toml").as_os_str()),
+        quote(p.target.join("tools").as_os_str()),
+        quote(out.as_os_str()),
+    );
+    let made = Command::new("nix-shell")
+        .arg(root.join("tools/shell.nix"))
+        .args(["--run", &line])
+        .status()
+        .map_err(|e| format!("nix-shell: {e}"))?;
+    if !made.success() {
+        return Err("baud-pictures logo --mp4 could not make the logo's film".to_string());
+    }
+    for (from, to) in [
+        (out.join("logo-dark.mp4"), session::LOGO_MP4),
+        (root.join(session::UFO_LOGO_FROM), session::UFO_LOGO),
+    ] {
+        let dest = work.join(to);
+        fs::copy(&from, &dest).map_err(|e| format!("{}: {e}", from.display()))?;
+        pins.push((to.to_string(), provenance::sha256(&dest)?));
+        println!("{:<13}{to}, from {}", "picture", from.display());
+    }
+    Ok(pins)
 }
 
 /// The output path of `attr` at the pinned revision.

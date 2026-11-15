@@ -27,14 +27,10 @@ use crate::provenance::{self, Doc, Tree};
 /// and not the trailer's, whose names belong to other takes.
 pub const GIF: &str = "session.gif";
 
-/// **The scenes the GIF plays**, by the tour's marks (`session::SESSION`),
-/// one stretch: the dial-up, ssh into the container and its lights; the
-/// container's card, fastfetch; and the README in the container's helix,
-/// opened, the plasma trail down and up, the search and the jumps to its
-/// top. The Nix link's scene after it is not cut: its hover is at a
-/// placeholder cell (`session::NIX_AT`), and its window is not opened
-/// without one.
-pub const SCENES: [u8; 3] = [6, 7, 8];
+/// **The scenes the GIF plays**, by the tour's marks (`session::SESSION`):
+/// the whole tour, one stretch, from baud's config in helix to the closing
+/// line.
+pub const SCENES: [u8; 16] = [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 
 /// **The first line of the pinned ffmpeg's `-version`**: ffmpeg-headless
 /// at [`crate::run::NIXPKGS`], the logo films' encoder, which
@@ -489,14 +485,14 @@ mod tests {
         assert_eq!(width_of(&provenance::GIFSKI), Ok(1164));
     }
 
-    /// **The scenes cut are the tour's dial-up, card and README, whole and
-    /// in a row**: consecutive marks of the tour, holding `ssh demo`'s
-    /// lights, fastfetch's card and helix opening the README and jumping to
-    /// its top; and none of them holds the hover, whose cell is a
-    /// placeholder, a link's window, or the finale's change of the trail.
-    /// Perturbation: add scene 9 to [`SCENES`] and the hover is in it.
+    /// **The scenes cut are the whole tour, in a row**: consecutive marks
+    /// of the tour, from baud's config in helix through the README, the
+    /// languages, the links, the pictures, the video, `ssh demo`'s lights,
+    /// fastfetch's card, btop, the fireworks and the finale's change of the
+    /// trail to the closing line. Perturbation: drop scene 17 from
+    /// [`SCENES`] and the closing line is not in it.
     #[test]
-    fn the_gif_plays_the_dial_up_the_card_and_the_readme() {
+    fn the_gif_plays_the_whole_tour() {
         let scenes = session::scenes(SESSION);
         let at = |n: u8| scenes.iter().position(|s| s.0 == n).expect("the scene");
         let first = at(SCENES[0]);
@@ -508,22 +504,25 @@ mod tests {
             .flat_map(|&n| SESSION[scenes[at(n)].2.clone()].to_vec())
             .collect();
         for want in [
-            Step::Run("ssh demo"),
-            Step::Run("fastfetch"),
-            Step::Run("hx README.md"),
+            Step::Run(session::HX_CONFIG),
             Step::Keys(session::DOWN),
             Step::Keys(session::UP),
+            Step::Run("hx README.md"),
             Step::Keys("gg"),
+            Step::Run("cat hello.txt"),
+            Step::Run("cat links.txt"),
+            Step::Run(session::ICAT),
+            Step::Run(session::MPV),
+            Step::Run("ssh demo"),
+            Step::Run("fastfetch"),
+            Step::Run("btop"),
+            Step::Run(session::FIREWORKS),
+            Step::Run(session::SED_UFO),
+            Step::Run(session::CLOSING),
         ] {
             assert!(steps.contains(&want), "{want:?}");
         }
-        for s in &steps {
-            assert!(
-                !matches!(s, Step::Hover(_) | Step::CmdClick(_) | Step::Picture),
-                "{s:?}"
-            );
-            assert_ne!(*s, Step::Run(session::SED_UFO));
-        }
+        assert_eq!(scenes.len(), SCENES.len(), "every scene of the tour");
     }
 
     /// **The ffmpeg pinned here is the logo films'**: the same nixpkgs

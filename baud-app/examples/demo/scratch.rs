@@ -343,8 +343,64 @@ pub fn files(path: &str, faces: &[&str]) -> Vec<(String, Vec<u8>)> {
             CHAWAN_TOML.as_bytes().to_vec(),
         ),
         (format!("home/{CONFIG}"), config(faces).into_bytes()),
+        (
+            "home/baud/hello.txt".to_string(),
+            crate::session::HELLO.as_bytes().to_vec(),
+        ),
+        (
+            "home/baud/links.txt".to_string(),
+            LINKS_TXT.as_bytes().to_vec(),
+        ),
     ]
 }
+
+/// **What scene 8 prints**, `assets/demo/links.txt`: a web address and a
+/// file's, each a URI baud underlines at rest (`baud-app/src/link.rs`), the
+/// file's a path that names nothing of this machine.
+pub const LINKS_TXT: &str = include_str!("../../../assets/demo/links.txt");
+
+/// **The photo's pin**, `assets/demo/photo.toml`: the elementary OS
+/// wallpaper "Canazei Granite Ridges", an Unsplash photograph that
+/// elementary's `debian/copyright` lists as CC0 (`assets/demo/LICENSES.md`),
+/// fetched by its URL at the wallpapers' tag `8.0.0` into the faces' cache
+/// and refused unless it hashes to the pin.
+pub const PHOTO_TOML: &str = include_str!("../../../assets/demo/photo.toml");
+
+/// **The photo scene 9 draws, read from its pin**, with the width the
+/// working directory holds it at: 850 pixels, 50 of the film's 17-pixel
+/// columns at 14 points, which kitten draws a pixel a pixel. The file's
+/// strings are kept for the process's life, as a pin's fields are
+/// `'static`.
+pub fn photo() -> Result<(crate::fonts::Pinned, u32), String> {
+    let doc =
+        crate::provenance::read(PHOTO_TOML).map_err(|e| format!("assets/demo/photo.toml: {e}"))?;
+    let field = |k: &str| -> Result<&'static str, String> {
+        let v = doc
+            .text_of("", k)
+            .ok_or_else(|| format!("assets/demo/photo.toml has no {k}"))?;
+        Ok(Box::leak(v.to_string().into_boxed_str()))
+    };
+    let width = field("width")?
+        .parse::<u32>()
+        .map_err(|_| "assets/demo/photo.toml's width is not a number of pixels".to_string())?;
+    let sha256 = field("sha256")?;
+    if sha256.len() != 64 || !sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("assets/demo/photo.toml's sha256 is not 64 hex digits".to_string());
+    }
+    Ok((
+        crate::fonts::Pinned {
+            name: field("name")?,
+            url: field("url")?,
+            sha256,
+            draws: "the photo, scene 9",
+        },
+        width,
+    ))
+}
+
+/// Where the photo is, under the scratch root: the shell's working
+/// directory, so the command names it bare.
+pub const PHOTO_AT: &str = "home/baud/canazei.jpg";
 
 /// **baud's environment, and nothing else**, as `env -i` gives it -- no
 /// `XDG_CONFIG_HOME` or other `XDG_*` directory among it, which baud reads
@@ -384,6 +440,39 @@ mod tests {
     use super::*;
     use crate::names::tests::qz;
     use crate::names::{env_named, named, named_outside, public_path};
+
+    /// **Scene 9's photo is read from its pin, and scenes 6 and 8's files
+    /// are in the working directory**: the pin names the wallpaper at the
+    /// tag `8.0.0`, a 64-digit hash and 850 pixels; kitten's command names
+    /// the file where the photo is put; `hello.txt` and `links.txt` are in
+    /// `~/baud`, the web address the pointer rests on the first line of the
+    /// links. The control: the pin's fields are read from its file, a
+    /// hash changed there read back changed.
+    #[test]
+    fn the_tours_pictures_and_files_are_in_its_working_directory() {
+        let (pin, width) = photo().unwrap();
+        assert_eq!(width, 850);
+        assert_eq!(pin.sha256.len(), 64);
+        assert!(
+            pin.url
+                .starts_with("https://raw.githubusercontent.com/elementary/wallpapers/8.0.0/"),
+            "{}",
+            pin.url
+        );
+        assert_eq!(PHOTO_AT, "home/baud/canazei.jpg");
+        assert!(crate::session::ICAT.ends_with(" canazei.jpg"));
+        assert_eq!(
+            LINKS_TXT.lines().next(),
+            Some("https://github.com/baud-terminal/baud")
+        );
+        let names: Vec<String> = files("/a/bin", &[]).into_iter().map(|(n, _)| n).collect();
+        for want in ["home/baud/hello.txt", "home/baud/links.txt"] {
+            assert!(names.iter().any(|n| n == want), "{want}: {names:?}");
+        }
+        let short = PHOTO_TOML.replace(pin.sha256, "0eff");
+        let doc = crate::provenance::read(&short).unwrap();
+        assert_eq!(doc.text_of("", "sha256"), Some("0eff"), "the control's pin");
+    }
 
     /// **The scratch home names nothing of the machine**: every file it
     /// writes, the zsh startup file with the programs' nix paths in its
@@ -494,16 +583,18 @@ mod tests {
         );
         assert_eq!(c.lines().last(), Some("trail = \"plasma\""));
         assert_eq!(c.matches("plasma").count(), 1, "the word once");
-        // The finale's `sed`, its one substitution, changes the last line
-        // alone; the control, a second `plasma`, would change two.
-        assert!(crate::session::SED_UFO.contains(" s/plasma/ufo/ "));
-        let after = c.replacen("plasma", "ufo", 1);
+        // Scene 4 changes the word to `liquid`, and the finale's `sed`, its
+        // one substitution, changes that line alone; the control, a second
+        // `liquid`, would change two.
+        assert!(crate::session::SED_UFO.contains(" s/liquid/ufo/ "));
+        let liquid = c.replacen("plasma", "liquid", 1);
+        let after = liquid.replacen("liquid", "ufo", 1);
         assert_eq!(after.lines().last(), Some("trail = \"ufo\""));
         let changed = |a: &str, b: &str| a.lines().zip(b.lines()).filter(|(x, y)| x != y).count();
-        assert_eq!(changed(&c, &after), 1, "one line changed");
-        let twice = format!("{c}# plasma\n");
+        assert_eq!(changed(&liquid, &after), 1, "one line changed");
+        let twice = format!("{liquid}# liquid\n");
         assert_eq!(
-            changed(&twice, &twice.replace("plasma", "ufo")),
+            changed(&twice, &twice.replace("liquid", "ufo")),
             2,
             "the control"
         );
@@ -552,11 +643,15 @@ mod tests {
             String::from_utf8_lossy(&helix.1).contains("[editor.soft-wrap]\nenable = true\n"),
             "no sideways scroll of the README"
         );
-        assert!(
-            files("/a/bin", &faces)
-                .iter()
-                .all(|(f, _)| !f.starts_with("home/baud/")),
-            "the working directory's files come from the repository at HEAD"
+        let work: Vec<String> = files("/a/bin", &faces)
+            .into_iter()
+            .map(|(f, _)| f)
+            .filter(|f| f.starts_with("home/baud/"))
+            .collect();
+        assert_eq!(
+            work,
+            ["home/baud/hello.txt", "home/baud/links.txt"],
+            "the working directory's other files come from the repository at HEAD"
         );
         assert_eq!(
             preset.1,

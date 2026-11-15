@@ -326,7 +326,7 @@ impl<'a> Player<'a> {
                     // The pointer goes to the link by its text on the screen
                     // as it is now, where the tap reads it, and to the
                     // step's own cell where the screen does not show it.
-                    let cell = showing(u.term, NIX_URL).unwrap_or(cell);
+                    let cell = showing(u.term, LINK_URL).unwrap_or(cell);
                     let at = place(self.geometry, cell, steps::MIDDLE);
                     inputs.push_back((now, Input::Moved(at.0, at.1)));
                     let settle = Duration::from_millis(steps::WHEEL_SETTLE_MS);
@@ -635,7 +635,9 @@ pub(crate) fn without(steps: &[Step], run: &str) -> Vec<Step> {
 /// waited for, the wheel turned and the `q` that closes it -- through that
 /// `q` and the hold after it. A link's window is a new baud window running
 /// the program the config names for the link, which a session played
-/// without a window cannot open.
+/// without a window cannot open. The video's command, [`steps::MPV`], is
+/// taken out whole too ([`without`]): mpv is a program that can open a
+/// window of its own.
 pub(crate) fn windowless(steps: &[Step]) -> Vec<Step> {
     let mut v = Vec::with_capacity(steps.len());
     let mut i = 0;
@@ -655,7 +657,10 @@ pub(crate) fn windowless(steps: &[Step]) -> Vec<Step> {
             _ => close + 1,
         };
     }
-    v
+    match v.contains(&Step::Run(steps::MPV)) {
+        true => without(&v, steps::MPV),
+        false => v,
+    }
 }
 
 /// The scratch directory's `env`, a `KEY=value` a line, as the demo writes
@@ -913,20 +918,39 @@ fn the_demos_link_rules_open_their_windows() {
     assert_eq!(refused.link.rules.rule_for("https"), None, "the control");
 }
 
-/// **A session with no window plays the tour without the link's window**:
-/// the Command-click, the picture, the wheel and Chawan's `q` with its
-/// hold are gone, the hover before them and helix's `:q` after them stay,
-/// and nothing else moves. The control: btop's `q`, which closes no
-/// window of a link, stays. Perturbation: cut through the next `Prompt`
+/// **A session with no window plays the tour without a link's window or
+/// the video**: a Command-click, the picture, the wheel and the `q` that
+/// closes the link's window with its hold are gone, the hover before them
+/// and helix's `:q` after them stay; the tour's `mpv` goes with its prompt
+/// and hold; and nothing else moves. The control: btop's `q`, which closes
+/// no window of a link, stays. Perturbation: cut through the next `Prompt`
 /// rather than the `q` and helix's `:q` goes with it.
 #[test]
-fn a_windowless_session_skips_the_links_window() {
-    let s = SESSION;
-    let w = windowless(s);
-    let click = s
-        .iter()
-        .position(|t| matches!(t, Step::CmdClick(_)))
-        .unwrap();
+fn a_windowless_session_skips_a_links_window_and_the_video() {
+    let c = steps::Cell { row: 3, col: 7 };
+    let s = [
+        Step::Prompt,
+        Step::Run("hx README.md"),
+        Step::Hover(c),
+        Step::Hold(400),
+        Step::CmdClick(c),
+        Step::Picture,
+        Step::Hold(1500),
+        Step::Wheel {
+            turns: -1,
+            lines: 3,
+        },
+        Step::Hold(1200),
+        Step::Keys("q"),
+        Step::Hold(400),
+        Step::Line(":q"),
+        Step::Prompt,
+        Step::Run("btop"),
+        Step::Keys("q"),
+        Step::Prompt,
+    ];
+    let w = windowless(&s);
+    let click = 4;
     assert!(w.iter().all(|t| !matches!(t, Step::CmdClick(_))));
     assert!(w.iter().all(|t| !matches!(t, Step::Wheel { .. })));
     assert_eq!(w[..click], s[..click], "everything before stays");
@@ -938,6 +962,15 @@ fn a_windowless_session_skips_the_links_window() {
     // CmdClick, Picture, Hold, Wheel, Hold, `q` and its hold.
     assert_eq!(w.len(), s.len() - 7);
     assert!(w.contains(&Step::Keys("q")), "the control: btop's `q`");
+    let tour = windowless(SESSION);
+    let mpv = SESSION
+        .iter()
+        .position(|t| *t == Step::Run(steps::MPV))
+        .expect("the tour plays the video");
+    assert!(!tour.contains(&Step::Run(steps::MPV)));
+    assert_eq!(tour[..mpv], SESSION[..mpv], "everything before stays");
+    // `mpv`, its prompt and its hold.
+    assert_eq!(tour.len(), SESSION.len() - 3);
 }
 
 /// **The tour lights every light**, played without a
@@ -1230,10 +1263,6 @@ fn the_readme_session_lights_every_light() {
             c
         };
         let mut failed = link_checks(report, &steps, &cfg, &f.env);
-        // The README session films no hover: check 1 (the hovered Nix link
-        // lights and a Command-click opens its window) belongs to a take
-        // with a window. Checks 2 and 3 hold here.
-        failed.retain(|f| !f.starts_with("1:"));
         for f in files {
             println!("links:   {}", f.display());
         }
@@ -1392,14 +1421,13 @@ fn the_readme_session_lights_every_light() {
         });
         assert!(flew, "no saucer at the finale's `clear`");
     }
-    // fastfetch's mark lights FAX: first in its shot, fastfetch typed to
-    // the hold after its prompt. The Nix link's page opens in a window of
-    // its own, which a session with no window does not open.
+    // The photo lights FAX: first in its shot, kitten's command typed to
+    // the hold after its prompt.
     let first = take.lit.first(Led::Fax).and_then(|(_, s)| s);
-    let card = at(Step::Run("fastfetch"));
+    let card = at(Step::Run(steps::ICAT));
     assert!(
         card.is_some_and(|c| first.is_some_and(|StepAt(i)| (c..=c + 2).contains(&i))),
-        "FAX first lit in step {first:?}, not in fastfetch's shot, from step {card:?}"
+        "FAX first lit in step {first:?}, not in the photo's shot, from step {card:?}"
     );
     assert_eq!(
         take.lit.dark(),
@@ -1792,22 +1820,26 @@ fn submitted(steps: &[Step]) -> Vec<String> {
 }
 
 /// What the headless session may type and submit: comments, ssh, the
-/// container's terminal programs, helix's own commands, and the shell's
-/// `printf`, `sed`, `clear` and `exit`. None of them opens a window.
-const SUBMITTED_ALLOWED: [&str; 14] = [
+/// container's terminal programs, helix's own commands, kitten's pictures
+/// drawn in the grid, and the shell's `printf`, `sed`, `clear` and `exit`.
+/// None of them opens a window.
+const SUBMITTED_ALLOWED: [&str; 17] = [
     "#",
     "ssh",
     "fastfetch",
     "hx",
     "cat",
+    "kitten",
     "btop",
     "printf",
     "exit",
     "sed",
     "clear",
     ":q",
+    ":w",
+    ":open",
+    "/plasma",
     "/character",
-    "/Nix",
     "",
 ];
 
@@ -2020,17 +2052,17 @@ fn env_path(env: &[(std::ffi::OsString, std::ffi::OsString)]) -> Option<std::ffi
         .map(|(_, v)| v.clone())
 }
 
-/// The URL the storyline's link names: scene 9, "The Nix link opens
-/// nixos.org in Chawan (F1, on the Mac)", hovered at [`steps::NIX_AT`]
-/// and found by the tap on its screen by this text.
-pub(super) const NIX_URL: &str = "https://nixos.org";
+/// The web address scene 8 prints, the first line of `links.txt`,
+/// hovered at [`steps::LINK_AT`] and found by the tap on its screen by
+/// this text.
+pub(super) const LINK_URL: &str = "https://github.com/baud-terminal/baud";
 
 /// **The link layer's three checks on what the tap saw**, each from the
 /// storyline (the designer's `commands.md`); the failures, in words.
 ///
-/// 1. Scene 9's link lights the frame it shows, as a URL waits on no
+/// 1. Scene 8's link lights the frame it shows, as a URL waits on no
 ///    answer of the worker's, and a Command-click on it, at the
-///    `Hover(`[`steps::NIX_AT`]`)` step, takes a
+///    `Hover(`[`steps::LINK_AT`]`)` step, takes a
 ///    window running the argv the session's `[link.https]` rule builds for
 ///    it on the session's `PATH`.
 /// 2. No row goes darker while its text stays and it stays on the normal
@@ -2052,20 +2084,20 @@ fn link_checks(
     let rules = &cfg.link.rules;
     let want: Option<Vec<String>> = rules.rule_for("https").and_then(|(ix, _)| {
         rules
-            .window(ix, NIX_URL)
+            .window(ix, LINK_URL)
             .and_then(Result::ok)
             .map(|run| super::tap::window_argv(&run, env))
     });
-    let hover = steps.iter().position(|s| *s == Step::Hover(steps::NIX_AT));
+    let hover = steps.iter().position(|s| *s == Step::Hover(steps::LINK_AT));
     match (hover, &want) {
         (Some(h), Some(want)) => match report.hovered.iter().find(|(s, _)| *s == StepAt(h)) {
             Some((_, Opens::Window(argv))) if argv == want => {}
             other => failed.push(format!(
-                "1: a Command-click at the Nix link takes {other:?}, not a window running {want:?}"
+                "1: a Command-click at the link takes {other:?}, not a window running {want:?}"
             )),
         },
         _ => failed.push(format!(
-            "1: no hover over the Nix link ({hover:?}) or no window rule for it ({want:?})"
+            "1: no hover over the link ({hover:?}) or no window rule for it ({want:?})"
         )),
     }
     if let Some(argv) = &want {
@@ -2075,13 +2107,13 @@ fn link_checks(
     }
     // A URL lights while its program is unknown, and an answer can only
     // strike it: it waits on no answer, so it lights the frame it shows.
-    match report.first_lit(NIX_URL) {
+    match report.first_lit(LINK_URL) {
         Some((shown, Some(lit))) if lit == shown => {}
         Some((shown, Some(lit))) => failed.push(format!(
-            "1: the Nix link showed at frame {shown:?} and lit at {lit:?}: a URL waits on no \
+            "1: the link showed at frame {shown:?} and lit at {lit:?}: a URL waits on no \
              answer and lights the frame it shows"
         )),
-        other => failed.push(format!("1: the Nix link never lit: {other:?}")),
+        other => failed.push(format!("1: the link never lit: {other:?}")),
     }
     // 2.
     for d in &report.darkened {
@@ -2201,7 +2233,7 @@ fn demo_link_config(
 }
 
 /// **The link checks fail on what each guards**, on a report the tap could
-/// have made: one that holds all three passes; a Command-click at the Nix
+/// have made: one that holds all three passes; a Command-click at the
 /// link that opens anything but the rule's window, or a link lit a frame
 /// after it showed, an answer merged between the two among them, fails
 /// check 1; a row gone dark
@@ -2218,10 +2250,13 @@ fn the_link_checks_catch_what_each_guards() {
     let (cfg, dir, env) = demo_link_config("checks");
     let steps = windowless(SESSION);
     let at = |s: Step| steps.iter().position(|t| *t == s).expect("the step");
-    let (hover, ssh) = (at(Step::Hover(steps::NIX_AT)), at(Step::Run("ssh demo")));
+    let (hover, ssh) = (at(Step::Hover(steps::LINK_AT)), at(Step::Run("ssh demo")));
     let rules = &cfg.link.rules;
     let (ix, _) = rules.rule_for("https").expect("the https rule");
-    let run = rules.window(ix, NIX_URL).expect("a window").expect("built");
+    let run = rules
+        .window(ix, LINK_URL)
+        .expect("a window")
+        .expect("built");
     let want = super::tap::window_argv(&run, &env);
     assert!(
         want[0].starts_with('/') && want[0].ends_with("/cha"),
@@ -2238,10 +2273,8 @@ fn the_link_checks_catch_what_each_guards() {
     let mut good = Report::default();
     good.hovered
         .push((StepAt(hover), Opens::Window(want.clone())));
-    good.seen.insert(
-        format!("29 [Nix]({NIX_URL}) (with flakes)"),
-        (FrameNo(10), Some(FrameNo(10))),
-    );
+    good.seen
+        .insert(LINK_URL.to_string(), (FrameNo(10), Some(FrameNo(10))));
     good.answered.push(FrameNo(4));
     // The step's span reaches the prompt above the line `ssh demo` was
     // typed on, as a take's does: those rows are this machine's.

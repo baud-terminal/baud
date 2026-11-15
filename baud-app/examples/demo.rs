@@ -1,15 +1,17 @@
 //! **The tour and the trailer, played in baud's window**: a real
 //! interactive zsh and real programs at real speed, every command typed
 //! into the window key by key. The tour, the film for YouTube, is the
-//! storyline's scenes 6 to 16, each narrated, where it has a line, by a
-//! `#` line typed at the prompt as a shell comment: ssh into a container
-//! on this Mac and its lights; its system card with baud's mark drawn as a
-//! picture; the repository's README in the container's helix, the arrow
-//! keys' plasma trail and its jumps; its Nix link Command-clicked, the
-//! page opened in Chawan on this Mac; baud defined in six languages and a
-//! line of emoji in `cat hello.txt`; a word selected, copied and pasted;
-//! btop; iTerm2's fireworks asked for by a `printf` typed in full; `exit`;
-//! the trail turned to the saucer by a `sed` and `clear`; and the
+//! storyline's scenes, each narrated, where it has a line, by a `#` line
+//! typed at the prompt as a shell comment: baud's own config opened in
+//! helix and the plasma trail, the trail changed to liquid by one word
+//! saved and baud's live reload, the repository's README read in that
+//! helix; baud defined in six languages and a line of emoji in `cat
+//! hello.txt`; a word selected, copied and pasted; a file of links, the
+//! pointer over one; a photo and the UFO logo drawn by `kitten icat`; the
+//! plasma logo played by mpv; ssh into a container on this Mac and its
+//! lights, its system card with baud's mark drawn as a picture, btop, and
+//! iTerm2's fireworks asked for by a `printf` typed in full; `exit`; the
+//! trail turned to the saucer by a `sed` and `clear`; and the
 //! repository's address. The trailer, take 2, plays the tour from YouTube
 //! in the window with mpv (`session::trailer`). With `--record` the same
 //! run films it: the tour as an MP4 for YouTube, the trailer as the

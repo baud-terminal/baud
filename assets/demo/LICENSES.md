@@ -6,12 +6,54 @@ tour shows and the licence each comes under. No trailer has been filmed yet,
 so none is in the repository; its row is added here once its take exists.
 
 Each third-party licence below was read at the URL given, on 2026-11-07 or
-the date its section gives. For the fonts the demo fetches, a copy of each
-licence file read is kept in `docs/research/sources/`, with its entry in
+the date its section gives. For the photo and the fonts the demo fetches, a
+copy of each licence file read is kept in `docs/research/sources/`, with its entry in
 `docs/research/sources/MANIFEST.toml` (group FM) and its row in
 `THIRD_PARTY.md`. A source marked `external` there was read and hashed but is
 not kept. The fonts embedded in the app keep their notices beside them under
 `baud-app/fonts/`.
+
+## The photo: "Canazei Granite Ridges"
+
+- **Piece:** the elementary OS wallpaper "Canazei Granite Ridges", which
+  kitten draws in the picture shot. The demo fetches it when it runs, from
+  <https://raw.githubusercontent.com/elementary/wallpapers/8.0.0/backgrounds/Canazei%20Granite%20Ridges.jpg>,
+  and checks its sha256,
+  `0eff9cd7fe92aabb8937644ca154436ba926310808dd99a2902cdde335b0868c`. The
+  file fetched on 2026-11-07 had that hash. It is not in the repository.
+- **Licence:** CC0-1.0.
+- **Read at:** elementary's `debian/copyright`, on the deb-packaging branch
+  at its head that day, commit ba8b274 ("Release 8.0.0"):
+  <https://raw.githubusercontent.com/elementary/wallpapers/ba8b274cbb0afeda198a62007480ce89d00052f1/debian/copyright>
+  (`[[source: elementary-wallpapers-debian-copyright]]`). Read 2026-11-07.
+- **What it says:** "Unsplash photos published before June 8, 2017 are CC0
+  (public domain):". The list under that sentence holds "Canazei Granite
+  Ridges <https://unsplash.com/photos/yrwpJwDNSHE>".
+- **CC0's legal code:** read at
+  <https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt>
+  (`[[source: cc0-1-0-legalcode]]`), 2026-11-07. Section 2 waives the rights
+  "in any current or future medium and for any number of copies, and (iv) for
+  any purpose whatsoever, including without limitation commercial,
+  advertising or promotional purposes".
+- **Kept copy:** `docs/research/sources/cc0-1.0-legalcode.txt`. Creative
+  Commons makes its legal code available under CC0
+  (`[[source: cc-policies]]`).
+- **debian/copyright, read and not kept:** the repository's `LICENSE.md`
+  at tag 8.0.0 says only "For individual wallpaper licensing information,
+  see:" and links this file (`[[source: elementary-wallpapers-license-md]]`).
+  No licence is named for the file itself, so a copy here would be
+  redistribution with no grant. `MANIFEST.toml` records it as `external`:
+  its URL at ba8b274 and the SHA-256 of the copy read.
+- **The Unsplash page:** <https://unsplash.com/photos/yrwpJwDNSHE> answered
+  HTTP 401 on 2026-11-07, with a page titled "Checking your browser before
+  accessing unsplash.com". It could not be read as text. So the photographer
+  and Unsplash's own date for the photo are not confirmed here, and
+  `debian/copyright` names no photographer.
+- **YouTube:** allowed, resting on elementary's statement in
+  `debian/copyright` that the photo is CC0. The Unsplash page could not be
+  read to confirm it, as below. CC0 has no NonCommercial term and no
+  NoDerivatives term, and section 2 waives the rights for any purpose,
+  commercial included.
 
 ## Noto Color Emoji
 
@@ -304,6 +346,7 @@ Keyboard sounds: the CherryMX Brown - ABS keycaps sound pack, by Mechvibes (gith
 ## The credit line for the video's description
 
 ```text
+Photo: "Canazei Granite Ridges", an elementary OS wallpaper from Unsplash (unsplash.com/photos/yrwpJwDNSHE), CC0 1.0.
 Fonts: JetBrains Mono, by The JetBrains Mono Project Authors (SIL OFL 1.1). baud's text face is JetBrains Mono with Hebrew from Cascadia Mono by Microsoft Corporation and with Noto Sans Devanagari by The Noto Project Authors (SIL OFL 1.1). STIX Two Math, by The STIX Fonts Project Authors (SIL OFL 1.1). Symbols Nerd Font Mono, by Ryan L McIntyre (Nerd Fonts, MIT), with each icon set under its own licence, among them Codicons by Microsoft Corporation (github.com/microsoft/vscode-codicons), as modified by Nerd Fonts, CC BY 4.0, creativecommons.org/licenses/by/4.0/. Noto Color Emoji, Copyright 2013 Google LLC (SIL OFL 1.1). Noto Sans CJK SC, by Adobe and Google (SIL OFL 1.1). Noto Naskh Arabic, Noto Sans Devanagari and Noto Sans Symbols 2, by The Noto Project Authors (SIL OFL 1.1).
 nixos.org shown in Chawan: content © 2026 NixOS contributors, CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
 NixOS logo by Simon Frankau, revised by Tim Cuthbertson, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).
