@@ -133,3 +133,28 @@ fn the_repository_parsers_compile() {
     let v = check(&log(&[(A, "feat: x")]), &plz, &cliff(&[(A, true, None)])).expect("parses");
     assert!(v.bad.is_empty(), "{:?}", v.bad);
 }
+
+#[test]
+fn a_commit_kept_as_written_is_left_out_by_its_full_id_only() {
+    let kept = xtask::changelog::KEPT_AS_WRITTEN[0];
+    let subject = "bench(frame): FRAME_FORGET prices forgetting what each read erased whole";
+    let v = check(
+        &log(&[(kept, subject)]),
+        PLZ,
+        &cliff(&[(kept, false, None)]),
+    )
+    .expect("parses");
+    let (out, ok) = v.report();
+    assert!(ok, "the listed id is left out of legs 1 and 3: {out}");
+    let missing = check(&log(&[(kept, subject)]), PLZ, &cliff(&[])).expect("parses");
+    assert!(
+        missing.report().1,
+        "the listed id need not be in git-cliff's context"
+    );
+    let w = whys(&log(&[(A, subject)]), PLZ, &cliff(&[(A, false, None)]));
+    assert_eq!(
+        w,
+        [Why::NotConventional, Why::UnparsedByCliff],
+        "the same subject under another id is lost"
+    );
+}

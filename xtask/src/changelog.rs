@@ -25,6 +25,11 @@ use crate::text;
 /// The types the changelog lists or skips by name.
 pub const TYPES: &str = "feat|fix|perf|docs|refactor|test|build|ci|style|revert|chore";
 
+/// Commits whose subjects are not Conventional Commits and stay as written, by
+/// full id: each is left out of the changelog on purpose, so legs 1 and 3 do
+/// not read it. Any other commit with such a subject still fails.
+pub const KEPT_AS_WRITTEN: &[&str] = &["32e48259ce6b033040a75189cd5ae7e717afdc65"];
+
 /// Why a commit would be lost.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Why {
@@ -145,13 +150,15 @@ pub fn check(log: &str, release_plz: &str, cliff: &str) -> Result<Verdict, Strin
                 subject: subj.to_string(),
             })
         };
-        if !subject.is_match(subj) {
+        let kept = KEPT_AS_WRITTEN.contains(&sha);
+        if !kept && !subject.is_match(subj) {
             lose(Why::NotConventional);
         }
         if !parsers.iter().any(|p| p.is_match(subj)) {
             lose(Why::NoParser);
         }
         match listed.get(sha) {
+            _ if kept => {}
             None => lose(Why::MissingFromCliff),
             Some(c) => {
                 let conventional = c.get("conventional").is_some_and(truthy);
