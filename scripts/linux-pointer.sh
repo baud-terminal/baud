@@ -164,7 +164,17 @@ session() {
   for _ in $(seq 100); do [ -e "$S/ready" ] && break; sleep 0.1; done
   [ -e "$S/ready" ] || { echo "FAILED  $1: the child never started"; FAILED=1; }
   sleep 0.5
-  S=$S /target/release/examples/linux-pointer keymap.xkb
+  # The app binds its wl_pointer when the seat has a pointer, and the seat
+  # has one only once the pointer script's virtual pointer exists: the
+  # script's first line waits, after that, for the app's
+  # wl_seat.get_pointer in sway's log after the session began (the first
+  # there, as `linux::trace` reads it), so no move or button reaches sway
+  # before the app can be sent it. libwayland writes an object as wl_seat@N
+  # or, from 1.23, wl_seat#N. waitfor gives up after 10 s.
+  { printf 'waitfor tail -n +%d sway.log | grep -q "wl_seat[@#][0-9]*[.]get_pointer("\n' $((from + 1)); cat; } |
+    S=$S /target/release/examples/linux-pointer keymap.xkb
+  tail -n +$((from + 1)) sway.log | grep -q 'wl_seat[@#][0-9]*\.get_pointer(' ||
+    { echo "FAILED  $1: the app never bound its pointer"; FAILED=1; }
   sleep 0.3
   kill $BAUD; wait $BAUD 2>/dev/null
   # The app's pointer requests and the pointer events it was sent, in
@@ -555,12 +565,10 @@ else
 fi
 
 # ?2001: a click on the cursor's line moves the shell's point with the
-# cursor keys. The click waits 200 ms after the move, as the selection's
-# press does, so the app has read ?2001 and the line before it comes.
+# cursor keys.
 session readline '
 printf "\033[?2001h> abcdefgh"; touch $S/ready; exec cat > $S/got' <<'P'
 move 34 8
-sleep 200
 click left
 sleep 300
 P
