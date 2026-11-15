@@ -152,6 +152,7 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
                 [] => credits::Mode::Write,
                 ["--check"] => credits::Mode::Check,
                 ["--list"] => credits::Mode::List,
+                ["--crates"] => credits::Mode::Crates,
                 _ => return Err(format!("not an option: {}", rest.join(" "))),
             };
             let o = credits::run(root, mode, &mut stdout).map_err(|e| e.to_string())?;
@@ -207,7 +208,7 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
                  | changelog <context> | features [--check] | features-since <rev>|--explain \
                  | fnv1a <src> <lib> <sdig> <ldig> \
                  | sources | no-python | citations [--check|--merge <tsv>...] \
-                 | third-party [--check] | credits [--check|--list] | publish [--size|--verify|--release\
+                 | third-party [--check] | credits [--check|--list|--crates] | publish [--size|--verify|--release\
                  |--write-notices|--write-licences] | page-text [--key K] [--from DIR] [--save DIR] \
                  [--print] [--self-test] | pdf-search <key> [<term>...] \
                  | loop-head [--fn NAME] [--no-pageoff] A [B] | vt-table <results> [<baseline>] \

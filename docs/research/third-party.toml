@@ -897,6 +897,15 @@ files   = [
   "wezterm-screen_line.rs",
 ]
 
+[upstream.objc2]
+name    = "objc2, the licence file of its repository"
+licence = "MIT"
+notice  = "docs/research/sources/objc2-LICENSE-MIT.txt"
+status  = "kept"
+files   = [
+  "objc2-LICENSE-MIT.txt",
+]
+
 [upstream.x11rb]
 name    = "x11rb"
 licence = "MIT OR Apache-2.0"

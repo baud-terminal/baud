@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use toml::Table;
+use xtask::crates;
 use xtask::credits::{
     self, Bytes, CC_BY_PARTS, LICENCES, Lists, Mode, NameId, OUT, Own, Source, TRIPWIRE, flat,
     font_names, licence_text, place, place_with, rows, strs,
@@ -768,4 +769,316 @@ fn the_size_tripwire_fires_and_says_where() {
         })
         .count();
     assert_eq!(lettered, index.len(), "{index:?}");
+}
+
+// ── The crates the program links ─────────────────────────────────────────
+
+/// A package of a fixture `cargo metadata`: its name, its source (`None`
+/// for a path crate), its target kind, and its dependencies with their
+/// kinds (`None` for a normal edge).
+struct Pkg<'a> {
+    name: &'a str,
+    source: Option<&'a str>,
+    kind: &'a str,
+    deps: &'a [(&'a str, Option<&'a str>)],
+}
+
+fn metadata_of(pkgs: &[Pkg<'_>]) -> serde_json::Value {
+    let id = |n: &str| format!("{n} 1.0.0");
+    let packages: Vec<serde_json::Value> = pkgs
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "name": p.name,
+                "version": "1.0.0",
+                "id": id(p.name),
+                "source": p.source,
+                "targets": [{ "kind": [p.kind] }],
+            })
+        })
+        .collect();
+    let nodes: Vec<serde_json::Value> = pkgs
+        .iter()
+        .map(|p| {
+            let deps: Vec<serde_json::Value> = p
+                .deps
+                .iter()
+                .map(|(d, k)| {
+                    serde_json::json!({
+                        "name": d,
+                        "pkg": id(d),
+                        "dep_kinds": [{ "kind": k, "target": null }],
+                    })
+                })
+                .collect();
+            serde_json::json!({ "id": id(p.name), "deps": deps })
+        })
+        .collect();
+    serde_json::json!({ "packages": packages, "resolve": { "nodes": nodes, "root": null } })
+}
+
+/// The program, a path crate it links, a registry crate that links a
+/// proc-macro (which links a crate of its own), and a build and a dev
+/// dependency.
+fn fixture_graph() -> serde_json::Value {
+    let index = Some("registry+https://github.com/rust-lang/crates.io-index");
+    let p = |name, source, kind, deps| Pkg {
+        name,
+        source,
+        kind,
+        deps,
+    };
+    metadata_of(&[
+        p(
+            "baud",
+            None,
+            "bin",
+            &[
+                ("baud-core", None),
+                ("cc", Some("build")),
+                ("proptest", Some("dev")),
+            ],
+        ),
+        p("baud-core", None, "lib", &[("zerocopy", None)]),
+        p("zerocopy", index, "lib", &[("zerocopy-derive", None)]),
+        p("zerocopy-derive", index, "proc-macro", &[("syn", None)]),
+        p("syn", index, "lib", &[]),
+        p("cc", index, "lib", &[]),
+        p("proptest", index, "lib", &[]),
+    ])
+}
+
+fn id(name: &str) -> crates::Id {
+    crates::Id {
+        name: name.to_owned(),
+        version: "1.0.0".to_owned(),
+    }
+}
+
+fn row(name: &str, targets: &[&str]) -> crates::Row {
+    crates::Row {
+        name: name.to_owned(),
+        version: "1.0.0".to_owned(),
+        targets: targets.iter().map(|t| t.to_string()).collect(),
+        expression: "MIT".to_owned(),
+        licence: "MIT".to_owned(),
+        ..crates::Row::default()
+    }
+}
+
+/// **7. The walk follows normal edges only and stops at proc-macros**: a
+/// build or dev dependency, a proc-macro and what only it uses are not
+/// linked, and baud's own path crates are walked through, not credited.
+/// Red under: an edge followed whatever its kind, or a proc-macro walked.
+#[test]
+fn the_walk_follows_normal_edges_and_stops_at_proc_macros() {
+    let got = crates::walk(&fixture_graph(), "baud").expect("the walk");
+    let want: std::collections::BTreeSet<crates::Id> = [id("zerocopy")].into();
+    assert_eq!(got, want);
+    assert!(crates::walk(&fixture_graph(), "no-such-package").is_err());
+}
+
+/// **8. A crate linked and missing from the register fails, and so does a
+/// proc-macro credited in it**: the set the walk finds and the register's
+/// rows are one set, target for target. Red under: a check that passes
+/// whatever the rows are.
+#[test]
+fn the_register_must_hold_the_linked_set_and_nothing_else() {
+    let linux = "x86_64-unknown-linux-gnu";
+    let mut linked = crates::Linked::new();
+    for c in crates::walk(&fixture_graph(), "baud").expect("the walk") {
+        linked.insert(c, vec![linux.to_owned()]);
+    }
+    assert!(crates::set_errors(&linked, &[row("zerocopy", &[linux])]).is_empty());
+    // A crate linked and not in the register.
+    let mut more = linked.clone();
+    more.insert(id("libc"), vec![linux.to_owned()]);
+    let errs = crates::set_errors(&more, &[row("zerocopy", &[linux])]);
+    assert!(errs.iter().any(|e| e.contains("libc 1.0.0")), "{errs:?}");
+    // A proc-macro credited as though the program linked it.
+    let errs = crates::set_errors(
+        &linked,
+        &[row("zerocopy", &[linux]), row("zerocopy-derive", &[linux])],
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("zerocopy-derive 1.0.0")),
+        "{errs:?}"
+    );
+    // A row whose targets are not the ones that link it.
+    let errs = crates::set_errors(&linked, &[row("zerocopy", &["aarch64-apple-darwin"])]);
+    assert!(
+        errs.iter().any(|e| e.contains("zerocopy 1.0.0")),
+        "{errs:?}"
+    );
+}
+
+/// **9. The licence credited is MIT, then BSD-2-Clause, then Apache-2.0**,
+/// the first the expression offers; one offering none of them fails.
+#[test]
+fn the_licence_credited_is_the_first_preferred() {
+    assert_eq!(
+        crates::choose("BSD-2-Clause OR Apache-2.0 OR MIT"),
+        Ok("MIT")
+    );
+    assert_eq!(
+        crates::choose("Apache-2.0 OR BSD-2-Clause"),
+        Ok("BSD-2-Clause")
+    );
+    assert_eq!(crates::choose("Zlib OR Apache-2.0"), Ok("Apache-2.0"));
+    assert_eq!(crates::choose("MIT/Apache-2.0"), Ok("MIT"));
+    assert!(crates::choose("Zlib").is_err());
+    assert!(crates::choose("MIT AND Unicode-3.0").is_err());
+}
+
+/// A registry source holding one crate with an MIT notice.
+fn registry_with(text: &str) -> (Tree, PathBuf) {
+    let n = NEXT.fetch_add(1, Ordering::SeqCst);
+    let root = std::env::temp_dir().join(format!("xtask-crates-{}-{n}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let src = root.join("index.example");
+    put(&src, "zerocopy-1.0.0/LICENSE-MIT", text);
+    put(
+        &src,
+        "zerocopy-1.0.0/Cargo.toml",
+        "[package]\nname = \"zerocopy\"\nversion = \"1.0.0\"\nauthors = [\"A Person <a@example.org>\"]\n\
+         license = \"BSD-2-Clause OR Apache-2.0 OR MIT\"\nrepository = \"https://example.org/zerocopy\"\n",
+    );
+    (Tree(root), src)
+}
+
+/// **10. A notice file that no longer hashes to its row fails**, and a row
+/// whose source is not in the registry is skipped, said, not failed. The
+/// row is read from the source as `--crates` reads it, copyright lines word
+/// for word. Red under: a planted edit to the copyright line passing.
+#[test]
+fn a_changed_notice_file_fails_and_an_absent_source_is_skipped() {
+    let mit = credits::licence_text(&root(), credits::licence("MIT").expect("MIT"))
+        .expect("the MIT text");
+    let notice = format!("Copyright 2023 The Example Authors\n\n{mit}\n");
+    let (tree, src) = registry_with(&notice);
+    let dir = src.join("zerocopy-1.0.0");
+    let linux = vec!["x86_64-unknown-linux-gnu".to_owned()];
+    let r = crates::read_row(&root(), &id("zerocopy"), &linux, &dir).expect("the row");
+    assert_eq!(r.licence, "MIT");
+    assert_eq!(r.notice, "LICENSE-MIT");
+    assert_eq!(r.copyright, ["Copyright 2023 The Example Authors"]);
+    assert_eq!(r.authors, ["A Person <a@example.org>"]);
+    assert_eq!(r.repository, "https://example.org/zerocopy");
+    assert_eq!(r.sha256, xtask::sha256::hex(notice.as_bytes()));
+    let rows = [r];
+    let sources = [src.clone()];
+    let ok = crates::notice_errors(&rows, &sources);
+    assert!(ok.errors.is_empty() && ok.skipped.is_empty(), "{ok:?}");
+    // The register round-trips through its text.
+    assert_eq!(
+        crates::parse(&crates::render(&rows)).expect("parsed"),
+        rows.to_vec()
+    );
+    // A planted edit to the copyright line.
+    put(
+        &src,
+        "zerocopy-1.0.0/LICENSE-MIT",
+        &notice.replace("2023", "2024"),
+    );
+    let bad = crates::notice_errors(&rows, &sources);
+    assert!(
+        bad.errors.iter().any(|e| e.contains("zerocopy 1.0.0")),
+        "{bad:?}"
+    );
+    // No source for the row: skipped and said.
+    let none = crates::notice_errors(&rows, &[tree.0.join("elsewhere")]);
+    assert!(none.errors.is_empty(), "{none:?}");
+    assert!(
+        none.skipped.iter().any(|e| e.contains("zerocopy 1.0.0")),
+        "{none:?}"
+    );
+}
+
+/// **11. The tree's register is the set `Cargo.lock` links**, each row's
+/// notice still hashes to its source where the registry has it, the
+/// register is the text its rows write, and every row is credited in the
+/// committed file with its platforms. Red under: a row removed from
+/// `docs/research/crates.toml`.
+#[test]
+fn the_register_is_what_the_program_links_and_every_row_is_credited() {
+    let rows = crates::load(&root()).expect("the register");
+    let linked = crates::linked(&root()).expect("the linked set");
+    assert!(!linked.is_empty(), "the walk found nothing");
+    let errs = crates::set_errors(&linked, &rows);
+    assert!(errs.is_empty(), "{}", errs.join("\n"));
+    let n = crates::notice_errors(&rows, &crates::registry_sources());
+    let s = crates::source_errors(&root(), &rows);
+    assert!(s.is_empty(), "{}", s.join("\n"));
+    assert!(
+        rows.iter().any(|r| r.name == "objc2"
+            && r.notice_source == "objc2-license-mit"
+            && !r.copyright.is_empty()),
+        "objc2 takes its copyright line from its committed upstream licence file"
+    );
+    assert!(n.errors.is_empty(), "{}", n.errors.join("\n"));
+    let text = fs::read_to_string(root().join(crates::REGISTER)).expect("the register");
+    assert_eq!(text, crates::render(&rows));
+    let made = committed();
+    for r in &rows {
+        assert!(
+            made.contains(&format!("{} {}", r.name, r.version)),
+            "{} {} is not credited",
+            r.name,
+            r.version
+        );
+    }
+    // The control: zerocopy is linked on every target.
+    assert!(
+        rows.iter()
+            .any(|r| r.name == "zerocopy" && r.targets.len() == crates::TARGETS.len()),
+        "{rows:?}"
+    );
+}
+
+/// A tree holding one committed source, `objc2-LICENSE-MIT.txt`, and a
+/// manifest that names it under `key` with `text`'s digest.
+fn sourced(key: &str, text: &str) -> Tree {
+    let n = NEXT.fetch_add(1, Ordering::SeqCst);
+    let root = std::env::temp_dir().join(format!("xtask-sourced-{}-{n}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    put(&root, "docs/research/sources/objc2-LICENSE-MIT.txt", text);
+    put(
+        &root,
+        third_party::MANIFEST,
+        &format!(
+            "[sources.{key}]\nkey = \"{key}\"\nurl = \"https://example.org/LICENSE-MIT.txt\"\n\
+             file = \"objc2-LICENSE-MIT.txt\"\nsha256 = \"{}\"\nstatus = \"retrieved\"\n",
+            xtask::sha256::hex(text.as_bytes())
+        ),
+    );
+    Tree(root)
+}
+
+/// **12. A copyright line taken from a committed upstream source holds to
+/// it**: a row naming a source key the manifest lacks fails, and so does a
+/// planted edit to the committed file, which no longer hashes to the
+/// manifest or the row. Red under: a check that reads the row alone.
+#[test]
+fn a_notice_from_a_committed_source_holds_to_the_manifest() {
+    let text = "Copyright 2026 An Author\n\nPermission is hereby granted\n";
+    let tree = sourced("objc2-license-mit", text);
+    let mut r = row("objc2", &["aarch64-apple-darwin"]);
+    r.notice_source = "objc2-license-mit".to_owned();
+    r.copyright = vec!["Copyright 2026 An Author".to_owned()];
+    r.sha256 = xtask::sha256::hex(text.as_bytes());
+    let ok = crates::source_errors(&tree.0, &[r.clone()]);
+    assert!(ok.is_empty(), "{ok:?}");
+    // A key the manifest does not hold.
+    let mut stray = r.clone();
+    stray.notice_source = "no-such-key".to_owned();
+    let errs = crates::source_errors(&tree.0, &[stray]);
+    assert!(errs.iter().any(|e| e.contains("no-such-key")), "{errs:?}");
+    // A planted edit to the committed file.
+    put(
+        &tree.0,
+        "docs/research/sources/objc2-LICENSE-MIT.txt",
+        &text.replace("2026", "2025"),
+    );
+    let errs = crates::source_errors(&tree.0, &[r]);
+    assert!(errs.iter().any(|e| e.contains("objc2 1.0.0")), "{errs:?}");
 }

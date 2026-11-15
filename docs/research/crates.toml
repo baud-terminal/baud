@@ -1,0 +1,293 @@
+# baud -- the crates.io crates the `baud` binary links, and their notices.
+#
+# Written by `cargo xtask credits --crates` from Cargo.lock and the crates'
+# sources in the cargo registry; `cargo xtask credits` prints each row in
+# baud-app/assets/CREDITS.txt. `cargo xtask credits --check` fails if the
+# crates Cargo.lock links on a shipped target are not these rows, or a
+# row's notice file in the registry no longer hashes to `sha256`.
+#
+# Fields:
+#   targets     the shipped targets that link it
+#   expression  the licence expression of its manifest
+#   licence     the one it is credited under: MIT, then BSD-2-Clause, then
+#               Apache-2.0, the first the expression offers
+#   notice      the file in its source holding its notice; empty where the
+#               source carries no licence file
+#   sha256      that file's digest, or notice_source's
+#   notice_source
+#               for a crate whose source carries no licence file, the key
+#               in docs/research/sources/MANIFEST.toml of the committed
+#               licence file of its upstream repository, read in its place
+#   copyright   that file's copyright lines, word for word
+#   authors     the authors its manifest names
+#   repository  the repository its manifest names
+#   apache_notice, apache_notice_sha256, apache_notice_text
+#               for a crate credited under Apache-2.0, the NOTICE file its
+#               source ships, printed whole
+
+[[crate]]
+name = "bitflags"
+version = "2.13.2"
+expression = "MIT OR Apache-2.0"
+licence = "MIT"
+notice = "LICENSE-MIT"
+sha256 = "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb"
+notice_source = ""
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright (c) 2014 The Rust Project Developers"]
+authors = ["The Rust Project Developers"]
+repository = "https://github.com/bitflags/bitflags"
+
+[[crate]]
+name = "block2"
+version = "0.6.2"
+expression = "MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = ["Mads Marquart <mads@marquart.dk>"]
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "dispatch2"
+version = "0.3.1"
+expression = "Zlib OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = [
+  "Mads Marquart <mads@marquart.dk>",
+  "Mary <mary@mary.zone>",
+]
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "libc"
+version = "0.2.191"
+expression = "MIT OR Apache-2.0"
+licence = "MIT"
+notice = "LICENSE-MIT"
+sha256 = "123a331b5dbf04c30097fa43b8f858bc85df671fe776de498d01f3d6b7c1f69e"
+notice_source = ""
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright (c) The Rust Project Developers"]
+authors = []
+repository = "https://github.com/rust-lang/libc"
+
+[[crate]]
+name = "macos-liquid-glass"
+version = "1.0.0-beta.9"
+expression = "MIT"
+licence = "MIT"
+notice = "LICENSE"
+sha256 = "6fb9e9e9541ed832d53510c94554e567712950e2f2c6fa343794d60075d14379"
+notice_source = ""
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright (c) 2026 i-am-logger"]
+authors = ["i-am-logger"]
+repository = "https://github.com/i-am-logger/macos-liquid-glass"
+
+[[crate]]
+name = "objc2"
+version = "0.6.5"
+expression = "MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = ["Mads Marquart <mads@marquart.dk>"]
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-app-kit"
+version = "0.3.2"
+expression = "Zlib OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = []
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-cloud-kit"
+version = "0.3.2"
+expression = "Zlib OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = []
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-core-data"
+version = "0.3.2"
+expression = "Zlib OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = []
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-core-foundation"
+version = "0.3.2"
+expression = "Zlib OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = []
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-core-graphics"
+version = "0.3.2"
+expression = "Zlib OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = []
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-core-image"
+version = "0.3.2"
+expression = "Zlib OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = []
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-core-text"
+version = "0.3.2"
+expression = "Zlib OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = []
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-core-video"
+version = "0.3.2"
+expression = "Zlib OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = []
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-encode"
+version = "4.1.0"
+expression = "MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = ["Mads Marquart <mads@marquart.dk>"]
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-foundation"
+version = "0.3.2"
+expression = "MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = []
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-io-surface"
+version = "0.3.2"
+expression = "Zlib OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = []
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-metal"
+version = "0.3.2"
+expression = "Zlib OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = []
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "objc2-quartz-core"
+version = "0.3.2"
+expression = "Zlib OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = ""
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+notice_source = "objc2-license-mit"
+targets = ["aarch64-apple-darwin"]
+copyright = ["Copyright 2026 Mads Marquart"]
+authors = []
+repository = "https://github.com/madsmtm/objc2"
+
+[[crate]]
+name = "zerocopy"
+version = "0.8.63"
+expression = "BSD-2-Clause OR Apache-2.0 OR MIT"
+licence = "MIT"
+notice = "LICENSE-MIT"
+sha256 = "1a2f5c12ddc934d58956aa5dbdd3255fe55fd957633ab7d0d39e4f0daa73f7df"
+notice_source = ""
+targets = [
+  "aarch64-apple-darwin",
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+]
+copyright = ["Copyright 2023 The Fuchsia Authors"]
+authors = []
+repository = "https://github.com/google/zerocopy"

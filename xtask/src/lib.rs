@@ -23,9 +23,11 @@
 //!   the tree cites, written or checked, and code-item rows merged into
 //!   docs/data/citations-code.tsv.
 //! - `third-party [--check]`: THIRD_PARTY.md, written or checked.
-//! - `credits [--check|--list]`: baud-app/assets/CREDITS.txt, the notices
-//!   of every third-party work the binary embeds, written or checked, or
-//!   every embedded file and the row it falls under.
+//! - `credits [--check|--list|--crates]`: baud-app/assets/CREDITS.txt, the
+//!   notices of every third-party work the binary embeds and every
+//!   crates.io crate it links, written or checked, or every embedded file
+//!   and the row it falls under, or the register of the linked crates
+//!   (docs/research/crates.toml) written from the cargo registry.
 //! - `no-python`: no tracked file is Python or runs it.
 //! - `publish [--size|--verify|--release|--write-notices|--write-licences]`:
 //!   what crates.io would receive, checked before anything is sent.
@@ -49,6 +51,7 @@
 pub mod audit;
 pub mod changelog;
 pub mod citations;
+pub mod crates;
 pub mod credits;
 pub mod difflib;
 pub mod features;

@@ -7727,6 +7727,20 @@ status = "retrieved"
 group  = "J"
 # Committed under docs/research/sources/ -- baud's author's own crate, MIT, re-hashed on commit.
 
+[sources.objc2-license-mit]
+key    = "objc2-license-mit"
+title  = "objc2 LICENSE-MIT.txt -- the copyright notice of the objc2 crates, which their crates.io sources do not carry"
+author = "Mads Marquart"
+year   = 2026
+venue  = "madsmtm/objc2 main at ee9a7ada, not a release tag: a hand-checked exception (MIT)"
+url    = "https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt"
+file   = "objc2-LICENSE-MIT.txt"
+sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+bytes  = 1053
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- the notice docs/research/crates.toml credits the objc2 crates under.
+
 [sources.font-fira-code-regular]
 key    = "font-fira-code-regular"
 title  = "Fira Code 6.2, Regular -- the programming-ligature face whose calt chains fix baud's GSUB subset"

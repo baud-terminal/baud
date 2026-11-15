@@ -1,7 +1,16 @@
-//! `cargo xtask credits [--check]`: `baud-app/assets/CREDITS.txt`, the
-//! notices of every third-party work the app's binary carries, written
+//! `cargo xtask credits [--check|--crates]`: `baud-app/assets/CREDITS.txt`,
+//! the notices of every third-party work the app's binary carries, written
 //! from `docs/research/third-party.toml` and the licence texts its rows
 //! point to, or checked against them byte for byte.
+//!
+//! **The crates.io crates the binary links are a notice of their own**,
+//! written from the register `docs/research/crates.toml` ([`crates`]):
+//! each crate with the platforms that link it, its copyright lines and the
+//! licence it falls under, whose text joins the others printed once. The
+//! check fails when the set `Cargo.lock` links differs from the register,
+//! or a row's notice file in the registry no longer hashes to it;
+//! `--crates` writes the register, and is the one mode that reads the
+//! cargo registry.
 //!
 //! **What the binary carries is found, not listed.** Every
 //! `include_bytes!` and `include_str!` in the shipped crates' sources (the
@@ -60,6 +69,7 @@ use std::path::{Component, Path, PathBuf};
 use regex::Regex;
 use toml::{Table, Value};
 
+use crate::crates;
 use crate::html::{At, Count};
 use crate::third_party::{self, Outcome};
 
@@ -2106,8 +2116,9 @@ const RULE: &str = "============================================================
 const THIN: &str = "----------------------------------------------------------------------------";
 
 /// **The file**, from the credits and the texts they name.
-fn render(root: &Path, credits: &[Credit]) -> Result<String, String> {
+fn render(root: &Path, credits: &[Credit], links: &[crates::Row]) -> Result<String, String> {
     let mut keys: BTreeSet<&str> = BTreeSet::new();
+    keys.extend(links.iter().map(|r| r.licence.as_str()));
     for c in credits {
         keys.extend(c.licences.iter().map(String::as_str));
         for p in &c.parts {
@@ -2160,6 +2171,23 @@ fn render(root: &Path, credits: &[Credit]) -> Result<String, String> {
             }
         }
     }
+    // The crates are one notice after the rows', each crate a part of it.
+    let at = Count(credits.len() + 1);
+    for (k, r) in links.iter().enumerate() {
+        let i = keyed.get(r.licence.as_str()).copied().ok_or_else(|| {
+            format!(
+                "{} {}: no licence {} (xtask/src/credits.rs, LICENCES)",
+                r.name, r.version, r.licence
+            )
+        })?;
+        let label = format!("{}.{}", at.0, k + 1);
+        texts.under(
+            i,
+            &label,
+            &r.copyright,
+            &format!("{} {}", r.name, r.version),
+        );
+    }
     let named = |key: &str| match keyed.get(key) {
         Some(&i) => texts.named(i),
         None => key.to_owned(),
@@ -2179,6 +2207,9 @@ fn render(root: &Path, credits: &[Credit]) -> Result<String, String> {
     o.push_str("Notices\n");
     for (n, c) in credits.iter().enumerate() {
         wrapped(&mut o, &format!("  {}. ", n + 1), &c.title);
+    }
+    if !links.is_empty() {
+        wrapped(&mut o, &format!("  {}. ", at.0), CRATES_TITLE);
     }
     o.push_str("Licence texts\n");
     for (i, t) in texts.all.iter().enumerate() {
@@ -2358,6 +2389,9 @@ fn render(root: &Path, credits: &[Credit]) -> Result<String, String> {
             }
         }
     }
+    if !links.is_empty() {
+        crate_notices(root, &mut o, at, links, &named)?;
+    }
     o.push('\n');
     o.push_str(RULE);
     o.push_str("\nLicence texts\n");
@@ -2392,6 +2426,109 @@ fn render(root: &Path, credits: &[Credit]) -> Result<String, String> {
         }
     }
     Ok(o)
+}
+
+/// The title of the crates' notice.
+pub const CRATES_TITLE: &str = "Rust crates the program links";
+
+/// **The crates' notice**, numbered `at`: per crate its name and version,
+/// the platforms whose build links it, its copyright lines, and the
+/// licence it falls under, named by `named`.
+fn crate_notices(
+    root: &Path,
+    o: &mut String,
+    at: Count,
+    links: &[crates::Row],
+    named: &dyn Fn(&str) -> String,
+) -> Result<(), String> {
+    o.push('\n');
+    o.push_str(RULE);
+    o.push('\n');
+    wrapped(o, &format!("{}. ", at.0), CRATES_TITLE);
+    o.push_str(RULE);
+    o.push('\n');
+    wrapped(
+        o,
+        "",
+        "The crates from crates.io the program file links, each with the platforms whose \
+         build links it, the copyright notices of its licence file, and \
+         the licence it falls under. A crate offered under several licences is credited \
+         under one of them: MIT, then BSD-2-Clause, then Apache-2.0.",
+    );
+    for (k, r) in links.iter().enumerate() {
+        o.push('\n');
+        wrapped(
+            o,
+            &format!("{}.{} ", at.0, k + 1),
+            &format!("{} {}", r.name, r.version),
+        );
+        let mut platforms: Vec<&str> = Vec::new();
+        for t in crates::TARGETS
+            .iter()
+            .filter(|t| r.targets.iter().any(|x| x == t.triple))
+        {
+            if !platforms.contains(&t.platform) {
+                platforms.push(t.platform);
+            }
+        }
+        wrapped(o, "    Platforms:         ", &platforms.join(", "));
+        for (j, line) in r.copyright.iter().enumerate() {
+            let lead = if j == 0 {
+                "    Copyright:         "
+            } else {
+                "                       "
+            };
+            wrapped(o, lead, line);
+        }
+        if !r.notice_source.is_empty() {
+            let c = crates::committed(root, &r.notice_source)
+                .map_err(|e| format!("{} {}: {e}", r.name, r.version))?;
+            wrapped(
+                o,
+                "    Note:              ",
+                &format!(
+                    "Its crates.io source carries no licence file; its copyright notice is \
+                     from its upstream repository's licence file, {}.",
+                    c.url
+                ),
+            );
+        } else if r.copyright.is_empty() {
+            for (j, a) in r.authors.iter().enumerate() {
+                let lead = if j == 0 {
+                    "    Authors:           "
+                } else {
+                    "                       "
+                };
+                wrapped(o, lead, a);
+            }
+            wrapped(
+                o,
+                "    Note:              ",
+                "Its source carries no licence file and no copyright notice; its manifest \
+                 names its licence, and its authors where it gives them.",
+            );
+        }
+        if !r.repository.is_empty() {
+            wrapped(o, "    Upstream:          ", &r.repository);
+        }
+        wrapped(o, "    Licence:           ", &named(&r.licence));
+        if r.expression != r.licence {
+            wrapped(o, "    Offered under:     ", &r.expression);
+        }
+        if !r.apache_notice_text.is_empty() {
+            o.push_str("    Its NOTICE file, as it gives it:\n\n");
+            for line in r.apache_notice_text.lines() {
+                if line.is_empty() {
+                    o.push('\n');
+                } else {
+                    o.push_str("      ");
+                    o.push_str(line);
+                    o.push('\n');
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Each section's title and size, largest first: what the tripwire prints.
@@ -2455,7 +2592,8 @@ pub fn generate(root: &Path) -> Result<String, Vec<String>> {
     if !errs.is_empty() {
         return Err(errs);
     }
-    render(root, &credits).map_err(|e| vec![e])
+    let links = crates::load(root).map_err(|e| vec![e])?;
+    render(root, &credits, &links).map_err(|e| vec![e])
 }
 
 /// Whether the command writes the file or checks it.
@@ -2465,12 +2603,20 @@ pub enum Mode {
     Check,
     /// Every embedded file and the row it falls under, and nothing written.
     List,
+    /// The register of the crates the program links, written from
+    /// `Cargo.lock` and the crates' sources in the cargo registry.
+    Crates,
 }
 
-/// `cargo xtask credits [--check|--list]`, run against `root`.
+/// `cargo xtask credits [--check|--list|--crates]`, run against `root`.
 pub fn run(root: &Path, mode: Mode, out: &mut impl Write) -> io::Result<Outcome> {
-    if mode == Mode::List {
-        return list(root, out);
+    match mode {
+        Mode::List => return list(root, out),
+        Mode::Crates => return write_crates(root, out),
+        Mode::Write | Mode::Check => {}
+    }
+    if crate_checks(root, out)? == Outcome::Failed {
+        return Ok(Outcome::Failed);
     }
     let text = match generate(root) {
         Ok(t) => t,
@@ -2486,7 +2632,7 @@ pub fn run(root: &Path, mode: Mode, out: &mut impl Write) -> io::Result<Outcome>
         return Ok(Outcome::Failed);
     }
     match mode {
-        Mode::List => Ok(Outcome::Passed),
+        Mode::List | Mode::Crates => Ok(Outcome::Passed),
         Mode::Write => {
             fs::write(root.join(OUT), &text)?;
             writeln!(out, "  ok   wrote {OUT}, {} bytes", text.len())?;
@@ -2505,6 +2651,58 @@ pub fn run(root: &Path, mode: Mode, out: &mut impl Write) -> io::Result<Outcome>
                 text.len()
             )?;
             Ok(Outcome::Passed)
+        }
+    }
+}
+
+/// **The crates the program links against the register**: the set
+/// `Cargo.lock` links on every shipped target is the register's rows, and
+/// each row's notice file in the registry, or committed upstream licence file
+/// in the tree, still hashes to it; a row whose source the registry does
+/// not hold is said and skipped.
+fn crate_checks(root: &Path, out: &mut impl Write) -> io::Result<Outcome> {
+    let checked = crates::load(root).and_then(|rows| crates::linked(root).map(|l| (rows, l)));
+    let (rows, linked) = match checked {
+        Ok(x) => x,
+        Err(e) => {
+            writeln!(out, "  FAIL {e}")?;
+            return Ok(Outcome::Failed);
+        }
+    };
+    let mut errs = crates::set_errors(&linked, &rows);
+    let n = crates::notice_errors(&rows, &crates::registry_sources());
+    errs.extend(n.errors);
+    errs.extend(crates::source_errors(root, &rows));
+    for s in &n.skipped {
+        writeln!(out, "  skip {s}")?;
+    }
+    for e in &errs {
+        writeln!(out, "  FAIL {e}")?;
+    }
+    Ok(match errs.is_empty() {
+        true => Outcome::Passed,
+        false => Outcome::Failed,
+    })
+}
+
+/// `--crates`: the register, written from `Cargo.lock` and the registry.
+fn write_crates(root: &Path, out: &mut impl Write) -> io::Result<Outcome> {
+    match crates::rows_from_registry(root) {
+        Ok(rows) => {
+            fs::write(root.join(crates::REGISTER), crates::render(&rows))?;
+            writeln!(
+                out,
+                "  ok   wrote {}, {} crates",
+                crates::REGISTER,
+                rows.len()
+            )?;
+            Ok(Outcome::Passed)
+        }
+        Err(errs) => {
+            for e in errs {
+                writeln!(out, "  FAIL {e}")?;
+            }
+            Ok(Outcome::Failed)
         }
     }
 }

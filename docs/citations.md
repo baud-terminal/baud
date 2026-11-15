@@ -7818,6 +7818,15 @@ notofonts/notofonts.github.io README.md at noto-monthly-release-2026.10.01 -- it
 - **Read:** 2026-11-07
 - **Cited in:** `assets/demo/LICENSES.md`
 
+<a id="objc2-license-mit"></a>
+### objc2-license-mit
+
+objc2 LICENSE-MIT.txt -- the copyright notice of the objc2 crates, which their crates.io sources do not carry. Mads Marquart, 2026, madsmtm/objc2 main at ee9a7ada, not a release tag: a hand-checked exception (MIT).
+
+- **URL:** <https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt>
+- **sha256:** `f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070` (1053 bytes)
+- **Copy:** [docs/research/sources/objc2-LICENSE-MIT.txt](research/sources/objc2-LICENSE-MIT.txt)
+
 <a id="osc8-spec"></a>
 ### osc8-spec
 
@@ -11362,7 +11371,7 @@ linux-dmabuf-v1 -- dmabuf buffers, format/modifier tranches (v5). Wayland contri
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/linux-dmabuf/linux-dmabuf-v1.xml>
 - **sha256:** `29ce3ece4fb86e00c6e7f07332274bcb9ceb0eb8b1380d3635c1a67bbde830ab` (30999 bytes)
 - **Copy:** [docs/research/sources/wp-linux-dmabuf-v1.xml](research/sources/wp-linux-dmabuf-v1.xml)
-- **Cited in:** `baud-present-wayland/src/dmabuf.rs`
+- **Cited in:** `baud-present-vulkan/src/choose.rs`, `baud-present-wayland/src/dmabuf.rs`
 
 <a id="wp-linux-drm-syncobj-v1"></a>
 ### wp-linux-drm-syncobj-v1
@@ -11372,7 +11381,7 @@ linux-drm-syncobj-v1 -- explicit synchronisation. Wayland contributors, 2026, wa
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/linux-drm-syncobj/linux-drm-syncobj-v1.xml>
 - **sha256:** `5ede41a56eced6aa635caa7ab2996066bff9fd211620dbf9f73aafab740bec71` (12655 bytes)
 - **Copy:** [docs/research/sources/wp-linux-drm-syncobj-v1.xml](research/sources/wp-linux-drm-syncobj-v1.xml)
-- **Cited in:** `baud-present-wayland/src/dmabuf.rs`
+- **Cited in:** `baud-present-vulkan/src/frame.rs`, `baud-present-vulkan/src/sys.rs`, `baud-present-wayland/src/dmabuf.rs`
 
 <a id="wp-presentation-time"></a>
 ### wp-presentation-time

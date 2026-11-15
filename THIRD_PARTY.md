@@ -72,6 +72,7 @@ Notices
   35. xterm's readline click (button.c, patch #411)
   36. The Wayland and wayland-protocols XML files
   37. wayland-protocols' text-input-unstable-v3
+  38. Rust crates the program links
 Licence texts
   A. SIL Open Font License, Version 1.1
   B. MIT License
@@ -820,6 +821,213 @@ Licence:    The historical permission notice (sell variant), as
             text-input-unstable-v3 gives it (full text: X, below)
 
 ============================================================================
+38. Rust crates the program links
+============================================================================
+The crates from crates.io the program file links, each with the platforms
+whose build links it, the copyright notices of its licence file, and the
+licence it falls under. A crate offered under several licences is credited
+under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
+
+38.1 bitflags 2.13.2
+    Platforms:         macOS
+    Copyright:         Copyright (c) 2014 The Rust Project Developers
+    Upstream:          https://github.com/bitflags/bitflags
+    Licence:           MIT License (full text: B, below)
+    Offered under:     MIT OR Apache-2.0
+
+38.2 block2 0.6.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+
+38.3 dispatch2 0.3.1
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.4 libc 0.2.191
+    Platforms:         macOS
+    Copyright:         Copyright (c) The Rust Project Developers
+    Upstream:          https://github.com/rust-lang/libc
+    Licence:           MIT License (full text: B, below)
+    Offered under:     MIT OR Apache-2.0
+
+38.5 macos-liquid-glass 1.0.0-beta.9
+    Platforms:         macOS
+    Copyright:         Copyright (c) 2026 i-am-logger
+    Upstream:          https://github.com/i-am-logger/macos-liquid-glass
+    Licence:           MIT License (full text: B, below)
+
+38.6 objc2 0.6.5
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+
+38.7 objc2-app-kit 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.8 objc2-cloud-kit 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.9 objc2-core-data 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.10 objc2-core-foundation 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.11 objc2-core-graphics 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.12 objc2-core-image 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.13 objc2-core-text 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.14 objc2-core-video 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.15 objc2-encode 4.1.0
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+
+38.16 objc2-foundation 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+
+38.17 objc2-io-surface 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.18 objc2-metal 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.19 objc2-quartz-core 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.20 zerocopy 0.8.63
+    Platforms:         macOS, Linux
+    Copyright:         Copyright 2023 The Fuchsia Authors
+    Upstream:          https://github.com/google/zerocopy
+    Licence:           MIT License (full text: B, below)
+    Offered under:     BSD-2-Clause OR Apache-2.0 OR MIT
+
+============================================================================
 Licence texts
 ============================================================================
 
@@ -953,6 +1161,26 @@ The works under it, by notice, and their copyright notices:
   24.     Copyright (c) 2021 Björn Ottosson
   27.     Copyright (c) 2018 Yevhenii Reizner
   28.     Copyright (c) 2017 Just van Rossum
+  38.1    Copyright (c) 2014 The Rust Project Developers
+  38.2    Copyright 2026 Mads Marquart
+  38.3    Copyright 2026 Mads Marquart
+  38.4    Copyright (c) The Rust Project Developers
+  38.5    Copyright (c) 2026 i-am-logger
+  38.6    Copyright 2026 Mads Marquart
+  38.7    Copyright 2026 Mads Marquart
+  38.8    Copyright 2026 Mads Marquart
+  38.9    Copyright 2026 Mads Marquart
+  38.10   Copyright 2026 Mads Marquart
+  38.11   Copyright 2026 Mads Marquart
+  38.12   Copyright 2026 Mads Marquart
+  38.13   Copyright 2026 Mads Marquart
+  38.14   Copyright 2026 Mads Marquart
+  38.15   Copyright 2026 Mads Marquart
+  38.16   Copyright 2026 Mads Marquart
+  38.17   Copyright 2026 Mads Marquart
+  38.18   Copyright 2026 Mads Marquart
+  38.19   Copyright 2026 Mads Marquart
+  38.20   Copyright 2023 The Fuchsia Authors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1729,9 +1957,9 @@ THIS SOFTWARE.
 | status | research sources | other entries | meaning |
 |---|---|---|---|
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 337 | 69 | redistributable, and its notice is satisfied |
+| kept | 338 | 69 | redistributable, and its notice is satisfied |
 | own | 10 | 8 | the work of baud's author |
-| total | 348 | 77 | |
+| total | 349 | 77 | |
 
 ## Licence texts in LICENSES/
 
@@ -3065,6 +3293,17 @@ notice is, and the URL each file was copied from.
 | file | copied from |
 |---|---|
 | [notofonts-fonts-LICENSE-0259702.txt](docs/research/sources/notofonts-fonts-LICENSE-0259702.txt) | https://raw.githubusercontent.com/notofonts/notofonts.github.io/025970232f4f8ff349310d9785431e87d20ed27c/fonts/LICENSE |
+
+### objc2, the licence file of its repository
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** [docs/research/sources/objc2-LICENSE-MIT.txt](docs/research/sources/objc2-LICENSE-MIT.txt)
+- **Files:** 1
+
+| file | copied from |
+|---|---|
+| [objc2-LICENSE-MIT.txt](docs/research/sources/objc2-LICENSE-MIT.txt) | https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt |
 
 ### OpenType Sanitizer
 
