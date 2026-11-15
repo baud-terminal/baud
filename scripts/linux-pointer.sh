@@ -555,10 +555,12 @@ else
 fi
 
 # ?2001: a click on the cursor's line moves the shell's point with the
-# cursor keys.
+# cursor keys. The click waits 200 ms after the move, as the selection's
+# press does, so the app has read ?2001 and the line before it comes.
 session readline '
 printf "\033[?2001h> abcdefgh"; touch $S/ready; exec cat > $S/got' <<'P'
 move 34 8
+sleep 200
 click left
 sleep 300
 P
