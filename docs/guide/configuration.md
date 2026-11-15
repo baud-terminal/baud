@@ -395,7 +395,7 @@ darkening that suits a dark desktop is far too much over a light one.
 |---|---|---|---|
 | `style` | `"standard"`, `"regular"`, `"clear"` | `"standard"` | The window's material. `"standard"` is the Mac's standard see-through window material, the one Apple puts behind an app's content: the desktop shows through faintly, and Apple draws it subdued while another window is in front. `"regular"` is Liquid Glass, frosted; `"clear"` is thinner, more see-through Liquid Glass. |
 | `dim_dark` | 0 to 1 | `0.70` | How solid the background is under the dark appearance, from 0 (clear) to 1 (opaque). The default keeps text readable at Apple's minimum contrast even over a white window behind; turn it down to see more of the desktop. |
-| `dim_light` | 0 to 1 | `0.60` | The same, under the light appearance, where the default keeps text readable over a black window behind. |
+| `dim_light` | 0 to 1 | `0.60`, `0.85` on Linux | The same, under the light appearance, where the default keeps text readable over a black window behind. On Linux nothing light is under the page, only the desktop's blur, which the desktop may darken, so the default is more solid there to keep the page light. |
 | `app_backgrounds` | `"dim"`, `"opaque"` | `"dim"` | Whether backgrounds a program paints, such as btop's panels, are see-through like the rest (`"dim"`) or solid (`"opaque"`). |
 | `pictures` | `"opaque"`, `"dim"` | `"opaque"` | Whether a picture drawn with text characters, such as a file manager's photo preview, is kept solid so it reads as a picture. |
 | `sixel_backgrounds` | `"opaque"`, `"dim"`, `"clear"` | `"opaque"` | How a Sixel image's solid background draws: solid, as on an opaque window; see-through over the text, which shows through it faded (`"dim"`); or clearing what is under it to the see-through background (`"clear"`). |
@@ -409,9 +409,10 @@ A status bar drawn in reverse video, such as the ones less and vim show,
 and the whole screen while a program turns on reverse-screen mode (`?5`),
 are drawn a little more solid than the dim when that is what their text
 needs to read at the same minimum contrast: on the light appearance at its
-default dim, 0.68 instead of 0.60, on every material and on Linux alike.
+default dim on macOS, 0.68 instead of 0.60, on every material.
 The window stays see-through behind
-them, and the dark appearance's default already reads, so it is unchanged.
+them, and the dark appearance's default already reads, so it is unchanged,
+as is Linux's light default, 0.85.
 
 While Reduce Transparency is on in System Settings, Accessibility, Display,
 every background and the margin around the text are drawn solid, whatever

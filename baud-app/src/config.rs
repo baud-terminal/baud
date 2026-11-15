@@ -965,8 +965,20 @@ pub enum Shadow {
     Never,
 }
 
+/// **The light half's default dim**: 0.60 on macOS, over the standard
+/// material, which is light under a light appearance; 0.85 on Linux, where
+/// no material is under the page and what shows through it is the
+/// compositor's blur of the desktop, which a desktop may darken. Over a
+/// blur measured at 131 grey the light theme's page reads 196 at 0.60 and
+/// 223 at 0.85 (`on_linux_the_light_page_reads_light_over_a_darkened_blur`).
+#[cfg(target_os = "linux")]
+const DIM_LIGHT: f32 = 0.85;
+#[cfg(not(target_os = "linux"))]
+const DIM_LIGHT: f32 = 0.60;
+
 impl Glass {
-    /// The standard material, dims of 0.70 and 0.60 -- where the example's
+    /// The standard material, dims of 0.70 and 0.60 (0.85 on Linux,
+    /// [`DIM_LIGHT`]) -- where the example's
     /// `GN_GLASS` is clear, `GN_PAPER_D` 0.22 and `GN_PAPER_L` 0.12, which
     /// put default text at 1.14:1 and 1.13:1 over white and black -- and
     /// the rest the example's own `GN_*` defaults: `GN_GT_D` 0.54,
@@ -975,7 +987,7 @@ impl Glass {
         Glass {
             style: Material::Standard,
             dim_dark: 0.70,
-            dim_light: 0.60,
+            dim_light: DIM_LIGHT,
             tint_dark: 0.54,
             tint_light: 0.14,
             hue: 0.60,
@@ -4766,9 +4778,34 @@ mod reader {
         assert_eq!(g.style, Material::Standard);
         assert_eq!(g.style, Material::default(), "the enum agrees");
         assert_eq!(g.shadow, Shadow::Auto);
-        assert_eq!((g.dim_dark, g.dim_light), (0.70, 0.60));
+        let light = if cfg!(target_os = "linux") {
+            0.85
+        } else {
+            0.60
+        };
+        assert_eq!((g.dim_dark, g.dim_light), (0.70, light));
         assert_eq!((g.tint_dark, g.tint_light), (0.54, 0.14));
         assert_eq!((g.hue, g.saturation), (0.60, 0.80));
+    }
+
+    /// **On Linux the light page reads light over a darkened blur**: with
+    /// no material under it, what shows through the page is the
+    /// compositor's blur of the desktop, which a desktop may darken; one
+    /// measured at 131 grey under a 0.60 page of the light theme's
+    /// background read 196. At the Linux default the page over that
+    /// backdrop is 220 or more on every channel. The control: at 0.60 it is
+    /// under 200.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn on_linux_the_light_page_reads_light_over_a_darkened_blur() {
+        use baud_domain::Chan;
+        use baud_render::{Argb, Theme};
+        let blur = Argb::rgb(Chan::from_u8(131), Chan::from_u8(131), Chan::from_u8(131));
+        let page = |dim: f32| Theme::light().bg.mix(blur, Chan::from_unit(dim));
+        let least = |c: Argb| c.r().get().min(c.g().get()).min(c.b().get());
+        let at = page(Glass::defaults().dim_light);
+        assert!(least(at) >= 220, "the default page: {at:?}");
+        assert!(least(page(0.60)) < 200, "the control: {:?}", page(0.60));
     }
 
     /// **The default dims keep default text at 4.5:1 over any backdrop**,
@@ -7649,6 +7686,14 @@ mod example {
         Unset,
         /// The default follows the system, which no value spells.
         System,
+        /// The default is each platform's, and the line spells macOS's:
+        /// an example on Linux alone.
+        Platform,
+    }
+
+    /// Whether `why` marks a line an example on this platform.
+    fn here(why: Why) -> bool {
+        why != Why::Platform || cfg!(target_os = "linux")
     }
 
     /// **The keys whose commented line is not the default**, and why. Every
@@ -7656,8 +7701,9 @@ mod example {
     /// (`each_key_uncommented_alone_reads_as_its_default`), and each of
     /// these does not (`the_marked_examples_are_the_keys_that_differ`), so
     /// the list is exactly the keys that differ.
-    const EXAMPLES: [(&str, &str, Why); 12] = [
+    const EXAMPLES: [(&str, &str, Why); 13] = [
         ("", "fonts", Why::Unset),
+        ("glass", "dim_light", Why::Platform),
         ("palette", "light", Why::Unset),
         ("palette", "dark", Why::Unset),
         ("palette", "selection", Why::Unset),
@@ -7678,7 +7724,7 @@ mod example {
     fn marked(e: &Entry) -> bool {
         EXAMPLES
             .iter()
-            .any(|(s, k, _)| *s == e.section && *k == e.key)
+            .any(|&(s, k, why)| s == e.section && k == e.key && here(why))
     }
 
     /// `e` uncommented, alone, under its section's header.
@@ -8009,7 +8055,7 @@ mod example {
     #[test]
     fn the_marked_examples_are_the_keys_that_differ() {
         let all = keys();
-        for (s, k, why) in EXAMPLES {
+        for (s, k, why) in EXAMPLES.into_iter().filter(|&(_, _, why)| here(why)) {
             let e = all
                 .iter()
                 .find(|e| e.section == s && e.key == k)

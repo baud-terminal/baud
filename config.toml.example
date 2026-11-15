@@ -1020,10 +1020,12 @@
 # DEC's status line, and the whole screen under reverse-screen mode (?5) --
 # whose text is the default background's colour. It is raised just far
 # enough for its text to read at 4.5:1 too over any desktop, on every
-# material and on Linux alike: 0.68 with the light palette at 0.60, while
-# the dark palette's 0.70 already reads. While Accessibility's
+# material: 0.68 with the light palette at 0.60, while the dark palette's
+# 0.70 and Linux's light 0.85 already read. On Linux `dim_light` defaults
+# to 0.85: nothing light is under the page there, only the desktop's blur,
+# which the desktop may darken. While Accessibility's
 # Reduce Transparency is on, every background and the margin are drawn
-# opaque, whatever these say.
+# opaque, whatever these say. `dim_light` below is macOS's default.
 # dim_dark = 0.70
 # dim_light = 0.60
 
