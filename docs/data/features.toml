@@ -792,6 +792,16 @@ platform = "linux"
 tests = ["baud-present-wayland/tests/handshake.rs::a_fraction_draws_the_surface_times_the_scale_through_the_viewport", "baud-present-wayland/tests/handshake.rs::a_fraction_wins_over_the_integer_scale_in_either_order", "baud-app/src/seat.rs::a_point_at_a_fraction_is_the_cell_its_pixels_are_in", "baud-present-wayland/tests/handshake.rs::a_drawn_pointer_at_a_fraction_is_drawn_through_its_viewport", "baud-present-wayland/tests/handshake.rs::a_shown_pointer_follows_the_windows_scale"]
 
 [[feature]]
+id = "points-linux"
+area = "text"
+name = "Text at the desktop's size on Linux"
+does = "A font_size in points draws as large as the same number does in the desktop's other windows: 96 dots to the inch times the desktop's text scaling, read from the settings portal when the window opens and followed when it changes, with 96 where the desktop says nothing. `[font] dpi` sets the output's own physical size or a fixed number instead."
+status = "partial"
+gap = "not yet run on a desktop; the text scaling is the one the settings portal relays, and a font DPI a desktop keeps outside the portal is not read."
+platform = "linux"
+tests = ["baud-app/src/typesize.rs::a_point_is_the_desktops_96_dpi_times_its_text_scale", "baud-app/src/config.rs::a_point_is_the_desktops_unless_dpi_says_otherwise", "baud-app/src/bus.rs::the_portals_text_scale_is_read_and_followed", "baud-app/src/bus.rs::the_text_scale_is_heard_not_polled", "baud-present-wayland/tests/handshake.rs::the_physical_dpi_is_the_entered_outputs_mode_over_its_millimetres"]
+
+[[feature]]
 id = "zoom-linux"
 area = "text"
 name = "Zoom on Linux"

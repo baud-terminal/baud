@@ -185,6 +185,33 @@ mod tests {
     /// indicator is shown, none while it is not, and a step that changes
     /// nothing owes nothing. Off and past the area clause the line has
     /// none.
+    /// **The words' clause measures the cell on screen**, at the
+    /// compositor's scale and never the desktop's text scale: 13 points at
+    /// a text scale of 1 is within the area, and at 3 the cell is three
+    /// times as wide and tall, past a quarter of the field, and counted.
+    /// The Linux driver hands the clause the compositor's scale.
+    /// Perturbation: hand it the text scale's pixels a point -- the cell
+    /// and the divisor grow alike and both read Area.
+    #[test]
+    fn the_clause_measures_the_cell_on_screen() {
+        // 13 points at the desktop's 96 dpi and a text scale `f`, at the
+        // compositor's scale 1: a cell 0.6 by 1.32 of the em, in pixels.
+        let cell = |f: f64| {
+            let em = 13.0 * 96.0 / 72.0 * f;
+            (0.6 * em, 1.32 * em)
+        };
+        assert_eq!(clause(cell(1.0), 1.0), FlashClause::Area);
+        assert_eq!(clause(cell(3.0), 1.0), FlashClause::Count);
+        let linux = include_str!("linux.rs");
+        assert_eq!(
+            linux
+                .matches("crate::line_lamps::clause(cell, self.scale.factor())")
+                .count(),
+            1
+        );
+        assert!(!linux.contains("crate::line_lamps::clause(cell, self.type_px())"));
+    }
+
     #[test]
     fn each_step_gives_the_line_the_lamps_as_they_are() {
         let mut owned = Owned::new(&WS);

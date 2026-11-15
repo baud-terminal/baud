@@ -13,8 +13,10 @@
 //! * **The handshake** is SASL `EXTERNAL` with the user ID as the identity,
 //!   "the ASCII decimal string form of the integer Unix user ID ... encoded
 //!   in hex", then `BEGIN` and `Hello`, which every message waits behind.
-//! * **The appearance**: `AddMatch` for the portal's `SettingChanged` on
-//!   `org.freedesktop.appearance`, then `ReadAll` of that namespace -- the
+//! * **The appearance and the text scale**: `AddMatch` for the portal's
+//!   `SettingChanged`, then `ReadAll` of `org.freedesktop.appearance` and
+//!   `org.gnome.desktop.interface`, whose `text-scaling-factor` (a `d`) baud
+//!   sizes a point by (`typesize.rs`) -- `ReadAll` being the
 //!   method every version of the interface has and the one whose reply
 //!   holds each value inside one variant (`[[source: xdg-portal-settings-v2]]`;
 //!   `Read`'s reply holds two, its own documentation says, and `ReadOne` is
@@ -131,6 +133,10 @@ pub(crate) enum Heard {
     Motion(Motion),
     /// The desktop's contrast preference, read or changed, the same way.
     Contrast(Contrast),
+    /// The desktop's text-scaling factor (`org.gnome.desktop.interface
+    /// text-scaling-factor`), read or changed; a reply
+    /// without one says nothing of it, and the driver keeps 1.
+    TextScale(TextScale),
     /// The file manager took a reveal.
     Revealed,
     /// It did not: the error's name.
@@ -286,6 +292,9 @@ const PORTAL: &str = "org.freedesktop.portal.Desktop";
 const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
 const SETTINGS: &str = "org.freedesktop.portal.Settings";
 const APPEARANCE: &str = "org.freedesktop.appearance";
+/// The interface namespace the portal relays, whose
+/// `text-scaling-factor` baud sizes a point by (`typesize.rs`).
+const INTERFACE: &str = "org.gnome.desktop.interface";
 const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
 const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
 const LAUNCHER_ENTRY: &str = "com.canonical.Unity.LauncherEntry";
@@ -512,6 +521,16 @@ impl<'a> Reader<'a> {
         Some(word_in(b, self.order))
     }
 
+    /// A `d`, eight-aligned, in the message's byte order.
+    fn double(&mut self) -> Option<f64> {
+        self.align(Align::EIGHT)?;
+        let b: [u8; 8] = self.take(Len(8))?.try_into().ok()?;
+        Some(match self.order {
+            Order::Big => f64::from_be_bytes(b),
+            Order::Little => f64::from_le_bytes(b),
+        })
+    }
+
     /// A length word, as a count of bytes.
     fn len(&mut self) -> Option<Len> {
         usize::try_from(self.word()?.0).ok().map(Len)
@@ -701,6 +720,31 @@ struct Appearance {
     scheme: Option<Scheme>,
     contrast: Option<Contrast>,
     motion: Option<Motion>,
+    /// The interface namespace's `text-scaling-factor`.
+    text_scale: Option<TextScale>,
+}
+
+/// **The desktop's text-scaling factor**, kept in thousandths so [`Heard`]
+/// stays `Eq`: 1.25 is 1250.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct TextScale(u32);
+
+impl TextScale {
+    /// The factor `f`, or `None` for one that is not a finite positive
+    /// number.
+    pub(crate) fn of(f: f64) -> Option<TextScale> {
+        (f.is_finite() && f > 0.0)
+            .then(|| (f * 1000.0).round())
+            .and_then(|t| u32::try_from(t as i64).ok())
+            .map(TextScale)
+    }
+
+    /// The factor itself, which the Linux driver sizes its point by; the
+    /// macOS driver reads none.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub(crate) fn factor(self) -> f64 {
+        f64::from(self.0) / 1000.0
+    }
 }
 
 /// **The appearance in a `ReadAll` reply's `a{sa{sv}}`**, in one pass, or
@@ -728,6 +772,9 @@ fn appearance_in_read_all(m: &Message<'_>) -> Option<Appearance> {
                 (true, "color-scheme", "u") => found.scheme = Some(Scheme::of(r.word()?)),
                 (true, "contrast", "u") => found.contrast = Some(Contrast::of(r.word()?)),
                 (true, "reduced-motion", "u") => found.motion = Some(Motion::of(r.word()?)),
+                (false, "text-scaling-factor", "d") if namespace == INTERFACE => {
+                    found.text_scale = TextScale::of(r.double()?);
+                }
                 _ => {
                     r.skip(sig)?;
                 }
@@ -753,6 +800,7 @@ fn heard_in_read_all(m: &Message<'_>) -> Vec<Heard> {
     core::iter::once(scheme)
         .chain(a.contrast.map(Heard::Contrast))
         .chain(a.motion.map(Heard::Motion))
+        .chain(a.text_scale.map(Heard::TextScale))
         .collect()
 }
 
@@ -771,6 +819,9 @@ fn heard_in_signal(m: &Message<'_>) -> Option<Heard> {
     let namespace = r.string()?;
     let key = r.string()?;
     let sig = r.signature()?;
+    if (namespace, key, sig) == (INTERFACE, "text-scaling-factor", "d") {
+        return TextScale::of(r.double()?).map(Heard::TextScale);
+    }
     if namespace != APPEARANCE || sig != "u" {
         return None;
     }
@@ -937,11 +988,15 @@ impl Session {
         serial
     }
 
-    /// `AddMatch` for the appearance's changes, then `ReadAll` of it.
+    /// `AddMatch` for the portal's setting changes, then one `ReadAll` of
+    /// the appearance and the interface namespace (the text-scaling
+    /// factor). One rule with no `arg0`: a match rule names one namespace
+    /// at most, and `heard_in_signal` takes only the two it reads, so the
+    /// calls keep their serials (`ReadAll` is 3).
     fn ask_appearance(&mut self) {
         let mut rule = Writer::default();
         rule.string(&format!(
-            "type='signal',interface='{SETTINGS}',member='SettingChanged',path='{PORTAL_PATH}',arg0='{APPEARANCE}'"
+            "type='signal',interface='{SETTINGS}',member='SettingChanged',path='{PORTAL_PATH}'"
         ));
         self.call(&Call {
             destination: "org.freedesktop.DBus",
@@ -952,7 +1007,7 @@ impl Session {
             body: rule.buf,
         });
         let mut names = Writer::default();
-        names.strings(&[APPEARANCE]);
+        names.strings(&[APPEARANCE, INTERFACE]);
         let serial = self.call(&Call {
             destination: PORTAL,
             path: PORTAL_PATH,
@@ -1537,6 +1592,11 @@ mod tests {
     /// as dbus-next marshals it.
     const READ_ALL: &str = include_str!("../fixtures/bus-read-all.hex");
 
+    /// `ReadAll(["org.freedesktop.appearance", "org.gnome.desktop.interface"])`,
+    /// the call the session sends, as serial 3, marshalled by another D-Bus
+    /// implementation.
+    const READ_ALL_INTERFACE: &str = include_str!("../fixtures/bus-read-all-interface.hex");
+
     /// **A call's bytes are another implementation's bytes.** Perturbation:
     /// leave the header's padding out -- both comparisons fail.
     #[test]
@@ -1567,6 +1627,20 @@ mod tests {
             Serial(Word(3)),
         );
         assert_eq!(read_all, hex(READ_ALL.trim()));
+        let mut both = Writer::default();
+        both.strings(&[APPEARANCE, INTERFACE]);
+        let read_both = marshal(
+            &Call {
+                destination: PORTAL,
+                path: PORTAL_PATH,
+                interface: SETTINGS,
+                member: "ReadAll",
+                signature: "as",
+                body: both.buf,
+            },
+            Serial(Word(3)),
+        );
+        assert_eq!(read_both, hex(READ_ALL_INTERFACE.trim()));
     }
 
     /// **The handshake, then `Hello`, then the calls queued behind it**:
@@ -1587,7 +1661,10 @@ mod tests {
         assert_eq!(&after[..add.0], reply_bytes("add_match_call").as_slice());
         let rest = &after[add.0..];
         let read_all = message_len(rest).unwrap().unwrap();
-        assert_eq!(&rest[..read_all.0], hex(READ_ALL.trim()).as_slice());
+        assert_eq!(
+            &rest[..read_all.0],
+            hex(READ_ALL_INTERFACE.trim()).as_slice()
+        );
         // Then the notification server's signals matched and its
         // capabilities asked.
         let rest = &rest[read_all.0..];
@@ -1738,6 +1815,50 @@ mod tests {
         ] {
             assert_eq!(s.received(&reply_bytes(fixture)), [want], "{fixture}");
         }
+    }
+
+    /// **The portal's text-scaling factor is read and followed**:
+    /// `org.gnome.desktop.interface text-scaling-factor`, a `d`, read
+    /// beside the appearance in the one `ReadAll` (the namespace's other
+    /// keys are passed over) and followed through its `SettingChanged`; a
+    /// factor that is not a positive number says nothing, and a reply
+    /// without one says nothing of it (`read_all_accessible`, above).
+    /// Fixtures are another D-Bus implementation's bytes. Perturbation: drop
+    /// the signal's interface arm -- the change is unheard.
+    #[test]
+    fn the_portals_text_scale_is_read_and_followed() {
+        let read = |fixture: &str| ready().received(&reply_bytes(fixture));
+        let appearance = [
+            Heard::Scheme(Scheme::Dark, Origin::Read),
+            Heard::Contrast(Contrast::Higher),
+            Heard::Motion(Motion::Reduced),
+        ];
+        let mut with = appearance.to_vec();
+        with.push(Heard::TextScale(TextScale::of(1.25).unwrap()));
+        assert_eq!(read("read_all_text_scale"), with);
+        assert_eq!(read("read_all_text_scale_zero"), appearance);
+        let mut s = ready();
+        assert_eq!(
+            s.received(&reply_bytes("changed_text_scale")),
+            [Heard::TextScale(TextScale::of(1.5).unwrap())]
+        );
+    }
+
+    /// **The text scale is heard, never polled**: the one `ReadAll` is
+    /// asked once, when the session is made (`Session::new`), and changes
+    /// arrive as `SettingChanged`; nothing asks again on a timer or a turn.
+    /// Fed control: the same check over this file with a second ask added
+    /// fails, so the check can fire. The needles are spelt in pieces so
+    /// this test's own text does not count.
+    #[test]
+    fn the_text_scale_is_heard_not_polled() {
+        const BUS: &str = include_str!("bus.rs");
+        let ask = concat!(".ask_", "appearance()");
+        let asked_once = |src: &str| src.matches(ask).count() == 1;
+        assert!(asked_once(BUS), "one ask, at the session's start");
+        let after = concat!("s.ask_", "notifications();");
+        let fed = BUS.replacen(after, &format!("{after}\n        s{ask};"), 1);
+        assert!(!asked_once(&fed), "the control: a second ask is seen");
     }
 
     /// **A reveal is `ShowItems` of the one URI and an empty startup ID**,

@@ -275,6 +275,10 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         launch_splash,
         pointer_mode,
         font_changes,
+        // What a point is shows in the next window (`[font] dpi`): a
+        // running window keeps the point it opened with, and its desktop's
+        // text scale is followed through the portal instead.
+        font_dpi: _,
         scroll,
         trail_scroll,
         glass,

@@ -40542,3 +40542,93 @@ status = "external"
 group  = "AA"
 # Read 2026-11-14 for the Linux desktop entry's X-TerminalArgExec (baud-app/tests/install.rs); hash-verified, not
 # committed -- a file at a pinned commit. Re-fetch the url and compare.
+
+[sources.gtk-4241-gdksettings-wayland]
+key    = "gtk-4241-gdksettings-wayland"
+title  = "GTK 4.24.1, gdk/wayland/gdksettings-wayland.c -- text-scaling-factor to gtk-xft-dpi, 96 x the factor x 1024, from the settings portal"
+author = "The GTK Team"
+year   = 2026
+venue  = "gitlab.gnome.org"
+url    = "https://gitlab.gnome.org/GNOME/gtk/-/raw/4.24.1/gdk/wayland/gdksettings-wayland.c"
+file   = ""
+sha256 = "601835cfa729761bb02039f91de4e4e7703c422800d4e29722930389452704f4"
+bytes  = 23827
+status = "external"
+group  = "J"
+# Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
+# source file at a pinned tag. Re-fetch the url and compare.
+
+[sources.gtk-4241-cssstyleproperty]
+key    = "gtk-4241-cssstyleproperty"
+title  = "GTK 4.24.1, gtk/gtkcssstylepropertyimpl.c -- the CSS dpi's initial value, 96"
+author = "The GTK Team"
+year   = 2026
+venue  = "gitlab.gnome.org"
+url    = "https://gitlab.gnome.org/GNOME/gtk/-/raw/4.24.1/gtk/gtkcssstylepropertyimpl.c"
+file   = ""
+sha256 = "d0c80861a0ecbd83c30aca1b8337d845d1c0b6a0eeb4272ff91a752806a19a43"
+bytes  = 67261
+status = "external"
+group  = "J"
+# Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
+# source file at a pinned tag. Re-fetch the url and compare.
+
+[sources.gtk-4241-cssnumbervalue]
+key    = "gtk-4241-cssnumbervalue"
+title  = "GTK 4.24.1, gtk/gtkcssnumbervalue.c -- a point to pixels as value x dpi / 72"
+author = "The GTK Team"
+year   = 2026
+venue  = "gitlab.gnome.org"
+url    = "https://gitlab.gnome.org/GNOME/gtk/-/raw/4.24.1/gtk/gtkcssnumbervalue.c"
+file   = ""
+sha256 = "bc84e5e5c0aa1480bb22b1e6bd45537cd09bcc57fe1cff752c853b763b275038"
+bytes  = 57303
+status = "external"
+group  = "J"
+# Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
+# source file at a pinned tag. Re-fetch the url and compare.
+
+[sources.qtbase-6120-qwaylandscreen]
+key    = "qtbase-6120-qwaylandscreen"
+title  = "Qt 6.12.0, src/plugins/platforms/wayland/qwaylandscreen.cpp -- logicalDpi is 96 unless QT_WAYLAND_FORCE_DPI"
+author = "The Qt Company"
+year   = 2026
+venue  = "github.com/qt/qtbase"
+url    = "https://raw.githubusercontent.com/qt/qtbase/v6.12.0/src/plugins/platforms/wayland/qwaylandscreen.cpp"
+file   = ""
+sha256 = "45f2f45e977ba0668b926b3bb6c33283b3906bd4061b6471f2ead01f9c9383ff"
+bytes  = 11982
+status = "external"
+group  = "J"
+# Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
+# source file at a pinned tag. Re-fetch the url and compare.
+
+[sources.qtbase-6120-qfontdatabase]
+key    = "qtbase-6120-qfontdatabase"
+title  = "Qt 6.12.0, src/gui/text/qfontdatabase.cpp -- a point size to pixels as round(pt x dpi / 72)"
+author = "The Qt Company"
+year   = 2026
+venue  = "github.com/qt/qtbase"
+url    = "https://raw.githubusercontent.com/qt/qtbase/v6.12.0/src/gui/text/qfontdatabase.cpp"
+file   = ""
+sha256 = "664bddb84c56444ee0bdad5b0c21691b27c55e3b1a04fd9343457401eba27556"
+bytes  = 107138
+status = "external"
+group  = "J"
+# Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
+# source file at a pinned tag. Re-fetch the url and compare.
+
+[sources.fontconfig-2183-fcdefault]
+key    = "fontconfig-2183-fcdefault"
+title  = "fontconfig 2.18.3, src/fcdefault.c -- FcDefaultSubstitute's dpi 75, used only where a pattern has no pixel size"
+author = "The fontconfig authors"
+year   = 2026
+venue  = "gitlab.freedesktop.org"
+url    = "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.18.3/src/fcdefault.c"
+file   = ""
+sha256 = "cc78020d718da60e5cb0e7112bd2cd5e5eef27cd0a010146c5b92107bb16cecd"
+bytes  = 11614
+status = "external"
+group  = "J"
+# Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
+# source file at a pinned tag. Re-fetch the url and compare.

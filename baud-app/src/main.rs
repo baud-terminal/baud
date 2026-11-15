@@ -330,6 +330,10 @@ mod splash;
 // compositor's frame events: pure, so its tests run on every platform.
 #[cfg(any(target_os = "linux", test))]
 mod timed;
+// How many pixels a point is on Linux, from the desktop's settings the
+// driver reads: pure, so its tests run on every platform.
+#[cfg(any(target_os = "linux", test))]
+mod typesize;
 // The quad trail's driver is pure and its tests run on every platform;
 // both drivers draw a trail through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

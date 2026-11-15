@@ -24,7 +24,9 @@
 # replaces that stack, and the embedded Regular, icon and symbol faces stay
 # behind it for what your faces lack unless `font_fallback = false`.
 
-# Points; pixels are this times the display's backing scale.
+# Points. On macOS a point is a pixel at the display's backing scale; on
+# Linux it is 96 dots to the inch times the desktop's text scaling, at the
+# output's scale ([font] dpi below).
 # font_size = 13
 
 # The gutter in points around the grid -- left, right and below -- so the window
@@ -957,6 +959,17 @@
 # the name it set.
 # [font]
 # changes = "on"
+
+# What a point is on Linux. "desktop", the default: 96 dots to the inch
+# times the desktop's text scaling (its text-scaling-factor, read through
+# the settings portal), so font_size here matches the same number in the
+# desktop's other windows; a change
+# of the desktop's text scaling resizes the window. "physical": the
+# output's own dots to the inch, from the size in millimetres it reports,
+# or the desktop's where that size is unknown or not plausible. Or a
+# number of dots to the inch, from 50 to 500. macOS reads none of this.
+# A change shows in the next window.
+# dpi = "desktop"
 
 # The fonts a program can switch its text to: SGR 11 to SGR 19 ask for
 # the first to the ninth alternative font, and SGR 10 for your ordinary

@@ -201,6 +201,9 @@ struct Output {
     scale: Scale,
     mode: Option<(Px, Px)>,
     turn: Turn,
+    /// `wl_output.geometry`'s `physical_width` and `physical_height`, "in
+    /// millimeters", where both are above zero; "0 if not known" otherwise.
+    mm: Option<(u32, u32)>,
 }
 
 /// Whether an output's `wl_output.transform` swaps its mode's sides as a
@@ -1052,6 +1055,20 @@ impl Window {
     /// is asked, and this is so once the registry is read.
     pub fn outputs_settled(&self) -> bool {
         self.sync.is_none() && self.outputs_sync.is_none()
+    }
+
+    /// **The physical dots to the inch of the output the window is on**:
+    /// its current mode's width over its `geometry` width in millimetres,
+    /// at 25.4 mm to the inch -- both in the output's own orientation, so
+    /// no transform enters; the first output the surface entered, and
+    /// `None` until it has entered one whose mode and size are both known.
+    /// `[font] dpi = "physical"` reads it (`typesize.rs`, which judges
+    /// whether it is plausible).
+    pub fn physical_dpi(&self) -> Option<f64> {
+        let on = self.on.first()?;
+        let o = self.globals.outputs.iter().find(|o| o.id == *on)?;
+        let ((w, _), (mm_w, _)) = (o.mode?, o.mm?);
+        Some(f64::from(w.0) * 25.4 / f64::from(mm_w))
     }
 
     /// The outputs whose current mode has been said.
@@ -1989,6 +2006,7 @@ impl Handler for Window {
                                 scale: Scale(1),
                                 mode: None,
                                 turn: Turn::Upright,
+                                mm: None,
                             });
                         }
                     }
@@ -2061,13 +2079,29 @@ impl Handler for Window {
                     o.mode = Some((px(w), px(h)));
                 }
             }
-            // The transform, the last of `geometry`'s arguments: an odd
-            // value is a quarter turn.
-            ("wl_output", "geometry", [.., Read::Int(transform)]) => {
+            // The physical size, the third and fourth of `geometry`'s
+            // arguments, and the transform, the last: an odd value is a
+            // quarter turn.
+            (
+                "wl_output",
+                "geometry",
+                [
+                    _,
+                    _,
+                    Read::Int(mm_w),
+                    Read::Int(mm_h),
+                    ..,
+                    Read::Int(transform),
+                ],
+            ) => {
                 if let Some(o) = self.globals.outputs.iter_mut().find(|o| o.id == ev.object) {
                     o.turn = match transform & 1 {
                         1 => Turn::Quarter,
                         _ => Turn::Upright,
+                    };
+                    o.mm = match (u32::try_from(*mm_w), u32::try_from(*mm_h)) {
+                        (Ok(w), Ok(h)) if w > 0 && h > 0 => Some((w, h)),
+                        _ => None,
                     };
                 }
             }

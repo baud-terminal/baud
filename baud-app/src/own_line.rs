@@ -305,7 +305,7 @@ mod tests {
             "let lights = d.lights_wait(now);",
             "let rows = (text_h / m.cell_h.value().max(1))",
             ".saturating_sub(self.renderer.lights_height().value());",
-            ".set_lights_line(self.activity_lights.line(), scale.factor() as f32);",
+            ".set_lights_line(self.activity_lights.line(), self.type_px() as f32);",
             "self.lights_line(was);",
             "self.renderer.set_lights(shown, glow);",
         ] {

@@ -21,8 +21,10 @@ programs, and pictures.
   ([bidi](../bidi.md)).
 - **Linux.** The Linux version builds and has run only on headless Wayland
   compositors, weston and sway, which show nothing on a screen. There,
-  given the same fonts and colours, it drew the same pixels as the Mac
-  version at scales 1 and 2 and in-between scales such as 1.5, stayed
+  given the same fonts and colours at the same size in pixels, it drew the
+  same pixels as the Mac version at scales 1 and 2 and in-between scales
+  such as 1.5 (a `font_size` in points is a larger size in pixels on
+  Linux, which sizes a point at 96 dots to the inch), stayed
   sharp when its window moved to an output of another scale, copied and
   pasted with the compositor's clipboard, and a virtual mouse selected
   text, scrolled back through the history, pasted with the middle button,

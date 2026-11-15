@@ -5967,6 +5967,65 @@ fn an_output_turned_a_quarter_is_listed_with_its_sides_swapped() {
     }
 }
 
+/// **The output's physical dots to the inch** (`[font] dpi = "physical"`):
+/// its current mode's width over its `geometry` width in millimetres, for
+/// the output the surface is on -- none before it has entered one, none
+/// where the size is "0 if not known", and the same under a quarter turn,
+/// both being in the output's own orientation. Perturbation: divide by the
+/// height's millimetres -- the 700 x 400 mm output reads 243 dpi, not 139.
+#[test]
+fn the_physical_dpi_is_the_entered_outputs_mode_over_its_millimetres() {
+    let mut t = scaled(
+        &[("wl_compositor", 4), ("wl_output", 4)],
+        (640, 408),
+        |_, _, _, _| {},
+    );
+    let output = t.output.expect("the output bound");
+    let geometry = |w: i32, h: i32, transform: i32| {
+        [
+            Arg::Int(0),
+            Arg::Int(0),
+            Arg::Int(w),
+            Arg::Int(h),
+            Arg::Int(0),
+            Arg::Str(Some("make")),
+            Arg::Str(Some("model")),
+            Arg::Int(transform),
+        ]
+    };
+    let close = |dpi: Option<f64>| dpi.is_some_and(|d| (d - 3840.0 * 25.4 / 700.0).abs() < 1e-9);
+    t.server
+        .send(output, "wl_output", "geometry", &geometry(700, 400, 0));
+    t.server.send(
+        output,
+        "wl_output",
+        "mode",
+        &[
+            Arg::Uint(0x1),
+            Arg::Int(3840),
+            Arg::Int(2160),
+            Arg::Int(60_000),
+        ],
+    );
+    t.server.send(output, "wl_output", "done", &[]);
+    pump(&mut t.conn, &mut t.w);
+    assert_eq!(t.w.physical_dpi(), None, "not on the output yet");
+    t.server
+        .send(t.surface, "wl_surface", "enter", &[Arg::Object(output)]);
+    pump(&mut t.conn, &mut t.w);
+    assert!(close(t.w.physical_dpi()), "{:?}", t.w.physical_dpi());
+    t.server
+        .send(output, "wl_output", "geometry", &geometry(700, 400, 1));
+    t.server.send(output, "wl_output", "done", &[]);
+    pump(&mut t.conn, &mut t.w);
+    assert!(close(t.w.physical_dpi()), "a turn changes nothing");
+    t.server
+        .send(output, "wl_output", "geometry", &geometry(0, 0, 0));
+    t.server.send(output, "wl_output", "done", &[]);
+    pump(&mut t.conn, &mut t.w);
+    assert_eq!(t.w.physical_dpi(), None, "0 if not known");
+}
+
 /// **The outputs are learnt in a second round trip, and only where there
 /// are outputs**: an output's `mode`, `scale` and `done` come only after
 /// it is bound, and it is bound while the registry's burst is read, so the

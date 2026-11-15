@@ -29,7 +29,7 @@ in time. baud does it with a look of its own.
 **Status:** baud runs as an everyday terminal on macOS 26 and later, and
 the Linux version is in progress. [What works today, and what doesn't yet](docs/guide/status.md).
 
-**[See all 218 features](docs/guide/features.md)** · **[See the roadmap](docs/roadmap.md)**
+**[See all 219 features](docs/guide/features.md)** · **[See the roadmap](docs/roadmap.md)**
 
 ## Install
 

@@ -235,6 +235,19 @@ pub enum FontFallback {
     Off,
 }
 
+/// **`[font] dpi`: what a point is on Linux.** `"desktop"`, the default:
+/// 96 dots to the inch times the desktop's text scaling, as the desktop's
+/// other windows size a point; `"physical"`: the output's own dots to the
+/// inch from its size, or the desktop's where that size is unknown or not
+/// plausible; or a number of dots to the inch. macOS sizes a point at its backing scale and
+/// reads none of this.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FontDpi {
+    Desktop,
+    Physical,
+    Fixed(f64),
+}
+
 /// `config_reload`: whether a change to the config file, or to a theme or
 /// font file it names, is applied to the running window. **On by
 /// default**, as alacritty's `live_config_reload` and WezTerm's
@@ -266,7 +279,8 @@ pub struct Config {
     /// a `fonts` stack the config names, already folded into `faces` by the
     /// time the config is read.
     pub font_fallback: FontFallback,
-    /// Points; pixels are this times the backing scale.
+    /// Points: a backing-scale pixel on macOS; on Linux the desktop's point
+    /// ([`FontDpi`], `typesize.rs`) at the output's scale.
     pub font_size: f32,
     /// The gutter, in points, left of and right of and below the grid, so
     /// the glass shows through around the terminal rather than the cells
@@ -475,6 +489,9 @@ pub struct Config {
     /// step of the size -- `"on"` by default, or `"off"`, which refuses
     /// every change; a program can ask which font is in use either way.
     pub font_changes: baud_domain::FontChanges,
+    /// `[font] dpi`: what a point is on Linux ([`FontDpi`]), `"desktop"` by
+    /// default. A change shows in the next window.
+    pub font_dpi: FontDpi,
     /// `[scroll] mode`: whether output scrolls the screen up in one jump
     /// (`normal`) or slides it smoothly (`smooth`). `Smooth` by default,
     /// matching sfte -- the slide is bounded to one row so a burst never
@@ -1328,6 +1345,7 @@ impl Config {
             launch_splash: LaunchSplash::On,
             pointer_mode: baud_domain::PointerMode::UnlessTracking,
             font_changes: baud_domain::FontChanges::On,
+            font_dpi: FontDpi::Desktop,
             scroll: ScrollMode::Smooth,
             trail_scroll: TrailScroll::Ride,
             glass: Glass::defaults(),
@@ -2438,6 +2456,22 @@ impl Config {
                             ));
                             baud_domain::FontChanges::On
                         }
+                    };
+                }
+                ("font", "dpi") => {
+                    self.font_dpi = match value.trim().trim_matches('"') {
+                        "desktop" => FontDpi::Desktop,
+                        "physical" => FontDpi::Physical,
+                        other => match other.parse::<f64>() {
+                            Ok(d) if (50.0..=500.0).contains(&d) => FontDpi::Fixed(d),
+                            _ => {
+                                said.push(format!(
+                                    "config: [font] dpi {other:?} is not desktop, physical or \
+                                     a number from 50 to 500; using desktop"
+                                ));
+                                FontDpi::Desktop
+                            }
+                        },
                     };
                 }
                 ("pointer", "hide_while_typing") => {
@@ -5374,6 +5408,31 @@ mod reader {
         );
     }
 
+    /// **`[font] dpi` is the desktop's unless set**: `"desktop"` and
+    /// `"physical"`, as a string or bare, and a number of dots to the inch from
+    /// 50 to 500; anything else -- a word, a number out of range, a negative
+    /// -- keeps the desktop's and says so. Perturbation: accept 0 and a
+    /// point would be no pixels at all; this goes red.
+    #[test]
+    fn a_point_is_the_desktops_unless_dpi_says_otherwise() {
+        assert_eq!(Config::defaults().font_dpi, FontDpi::Desktop);
+        assert_eq!(read("").font_dpi, FontDpi::Desktop);
+        assert_eq!(
+            read("[font]\ndpi = \"physical\"\n").font_dpi,
+            FontDpi::Physical
+        );
+        assert_eq!(read("[font]\ndpi = physical\n").font_dpi, FontDpi::Physical);
+        assert_eq!(read("[font]\ndpi = 110\n").font_dpi, FontDpi::Fixed(110.0));
+        assert_eq!(read("[font]\ndpi = 96.5\n").font_dpi, FontDpi::Fixed(96.5));
+        for junk in ["\"retina\"", "0", "-96", "4000", "\"\""] {
+            let mut c = Config::defaults();
+            let said = c.apply(&format!("[font]\ndpi = {junk}\n"));
+            assert_eq!(c.font_dpi, FontDpi::Desktop, "{junk}");
+            assert_eq!(said.len(), 1, "{junk}: {said:?}");
+            assert!(said[0].contains("[font] dpi"), "{said:?}");
+        }
+    }
+
     /// **A key hides the pointer unless `[pointer] hide_while_typing =
     /// "off"`**, quoted or bare; any other value keeps the default and says
     /// so, and the key is the `[pointer]` section's.
@@ -7734,6 +7793,7 @@ mod example {
             launch_splash,
             pointer_mode,
             font_changes,
+            font_dpi,
             scroll,
             trail_scroll,
             glass,
@@ -7820,6 +7880,7 @@ mod example {
             launch_splash,
             pointer_mode,
             font_changes,
+            font_dpi,
             scroll,
             trail_scroll,
             glass,
@@ -8055,12 +8116,14 @@ mod example {
         );
         assert_eq!(
             stop(&good.replacen(
-                "# Points; pixels are this times the display's backing scale.\n",
+                "# Points. On macOS a point is a pixel at the display's backing scale; on\n\
+                 # Linux it is 96 dots to the inch times the desktop's text scaling, at the\n\
+                 # output's scale ([font] dpi below).\n",
                 "",
                 1
             )),
             Stop::Unexplained {
-                line: LineNo(line.0 - 1),
+                line: LineNo(line.0 - 3),
                 key: "font_size".into()
             }
         );

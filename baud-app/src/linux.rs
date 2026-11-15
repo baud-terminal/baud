@@ -335,6 +335,9 @@ struct Driver {
     clipboard: crate::config::Clipboard,
     /// Whether a copy the compositor could not take has been said.
     uncopied: Said,
+    /// Whether `[font] dpi = "physical"` falling back to the desktop's
+    /// point has been said.
+    unmeasured: Said,
     /// The board a finished selection went to as SELECT, and the source
     /// that offers it, given up when output takes the selection while
     /// `?1040` is reset (`seat::Select`).
@@ -430,6 +433,10 @@ struct Driver {
     /// The desktop's colour scheme as the portal last said it, for a
     /// reload's `theme = "auto"`.
     scheme: Option<crate::bus::Scheme>,
+    /// What a point is here (`typesize.rs`): `[font] dpi` and what the
+    /// portal said of the desktop's text scale. Typographic sizes read it
+    /// through [`Driver::type_px`]; the backing scale never does.
+    type_size: crate::typesize::TypeSnapshot,
     /// The five-second report (`report.rs`): the loop's turns, the frames
     /// committed to the compositor, what the last frame cost and the links
     /// activated, logged at `info` from the end of each turn, its deadline
@@ -503,6 +510,15 @@ enum Quit {
 enum Said {
     Not,
     Once,
+}
+
+/// Where a point's fallback is said from (`Driver::say_fallback`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Retyped {
+    /// A text scale or an output size heard, and the point sized again.
+    Heard,
+    /// A configure, which runs on every resize.
+    Configured,
 }
 
 pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
@@ -646,9 +662,16 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     // no material modelled, the floor reads text against black to white.
     let theme = crate::palette::half_theme(half, &cfg.glass, cfg.floor, &halves);
     let margin = theme.bg.with_alpha(theme.bg_alpha);
+    // **A point at the desktop's size** (`typesize.rs`): until the portal
+    // answers, the desktop's 96 dpi at scale 1.
+    let type_size = crate::typesize::TypeSnapshot {
+        mode: cfg.font_dpi,
+        ..crate::typesize::TypeSnapshot::UNTOLD
+    };
+    let type_px = crate::typesize::px_per_point(type_size, 1.0).0 as f32;
     let mut renderer = Renderer::new(
         crate::host::stack(&fonts),
-        PxSize::of(cfg.font_size).expect("size"),
+        PxSize::of(cfg.font_size * type_px).expect("size"),
         theme,
         Blend::Native,
         Cols::of_index(usize::from(first.ws_col)),
@@ -656,9 +679,9 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     )
     .expect("cell metrics");
     crate::host::set_up_renderer(&mut renderer, &cfg, &notice);
-    // The activity lights' own line, at the first configure's scale once
-    // that comes (`configure`).
-    renderer.set_lights_line(cfg.activity_lights.line(), 1.0);
+    // The activity lights' own line, at a point's pixels until the first
+    // configure sets the scale's (`configure`).
+    renderer.set_lights_line(cfg.activity_lights.line(), type_px);
     // The window starts without the keyboard, until `wl_keyboard.enter`.
     renderer.set_cursor_look(crate::caret::look(Focus::Lost, cfg.unfocused_cursor));
     let term = crate::host::set_up_term(term, &cfg, &renderer, &fonts);
@@ -802,6 +825,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         clips,
         clipboard: cfg.clipboard,
         uncopied: Said::Not,
+        unmeasured: Said::Not,
         select_offer: None,
         composing: Vec::new(),
         composing_hints: Vec::new(),
@@ -856,6 +880,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         reload,
         notice,
         scheme: None,
+        type_size,
         report: crate::report::Polled::new(Instant::now(), crate::report::Logged::now()),
         holding: crate::held::Holding::No,
         quit: Quit::No,
@@ -1266,6 +1291,10 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         crate::host::set_locator_device(&mut d.term, d.window.pointer_device());
         // And whether its keymap has a Hebrew layout, which DECHEBM needs.
         crate::host::set_hebrew_layout(&mut d.term, d.window.hebrew_layout());
+        // The output's size under `[font] dpi = "physical"`, after the
+        // events: a `wl_output.geometry` past the last configure, or the
+        // surface entering another output.
+        d.follow_output();
         // **Once the registry offers `xdg_wm_base`, `OSC 61` answers what
         // its version allows**: below 4 no bounds ever come, and a resize
         // in pixels or to the screen's size is listed as not done
@@ -1801,11 +1830,18 @@ impl Driver {
         }
     }
 
-    /// **The font's pixel size at `points`**: the points times the scale
-    /// the frame is drawn at, as the macOS driver sizes its font at the
-    /// backing scale.
+    /// **The frame's pixels to one point** (`typesize.rs`): the desktop's
+    /// point -- 96 dpi times its text scale, or what `[font] dpi` says --
+    /// at the scale the frame is drawn at. Typographic sizes only: the
+    /// backing scale the core reports in stays the compositor's.
+    fn type_px(&self) -> f64 {
+        crate::typesize::px_per_point(self.type_size, self.scale.factor()).0
+    }
+
+    /// **The font's pixel size at `points`**: the points at the desktop's
+    /// pixels to a point ([`Driver::type_px`]).
     fn font_px(&self, points: f32) -> Option<PxSize> {
-        PxSize::of(points * self.scale.factor() as f32)
+        PxSize::of(points * self.type_px() as f32)
     }
 
     /// **The modifiers changed**: Ctrl pressed or let go over a link shows
@@ -2297,6 +2333,14 @@ impl Driver {
             Heard::Motion(m) => {
                 self.set_motion(crate::appearance::motion_of(self.motion_source, m))
             }
+            Heard::TextScale(t) => {
+                let factor = t.factor();
+                if self.type_size.text_scale != Some(factor) {
+                    self.type_size.text_scale = Some(factor);
+                    crate::info!("text scale: {factor}");
+                    self.retype();
+                }
+            }
             Heard::Contrast(c) => {
                 let contrast = crate::appearance::contrast_of(c);
                 if contrast != self.contrast {
@@ -2600,7 +2644,7 @@ impl Driver {
                     );
                     self.pending = Pending::Dirty;
                     self.renderer
-                        .set_lights_line(c.activity_lights.line(), self.scale.factor() as f32);
+                        .set_lights_line(c.activity_lights.line(), self.type_px() as f32);
                     self.lights_line(was);
                 }
                 // DEC's line given the words, or none, at the turn's end.
@@ -3386,6 +3430,67 @@ impl Driver {
         }
     }
 
+    /// **What a point is, changed** -- the portal's text scale read after
+    /// launch or changed by the user, or the output's size: the font at the
+    /// new pixels a point, the lights' line with it, and the grid re-laid
+    /// as a configure lays it. Before the first frame that is a re-layout
+    /// nobody sees; after it, one resize. A factor out of the desktop's
+    /// range is 1, and `"physical"` with no plausible output size is the
+    /// desktop's point, each said in the log.
+    fn retype(&mut self) {
+        self.say_fallback(Retyped::Heard);
+        let Some(px) = self.font_px(self.font_size) else {
+            return;
+        };
+        if self.renderer.rescale(px).is_none() {
+            crate::warn!("the font did not rescale to the desktop's point; it stays as it was");
+            return;
+        }
+        // The lights' line follows in `configure`, which sets it at a
+        // point's pixels on every configure.
+        self.damage = Damage::Full;
+        self.pending = Pending::Dirty;
+        if let Some((w, h)) = self.configured {
+            self.configure(w, h);
+        }
+    }
+
+    /// **What fell back, said** (`typesize::Fallback`): a text scale out
+    /// of range at the retype that hears it, and `"physical"` with no
+    /// plausible output size once, at the configure or the retype that
+    /// first finds it.
+    fn say_fallback(&mut self, at: Retyped) {
+        let (_, fell) = crate::typesize::px_per_point(self.type_size, self.scale.factor());
+        match (fell, at) {
+            (crate::typesize::Fallback::TextScale, Retyped::Heard) => crate::warn!(
+                "the desktop's text scale {:?} is outside 0.5 to 3; a point is 96 dpi",
+                self.type_size.text_scale
+            ),
+            (crate::typesize::Fallback::Physical, _) if self.unmeasured == Said::Not => {
+                self.unmeasured = Said::Once;
+                crate::warn!(
+                    "[font] dpi = \"physical\": the output's size is not known or not \
+                     plausible; a point is the desktop's"
+                );
+            }
+            _ => {}
+        }
+    }
+
+    /// **The output's size followed** under `[font] dpi = "physical"`: the
+    /// size the window reads now (`Window::physical_dpi`) against the one
+    /// the point was last sized at, and a retype where they differ.
+    fn follow_output(&mut self) {
+        if self.type_size.mode != crate::config::FontDpi::Physical {
+            return;
+        }
+        let physical = self.window.physical_dpi();
+        if physical != self.type_size.physical {
+            self.type_size.physical = physical;
+            self.retype();
+        }
+    }
+
     /// **The font led by `face`, or the one in force, at `points`** (a
     /// program's `OSC 50`, `fonts.rs`): the renderer restacked or rescaled,
     /// the core told, and the grid re-laid in the window as a configure
@@ -3427,19 +3532,34 @@ impl Driver {
         // points kept, as the macOS driver's `resized` takes a new backing
         // scale: the renderer rescaled, and the points `OSC 1337 ;
         // ReportCellSize` answers in follow it.
+        // So is a new output under `[font] dpi = "physical"`: its size in
+        // millimetres is part of what a point is (`typesize.rs`). The
+        // backing scale follows the compositor's scale alone.
         let scale = self.window.scale();
-        if scale != self.scale {
+        let physical = self.window.physical_dpi();
+        let moved = physical != self.type_size.physical
+            && self.type_size.mode == crate::config::FontDpi::Physical;
+        self.type_size.physical = physical;
+        self.say_fallback(Retyped::Configured);
+        if scale != self.scale || moved {
+            let rescaled = scale != self.scale;
             self.scale = scale;
             match self.font_px(self.font_size) {
                 Some(px) if self.renderer.rescale(px).is_some() => {}
                 _ => crate::warn!(
                     "the font did not rescale to {} pixels a point; it stays as it was",
-                    scale.factor()
+                    self.type_px()
                 ),
             }
-            self.term
-                .set_backing_scale(baud_domain::BackingScale::of(scale.factor()));
-            crate::info!("scale: {} pixels a point", scale.factor());
+            if rescaled {
+                self.term
+                    .set_backing_scale(baud_domain::BackingScale::of(scale.factor()));
+            }
+            crate::info!(
+                "scale: {}; a point is {} pixels",
+                scale.factor(),
+                self.type_px()
+            );
         }
         // The frame: the surface's points at the scale, rounded halfway
         // away from zero, as the window's buffer is (`Window::buffer_size`).
@@ -3468,7 +3588,7 @@ impl Driver {
         // The exit-status strip, when kept, takes its column first, and the
         // activity lights' own line its pixels at this scale, no row.
         self.renderer
-            .set_lights_line(self.activity_lights.line(), scale.factor() as f32);
+            .set_lights_line(self.activity_lights.line(), self.type_px() as f32);
         let text_w = width.0.saturating_sub(self.renderer.strip().value());
         let text_h = height
             .0
@@ -3600,11 +3720,11 @@ impl Driver {
         let highlight = self.seat.highlight(&self.term);
         self.renderer.set_highlight(highlight);
         // iTerm2's cursor guide: what a program set, else `[cursor] guide`,
-        // its one point at the scale's pixels.
+        // its one point at a point's pixels (`type_px`).
         let scale = self.scale.factor();
         let guide = self.term.cursor_guide().unwrap_or(self.cursor_guide);
         self.renderer
-            .set_cursor_guide(crate::effects::guide_look(guide, scale));
+            .set_cursor_guide(crate::effects::guide_look(guide, self.type_px()));
         // A `selection` the badge names reads what a copy would copy.
         let selection = || self.seat.selected_text(&self.term);
         let page = self.renderer.background_of(&self.term);
