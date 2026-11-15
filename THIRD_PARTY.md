@@ -1728,9 +1728,8 @@ THIS SOFTWARE.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 337 | 68 | redistributable, and its notice is satisfied |
+| kept | 337 | 69 | redistributable, and its notice is satisfied |
 | own | 10 | 8 | the work of baud's author |
 | total | 348 | 77 | |
 
@@ -1804,14 +1803,6 @@ they were built from.
 | [zig-MIT.txt](LICENSES/zig-MIT.txt) | MIT | fetched: https://codeberg.org/ziglang/zig/raw/tag/0.16.0/LICENSE | 5c537d6853e00529 |
 
 ## In the tree outside docs/research/sources/
-
-### vt220_tables.tsv, the cells of the VT220 manual's Tables 2-1, 2-3 and 2-5 to 2-15 and Table 4-4's national finals that the tests hold the DEC and national sets to, read from vt100.net's two pages, fetched by URL and hash-checked, no prose copied; the build never reads it. Whether a codepoint table carries the transcription's terms (no grant found) is open; no crate carries the file
-
-- **Status:** open -- an open question, recorded where the file is
-- **Licence:** LicenseRef-NoGrant (vt100.net's transcription), if the table carries any
-- **Notice:** none
-- **From:** https://vt100.net/docs/vt220-rm/chapter2.html (dec-special-graphics in MANIFEST.toml)
-- **Files:** [baud-domain/tests/vt220_tables.tsv](baud-domain/tests/vt220_tables.tsv)
 
 ### JetBrains Mono 2.304, embedded in the app, unmodified
 
@@ -2092,6 +2083,14 @@ they were built from.
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
 - **From:** https://www.unicode.org/Public/MAPPINGS/
 - **Files:** [baud-domain/data/JIS0201.TXT](baud-domain/data/JIS0201.TXT), [baud-domain/data/iso8859-1.txt](baud-domain/data/iso8859-1.txt), [baud-domain/data/iso8859-2.txt](baud-domain/data/iso8859-2.txt), [baud-domain/data/iso8859-5.txt](baud-domain/data/iso8859-5.txt), [baud-domain/data/iso8859-7.txt](baud-domain/data/iso8859-7.txt), [baud-domain/data/iso8859-8.txt](baud-domain/data/iso8859-8.txt), [baud-domain/data/iso8859-9.txt](baud-domain/data/iso8859-9.txt)
+
+### vt220_tables.tsv, the cells of the VT220 manual's Tables 2-1, 2-3 and 2-5 to 2-15 and Table 4-4's national finals that the tests hold the DEC and national sets to, read from vt100.net's two pages, fetched by URL and hash-checked: each cell's code and glyph and each set's finals, kept as a factual table, with no prose copied. The build never reads it, and no crate carries the file
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** facts, attributed to the VT220 Programmer Reference Manual (Digital Equipment Corporation) as vt100.net transcribes it
+- **Notice:** none
+- **From:** https://vt100.net/docs/vt220-rm/chapter2.html (dec-special-graphics in MANIFEST.toml)
+- **Files:** [baud-domain/tests/vt220_tables.tsv](baud-domain/tests/vt220_tables.tsv)
 
 ### The app compiles in ncurses' xterm-256color terminfo entry (infocmp output) to read the flash's padding
 

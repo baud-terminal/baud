@@ -2328,12 +2328,13 @@ copyright = ["Copyright © 1991-2026 Unicode, Inc."]
 licence   = "Unicode-3.0"
 
 [[tree]]
-what     = "vt220_tables.tsv, the cells of the VT220 manual's Tables 2-1, 2-3 and 2-5 to 2-15 and Table 4-4's national finals that the tests hold the DEC and national sets to, read from vt100.net's two pages, fetched by URL and hash-checked, no prose copied; the build never reads it. Whether a codepoint table carries the transcription's terms (no grant found) is open; no crate carries the file"
+what     = "vt220_tables.tsv, the cells of the VT220 manual's Tables 2-1, 2-3 and 2-5 to 2-15 and Table 4-4's national finals that the tests hold the DEC and national sets to, read from vt100.net's two pages, fetched by URL and hash-checked: each cell's code and glyph and each set's finals, kept as a factual table, with no prose copied. The build never reads it, and no crate carries the file"
 paths    = ["baud-domain/tests/vt220_tables.tsv"]
-licence  = "LicenseRef-NoGrant (vt100.net's transcription), if the table carries any"
+licence  = "facts, attributed to the VT220 Programmer Reference Manual (Digital Equipment Corporation) as vt100.net transcribes it"
+spdx     = ""
 notice   = "none"
 upstream = "https://vt100.net/docs/vt220-rm/chapter2.html (dec-special-graphics in MANIFEST.toml)"
-status   = "open"
+status   = "kept"
 
 [[tree]]
 what     = "The app compiles in ncurses' xterm-256color terminfo entry (infocmp output) to read the flash's padding"

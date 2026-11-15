@@ -1,10 +1,40 @@
 //! Every check of `cargo xtask third-party --check` fires, and the file it
-//! writes is the file it checks.
+//! writes is the file it checks. The repository's own sidecar leaves no
+//! file's licence open.
 
 mod common;
 
 use common::{base, run, third_party_cases};
-use xtask::third_party::{self, Outcome};
+use xtask::credits;
+use xtask::publish::UNSETTLED;
+use xtask::third_party::{self, Outcome, Side};
+
+/// The repository's sidecar settles every file it lists: no group and no
+/// [[tree]] row is under a status that leaves the file's licence a choice
+/// still open.
+#[test]
+fn every_file_in_the_repository_has_its_licence_settled() {
+    let root = credits::root_of(env!("CARGO_MANIFEST_DIR"));
+    let table = third_party::load(&root, third_party::SIDECAR).expect("the sidecar reads");
+    let side = Side::of(&table).expect("the sidecar parses");
+    assert!(
+        !side.upstream.is_empty() && !side.tree.is_empty(),
+        "the sidecar lists no row"
+    );
+    let mut open: Vec<String> = side
+        .upstream
+        .iter()
+        .filter(|g| UNSETTLED.contains(&g.status))
+        .map(|g| format!("upstream.{} ({})", g.id, g.status))
+        .collect();
+    open.extend(
+        side.tree
+            .iter()
+            .filter(|t| UNSETTLED.contains(&t.status))
+            .map(|t| format!("{:?} ({})", t.paths, t.status)),
+    );
+    assert!(open.is_empty(), "rows still open: {open:#?}");
+}
 
 #[test]
 fn the_base_tree_passes() {
