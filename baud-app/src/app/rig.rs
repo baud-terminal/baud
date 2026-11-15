@@ -1980,9 +1980,15 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // typed, then the first frame, the shell's prompt, waited for, and
     // then the splash's start, with nothing sent: only what that frame
     // wakes can start it, and then the splash played out. Each within the
-    // bound.
+    // bound. **The frame gate's clock moved on an hour** while the first
+    // frame is waited for, so the first turn that finds the prompt owed
+    // draws it, whichever turn fed it and however soon after the app was
+    // made: with the ticks withheld, a turn the gate leaves `Later` has no
+    // tick to draw it. The clock is live again once the frame is drawn.
     let first = match rig.window {
         RigWindow::ShownFirst => {
+            probe::freeze_gate(opened);
+            probe::advance_gate(Duration::from_secs(3600));
             probe::set_shown(probe::Shown::Yes);
             baud_present_macos::closing::rig_post(window.ns_window(), RigWindow::Shown);
             let start = Instant::now();
@@ -1993,6 +1999,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 println!("the first frame was never drawn");
                 return std::process::ExitCode::from(1);
             }
+            probe::unfreeze_gate();
             let start = Instant::now();
             while probe::greetings().0 == 0 && start.elapsed() < BOUND {
                 probe::pass(0.01);
