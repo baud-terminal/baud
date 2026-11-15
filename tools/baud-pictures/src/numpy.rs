@@ -1,3 +1,18 @@
+//! ```text
+//! NumPy 2.5.2, parts of it transcribed into Rust in this file.
+//! Copyright (c) 2005-2025, NumPy Developers.
+//! All rights reserved.
+//!
+//! Licence: BSD-3-Clause. Its text is in LICENSES/numpy-BSD-3-Clause.txt.
+//!
+//! Ported: loops_utils.h.src's DOUBLE_pairwise_sum (pairwise),
+//! arraytypes.c.src's DOUBLE_fill (arange), calculation.c's power-of-ten
+//! rounding (round_to), clip's and maximum's comparisons (clip, maximum)
+//! and _function_base_impl.py's gradient (gradient). Changed: each takes
+//! f64 values or slices in place of arrays, and gradient takes a rows by
+//! cols array with unit spacing and edge_order=1 only.
+//! ```
+//!
 //! The NumPy 2.5.2 the generator was written in, where its arithmetic is
 //! not the plain loop's (`LICENSES/numpy-BSD-3-Clause.txt`):
 //!

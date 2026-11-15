@@ -1,3 +1,17 @@
+//! ```text
+//! libwebp 1.6.0 (encode.h, decode.h, mux.h, demux.h, mux_types.h), its
+//! interface transcribed into Rust in this file.
+//! Copyright (c) 2010, Google Inc. All rights reserved.
+//!
+//! Licence: BSD-3-Clause. Its text is in LICENSES/libwebp-BSD-3-Clause.txt.
+//!
+//! Ported: the layouts of WebPConfig, WebPPicture, WebPMemoryWriter,
+//! WebPData, WebPBitstreamFeatures and WebPAnimInfo, the declarations of
+//! the functions called, the four ABI version numbers and the enum values
+//! used. Changed: each is written as a Rust #[repr(C)] struct, an extern
+//! "C" item or a const.
+//! ```
+//!
 //! **WebP through libwebp's own `extern "C"`**, as Pillow 12.3.0's
 //! `_webp.c` calls it: the still-image encoder `WebPEncode_wrapper` and
 //! the decoder `WebPAnimDecoder` that `WebPImagePlugin` opens every file

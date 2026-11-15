@@ -1,3 +1,19 @@
+//! ```text
+//! CPython 3.14.7 (floatobject.c, mathmodule.c, bltinmodule.c), parts of it
+//! transcribed into Rust in this file.
+//! Copyright (c) 2001 Python Software Foundation; All Rights Reserved
+//!
+//! Licence: Python Software Foundation License Version 2 (Python-2.0).
+//! Its text is in LICENSES/cpython-Python-2.0.txt.
+//!
+//! Ported: float_rem (rem), _float_div_mod's quotient (floordiv),
+//! math_fsum (fsum) and builtin_sum_impl's float loop (sum). Changed:
+//! each takes f64 values in place of Python objects; fsum takes finite
+//! values only and has none of math_fsum's handling of infinities, NaNs
+//! or overflow; sum is the float loop alone, from a start of 0, and gives
+//! None for no values. The rest of this file is baud's.
+//! ```
+//!
 //! The Python the generator was written in, where its arithmetic or its
 //! text is not Rust's: `round()` to even, `round(v, n)` on the exact
 //! binary value, and `repr()` of a float or a string.

@@ -1,3 +1,25 @@
+//! ```text
+//! fdlibm (k_sin.c, k_cos.c, e_rem_pio2.c), parts of it transcribed into
+//! Rust in this file, under the notice those files carry:
+//!
+//! ====================================================
+//! Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+//!
+//! Developed at SunSoft, a Sun Microsystems, Inc. business.
+//! Permission to use, copy, modify, and distribute this
+//! software is freely granted, provided that this notice
+//! is preserved.
+//! ====================================================
+//!
+//! Licence: SunPro. Its text is in LICENSES/fdlibm-SunPro.txt.
+//!
+//! Ported: k_sin.c's and k_cos.c's coefficients and polynomials (S, C,
+//! ksin, kcos) and e_rem_pio2.c's pio2_1, pio2_1t and pio2_2t (PIO2_1,
+//! PIO2_2, PIO2_3). Changed: the kernels take no tail argument, and kcos
+//! sums 1 - z/2 + z*p, without k_cos.c's grouping or its branch for
+//! |x| >= 0.3. The rest of this file is baud's.
+//! ```
+//!
 //! **Deterministic arithmetic for the README logo's generator**: `sin`,
 //! `cos`, `exp` and `hypot` built from `+`, `-`, `*`, `/`, `floor` and
 //! `sqrt`, which IEEE 754 rounds correctly on every platform, so the
