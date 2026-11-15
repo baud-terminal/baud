@@ -665,6 +665,51 @@ mod tests {
         );
     }
 
+    /// **The longest name a build can have shows in the film's window**:
+    /// `1.0.0-unstable.9999+0123abc.dirty`, the series number at four
+    /// digits (the bound this test holds the name to), the build id at its
+    /// seven characters and `.dirty` on, starts where the name starts with
+    /// all nine lights placed; a window a point narrower than its room
+    /// hides it and keeps every light, as the app's bar gives the name way
+    /// rather than clipping it. The control: a name of 200 characters does
+    /// not show in the film's window. Perturbation: add a fifth digit to the
+    /// series number until the film's window is too narrow, and the first
+    /// assertion fails.
+    #[test]
+    fn the_longest_name_a_build_can_have_shows_in_the_films_window() {
+        const LONGEST: &str = "1.0.0-unstable.9999+0123abc.dirty";
+        let wide = Strip::new(WIDE, 2.0, LONGEST);
+        assert_eq!(wide.layout.version, Some(Px::of(156)), "{LONGEST}");
+        assert!(
+            Led::ALL
+                .into_iter()
+                .all(|led| wide.layout.lights.get(led).is_some())
+        );
+        let regular = baud_font::Face::parse(crate::embedded::REGULAR.bytes).unwrap();
+        let across = CGFloat::from(baud_render::lights::text_width(
+            &regular,
+            LONGEST,
+            VERSION_POINTS as f32,
+        ));
+        let columns = columns_at(2.0);
+        let room = 78.0 + across + crate::mark::VERSION_GAP + 221.0 + 16.0;
+        let px = |pt: f64| Px::of(u32::try_from((pt * 2.0).ceil() as i64).unwrap());
+        assert!(layout(px(room), 2.0, &columns, across).version.is_some());
+        let short = layout(px(room - 1.0), 2.0, &columns, across);
+        assert_eq!(short.version, None, "a point short, hidden, not clipped");
+        assert!(
+            Led::ALL
+                .into_iter()
+                .all(|led| short.lights.get(led).is_some())
+        );
+        let long = "x".repeat(200);
+        assert_eq!(
+            Strip::new(WIDE, 2.0, &long).layout.version,
+            None,
+            "the control"
+        );
+    }
+
     /// **The strip is the app's, at the app's places, the one function**:
     /// 32 points tall, 64 pixels at 2x, a titled window's under the SDK the
     /// app links; the traffic lights centred in AppKit's 14-point frames,
