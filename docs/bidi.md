@@ -116,9 +116,8 @@ the screen; step 3 joins Arabic letters.
   override or an embedding on one row reaches the next. **Text written
   inside DECSLRM side margins is laid out inside them**: a row that
   wrapped at side margins narrower than the page keeps the margins it
-  wrapped at -- since 2026-11-03 only margins whose right one is the
-  screen's edge, the one wrap the core marks as continuing, as ghostty
-  marks only a wrap at its last column, so a paragraph cut at a right
+  wrapped at -- only margins whose right one is the screen's edge, the
+  one wrap the core marks as continuing, so a paragraph cut at a right
   margin inside the screen is drawn row by row
   (`a_paragraph_cut_at_a_right_margin_inside_the_screen_is_drawn_row_by_row`)
   -- and its paragraph is its cells inside them and the next
@@ -611,12 +610,12 @@ mlterm and WezTerm at source.
 | BDSM reset | nothing re-broken (ECMA-48 7.2.1's EXPLICIT) |
 | an erased cell between characters | a space to the breaker |
 
-**Chosen on 2026-10-27**, on the renders of note BD: a run the wrap would
+**Built so:** a run the wrap would
 split gets lines of its own and other runs stay inline, each moved line in
 its own direction at its own edge; no word is split, in every finished
 paragraph the display wraps, single-direction ones too; on by default.
 
-**Chosen on 2026-10-24:**
+**Built so:**
 
 | choice | behaviour |
 |---|---|
@@ -647,7 +646,7 @@ row. **Built so:**
 
 | choice | behaviour |
 |---|---|
-| `?2501` at power-on, and SCP under it | set, so a line nobody set a direction for takes its first strong letter's way (UAX #9 P2-P3, the 2026-10-24 table above), and SCP is the fallback while it is set, as mintty does; so SCP 2 alone no longer turns an English line |
+| `?2501` at power-on, and SCP under it | set, so a line nobody set a direction for takes its first strong letter's way (UAX #9 P2-P3, the power-on table above), and SCP is the fallback while it is set; so SCP 2 alone does not turn an English line |
 | `?1243` at power-on | set, "needs to be the default", though baud detects direction from the start, which the draft's compatibility argument did not assume |
 | which box characters `?2500` mirrors | each drawn right to left (L4's resolved R, HL6 widening which characters), so a table row's rules are not |
 | `DECSTR` | returns all three in force to power-on, as mintty and VTE do |
@@ -703,7 +702,7 @@ wrote is drawn as its cells hold, and `HT` goes to the previous stop.
 | which cursor functions | every one that moves the active presentation position: the tabs, `CVT` and `VT` with `CUP` to `CUD` |
 | `DECRQM 9` with the mode on | DATA's state, "considered to be set to DATA" |
 | DECRLM under side margins | `CR` and the wrap's landing at the right margin, the wrap at the left one |
-| DECHEM | acted on as a Hebrew VT510: reset puts the DEC 7-bit Hebrew set in G0 to G3, set the power-up sets back, as STD 070's DECNRCM algorithms do; DECNRCM itself, the opposite, stays ignored (note AF's Q-DECNRCM), so `?36 l` acts where `?42 h`, which Table 4-8 note 1 gives the same result, does nothing: an open departure |
+| DECHEM | acted on as a Hebrew VT510: reset puts the DEC 7-bit Hebrew set in G0 to G3, set the power-up sets back, as STD 070's DECNRCM algorithms do; DECNRCM itself, the opposite, stays ignored, so `?36 l` acts where `?42 h`, which Table 4-8 note 1 gives the same result, does nothing: an open departure |
 
 **Built so:**
 
@@ -800,7 +799,7 @@ eight rounds with the first dropped, on mains:
 - **The display's word wrap** (`[screen] wrap_words`) is read off the
   window, never on the path that writes the grid: `baud-core` is
   unchanged. A frame whose window reads as the last frame's keeps the last
-  layout. On the cases of note BD at 44x12 the convert column's ranges
+  layout. On the word-wrap cases at 44x12 the convert column's ranges
   overlap base's on a replay, and the instructions a run retires differ
   from base's by less than base's own spread from run to run. A window that
   moves every frame lays its paragraphs out again each time, unmeasured
@@ -1018,7 +1017,7 @@ eight rounds with the first dropped, on mains:
   (`Renderer::keep_written`), where with it set an echo is laid out as
   written.
 - **Telling programs it is supported**: DECRQM 8 is the only probe; no
-  terminfo entry says so (note AB Q18).
+  terminfo entry says so.
 
 ## Decided in step 1
 

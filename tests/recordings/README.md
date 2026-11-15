@@ -78,7 +78,7 @@ the capture of 2026-10-09 it replaces; only the text around them moved.
 
 The `record-kitten-icat` example records what `kitten icat` 0.49.2 writes,
 `--transfer-mode=stream`, to a pty carrying the app's pixels (17x34 a
-cell), for note V's V19 step 0. Unlike the captures
+cell). Unlike the captures
 above, these regenerate: kitty and the two nixos-artwork pictures are
 pinned by nixpkgs revision, and two runs gave the same bytes. None is
 committed. `mosaic-blue` and `waterfall` are CC-BY-SA-4.0 and `skyglow` is
@@ -173,10 +173,10 @@ with `--log-file` too. mpv fitted each frame to the window, 138x96, and
 sent eleven of its thirteen whole: `CUP` to row 1, column 10, then
 `a=T,f=24,s=138,v=96,C=1,q=2` and the RGB in base64 chunks, no image
 id and no delete between frames. Twice its status thread wrote
-`ESC [ 1 K CR` and the status line inside a chunk, which kitty, and
-baud since 2026-11-08, read as the chunk's payload, so that upload is
-refused short and nothing prints; before then the `ESC` cancelled the
-upload and the rest of the chunk printed as text. On quit it sends
+`ESC [ 1 K CR` and the status line inside a chunk, which baud reads as
+the chunk's payload, so that upload is refused short and nothing prints:
+the `ESC` does not cancel the upload, and the rest of the chunk does not
+print as text. On quit it sends
 `ESC _ G a=d ;` with no `ST`, so the `?1003l` and `?1049l` after it
 are that command's payload too.
 

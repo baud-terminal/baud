@@ -59,14 +59,12 @@ pub(crate) const VERSION_INK: Argb = Argb(0x8C_FF_FF_FF);
 pub(crate) use super::titled::{BUTTONS, INSET};
 
 /// **Each traffic light's circle, in points across**, centred in its
-/// frame: the filmed take's, `assets/readme/hero.gif` as c6d97ceb holds
-/// it, whose frame 60 shows each circle covering 17.7 pixels' worth of
-/// area across at 1.477 pixels a point (its centres 29.5 pixels apart, 20
-/// points), 12.0 points.
+/// frame: the size a filmed take of the app's window shows each circle
+/// at, 12.0 points.
 pub(crate) const DOT: CGFloat = 12.0;
 
 /// **The traffic lights' colours in the dark appearance**, close, minimise
-/// and zoom: each circle's middle in that `hero.gif`'s frame 60.
+/// and zoom: each circle's middle in a filmed take of the app's window.
 pub(crate) const COLOURS: [Argb; 3] = [
     Argb(0xFF_E0_59_5F),
     Argb(0xFF_EF_BE_4E),
@@ -615,11 +613,11 @@ mod tests {
     }
 
     /// **The build's name is at the bar's left and gives way first**: in
-    /// the film's window it starts where the lockup used to, 78 points in,
-    /// a gap past the zoom button, and is inked there with every light
+    /// the film's window it starts 78 points in, a gap past the zoom
+    /// button, and is inked there with every light
     /// placed; in a window too narrow for it and all nine it is gone and
     /// every light stays, as the app does it; narrower still the leftmost
-    /// lights drop as they always did. Perturbation: place the name after
+    /// lights drop. Perturbation: place the name after
     /// the lockup and the first half fails; show it whatever the width and
     /// the second does.
     #[test]
@@ -872,7 +870,7 @@ mod tests {
     /// function, in its pixels**: the word's own fill is what fills it, in
     /// every window, on the plate; and in a window with no plate, the window
     /// decides. Theme, window and form: the two mismatched pairs are the
-    /// defect, the two matched ones what the film has always drawn.
+    /// defect, the two matched ones what the film draws.
     /// Perturbation: `Lockup::for_appearance(appearance)` in `Strip::of`
     /// fails the mismatched rows, and `look.plate` taken without
     /// `layout.plate` fails the narrow ones.

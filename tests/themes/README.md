@@ -11,7 +11,7 @@ theme collection but `base16-0x96f.Xresources`.
 - `night`: a partial ghostty theme with no extension -- the eight normals,
   entry 42, the page, the text, and one key baud does not read.
 
-The content detector's fixtures (note AR), for `palette.rs` and
+The content detector's fixtures, for `palette.rs` and
 `baud-domain/tests/themedetect.rs`. Those in another terminal's format all
 carry one hand-made dark scheme, so each format's reading can be compared
 with the others':
