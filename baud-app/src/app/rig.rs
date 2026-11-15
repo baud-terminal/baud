@@ -708,8 +708,9 @@ pub(super) fn stepped(progress: baud_domain::DecodeProgress, shown: crate::reads
     }
 }
 
-/// **A decode census, one line** ([`tally`]), of `steps` ([`STEPS`], or an
-/// iteration's part of it); `None` when no step found work there.
+/// **An iteration's decode census, one line** ([`tally`]), of its part of
+/// [`STEPS`]; `None` when no step found work there. The run's census at
+/// its end is the tally itself, printed when it holds no step too.
 fn decode_census(steps: &[String]) -> Option<String> {
     match steps.is_empty() {
         true => None,
@@ -1603,11 +1604,12 @@ fn run(
     println!("room turns {}", ROOM.with(core::cell::Cell::get));
     // And what woke each turn that fed held reads alone (`released`).
     println!("released by {}", release_census());
-    // And what woke each turn a kitty decode stepped on, when one did
-    // (`stepped`): a failing run's too, the record of where its steps came.
-    if let Some(steps) = STEPS.with_borrow(|s| decode_census(s.as_slice())) {
-        println!("decode steps {steps}");
-    }
+    // And what woke each turn a kitty decode stepped on (`stepped`): a
+    // failing run's too, the record of where its steps came, and `0 turns`
+    // when no step found work, so a run that timed out says from its own
+    // output that its decode never advanced.
+    let steps = STEPS.with_borrow(|s| tally(s.as_slice()));
+    println!("decode steps {steps}");
     // **Every step that left more had its owed turn**: the witness the
     // undriven arms of a row whose effect rides those turns pass only with,
     // printed only when such a step ran, no iteration ended owing, and none
@@ -2067,6 +2069,11 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // The paths asked about before the act, whose texts are not its.
     let asked_before = probe::paths_asked_texts().len();
     let (held, batches) = (probe::paths_held(), probe::paths_batches());
+    let (not_named, fronts, hangs) = (
+        probe::paths_not_named(),
+        probe::paths_elsewhere_fronts(),
+        probe::paths_hangs(),
+    );
     let expired = probe::expirations();
     let notice_turns = probe::notice_turns();
     let notice_reads = probe::notice_state_reads();
@@ -2208,6 +2215,17 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             probe::edges_reads().0.saturating_sub(edges.0),
             probe::window_reads().0.saturating_sub(facts.0),
             probe::window_reports().0.saturating_sub(reported.0),
+        );
+        // The writers the worker found not named since the settle, the
+        // programs in front it named not local, and its hangs, on a line of
+        // their own: a record, not the row's judgement, so a red whose
+        // marks never came says whether one of its writers, or a group gone
+        // and still in front at a batch, went unnamed, or the worker hung.
+        println!(
+            "unnamed writers={} elsewhere_fronts={} hangs={}",
+            probe::paths_not_named().0.saturating_sub(not_named.0),
+            probe::paths_elsewhere_fronts().0.saturating_sub(fronts.0),
+            probe::paths_hangs().0.saturating_sub(hangs.0),
         );
         // Each path asked about since the settle, on a line of its own: a
         // row about one path reads which, not only how many.
@@ -2830,6 +2848,39 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             let (Some((text_at, text_frames)), Some((marks_at, marks_frames))) = (text, marks)
             else {
                 counters(reads, fed, drawn, offered_at);
+                // Which frame never came, the text's or the marks' after
+                // it, and the batches the act's second stage sent by why
+                // each was due, to the backstop: a red says where it stood.
+                match text {
+                    None => println!(
+                        "missing the text frame: the act's clear {}",
+                        match signed {
+                            true => "read",
+                            false => "never read",
+                        }
+                    ),
+                    Some(_) => println!(
+                        "missing the marks frame: {} of {wanted} link lines at rest",
+                        probe::lines_marked().0
+                    ),
+                }
+                if let Second::Written {
+                    by: from,
+                    asked: asked_from,
+                    ..
+                } = second.get()
+                {
+                    let by = probe::paths_by().since(from);
+                    println!(
+                        "by ended={} quiet={} ceiling={} floor={} held_granted={} asked={}",
+                        by.ended.0,
+                        by.quiet.0,
+                        by.ceiling.0,
+                        by.floor.0,
+                        by.held_granted.0,
+                        probe::paths_asked().0.saturating_sub(asked_from.0)
+                    );
+                }
                 println!("the act's marks were never drawn");
                 return std::process::ExitCode::from(1);
             };

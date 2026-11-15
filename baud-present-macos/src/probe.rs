@@ -277,6 +277,13 @@ thread_local! {
     static PATHS_BATCHES: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The batches by why each was due (`paths_by`).
     static PATHS_BY: Cell<PathsBy> = const { Cell::new(PathsBy::NONE) };
+    /// The writers the worker found not named (`paths_not_named`).
+    static PATHS_NOT_NAMED: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The programs in front the worker named not local
+    /// (`paths_elsewhere_fronts`).
+    static PATHS_ELSEWHERE_FRONTS: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The worker's hangs (`paths_hangs`).
+    static PATHS_HANGS: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The link lines at rest at the last settle (`lines_marked`).
     static LINES_MARKED: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// Whether a frame is owed and not yet drawn (`FrameOwed`).
@@ -599,6 +606,40 @@ pub fn set_paths_by(by: PathsBy) {
 /// `D` is asked about by it alone.
 pub fn paths_by() -> PathsBy {
     PATHS_BY.with(Cell::get)
+}
+
+/// Set the writers the worker found not named, the programs in front it
+/// named not local, and its hangs, the worker's own counts.
+pub fn set_paths_unnamed(not_named: Taken, elsewhere_fronts: Taken, hangs: Taken) {
+    PATHS_NOT_NAMED.with(|n| n.set(not_named));
+    PATHS_ELSEWHERE_FRONTS.with(|f| f.set(elsewhere_fronts));
+    PATHS_HANGS.with(|h| h.set(hangs));
+}
+
+/// **The worker's verdicts so far that a writer seen at a read was not
+/// named** (baud-app's `Seen::NotNamed`): gone before it was named, or
+/// past the groups a batch keeps, its lines failing closed. The frame rig
+/// prints those since the settle, so a row whose marks never came says
+/// whether one of its writers went unnamed.
+pub fn paths_not_named() -> Taken {
+    PATHS_NOT_NAMED.with(Cell::get)
+}
+
+/// **The answers so far that named the program in front not local**
+/// (baud-app's `Front::Elsewhere`), or not known to be, as a group gone
+/// and still in front when a batch goes is: each leaves the rows from its
+/// cursor's line unread while it stays in front, and filed remote once
+/// another is named in front. Printed by the frame rig beside the writers
+/// not named.
+pub fn paths_elsewhere_fronts() -> Taken {
+    PATHS_ELSEWHERE_FRONTS.with(Cell::get)
+}
+
+/// **The worker's hangs so far** (baud-app's `probe::HANG`), each closing
+/// the window's path marks: printed by the frame rig beside the writers
+/// not named.
+pub fn paths_hangs() -> Taken {
+    PATHS_HANGS.with(Cell::get)
 }
 
 /// Set the link lines at rest, at a settle.

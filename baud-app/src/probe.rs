@@ -2221,6 +2221,20 @@ pub struct Probes<T> {
     /// a row about one path must see that path among them.
     #[cfg(feature = "effect-probe")]
     pub asked_texts: Vec<Vec<u8>>,
+    /// **The worker's verdicts that a writer seen at a read was not
+    /// named**, gone before it was named or past the groups a batch keeps,
+    /// each filed over its lines (`Probes::file_answered`), for the frame
+    /// rig under the probe only: a row whose marks never came says whether
+    /// a writer of its lines went unnamed.
+    #[cfg(feature = "effect-probe")]
+    pub not_named: u64,
+    /// **The screen and click answers that named the program in front not
+    /// on this machine**, or not known to be (`front_of`: none read is not
+    /// known to be local), each leaving the rows from its cursor's line
+    /// unread while it stays in front, for the frame rig under the probe
+    /// only: a group gone and still in front when a batch goes is named so.
+    #[cfg(feature = "effect-probe")]
+    pub elsewhere_fronts: u64,
     /// Whether the window's marks, as the reader's scan reads them, are the
     /// core's (`vouch::Latch`): stepped part by part as each drain is
     /// filed.
@@ -2284,6 +2298,10 @@ impl<T: Moment> Probes<T> {
             counts: Counts::default(),
             #[cfg(feature = "effect-probe")]
             asked_texts: Vec::new(),
+            #[cfg(feature = "effect-probe")]
+            not_named: 0,
+            #[cfg(feature = "effect-probe")]
+            elsewhere_fronts: 0,
             latch: crate::vouch::Latch::Synced,
         }
     }
@@ -3045,6 +3063,10 @@ impl<T: Moment> Probes<T> {
             return;
         }
         for &(g, f) in seen {
+            #[cfg(feature = "effect-probe")]
+            {
+                self.not_named += u64::from(f == Seen::NotNamed);
+            }
             // The holds this group's verdict releases, lit by it now.
             let lit = &mut self.lit;
             self.held.retain(|&(h, span)| {
@@ -3389,6 +3411,10 @@ impl<T: Moment> Probes<T> {
                 match front {
                     Front::Elsewhere => self.elsewhere = a.group,
                     Front::Local | Front::Multiplexer => self.elsewhere = None,
+                }
+                #[cfg(feature = "effect-probe")]
+                {
+                    self.elsewhere_fronts += u64::from(front == Front::Elsewhere);
                 }
                 let (before, origins) = (s.paths.generation(), s.paths.origins());
                 self.file_answered(s.paths, (a.id, a.kind), &a.seen);
@@ -4844,6 +4870,12 @@ mod tests {
     /// send nothing and start no second thread, and the thread ends once its
     /// call returns. Time is the test's clock, not a sleep. Perturbations:
     /// wait for the answer in `turn`; start a worker per batch; never close.
+    ///
+    /// Under the probe, the fed control of the frame rig's count of hangs,
+    /// read through the probe as the rig reads it (`app::record_unnamed`,
+    /// `probe::paths_hangs`): 0 before the hang, 1 once marks close. Named
+    /// break: the count's increment in `Probes::close` removed -- it reads
+    /// 0 after the close too.
     #[test]
     fn a_stuck_lookup_closes_marks_and_starts_no_second_thread() {
         let (gate_tx, gate_rx) = mpsc::channel::<()>();
@@ -4902,6 +4934,13 @@ mod tests {
         let r = turn(&mut pr, at(1_000), &mut paths, &mut lines, &mut uris);
         assert_eq!(r.clicked, None);
         assert_eq!(paths.marks(), Marks::On, "not yet");
+        #[cfg(all(target_os = "macos", feature = "effect-probe"))]
+        let from = {
+            crate::app::record_unnamed(&pr);
+            let from = baud_present_macos::probe::paths_hangs();
+            assert_eq!(from.0, 0, "the control: no hang counted before it");
+            from
+        };
         let r = turn(
             &mut pr,
             at(1_000 + 5_001),
@@ -4911,6 +4950,17 @@ mod tests {
         );
         assert_eq!(r.frame, Owed::Yes, "closing owes a frame");
         assert_eq!(paths.marks(), Marks::Closed);
+        #[cfg(all(target_os = "macos", feature = "effect-probe"))]
+        {
+            crate::app::record_unnamed(&pr);
+            assert_eq!(
+                baud_present_macos::probe::paths_hangs()
+                    .0
+                    .saturating_sub(from.0),
+                1,
+                "the hang, read through the probe as the frame rig reads it"
+            );
+        }
         assert_eq!(pr.counts.hangs, 1);
         for k in 0..5 {
             let _ = turn(
@@ -6989,6 +7039,9 @@ mod tests {
         drain: Drain,
         sampled: Sampled,
         then: Then,
+        /// The group in front when the batches its drain's `then` sends
+        /// go (the shell, 1, unless a row says otherwise).
+        front: Pid,
     }
 
     /// What the window does once a read's drain is taken: nothing, or a
@@ -7049,6 +7102,7 @@ mod tests {
             drain: Drain::New,
             sampled: Sampled::Yes,
             then: Then::Nothing,
+            front: 1,
         }
     }
 
@@ -7131,6 +7185,7 @@ mod tests {
         (t, s): (&Term<'_>, Scrolled),
         (lines, uris, paths): (&mut Lines, &mut Uris, &mut Paths),
         mut now: Instant,
+        front: Pid,
     ) {
         for _ in 0..4 {
             now += Duration::from_secs(1);
@@ -7151,7 +7206,7 @@ mod tests {
                 urls: Turned::On,
                 paths: &mut *paths,
             };
-            let _ = pr.tick(now, seen, || Some(1));
+            let _ = pr.tick(now, seen, || Some(front));
             if pr.flight.is_some() {
                 return;
             }
@@ -7185,6 +7240,7 @@ mod tests {
         (t, s): (&Term<'_>, Scrolled),
         (lines, uris, paths): (&mut Lines, &mut Uris, &mut Paths),
         mut now: Instant,
+        front: Pid,
     ) {
         // A batch still out from before (`Then::Sent`) is answered before
         // the clock moves past its hang: the worker's answer is taken as
@@ -7208,7 +7264,7 @@ mod tests {
                 urls: Turned::On,
                 paths: &mut *paths,
             };
-            pr.turn(now, seen, || Some(1))
+            pr.turn(now, seen, || Some(front))
         };
         for _ in 0..4 {
             now += Duration::from_secs(1);
@@ -7395,6 +7451,7 @@ mod tests {
                     (&t, s),
                     (&mut lines, &mut uris, &mut paths),
                     t0 + shift,
+                    drain[n - 1].front,
                 );
                 shift += Duration::from_secs(60);
             }
@@ -7429,6 +7486,7 @@ mod tests {
                     (&t, s),
                     (&mut lines, &mut uris, &mut paths),
                     t0 + shift,
+                    drain[n - 1].front,
                 );
                 shift += Duration::from_secs(60);
             }
@@ -7439,6 +7497,7 @@ mod tests {
             (&t, s),
             (&mut lines, &mut uris, &mut paths),
             t0 + shift + Duration::from_secs(60),
+            1,
         );
         if let Some(n) = trim {
             paths.trim_spans(
@@ -7462,6 +7521,10 @@ mod tests {
             .map(|y| paths.origin(s.line(Rows::ZERO, baud_domain::Row::from_index(y))))
             .collect();
         let looked = look(&t, &paths);
+        // The worker's counts the frame rig reads, set as the driver sets
+        // them, for the rows that read them through the probe.
+        #[cfg(all(target_os = "macos", feature = "effect-probe"))]
+        crate::app::record_unnamed(&pr);
         Taken {
             lit: rows,
             origins,
@@ -7532,6 +7595,150 @@ mod tests {
             ],
         );
         assert_eq!(marked, [0, 1], "the shell named its command here");
+    }
+
+    /// **The event rig's `SHELLS_D_WARM` act as the terminal reads it**:
+    /// two commands, each one `printf` writing the shell's `C` with the
+    /// token naming `printf`, `/usr/bin`, a move back onto its row, the `D`
+    /// with the token and the `A`, in one read; and the groups the tests
+    /// below name, group 7 gone: no names and no start that reads.
+    fn warm_act() -> (Fake, Vec<u8>, Vec<u8>) {
+        let mut f = named_groups();
+        for p in ["/usr", "/usr/bin"] {
+            f.entries.insert(p.as_bytes().to_vec(), Entry::Dir);
+        }
+        f.live.lock().unwrap().insert(7, (Vec::new(), None));
+        let command = |tail: &str| {
+            format!(
+                "\x1b]133;C;baud_token={TOKEN};cmdline=printf\x07/usr/bin\r\n\x1b[A\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07\x1b]133;A;aid=1\x07\r\n{tail}"
+            )
+            .into_bytes()
+        };
+        (f, command(""), command("\x1b]52;c;!\x07"))
+    }
+
+    /// **A tokened command's writer gone before it was named lights its
+    /// row, the same path printed again** ([`warm_act`]): the second
+    /// command's group is gone before the worker names it (7), with the
+    /// first command's batch still out when its read is filed
+    /// (`Then::Sent`: asked, the writer gone, the next ask) or answered
+    /// before it (`Then::Answered`). Its row is filed not named, and the
+    /// command its own marks named here lifts it (`Facts::provenance`), so
+    /// both rows light, as when both writers are named local. The control
+    /// that a gone writer darkens: the same paths with no marks, the
+    /// second row dark.
+    ///
+    /// **A guard, not a reproduction**: it passes as the lift stands, and
+    /// it holds that lift while the front race is fixed (a gone group in
+    /// front at a batch, which this row does not have), so a fix that
+    /// reaches the writer's verdict as well as the front's shows here.
+    /// Named break: no lift (`(Unnamed::Yes, Here::Yes)` resolved
+    /// `NotNamed`) -- the second row dark under the marks too.
+    #[test]
+    fn a_tokened_commands_writer_gone_before_it_was_named_lights_its_row() {
+        let (f, first, second) = warm_act();
+        let run = |reads: &[Read<'_>]| lit_reads(f.clone(), reads);
+        let control = run(&[read(&first, 2), read(&second, 2)]);
+        assert_eq!(control, [0, 1], "the control: both writers named local");
+        for (then, batch) in [(Then::Sent, "out"), (Then::Answered, "answered")] {
+            let before = Read {
+                then,
+                ..read(&first, 2)
+            };
+            assert_eq!(
+                run(&[before, read(&second, 7)]),
+                control,
+                "the second writer gone before it was named, the first batch {batch}"
+            );
+        }
+        let bare = b"/usr/bin\r\n".as_slice();
+        assert_eq!(
+            run(&[read(bare, 2), read(bare, 7)]),
+            [0],
+            "the control: with no marks, the gone writer's row dark"
+        );
+    }
+
+    /// **The frame rig's count of programs in front named not local moves
+    /// on the front race, and not without it**: the fed control of
+    /// `Probes::elsewhere_fronts`, read through the probe as the rig reads
+    /// it (`app::record_unnamed`, `probe::paths_elsewhere_fronts`).
+    /// [`warm_act`] with the first command's group gone and still in front
+    /// when the batch its `D` makes due goes (7), the order the front race
+    /// needs, moves it; so does a live group in front whose names do not
+    /// read and whose start does (6), as another user's program, which
+    /// the count holds whatever a gone group is named; the control, the
+    /// shell in front at that batch (1), leaves it at 0 and lights both
+    /// rows. Each run is a worker of its own, so what it sets is that
+    /// run's count. A change that names a gone group otherwise than not
+    /// local moves the gone arm, and changes its assert with it. Named
+    /// break: the count's increment in `Probes::answers` removed -- the
+    /// gone arm reads 0 and the test stops at its assert, so the unread
+    /// arm after it is not reached; once a gone group is named otherwise,
+    /// the same break is run again and reds at the unread arm's assert.
+    #[cfg(all(target_os = "macos", feature = "effect-probe"))]
+    #[test]
+    fn the_front_race_moves_the_rigs_count_of_fronts_named_not_local() {
+        use baud_present_macos::probe::paths_elsewhere_fronts;
+        let (f, first, second) = warm_act();
+        let run = |front: Pid| {
+            let before = Read {
+                then: Then::Answered,
+                front,
+                ..read(&first, 2)
+            };
+            let rows = lit_reads(f.clone(), &[before, read(&second, 2)]);
+            (rows, paths_elsewhere_fronts().0)
+        };
+        assert_eq!(
+            run(1),
+            (vec![0, 1], 0),
+            "the control: the shell in front at the batch"
+        );
+        let (_, gone) = run(7);
+        assert!(
+            gone >= 1,
+            "the gone group in front at its batch, named not local {gone} times"
+        );
+        let (_, unread) = run(6);
+        assert!(
+            unread >= 1,
+            "a live group in front whose names do not read, named not local {unread} times"
+        );
+    }
+
+    /// **The frame rig's count of writers not named moves on an untokened
+    /// writer gone before it was named, and not without one**: the fed
+    /// control of `Probes::not_named`, read through the probe as the rig
+    /// reads it (`app::record_unnamed`, `probe::paths_not_named`). `ls`
+    /// prints `/etc/hosts`, and a group gone before the worker names it
+    /// (7) prints `/etc/passwd` with no marks to lift it, so its verdict is
+    /// not named and its row dark; the control, both writers `ls` (2),
+    /// leaves it at 0. Each run is a worker of its own, so what it sets is
+    /// that run's count. Named break: the count's increment in
+    /// `Probes::file_answered` removed -- the gone arm reads 0.
+    #[cfg(all(target_os = "macos", feature = "effect-probe"))]
+    #[test]
+    fn a_writer_gone_before_it_was_named_moves_the_rigs_count_of_writers_not_named() {
+        use baud_present_macos::probe::paths_not_named;
+        let run = |second: Pid| {
+            let rows = lit_after(
+                named_groups(),
+                &[(b"/etc/hosts\r\n", 2), (b"/etc/passwd\r\n", second)],
+            );
+            (rows, paths_not_named().0)
+        };
+        assert_eq!(
+            run(2),
+            (vec![0, 1], 0),
+            "the control: both writers named local"
+        );
+        let (rows, gone) = run(7);
+        assert_eq!(rows, [0], "the gone writer's row dark, the row above lit");
+        assert!(
+            gone >= 1,
+            "the gone writer's verdict, filed not named {gone} times"
+        );
     }
 
     /// **R1: a line erased whole takes the writer filed after the erase**

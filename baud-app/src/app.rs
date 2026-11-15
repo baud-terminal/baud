@@ -17397,7 +17397,8 @@ impl Driver {
     /// What the frame rig reads of the worker, under the probe only: whether
     /// it owes a turn, which the settle waits on, the paths it asked about
     /// and their texts, and its batches, those the floor held among them,
-    /// and each by why it was due.
+    /// and each by why it was due; and the writers it found not named, the
+    /// programs in front it named not local, and its hangs.
     #[cfg_attr(not(feature = "effect-probe"), allow(clippy::unused_self))]
     fn record_paths_due(&self, next: Option<HostTime>) {
         #[cfg(not(feature = "effect-probe"))]
@@ -17423,6 +17424,7 @@ impl Driver {
                 floor: counted(c.by_floor),
                 held_granted: counted(c.held_granted),
             });
+            record_unnamed(&self.app.probes);
         }
     }
 
@@ -25618,6 +25620,23 @@ impl TitlePaced {
             Some(_) => TitleTurn::Wait,
         }
     }
+}
+
+/// **What the frame rig reads of the printed paths' worker's writers not
+/// named, the programs in front it named not local, and its hangs**, set
+/// where the rig reads them (`probe::set_paths_unnamed`), under the probe
+/// only: the driver sets them with the rest of the worker's counts
+/// (`Driver::record_paths_due`), and the worker's tests set them through
+/// this too, so each count is read through the probe as the rig reads it.
+#[cfg(feature = "effect-probe")]
+pub(crate) fn record_unnamed<T>(p: &crate::probe::Probes<T>) {
+    use baud_present_macos::probe;
+    let counted = |n| probe::Taken(u32::try_from(n).unwrap_or(u32::MAX));
+    probe::set_paths_unnamed(
+        counted(p.not_named),
+        counted(p.elsewhere_fronts),
+        counted(p.counts.hangs),
+    );
 }
 
 /// **What the paths' answers stand at**: their generation and the lines'

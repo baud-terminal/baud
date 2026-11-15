@@ -3483,16 +3483,25 @@ const FRAME_SITES: [FrameSite; 53] = [
     // frame. The pointer moves before the link's bytes arrive, so only that
     // compare can find it; no tick polls for it (the frame rows above and
     // below hold that output elsewhere reads nothing, the source check that
-    // no tick reads it).
+    // no tick reads it). No batch goes to the printed paths' worker: an
+    // answer that moves what it found owes the hover a read of its own
+    // (`paths_answered`), so a row whose frame never compared could still
+    // find the link. So the paths are off, and the link is a URI in the
+    // text on a row cleared for it, not an `OSC 8` link: a read that opens
+    // one, or prints a `file://` URI, is named with the paths off as with
+    // them on, since a click on it reads who printed it
+    // (`Probes::read_taken`), and that batch's answer files who wrote the
+    // link's row, which moves the lines' provenance.
     FrameSite {
         name: SiteName("a link printed under a resting pointer is previewed by the frame it owes"),
         setup: STILL,
-        act: r"printf '\033[H\033]8;;https://example.com/\033\\LINK\033]8;;\033\\'",
+        act: r"printf '\033[H\033[2Khttps://example.com/'",
         keys: RigKeys::Line,
         ticks: RigFrameTicks::Offered,
         window: RigWindow::PointerOver,
         env: &[],
         config: concat!(
+            "[link]\npaths = \"off\"\n",
             "[link.https]\ncommand = [\"/usr/bin/true\", \"{url}\"]\n",
             "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n"
         ),
