@@ -1840,8 +1840,14 @@ mod tests {
     #[test]
     fn a_rules_command_starts_with_its_signals_at_their_default() {
         use std::os::unix::process::ExitStatusExt;
-        // The signal's name is the printed path's last component.
-        let script = "ulimit -c 0; kill -$(basename $1) $$";
+        // The signal's name is the printed path's last component. `kill` is
+        // exec'd, so it sends the signal to itself with the command's start
+        // as it was given: bash, as `/bin/sh`, ignores `SIGQUIT` in its own
+        // process whatever it was started with.
+        let script = format!(
+            "ulimit -c 0; exec {} -$(basename $1) $$",
+            crate::tool::tool("kill")
+        );
         let cmd = format!("[\"/bin/sh\", \"-c\", \"{script}\", \"sh\", \"{{path}}\"]");
         let (r, said) = rules(&[section("path", &[("command", &cmd)])]);
         assert_eq!(said, Vec::<String>::new());

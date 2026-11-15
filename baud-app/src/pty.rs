@@ -7755,12 +7755,22 @@ mod tests {
             ws_col: 80,
             ws_row: 24,
         };
-        // The control: a signal the shell ignores itself is ignored by what
-        // it runs, and the line says so.
-        let script = "for s in PIPE INT HUP TERM QUIT USR2; do \
-            /bin/sh -c \"kill -$s \\$\\$; echo $s survived\"; done; \
-            trap '' USR1; /bin/sh -c 'kill -USR1 $$; echo USR1 survived'";
-        let given = ["/bin/sh", "-c", script].map(OsString::from).to_vec();
+        // Each probe is `kill`, exec'd by a shell so that it sends the
+        // signal to itself with the shell's start as it was given: bash, as
+        // `/bin/sh`, ignores `SIGQUIT` in its own process whatever it was
+        // started with, and runs what it execs with the disposition it
+        // inherited. A probe that exits 0 survived; one a signal ends prints
+        // nothing. The control: a signal the shell ignores itself is ignored
+        // by what it runs, and the line says so.
+        let script = format!(
+            "for s in PIPE INT HUP TERM QUIT USR2; do \
+            /bin/sh -c \"exec {kill} -$s \\$\\$\"; [ $? -eq 0 ] && echo $s survived; done; \
+            trap '' USR1; /bin/sh -c 'exec {kill} -USR1 $$'; [ $? -eq 0 ] && echo USR1 survived",
+            kill = tool("kill")
+        );
+        let given = ["/bin/sh", "-c", script.as_str()]
+            .map(OsString::from)
+            .to_vec();
         let start = ShellStart {
             integration: crate::shell::Integration::Off,
             ssh_env: crate::shell::SshEnv::Off,
