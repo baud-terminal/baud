@@ -3033,6 +3033,15 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 const STEADY_DARK: &str = "[window]\nactivity_lights = \"off\"\n[cursor]\nblink = false\n\
                            trail = \"off\"\n[launch]\nsplash = \"off\"\n";
 
+/// **[`STEADY`], the printed paths off**: the settle waits while the
+/// paths' worker owes a turn (`PathsDue::Owed`), and can end while a wake
+/// it scheduled is still to come (`PathsDue::Waking`): the hang's, due
+/// `probe::HANG` after a setup's batch went, which turns once whatever
+/// the batch's answer was. That turn reads whatever the row heard, so a row
+/// whose red is that no turn came takes the paths' wakes out with this.
+const STEADY_UNPATHED: &str = "[cursor]\nblink = false\ntrail = \"off\"\n\
+                               [launch]\nsplash = \"off\"\n[link]\npaths = \"off\"\n";
+
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
@@ -3378,7 +3387,10 @@ const FRAME_SITES: [FrameSite; 53] = [
         state: RowState::Green,
     },
     // **FS-A2**: the window made key is heard with the link paused, from
-    // its notification, and no tick polls for it.
+    // its notification, and no tick polls for it. The printed paths are
+    // off ([`STEADY_UNPATHED`]): with them on, a wake the setup's batch
+    // left to come can turn after the notification and read the focus its
+    // observer marked, so a row whose observer did not wake could pass.
     FrameSite {
         name: SiteName("a window made key is heard with the link paused"),
         setup: STILL,
@@ -3387,13 +3399,17 @@ const FRAME_SITES: [FrameSite; 53] = [
         ticks: RigFrameTicks::Offered,
         window: RigWindow::BecameKey,
         env: &[],
-        config: STEADY,
+        config: STEADY_UNPATHED,
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Focused(FocusSeen::Gained),
         state: RowState::Green,
     },
-    // **FS-A2**: and the key window resigned, the other notification.
+    // **FS-A2**: and the key window resigned, the other notification. The
+    // printed paths are off here too ([`STEADY_UNPATHED`]), for the same
+    // reason: with them on, a wake the setup's batch left to come can turn
+    // after the notification and read the focus its observer marked, so a
+    // row whose observer did not wake could pass.
     FrameSite {
         name: SiteName("a window that resigns key is heard with the link paused"),
         setup: STILL,
@@ -3402,7 +3418,7 @@ const FRAME_SITES: [FrameSite; 53] = [
         ticks: RigFrameTicks::Offered,
         window: RigWindow::ResignedKey,
         env: &[],
-        config: STEADY,
+        config: STEADY_UNPATHED,
         focus: RigFocus::Believed,
         attempts: Iterations(100),
         expect: Settles::Focused(FocusSeen::Lost),
