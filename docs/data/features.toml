@@ -1690,6 +1690,17 @@ platform = "macos"
 tests = ["baud-app/src/width.rs::the_content_width_is_the_cells_the_gutter_and_the_padding"]
 
 [[feature]]
+id = "window-frame-linux"
+area = "window"
+name = "A margin around the text on Linux"
+does = "8 points around the text by default, at the desktop's size of a point, or none; what the window has beyond whole cells is split between its sides, and a program asking for a size in cells gets a window that keeps the margin."
+status = "partial"
+gap = "tested on a headless compositor, and seen drawn on one desktop."
+platform = "linux"
+tests = ["baud-app/src/origin.rs::the_frame_sits_inside_the_gutter_with_the_leftover_split", "baud-app/src/origin.rs::the_frames_target_is_the_frames_pixels_in_the_surface", "baud-app/src/origin.rs::the_driver_maps_through_the_origin_alone", "baud-app/src/winops.rs::a_wayland_resize_in_cells_keeps_the_padding"]
+paths = ["baud-app/src/origin.rs", "scripts/linux-padding.sh"]
+
+[[feature]]
 id = "window-title"
 area = "window"
 name = "Window titles"
