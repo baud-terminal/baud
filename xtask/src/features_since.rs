@@ -1152,24 +1152,57 @@ fn changed(rev: &str) -> Scanned<Vec<String>> {
 /// What is reached, as `(directory or "all", reason)`.
 fn scope(rev: &str) -> Scanned<Vec<(String, String)>> {
     let paths = changed(rev)?;
-    for p in &paths {
-        if EVERYTHING_FILES.contains(&p.as_str())
-            || EVERYTHING_DIRS.iter().any(|d| p.starts_with(d))
-        {
-            return Ok(vec![(
-                "all".to_string(),
-                format!("{p} changed, so every crate is checked"),
-            )]);
-        }
+    if let Some(p) = everything(&paths) {
+        return Ok(vec![(
+            "all".to_string(),
+            format!("{p} changed, so every crate is checked"),
+        )]);
     }
     let members = load()?;
+    Ok(reach_in(&paths, &members)
+        .into_iter()
+        .map(|(dir, _, why)| (dir, why))
+        .collect())
+}
+
+/// The first of `paths` that reaches every crate.
+pub fn everything(paths: &[String]) -> Option<&String> {
+    paths.iter().find(|p| {
+        EVERYTHING_FILES.contains(&p.as_str()) || EVERYTHING_DIRS.iter().any(|d| p.starts_with(d))
+    })
+}
+
+/// The workspace scanned once, to ask what several changes reach.
+pub struct Scan(Vec<Member>);
+
+impl Scan {
+    /// Scans the workspace whose root is the current directory; `None`
+    /// when the scan cannot be computed.
+    pub fn load() -> Option<Self> {
+        load().ok().map(Scan)
+    }
+
+    /// The members a change to `paths` reaches, as `(directory, package,
+    /// reason)` sorted by directory: those a path is in, those that read
+    /// one at compile time (`reads <path> at compile time, in <file>`), and
+    /// every member that builds from one of them. `None` when a path
+    /// reaches every crate.
+    pub fn reach(&self, paths: &[String]) -> Option<Vec<(String, String, String)>> {
+        if everything(paths).is_some() {
+            return None;
+        }
+        Some(reach_in(paths, &self.0))
+    }
+}
+
+fn reach_in(paths: &[String], members: &[Member]) -> Vec<(String, String, String)> {
     let outside: Vec<&String> = paths
         .iter()
         .filter(|p| !members.iter().any(|m| under(p, &m.dir)))
         .collect();
     let mut why: HashMap<String, String> = HashMap::new();
-    for m in &members {
-        for p in &paths {
+    for m in members {
+        for p in paths {
             if under(p, &m.dir) {
                 why.insert(m.dir.clone(), format!("changed: {p}"));
                 break;
@@ -1195,7 +1228,7 @@ fn scope(rev: &str) -> Scanned<Vec<(String, String)>> {
     let mut grew = true;
     while grew {
         grew = false;
-        for m in &members {
+        for m in members {
             if why.contains_key(&m.dir) {
                 continue;
             }
@@ -1205,9 +1238,19 @@ fn scope(rev: &str) -> Scanned<Vec<(String, String)>> {
             }
         }
     }
-    let mut lines: Vec<_> = why.into_iter().collect();
+    let mut lines: Vec<_> = why
+        .into_iter()
+        .map(|(dir, why)| {
+            let name = members
+                .iter()
+                .find(|m| m.dir == dir)
+                .map(|m| m.name.clone())
+                .unwrap_or_default();
+            (dir, name, why)
+        })
+        .collect();
     lines.sort();
-    Ok(lines)
+    lines
 }
 
 /// What a run exits with: 0, 1 on a FAIL line or an `--explain` that could

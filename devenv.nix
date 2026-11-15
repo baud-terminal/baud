@@ -402,26 +402,25 @@ in
   git-hooks.hooks = {
     treefmt.enable = true;
 
-    # The whole check suite, `devenv test`, on pre-push rather than
-    # pre-commit. Every check is local: no hosted service runs any of them.
+    # The gates the pushed commits need, on pre-push rather than pre-commit.
+    # Every check is local: no hosted service runs any of them.
     #
-    # This exists because `dev-ci` green is not evidence the suite is green,
-    # and relying on remembering to run the suite did not work: master once
-    # sat red while `dev-ci` passed, because the failure was in a check
-    # `dev-ci` does not have. Pre-push is the right stage -- pre-commit would
-    # run the whole suite on every commit of a stack, and the thing being
-    # protected is the remote, not the reflog.
+    # `scripts/pre-push.sh` runs what `cargo xtask test-scope` names for the
+    # pushed range (`scripts/scoped-test.sh`): the gates that build nothing,
+    # then clippy, tests, the rig and the other builds only for the crates
+    # and test binaries the change reaches. A change it cannot scope, a new
+    # branch, or `BAUD_PUSH_FULL=1` runs every gate, `devenv test`.
     #
-    # Cost: seconds when the dev shell and ./target are warm, a full dev-shell
-    # build when cold. `git push --no-verify` skips it, deliberately -- there
-    # are legitimate reasons to push a branch that does not build yet, and a
-    # gate with no escape hatch gets disabled wholesale instead.
+    # `git push --no-verify` skips it, deliberately -- there are legitimate
+    # reasons to push a branch that does not build yet, and a gate with no
+    # escape hatch gets disabled wholesale instead.
     dev-ci = {
       enable = true;
-      name = "dev-ci (full check suite)";
-      entry = "devenv test";
+      name = "dev-ci (the gates the pushed commits need)";
+      entry = "bash ./scripts/pre-push.sh";
       stages = [ "pre-push" ];
       pass_filenames = false;
+      always_run = true;
     };
   };
 

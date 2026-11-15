@@ -14,6 +14,8 @@
 //!   written from docs/data/ or checked against it and the tree.
 //! - `features-since <rev>|--explain`: the crates a change can reach, for
 //!   `scripts/check-features.sh --since`.
+//! - `test-scope <from> <to>|<rev>`: the tests and gates a change needs, for
+//!   `scripts/scoped-test.sh`.
 //! - `sources`: the source-provenance gate (`scripts/check-sources.sh`),
 //!   which runs `third-party --check` and the offline half of `page-text`.
 //! - `third-party [--check]`: THIRD_PARTY.md, written or checked.
@@ -64,6 +66,7 @@ pub mod scan_audit;
 pub mod sha256;
 pub mod sources;
 pub mod tarball;
+pub mod test_scope;
 pub mod text;
 pub mod textwrap;
 pub mod third_party;

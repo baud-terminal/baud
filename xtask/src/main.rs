@@ -17,7 +17,7 @@ use xtask::sources;
 use xtask::third_party::{self, Mode, Outcome};
 use xtask::{
     changelog, credits, features, features_since, fnv, forbidden, loop_head, no_python, pdf_search,
-    pmc, text, vt_table,
+    pmc, test_scope, text, vt_table,
 };
 
 fn main() -> ExitCode {
@@ -121,6 +121,10 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
         ["features-since", rest @ ..] => {
             let exit = features_since::run(rest, &mut stdout).map_err(|e| e.to_string())?;
             Ok(ExitCode::from(exit.0))
+        }
+        ["test-scope", rest @ ..] => {
+            let exit = test_scope::run(rest, &mut stdout).map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(exit))
         }
         ["third-party", rest @ ..] if rest.len() <= 1 => {
             let mode = match rest {
