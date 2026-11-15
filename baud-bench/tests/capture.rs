@@ -345,6 +345,16 @@ fn words(w: &[&str]) -> Vec<String> {
     w.iter().map(ToString::to_string).collect()
 }
 
+/// The program `name` where this process's `PATH` finds it: a system with
+/// no `/usr/bin` or `/bin` beyond `env` and `sh` has its tools elsewhere.
+fn on_path(name: &str) -> PathBuf {
+    let path = std::env::var_os("PATH").expect("a PATH");
+    std::env::split_paths(&path)
+        .map(|d| d.join(name))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| panic!("{name} is not on PATH"))
+}
+
 /// `words`, then a command.
 fn with_cmd(w: &[&str], cmd: &[String]) -> Vec<String> {
     let mut all = words(w);
@@ -594,7 +604,10 @@ fn a_program_that_will_not_start_says_so_on_the_pty() {
 #[test]
 fn a_late_reader_gets_all_a_child_wrote_before_it_exited() {
     let s = Scratch::new("pty-late");
-    let path = [("PATH", "/usr/bin:/bin")];
+    // A PATH of the folder `echo` is in, whichever that is.
+    let echo = on_path("echo");
+    let dir = echo.parent().and_then(Path::to_str).expect("echo's folder");
+    let path = [("PATH", dir)];
     let r = tool_in("late-reader", &words(&["./nope/x"]), &path);
     assert_eq!(r.code, Some(0), "{}", r.err);
     assert_eq!(
@@ -655,7 +668,7 @@ fn a_child_that_exits_silently_ends_the_tool_promptly() {
         "capture-tui",
         &with_cmd(
             &["--seconds", "40", "--out", &raw],
-            &words(&["/usr/bin/true"]),
+            &words(&[on_path("true").to_str().expect("a UTF-8 path")]),
         ),
     );
     assert!(start.elapsed() < Duration::from_secs(20));
