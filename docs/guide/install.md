@@ -120,8 +120,10 @@ drew the same pixels as the Mac version, copied and pasted with the
 compositor's clipboard, and a virtual mouse selected, scrolled back,
 pasted with the middle button, passed links on to be opened and worked in
 programs that use the mouse; characters drawn from each system's own
-fonts, and some programs' dim colours, can still look different. Nobody
-has used it on a real screen yet, so it is not ready to use.
+fonts, and some programs' dim colours, can still look different. A point
+is the desktop's there, 96 dots to the inch times its text scaling, so
+text is larger than the same `font_size` on the Mac. It has also run on a
+real screen, and is not ready for everyday use.
 [Status](status.md) says what is missing.
 
 ## For contributors

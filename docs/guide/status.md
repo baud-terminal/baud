@@ -28,7 +28,8 @@ programs, and pictures.
   light and dark setting both ways; and run programs such as btop, with
   the keys typed reaching them. A `font_size` in points draws as large as
   the desktop's other windows draw it: 96 dots to the inch times the
-  desktop's text scale. On headless Wayland compositors, weston and sway,
+  desktop's text scale. What the window leaves beyond the whole cells is
+  split between its sides. On headless Wayland compositors, weston and sway,
   given the same fonts and colours at the same size in pixels, it drew the
   same pixels as the Mac version, stayed sharp when its window moved to an
   output of another scale, copied and pasted with the compositor's
