@@ -42,8 +42,9 @@
 
 use baud_present_macos::probe::{EffectKind, Nested, Record, Responder, Where};
 use baud_present_macos::rig_call::{
-    EventRig, FrameRig, Iterations, QUIET_WAKES, RELEASED_ON_THE_ACTS_WAKE, RigAct, RigCall,
-    RigEnd, RigEvent, RigFocus, RigFrameTicks, RigHolders, RigKeys, RigTicks, RigWindow,
+    COVERED_AT_EVERY_ACT, EventRig, FrameRig, Iterations, OWED_AFTER_EVERY_STEP, QUIET_WAKES,
+    RELEASED_ON_THE_ACTS_WAKE, RigAct, RigCall, RigEnd, RigEvent, RigFocus, RigFrameTicks,
+    RigHolders, RigKeys, RigTicks, RigWindow,
 };
 use baud_present_macos::unwind::SiteName;
 use std::path::{Path, PathBuf};
@@ -88,6 +89,15 @@ enum Failure {
     /// The program's sentinel came with no effect: it ended, and what it
     /// waited for never came ([`Cause::ProgramUntil`]).
     Unanswered,
+    /// **A decode step that left more had no owed turn after it**
+    /// ([`Steps::Judged`]): no line from the child saying every such step
+    /// was followed by the effect queue's owed wake
+    /// ([`OWED_AFTER_EVERY_STEP`]). On an arm with no tick the decode is
+    /// stepped on whatever else wakes the window, and the shell's own
+    /// processes can wake it enough to finish a picture, so the copy alone
+    /// says nothing of the turn the step owes itself. The child's
+    /// `unowed at iteration` lines name what woke each step instead.
+    Unowed,
     /// A row that asks its witness ([`Until::SentinelShort`]) had none:
     /// every write to the program went whole, so its queue never filled;
     /// or, on the undriven arm ([`Witness::ShortAndRoom`]), no turn the
@@ -102,6 +112,13 @@ enum Failure {
     /// did not ask for fed them, and the copy after it says nothing of the
     /// product's wake.
     Unreleased,
+    /// **The covered arm's window read on screen at an act**
+    /// ([`Witness::Covered`]): no line from the child saying every act
+    /// found it covered ([`COVERED_AT_EVERY_ACT`]), the facts baud reads
+    /// before a splash starts -- on screen and not wholly covered, or the
+    /// probe's door set to on screen. The arm then ran as a window on
+    /// screen, and its effect says nothing of a covered one.
+    Uncovered,
     /// **Never still before an act the rig leaves alone**: a wake in
     /// flight, the effect queue's turn, the printed paths' worker or a
     /// frame on the GPU still to come at the child's bound (`rig::quiet`
@@ -247,6 +264,11 @@ enum Polled {
     /// The read, or the event that brings the effect's turn: the reader's
     /// `wake`, a callback's, or a tick, whichever comes first.
     Read,
+    /// **[`Polled::Read`], and then the turns the effect's own work owes
+    /// itself**, each step the next (a kitty decode's, `OsQueue::owe_turn`):
+    /// turns a covered window has as well, where no tick comes, so the row
+    /// runs a covered arm besides its others ([`Ticks::Covered`]).
+    OwedTurns,
     /// The control for `turn::after`: that door alone made inline, in the
     /// callback that asked, the frame not driven.
     AfterInline,
@@ -255,6 +277,13 @@ enum Polled {
 /// A row read from the program, [`ITERATIONS`] of it.
 const READ: Shape = Shape {
     polled: Polled::Read,
+    iterations: ITERATIONS,
+};
+
+/// **A row read from the program whose effect then runs on the turns its
+/// own work owes** ([`Polled::OwedTurns`]), [`ITERATIONS`] of it.
+const OWED: Shape = Shape {
+    polled: Polled::OwedTurns,
     iterations: ITERATIONS,
 };
 
@@ -333,6 +362,14 @@ enum Ticks {
     /// and the next frame all of it, as the tty's pieces can fall, so what
     /// the read asks is asked inside `frame` every time.
     DrivenSplit,
+    /// **Undriven, the window covered before the first act**
+    /// (`RigTicks::Covered`): the occlusion change AppKit posts, posted
+    /// with the probe's door at what AppKit says alone, and its turn run
+    /// and nothing still to come before the act ([`Failure::NeverStill`]),
+    /// so that turn carries none of the act's work; the window read at each
+    /// act as baud reads it for a splash ([`Witness::Covered`]); on the CPU
+    /// path ([`drawn_with`]), so no frame's completion wakes it.
+    Covered,
 }
 
 /// What the row expects: these effects, each exactly once an iteration
@@ -460,6 +497,32 @@ const KITTY_OK: &str = concat!(
     r"\033\\'; ",
     to_st!(),
     r#"case $r in *OK"$e\\") printf '\033]52;c;aGk=\007';; *) printf '\033]52;c;!\007';; esac"#,
+);
+
+/// **[`KITTY_OK`]'s transmit, its reply read by a shell that starts no
+/// process while it waits**: `e` made, and echo and line editing turned
+/// off, before the transmit; then the builtin `read -r -d '\'` takes the
+/// reply up to ST's last byte, whole however the tty splits it, as the
+/// flood row's `read -d n` does ([`REPLY_FLOOD`]); the settings put back
+/// once it has; and a copy on an `OK` followed by ST's `ESC` (the read
+/// drops the `\`), the sentinel on anything else. [`to_st!`]'s loop forks
+/// a `dd` a byte, the process watch wakes the window for those moves, and
+/// the title's check and the printed paths' worker follow them with wakes
+/// of their own: wakes that step the decode as its owed turns do, enough
+/// to finish the picture without them. Here nothing forks between the
+/// transmit and the reply, so on an arm with no tick the owed turn is the
+/// decode's progress, as in a covered window whose program waits on its
+/// reply. The transmit is [`KITTY_OK`]'s byte for byte: the same picture,
+/// the same number of steps.
+const KITTY_OK_QUIET: &str = concat!(
+    r#"e=$(printf '\033'); "#,
+    r"stty -echo -icanon min 1 time 0; ",
+    r"printf '\033_Ga=T,f=100,i=7;",
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR42mPoAwAAkACPLN3KfgAAAABJRU5ErkJggg==",
+    r"\033\\'; ",
+    r"IFS= read -r -d '\' r; ",
+    r"stty echo icanon; ",
+    r#"case $r in *OK"$e") printf '\033]52;c;aGk=\007';; *) printf '\033]52;c;!\007';; esac"#,
 );
 
 /// **A kitty transmit the terminal refuses, its error read to its end**:
@@ -630,19 +693,47 @@ const SITES: [Site; 35] = [
     // PNG, `a=T`, is placed at once and its pixels are made a step a turn,
     // never on the display link, so its reply leaves with no tick driven,
     // as from a covered or minimised window, where none comes. The shell
-    // reads the reply raw, for a second at most, and copies on an `OK`:
-    // the copy is the sign the reply came. The probe build steps the
-    // decode a byte of work at a time, so the picture takes several turns,
-    // each owed by the step before it. Breaks: the step back in the frame,
-    // or the step that leaves more owing no turn, and the undriven arm
-    // never copies.
+    // reads the reply raw, to its terminator, with no process started
+    // while it waits ([`KITTY_OK_QUIET`]), and copies on an `OK`: the copy
+    // is the sign the reply came. The probe build steps the decode a byte
+    // of work at a time, so the picture takes thirteen steps, twelve after
+    // the read's own turn, each owed by the step before it. The decode
+    // also steps on any other turn but the tick, so on the arms with no
+    // tick the child names what woke each step and says whether every
+    // step that left more had its owed turn after it, the effect queue's
+    // owed wake ([`Steps::Judged`]). Breaks: the step back in the frame,
+    // and the arms with no tick time out; the step that leaves more owing
+    // no turn, and they fail on that witness ([`Failure::Unowed`]), or
+    // time out where nothing else wakes the window twelve times before the
+    // backstop; the queue's owed wake told as a batch's, and the same
+    // witness fails them.
+    //
+    // **And from a covered window** ([`Ticks::Covered`]): the occlusion
+    // change posted and its turn run, with nothing still to come, before
+    // the first act, so it carries no step; the ticks withheld; the window
+    // read at every act as baud reads it before a splash starts, and found
+    // covered ([`Witness::Covered`]). The decode reads no visibility
+    // (`app.rs`, the source check
+    // `a_kitty_decode_reads_no_visibility`), so covered and minimised are
+    // one case. The same breaks fail the covered arm first. Control: the
+    // probe's door set to on screen in that arm, and the witness fails it
+    // ([`Failure::Uncovered`]). The launch splash off: `splash_check`
+    // reads the same door, and under the control it could greet the
+    // window and owe frames, so the arm would fail on those and not on the
+    // witness; off, the witness is the door's only reader in the row. The
+    // splash's wait holds no link (`FS-A17`), so the other arms run as
+    // they would with it on. The activity lights and the printed paths off
+    // as well, as the flood row has them: the job in front is then never
+    // listed (`front::Reads::None`), so no listing's wake comes, and no
+    // printed path is filed for the paths' worker to answer.
     Site {
         name: SiteName("a kitty picture's OK, with or without a tick"),
         cause: Cause::ProgramUntil(
             Program {
-                line: KITTY_OK,
-                config: "",
-                shape: READ,
+                line: KITTY_OK_QUIET,
+                config: "[launch]\nsplash = \"off\"\n[window]\nactivity_lights = \"off\"\n\
+                         [link]\npaths = \"off\"\n",
+                shape: OWED,
             },
             Until::Either,
         ),
@@ -1317,7 +1408,11 @@ fn config(rule: Rule) -> &'static str {
 /// does the `turn::after` control, whose recorded site is the callback.
 /// A green program row runs undriven, driven, and driven with each read
 /// left to the frame ([`Ticks::DrivenSplit`]), as the tty's pieces can
-/// fall, its effects still each on a turn of its own.
+/// fall, its effects still each on a turn of its own; and one whose effect
+/// runs on turns its own work owes ([`Polled::OwedTurns`]) runs covered as
+/// well ([`Ticks::Covered`]), as a window behind another is, and first: a
+/// row stops at its first arm that does not pass, so a break that every
+/// undriven arm fails is seen on the covered one.
 fn arms(site: &Site) -> &'static [Ticks] {
     match (site.cause, site.state, site.cause.shape().polled) {
         (Cause::PrintedPath(_, Ticks::Driven), ..) => &[Ticks::Driven],
@@ -1325,6 +1420,7 @@ fn arms(site: &Site) -> &'static [Ticks] {
         (Cause::PrintedPath(_, Ticks::DrivenInline), ..) => &[Ticks::DrivenInline],
         (Cause::PrintedPath(_, Ticks::DrivenInFrame), ..) => &[Ticks::DrivenInFrame],
         (Cause::PrintedPath(_, Ticks::DrivenSplit), ..) => &[Ticks::DrivenSplit],
+        (Cause::PrintedPath(_, Ticks::Covered), ..) => &[Ticks::Covered],
         (Cause::PrintedPath(_, Ticks::UndrivenAfterInline), ..) | (_, _, Polled::AfterInline) => {
             &[Ticks::UndrivenAfterInline]
         }
@@ -1333,6 +1429,16 @@ fn arms(site: &Site) -> &'static [Ticks] {
             RowState::Green,
             Polled::Read,
         ) => &[Ticks::None, Ticks::Driven, Ticks::DrivenSplit],
+        (
+            Cause::Program(_) | Cause::ProgramUntil(..) | Cause::ProgramThen(..),
+            RowState::Green,
+            Polled::OwedTurns,
+        ) => &[
+            Ticks::Covered,
+            Ticks::None,
+            Ticks::Driven,
+            Ticks::DrivenSplit,
+        ],
         (
             Cause::Program(_)
             | Cause::ProgramUntil(..)
@@ -1405,6 +1511,7 @@ fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
             Ticks::DrivenInFrame => RigTicks::InFrame,
             Ticks::UndrivenAfterInline => RigTicks::AfterInCallback,
             Ticks::DrivenSplit => RigTicks::Split,
+            Ticks::Covered => RigTicks::Covered,
         },
         focus,
         each: expect.each.to_vec(),
@@ -1419,11 +1526,18 @@ fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
         .env("PATH", "/usr/bin:/bin")
         .env("BAUD_CONFIG", &conf)
         .env("BAUD_TYPING", "off")
-        .envs(drawn_with(site).map(|path| ("BAUD_GPU", path)))
+        .envs(drawn_with(site, ticks).map(|path| ("BAUD_GPU", path)))
         .current_dir(&dir)
         .output()
         .expect("the child");
-    judge(expect, iterations(site), witness(site, ticks), &out, &dir)
+    judge(
+        expect,
+        iterations(site),
+        witness(site, ticks),
+        steps(site, ticks),
+        &out,
+        &dir,
+    )
 }
 
 /// **The path a row's child draws with** (`BAUD_GPU`): the CPU for a row
@@ -1432,13 +1546,19 @@ fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
 /// pump after the act -- a GPU frame's completion wakes the window from the
 /// GPU's thread, counted by nothing and ordered behind no barrier, and the
 /// child's wait before the act fails on any frame drawn there
-/// ([`Failure::NeverStill`]); the machine's own choice for every other row.
-fn drawn_with(site: &Site) -> Option<&'static str> {
-    match site.cause {
-        Cause::Gesture(Gesture {
-            act: RigAct::Key | RigAct::Button,
-            ..
-        }) => Some("cpu"),
+/// ([`Failure::NeverStill`]); the CPU for a covered arm too
+/// ([`Ticks::Covered`]), which waits the same way before its first act;
+/// the machine's own choice for every other row.
+fn drawn_with(site: &Site, ticks: Ticks) -> Option<&'static str> {
+    match (site.cause, ticks) {
+        (
+            Cause::Gesture(Gesture {
+                act: RigAct::Key | RigAct::Button,
+                ..
+            }),
+            _,
+        )
+        | (_, Ticks::Covered) => Some("cpu"),
         _ => None,
     }
 }
@@ -1456,6 +1576,9 @@ enum Witness {
     /// The child's [`RELEASED_ON_THE_ACTS_WAKE`]: every turn that fed held
     /// reads and no read of its own woken by the ended input's wake.
     ActsWake,
+    /// The child's [`COVERED_AT_EVERY_ACT`]: every act found the window
+    /// covered, as baud reads it before a splash starts.
+    Covered,
 }
 
 /// For [`Until::SentinelShort`]'s rows alone: [`Witness::ShortAndRoom`] on
@@ -1466,9 +1589,12 @@ enum Witness {
 /// timing. Their room count stays in the census, unjudged. A row whose
 /// act the rig leaves alone (`RigAct::Key`, `RigAct::Button`) asks
 /// [`Witness::ActsWake`]: the copy alone says the held reads went on, not
-/// that the product's wake took them on.
+/// that the product's wake took them on. A covered arm asks
+/// [`Witness::Covered`]: the effect alone says it ran, not that the window
+/// was covered when it did.
 fn witness(site: &Site, ticks: Ticks) -> Witness {
     match (site.cause, ticks) {
+        (_, Ticks::Covered) => Witness::Covered,
         (Cause::ProgramUntil(_, Until::SentinelShort), Ticks::None) => Witness::ShortAndRoom,
         (Cause::ProgramUntil(_, Until::SentinelShort), _) => Witness::Short,
         (
@@ -1482,11 +1608,36 @@ fn witness(site: &Site, ticks: Ticks) -> Witness {
     }
 }
 
+/// **Whether an arm is judged on a decode's owed turns**, or only records
+/// them: the child's `decode steps` line, what woke each turn a kitty
+/// decode stepped on, is kept in the row's `stdout` either way.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Steps {
+    Recorded,
+    /// The child's [`OWED_AFTER_EVERY_STEP`] asked ([`Failure::Unowed`]).
+    Judged,
+}
+
+/// [`Steps::Judged`] on the arms with no tick, undriven and covered, of a
+/// row whose effect rides the turns its own work owes
+/// ([`Polled::OwedTurns`]): there the owed turn is the decode's only
+/// progress the product promises. A driven arm's tick that read bytes owes
+/// a turn of its own, which a step owing none would still find, so there
+/// the witness cannot tell a missing owed turn from the product, and its
+/// steps are recorded only.
+fn steps(site: &Site, ticks: Ticks) -> Steps {
+    match (site.cause.shape().polled, ticks) {
+        (Polled::OwedTurns, Ticks::None | Ticks::Covered) => Steps::Judged,
+        _ => Steps::Recorded,
+    }
+}
+
 /// What a child's output and exit say.
 fn judge(
     expect: Expect,
     n: Iterations,
     witness: Witness,
+    steps: Steps,
     out: &std::process::Output,
     dir: &Path,
 ) -> Observed {
@@ -1503,7 +1654,12 @@ fn judge(
     // census of what carried the bytes no read fed, nor of what woke the
     // turns that fed held reads alone, nor its count of the wakes an act
     // left alone asked, each kept in the row's `stdout` for whoever reads a
-    // run; nor its witness that the act's own wake fed them.
+    // run; nor its witness that the act's own wake fed them; nor a covered
+    // run's witness, nor its line for each act that found the window on
+    // screen, which the witness judges; nor its census of what woke each
+    // turn a kitty decode stepped on, its line for each iteration that
+    // ended with a step still owed its turn, or its witness that none did,
+    // which [`Steps::Judged`] judges.
     let short = text
         .lines()
         .find_map(|l| l.strip_prefix("short writes "))
@@ -1513,6 +1669,8 @@ fn judge(
         .find_map(|l| l.strip_prefix("room turns "))
         .and_then(|c| c.parse::<u32>().ok());
     let released = text.lines().any(|l| l == RELEASED_ON_THE_ACTS_WAKE);
+    let covered = text.lines().any(|l| l == COVERED_AT_EVERY_ACT);
+    let owed = text.lines().any(|l| l == OWED_AFTER_EVERY_STEP);
     let lines: Vec<&str> = text
         .lines()
         .filter(|l| {
@@ -1521,7 +1679,12 @@ fn judge(
                 && !l.starts_with("room turns ")
                 && !l.starts_with("released by ")
                 && !l.starts_with("asked by the act ")
+                && !l.starts_with("on screen at act ")
+                && !l.starts_with("decode steps ")
+                && !l.starts_with("unowed at iteration ")
                 && *l != RELEASED_ON_THE_ACTS_WAKE
+                && *l != COVERED_AT_EVERY_ACT
+                && *l != OWED_AFTER_EVERY_STEP
         })
         .collect();
     let iterations = usize::from(n.0);
@@ -1548,6 +1711,14 @@ fn judge(
         .any(|l| l.starts_with("bound passed before its effects"))
     {
         return Observed::Failed(Failure::BoundPassed);
+    }
+    // **The decode's owed turns, before the records** ([`Steps::Judged`]):
+    // after a time-out and an unanswered program, which say the effect
+    // never came, and before the copies, which can all come on other
+    // wakes; so a missing owed turn reads as itself however the copies
+    // fell, and the covered arm's witness is read after it.
+    if steps == Steps::Judged && !owed {
+        return Observed::Failed(Failure::Unowed);
     }
     for line in &lines {
         let Some(r) = Record::parse(line) else {
@@ -1596,10 +1767,12 @@ fn judge(
         Witness::Short if short >= 1 => {}
         Witness::ShortAndRoom if short >= 1 && room >= 1 => {}
         Witness::ActsWake if released => {}
+        Witness::Covered if covered => {}
         Witness::Short | Witness::ShortAndRoom => {
             return Observed::Failed(Failure::Unwitnessed);
         }
         Witness::ActsWake => return Observed::Failed(Failure::Unreleased),
+        Witness::Covered => return Observed::Failed(Failure::Uncovered),
     }
     match out.status.success() {
         true => Observed::Passed,
@@ -3560,21 +3733,29 @@ const FRAME_SITES: [FrameSite; 53] = [
     },
     // **A job come to the front lights OH with no tick polling for it**
     // (FS-A9): the shell's line editing and the tty's echo off, so the
-    // act is typed with no echo; the shell waits a second in its own
-    // `read`, the shell's group in front, while what the typing lit goes
-    // dark (a hold and a dwell of 200 ms each) and the link pauses, then
-    // starts `cat`, which waits on the tty in front, with no output. The process watch's fork and
-    // exec wake the window, whose turn reads the shell's record and finds
-    // a job in front; the lights, fed it later in the turn, ask for the
-    // tick that shows OH lit. Before, the job in front was read only at a
-    // tick, which nothing here owes.
+    // act is typed with no echo; the shell waits in its own `read` on the
+    // FIFO `go`, the shell's group in front, until the rig writes the
+    // newline once what the typing lit has gone dark (a hold and a dwell of
+    // 200 ms each), nothing of the lights is left to step, none is lit but
+    // CS, which rests lit, and the window is quiet, its link paused (`RigWindow::ReleasedDark`):
+    // an event, and no wait in the act. Then it starts `cat`, a job of its
+    // own group, which waits on the tty in front, with no output: not an
+    // `exec`, which keeps the shell's group in front, and OH lights for a
+    // group other than the shell's own (`Front::sample`). The process
+    // watch's fork and exec wake the window, whose turn reads the shell's
+    // record and finds a job in front; the lights, fed it later in the
+    // turn, ask for the tick that shows OH lit. Before, the job in front
+    // was read only at a tick, which nothing here owes once the link has
+    // paused. Break: the read back in the pump's tick arm, and OH stays
+    // dark, the link paused. Its end is still a count of passes
+    // (`RigEnd::Passes`), on `rig_ends`' list of rows that end on wall time.
     FrameSite {
         name: SiteName("a job come to the front lights OH with no tick polling for it"),
         setup: r"set +o emacs +o vi; stty -echo; printf 'baud\033]52;c;!\007'",
-        act: "read -t 1 x; cat",
+        act: "read x <go; cat",
         keys: RigKeys::Line,
         ticks: RigFrameTicks::Offered,
-        window: RigWindow::Untold,
+        window: RigWindow::ReleasedDark,
         env: &[],
         config: STEADY,
         focus: RigFocus::Believed,
@@ -4086,7 +4267,10 @@ fn run_frames_in(site: &FrameSite, dir: &Path, holders: RigHolders) -> Result<Co
     // here before the child starts and not on the screen: an external
     // command the setup ran could be sampled as a line's writer and, gone
     // before it is named, leave that line unmarked for good.
-    if matches!(site.window, RigWindow::Released | RigWindow::ReleasedLate) {
+    if matches!(
+        site.window,
+        RigWindow::Released | RigWindow::ReleasedLate | RigWindow::ReleasedDark
+    ) {
         let made = Command::new("/usr/bin/mkfifo")
             .arg(dir.join("go"))
             .status()
@@ -4277,8 +4461,10 @@ fn mentions_window(site: &FrameSite) -> bool {
         | RigWindow::Settings
         | RigWindow::HostNamed
         | RigWindow::Shown
+        | RigWindow::Covered
         | RigWindow::Released
         | RigWindow::ReleasedLate
+        | RigWindow::ReleasedDark
         | RigWindow::ShownFirst
         | RigWindow::Expired => false,
     }

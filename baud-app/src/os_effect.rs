@@ -249,9 +249,10 @@ struct Slot {
     done: Vec<EffectDone>,
     /// The next effect's id.
     next: EffectId,
-    /// The window's view, woken when an outcome is pushed: shared, so the
-    /// runner clones it out and calls it with no borrow of the slot held.
-    wake: Rc<dyn Fn()>,
+    /// The window's view, woken when an outcome is pushed or a turn owed
+    /// comes, told which ([`Woke`]): shared, so the runner clones it out
+    /// and calls it with no borrow of the slot held.
+    wake: Rc<dyn Fn(Woke)>,
     /// Whether the window still has the slot: a closed window's slot runs
     /// what it asked and is then dropped.
     open: Cell<Open>,
@@ -338,6 +339,18 @@ enum Owed {
     Yes,
 }
 
+/// **What the runner wakes a window for**, told to the window's `wake`
+/// ([`OsQueue::open`]): a batch's outcomes alone, or the turn the window
+/// was owed ([`OsQueue::owe_turn`]), with or without a batch beside it --
+/// a wake that brings an owed turn brings it whatever else it brings.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Woke {
+    /// Outcomes to read, and no turn owed.
+    Batch,
+    /// The turn the window owed itself.
+    Owed,
+}
+
 /// Whether a turn is already posted for what has been asked.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Due {
@@ -371,8 +384,8 @@ thread_local! {
 pub(crate) struct OsQueue(Rc<RefCell<Slot>>);
 
 impl OsQueue {
-    /// The queue of a window whose view `wake` wakes.
-    pub(crate) fn open(wake: impl Fn() + 'static) -> OsQueue {
+    /// The queue of a window whose view `wake` wakes, told what for.
+    pub(crate) fn open(wake: impl Fn(Woke) + 'static) -> OsQueue {
         let slot = Rc::new(RefCell::new(Slot {
             now: Vec::with_capacity(RESERVED),
             spare: Vec::with_capacity(RESERVED),
@@ -534,9 +547,9 @@ fn run_with<T>(t: &T, mut exec: impl FnMut(&T, OsEffect, Its) -> Outcome) {
             batch
         };
         // A turn the window was owed with nothing in it wakes it as a
-        // batch does (`OsQueue::owe_turn`).
-        let owed = slot.borrow().turn.replace(Owed::No) == Owed::Yes;
-        let ran = !batch.is_empty() || owed;
+        // batch does (`OsQueue::owe_turn`), and the wake says it is owed.
+        let owed = slot.borrow().turn.replace(Owed::No);
+        let ran = !batch.is_empty() || owed == Owed::Yes;
         for (id, effect) in batch.drain(..) {
             // Read for each effect: an effect before it can spin a loop the
             // window closes in.
@@ -575,7 +588,10 @@ fn run_with<T>(t: &T, mut exec: impl FnMut(&T, OsEffect, Its) -> Outcome) {
         // ran the pump in place reads the outcomes, which borrows the slot.
         if ran && open == Open::Yes {
             let wake = Rc::clone(&slot.borrow().wake);
-            wake();
+            wake(match owed {
+                Owed::Yes => Woke::Owed,
+                Owed::No => Woke::Batch,
+            });
         }
     }
     // A closed window's slot, run out: its outcomes have no reader, and a
@@ -797,7 +813,7 @@ mod tests {
         fresh();
         let woke = Rc::new(Cell::new(0));
         let w = Rc::clone(&woke);
-        let q = OsQueue::open(move || w.set(w.get() + 1));
+        let q = OsQueue::open(move |_| w.set(w.get() + 1));
         let a = q.ask(spoken("a"));
         let b = q.ask(spoken("b"));
         let mut ran = Vec::new();
@@ -824,7 +840,7 @@ mod tests {
         fresh();
         let woke = Rc::new(Cell::new(0));
         let w = Rc::clone(&woke);
-        let q = OsQueue::open(move || w.set(w.get() + 1));
+        let q = OsQueue::open(move |_| w.set(w.get() + 1));
         q.owe_turn();
         q.owe_turn();
         assert_eq!(woke.get(), 0, "nothing when owed");
@@ -835,6 +851,30 @@ mod tests {
         let mut done = Vec::new();
         q.answered(&mut done);
         assert!(done.is_empty(), "no outcome");
+    }
+
+    /// **A wake says whether it brings an owed turn** ([`Woke`]): a batch
+    /// alone wakes the window for its outcomes, a turn owed with nothing
+    /// asked wakes it owed, and a turn owed beside a batch wakes it owed
+    /// too, once -- the turn it owed comes with that wake. The event rig
+    /// hears the owed one by this alone (`rig::Carrier::Owed`). Break: the
+    /// runner's owed branch telling the window `Woke::Batch`, and the
+    /// second and third wakes read as a batch's.
+    #[test]
+    fn a_wake_says_whether_it_brings_an_owed_turn() {
+        fresh();
+        let heard = Rc::new(RefCell::new(Vec::new()));
+        let h = Rc::clone(&heard);
+        let q = OsQueue::open(move |woke| h.borrow_mut().push(woke));
+        q.ask(spoken("a"));
+        run_with(&Fake, |_, _, _| Outcome::Announced);
+        q.owe_turn();
+        run_with(&Fake, |_, _, _| panic!("nothing to make"));
+        q.ask(spoken("b"));
+        q.owe_turn();
+        run_with(&Fake, |_, _, _| Outcome::Announced);
+        run_with(&Fake, |_, _, _| panic!("nothing again"));
+        assert_eq!(*heard.borrow(), [Woke::Batch, Woke::Owed, Woke::Owed]);
     }
 
     /// **A turn owed from inside the wake is the next turn, posted once**:
@@ -850,7 +890,7 @@ mod tests {
         let woke = Rc::new(Cell::new(0));
         let me: Rc<RefCell<Option<Rc<OsQueue>>>> = Rc::new(RefCell::new(None));
         let (w, m) = (Rc::clone(&woke), Rc::clone(&me));
-        let q = Rc::new(OsQueue::open(move || {
+        let q = Rc::new(OsQueue::open(move |_| {
             w.set(w.get() + 1);
             if w.get() == 1 {
                 if let Some(q) = m.borrow().as_ref() {
@@ -886,7 +926,7 @@ mod tests {
     #[test]
     fn a_turn_nested_in_an_effect_runs_only_what_was_asked_since() {
         fresh();
-        let q = Rc::new(OsQueue::open(|| {}));
+        let q = Rc::new(OsQueue::open(|_| {}));
         q.ask(spoken("first"));
         let mut order = Vec::new();
         let inner = Rc::clone(&q);
@@ -926,7 +966,7 @@ mod tests {
         let me = Rc::new(RefCell::new(std::rc::Weak::<OsQueue>::new()));
         let read = Rc::new(Cell::new(0));
         let (m, r) = (Rc::clone(&me), Rc::clone(&read));
-        let q = Rc::new(OsQueue::open(move || {
+        let q = Rc::new(OsQueue::open(move |_| {
             if let Some(q) = m.borrow().upgrade() {
                 let mut done = Vec::new();
                 q.answered(&mut done);
@@ -946,8 +986,8 @@ mod tests {
         fresh();
         let (wa, wb) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
         let (ca, cb) = (Rc::clone(&wa), Rc::clone(&wb));
-        let a = OsQueue::open(move || ca.set(ca.get() + 1));
-        let b = OsQueue::open(move || cb.set(cb.get() + 1));
+        let a = OsQueue::open(move |_| ca.set(ca.get() + 1));
+        let b = OsQueue::open(move |_| cb.set(cb.get() + 1));
         a.ask(spoken("a"));
         run_with(&Fake, |_, _, _| Outcome::Announced);
         let (mut da, mut db) = (Vec::new(), Vec::new());
@@ -964,7 +1004,7 @@ mod tests {
         fresh();
         let woke = Rc::new(Cell::new(0));
         let w = Rc::clone(&woke);
-        let q = OsQueue::open(move || w.set(w.get() + 1));
+        let q = OsQueue::open(move |_| w.set(w.get() + 1));
         q.ask(spoken("after close"));
         drop(q);
         let mut seen = Vec::new();
@@ -1144,7 +1184,7 @@ mod tests {
         assert_eq!(kept.take(), None, "and none is kept after");
         // The closer and the runner's view of a window share the slot's.
         fresh();
-        let q = OsQueue::open(|| {});
+        let q = OsQueue::open(|_| {});
         let closer = q.closer();
         q.ask(spoken("a"));
         let mut same = false;
@@ -1173,7 +1213,7 @@ mod tests {
         fresh();
         let _ = take();
         let center = Rc::new(Center::unshared().expect("a center under the probe"));
-        let q = OsQueue::open(|| {});
+        let q = OsQueue::open(|_| {});
         q.attach_center(Rc::clone(&center));
         q.ask(OsEffect::Notice(Post {
             id: "baud-1-w0-1".into(),
@@ -1217,7 +1257,7 @@ mod tests {
         fresh();
         let woke = Rc::new(Cell::new(0));
         let w = Rc::clone(&woke);
-        let q = OsQueue::open(move || w.set(w.get() + 1));
+        let q = OsQueue::open(move |_| w.set(w.get() + 1));
         let closer = q.closer();
         q.ask(spoken("raise"));
         assert_eq!(closer.closed(), None, "nothing kept");
@@ -1254,7 +1294,7 @@ mod tests {
     #[test]
     fn one_turn_is_due_for_a_batch() {
         fresh();
-        let q = OsQueue::open(|| {});
+        let q = OsQueue::open(|_| {});
         assert_eq!(DUE.with(Cell::get), Due::No);
         q.ask(spoken("a"));
         q.ask(spoken("b"));
@@ -1270,7 +1310,7 @@ mod tests {
     #[test]
     fn a_turn_keeps_both_buffers() {
         fresh();
-        let q = OsQueue::open(|| {});
+        let q = OsQueue::open(|_| {});
         let caps = |q: &OsQueue| {
             let s = q.0.borrow();
             (s.now.capacity(), s.spare.capacity())

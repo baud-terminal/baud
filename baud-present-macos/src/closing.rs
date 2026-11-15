@@ -104,15 +104,19 @@ impl Drop for Closing {
     }
 }
 
-/// **The frame rig's window told it became or resigned the key window, or
-/// that its occlusion changed** (`rig_call::RigWindow`; a fact of the
-/// window's changed is `window_facts::rig_post`'s, and its other events
-/// post nothing): the notification AppKit posts, posted to the window's
+/// **A rig's window told it became or resigned the key window, or that
+/// its occlusion changed** (`rig_call::RigWindow`; a fact of the window's
+/// changed is `window_facts::rig_post`'s, and its other events post
+/// nothing): the notification AppKit posts, posted to the window's
 /// observers with the window as its object, as AppKit's names it
 /// (`[[source: apple-nswindow-didbecomekeynotification]]`,
 /// `[[source: apple-nswindow-didresignkeynotification]]`,
-/// `[[source: apple-nswindow-occlusionstate]]`). The window is not made
-/// key nor ordered front; the rig checks it never is key.
+/// `[[source: apple-nswindow-occlusionstate]]`). Shown and covered post
+/// the one occlusion change; which it is, the probe's door says
+/// (`probe::Shown`), set by the caller first. The window is not made key
+/// nor ordered front; the rig checks it never is key. The frame rig posts
+/// after its act and refuses covered; the event rig's covered arm posts
+/// covered before its first act.
 #[cfg(feature = "effect-probe")]
 pub fn rig_post(window: &NSWindow, told: crate::rig_call::RigWindow) {
     use crate::rig_call::RigWindow;
@@ -129,6 +133,7 @@ pub fn rig_post(window: &NSWindow, told: crate::rig_call::RigWindow) {
         | RigWindow::HostNamed
         | RigWindow::Released
         | RigWindow::ReleasedLate
+        | RigWindow::ReleasedDark
         | RigWindow::ShownFirst
         | RigWindow::Expired => return,
         // A fact of the window's changed: its own module's post.
@@ -151,7 +156,9 @@ pub fn rig_post(window: &NSWindow, told: crate::rig_call::RigWindow) {
         }
         RigWindow::BecameKey => unsafe { NSWindowDidBecomeKeyNotification },
         RigWindow::ResignedKey => unsafe { NSWindowDidResignKeyNotification },
-        RigWindow::Shown => unsafe { NSWindowDidChangeOcclusionStateNotification },
+        RigWindow::Shown | RigWindow::Covered => unsafe {
+            NSWindowDidChangeOcclusionStateNotification
+        },
     };
     let object: &AnyObject = window;
     // SAFETY: a notification with this window as its object, posted on the

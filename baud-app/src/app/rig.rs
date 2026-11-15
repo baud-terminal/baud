@@ -512,6 +512,10 @@ pub(super) enum Carrier {
     /// it go (`InputEnded`), beside where it was asked: what a row whose
     /// act the rig leaves alone is judged by ([`released`]).
     Released,
+    /// **The turn the window owed itself**, the effect queue's wake for it
+    /// (`os_effect::Woke::Owed`), never a batch's: a kitty decode's next
+    /// step among them, what the decode's census judges ([`stepped`]).
+    Owed,
 }
 
 impl Carrier {
@@ -523,6 +527,7 @@ impl Carrier {
             Carrier::Posted => "posted".to_owned(),
             Carrier::Typed => "typed".to_owned(),
             Carrier::Released => "released".to_owned(),
+            Carrier::Owed => "owed".to_owned(),
         }
     }
 
@@ -535,7 +540,8 @@ impl Carrier {
             | Carrier::Landed
             | Carrier::Scheduled(_)
             | Carrier::Posted
-            | Carrier::Typed => Woke::Other,
+            | Carrier::Typed
+            | Carrier::Owed => Woke::Other,
         }
     }
 }
@@ -589,6 +595,10 @@ pub(super) fn heard(by: Carrier) {
 /// carrier.
 pub(super) fn turn(drained: &crate::pty::Drained) {
     let woke = WOKE.with_borrow_mut(core::mem::take);
+    // The turn a decode step that left more owed itself, come ([`stepped`]).
+    if woke.contains(&Carrier::Owed) {
+        OWING.with(|o| o.set(Owing::Nothing));
+    }
     let fed = match drained.chunks.is_empty() {
         true => Fed::No,
         false => Fed::Yes,
@@ -645,6 +655,66 @@ pub(super) fn carried() {
 pub(super) fn released() {
     let woke = TURN.with_borrow(|t| t.woke.clone());
     RELEASED.with_borrow_mut(|r| r.push(woke));
+}
+
+/// Whether a kitty decode step that left more is still to be followed by
+/// the turn it owed itself ([`stepped`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Owing {
+    Nothing,
+    More,
+}
+
+thread_local! {
+    /// What woke each turn a kitty decode stepped on and found work
+    /// ([`stepped`]), named, with `read` for a turn that fed a read: the
+    /// run's decode census.
+    static STEPS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// How many of those steps left more, the run's.
+    static MORE: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+    /// **Whether the last step that left more is still owed its turn**: set
+    /// by the step, and cleared by the next turn the effect queue's owed
+    /// wake woke ([`turn`], [`Carrier::Owed`]) -- any other wake that steps
+    /// the decode first leaves it set, so only the owed turn clears it.
+    /// Any owed turn clears it, so a new owed-turn producer that can fire
+    /// on a judged row must be told apart (its own `os_effect::Woke`), or
+    /// this is no witness (`decode_owes_tests` holds app.rs to its three).
+    static OWING: core::cell::Cell<Owing> = const { core::cell::Cell::new(Owing::Nothing) };
+}
+
+/// **A kitty decode's step on this turn** (`decode_turn`, after
+/// `reads::decode_step`): a step that found work -- one that left more, or
+/// changed what the images show, the picture's last -- is named in the
+/// decode census by what woke its turn ([`STEPS`]); and one that left more
+/// owes a turn, which only the queue's owed wake pays ([`OWING`]). Checked
+/// at each iteration's end and judged at the run's
+/// ([`probe_call::OWED_AFTER_EVERY_STEP`]): a step that leaves more and
+/// owes no turn is stepped on whatever else wakes the window, and an arm
+/// with no tick copies on those too, so the copy alone cannot say the
+/// owed turn came.
+pub(super) fn stepped(progress: baud_domain::DecodeProgress, shown: crate::reads::Shown) {
+    let more = progress == baud_domain::DecodeProgress::More;
+    if more {
+        MORE.with(|m| m.set(m.get().saturating_add(1)));
+        OWING.with(|o| o.set(Owing::More));
+    }
+    if more || shown == crate::reads::Shown::Changed {
+        let name = TURN.with_borrow(|t| match t.fed {
+            Fed::Yes if t.woke.is_empty() => "read".to_owned(),
+            Fed::Yes => format!("read+{}", named(&t.woke)),
+            Fed::No => named(&t.woke),
+        });
+        STEPS.with_borrow_mut(|s| s.push(name));
+    }
+}
+
+/// **A decode census, one line** ([`tally`]), of `steps` ([`STEPS`], or an
+/// iteration's part of it); `None` when no step found work there.
+fn decode_census(steps: &[String]) -> Option<String> {
+    match steps.is_empty() {
+        true => None,
+        false => Some(tally(steps)),
+    }
 }
 
 /// A turn's carriers by their names, sorted and joined with `+`;
@@ -912,10 +982,13 @@ fn quiet_at(
     )
 }
 
-/// **Still before an act the rig leaves alone** ([`After::Alone`]):
-/// passes of the run loop until nothing that could pump after the act is
-/// still to come ([`quiet`] under [`Scope::BeforeAct`], closed by its
-/// barrier), so a turn after the act is one the act asked for. A title's
+/// **Still before an act the rig leaves alone** ([`After::Alone`]), and
+/// before a covered run's post and again before its first act
+/// ([`Cover::Covered`]): passes of the run loop until nothing that could
+/// pump after the act is still to come ([`quiet`] under
+/// [`Scope::BeforeAct`], closed by its barrier), so a turn after the act
+/// is one the act asked for, a wake after the post is the occlusion
+/// change's, and that change's turn has run before the act. A title's
 /// pace, a paused link's restart, a frame's bound and a printed path's
 /// hang are wakes posted for a moment, and wait here until they have run;
 /// a frame's completion cannot come, the row on the CPU path; and the
@@ -992,6 +1065,15 @@ pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
             )
         }
     };
+    let cover = match ticks {
+        RigTicks::Covered => Cover::Covered,
+        RigTicks::Driven
+        | RigTicks::None
+        | RigTicks::InCallback
+        | RigTicks::InFrame
+        | RigTicks::AfterInCallback
+        | RigTicks::Split => Cover::Untold,
+    };
     let ticks = match ticks {
         RigTicks::Driven => Ticks::Driven,
         RigTicks::None => Ticks::None,
@@ -1017,8 +1099,28 @@ pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
             SPLITS.with(|s| s.set(Splits::Yes));
             Ticks::Driven
         }
+        // Undriven, as from a covered window, where no tick comes; told
+        // so before the first act ([`Cover::Covered`]).
+        RigTicks::Covered => Ticks::None,
     };
-    run(act, iterations, ticks, &each)
+    run(act, iterations, ticks, cover, &each)
+}
+
+/// **Whether the window is told it is covered before the first act**
+/// (`RigTicks::Covered`), and read at each act for the witness.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Cover {
+    /// Nothing: the window as the rig opened it.
+    Untold,
+    /// The probe's door set to what AppKit says alone (`probe::Shown::No`),
+    /// still with nothing in flight, and the occlusion change posted
+    /// (`RigWindow::Covered`), so a wake after the post is its own; then
+    /// still before the first act ([`still_before_the_act`]), so the
+    /// occlusion change's turn has run and can carry nothing of the act's;
+    /// at each act the window read as `splash_check` reads it, and
+    /// [`probe_call::COVERED_AT_EVERY_ACT`] printed at the run's end when
+    /// no act found it on screen.
+    Covered,
 }
 
 /// A printed path's setup: a clear of the pasteboard, read by the shell.
@@ -1106,6 +1208,7 @@ fn run(
     act: Act,
     iterations: Iterations,
     ticks: Ticks,
+    cover: Cover,
     each: &[probe::EffectKind],
 ) -> std::process::ExitCode {
     let Some(mtm) = MainThreadMarker::new() else {
@@ -1187,11 +1290,51 @@ fn run(
         }
         let _ = probe::take();
     }
+    // **Covered before the first act** ([`Cover::Covered`]): the door set
+    // to what AppKit says alone; still, so nothing is in flight when the
+    // change goes out; the occlusion change posted, which the window's
+    // observer hears and wakes the view for (`Occluded`); then still
+    // again, so that turn has run and nothing it owes is still to come
+    // when the act goes out; and a wake delivered since the post, the sign
+    // the change was heard at all, or the arm would be the undriven arm
+    // under another name. Still before the post, a wake after it is the
+    // occlusion change's, not the shell's output's.
+    if cover == Cover::Covered {
+        probe::set_shown(probe::Shown::No);
+        let still = still_before_the_act();
+        let heard = waited();
+        if let Err(unmet) = still {
+            println!(
+                "never still before the act, before the occlusion change was posted: {unmet}; \
+                 heard while it waited: {heard}"
+            );
+            return std::process::ExitCode::from(1);
+        }
+        let woken = probe::wakes();
+        baud_present_macos::closing::rig_post(window.ns_window(), probe_call::RigWindow::Covered);
+        let still = still_before_the_act();
+        let heard = waited();
+        if let Err(unmet) = still {
+            println!("never still before the act: {unmet}; heard while it waited: {heard}");
+            return std::process::ExitCode::from(1);
+        }
+        if probe::wakes() == woken {
+            println!("the occlusion change woke no turn");
+            return std::process::ExitCode::from(1);
+        }
+    }
+    // The acts that found the window covered (`Cover::Covered`).
+    let mut covered_acts: u16 = 0;
+    // The iterations that ended with a decode step still owed its turn
+    // (`stepped`).
+    let mut unowed: u16 = 0;
     let mut failed = false;
     for i in 0..iterations.0 {
         // A read the setup left to a frame is not this iteration's.
         TAILS.with(|t| t.set(0));
         HEARD.with(|h| h.set(Duration::ZERO));
+        // This iteration's decode steps start here (`stepped`).
+        let steps_from = STEPS.with_borrow(Vec::len);
         // Kept, never dropped: whatever an iteration's records miss is the
         // parent's to see.
         let mut got = probe::take();
@@ -1218,6 +1361,25 @@ fn run(
                 }
                 failed = true;
                 break;
+            }
+        }
+        // **The window read at the act as baud reads it before a splash
+        // starts** (`splash_check`): on screen and not wholly covered, or
+        // the probe's door set to on screen. A covered run's every act must
+        // find it not, or the arm says nothing of a covered window.
+        if cover == Cover::Covered {
+            let w = window.ns_window();
+            let on_screen = (w.isVisible()
+                && w.occlusionState().contains(NSWindowOcclusionState::Visible))
+                || probe::shown() == probe::Shown::Yes;
+            match on_screen {
+                true => println!(
+                    "on screen at act {i}: visible {}, occlusion visible {}, shown {:?}",
+                    w.isVisible(),
+                    w.occlusionState().contains(NSWindowOcclusionState::Visible),
+                    probe::shown(),
+                ),
+                false => covered_acts += 1,
             }
         }
         let posted = WAKES_POSTED.load(std::sync::atomic::Ordering::Acquire);
@@ -1349,6 +1511,19 @@ fn run(
             failed = true;
             break;
         }
+        // **Every decode step that left more followed by its owed turn**
+        // (`stepped`), the passes above run: one still owed is this
+        // iteration's, said with what woke each of its steps, so a red
+        // shows how many steps came on other turns.
+        if OWING.with(core::cell::Cell::get) == Owing::More {
+            unowed = unowed.saturating_add(1);
+            println!(
+                "unowed at iteration {i}: decode steps {}",
+                STEPS
+                    .with_borrow(|s| decode_census(s.get(steps_from..).unwrap_or_default()))
+                    .unwrap_or_else(|| "none".to_owned())
+            );
+        }
         // The floor is longer than every frame this iteration's bells were
         // heard under, or the next iteration's bell may ring with this one.
         let heard = HEARD.with(core::cell::Cell::get);
@@ -1428,10 +1603,30 @@ fn run(
     println!("room turns {}", ROOM.with(core::cell::Cell::get));
     // And what woke each turn that fed held reads alone (`released`).
     println!("released by {}", release_census());
+    // And what woke each turn a kitty decode stepped on, when one did
+    // (`stepped`): a failing run's too, the record of where its steps came.
+    if let Some(steps) = STEPS.with_borrow(|s| decode_census(s.as_slice())) {
+        println!("decode steps {steps}");
+    }
+    // **Every step that left more had its owed turn**: the witness the
+    // undriven arms of a row whose effect rides those turns pass only with,
+    // printed only when such a step ran, no iteration ended owing, and none
+    // is owed now (a row stopped early is checked here).
+    if MORE.with(core::cell::Cell::get) > 0
+        && unowed == 0
+        && OWING.with(core::cell::Cell::get) == Owing::Nothing
+    {
+        println!("{}", probe_call::OWED_AFTER_EVERY_STEP);
+    }
     // **An act left alone, released on its own wake**: the witness its row
     // passes only with, judged here by the carrier's type.
     if act.after() == After::Alone && released_by_the_act() == Witnessed::Yes {
         println!("{}", probe_call::RELEASED_ON_THE_ACTS_WAKE);
+    }
+    // **A covered run, covered at every act**: the witness its arm passes
+    // only with, one act short of every iteration's and it is not printed.
+    if cover == Cover::Covered && covered_acts == iterations.0 {
+        println!("{}", probe_call::COVERED_AT_EVERY_ACT);
     }
     match failed {
         true => std::process::ExitCode::from(1),
@@ -1626,6 +1821,14 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             "the row's end ({:?}) and its ticks ({:?}) disagree",
             rig.end, rig.ticks
         );
+        return std::process::ExitCode::from(1);
+    }
+    // **No frame row is covered** (`RigWindow::Covered`): the word is the
+    // event rig's, told before a covered arm's first act, and no frame row
+    // has one, so a call naming it is refused on a line of its own rather
+    // than acted on by no row.
+    if rig.window == RigWindow::Covered {
+        println!("the frame rig takes no covered window");
         return std::process::ExitCode::from(1);
     }
     // Before the app is made, and so before its every commit: the instant
@@ -2215,6 +2418,8 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         RigWindow::CommandExits => drop(command_input.take()),
         RigWindow::Settings => baud_present_macos::settings::rig_post_settings(),
         RigWindow::Shown => probe::set_shown(probe::Shown::Yes),
+        // Refused before the window opened.
+        RigWindow::Covered => {}
         RigWindow::ShownFirst => {}
         // **Moved and not resized**: AppKit sends the move's notification
         // only "when the window that moved didn’t also change size"
@@ -2262,8 +2467,9 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         // has one, its frame drawn and the paths it owed answered, within
         // the bound; then the newline it reads from `go` made due, now or
         // [`probe_call::LATE_RELEASE`] from now, and written on the run's
-        // passes (`release`).
-        RigWindow::Released | RigWindow::ReleasedLate => {
+        // passes (`release`). Under `ReleasedDark`, settled dark as well
+        // first.
+        RigWindow::Released | RigWindow::ReleasedLate | RigWindow::ReleasedDark => {
             let start = Instant::now();
             let mut signed = clears == Clears::No;
             loop {
@@ -2284,6 +2490,45 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             if !signed || probe::paths_due() != probe::PathsDue::Idle {
                 println!("the act's first stage never settled");
                 return std::process::ExitCode::from(1);
+            }
+            // **Settled dark** (`RigWindow::ReleasedDark`): the window quiet
+            // as at a row's end -- the link paused, no frame and no restart
+            // owed, no wake in flight, the paths' worker idle, closed by
+            // its barrier ([`quiet_at`]) -- and what the act's typing lit
+            // gone dark, nothing of the lights' still to step
+            // (`probe::LampsDue`, set on each turn and tick) and none lit at
+            // the last step but a light that rests lit (`Led::at_rest`: CS,
+            // the way out clear), which no typing lights and no step darkens
+            // while the shell reads; on the run's passes, the ticks offered as the
+            // row offers them, within the bound. An event, never a wait in
+            // the act: the newline then comes to a window no tick runs in.
+            if rig.window == RigWindow::ReleasedDark {
+                use baud_render::lights::{Led, Light};
+                let at_dark: RefCell<Option<super::quiet_judge::AtQuiet<probe::Barrier>>> =
+                    RefCell::new(None);
+                let dark = || {
+                    let quiet = quiet_at(
+                        probe_call::RigEvent::Settled,
+                        Signed::Yes,
+                        Scope::End,
+                        &mut at_dark.borrow_mut(),
+                    );
+                    quiet.is_ok()
+                        && probe::lamps_due() == probe::LampsDue::Idle
+                        && probe::lit().iter().all(|lit| {
+                            Led::ALL
+                                .iter()
+                                .any(|l| l.letters() == *lit && l.at_rest() == Light::Lit)
+                        })
+                };
+                if !until(&dark, BOUND) {
+                    println!(
+                        "the act's first stage never went dark: lamps {:?}, lit {:?}",
+                        probe::lamps_due(),
+                        probe::lit(),
+                    );
+                    return std::process::ExitCode::from(1);
+                }
             }
             act_signed = clears == Clears::Yes;
             let hold = match rig.window {

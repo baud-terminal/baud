@@ -1354,9 +1354,9 @@ const SITES: &[Site] = &[
         "while !done() && start.elapsed() < bound {",
         Times(1),
         Kind::Bound("no whole frame was drawn after"),
-        "the GPU rows' waits (`until`), each within BOUND or the give-up's bound and BOUND: the act's frame \
-         held, counted overdue, a frame failed, a whole frame drawn after it, the GPU given up, a frame after \
-         it; reached, each fails with a line of its own",
+        "the waits on `until`, each within BOUND or the give-up's bound and BOUND: the GPU rows' (the act's \
+         frame held, counted overdue, a frame failed, a whole frame drawn after it, the GPU given up, a frame \
+         after it) and `ReleasedDark`'s first stage gone dark; reached, each fails with a line of its own",
     ),
     site(
         RIG,
@@ -1397,7 +1397,11 @@ const SITES: &[Site] = &[
         RIG,
         "if (signed && answered && drawn) || start.elapsed() >= RELEASE_BOUND {",
         Times(1),
-        Kind::FailOpen(Reach::FrameWindows(&["Released", "ReleasedLate"])),
+        Kind::FailOpen(Reach::FrameWindows(&[
+            "Released",
+            "ReleasedLate",
+            "ReleasedDark",
+        ])),
         "the first stage's settle: the check past it reads `signed` and the paths, not `drawn`, so RELEASE_BOUND \
          reached with the act's frame still owed releases the second stage",
     ),

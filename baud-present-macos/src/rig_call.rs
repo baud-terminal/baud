@@ -208,6 +208,17 @@ pub enum RigWindow {
     /// second stage that comes late, as a loaded machine's shell may write
     /// it, which a run that ends on a count of passes ends before.
     ReleasedLate,
+    /// **[`RigWindow::Released`], the first stage settled dark as well**:
+    /// besides its own settle, the activity lights with nothing still to
+    /// step (`probe::LampsDue::Idle`) and none lit but what rests lit (CS),
+    /// and the window quiet
+    /// (the link paused, nothing owed, no wake in flight, the printed
+    /// paths' worker idle), each on the run's passes within the bound. So
+    /// the newline comes to a window no tick runs in, and whatever the
+    /// second stage lights is lit by a turn of its own: a tick still
+    /// running then would read it first, and the row could not tell the
+    /// two apart.
+    ReleasedDark,
     /// That it is shown, as [`RigWindow::Shown`] tells it, before anything
     /// is typed and before its first frame: the frame rig then waits for
     /// that frame, the shell's prompt, and for the splash to start, with
@@ -242,9 +253,17 @@ pub enum RigWindow {
     /// `NSApplicationDidChangeScreenParametersNotification` posted with the
     /// shared application as its object.
     ScreenParameters,
+    /// **That it is covered**: the probe's door set to what AppKit says
+    /// alone (`probe::Shown::No`), which for a window never ordered front
+    /// is not visible, then the occlusion change AppKit posts
+    /// (`NSWindowDidChangeOcclusionStateNotification`), as a window covered
+    /// or minimised is told it. The window is not ordered front. The
+    /// event rig's covered arm's alone, before its first act; the frame
+    /// rig refuses it, no frame row being covered.
+    Covered,
 }
 
-const WINDOW: [(RigWindow, &str); 22] = [
+const WINDOW: [(RigWindow, &str); 24] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
     (RigWindow::BecameKey, "became-key"),
@@ -258,6 +277,7 @@ const WINDOW: [(RigWindow, &str); 22] = [
     (RigWindow::Shown, "shown"),
     (RigWindow::Released, "released"),
     (RigWindow::ReleasedLate, "released-late"),
+    (RigWindow::ReleasedDark, "released-dark"),
     (RigWindow::ShownFirst, "shown-first"),
     (RigWindow::Expired, "expired"),
     (RigWindow::Moved, "moved"),
@@ -267,6 +287,7 @@ const WINDOW: [(RigWindow, &str); 22] = [
     (RigWindow::Miniaturized, "miniaturized"),
     (RigWindow::Deminiaturized, "deminiaturized"),
     (RigWindow::ScreenParameters, "screen-parameters"),
+    (RigWindow::Covered, "covered"),
 ];
 
 /// **How the frame rig's act is sent**: as a line to the shell, a newline
@@ -448,7 +469,31 @@ pub enum RigTicks {
     /// and the next frame all of it, so what a read asks is asked inside
     /// `frame`.
     Split,
+    /// **Undriven, the window told it is covered before the first act**
+    /// ([`RigWindow::Covered`]): the occlusion change posted and its turn
+    /// run, and nothing still to come that could pump, before the act; and
+    /// at each act the window read as baud reads it for the splash, its
+    /// witness [`COVERED_AT_EVERY_ACT`].
+    Covered,
 }
+
+/// **The child's line when every act of a covered run
+/// ([`RigTicks::Covered`]) found the window not on screen**: `isVisible`
+/// and the occlusion state's `.visible` not both set, and the probe's door
+/// not set to on screen (`probe::Shown`), the facts baud reads before a
+/// splash starts. Printed once, at the run's end; the parent passes a
+/// covered arm only with it. One spelling for both sides.
+pub const COVERED_AT_EVERY_ACT: &str = "the window read covered at every act";
+
+/// **The child's line when every kitty decode step that left more was
+/// followed by the turn it owed itself**: the effect queue's owed wake
+/// (`rig::Carrier::Owed`, told by the queue's own `Woke::Owed`), never
+/// another wake that stepped the decode first. Printed once, at the run's
+/// end, only when such a step ran and no iteration ended with one still
+/// owed; the parent passes the undriven arms of a row whose effect rides
+/// those turns only with it, since there a copy can come on other wakes
+/// alone. One spelling for both sides.
+pub const OWED_AFTER_EVERY_STEP: &str = "every decode step that left more had its owed turn";
 
 /// Whether baud believes the rig's window is key: AppKit's answer alone,
 /// which is never, or the probe's focus door (`probe::Key::Yes`).
@@ -474,13 +519,14 @@ const ACTS: [(RigAct, &str); 13] = [
     (RigAct::Button, "button"),
 ];
 
-const TICKS: [(RigTicks, &str); 6] = [
+const TICKS: [(RigTicks, &str); 7] = [
     (RigTicks::Driven, "tick"),
     (RigTicks::None, "no-tick"),
     (RigTicks::InCallback, "tick-inline"),
     (RigTicks::InFrame, "tick-in-frame"),
     (RigTicks::AfterInCallback, "tick-after-inline"),
     (RigTicks::Split, "tick-split"),
+    (RigTicks::Covered, "covered"),
 ];
 
 const FOCUS: [(RigFocus, &str); 2] = [
@@ -641,6 +687,34 @@ mod tests {
             each: vec![EffectKind::Copy, EffectKind::Announce],
         });
         assert_eq!(RigCall::parse(&call.to_args()), Ok(call));
+        // Every arm's word, the covered arm's among them.
+        for (ticks, _) in TICKS {
+            let event = RigCall::Event(EventRig {
+                act: RigAct::TypeUntil,
+                arg: "printf x".to_owned(),
+                iterations: Iterations(1),
+                ticks,
+                focus: RigFocus::Real,
+                each: vec![EffectKind::Copy],
+            });
+            assert_eq!(RigCall::parse(&event.to_args()), Ok(event));
+        }
+        // And every window event's, the covered window's and the dark
+        // release's among them.
+        for (window, _) in WINDOW {
+            let told = RigCall::Frames(FrameRig {
+                setup: "printf x".to_owned(),
+                act: String::new(),
+                attempts: Iterations(1),
+                focus: RigFocus::Believed,
+                holders: RigHolders::Lifted,
+                window,
+                keys: RigKeys::Line,
+                ticks: RigFrameTicks::Offered,
+                end: RigEnd::Passes,
+            });
+            assert_eq!(RigCall::parse(&told.to_args()), Ok(told));
+        }
         let frames = RigCall::Frames(FrameRig {
             setup: "printf x".to_owned(),
             act: String::new(),

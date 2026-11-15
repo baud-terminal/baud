@@ -432,6 +432,38 @@ enum Trigger {
     Opening,
 }
 
+/// **Where a kitty decode's turn stands** (`Driver::decode_turn`): the
+/// display link's tick, which takes no step, with whether the turn read
+/// bytes; or any other turn, after its step, with what the step left.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum DecodeAt {
+    Tick(crate::reads::Fed),
+    Step(baud_domain::DecodeProgress),
+}
+
+/// Whether a decode's turn owes the window its next turn
+/// (`OsQueue::owe_turn`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TurnOwed {
+    No,
+    Yes,
+}
+
+/// **Whether a kitty decode's turn owes the window its next turn**: a step
+/// that leaves more does, so the decode goes on with no tick, as in a
+/// covered window; a tick that read bytes does, in case they placed a
+/// picture, since a tick takes no step; a step that leaves nothing, and a
+/// tick that read nothing, do not. Pure, so it is held headless
+/// (`decode_owes_tests`); the turn that asks it is the window's.
+fn decode_owes(at: DecodeAt) -> TurnOwed {
+    match at {
+        DecodeAt::Step(baud_domain::DecodeProgress::More) => TurnOwed::Yes,
+        DecodeAt::Step(baud_domain::DecodeProgress::Idle) => TurnOwed::No,
+        DecodeAt::Tick(crate::reads::Fed::Some) => TurnOwed::Yes,
+        DecodeAt::Tick(crate::reads::Fed::Nothing) => TurnOwed::No,
+    }
+}
+
 /// **What a turn's frame gate decides** ([`frame_gate`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Decided {
@@ -1632,7 +1664,17 @@ impl App {
             cell,
             os: {
                 let w = waker;
-                let os = crate::os_effect::OsQueue::open(move || w.wake());
+                let os = crate::os_effect::OsQueue::open(move |woke| match woke {
+                    // The event rig's census of what woke a turn: the turn
+                    // the window owed itself (`rig::Carrier::Owed`), a kitty
+                    // decode's next step among them (`decode_turn`).
+                    crate::os_effect::Woke::Owed => {
+                        #[cfg(feature = "effect-probe")]
+                        rig::heard(rig::Carrier::Owed);
+                        w.wake();
+                    }
+                    crate::os_effect::Woke::Batch => w.wake(),
+                });
                 if let Some(c) = &center {
                     os.attach_center(std::rc::Rc::clone(c));
                 }
@@ -8931,6 +8973,99 @@ mod drag_tests {
             )),
             "the occlusion change wakes the window"
         );
+    }
+
+    /// **A kitty decode reads nothing of whether the window is on screen**
+    /// (FS-B1, stage 3's row 3): `decode_turn` and the step it takes
+    /// (`reads::decode_step`) read no visibility -- not AppKit's
+    /// `isVisible`, occlusion state or minimised state, not the window
+    /// itself, not the probe's door, not `splash_check` or the notices'
+    /// `Visible` -- so a covered window and a minimised one decode as an
+    /// undriven one does, and the event rig's covered arm on the kitty row
+    /// stands for both. And that arm's witness reads the window as
+    /// `splash_check` does: the same two AppKit facts, or the probe's door.
+    /// The control: every needle is found in these sources elsewhere, so a
+    /// needle that cannot match is caught. Perturbation: the step taken
+    /// only while `self.view.window().is_some_and(|w| w.isVisible())` in
+    /// `decode_turn` -- it fails here.
+    #[test]
+    fn a_kitty_decode_reads_no_visibility() {
+        const SRC: &str = include_str!("app.rs");
+        const READS: &str = include_str!("reads.rs");
+        const RIG: &str = include_str!("app/rig.rs");
+        let turn = SRC
+            .split_once(concat!(
+                "fn decode_",
+                "turn(&mut self, trigger: Trigger, read: crate::reads::Fed) {"
+            ))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("decode_turn");
+        let step = READS
+            .split_once(concat!(
+                "pub fn decode_",
+                "step(term: &mut Term<'_>) -> (DecodeProgress, Shown) {"
+            ))
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .map(|(body, _)| body)
+            .expect("decode_step");
+        // The sources with this test and its comment taken out, where the
+        // control looks.
+        let (before, rest) = SRC
+            .split_once(concat!(
+                "/// **A kitty decode reads nothing",
+                " of whether the window is on screen**"
+            ))
+            .expect("this test");
+        let (_, after) = rest
+            .split_once(concat!("fn a_kitty_decode_reads_", "no_visibility() {"))
+            .and_then(|(_, body)| body.split_once("\n    }\n"))
+            .expect("this test's end");
+        let elsewhere = [before, after, RIG].concat();
+        let needles = [
+            "isVisible",
+            "occlusionState",
+            "isMiniaturized",
+            ".window()",
+            "probe::shown",
+            "splash_check",
+            "Visible::",
+        ];
+        for needle in needles {
+            assert!(
+                elsewhere.contains(needle),
+                "the control: {needle} is found nowhere, so its miss says nothing"
+            );
+            assert!(!turn.contains(needle), "decode_turn reads {needle}: {turn}");
+            assert!(!step.contains(needle), "decode_step reads {needle}: {step}");
+        }
+        // The rig's witness and the splash's gate read the same facts.
+        let squash = |s: &str| s.split_whitespace().collect::<String>();
+        let splash = SRC
+            .split_once(concat!("fn splash_", "check(&mut self) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| squash(body))
+            .expect("splash_check");
+        let witness = RIG
+            .split_once(concat!("let on_", "screen = "))
+            .and_then(|(_, rest)| rest.split_once(';'))
+            .map(|(expr, _)| squash(expr))
+            .expect("the covered arm's witness");
+        // Each fact as the rig spells it, and as the splash does.
+        for (rig, app) in [
+            ("w.isVisible()", "w.isVisible()"),
+            (
+                "w.occlusionState().contains(NSWindowOcclusionState::Visible)",
+                "w.occlusionState().contains(NSWindowOcclusionState::Visible)",
+            ),
+            (
+                "probe::shown()==probe::Shown::Yes",
+                "baud_present_macos::probe::shown()==baud_present_macos::probe::Shown::Yes",
+            ),
+        ] {
+            assert!(witness.contains(rig), "the rig reads {rig}: {witness}");
+            assert!(splash.contains(app), "the splash reads {app}: {splash}");
+        }
     }
 
     /// **The plasma's pipeline is built off the first frame's path**: not
@@ -17172,12 +17307,17 @@ impl Driver {
     /// placed a picture: that turn's step finds it, or finds nothing.
     fn decode_turn(&mut self, trigger: Trigger, read: crate::reads::Fed) {
         if trigger == Trigger::Tick {
-            if read == crate::reads::Fed::Some {
+            if decode_owes(DecodeAt::Tick(read)) == TurnOwed::Yes {
                 self.app.os.owe_turn();
             }
             return;
         }
         let (progress, shown) = crate::reads::decode_step(&mut self.app.term);
+        // The event rig's census of the turns a decode stepped on, and its
+        // witness that each step that left more had the turn it owed
+        // (`rig::stepped`).
+        #[cfg(feature = "effect-probe")]
+        rig::stepped(progress, shown);
         if shown == crate::reads::Shown::Changed {
             self.app.owe_frame();
         }
@@ -17201,7 +17341,7 @@ impl Driver {
         if !self.app.term.reply().is_empty() {
             self.app.flush_reply(Asked::Unasked);
         }
-        if progress == baud_domain::DecodeProgress::More {
+        if decode_owes(DecodeAt::Step(progress)) == TurnOwed::Yes {
             self.app.os.owe_turn();
         }
     }
@@ -24574,7 +24714,8 @@ mod wake_count_tests {
     /// in flight read there alone, and the barrier posted and its
     /// performance read in `quiet_at` alone; and the moment before an act
     /// the rig leaves alone is waited on through `quiet_at` too, under its
-    /// own scope (`still_before_the_act`). Read from the source, which
+    /// own scope (`still_before_the_act`), and a dark release's first stage
+    /// under the end's (`RigWindow::ReleasedDark`). Read from the source, which
     /// every build has; the rig is the probe build's. Perturbations: a part
     /// judged in the rig instead, a part handed as a constant (the wakes as
     /// none in flight), `quiet` read outside `quiet_at`, `closed` passed by,
@@ -24651,8 +24792,9 @@ mod wake_count_tests {
         );
         assert_eq!(
             RIG.matches("quiet_at(").count(),
-            4,
-            "quiet_at defined, and called twice at the run's end and once before an act"
+            5,
+            "quiet_at defined, and called twice at the run's end, once before an act and once \
+             before a dark release"
         );
         let done = body("pub(super) fn wake_done(");
         assert!(
@@ -27796,5 +27938,82 @@ mod census_pin_tests {
                 .count(),
             1
         );
+    }
+}
+
+#[cfg(test)]
+mod decode_owes_tests {
+    use super::link_pointer_tests::body;
+    use super::{DecodeAt, TurnOwed, decode_owes};
+    use crate::reads::Fed;
+    use baud_domain::DecodeProgress;
+
+    /// **A decode's turn owes the next one for more, and a tick for what it
+    /// read** (`decode_owes`): a step that leaves more owes a turn, an idle
+    /// step none, a tick that read bytes one and a tick that read nothing
+    /// none; and `decode_turn` asks it once for the tick and once for the
+    /// step, each owing the queue's turn on its answer, the step's after the
+    /// reply's flush. `decode_turn` itself runs in the window's pump, so the
+    /// event rig's kitty row holds the turn end to end (its undriven arms'
+    /// `Failure::Unowed`). That witness (`rig::OWING`) is cleared by any
+    /// owed turn, so it holds only while the decode is the only producer of
+    /// one on its row: app.rs owes a turn in exactly three places, the two
+    /// in `decode_turn` and `notices_alive_check`'s answer to an `OSC 99`
+    /// `p=alive`, which the kitty row never sends. Breaks: the step that
+    /// leaves more owing no turn, and the first assert fails; a tick owing a
+    /// turn whatever it read, and the fourth; a fourth owed turn spliced
+    /// into any other function of app.rs, and the count of them fails.
+    #[test]
+    fn a_decode_turn_owes_the_next_for_more_and_a_tick_for_what_it_read() {
+        assert_eq!(
+            decode_owes(DecodeAt::Step(DecodeProgress::More)),
+            TurnOwed::Yes
+        );
+        assert_eq!(
+            decode_owes(DecodeAt::Step(DecodeProgress::Idle)),
+            TurnOwed::No
+        );
+        assert_eq!(decode_owes(DecodeAt::Tick(Fed::Some)), TurnOwed::Yes);
+        assert_eq!(decode_owes(DecodeAt::Tick(Fed::Nothing)), TurnOwed::No);
+        const SRC: &str = include_str!("app.rs");
+        let turn = body(
+            SRC,
+            concat!(
+                "    fn decode_",
+                "turn(&mut self, trigger: Trigger, read: crate::reads::Fed) {"
+            ),
+        );
+        let squash = |s: &str| s.split_whitespace().collect::<String>();
+        let turn = squash(turn);
+        for asked in [
+            "ifdecode_owes(DecodeAt::Tick(read))==TurnOwed::Yes{self.app.os.owe_turn();}return;}",
+            "ifdecode_owes(DecodeAt::Step(progress))==TurnOwed::Yes{self.app.os.owe_turn();}",
+        ] {
+            assert_eq!(turn.matches(asked).count(), 1, "{asked}: {turn}");
+        }
+        assert_eq!(turn.matches("decode_owes(").count(), 2, "{turn}");
+        assert_eq!(turn.matches("self.app.os.owe_turn();").count(), 2);
+        let flush = turn
+            .find("if!self.app.term.reply().is_empty(){self.app.flush_reply(Asked::Unasked);}")
+            .expect("the reply's flush");
+        let step = turn
+            .find("decode_owes(DecodeAt::Step(progress))")
+            .expect("the step's owing");
+        assert!(flush < step, "the flush first: {turn}");
+        // Every owed turn in app.rs, outside this module's own needles.
+        const MODULE: &str = concat!("\nmod decode_", "owes_tests {");
+        assert_eq!(SRC.matches(MODULE).count(), 1, "{MODULE}");
+        let (before, rest) = SRC.split_once(MODULE).expect("this module");
+        let (_, after) = rest.split_once("\n}\n").expect("this module ends");
+        let count = |needle: &str| before.matches(needle).count() + after.matches(needle).count();
+        const W: &str = "the kitty row's owed-turn witness (rig::OWING, Failure::Unowed) is \
+                         cleared by any owed turn, so it holds only while the decode is the only \
+                         producer of one on a judged row: a new producer must be told apart by \
+                         its own os_effect::Woke, or the witness reads green under a step that \
+                         owes nothing";
+        assert_eq!(count("owe_turn("), 3, "{W}");
+        assert_eq!(count("self.app.os.owe_turn()"), 3, "{W}");
+        let alive = body(SRC, concat!("    fn notices_", "alive_check(&mut self) {"));
+        assert_eq!(alive.matches("self.app.os.owe_turn();").count(), 1, "{W}");
     }
 }
