@@ -86,6 +86,84 @@ fn a_placeholder_word_holds_exactly_its_diacritics() {
     }
 }
 
+/// The diacritic whose field holds `n`: absent for 0, else the one
+/// numbered `n - 1`.
+fn field(n: usize) -> Option<Diacritic> {
+    n.checked_sub(1).map(|i| Diacritic::at(i).unwrap())
+}
+
+/// The marks whose row, column and top-byte fields hold `row`, `col` and
+/// `msb`.
+fn marks(row: usize, col: usize, msb: usize) -> PlaceholderMarks {
+    PlaceholderMarks {
+        row: field(row),
+        col: field(col),
+        msb: field(msb),
+    }
+}
+
+/// **Row 63, the row field's 64, reads back as row 63.** The field's bit 6
+/// is the base's own bit, and the word holds it.
+#[test]
+fn row_63_reads_back() {
+    let m = marks(64, 0, 0);
+    assert_eq!(Content::placeholder(m).placeholder_marks(), Some(m));
+}
+
+/// **Every bit of every field reads back.** Each field in turn takes
+/// absent, each single-bit value from 1 to 256, and the largest, 297,
+/// while the other two hold 65 (bits 6 and 0); then the full cross of
+/// absent, 1, 64 and 297 over the three fields.
+#[test]
+fn every_bit_of_every_field_reads_back() {
+    let mut values = vec![0];
+    values.extend((0..9).map(|k| 1 << k));
+    values.push(Diacritic::COUNT);
+    assert_eq!(Diacritic::COUNT, 297);
+    for &v in &values {
+        for m in [marks(v, 65, 65), marks(65, v, 65), marks(65, 65, v)] {
+            let w = Content::placeholder(m);
+            assert_eq!(w.placeholder_marks(), Some(m), "{m:?}");
+        }
+    }
+    let cross = [0, 1, 64, Diacritic::COUNT];
+    for row in cross {
+        for col in cross {
+            for msb in cross {
+                let m = marks(row, col, msb);
+                let w = Content::placeholder(m);
+                assert_eq!(w.placeholder_marks(), Some(m), "{m:?}");
+                assert!(w.is_placeholder_base(), "{m:?}");
+            }
+        }
+    }
+}
+
+/// **The placeholder range touches no codepoint and no reserved word, and
+/// leaves a word's top four bits zero.** Its low end is the word with no
+/// marks, `0x0100_0000`; its high end the word with 297 in every field,
+/// the base plus 297 shifted to each field's place.
+#[test]
+fn the_placeholder_range_is_disjoint_and_below_the_top_four_bits() {
+    let n = u32::try_from(Diacritic::COUNT).unwrap();
+    let low = Content::placeholder(PlaceholderMarks::NONE).bits();
+    let high = Content::placeholder(marks(297, 297, 297)).bits();
+    assert_eq!(low, 0x0100_0000);
+    assert_eq!(high, low + (n << 18) + (n << 9) + n);
+    let top_cluster = Content::cluster_word(ClusterId::from_index(usize::from(u16::MAX)));
+    assert_eq!(top_cluster, 0x0012_FFFF);
+    for reserved in [
+        0x0010_FFFF,
+        Content::EMPTY.bits(),
+        Content::WIDE_TAIL.bits(),
+        Content::DEFECTIVE.bits(),
+        top_cluster,
+    ] {
+        assert!(reserved < low, "{reserved:#x} reaches {low:#x}");
+    }
+    assert!(high < 1 << 28, "{high:#x} sets a top bit");
+}
+
 /// **A mark joins a placeholder's word while it is a diacritic and there
 /// is room**, and the store reads the word back as U+10EEEE with its
 /// marks, as a copy must.

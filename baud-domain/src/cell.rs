@@ -93,16 +93,20 @@ impl Content {
     /// a `u16` slot index bounds below `0x0013_0000`.
     ///
     /// **A U+10EEEE cell with its diacritics holds them here, not in a
-    /// cluster slot**: three fields of nine bits, the row, the column and
-    /// the image id's top byte, each a diacritic's number plus one, zero
-    /// when it was not written (`placeholder.rs`). `kitten icat` writes
-    /// three on every cell (`[[source: kitty-icat-transmit]]`), each cell a
-    /// cluster of its own, and the 1024-slot store dropped 2366 of the 5760
-    /// marks of an 80x24 picture; here no slot is used and the cell stays
-    /// eight bytes. The cell carries [`CellFlags::MARKED`], as a cluster
-    /// cell does: its content is not its base, and
-    /// [`ClusterStore::base_of`] and [`ClusterStore::marks_of`] read the
-    /// character back, so a copy or a selection sees what was written.
+    /// cluster slot**: three fields of nine bits, the row at bits 18-26,
+    /// the column at 9-17 and the image id's top byte at 0-8, each a
+    /// diacritic's number plus one, zero when it was not written
+    /// (`placeholder.rs`). The fields are **added** to this base, and
+    /// [`Content::placeholder_marks`] subtracts it: the row field's bit 6
+    /// is the base's own bit, so the word is a sum, never an OR. The range
+    /// is `0x0100_0000..=0x08FF_FFFF`, the base plus every 27-bit sum:
+    /// above every codepoint, the reserved states and the cluster range,
+    /// and below `0x1000_0000`, so a word's top four bits are always zero.
+    /// A cell holding one uses no slot and stays eight bytes. It carries
+    /// [`CellFlags::MARKED`], as a cluster cell does: its content is not
+    /// its base, and [`ClusterStore::base_of`] and
+    /// [`ClusterStore::marks_of`] read the character back, so a copy or a
+    /// selection sees what was written.
     const PLACEHOLDERS: u32 = 0x0100_0000;
     /// How many bits a field takes: 297 numbers and absent.
     const FIELD: u32 = 9;
@@ -113,9 +117,9 @@ impl Content {
         let f = |d: Option<Diacritic>| d.map_or(0, |d| u32::try_from(d.index() + 1).unwrap_or(0));
         Content(
             Content::PLACEHOLDERS
-                | (f(marks.row) << (2 * Content::FIELD))
-                | (f(marks.col) << Content::FIELD)
-                | f(marks.msb),
+                + (f(marks.row) << (2 * Content::FIELD))
+                + (f(marks.col) << Content::FIELD)
+                + f(marks.msb),
         )
     }
 
@@ -510,7 +514,7 @@ impl CellFlags {
     /// path ORs what it already ORs; the pen a decoded character is written
     /// with, a UTF-8 `Ä`'s among them, has it cleared, since no set
     /// replaced that character. **Apart from `GRAPHICS`**, which names the
-    /// set GL held whatever arrived (note AE, Q16(a)): a UTF-8 `─` written
+    /// set GL held whatever arrived: a UTF-8 `─` written
     /// while GL holds line drawing carries that flag and no tag.
     const SET_SHIFT: u16 = 11;
     const SET_MASK: u16 = 0x1f;
@@ -630,7 +634,7 @@ impl PackedCell {
     /// (p. 5-172) the same.
     ///
     /// **The flags the position keeps**: DECSCA's attribute, ECMA-48's guard
-    /// (since 2026-10-16, and under DECSERA since 2026-10-19) and an
+    /// (under DECSERA as well) and an
     /// `OSC 8` link. The line-drawing
     /// flag, the set the character was received under and a cluster's mark
     /// belong to the character and go with it, so the space draws as a
@@ -1140,13 +1144,10 @@ impl<'b> ClusterStore<'b> {
     /// cannot degrade into a scan under content chosen to collide, and an
     /// intern reads at most eight 40-byte slots.
     ///
-    /// It was two, and is eight since 2026-10-13: at 1024 slots and the hash
-    /// above, with no sweep, eight refused 0, 0, 2, 0, 0, 349 and 0 code
-    /// points on Genesis 1:1-5, Pango's Genesis 1, OSHB Genesis, Bialik, an
-    /// Arabic and a Hindi text and `cat-cjk`, each through a terminal of its
-    /// own, where four refused 0, 2, 22, 0, 2, 555 and 0. The sweep, which
-    /// runs only once every slot is used, runs on none of them, so they
-    /// refuse the same with it.
+    /// Eight, because at 1024 slots and the hash above fewer probes refuse
+    /// clusters of pointed Hebrew, Arabic and Hindi text that eight keep.
+    /// The sweep runs only once every slot is used, so before that the
+    /// probe count alone decides what is refused.
     pub const PROBES: usize = 8;
     /// The most slots a store uses, and the size of the sweep's live set:
     /// a larger slice is used to this length.
