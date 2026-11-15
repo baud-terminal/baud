@@ -40527,3 +40527,18 @@ group  = "WF"
 # Not in the repository: no grant to redistribute it was found (Apple's
 # documentation). It was read as nsapplication-didchangescreenparametersnotification.json, and the digest is of
 # that copy.
+
+[sources.xdg-terminal-exec-80d6ea7-readme]
+key    = "xdg-terminal-exec-80d6ea7-readme"
+title  = "xdg-terminal-exec, README.md at 80d6ea7 -- the proposed Default Terminal Execution Specification: an eligible entry's TerminalEmulator category and X-TerminalArgExec key"
+author = "Vladimir-csp (GitHub handle)"
+year   = 2026
+venue  = "github.com/Vladimir-csp/xdg-terminal-exec"
+url    = "https://raw.githubusercontent.com/Vladimir-csp/xdg-terminal-exec/80d6ea72054089b59356919e0391a1395460788d/README.md"
+file   = ""
+sha256 = "c7a1a8bb711e44e4a19ca0a3c943f13a8e53d5fbb6c752e08cb186d5995a9d40"
+bytes  = 14762
+status = "external"
+group  = "AA"
+# Read 2026-11-14 for the Linux desktop entry's X-TerminalArgExec (baud-app/tests/install.rs); hash-verified, not
+# committed -- a file at a pinned commit. Re-fetch the url and compare.

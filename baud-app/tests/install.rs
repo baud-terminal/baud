@@ -388,7 +388,11 @@ fn the_committed_icon_is_the_dock_pictures_packed() {
 /// **The Nix package carries the app**: on macOS the bundle, assembled by
 /// the script a clone's build runs, with `bin/baud` its executable; on
 /// Linux the desktop entry, named for the window's Wayland app_id, and
-/// the icon it names.
+/// the icon it names. Beside its `TerminalEmulator` category the entry
+/// names the argument a command follows, `X-TerminalArgExec=-e`, which is
+/// the flag baud's command line takes (`run_arg::FLAG`): a desktop that
+/// opens a command in the default terminal runs `baud -e <command> [args]`.
+/// Perturbation: drop the key, or change `run_arg::FLAG`, and this fails.
 #[test]
 fn the_nix_package_ships_the_app() {
     let flake = read("flake.nix");
@@ -411,6 +415,13 @@ fn the_nix_package_ships_the_app() {
     let entry = read("packaging/linux/org.baud.terminal.desktop");
     assert!(entry.contains("\nIcon=org.baud.terminal\n"), "{entry}");
     assert!(entry.contains("\nExec=baud\n"), "{entry}");
+    assert!(entry.contains("TerminalEmulator;"), "{entry}");
+    assert!(entry.contains("\nX-TerminalArgExec=-e\n"), "{entry}");
+    let run_arg = read("baud-app/src/run_arg.rs");
+    assert!(
+        run_arg.contains("pub(crate) const FLAG: &str = \"-e\";"),
+        "the entry's X-TerminalArgExec names a flag baud no longer takes"
+    );
 }
 
 /// The quoted entries of `settings.global.excludes` in `devenv.nix`, with
