@@ -2257,14 +2257,32 @@ fn check_config(at: &Layout) -> Result<(), String> {
     if !log.lines().any(|l| l == want) {
         return Err("baud did not read its config".to_string());
     }
-    let said: Vec<&str> = log
-        .lines()
-        .filter(|l| l.starts_with("config: ") && *l != want)
-        .collect();
+    let said = complaints(&log, &want);
     if !said.is_empty() {
         return Err(format!("baud complained about its config: {said:?}"));
     }
     Ok(())
+}
+
+/// **The `config:` lines of baud's log that are complaints**: every one
+/// but the line naming the file it read, `want`, and the lines its link
+/// rules report for a `[link.*]` table that sets an action -- `config:
+/// [link.NAME] ` and then `opens`, `sends`, `turns` or `copies`, the words
+/// `rules.rs` begins each report with.
+fn complaints<'a>(log: &'a str, want: &str) -> Vec<&'a str> {
+    let reported = |l: &str| {
+        l.strip_prefix("config: [link.")
+            .and_then(|r| r.split_once("] "))
+            .is_some_and(|(name, said)| {
+                !name.contains(' ')
+                    && ["opens ", "sends ", "turns ", "copies "]
+                        .iter()
+                        .any(|w| said.starts_with(w))
+            })
+    };
+    log.lines()
+        .filter(|l| l.starts_with("config: ") && *l != want && !reported(l))
+        .collect()
 }
 
 /// **Nothing baud was sent names this machine**, the scratch directory in
@@ -2358,6 +2376,41 @@ mod tests {
             assert!(one(attr), "{attr} names no output");
         }
         assert!(!one("yt-dlp"), "the control");
+    }
+
+    /// **A link rule's report is not a complaint about the config**: the
+    /// lines baud prints for the tour's `[link.https]` and `[link.path]`
+    /// windows pass, with the line naming the file it read; anything else
+    /// under `config:` is a complaint, a `[link.*]` line that reports no
+    /// action among them. Perturbation: count every `config:` line but the
+    /// file's, and the two reports are complaints.
+    #[test]
+    fn a_link_rules_report_is_not_a_complaint() {
+        let want = "config: /t/home/.config/baud/config.toml";
+        let log = format!(
+            "{want}\n\
+             config: [link.https] opens https: links from program output in a new window running cha\n\
+             config: [link.path] opens a clicked printed path in a new window running /t/home/bin/demo-open\n\
+             config: [link.tel] sends tel: links from program output to the system's handler\n\
+             config: [link.mailto] turns mailto: links off\n\
+             config: [link.path] copies a clicked printed path to the clipboard\n\
+             frame 1\n"
+        );
+        assert_eq!(super::complaints(&log, want), Vec::<&str>::new());
+        let bad = format!(
+            "{want}\n\
+             config: [link.https] action: unknown value \"tab\"\n\
+             config: font_size: not a number\n\
+             config: [link.x y] opens z\n"
+        );
+        assert_eq!(
+            super::complaints(&bad, want),
+            [
+                "config: [link.https] action: unknown value \"tab\"",
+                "config: font_size: not a number",
+                "config: [link.x y] opens z",
+            ]
+        );
     }
 
     /// **The repository's copy is exactly its paths, at `HEAD`**: the
