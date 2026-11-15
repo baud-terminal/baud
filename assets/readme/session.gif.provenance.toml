@@ -1,0 +1,85 @@
+# How session.gif was made: the tour played without a window by baud's own
+# test, its frames drawn by baud's renderer, cut by the tour's scene marks and
+# encoded by the commands below. Every value is the run's own.
+#
+# Check it: cargo run --example demo -- --verify <path to session.gif>
+
+made = "cargo run --release --example demo -- --headless <DIR> --forbidden LIST --controls FILE"
+from = "."
+
+[baud]
+commit = "5bb02f42bf43f02140fe51c7911d2d1fadded5d3"
+tree = "clean"
+dirty = []
+
+[gif]
+file = "session.gif"
+sha256 = "addb137e177fad11024f7175b413c0e971569a5ac9d59aafdc140c3b0df19e7c"
+bytes = 4592309
+frames = 367
+seconds = 12.230
+decoded_frames = 322
+width = 1164
+height = 822
+
+[film]
+drawn_by = "baud-app/src/film/session.rs, film::session::the_readme_session_lights_every_light"
+file = "session.mkv, beside the GIF, lossless (FFV1)"
+sha256 = "0691e08429e6ec3cc86c63a375d2c5935d25a7ed572f4e29a5eb76818165993b"
+frames = 3701
+rate = 100
+
+[cut]
+scenes = [
+  "6",
+  "7",
+  "8",
+]
+frames = [
+  "1..1223",
+]
+seconds = 12.220
+
+[encoder]
+frames = [
+  "ffmpeg",
+  "-v",
+  "error",
+  "-i",
+  "<DIR>/session.mkv",
+  "-vf",
+  "select='between(n,1,1222)',setpts=N/(100*TB),fps=30",
+  "<scratch>/gif-frames/%06d.png",
+]
+gifski = [
+  "gifski",
+  "--quality",
+  "80",
+  "--lossy-quality",
+  "100",
+  "--motion-quality",
+  "100",
+  "--fps",
+  "30",
+  "--width",
+  "1164",
+  "-o",
+  "<DIR>/session.gif",
+  "<scratch>/gif-frames/*.png",
+]
+
+[nixpkgs]
+revision = "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a"
+
+[tools]
+gifski = "/nix/store/63y988if8y301sgzjglnbabsaf7axi0p-gifski-1.34.0"
+"ffmpeg-headless.bin" = "/nix/store/m24vq3ip8fv6m6jypdm534z48kwqz4cw-ffmpeg-headless-9.0.1-bin"
+
+[checks]
+passed = [
+  "film::session::the_readme_session_lights_every_light: every light, the trail plasma through the README's scene and each jump's plasma, no frame's text showing this machine's names, the container's user and host shown",
+  "the session film's flash census, WCAG 2.3.1 (baud-bench/tests/session_flashes.rs)",
+  "this GIF's flash census, WCAG 2.3.1 (baud-bench/tests/trailer_flashes.rs)",
+  "decoded by baud's own decoder: 322 frames, 12.230 s, 1164x822, as long as the cut",
+  "the forbidden list's search of every frame's text and the session's bytes, each pattern found in its control first; the list is kept outside the repository",
+]
