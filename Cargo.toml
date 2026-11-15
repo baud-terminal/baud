@@ -42,6 +42,7 @@ members = ["baud-domain", "baud-core", "baud-bench",
   "xtask",
     "baud-wayland",
     "baud-xkb",
+    "baud-present-vulkan",
     "baud-present-wayland",
 ]
 

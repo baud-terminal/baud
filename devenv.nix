@@ -279,6 +279,15 @@ in
   # Environment variables
   env = {
     CARGO_TARGET_DIR = "./target";
+  }
+  # **Vulkan for the GPU path's tests, on Linux**: the loader, which
+  # `baud-present-vulkan` opens at run time, and lavapipe, Mesa's CPU
+  # Vulkan, added beside the system's drivers rather than in place of them,
+  # so `baud-present-vulkan/tests/lavapipe.rs` runs on any Linux box, with a
+  # GPU or none, and `scripts/linux-vulkan-radv.sh` still finds the GPU.
+  // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+    LD_LIBRARY_PATH = "${pkgs.vulkan-loader}/lib";
+    VK_ADD_DRIVER_FILES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.parsed.cpu.name}.json";
   };
 
   # Development shell setup.

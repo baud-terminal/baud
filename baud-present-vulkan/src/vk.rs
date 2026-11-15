@@ -1,0 +1,225 @@
+//! **Vulkan, opened at run time, and the devices as the choice reads
+//! them.** `libvulkan` is loaded with `dlopen` (`ash`'s `loaded`), so a box
+//! without it runs on shared memory rather than failing to start. This is
+//! the one module in the crate that allows what the crate root denies:
+//! every Vulkan call is `unsafe` in `ash`.
+
+#![allow(unsafe_code)]
+
+use crate::choose::{Candidate, Extensions, Kind, Major, Minor, Node, TimelineExport};
+use ash::vk;
+use baud_present_wayland::dmabuf::Modifier;
+use std::ffi::CStr;
+
+/// The device extensions the GPU path needs, in the order a missing one is
+/// named: the modifier image, its export as a dmabuf, and the release of
+/// the image to the compositor's queue family.
+pub const REQUIRED: [&CStr; 4] = [
+    c"VK_EXT_image_drm_format_modifier",
+    c"VK_KHR_external_memory_fd",
+    c"VK_EXT_external_memory_dma_buf",
+    c"VK_EXT_queue_family_foreign",
+];
+
+/// Explicit sync's extension: a timeline semaphore exported as an fd.
+pub const SEMAPHORE_FD: &CStr = c"VK_KHR_external_semaphore_fd";
+
+/// What the device match reads: the DRM nodes.
+pub const PHYSICAL_DEVICE_DRM: &CStr = c"VK_EXT_physical_device_drm";
+
+/// Why Vulkan could not be opened.
+#[derive(Debug)]
+pub enum Unopened {
+    /// `libvulkan` was not found or has no loader entry point.
+    NoLoader,
+    /// `vkCreateInstance` failed.
+    Instance(vk::Result),
+}
+
+/// The loader and an instance.
+pub struct Vulkan {
+    // Kept for as long as the instance: the loader's library.
+    _entry: ash::Entry,
+    pub instance: ash::Instance,
+}
+
+impl Vulkan {
+    /// Open `libvulkan` and make an instance of Vulkan 1.3.
+    pub fn open() -> Result<Vulkan, Unopened> {
+        // SAFETY: loading the system's Vulkan loader; `ash` checks the entry
+        // point it needs and fails rather than calling a missing one.
+        let entry = unsafe { ash::Entry::load() }.map_err(|_| Unopened::NoLoader)?;
+        let app = vk::ApplicationInfo::default()
+            .application_name(c"baud")
+            .api_version(vk::API_VERSION_1_3);
+        let info = vk::InstanceCreateInfo::default().application_info(&app);
+        // SAFETY: a valid create-info that outlives the call.
+        let instance = unsafe { entry.create_instance(&info, None) }.map_err(Unopened::Instance)?;
+        Ok(Vulkan {
+            _entry: entry,
+            instance,
+        })
+    }
+
+    /// Every physical device, in the loader's order, as the choice reads it.
+    pub fn candidates(&self) -> Vec<(vk::PhysicalDevice, Candidate)> {
+        // SAFETY: the instance is alive; the call allocates its own result.
+        let devices = unsafe { self.instance.enumerate_physical_devices() }.unwrap_or_default();
+        devices
+            .into_iter()
+            .map(|pd| (pd, self.candidate(pd)))
+            .collect()
+    }
+
+    fn has(&self, pd: vk::PhysicalDevice, name: &CStr) -> bool {
+        // SAFETY: a physical device of this instance.
+        let exts =
+            unsafe { self.instance.enumerate_device_extension_properties(pd) }.unwrap_or_default();
+        exts.iter()
+            .any(|e| e.extension_name_as_c_str().is_ok_and(|n| n == name))
+    }
+
+    fn candidate(&self, pd: vk::PhysicalDevice) -> Candidate {
+        let extensions = REQUIRED
+            .iter()
+            .find(|n| !self.has(pd, n))
+            .map_or(Extensions::All, |n| {
+                Extensions::Missing(n.to_str().unwrap_or("an extension"))
+            });
+        let kind = self.kind(pd);
+        let modifiers = match extensions {
+            Extensions::All => self.modifiers(pd),
+            Extensions::Missing(_) => Vec::new(),
+        };
+        let timeline = match self.has(pd, SEMAPHORE_FD) && self.exports_timeline(pd) {
+            true => TimelineExport::Yes,
+            false => TimelineExport::No,
+        };
+        Candidate {
+            kind,
+            extensions,
+            modifiers,
+            timeline,
+        }
+    }
+
+    fn kind(&self, pd: vk::PhysicalDevice) -> Kind {
+        let mut drm = vk::PhysicalDeviceDrmPropertiesEXT::default();
+        let has_drm = self.has(pd, PHYSICAL_DEVICE_DRM);
+        let mut props = vk::PhysicalDeviceProperties2::default();
+        if has_drm {
+            props = props.push_next(&mut drm);
+        }
+        // SAFETY: a physical device of this instance, and a chain whose
+        // members live through the call.
+        unsafe {
+            self.instance
+                .get_physical_device_properties2(pd, &mut props)
+        };
+        if props.properties.device_type == vk::PhysicalDeviceType::CPU {
+            return Kind::Cpu;
+        }
+        let node = |has: vk::Bool32, major: i64, minor: i64| {
+            (has == vk::TRUE).then(|| Node {
+                major: Major(u32::try_from(major).unwrap_or(u32::MAX)),
+                minor: Minor(u32::try_from(minor).unwrap_or(u32::MAX)),
+            })
+        };
+        match has_drm {
+            true => Kind::Gpu {
+                primary: node(drm.has_primary, drm.primary_major, drm.primary_minor),
+                render: node(drm.has_render, drm.render_major, drm.render_minor),
+            },
+            false => Kind::Gpu {
+                primary: None,
+                render: None,
+            },
+        }
+    }
+
+    /// The modifiers `B8G8R8A8_UNORM` renders to as a single-plane colour
+    /// attachment and exports as a dmabuf.
+    fn modifiers(&self, pd: vk::PhysicalDevice) -> Vec<Modifier> {
+        let format = vk::Format::B8G8R8A8_UNORM;
+        let mut list = vk::DrmFormatModifierPropertiesListEXT::default();
+        let mut props = vk::FormatProperties2::default().push_next(&mut list);
+        // SAFETY: the first call fills in the count only.
+        unsafe {
+            self.instance
+                .get_physical_device_format_properties2(pd, format, &mut props)
+        };
+        let n = usize::try_from(list.drm_format_modifier_count).unwrap_or(0);
+        let mut each = vec![vk::DrmFormatModifierPropertiesEXT::default(); n];
+        let mut list = vk::DrmFormatModifierPropertiesListEXT::default()
+            .drm_format_modifier_properties(&mut each);
+        let mut props = vk::FormatProperties2::default().push_next(&mut list);
+        // SAFETY: the second call writes at most `n` entries into `each`.
+        unsafe {
+            self.instance
+                .get_physical_device_format_properties2(pd, format, &mut props)
+        };
+        each.iter()
+            .filter(|m| m.drm_format_modifier_plane_count == 1)
+            .filter(|m| {
+                m.drm_format_modifier_tiling_features
+                    .contains(vk::FormatFeatureFlags::COLOR_ATTACHMENT)
+            })
+            .map(|m| Modifier(m.drm_format_modifier))
+            .filter(|&m| self.exports(pd, format, m))
+            .collect()
+    }
+
+    /// Whether an image of `format` and `modifier` can be exported as a
+    /// dmabuf.
+    fn exports(&self, pd: vk::PhysicalDevice, format: vk::Format, modifier: Modifier) -> bool {
+        let mut drm = vk::PhysicalDeviceImageDrmFormatModifierInfoEXT::default()
+            .drm_format_modifier(modifier.0)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+        let mut external = vk::PhysicalDeviceExternalImageFormatInfo::default()
+            .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+        let info = vk::PhysicalDeviceImageFormatInfo2::default()
+            .format(format)
+            .ty(vk::ImageType::TYPE_2D)
+            .tiling(vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT)
+            .usage(vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_DST)
+            .push_next(&mut drm)
+            .push_next(&mut external);
+        let mut ext_props = vk::ExternalImageFormatProperties::default();
+        let mut props = vk::ImageFormatProperties2::default().push_next(&mut ext_props);
+        // SAFETY: chains whose members live through the call.
+        let ok = unsafe {
+            self.instance
+                .get_physical_device_image_format_properties2(pd, &info, &mut props)
+        };
+        ok.is_ok()
+            && ext_props
+                .external_memory_properties
+                .external_memory_features
+                .contains(vk::ExternalMemoryFeatureFlags::EXPORTABLE)
+    }
+
+    /// Whether a timeline semaphore exports as an opaque fd.
+    fn exports_timeline(&self, pd: vk::PhysicalDevice) -> bool {
+        let mut ty =
+            vk::SemaphoreTypeCreateInfo::default().semaphore_type(vk::SemaphoreType::TIMELINE);
+        let info = vk::PhysicalDeviceExternalSemaphoreInfo::default()
+            .handle_type(vk::ExternalSemaphoreHandleTypeFlags::OPAQUE_FD)
+            .push_next(&mut ty);
+        let mut props = vk::ExternalSemaphoreProperties::default();
+        // SAFETY: a chain whose members live through the call.
+        unsafe {
+            self.instance
+                .get_physical_device_external_semaphore_properties(pd, &info, &mut props)
+        };
+        props
+            .external_semaphore_features
+            .contains(vk::ExternalSemaphoreFeatureFlags::EXPORTABLE)
+    }
+}
+
+impl Drop for Vulkan {
+    fn drop(&mut self) {
+        // SAFETY: nothing made from the instance outlives it here.
+        unsafe { self.instance.destroy_instance(None) };
+    }
+}

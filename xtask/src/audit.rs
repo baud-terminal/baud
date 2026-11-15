@@ -132,7 +132,7 @@ const fn krate(name: &'static str, root: &'static [&'static str], t: Sites, s: S
 /// it is created**, gated in the same commit that creates the crate, and
 /// each change that adds code sets the limit to the count it ends at, never
 /// above it.
-pub const CRATES: [Crate; 9] = [
+pub const CRATES: [Crate; 10] = [
     // **baud-font: six raw-integer sites and forty signature primitives,
     // every one enumerated, and the limit follows the count downward.** The
     // signature sites are the newtype surface of a parser over a byte
@@ -231,6 +231,17 @@ pub const CRATES: [Crate; 9] = [
         Sites(5),
         Sites(10),
     ),
+    // baud-present-vulkan: 0 raw sites and 1 signature primitive, the
+    // kernel's ABI in `sys.rs`: `ioctl` declared as the extern it is, its
+    // fd, request and result the platform's widths. Vulkan's own integers
+    // stay inside `ash`'s types; a node, a modifier, a byte count and a
+    // memory type are newtypes.
+    krate(
+        "baud-present-vulkan",
+        &["baud-present-vulkan/src"],
+        Sites(0),
+        Sites(1),
+    ),
     // baud-app: 1 raw site and 4 signature primitives. One is `slots(Px) ->
     // usize` in the presenter edge, as above; the other four are the kernel
     // ABI in `sys.rs`, which declares the pty, the ioctl, the poll, the
@@ -297,7 +308,7 @@ const fn tree(dir: &'static str, limit: Sites) -> Tree {
 /// rather than omitted -- a tree absent from this list is a tree nothing
 /// checks -- and a named directory that holds no sources fails, so a rename
 /// cannot silently empty one.
-pub const TREES: [Tree; 15] = [
+pub const TREES: [Tree; 16] = [
     tree("baud-bench/src", Sites(0)),
     tree("baud-bench/benches", Sites(11)),
     tree("baud-domain/tests", Sites(43)),
@@ -311,6 +322,7 @@ pub const TREES: [Tree; 15] = [
     tree("baud-isa-x86-64/tests", Sites(0)),
     tree("baud-wayland/tests", Sites(0)),
     tree("baud-present-wayland/tests", Sites(0)),
+    tree("baud-present-vulkan/tests", Sites(0)),
     tree("baud-tablegen/tests", Sites(0)),
     tree("xtask/tests", Sites(0)),
 ];
