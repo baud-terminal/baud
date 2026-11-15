@@ -448,7 +448,7 @@ fn a_resize_holds_the_bottom_line() {
         controls(&f);
         let widest = f.steps.iter().map(|(w, _)| w.ws_col).max().unwrap();
         let tallest = f.steps.iter().map(|(w, _)| w.ws_row).max().unwrap();
-        let owned: &'static mut Owned = Box::leak(Box::new(Owned::new(&WinSize {
+        let owned: &'static mut Owned = Box::leak(Box::new(Owned::new(WinSize {
             ws_col: widest,
             ws_row: tallest,
         })));
@@ -637,7 +637,7 @@ fn the_prompt_to_cursor_distance_holds_across_every_resize() {
         controls(&f);
         let widest = f.steps.iter().map(|(w, _)| w.ws_col).max().unwrap();
         let tallest = f.steps.iter().map(|(w, _)| w.ws_row).max().unwrap();
-        let owned: &'static mut Owned = Box::leak(Box::new(Owned::new(&WinSize {
+        let owned: &'static mut Owned = Box::leak(Box::new(Owned::new(WinSize {
             ws_col: widest,
             ws_row: tallest,
         })));

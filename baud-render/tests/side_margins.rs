@@ -164,7 +164,7 @@ fn the_display_keeps_the_margins_of_the_rows_it_draws_as_stored() {
 /// own, the Hebrew in written order.
 #[test]
 fn a_change_of_width_that_re_cuts_the_rows_reads_them_whole() {
-    let mut owned = Owned::new(&WinSize {
+    let mut owned = Owned::new(WinSize {
         ws_row: 4,
         ws_col: 40,
     });

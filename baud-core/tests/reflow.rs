@@ -416,7 +416,7 @@ fn at<R>(cols: u16, rows: u16, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
         ws_col: c,
         ws_row: rows,
     };
-    let mut owned = Owned::new(&ws(20));
+    let mut owned = Owned::new(ws(20));
     let mut t = Term::new(owned.storage(), &ws(cols));
     f(&mut t)
 }
@@ -477,7 +477,7 @@ fn a_window_a_growth_brings_to_the_live_screen_stays_live_through_the_re_cut() {
         ws_col: c,
         ws_row: r,
     };
-    let mut owned = Owned::new(&ws(20, 10));
+    let mut owned = Owned::new(ws(20, 10));
     let mut t = Term::new(owned.storage(), &ws(20, 8));
     let s: String = (0..20).map(long).collect();
     support::feed(&mut t, s.as_bytes());
@@ -496,7 +496,7 @@ fn a_window_whose_line_the_re_cut_dropped_holds_the_oldest_line_kept() {
         ws_col: c,
         ws_row: 10,
     };
-    let mut owned = Owned::with_history(&ws(20), &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut owned = Owned::with_history(ws(20), &CacheGeometry::UNKNOWN, Depth::of(20));
     let mut t = Term::new(owned.storage(), &ws(20));
     let s: String = (0..40).map(long).collect();
     support::feed(&mut t, s.as_bytes());

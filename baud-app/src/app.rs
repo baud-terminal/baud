@@ -7425,7 +7425,7 @@ mod alt_window_tests {
                     ws_col: c,
                     ws_row: 10,
                 };
-                let mut owned = Owned::new(&ws(20));
+                let mut owned = Owned::new(ws(20));
                 let mut t = Term::new(owned.storage(), &ws(from));
                 feed(&mut t, stream.as_bytes());
                 let text = |t: &Term<'_>, back: Rows| -> String {

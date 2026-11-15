@@ -951,7 +951,7 @@ mod tests {
     }
 
     fn new_owned() -> baud_core::Owned {
-        baud_core::Owned::new(&baud_domain::WinSize {
+        baud_core::Owned::new(baud_domain::WinSize {
             ws_col: 40,
             ws_row: 10,
         })

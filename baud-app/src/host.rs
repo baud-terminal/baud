@@ -1026,6 +1026,14 @@ mod tests {
     use baud_domain::{BytePos, ImagePx, ReadLen, WinSize};
     use baud_render::Theme;
 
+    /// **The grid both drivers provision is within the rendition budget**:
+    /// `MAX_GRID` is admitted as it is, not clamped into it
+    /// (`baud_core::Provision`).
+    #[test]
+    fn the_provisioned_grid_is_within_the_rendition_budget() {
+        assert!(baud_core::Provision::of(&super::MAX_GRID).is_ok());
+    }
+
     fn feed(t: &mut Term<'_>, bytes: &[u8]) {
         t.write_at(BytePos::ZERO, bytes);
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));

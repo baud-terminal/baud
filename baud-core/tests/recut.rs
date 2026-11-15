@@ -115,7 +115,7 @@ fn a_re_cut_tells_each_line_where_its_text_went() {
     );
     proptest!(config, |(lines in lines, (from, to, tall, between, after, back) in geometry, depth in 0usize..24)| {
         prop_assume!(from != to);
-        let mut owned = Owned::with_history(&sized(WIDEST, 12), &CacheGeometry::UNKNOWN, Depth::of(depth));
+        let mut owned = Owned::with_history(sized(WIDEST, 12), &CacheGeometry::UNKNOWN, Depth::of(depth));
         let mut t = Term::new(owned.storage(), &sized(from, tall));
         let mut bytes = Vec::new();
         for (i, (l, kind)) in lines.iter().enumerate() {
@@ -279,7 +279,7 @@ fn a_re_cut_tells_each_line_where_its_text_went() {
 /// what was dropped, which is more than none.
 #[test]
 fn a_re_cut_that_drops_lines_tells_none_of_them() {
-    let mut owned = Owned::with_history(&ws(40), &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut owned = Owned::with_history(ws(40), &CacheGeometry::UNKNOWN, Depth::of(20));
     let mut t = Term::new(owned.storage(), &ws(40));
     let s: String = (0..40)
         .map(|i| format!("{i:02}{}\r\n", "x".repeat(36)))

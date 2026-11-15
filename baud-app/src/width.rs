@@ -377,7 +377,7 @@ mod tests {
     /// `?40` refused asks nothing, and a refusal warns once a reason.
     #[test]
     fn a_request_is_decided_once_and_a_refusal_warns_once() {
-        let mut s = Owned::new(&GRID.ws());
+        let mut s = Owned::new(GRID.ws());
         let mut t = Term::new(s.storage(), &GRID.ws());
         let mut w = Widths::new(&t);
         feed(&mut t, b"\x1b[?3h");

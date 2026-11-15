@@ -296,7 +296,7 @@ fn cut_and_marked(f: &Frame, cols: usize, step: &str) {
 fn a_listing_narrowed_at_a_prompt_is_drawn_at_its_words_in_one_step() {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
-    let mut owned = Owned::new(&at(80));
+    let mut owned = Owned::new(at(80));
     let mut t = Term::new(owned.storage(), &at(80));
     let mut r = renderer(&faces, &at(80));
     assert_eq!(r.word_wrap(), WordWrap::On, "on by default");
@@ -318,7 +318,7 @@ fn a_listing_narrowed_at_a_prompt_is_drawn_at_its_words_in_one_step() {
 fn a_listing_narrowed_at_a_prompt_is_drawn_at_its_words_through_a_drag() {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
-    let mut owned = Owned::new(&at(80));
+    let mut owned = Owned::new(at(80));
     let mut t = Term::new(owned.storage(), &at(80));
     let mut r = renderer(&faces, &at(80));
     feed(&mut t, &session(60));
@@ -348,7 +348,7 @@ fn a_listing_narrowed_at_a_prompt_is_drawn_at_its_words_through_a_drag() {
 fn a_fresh_windows_listing_narrowed_at_a_prompt_loses_nothing() {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
-    let mut owned = Owned::new(&at(80));
+    let mut owned = Owned::new(at(80));
     let mut t = Term::new(owned.storage(), &at(80));
     let mut r = renderer(&faces, &at(80));
     feed(&mut t, &session(0));

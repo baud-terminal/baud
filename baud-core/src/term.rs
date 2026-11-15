@@ -2986,7 +2986,14 @@ impl<'b> Term<'b> {
         let (want_cols, want_rows) = ws.geometry();
         let cap = self.store.row_capacity();
         let cols = want_cols.clamp(MAX_COLS).clamp(self.stride.index());
-        let rows = want_rows.clamp(MAX_ROWS).clamp(cap.index());
+        // And the rows the budget holds at that width: a width up to the
+        // pitch can be wider than the provision, so the provision's rows
+        // alone could name more renditions than the table holds
+        // ([`crate::Provision`]).
+        let rows = want_rows
+            .clamp(MAX_ROWS)
+            .clamp(cap.index())
+            .clamp(crate::Provision::rows_for(cols).index());
         let over = cols.index() != want_cols.index() || rows.index() != want_rows.index();
         let (old_rows, old_cols) = (self.rows, self.cols);
         let g = ResizeGeometry {

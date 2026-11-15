@@ -4701,7 +4701,7 @@ mod tests {
     /// break: show the address as printed -- the hidden `bcc` shows raw.
     #[test]
     fn the_hover_shows_a_mailto_link_as_it_is_handed_on() {
-        let mut owned = Owned::new(&WinSize {
+        let mut owned = Owned::new(WinSize {
             ws_col: 80,
             ws_row: 6,
         });

@@ -444,7 +444,7 @@ mod tests {
         l.read(&[], at(Duration::ZERO));
         l.answered(at(Duration::ZERO));
         l.wrote(Wrote::Part, at(Duration::ZERO));
-        let mut term_owned = baud_core::Owned::new(&baud_core::WinSize {
+        let mut term_owned = baud_core::Owned::new(baud_core::WinSize {
             ws_col: 10,
             ws_row: 2,
         });

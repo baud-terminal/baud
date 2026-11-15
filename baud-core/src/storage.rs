@@ -770,34 +770,36 @@ pub struct Owned {
 
 #[cfg(feature = "alloc")]
 impl Owned {
-    /// Sized to `ws`, with the three-byte cell table **absent**.
+    /// Sized to `size` -- a [`Provision`], or a [`WinSize`] its rows clamped
+    /// to one -- with the three-byte cell table **absent**.
     ///
     /// An empty `cells3` is how a caller declines it, and declining is the
     /// default: its only reader is behind `cell-table`, and passing the full
     /// 2 MiB otherwise costs 262,144 property-table lookups and 2 MiB of
     /// stores at construction for a table no read will consult.
-    pub fn new(ws: &WinSize) -> Owned {
-        Owned::with_geometry(ws, &CacheGeometry::UNKNOWN)
+    pub fn new(size: impl Into<Provision>) -> Owned {
+        Owned::with_geometry(size, &CacheGeometry::UNKNOWN)
     }
 
-    /// Sized to `ws`, at the pitch [`grid_stride`] derives from `geom`.
+    /// Sized to `size`, at the pitch [`grid_stride`] derives from `geom`.
     ///
     /// [`Owned::new`] passes [`CacheGeometry::UNKNOWN`], which is safe: an
     /// odd number of the smallest line any cache uses, so it aliases no way
     /// on any machine, at the step the search chose for that line. An app
     /// hands in what its host detected -- `baud-isa`'s per-arch crates -- so
     /// the pitch is the one searched for *this* machine's line.
-    pub fn with_geometry(ws: &WinSize, geom: &CacheGeometry) -> Owned {
-        Owned::with_history(ws, geom, Depth::DEFAULT)
+    pub fn with_geometry(size: impl Into<Provision>, geom: &CacheGeometry) -> Owned {
+        Owned::with_history(size, geom, Depth::DEFAULT)
     }
 
-    /// Sized to `ws` at the pitch `geom` and `ws`'s width choose, with
+    /// Sized to `size` at the pitch `geom` and its width choose, with
     /// `depth` lines of scrollback behind the screen: [`Depth::NONE`] for a
     /// terminal that keeps none. The width is provisioned as well as the
     /// height -- a resize past it answers `Truncated` -- because every line
     /// of scrollback costs a row of the pitch.
-    pub fn with_history(ws: &WinSize, geom: &CacheGeometry, depth: Depth) -> Owned {
+    pub fn with_history(size: impl Into<Provision>, geom: &CacheGeometry, depth: Depth) -> Owned {
         use alloc::vec;
+        let ws = &size.into().size();
         let (cols, rows) = ws.geometry();
         let stride = grid_stride(geom, cols);
         let span = RowBlock::leading(rows, stride);
@@ -1290,6 +1292,112 @@ pub const NSTYLE_MAX: usize = 1 << 16;
 /// active screen can name, which is what a freeze leaves it
 /// (`crate::freeze`).
 pub const RESERVED_SLOTS: usize = 3;
+
+/// **A screen size the rendition table can hold every rendition of**: the
+/// cells rule, `rows * cols + cols + RESERVED_SLOTS <= NSTYLE_MAX` -- the
+/// screen, its status row and the slots no cell names -- so a screen whose
+/// every cell names its own rendition never refuses one. Built only under
+/// that rule, so storage made from it is within the budget by its type:
+/// [`Provision::of`] refuses a size past it, and a raw [`WinSize`] converts
+/// by keeping its columns and clamping its rows to [`Provision::rows_for`],
+/// which is how a size that names more rows than the table can hold reaches
+/// storage. At 2^16 slots, 400x162 is admitted and 400x163 is not, and
+/// 2048 columns hold 30 rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Provision {
+    cols: Cols,
+    rows: Rows,
+}
+
+/// A size [`Provision::of`] refused, as its columns and rows: no rows or no
+/// columns, or more cells than the rendition table holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OverBudget {
+    pub cols: Cols,
+    pub rows: Rows,
+}
+
+impl Provision {
+    /// `ws`, when it has a row and a column and the table holds every
+    /// rendition it can show.
+    pub fn of(ws: &WinSize) -> Result<Provision, OverBudget> {
+        // The slots it needs, by the cells rule, in 64 bits so no product of
+        // a `u16` pair overflows.
+        let (cols, rows) = (u64::from(ws.ws_col), u64::from(ws.ws_row));
+        let within = rows * cols + cols + RESERVED_SLOTS as u64 <= NSTYLE_MAX as u64;
+        match (ws.ws_col, ws.ws_row, within) {
+            (1.., 1.., true) => {
+                let (cols, rows) = ws.geometry();
+                Ok(Provision { cols, rows })
+            }
+            _ => {
+                let (cols, rows) = ws.geometry();
+                Err(OverBudget { cols, rows })
+            }
+        }
+    }
+
+    /// **The most rows a screen `cols` wide can hold**: zero where not one
+    /// row fits, and never past `MAX_ROWS`.
+    pub fn rows_for(cols: Cols) -> Rows {
+        let c = cols.index();
+        let room = NSTYLE_MAX.saturating_sub(c + RESERVED_SLOTS);
+        let rows = room.checked_div(c).unwrap_or(0);
+        Rows::of_index(rows.min(MAX_ROWS))
+    }
+
+    /// `ws` with its rows clamped to [`Provision::rows_for`] its columns,
+    /// and at least one row and one column.
+    pub fn clamped(ws: &WinSize) -> Provision {
+        let cols = ws
+            .ws_col
+            .clamp(1, u16::try_from(MAX_COLS).unwrap_or(u16::MAX));
+        let (c, _) = WinSize {
+            ws_col: cols,
+            ws_row: 1,
+        }
+        .geometry();
+        let most = u16::try_from(Provision::rows_for(c).index()).unwrap_or(u16::MAX);
+        let (cols, rows) = WinSize {
+            ws_col: cols,
+            ws_row: ws.ws_row.clamp(1, most.max(1)),
+        }
+        .geometry();
+        Provision { cols, rows }
+    }
+
+    /// The size, as a terminal's window size.
+    pub fn size(&self) -> WinSize {
+        let side = |n: usize| u16::try_from(n).unwrap_or(u16::MAX);
+        WinSize {
+            ws_col: side(self.cols.index()),
+            ws_row: side(self.rows.index()),
+        }
+    }
+
+    /// Its columns and rows.
+    pub fn geometry(&self) -> (Cols, Rows) {
+        (self.cols, self.rows)
+    }
+}
+
+impl From<&WinSize> for Provision {
+    fn from(ws: &WinSize) -> Provision {
+        Provision::clamped(ws)
+    }
+}
+
+impl From<WinSize> for Provision {
+    fn from(ws: WinSize) -> Provision {
+        Provision::clamped(&ws)
+    }
+}
+
+impl From<&Provision> for Provision {
+    fn from(p: &Provision) -> Provision {
+        *p
+    }
+}
 
 /// How many `(lead, continuation)` prefixes a three-byte character has.
 pub const CELLS3_PREFIXES: usize = 16 * 64;

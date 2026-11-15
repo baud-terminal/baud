@@ -2978,7 +2978,7 @@ fn moved_since_reads_a_rotation_the_short_way_round() {
     // must not compute for itself.
     // Provisioned at ten rows and started at eight, so the growth is real:
     // a storage sized to the short screen answers it with `Truncated`.
-    let mut owned = Owned::new(&WinSize {
+    let mut owned = Owned::new(WinSize {
         ws_col: 40,
         ws_row: 10,
     });

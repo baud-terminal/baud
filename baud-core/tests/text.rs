@@ -410,7 +410,7 @@ fn growing_past_the_row_capacity_is_truncated() {
     // Rows are provisioned as given; the width is provisioned to what the
     // resize below asks for, because the pitch is the provisioned width and
     // a wider ask is truncated to it too, which is not the claim under test.
-    let mut owned = Owned::new(&WinSize {
+    let mut owned = Owned::new(WinSize {
         ws_row: 24,
         ws_col: 100,
     });

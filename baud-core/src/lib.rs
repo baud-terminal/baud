@@ -291,8 +291,8 @@ pub use dcs::DECRQSS_MAX;
 pub use storage::Owned;
 pub use storage::{
     ARENA, CELLS3, CELLS3_PREFIXES, GRID, LINK_MAX, MAX_COLS, MAX_ROWS, NCLUSTER, NLINK, NSTYLE,
-    NSTYLE_MAX, OSC_MAX, PALETTE_LEN, READ_CHUNK, REPLY, REPLY_MOST, RESERVED_SLOTS, Storage,
-    StrBuf, StyleBook, StyleTable, TITLE_SLOTS, TITLE_STACK, grid_stride,
+    NSTYLE_MAX, OSC_MAX, OverBudget, PALETTE_LEN, Provision, READ_CHUNK, REPLY, REPLY_MOST,
+    RESERVED_SLOTS, Storage, StrBuf, StyleBook, StyleTable, TITLE_SLOTS, TITLE_STACK, grid_stride,
 };
 /// Which surface is live, for a caller asking `Term::screen`.
 pub use term::{
