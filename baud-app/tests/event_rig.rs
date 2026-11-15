@@ -2551,16 +2551,25 @@ enum Settles {
     /// applied, a frame drawn, and paused again at the end.
     Restyled,
     /// **The window's key change heard with the link paused**: the focus
-    /// baud set is this, and the link paused at the end.
+    /// baud set is this, nothing delivered, and the link paused at the end.
+    /// The ticks are offered, so a tick taken is one that could have read
+    /// the focus: a change left owing a frame would run the link, a tick
+    /// offered then reaches the pump, and only the count of ticks delivered
+    /// tells that turn from the notification's.
     Focused(FocusSeen),
     /// **The display options' change heard with the link paused**: the
-    /// motion preference and the display settings each taken, and the link
-    /// paused at the end.
+    /// motion preference and the display settings each taken, nothing
+    /// delivered, and the link paused at the end. The ticks are offered, as
+    /// [`Settles::Focused`]'s are, and bounded for the same reason: the
+    /// display settings' change owes a frame, which runs the link, and a
+    /// read moved to the tick would be taken by an offered tick.
     Accessed,
     /// **A link moved under a resting pointer, read by the frame the read
     /// owes**: that frame's read found the link's preview, and the link
     /// paused at the end, so the preview rode the one frame the output owed
-    /// and nothing held the link after it.
+    /// and nothing held the link after it. The ticks delivered are not
+    /// bounded: the frame the read owes runs the link, and an offered tick
+    /// drawing it is the row's own path, not another's.
     Previewed,
     /// **Output on rows away from a resting pointer, and no read of it**:
     /// the link under the pointer previewed by the pointer's own event, at
@@ -2598,7 +2607,9 @@ enum Settles {
     Followed,
     /// **A link under the resting pointer previewed with no tick**, judged
     /// on the lifted arm alone (as [`Settles::OneLink`] is): the preview a
-    /// link and the link paused there. A miss is recorded as
+    /// link, nothing delivered, and the link paused there. The ticks are
+    /// offered, so a tick taken is one that could have sent the printed
+    /// paths' batch the preview waits on. A miss is recorded as
     /// [`Failure::Held`], a poll the tick makes still holding it.
     PreviewedUnticked,
     /// **The launch splash started with no tick**: the ticks withheld,
@@ -2751,10 +2762,15 @@ impl Settles {
                 c.link == LinkSeen::Pause && c.delivered >= 1 && c.sends >= 2 && c.owed == "Nothing"
             }
             Settles::Restyled => c.link == LinkSeen::Pause && c.styled >= 1 && c.drawn >= 1,
-            Settles::Focused(focus) => c.focus == focus && c.link == LinkSeen::Pause,
-            Settles::Accessed => c.link == LinkSeen::Pause && c.motion >= 1 && c.display >= 1,
-            Settles::Previewed | Settles::PreviewedUnticked => {
-                c.preview == PreviewSeen::Link && c.link == LinkSeen::Pause
+            Settles::Focused(focus) => {
+                c.delivered == 0 && c.focus == focus && c.link == LinkSeen::Pause
+            }
+            Settles::Accessed => {
+                c.delivered == 0 && c.link == LinkSeen::Pause && c.motion >= 1 && c.display >= 1
+            }
+            Settles::Previewed => c.preview == PreviewSeen::Link && c.link == LinkSeen::Pause,
+            Settles::PreviewedUnticked => {
+                c.delivered == 0 && c.preview == PreviewSeen::Link && c.link == LinkSeen::Pause
             }
             Settles::Titled(job) => c.delivered == 0 && c.title.contains(job),
             Settles::Reaped => c.delivered == 0 && c.reaped >= 1,
@@ -3115,8 +3131,10 @@ const FRAME_SITES: [FrameSite; 53] = [
         state: RowState::Green,
     },
     // **R3, eager start**: a read's echo owes a frame, and owing it runs
-    // the link (`App::owe_frame`), which no settle starts; once drawn it
-    // pauses again.
+    // the link (`App::owe_frame`); once drawn it pauses again. The settle
+    // that ends the turn runs the link too while a frame is owed
+    // (`Driver::settle`, `Act::Run`), so the row holds with either door
+    // alone and does not tell which ran it.
     FrameSite {
         name: SiteName("an echo runs the link, and it pauses again"),
         setup: STILL,
@@ -4429,6 +4447,37 @@ fn a_row_about_its_own_path_is_met_by_that_path_alone() {
         ("the link run", counts("run", 0, "asked /usr/bin")),
     ] {
         assert!(!filed.holds(&c), "{why}: {c:?}");
+    }
+}
+
+/// **A row heard with the ticks offered is not met by a tick delivered**
+/// (`Settles::Focused`, `Settles::Accessed`, `Settles::PreviewedUnticked`):
+/// read from the counts' own lines, as the frame rig's child prints them.
+/// Each is met with nothing delivered, the link paused and what it heard
+/// taken, and not by the same counts with one tick delivered: a tick
+/// offered and taken could have done the read the row says its event does.
+/// These rows offer ticks, so the bound is what tells a tick's read from
+/// the event's; a row whose own frame is the tick's (`Settles::Previewed`)
+/// carries none. Break: `c.delivered == 0` out of one of the three, and its
+/// tick delivered meets it.
+#[test]
+fn a_row_heard_with_ticks_offered_is_not_met_by_a_tick_delivered() {
+    let counts = |delivered: u32, focus: &str, taken: u32, preview: &str| {
+        let text = format!(
+            "frames link=pause delivered={delivered} sends=2 made=1 drawn=1 holders=- owed=Nothing styled=0 focus={focus} motion={taken} display={taken} preview={preview} reads=0 fed=0 reaped=0 followed=0,0,0 hands=0 greeted=0 asked=0 held=0 batches=0 marked=0 flips=0 first=0 offered=100 gpu_failed=0 gpu_slowest_us=0 gpu_overdue=0 gpu_late=0 gpu_gave_up=0 gpu_whole=0 opened=unset gpu_use=live switched=none layer=unset gpu_made=1 gpu_held=0 lit=- expired=0 notices=0 alive=unanswered notice_reads=0 tips=0 looks=0 edges=0 facts=0 reported=0\n"
+        );
+        Counters::parse(&text).expect("the counts")
+    };
+    for (row, focus, taken, preview) in [
+        (Settles::Focused(FocusSeen::Gained), "gained", 0, "unset"),
+        (Settles::Focused(FocusSeen::Lost), "lost", 0, "unset"),
+        (Settles::Accessed, "lost", 1, "unset"),
+        (Settles::PreviewedUnticked, "gained", 0, "link"),
+    ] {
+        let met = counts(0, focus, taken, preview);
+        assert!(row.holds(&met), "{row:?}, nothing delivered: {met:?}");
+        let ticked = counts(1, focus, taken, preview);
+        assert!(!row.holds(&ticked), "{row:?}, a tick delivered: {ticked:?}");
     }
 }
 
