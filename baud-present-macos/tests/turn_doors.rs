@@ -970,8 +970,20 @@ fn the_window_crate_s_senders_are_its_own() {
                 .path()
                 .join(format!("macos-liquid-glass-{version}/src"))
         })
-        .find(|p| p.is_dir())
-        .expect("the window crate's source");
+        .find(|p| p.is_dir());
+    // On macOS the crate is a dependency and cargo has its source. Elsewhere
+    // cargo fetches it only for a build for macOS, so a registry without it
+    // has nothing to read, and the check is made where it is.
+    let Some(crate_dir) = crate_dir else {
+        if cfg!(target_os = "macos") {
+            panic!("the window crate's source is not in {}", home.display());
+        }
+        eprintln!(
+            "skipped: macos-liquid-glass {version}'s source is not in {}",
+            home.display()
+        );
+        return;
+    };
     let mut source = String::new();
     for entry in read_dir(&crate_dir).expect("its sources") {
         let path = entry.expect("an entry").path();
