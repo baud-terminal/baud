@@ -33,7 +33,14 @@ pub fn write_text(_turn: &crate::turn::Turn<'_>, text: &str) -> Written {
 
 #[cfg(not(feature = "effect-probe"))]
 fn written(text: &str) -> Written {
-    let board = NSPasteboard::generalPasteboard();
+    written_to(&NSPasteboard::generalPasteboard(), text)
+}
+
+/// Replace `board`'s contents with `text`, as the one string type
+/// [`STRING_TYPE`]: the text's UTF-8 bytes, which AppKit also lists under
+/// the legacy name it keeps for that type.
+#[cfg(not(feature = "effect-probe"))]
+fn written_to(board: &NSPasteboard, text: &str) -> Written {
     board.clearContents();
     let kind = NSString::from_str(STRING_TYPE);
     match board.setString_forType(&NSString::from_str(text), &kind) {
@@ -92,11 +99,43 @@ pub fn write_find(_turn: &crate::turn::Turn<'_>, text: &str) -> Written {
 
 #[cfg(not(feature = "effect-probe"))]
 fn found(text: &str) -> Written {
-    let board = find_board();
-    board.clearContents();
-    let kind = NSString::from_str(STRING_TYPE);
-    match board.setString_forType(&NSString::from_str(text), &kind) {
-        true => Written::Taken,
-        false => Written::Refused,
+    written_to(&find_board(), text)
+}
+
+#[cfg(all(test, not(feature = "effect-probe")))]
+mod tests {
+    use super::*;
+
+    /// A pasteboard of this test's own, by name: the general one and the
+    /// find one are never written.
+    const TEST_BOARD: &str = "baud test pasteboard";
+
+    /// **Copied text is written as UTF-8**: pointed Hebrew, an accented
+    /// letter precomposed and decomposed, and a four-byte emoji, written
+    /// through the writer a copy takes onto a pasteboard of the test's own,
+    /// read back under `public.utf8-plain-text` as exactly the text's UTF-8
+    /// bytes, that type the first the pasteboard lists.
+    ///
+    /// The type is spelled here, not read from [`STRING_TYPE`], so the
+    /// writer's type is checked rather than echoed. Perturbation: set
+    /// [`STRING_TYPE`] to `public.plain-text` or
+    /// `com.apple.traditional-mac-plain-text`, and the pasteboard holds no
+    /// UTF-8 string and lists that type first.
+    #[test]
+    fn copied_text_is_written_as_its_utf8_bytes() {
+        const TEXT: &str =
+            "\u{5e9}\u{5b8}\u{5c1}\u{5dc}\u{5d5}\u{5b9}\u{5dd} caf\u{e9} cafe\u{301} \u{1f980}";
+        let board = NSPasteboard::pasteboardWithName(&NSString::from_str(TEST_BOARD));
+        assert_eq!(written_to(&board, TEXT), Written::Taken);
+        const UTF8: &str = "public.utf8-plain-text";
+        let bytes = board
+            .dataForType(&NSString::from_str(UTF8))
+            .map(|d| d.to_vec());
+        assert_eq!(bytes.as_deref(), Some(TEXT.as_bytes()));
+        let types: Vec<String> = board
+            .types()
+            .map(|t| t.to_vec().iter().map(|k| k.to_string()).collect())
+            .unwrap_or_default();
+        assert_eq!(types.first().map(String::as_str), Some(UTF8), "{types:?}");
     }
 }

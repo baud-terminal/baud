@@ -528,6 +528,54 @@ mod tests {
         assert_eq!(clips.poll(&t, Osc52::Write), None);
     }
 
+    /// **A program's copy of non-ASCII text is the UTF-8 it encoded**:
+    /// pointed Hebrew, an accented letter and a four-byte emoji whose bytes
+    /// straddle two base64 quanta, sent as a multiplexer's copy mode sends
+    /// them -- `OSC 52` naming `c` or an empty `Pc`, ended by BEL or ST --
+    /// and as `OSC 1337 ; Copy=:`, each split across two reads at every
+    /// byte, reach the pasteboard writer as that exact text and nothing
+    /// else.
+    ///
+    /// Perturbation: build the text in `decide` from each octet as a
+    /// character of its own (`b as char`), and every non-ASCII letter comes
+    /// out as two or more Latin-1 characters.
+    #[test]
+    fn a_programs_copy_of_non_ascii_text_is_the_utf8_it_encoded() {
+        const TEXT: &str = "\u{5e9}\u{5b8}\u{5c1}\u{5dc}\u{5d5}\u{5b9}\u{5dd} caf\u{e9}, \u{1f980}";
+        const B64: &str = "16nWuNeB15zXlda5150gY2Fmw6ksIPCfpoA=";
+        let sent = [
+            format!("\x1b]52;c;{B64}\x07"),
+            format!("\x1b]52;;{B64}\x07"),
+            format!("\x1b]52;c;{B64}\x1b\\"),
+            format!("\x1b]52;;{B64}\x1b\\"),
+            format!("\x1b]1337;Copy=:{B64}\x07"),
+        ];
+        for sent in &sent {
+            let bytes = sent.as_bytes();
+            for cut in 1..bytes.len() {
+                let mut s = Owned::new(&WS).with_clipboard(ClipboardBudget::of_text(64));
+                let mut t = Term::new(s.storage(), &WS);
+                let mut clips = Clips::new(&t);
+                let mut board = Vec::new();
+                crate::reads::feed(
+                    &mut t,
+                    [&bytes[..cut], &bytes[cut..]],
+                    |_| {},
+                    |t| {
+                        if let Some((d, _)) = clips.poll(t, Osc52::Write) {
+                            board.push(match d {
+                                Decision::Set(text) => Ok(text.to_string()),
+                                other => Err(format!("{other:?}")),
+                            });
+                        }
+                    },
+                    &mut crate::hostlog::NoLog,
+                );
+                assert_eq!(board, [Ok(TEXT.to_string())], "{sent:?} cut at {cut}");
+            }
+        }
+    }
+
     /// **On Wayland each selection named is its own**: `c` the clipboard,
     /// `p` the primary, and `s` -- an empty `Pc` too, ctlseqs' `s 0` --
     /// SELECT, the primary while `?1041` is reset and the clipboard while

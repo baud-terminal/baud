@@ -273,3 +273,28 @@ fn decrlcm_reads_a_history_line_from_its_right_edge() {
     s.extend(end);
     assert_eq!(s.text(&t, scrolled), "owt\neerht");
 }
+
+/// **A copy of non-ASCII text is that text**: pointed Hebrew, an accented
+/// letter precomposed and decomposed, a wide emoji and a ZWJ sequence,
+/// selected across two rows, read back as the characters written, each
+/// once and in the order written, which the pasteboard writer takes as its
+/// UTF-8 string.
+///
+/// Perturbation: push each cell's content through a one-byte character set
+/// in `push_cell`, and every letter above `U+007F` changes.
+#[test]
+fn a_copy_of_non_ascii_text_is_that_text() {
+    const WIDE: WinSize = WinSize {
+        ws_col: 30,
+        ws_row: 3,
+    };
+    let hebrew = "\u{5e9}\u{5b8}\u{5c1}\u{5dc}\u{5d5}\u{5b9}\u{5dd}";
+    let family = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}";
+    let row0 = format!("{hebrew} caf\u{e9} cafe\u{301}");
+    let row1 = format!("\u{1f980} {family}");
+    let mut owned = Owned::new(&WIDE);
+    let mut t = Term::new(owned.storage(), &WIDE);
+    feed(&mut t, format!("{row0}\r\n{row1}").as_bytes());
+    let s = select(&t, Scrolled::START, (0, 0), (1, 29));
+    assert_eq!(s.text(&t, Scrolled::START), format!("{row0}\n{row1}"));
+}
