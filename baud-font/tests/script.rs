@@ -151,7 +151,7 @@ fn text_selects_its_own_script_table_else_dflt() {
     let hebrew = Script::of(cp('א'));
     let latin = Script::of(cp('a'));
     let both = |t: &[u8; 4]| (Some(ScriptTag(*t)), Some(ScriptTag(*t)));
-    // The built JetBrains Mono carries a `hebr` record (note AC).
+    // The built JetBrains Mono carries a `hebr` record.
     let built = face_file("baud-app/fonts/built/Regular.ttf");
     assert_eq!(chosen(&built, hebrew), both(b"hebr"));
     assert_eq!(chosen(&built, latin), both(b"latn"));

@@ -372,8 +372,8 @@ impl Scale {
 ///
 /// A cell is a whole number of pixels and the font's advance is not, so
 /// rasterising at the cell's left edge leaves all the rounding slack on the
-/// right. [`Phase::centring`] is half of it, the one offset ghostty's
-/// CoreText path draws every glyph at (note J, decision 7): text is centred
+/// right. [`Phase::centring`] is half of it, the one offset every glyph is
+/// drawn at: text is centred
 /// in the block cursor at every size, and spacing does not change, because
 /// every glyph moves by the same amount. A CJK fallback face is centred the
 /// same way in its two cells, which can take more than a pixel; the whole

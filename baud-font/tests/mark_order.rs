@@ -2,7 +2,7 @@
 //! canonical order (`[[source: unicode-ch3]]` D109) over HarfBuzz's
 //! modified combining classes, which permute Hebrew's fixed-position
 //! classes 10-26 and leave every other class as it is
-//! (`[[source: harfbuzz-hb-unicode]]`; note AB 11.4).
+//! (`[[source: harfbuzz-hb-unicode]]`).
 //!
 //! The documents check the code here: the classes are read from the pinned
 //! UnicodeData.txt and the permutation from the pinned hb-unicode.hh, so a
@@ -143,7 +143,7 @@ fn every_pair_of_hebrew_marks_sorts_by_harfbuzzs_key() {
 
 /// **shin + qamats + shin dot, and every spelling of it with a dagesh**,
 /// normalise to shin, shin dot, dagesh, qamats: the order Courier New's
-/// `ccmp` forms the shin-dot ligature in (note AB 11.4), from all six
+/// `ccmp` forms the shin-dot ligature in, from all six
 /// spellings of the three points.
 #[test]
 fn every_spelling_of_shin_with_three_points_normalises_alike() {

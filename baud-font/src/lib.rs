@@ -30,8 +30,8 @@
 //! and `COLR` v0 with `CPAL`. The PNG decoder those strikes need is
 //! `baud_domain::png`, written in the workspace rather than pulled in
 //! because a decoder is a dependency in every sense that constraint names,
-//! and moved to `baud-domain` so the core decodes kitty pictures through
-//! the same code (note V, V19 step 2); it is re-exported here.
+//! and lives in `baud-domain` so the core decodes the terminal graphics
+//! protocol's (APC G) pictures through the same code; it is re-exported here.
 //!
 //! **Phase 2: the rasteriser.** Signed-area accumulation into a caller's
 //! `f32` scratch, then a prefix sum into an 8-bit coverage mask -- the

@@ -11,7 +11,7 @@ use baud_domain::Codepoint;
 use baud_font::{Face, Sink};
 
 /// The four embedded styles, each with the tangent of its lean: the
-/// italics lean 9 degrees right (note AC, section 4c).
+/// italics lean 9 degrees right.
 const STYLES: [(&str, f32); 4] = [
     ("Regular", 0.0),
     ("Bold", 0.0),
@@ -68,7 +68,7 @@ fn points(face: &Face<'_>, c: char) -> Vec<(f32, f32)> {
 /// (the retired parametric build's round 1). Regular's head underside is at
 /// 548, so the whole end moved; Bold's thicker head starts at 517, so only
 /// its top corners moved and each end slanted 22 units, in Bold and Bold
-/// Italic; the band has started at y 500 since 2026-10-25. Each end's
+/// Italic; the band starts at y 500. Each end's
 /// outermost point at the top must stand over its outermost point at the
 /// underside, within a unit, once the italics' lean is taken out.
 #[test]

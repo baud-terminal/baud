@@ -1,5 +1,5 @@
 //! `gvar`: how each glyph's outline points move across the variation space.
-//! Step 2 of note Z. This module reads the table and applies one glyph's
+//! This module reads the table and applies one glyph's
 //! tuple variations to its points in caller-provided scratch; `glyf` walks the
 //! glyph, flattens its components and draws the result.
 //!

@@ -1225,9 +1225,9 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
     /// `|sum dx| > |sum dy|` -- as the figure the text sends a slanted flex
     /// to draws it ("as illustrated in the following figure",
     /// `[[source: ms-opentype-cff2-flex-depth-figure]]`; Figure 3 of
-    /// `[[source: adobe-5177-type2]]`), chosen on 2026-10-13 over the
-    /// perpendicular to the start-end line, that line's distance along the
-    /// minor axis, and the deepest of the three. A `flex` back at its start
+    /// `[[source: adobe-5177-type2]]`), not the perpendicular to the
+    /// start-end line, that line's distance along the minor axis, or the
+    /// deepest of the three. A `flex` back at its start
     /// is measured to its start's line, which is its end's.
     fn axis_depth(&self, x0: N, y0: N, joint: [N; 2], sum: [N; 2]) -> [N; 2] {
         let ([x3, y3], (x, y)) = (joint, (self.x, self.y));

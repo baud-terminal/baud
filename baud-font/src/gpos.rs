@@ -29,7 +29,7 @@
 //! (`[[source: harfbuzz-hb-ot-shape]]`, `zero_mark_widths_by_gdef()`), so an
 //! advance a lookup gives one is spent before anything reads it.
 //!
-//! **At a variation, a format-3 anchor moves** (note Z step 4): its x and y device
+//! **At a variation, a format-3 anchor moves**: its x and y device
 //! tables, when of the VariationIndex format `0x8000`, index `GDEF`'s item
 //! variation store, and the coordinate takes the store's delta rounded -- HarfBuzz
 //! 12.3.0's `AnchorFormat3::get_anchor` and `VariationDevice::get_x_delta`, which

@@ -170,7 +170,7 @@ impl<'a> Fvar<'a> {
 }
 
 /// `avar` version 1: one segment map per axis. Version 2's additions are
-/// not read (note Z's not-built rows); its version-1 part is.
+/// not read; its version-1 part is.
 #[derive(Clone, Copy)]
 pub struct Avar<'a> {
     maps: Bytes<'a>,

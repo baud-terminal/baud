@@ -48,9 +48,7 @@
 //! the one before, and by walking the records only on a size where one nests
 //! inside another ([`Records`]). A glyph at or past the face's `numGlyphs` has
 //! no bitmap, as in `sbix`. Format 4's pairs are searched among the real ones;
-//! the extra pair only marks where the last image ends. Sorted records, format
-//! 4, and the first record on an overlap date from 2026-10-02 and 2026-10-03;
-//! note J has the research.
+//! the extra pair only marks where the last image ends.
 //!
 //! **Strikes are enumerated, not chosen.** Which strike a renderer wants for
 //! a cell size is a policy the compositor owns; this module answers what the

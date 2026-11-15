@@ -171,7 +171,7 @@ enum Path {
 /// converted instances; else the CPU. The cell path draws a smaller program
 /// -- no cross-cell ligature and no attached mark, counted by
 /// `MapStats::dropped_marks` at 55 cells a frame on cat-cjk -- and that
-/// trade is the default (since 2026-09-13) until the hybrid lands; `1` asks
+/// trade is the default; `1` asks
 /// for the instances and their fidelity, `0` or `cpu` forces the CPU for a
 /// comparison that needs it. A bench pins the path explicitly so two arms
 /// never measure two tiers.
@@ -285,8 +285,8 @@ struct CellMemory {
     /// not the scrollback behind it -- laid out flat in screen order, which
     /// is why the shader reads it at [`RowRot::NONE`] with a ring of
     /// `rows`. It is 80,000 bytes at 200x50 and about 3 us of CPU, against
-    /// an 8,333 us frame at 120 Hz (note BC, section 3, where `frame_gpu`
-    /// read the copy and the live grid in the same GPU time under load).
+    /// an 8,333 us frame at 120 Hz, and the shader reads the copy in the
+    /// same GPU time as the live grid under load (`frame_gpu`).
     /// The record of which screen each set holds and the copy itself are
     /// [`Screens::take`], the code `frame_gpu`'s `app` arm runs.
     ///
@@ -770,8 +770,8 @@ struct App {
     /// Where the last key sent to the child stands: its echo not yet read,
     /// read but not yet drawn, or drawn. A wake draws at once only when a
     /// frame's time has passed since the last commit, so a flood draws
-    /// once a vsync -- and a keystroke landing inside that time waited for
-    /// the tick. Row 6 of note N: the read that brings a key's echo is
+    /// once a vsync -- and a keystroke landing inside that time would wait
+    /// for the tick. So the read that brings a key's echo is
     /// drawn as soon as no frame is in flight, whatever the clock says,
     /// and only that read; floods still coalesce.
     echo: Echo,
@@ -1260,7 +1260,7 @@ impl Boot {
     }
 
     /// **The GPU's probe, on its own thread**, started by `run` once the
-    /// shell is spawned (note AJ section 20): a `fork` waits for any
+    /// shell is spawned: a `fork` waits for any
     /// `dlopen` in flight, and the probe loads the GPU's driver.
     fn start_probe(request: Request) -> std::thread::JoinHandle<Option<Gpu>> {
         // The Metal device on its own thread: creating it is 10-30 ms on
@@ -1276,7 +1276,7 @@ impl Boot {
                 let b = g.build();
                 let t1 = Instant::now();
                 g.warm();
-                // The shader-cache question of note N's row 1, as numbers:
+                // What the shader cache saves, as numbers:
                 // the library compile and the five pipelines are what a
                 // cold cache makes expensive, and the device and the warm
                 // pass are the same on every launch.
@@ -1587,7 +1587,7 @@ impl App {
         crate::host::set_term_name(&mut term);
         crate::host::set_version_text(&mut term);
         crate::host::set_logging(&mut term, logging);
-        // A printer only where one is listed (`print.rs`; note AW), and a
+        // A printer only where one is listed (`print.rs`), and a
         // DSR `?15` held while the list is read again.
         crate::print::set_printer(&mut term, printing, printers_listed());
         crate::print::set_hold(&mut term, printing);
@@ -4651,7 +4651,7 @@ fn apply_glass(
 /// The window's body, from `[glass] style`: the see-through standard
 /// material, `.underWindowBackground`, by default -- Apple's material for
 /// app backgrounds, where Liquid Glass belongs to controls
-/// ([[source: apple-hig-materials]]; note AT) -- or Liquid Glass, regular
+/// ([[source: apple-hig-materials]]) -- or Liquid Glass, regular
 /// or clear. Both are retains: a clone addresses the one AppKit view.
 #[derive(Clone)]
 enum Body {
@@ -4735,10 +4735,10 @@ fn drawn_in(kind: BodyKind, system: Appearance, widget: Appearance) -> Appearanc
 }
 
 /// What the floor reads text against under the page: the see-through
-/// standard material's greys for the half, from note AT's model, while
+/// standard material's modelled greys for the half, while
 /// the palette follows the system -- the material follows the window's
 /// appearance, so a palette that follows it too sits on that half's
-/// material. Black to white over the glass (note AS), and under a pinned
+/// material. Black to white over the glass, and under a pinned
 /// palette, which can sit on either half's material.
 fn backdrop(
     style: crate::config::Material,
@@ -4775,7 +4775,7 @@ fn theme_for(
 }
 
 /// Both palettes, built once at launch from the config: an appearance flip
-/// swaps between them and reads nothing (note Y, step 4).
+/// swaps between them and reads nothing.
 struct Themes {
     dark: Theme,
     light: Theme,
@@ -4830,7 +4830,7 @@ pub(crate) fn themes_with(halves: &crate::palette::Halves) -> (Theme, Theme) {
 }
 
 /// What macOS's Accessibility Display settings ask of the cells, read on
-/// the tick beside Reduce Motion (note Y, decision 9). Off, the default,
+/// the tick beside Reduce Motion. Off, the default,
 /// until the first read, which `run` makes before the first frame.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 struct Display {
@@ -4873,7 +4873,7 @@ fn display_settings(
 /// **Reduce Transparency draws every background at alpha 1.0**, the margin
 /// included, since it clears to the default background at the theme's
 /// alpha. That overrides the rule that application backgrounds stay dim,
-/// and only while the setting is on (note Y, decision 9). The 32 pt
+/// and only while the setting is on. The 32 pt
 /// titlebar strip stays material, which the system itself frosts under the
 /// setting.
 fn accessible(mut theme: Theme, display: Display) -> Theme {
@@ -4910,7 +4910,7 @@ enum PaletteSwitch {
 /// `viewDidChangeEffectiveAppearance` whenever the view's effective appearance
 /// object changes, which includes accessibility variants such as Increase
 /// Contrast where light or dark is the same, and a switch drops every colour
-/// an application set (note Y, decision 5). So a callback that resolves to the
+/// an application set. So a callback that resolves to the
 /// appearance the palette is already set for changes nothing, and a pinned
 /// theme never switches, rather than dropping them on every callback.
 fn palette_switch(
@@ -6029,7 +6029,7 @@ enum Thumb {
 /// the history that came to the live screen reveals its thumb, as a key's
 /// snap does (V1's first fork). **The window is the one the reset took live,
 /// at the reset's byte**, which the core keeps with the first erasure
-/// (`Erasure::Reset`, note V, V2), so the answer is the same however the
+/// (`Erasure::Reset`), so the answer is the same however the
 /// bytes fell into pumps: the primary's window is drawn only while the
 /// primary is up, and any erasure takes it live, so only the first erasure
 /// in a pump can reveal, and only a reset made from the primary while the
@@ -6390,8 +6390,7 @@ mod alt_window_tests {
     /// **A region retire keeps a selection on the rows under the region on
     /// their text, and one in the region moves with its rows.** The rows
     /// under it stayed while the count advanced, so the core carries the
-    /// selection there against the count (since 2026-10-20; it was dropped
-    /// until then); a whole-screen scroll moves every row; a read that
+    /// selection there against the count; a whole-screen scroll moves every row; a read that
     /// resets its region after the scroll is judged by the scroll's own
     /// rows. At every read size and every split into two reads, each kept
     /// selection on its own text.
@@ -6535,7 +6534,7 @@ mod alt_window_tests {
     }
 
     /// **Rows a region moved in place carry a selection on them with their
-    /// text** (since 2026-10-20, as xterm does; dropped until then). A
+    /// text**. A
     /// region in the middle of the screen scrolls by copying its rows, so
     /// no ring moves and the count does not renumber the selection: the
     /// core's watch carries it a row up with the pane's line. Above the
@@ -7153,15 +7152,13 @@ mod alt_window_tests {
     }
 
     /// **A scroll carries a selection with its text, at every read size and
-    /// split, on both screens** -- the three cases open until 2026-10-20,
-    /// settled as xterm does with `keepSelection` at its default. A scroll
+    /// split, on both screens**. A scroll
     /// down keeps what it does not push under the screen (`SD 2` over rows 5
     /// to 9, `RI` at the top over rows 8 and 9); a region's scroll, `3;8`
     /// (rows 2 to 7), moves the rows inside it, keeps the part inside of one
     /// across its top or its bottom, and drops one it scrolls out whole;
     /// `IL` and `DL` there move the rows below the cursor, and drop one
-    /// holding the cursor's row or a deleted one. Each was dropped until
-    /// then.
+    /// holding the cursor's row or a deleted one.
     #[test]
     fn a_scroll_carries_a_selection_with_its_text_at_every_read_size() {
         let region: &[u8] = b"\x1b[3;8r";
@@ -7991,8 +7988,8 @@ mod alt_window_tests {
     /// **The driver's calls into these are AppKit-bound**, so no test above
     /// reaches them: `present`, `select`, the link under a Cmd-click, the
     /// pump and the resize. This holds the source to them instead. **The app
-    /// keeps no count of the window** (note V, V2): the core holds it, and a
-    /// stored copy is the second numbering three recorded bugs came from, so
+    /// keeps no count of the window**: the core holds it, and a stored copy
+    /// would be a second numbering that can disagree with it, so
     /// no line names one. Every read asks the core for the window drawn
     /// (`Term::window_back`, zero on the alternate screen), and the
     /// primary's own, which the alternate screen does not clamp, is read
@@ -9493,7 +9490,7 @@ mod drag_tests {
     }
 
     /// **The shell is spawned before the GPU's probe and the read of the
-    /// machine's names** (note AJ section 20): `fork` first takes dyld's
+    /// machine's names**: `fork` first takes dyld's
     /// `dlopen` lock and then runs every `pthread_atfork` handler, and
     /// libinfo's mDNS handler waits for a lookup in flight, so a thread
     /// reading the machine's name, or one loading the GPU's driver, held
@@ -10418,8 +10415,8 @@ mod resize_selection_tests {
         got
     }
 
-    /// **A height-only resize keeps the selection on its lines** (note V,
-    /// V3): with the cursor on the last row a shrink to six rows retires
+    /// **A height-only resize keeps the selection on its lines**: with the
+    /// cursor on the last row a shrink to six rows retires
     /// four into the history and the growth back pulls them; the selection
     /// on rows 3 to 5 holds "line 34" to "line 36" through both, and through
     /// a growth that pulls more history than the shrink retired. Every
@@ -10468,7 +10465,7 @@ mod resize_selection_tests {
     }
 }
 
-/// **What a full reset owes the app** (note V, V1): when the core's reset
+/// **What a full reset owes the app**: when the core's reset
 /// count moves across a read, the selection goes, the echoes drawn ahead of
 /// the shell are dropped as contradicted, the wheel's part-line settles, and
 /// a window over the history comes to the live screen with its thumb revealed
@@ -10478,7 +10475,7 @@ mod resize_selection_tests {
 /// reset count can say, and `CSI 3 J` -- which moves the erasure count and
 /// keeps the screen -- is the control that tells the two apart. Each read
 /// here is the pump's: `Before`, the feed, then `restart`; the window is the
-/// core's (note V, V2).
+/// core's.
 #[cfg(test)]
 mod restart_tests {
     use super::{Before, Guess, Kept, Prediction, Surface, Thumb, restart, window_of};
@@ -10817,7 +10814,7 @@ mod restart_tests {
     /// only the first erasure in a pump can, since any erasure takes the
     /// window live. The last four take the window live with `SD`, `RI` at
     /// the top or a prompt redraw before the reset: read at the pump's
-    /// start, a pump holding both revealed (note V, V2).
+    /// start, a pump holding both would reveal.
     #[test]
     fn a_resets_reveal_is_the_same_however_the_bytes_fall_into_pumps() {
         let lines: Vec<u8> = (0..12)
@@ -11077,7 +11074,7 @@ mod restart_tests {
     /// so the source is held: the erasure watch and the row watch, on the
     /// selection the read finds, are armed before the feed, and the row
     /// watch read after it; no window is read there -- the reset's window
-    /// is the core's, kept at its byte (note V, V2);
+    /// is the core's, kept at its byte;
     /// `restart` runs after the `Retired` arm, which can start a slide, and
     /// after the erased snap, so neither undoes what it settles, and before
     /// the clip; and the reveal and the switch's fade follow what it says.
@@ -14558,7 +14555,7 @@ impl Driver {
             // Looking back while output scrolls, the window stays on the lines
             // it was showing: the core holds it there, byte by byte, and sends
             // it live where a scroll down, `RI` at the top or a redraw mark took
-            // its line back, or an erasure took the lines (note V, V2).
+            // its line back, or an erasure took the lines.
             let moved = read_moved(&self.app.term, before, resized);
             // The selection names absolute lines; the count that numbers them
             // moves with the screen, by the core's count of the lines the read
@@ -14656,7 +14653,7 @@ impl Driver {
                 self.app.slide.snap();
             }
             // A switch of surface, or a full reset: what the app keeps over the
-            // screen names cells that are gone (note V, V1).
+            // screen names cells that are gone.
             let (surface, thumb) = restart(
                 &self.app.term,
                 before,
@@ -15825,10 +15822,7 @@ pub fn run() {
     // spawned at its real grid before AppKit starts, and its own startup
     // overlaps AppKit's rather than following it. The scale is not a cheap
     // answer: it is the first CoreGraphics call, the window server
-    // connection, 23.6 ms on this box, and the `scale` mark says so. Row 3
-    // of note N spawned the shell on a predicted scale ahead of it and
-    // gained 8 ms on the prompt, under the 20 ms floor; the arm is the
-    // commit this one reverts.
+    // connection, 23.6 ms on this box, and the `scale` mark says so.
     let early_scale = crate::pty::display_scale();
     startup_mark("scale");
     let inset = predicted_inset(mtm, size);
@@ -16062,7 +16056,7 @@ impl Shell {
         })
         .expect("pty");
         startup_mark("pty");
-        // **The launch's threads after the shell** (note AJ section 20):
+        // **The launch's threads after the shell**:
         // `fork` takes dyld's `dlopen` lock and then runs each `pthread_atfork`
         // handler, libinfo's mDNS one waiting out a lookup in flight
         // ([[source: apple-libsystem-init-c]], [[source: apple-libinfo-mdns-module-c]]).
@@ -16166,8 +16160,8 @@ impl Opening {
         // **The body is the config's, and it is chosen once.** `Standard`, the
         // default, is `.underWindowBackground`: the HIG puts "Standard
         // materials" behind "app backgrounds" and keeps Liquid Glass out of the
-        // content layer ([[source: apple-hig-materials]]; note AT), the default
-        // since 2026-10-18. `Regular` is the glass the HIG gives surfaces with
+        // content layer ([[source: apple-hig-materials]]). `Regular` is the
+        // glass the HIG gives surfaces with
         // "a significant amount of text"; `Clear` the more transparent glass.
         // Unlike the dim, the tint and the shadow, the body does not change
         // with the appearance -- the standard material follows the window's
@@ -17252,7 +17246,7 @@ impl Driver {
     /// [[source: apple-nswindow-occlusionstate]]): its clock starts on the
     /// frame this owes. The window was ordered front with no open animation
     /// and its first frame already on its layer (`run`), so on screen is
-    /// whole on screen (note AJ, sections 13 and 15). It waits too for the
+    /// whole on screen. It waits too for the
     /// plasma's pipelines, built on a thread of their own from the window's
     /// being shown, so the emerge's first frame never pays for them and
     /// nothing before it waits on them (`App::build_plasma`).
@@ -20156,7 +20150,7 @@ impl Driver {
             self.app.grid = ws;
             // A reflow re-cuts every line, so the columns a selection named
             // no longer name cells; a change of height alone on the primary
-            // keeps it on its lines (note V, V3). The core's record of the
+            // keeps it on its lines. The core's record of the
             // resize, taken once, moves the counts and files the paths.
             let rec = self.app.term.take_record();
             (self.app.selection, self.app.scrolled) = kept_across_resize_owing(
@@ -21321,8 +21315,7 @@ mod tests {
 
     /// **Reduce Transparency draws every background opaque**, the default
     /// one and every one a program sets, so the margin, which clears to the
-    /// default background at the theme's alpha, is opaque too (note Y,
-    /// decision 9). Nothing else in the theme moves: the colours the core
+    /// default background at the theme's alpha, is opaque too. Nothing else in the theme moves: the colours the core
     /// reports are the same, so the poll owes it no new defaults.
     #[test]
     fn reduce_transparency_draws_every_background_opaque() {
@@ -21377,9 +21370,9 @@ mod tests {
     }
 
     /// **Increase Contrast makes the floor stricter**: a trigger of at
-    /// least 3.0 and a target of at least 4.5 (note Y, decision 9), over a
-    /// floor that is off too, by analogy with Reduce Transparency over the
-    /// dim (note Y). A reader's stricter floor is kept, never lowered:
+    /// least 3.0 and a target of at least 4.5, over a
+    /// floor that is off too, as Reduce Transparency overrides the
+    /// dim. A reader's stricter floor is kept, never lowered:
     /// `floor = 7` is a target of 7 already.
     #[test]
     fn increase_contrast_makes_the_floor_stricter() {
@@ -24029,9 +24022,8 @@ mod tests {
         assert_eq!(request.matches("window_later(&w, action)").count(), 1);
     }
 
-    /// **`BAUD_LOG` governs the trace lines.** They were bare `eprintln!`s,
-    /// so `trace: off …` printed on every launch and `BAUD_LOG=err` did not
-    /// silence it (note AI, section 8). The off and writing lines are
+    /// **`BAUD_LOG` governs the trace lines**, so `BAUD_LOG=err` silences
+    /// `trace: off …`. The off and writing lines are
     /// startup diagnostics, at `info` beside `renderer:`; a `BAUD_TRACE`
     /// that could not be acted on is a `warn`, as `BAUD_GPU`'s is. Read from
     /// the source, because the macros write to stderr, where a test cannot
@@ -24413,7 +24405,7 @@ impl PrinterList {
 /// derived title once the thread has ended, never waited for: the first
 /// title is derived on the shell's first output, which comes while the
 /// launch logo plays, and a wait there holds the logo's frames for as long
-/// as the name takes to read (`derived_title`, note AJ section 18).
+/// as the name takes to read (`derived_title`).
 ///
 /// **`gethostname`'s name is given at once** (`given`): it is local and
 /// asks nothing of the network, and it is the name a shell's `OSC 7`
@@ -25681,7 +25673,7 @@ mod host_tests {
 
     use baud_core::{FileHost, WorkingDirectory};
 
-    /// **The names are never waited for** (note AJ section 18): the first
+    /// **The names are never waited for**: the first
     /// title is derived on the shell's first output, while the launch logo
     /// plays on the same thread, so taking the names while their thread
     /// still reads answers at once with none -- here a thread held until

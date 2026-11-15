@@ -1,5 +1,5 @@
-//! The item variation store and delta-set index maps: how `HVAR` (step 3
-//! of note Z) and `GDEF`'s device tables (step 4) vary a value.
+//! The item variation store and delta-set index maps: how `HVAR` and
+//! `GDEF`'s device tables vary a value.
 //!
 //! The formats are `[[source: ms-opentype-otvarcommonformats]]`. Where it
 //! leaves a choice -- the arithmetic, what a region that is not a region

@@ -1,7 +1,7 @@
 //! A [`Phase`] moves a glyph's ink by exactly that fraction of a pixel.
 //!
-//! The renderer centres every glyph in its cell with one phase (note J,
-//! decision 7); the arithmetic that makes it is here, apart from any cell.
+//! The renderer centres every glyph in its cell with one phase; the
+//! arithmetic that makes it is here, apart from any cell.
 
 use baud_domain::Codepoint;
 use baud_font::{Bounds, Canvas, Face, Fit, Phase, Px, Rasterizer, Scale};

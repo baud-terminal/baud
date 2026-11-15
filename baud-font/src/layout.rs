@@ -487,9 +487,8 @@ pub struct Gdef<'a> {
     /// Version 1.3's item variation store, which a device table indexes:
     /// `None` when the table is older, the offset 0, or the store
     /// malformed -- every delta is then 0, the per-subtable rule this
-    /// reader keeps for every part of `GDEF` (note Z step 4). HarfBuzz
-    /// refuses the whole table on a malformed store
-    /// (`[[source: harfbuzz-12-3-0-gdef]]`).
+    /// reader keeps for every part of `GDEF`, rather than refusing the
+    /// whole table on a malformed store.
     store: Option<crate::ivs::Store<'a>>,
 }
 

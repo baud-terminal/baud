@@ -56,8 +56,7 @@
 //! every glyph and requires each glyph's xMin to be its lsb
 //! (`[[source: ms-opentype-head]]`); a font that sets the bit and breaks
 //! the requirement is drawn from `xMin - lsb` all the same, by `hmtx`'s
-//! formula, as HarfBuzz and FreeType draw it whatever the bit (note Z, step
-//! 8, question 6). So the bit is not read.
+//! formula, whatever the bit. So the bit is not read.
 
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
 use crate::gvar::{Gvar, Referenced, Track};

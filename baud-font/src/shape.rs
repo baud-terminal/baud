@@ -277,11 +277,10 @@ impl CombiningClass {
     /// used", `[[source: unicode-faq-normalization]]`); what it changes is
     /// the order a font's `ccmp` meets the points in: Courier New's forms
     /// the shin-dot ligature from shin + shin dot, and not with a qamats
-    /// between them (note AB, 11.4). P5 of the same chapter: "Rendering
+    /// between them. P5 of the same chapter: "Rendering
     /// systems should be prepared to deal with common typed-in sequences
-    /// and with canonically reordered sequences". For Hebrew only (since
-    /// 2026-10-13): HarfBuzz's Arabic, Syriac and Brahmic modifications are
-    /// not taken.
+    /// and with canonically reordered sequences". For Hebrew only:
+    /// HarfBuzz's Arabic, Syriac and Brahmic modifications are not taken.
     fn sort_key(self) -> CombiningClass {
         match self.0 {
             k @ 10..=26 => HEBREW_SORT_KEY[usize::from(k - 10)],
@@ -297,7 +296,7 @@ impl CombiningClass {
     /// fell to a centred default with no vertical move. HarfBuzz recategorises only
     /// a nonspacing mark (line 180); all nineteen characters of classes 10-26 are
     /// Hebrew nonspacing marks (`[[source: unicode-data]]`), so the class alone
-    /// selects exactly HarfBuzz's set. For Hebrew only (since 2026-10-15), as
+    /// selects exactly HarfBuzz's set. For Hebrew only, as
     /// [`CombiningClass::sort_key`] is: HarfBuzz's Arabic, Syriac, Thai, Lao and
     /// Tibetan recategorisations are not taken.
     fn placement(self) -> CombiningClass {
@@ -881,9 +880,8 @@ impl<'f, 'a> Normalised<'f, 'a> {
     /// is not default-ignorable, so the cluster draws from it with no
     /// `.notdef`. A joiner, a mark of direction or a variation selector the
     /// face lacks is hidden whatever face draws it ([`Ignorable`]), so it is
-    /// never required: Ghostty and foot fell back, or drew U+FFFD, for the
-    /// joiners and the marks of direction a face did not map (note AB,
-    /// section 8).
+    /// never required: one the face does not map neither sends the cluster
+    /// to a fallback face nor draws U+FFFD.
     pub fn covered(&self) -> bool {
         self.as_slice()
             .iter()
@@ -1016,8 +1014,8 @@ impl MarkPlacement {
     /// geometric mark placement when the face has no `GPOS`; a face with one
     /// that names no mark lookup leaves its marks at the pen, and so does
     /// baud. But a Hebrew run whose `GPOS` selects no Script table at all --
-    /// neither `hebr`, nor `DFLT`, nor `latn` after it (note AB 11.1, Q-A
-    /// and Q-B) -- has no positioning from it, and is placed as on a face
+    /// neither `hebr`, nor `DFLT`, nor `latn` after it -- has no
+    /// positioning from it, and is placed as on a face
     /// with none: HarfBuzz's Hebrew shaper takes `GPOS` only from `hebr`
     /// (`gpos_tag`, `[[source: harfbuzz-hb-ot-shaper-hebrew]]`), and Arial
     /// Unicode MS, whose `GPOS` carries six other scripts, drew its points a
