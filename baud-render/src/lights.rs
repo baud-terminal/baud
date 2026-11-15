@@ -5,15 +5,14 @@
 //! RD SD TR MR RS CS ARQ SYN" (`[[source: usr-courier-hs-1988]]`, PDF
 //! p.96-97; the V.34 and V.Everything manuals list SYN before ARQ/FAX) --
 //! with the three baud has nothing honest for (TR, MR, RS: always on or
-//! never lit, note AH 2.3) left out and FAX in ARQ's place, the light the
+//! never lit) left out and FAX in ARQ's place, the light the
 //! V.34 Courier shares as ARQ/FAX (`[[source: usr-courier-v34-1994]]`). The
 //! Hayes Smartmodem's seven read the same way, right to left "MR, TR, SD,
 //! RD, OH, CD and AA" (`[[source: hayes-smartmodem-owners-1981]]`, PDF
 //! p.18-19). What lights each is [`Led`]'s; the viewpoint is the
 //! computer's, and baud is the computer, so RD is a read of the master and
-//! SD a write to it (note AH, 2.3). ARQ is not built: the record of another
-//! process's connection that a retransmit is read from could not be shown
-//! visible (note AH, 8.1 and 11).
+//! SD a write to it. ARQ is not built: the record of another process's
+//! connection that a retransmit is read from is not visible to baud.
 //!
 //! **The look**: modem letters rather than icons, and a dot with a soft
 //! glow while it is lit, on a rounded plate filled with the theme's own
@@ -37,8 +36,7 @@
 //! and lit and unlit differ by size as well: an unlit lamp is a dot half
 //! the lit one's diameter, so the state reads without its colour (WCAG
 //! 2.2's SC 1.4.1, `[[source: wcag22]]`). A light baud may not read is
-//! drawn as a ring ([`Light::Unread`]), neither lit nor dark (note AH,
-//! Q8). CS is the modem's sense, lit while the line is clear: lit from the
+//! drawn as a ring ([`Light::Unread`]), neither lit nor dark. CS is the modem's sense, lit while the line is clear: lit from the
 //! first frame while the program takes what baud sends, and dark while
 //! bytes are owed it that the kernel has not taken. A change is one step,
 //! as an LED's is.
@@ -85,8 +83,7 @@
 //! its strength `[window] activity_lights_glow` ([`Halo`]). **Dim Flashing
 //! Lights** draws no glow and the dot as it is ([`Glow::Dimmed`]): a lamp
 //! stays its palette entry, and the strip meets WCAG 2.3.1 by the area
-//! clause, its changed pixels far under a quarter of the field (note AH, the
-//! exact-palette section).
+//! clause, its changed pixels far under a quarter of the field.
 
 use crate::atlas::outline;
 use crate::color::Argb;
@@ -155,8 +152,7 @@ pub enum Direction {
 }
 
 /// **One light of the strip**, in its place left to right. The meaning of
-/// each is the modem's, quoted, and then what lights it in baud (note AH,
-/// 6.1):
+/// each is the modem's, quoted, and then what lights it in baud:
 ///
 /// * **HS**, High Speed. The Courier's "Remains ON after disconnect until
 ///   next call" is the rate it last ran at; baud's is a looser analogue,
@@ -400,7 +396,7 @@ pub enum Light {
     Dark,
     Lit,
     /// The read the light rests on was refused: a program baud may not
-    /// read, which is neither quiet nor busy (note AH, 3.8 and Q8).
+    /// read, which is neither quiet nor busy.
     Unread,
 }
 
@@ -578,14 +574,13 @@ impl Half {
 ///   (Tables 7 and 8: green normal, yellow abnormal, white general
 ///   information and status), taken to the palette -- HS, CD and CS 2, CS
 ///   lit being the line's normal condition, FAX and SYN 6, the rest 7. The
-///   standard is not among the sources the repository holds; note AH names
-///   the clauses.
+///   standard is not among the sources the repository holds.
 /// * **`"modem"`**: every lamp entry 1, red, as the Courier's and the
 ///   Hayes's front-panel LEDs were.
 ///
 /// On the plate, the theme's own background, every set's normal entries
 /// read at 3:1 on the built-in themes, so no set takes a bright entry for
-/// that (note AH).
+/// that.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum LightsColours {
     #[default]
@@ -1030,7 +1025,7 @@ pub fn line_places(width: Px, at: &ByLed<Slot>, strip: Px, end: Px) -> ByLed<Opt
 /// 1.4.11's 3:1 for "Visual information required to identify user
 /// interface components and states" (`[[source: wcag22]]`). Every set's
 /// lamps on the built-in themes' plates reach it; a theme of the user's is
-/// measured, not lifted (note AH).
+/// measured, not lifted.
 pub const LIT_CONTRAST: f64 = 3.0;
 
 /// The contrast the letters read at against the plate, at least: SC
@@ -2082,7 +2077,7 @@ pub enum StatusLineLights {
 /// DEC's timing. **Past it they are left out** ([`line_lamps`]): they are
 /// additions to DEC's floor, so leaving them out departs from neither
 /// text, where holding them to three flashes a second would make a change
-/// up to 200 ms late, past DEC's 80. Jev decided it, 0.98 and 0.94.
+/// up to 200 ms late, past DEC's 80.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FlashClause {
     /// The words' cells are under a quarter of the field: any rate.

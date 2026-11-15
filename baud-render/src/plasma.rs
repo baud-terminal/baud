@@ -3,9 +3,7 @@
 //! the cursor, and ions peeling off the path in cyclotron spirals. It starves
 //! rather than burns: the tube, the sheath and the filaments dim together as
 //! `(1 - k)^2` and the filaments thin, where the fire burns out from the tail.
-//! The default trail since 2026-09-29, replacing the fire. Designed in the
-//! effect-trail research (the plasma spec and its critique), and built with
-//! the critique's fixes:
+//! The default trail, built to a plasma spec with these fixes to it:
 //!
 //! * **Nothing is drawn ahead of the cursor.** The braid swings to zero
 //!   ahead of the head, so without a gate its three filaments lay on the

@@ -522,10 +522,7 @@ pub enum SixelClaim {
 
 /// Whether DECRQCRA, `CSI Pi ; Pp ; Pt ; Pl ; Pb ; Pr * y`, is answered
 /// with a checksum report. The embedder's choice: `On` by default, and
-/// `Off` makes every request go unanswered, as xterm does with
-/// `GetChecksum` among its disallowed window operations (`CASE_DECRQCRA`,
-/// `[[source: xterm-reset]]`'s file; its default list,
-/// `[[source: xterm-man]]`). A checksum of one cell at a time reads the
+/// `Off` makes every request go unanswered. A checksum of one cell at a time reads the
 /// screen back, other programs' output included, which is why a setting
 /// turns it off.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]

@@ -1213,10 +1213,10 @@ pub(crate) mod tests {
     /// each band record of a jump across the frame, mid-life, the lightning
     /// takes each of its bolt's vertices at most once a band, the ufo poses
     /// its saucer twice a band (now, and 60 ms ago for its wake) and the
-    /// liquid takes its state once a band -- where the light at each pixel
-    /// took four vertices, two poses and a state again: 386,468 vertices
-    /// over the lightning's 8 bands, 8,432 poses over the ufo's 3 and 14,154
-    /// states over the liquid's 4 (note AJ section 24). The positive
+    /// liquid takes its state once a band -- not at each pixel, which takes
+    /// four vertices, two poses and a state again: 386,468 vertices over the
+    /// lightning's 8 bands, 8,432 poses over the ufo's 3 and 14,154 states
+    /// over the liquid's 4. The positive
     /// control: each lit pixels.
     #[test]
     fn a_bands_light_takes_the_frames_constants_once() {

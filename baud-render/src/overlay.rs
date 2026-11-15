@@ -2578,7 +2578,7 @@ impl Overlay {
         };
     }
 
-    /// A predicted echo (row 9 of note N): one cell the app draws before
+    /// A predicted echo: one cell the app draws before
     /// the pty answers, as a record over a masked cell, in the rendition
     /// `cell` names -- the same paint the windows and the marks use, so a
     /// prediction is coloured as the shader would colour the cell once the

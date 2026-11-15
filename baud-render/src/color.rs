@@ -60,12 +60,10 @@ impl Argb {
     }
 
     /// Half way to `other`, channel by channel in encoded sRGB, rounded half
-    /// up; this colour's alpha kept. Faint text drawn on `other`
-    /// (note Y, decision 10): ghostty's `faint-opacity` default of 0.5, which
-    /// ghostty applies as opacity and blends in the native, encoded space.
-    /// Mixed in linear light instead, faint default text on the light page
-    /// reads at 1.86:1 where the dark page gets 7.19:1; encoded, 2.96:1 and
-    /// 4.07:1.
+    /// up; this colour's alpha kept. Faint text drawn on `other`: an opacity
+    /// of 0.5, blended in the encoded space. Mixed in linear light instead,
+    /// faint default text on the light page would read at 1.86:1 where the
+    /// dark page gets 7.19:1; encoded, 2.96:1 and 4.07:1.
     pub(crate) fn faint_on(self, other: Argb) -> Argb {
         let [a, r, g, b] = self.channels();
         let [_, or, og, ob] = other.channels();
@@ -81,7 +79,7 @@ impl Argb {
     }
 }
 
-/// **The contrast floor** (note Y, decision 6): text whose contrast with the
+/// **The contrast floor**: text whose contrast with the
 /// colour it is drawn on is below `trigger` is lifted to `target`, by a
 /// linear-light mix toward black or white that keeps its hue. Only a pair the
 /// application did not choose exactly: see [`Floor::covers`]. On by default at
@@ -109,12 +107,10 @@ impl Floor {
     /// itself as a cube or truecolour colour and chose the text on it, chose
     /// the pair and keeps it.
     ///
-    /// **Not "either side ours"**, which note Y proposed: a real chafa
-    /// `--colors 240` preview (`tests/previews/chafa-240.ans`) draws palette
-    /// red, `38;5;1`, on ramp grey `48;5;239` in nine cells, 1.04:1 under the
-    /// light theme, and that rule lifted them into pale speckles inside the
-    /// picture. Over every capture in `tests/`, those are the only cells the
-    /// two rules treat differently (measured, 2026-09-29).
+    /// **Not "either side ours"**: a chafa `--colors 240` preview
+    /// (`tests/previews/chafa-240.ans`) draws palette red, `38;5;1`, on ramp
+    /// grey `48;5;239` in nine cells, 1.04:1 under the light theme, and that
+    /// rule would lift them into pale speckles inside the picture.
     pub fn covers(text: ColorWord, page: ColorWord) -> bool {
         let same = text == page && !text.is_default();
         let ours = |w: ColorWord| w.is_default() || w.as_index().is_some_and(|i| i < 16);
@@ -171,15 +167,13 @@ impl Floor {
     /// cannot bring to 4.5 ends where an untouched pair may already sit,
     /// keeping what hue it can.
     ///
-    /// **Just far enough, in OKLab** (`Oklab::lift`): note Y decision 6
-    /// lifts "just far enough to reach 4.5:1, keeping the hue", and over the
-    /// glass a linear-light mix toward white washes the hue out. It drew
-    /// btop's red `#7f3b3b` used segment `#c8b9b9` beside its `#404040`
-    /// track at `#bcbcbc`, 0.017 apart in OKLab where btop drew them 0.118
-    /// apart, so every meter read full. Moving the lightness with the hue
-    /// and chroma kept draws them `#f7a8a5` and `#bcbcbc`, 0.095 apart, at
-    /// the same contrast. Greys have no hue, so greys lifted to one target
-    /// still land on one grey. An open question.
+    /// **Just far enough, in OKLab** (`Oklab::lift`): the text is lifted just
+    /// far enough to reach 4.5:1, keeping the hue. Over the glass a
+    /// linear-light mix toward white washes the hue out, and a red beside a
+    /// grey lands next to that grey; moving the lightness with the hue and
+    /// chroma kept keeps the two apart at the same contrast. Greys have no
+    /// hue, so greys lifted to one target still land on one grey. An open
+    /// question.
     pub fn lift_on_glass(self, text: Argb, page: Argb, alpha: Chan, backdrop: Backdrop) -> Argb {
         let Floor::Lift { trigger, target } = self else {
             return text;
@@ -277,20 +271,19 @@ pub fn contrast_of(a: Argb, b: Argb) -> f64 {
 /// alpha: every channel of it lies between two greys, in encoded sRGB.
 ///
 /// **[`Backdrop::any`], black to white, is Liquid Glass's**, bounded where
-/// the material darkens nothing (note AS, section 3), and the bound for
+/// the material darkens nothing, and the bound for
 /// any window whose material is not modelled, Linux's among them.
 ///
 /// **The see-through standard material is far narrower**, because its
-/// recipe lays an opaque grey over the blurred desktop (note AT, section
-/// 4). Fed a black desktop and a white one, the recipe gives the two ends
+/// recipe lays an opaque grey over the blurred desktop. Fed a black desktop and a white one, the recipe gives the two ends
 /// of each half, and every desktop lands between them: the blurred,
 /// saturated desktop is clipped to black..white, and every later step --
 /// the grey over it, the lighten or darken, the tint -- rises with what it
 /// is given. Rounded outward, they are
 /// [`Backdrop::under_window_dark`] and [`Backdrop::under_window_light`].
-/// **Modelled, not measured**: the recipe is the shipped Sidebar's, which
-/// note AT takes as a stand-in for `.underWindowBackground`, whose own was
-/// found in none of the system's catalogs.
+/// **Modelled, not measured**: the recipe is the shipped Sidebar's, taken
+/// as a stand-in for `.underWindowBackground`, whose own is in none of the
+/// system's catalogs.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Backdrop {
     dark: Chan,
@@ -838,8 +831,8 @@ pub struct Theme {
     pub palette: [Argb; 256],
     /// **The selection's colours, the `Theme` selection setting**: the
     /// page under selected text and the selected text, each `None` for no
-    /// colour of its own -- both `None` is reverse video, the default
-    /// (note V, V13). A page alone draws each selected cell's own text on
+    /// colour of its own -- both `None` is reverse video, the default. A
+    /// page alone draws each selected cell's own text on
     /// it. A program's `OSC 17`/`19` wins over each while it is set
     /// ([`Renderer::hilite`](crate::Renderer::hilite)). A theme file may
     /// name the cell's own text or page instead of a colour
@@ -1226,11 +1219,10 @@ impl Theme {
     /// "near-black" should be. Neither end is pure: `dark` does not use
     /// `0xFF` because white on black glares, and the mirror inherits that.
     ///
-    /// **The sixteen are not xterm's**, which it had been: xterm keeps one
-    /// palette under either background, so on this page its bright green
-    /// read at 1.19:1 and its bright cyan at 1.09:1. baud takes Modus
-    /// Operandi's (note Y, decision 3), whose colours are made for a light
-    /// page; the cube and the grey ramp stay xterm's.
+    /// **The sixteen are Modus Operandi's**, whose colours are made for a
+    /// light page: the 256-colour palette's (SGR 38;5 / OSC 4) own sixteen
+    /// read on this page at 1.19:1 for bright green and 1.09:1 for bright
+    /// cyan. The cube and the grey ramp stay that palette's.
     pub fn light() -> Theme {
         Theme {
             fg: grey(0x27),
@@ -1259,8 +1251,8 @@ impl Theme {
     /// replaces the half's, and the
     /// count of those it leaves unset -- which stay the half's -- comes back
     /// for the caller to report. Entries 16-255 are not written whatever the
-    /// file says (note Y, decision 2): a program addresses them by number and
-    /// expects xterm's cube. The dim, the floor and the exemptions stay the
+    /// file says: a program addresses them by number and expects the
+    /// 256-colour palette's fixed values. The dim, the floor and the exemptions stay the
     /// window's.
     pub fn take_scheme(&mut self, scheme: &Scheme) -> Count {
         let mut unset = 0;
@@ -1550,8 +1542,8 @@ fn grey(v: u8) -> Argb {
 
 /// The sixteen of the light theme: **Modus Operandi by Protesilaos Stavrou,
 /// (C) Free Software Foundation, GPL-3.0-or-later** -- its Emacs `ansi-color`
-/// mapping, the sixteen hex values and no file text (note Y, decision 3;
-/// `[[source: modus-operandi-theme-el]]`, pinned external). Designed as text
+/// mapping, the sixteen hex values and no file text
+/// (`[[source: modus-operandi-theme-el]]`, pinned external). Designed as text
 /// on a near-white page: every colour entry from 1 to 6 and 9 to 14 is at
 /// least 6.09:1 on this theme's `0xEF`. Entries 7 and 15 are the light greys
 /// that sit near the page, 2.12 and 1.15; [`light_palette`] darkens 7, and
@@ -1582,7 +1574,7 @@ pub const MODUS_OPERANDI: [(u8, u8, u8); 16] = [
 ///
 /// **Entry 7 is `#6c6c6c`, not Operandi's `#a6a6a6`**: 4.57:1 on the page
 /// where Operandi's grey reads at 2.12, the one change to Operandi, its OKLCH
-/// lightness only (note Y, decision 3).
+/// lightness only.
 pub fn light_palette() -> [Argb; 256] {
     let mut p = xterm_palette();
     for (slot, &(r, g, b)) in p.iter_mut().zip(&MODUS_OPERANDI) {
@@ -1594,7 +1586,7 @@ pub fn light_palette() -> [Argb; 256] {
 
 /// The four of xterm's sixteen that read below 4.5:1 on the dark page,
 /// `0x10`, and what each becomes: the colour with its OKLCH lightness raised
-/// until it reads at 4.5, hue kept (note Y, decision 8). Red 3.26 to 4.50,
+/// until it reads at 4.5, hue kept. Red 3.26 to 4.50,
 /// blue 2.02 to 4.50, magenta 4.06 to 4.51, bright blue 4.01 to 4.52. The two
 /// blues lose chroma too, because sRGB holds no blue that light at xterm's
 /// chroma.

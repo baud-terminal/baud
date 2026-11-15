@@ -1,5 +1,4 @@
-//! **A trail's repeat passes, drawn under the flash thresholds** (note AL,
-//! option O2, and its census).
+//! **A trail's repeat passes, drawn under the flash thresholds.**
 //!
 //! Above a size gate the driver marks a pass over a stretch of screen that a
 //! full pass swept less than a second before [`Strength::UnderThreshold`],
@@ -20,7 +19,7 @@
 //! under the text or below the backgrounds, whose pixels the cells do not
 //! name. **A selection and the cursor under the pass are grounds too**, by
 //! the colours they draw, and **a dimmed page is read over the desktop**, a
-//! flat white and a flat black, note AS's bound. A coloured desktop is not
+//! flat white and a flat black, the material's bound. A coloured desktop is not
 //! read, and neither is a grey one between white and black: a glyph's edge
 //! over such a desktop is a mixture inside the triangle of text, page over
 //! white and page over black, and only that triangle's edges are scanned.
@@ -512,8 +511,8 @@ mod tests {
         }
     }
 
-    /// **`under_threshold` per pair, pinned**: note AL's caps (section 4.2,
-    /// computed in `baud-render/tests/al_observed.rs`), the red bound halved
+    /// **`under_threshold` per pair, pinned**: the caps computed in
+    /// `baud-render/tests/al_observed.rs`, the red bound halved
     /// on the red and dark-red grounds -- which is why those rows sit under
     /// the table's red column.
     #[test]

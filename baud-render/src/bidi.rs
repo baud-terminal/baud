@@ -3526,7 +3526,7 @@ impl Reorder {
         // **The level its properties give it** ([`LineBidi::paragraph`]):
         // at power-on, with no path set and autodetection on, the level UAX
         // #9 P2-P3 finds -- 1 when its first strong letter, isolates
-        // skipped, is R or AL, else 0 (since 2026-10-24); a right-to-left
+        // skipped, is R or AL, else 0; a right-to-left
         // paragraph's erased cells past its text are laid out before it, so
         // its rows sit against the right edge. The letter is looked for
         // only in the text the layout reads, the paragraph's drawn rows and

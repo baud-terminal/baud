@@ -991,12 +991,9 @@ impl<'p> Target<'p> {
 }
 
 /// **The record pixels a thread is worth starting for**: the plasma's
-/// band pixels cost about 7 ns each on the CPU path (note AJ section 19's
-/// 6K worst frame, 18.85-19.15 ms, less the 4.0 ms with the bands shading
-/// nothing, over 2,158,300 band pixels), a thread's start and join 9 to 64
-/// us on that machine (best and mean of 2,000 scopes of one; note AJ
-/// section 22), so a share under this, about 0.45 ms of light, is drawn on
-/// a thread already running.
+/// band pixels cost about 7 ns each on the CPU path and a thread's start
+/// and join 9 to 64 us, so a share under this, about 0.45 ms of light, is
+/// drawn on a thread already running.
 pub(crate) const SHARE: u64 = 1 << 16;
 
 /// The rows of a band an effect draws and the columns drawn on them.
@@ -1533,8 +1530,8 @@ mod tests {
     /// sweep from the top-left cell of a 612 by 340 frame to the
     /// bottom-right, a frame and two frames in at 60 Hz, when their bounds
     /// are most of the frame, measure the coverage at no more pixels than it
-    /// is above zero at and eight a row -- where measuring the bounds took
-    /// 6.4 to 7.6 times the pixels covered (note AJ section 24). The
+    /// is above zero at and eight a row -- not across the bounds, which hold
+    /// 6.4 to 7.6 times the pixels covered. The
     /// positive control: each smear covers pixels.
     #[test]
     fn a_jump_measures_the_smear_only_near_its_shape() {

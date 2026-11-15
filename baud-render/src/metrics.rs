@@ -37,7 +37,7 @@ pub struct Metrics {
     /// How thick an underline or strike is, at least a pixel.
     pub thickness: Px,
     /// Where every glyph sits inside its cell: half the slack between the
-    /// rounded cell and `M`'s advance (note J, decision 7).
+    /// rounded cell and `M`'s advance.
     pub phase: Phase,
 }
 
@@ -48,7 +48,7 @@ impl Metrics {
         let scale = Scale::of(size.value(), face.units_per_em());
         let m = face.glyph(Codepoint::from_char('M'))?;
         // The default instance's: a cell must not change with a style's
-        // weight (note Z).
+        // weight.
         let advance = face.default_advance(m)?;
         let width = scale.px(f32::from(advance.value()));
         let lm = face.line_metrics();
