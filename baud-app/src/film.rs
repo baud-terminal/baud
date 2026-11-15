@@ -58,7 +58,9 @@
 //! directory of its own (`programs::Scratch`), and everything it wrote,
 //! and everything written to it, is searched for the user's name, the
 //! host's, the home directory and the temporary directories ([`named`]);
-//! a take that finds one fails. The frames themselves are not searched.
+//! a take that finds one fails. Each frame carries its text as drawn
+//! ([`Frame::text`]), which the README session searches frame by frame
+//! (`session.rs`); the pixels are not searched.
 
 // The README session played on baud's login shell, and the lights it
 // lights: macOS's, where OH and CD are read.
@@ -67,6 +69,10 @@ pub(crate) mod session;
 // The window's title strip, composed over the session's frames.
 #[cfg(target_os = "macos")]
 pub(crate) mod chrome;
+// The titled window's bar the strip is laid out by, under the SDK the app
+// links; the window test reads the same file.
+#[cfg(target_os = "macos")]
+mod titled;
 // The link layer on the take, written down for the README session.
 #[cfg(target_os = "macos")]
 pub(crate) mod tap;
@@ -157,6 +163,22 @@ pub(crate) struct Frame<'p> {
     ///
     /// [`CursorPhase::SHOWN`]: baud_render::CursorPhase::SHOWN
     pub(crate) caret: baud_render::CursorPhase,
+    /// **The frame's text, as drawn**: the screen's rows and the status
+    /// line's (`programs::shown`), then the badge's text when one is
+    /// drawn, a line each -- of the frame shown, so a frame a synchronised
+    /// update holds carries the held frame's. What the README session's
+    /// search for this machine's names reads, frame by frame, rather than
+    /// the pixels.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) text: &'p [String],
+}
+
+/// **A frame's text**: the screen's and the status line's rows, then the
+/// badge's text, if `badge` is drawn.
+fn frame_text(term: &Term<'_>, badge: Option<&baud_render::BadgeLook>) -> Vec<String> {
+    let mut text = crate::programs::shown(term);
+    text.extend(badge.map(|b| b.text.clone()));
+    text
 }
 
 /// What a take gave besides its frames.
@@ -799,6 +821,8 @@ fn play(
     let offset = slots(PAD) * slots(w) + slots(PAD);
     let rows = slots(PAD) * slots(w)..(slots(PAD) + slots(gh)) * slots(w);
     let mut shown = frame.clone();
+    // The text of the frame in `shown`.
+    let mut shown_text: Vec<String> = Vec::new();
     let mut kept: Vec<u32> = Vec::new();
     let mut composed: Vec<u32> = Vec::new();
     let mut margin = None;
@@ -921,6 +945,7 @@ fn play(
                 #[cfg(target_os = "macos")]
                 lights,
                 caret: drawn_caret,
+                text: &shown_text,
             });
             k += 1;
             continue;
@@ -942,6 +967,7 @@ fn play(
         let page = r.background_of(&term);
         let badged =
             crate::effects::badge_look(&term, badge, &session, &selection, page, f64::from(SCALE));
+        let text = frame_text(&term, badged.as_ref());
         r.set_badge(badged);
         let m = r.metrics();
         let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
@@ -1025,6 +1051,7 @@ fn play(
             crate::effects::Composed::No => &frame,
         });
         flatten(&mut shown, clear);
+        shown_text = text;
         keep(Frame {
             pixels: &shown,
             size: (w, h),
@@ -1033,6 +1060,7 @@ fn play(
             #[cfg(target_os = "macos")]
             lights,
             caret: phase,
+            text: &shown_text,
         });
         // The window is shown once its first frame is: the splash's clock
         // starts on the next (`Timed::shown`).

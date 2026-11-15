@@ -585,11 +585,12 @@ pub const DRAG_GAP_MS: u64 = 35;
 pub const DRAG_IN: f64 = 0.15;
 
 /// **baud's window around its grid, in points**: the title strip's height
-/// above the grid (`film::chrome::INSET`) and the padding round the grid
-/// (`padding`'s default in `config.rs`), and the tour's grid, 80x24 --
-/// both held to the app's by `the_window_geometry_is_the_apps` in
-/// `baud-app/src/film/session.rs`.
-pub const TITLE_PT: f64 = 28.0;
+/// above the grid, a titled window's under the SDK the app links
+/// (`film::chrome::INSET`, from `baud-app/src/film/titled.rs`), and the
+/// padding round the grid (`padding`'s default in `config.rs`), and the
+/// tour's grid, 80x24 -- both held to the app's by
+/// `the_window_geometry_is_the_apps` in `baud-app/src/film/session.rs`.
+pub const TITLE_PT: f64 = 32.0;
 pub const PAD_PT: f64 = 8.0;
 pub const GRID: (u16, u16) = (80, 24);
 
@@ -1371,8 +1372,8 @@ mod tests {
         let size = (2.0 * PAD_PT + 800.0, TITLE_PT + 2.0 * PAD_PT + 480.0);
         let origin = (10.0, 20.0);
         let at = |c: Cell, w| in_window(c, w, origin, size);
-        assert_eq!(at(Cell { row: 0, col: 0 }, MIDDLE), (23.0, 66.0));
-        assert_eq!(at(Cell { row: 2, col: 79 }, (1.0, 1.0)), (818.0, 116.0));
+        assert_eq!(at(Cell { row: 0, col: 0 }, MIDDLE), (23.0, 70.0));
+        assert_eq!(at(Cell { row: 2, col: 79 }, (1.0, 1.0)), (818.0, 120.0));
         let (press, release) = drag_ends();
         assert!(press.0 < 0.5 && release.0 > 0.5 && press.0 > 0.0 && release.0 < 1.0);
     }

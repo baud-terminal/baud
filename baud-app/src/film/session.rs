@@ -958,8 +958,12 @@ fn a_windowless_session_skips_the_links_window() {
 /// file, lossless, at `BAUD_SESSION_PERIOD_MS` a frame (40 without it),
 /// and beside it `<file>.shots` names the frames of the trails' shot, the
 /// card's, the fireworks' and the clear's, for the flash census
-/// (`baud-bench/tests/session_flashes.rs`), and `<file>.steps` each step's
-/// first frame.
+/// (`baud-bench/tests/session_flashes.rs`), `<file>.steps` each step's
+/// first frame, `<file>.cut` each scene's frames by its mark ([`cuts`]),
+/// which the README GIF is cut by, and `<file>.text` each frame's text as
+/// drawn ([`Dump`]). No frame's text may show this machine's names, those
+/// `BAUD_SESSION_NAMES` gives among them, a line each, and some frame must
+/// show the container's user and host, `BAUD_SESSION_SHOWN`.
 #[test]
 #[ignore = "a tool: `cargo run --example demo -- --headless DIR` runs it"]
 fn the_readme_session_lights_every_light() {
@@ -1065,6 +1069,8 @@ fn the_readme_session_lights_every_light() {
     // clocks showed them then (`chrome.rs`): composed, not filmed.
     let mut strip: Option<super::chrome::Strip> = None;
     let mut window: Vec<u32> = Vec::new();
+    // Each frame's text as drawn, the strip's build name above it all.
+    let mut dump = Dump::new(crate::version::BUILD);
     let take = super::film(&f, |fr| {
         blinked.push((fr.step, fr.caret != baud_render::CursorPhase::SHOWN));
         let s = strip.get_or_insert_with(|| {
@@ -1083,6 +1089,7 @@ fn the_readme_session_lights_every_light() {
                 .expect("ffmpeg's input")
                 .write_all(&bytes)
                 .expect("a frame to ffmpeg");
+            dump.frame(FrameAt(frame_steps.len()), fr.text);
             frame_steps.push(fr.step);
         }
         if stills.is_none() {
@@ -1118,7 +1125,46 @@ fn the_readme_session_lights_every_light() {
         let mut list = to.clone().into_os_string();
         list.push(".steps");
         std::fs::write(&list, firsts).expect("the steps' list");
+        // Each scene's frames, by its mark, for the README GIF's cut
+        // (`examples/demo/readme_gif.rs`), and each frame's text.
+        let mut list = to.clone().into_os_string();
+        list.push(".cut");
+        std::fs::write(&list, cuts(&steps, &frame_steps, period)).expect("the scenes' frames");
+        let mut list = to.clone().into_os_string();
+        list.push(".text");
+        std::fs::write(&list, &dump.text).expect("the frames' text");
         println!("film:    {} frames, {}", frame_steps.len(), to.display());
+        // **No frame shows this machine, and the container shows its own
+        // names**: each frame's text searched for this machine's names,
+        // those the demo hands this test among them (`BAUD_SESSION_NAMES`,
+        // a line each, found at run time and written nowhere), and the
+        // container's user and host (`BAUD_SESSION_SHOWN`) shown in some
+        // frame, fastfetch's card's title.
+        let extra: Vec<String> = std::env::var("BAUD_SESSION_NAMES")
+            .map(|v| v.lines().map(str::to_string).collect())
+            .unwrap_or_default();
+        let names = super::machine_names(&extra);
+        let hits = frames_naming(&dump.text, &names);
+        assert!(
+            hits.is_empty(),
+            "{} frames show one of this machine's names, first frame {:?}: by its place in \
+             the list, {:?}",
+            hits.len(),
+            hits.first().map(|h| h.0),
+            hits.iter().map(|h| h.1).collect::<Vec<_>>()
+        );
+        let shown = var("BAUD_SESSION_SHOWN");
+        let card = first_showing(&dump.text, &shown);
+        assert!(
+            card.is_some(),
+            "no frame shows the container's user and host, `{shown}`"
+        );
+        println!(
+            "names:   no frame of {} shows this machine's {} names; `{shown}` from frame {}",
+            frame_steps.len(),
+            names.len(),
+            card.map_or(0, |FrameAt(f)| f)
+        );
     }
     for led in Led::ALL {
         match take.lit.first(led) {
@@ -1397,6 +1443,196 @@ fn shots(steps: &[Step], frames: &[Option<usize>], (w, h): (u32, u32), period: D
         }
     }
     out
+}
+
+/// **Each scene's frames, by its mark**: a `scene N first end` line for
+/// each [`Step::Scene`] of `list` that drew a frame -- the frames whose step
+/// is the mark's or a later one before the next mark, `end` one past the
+/// last -- after the film's `rate R` and its count of `frames N`. A mark
+/// takes no time, so a scene's first frame is its first step's. What the
+/// README GIF is cut by (`examples/demo/readme_gif.rs`), named by the
+/// session's own marks rather than by times read off a take.
+fn cuts(list: &[Step], frames: &[Option<usize>], period: Duration) -> String {
+    let rate = Duration::from_secs(1).as_millis() / period.as_millis();
+    let mut out = format!("rate {rate}\nframes {}\n", frames.len());
+    for (n, _, range) in steps::scenes(list) {
+        let inside = |f: &Option<usize>| f.is_some_and(|i| range.contains(&i));
+        let first = frames.iter().position(inside);
+        let last = frames.iter().rposition(inside);
+        if let (Some(a), Some(b)) = (first, last) {
+            out.push_str(&format!("scene {n} {a} {}\n", b + 1));
+        }
+    }
+    out
+}
+
+/// A frame of the film, by its place in it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct FrameAt(usize);
+
+/// **Each frame's text, as the film drew it**, kept where it changed: the
+/// strip's build name first, `strip NAME`, as every frame shows it, then
+/// for each frame whose text is not the last kept one's a `frame N` line
+/// and its lines, each after `| `.
+struct Dump {
+    text: String,
+    last: Option<Vec<String>>,
+}
+
+impl Dump {
+    fn new(strip: &str) -> Dump {
+        Dump {
+            text: format!("strip {strip}\n"),
+            last: None,
+        }
+    }
+
+    /// Frame `n`'s `lines`, kept if they changed.
+    fn frame(&mut self, FrameAt(n): FrameAt, lines: &[String]) {
+        if self.last.as_deref() == Some(lines) {
+            return;
+        }
+        self.text.push_str(&format!("frame {n}\n"));
+        for l in lines {
+            self.text.push_str("| ");
+            self.text.push_str(l);
+            self.text.push('\n');
+        }
+        self.last = Some(lines.to_vec());
+    }
+}
+
+/// **The frames of a [`Dump`] that show one of `names`**, as fixed
+/// strings: each such frame and the name's place in `names`, a frame once
+/// for each name it shows. The strip's line counts as every frame's; what
+/// precedes the first frame is the strip's alone.
+fn frames_naming(dump: &str, names: &[String]) -> Vec<(usize, usize)> {
+    let mut hits = Vec::new();
+    let mut strip: Vec<&str> = Vec::new();
+    let mut frame: Option<(usize, Vec<&str>)> = None;
+    let mut look = |at: usize, lines: &[&str], strip: &[&str]| {
+        for (i, n) in names.iter().enumerate() {
+            if lines.iter().chain(strip).any(|l| l.contains(n.as_str())) {
+                hits.push((at, i));
+            }
+        }
+    };
+    for line in dump.lines() {
+        if let Some(n) = line.strip_prefix("frame ") {
+            if let Some((at, lines)) = frame.take() {
+                look(at, &lines, &strip);
+            }
+            frame = Some((n.parse().expect("a frame's number"), Vec::new()));
+        } else if let Some(s) = line.strip_prefix("strip ") {
+            strip.push(s);
+        } else {
+            let l = line.strip_prefix("| ").unwrap_or(line);
+            match frame.as_mut() {
+                Some((_, lines)) => lines.push(l),
+                None => strip.push(l),
+            }
+        }
+    }
+    if let Some((at, lines)) = frame.take() {
+        look(at, &lines, &strip);
+    }
+    hits
+}
+
+/// **The first frame of a [`Dump`] that shows `shown`**, as fixed text on
+/// one line.
+fn first_showing(dump: &str, shown: &str) -> Option<FrameAt> {
+    let mut at = None;
+    for line in dump.lines() {
+        if let Some(n) = line.strip_prefix("frame ") {
+            at = n.parse().ok().map(FrameAt);
+        } else if at.is_some() && line.strip_prefix("| ").is_some_and(|l| l.contains(shown)) {
+            return at;
+        }
+    }
+    None
+}
+
+/// **Each scene's frames are named by its mark**: from the first frame of
+/// the steps after its mark to the last before the next one, the end one
+/// past it; a scene that drew no frame is left out, and the rate is the
+/// period's. Perturbation: end a scene at its last frame rather than one
+/// past it and scene 6 reads 1 4.
+#[test]
+fn each_scenes_frames_are_named_by_its_mark() {
+    use Step::{Hold, Run, Scene};
+    let list = [
+        Scene(6),
+        Run("a"),
+        Hold(10),
+        Scene(7),
+        Hold(5),
+        Scene(8),
+        Scene(9),
+        Run("b"),
+    ];
+    let frames = [
+        None,
+        Some(1),
+        Some(1),
+        Some(2),
+        Some(2),
+        Some(4),
+        Some(4),
+        Some(4),
+        Some(7),
+    ];
+    assert_eq!(
+        cuts(&list, &frames, Duration::from_millis(10)),
+        "rate 100\nframes 9\nscene 6 1 5\nscene 7 5 8\nscene 9 8 9\n"
+    );
+}
+
+/// **A frame that shows a name is found, and its frame named**: the text
+/// kept only where it changed, a planted name found in the one frame that
+/// shows it and in no other, the strip's line found as every frame's, and
+/// a dump that shows none of the names finds nothing. The names are made up
+/// for the test. The control: the same dump searched for a name it does
+/// not hold finds nothing. Perturbation: search only the frame lines and
+/// the strip's name is missed; keep every frame and frame 1 is found too.
+#[test]
+fn a_frame_showing_a_name_is_found_by_its_frame() {
+    let shown = |rows: &[&str]| rows.iter().map(|r| r.to_string()).collect::<Vec<String>>();
+    let mut d = Dump::new("1.0.0-unstable+0123abc");
+    d.frame(FrameAt(0), &shown(&["~/baud ❯", ""]));
+    d.frame(FrameAt(1), &shown(&["~/baud ❯", ""]));
+    d.frame(
+        FrameAt(2),
+        &shown(&["jordan@demo", "host planted-name-7f3a"]),
+    );
+    d.frame(FrameAt(3), &shown(&["~/baud ❯ exit"]));
+    assert_eq!(
+        d.text,
+        "strip 1.0.0-unstable+0123abc\nframe 0\n| ~/baud ❯\n| \nframe 2\n| jordan@demo\n| \
+         host planted-name-7f3a\nframe 3\n| ~/baud ❯ exit\n",
+        "a frame kept only where the text changed"
+    );
+    let names = [
+        "elsewhere-0b9c".to_string(),
+        "planted-name-7f3a".to_string(),
+        "0123abc".to_string(),
+    ];
+    assert_eq!(
+        frames_naming(&d.text, &names),
+        [(0, 2), (2, 1), (2, 2), (3, 2)],
+        "the planted name in frame 2, the strip's in every frame"
+    );
+    assert_eq!(first_showing(&d.text, "jordan@demo"), Some(FrameAt(2)));
+    assert_eq!(
+        first_showing(&d.text, "0123abc"),
+        None,
+        "the strip is no frame's row"
+    );
+    assert_eq!(
+        frames_naming(&d.text, &["elsewhere-0b9c".to_string()]),
+        Vec::<(usize, usize)>::new(),
+        "the control"
+    );
 }
 
 /// An encoder of every frame, lossless, into `to`.

@@ -20,6 +20,7 @@ use crate::keys::{self, Gaps, RETURN};
 use crate::mac;
 use crate::names;
 use crate::provenance;
+use crate::readme_gif;
 use crate::record;
 use crate::scratch::{self, Layout};
 use crate::session::{self, SESSION, Step};
@@ -108,7 +109,7 @@ const USAGE: &str = "usage: cargo run --release --example demo -- [--dry] \
                      cargo run --release --example demo -- --trailer --tour URL --start T --end T \
                      [--dry] \
                      [--record OUT.gif [--allow-dirty]] [--forbidden LIST --controls FILE]\n       \
-                     cargo run --release --example demo -- --headless DIR \
+                     cargo run --release --example demo -- --headless DIR [--allow-dirty] \
                      [--forbidden LIST --controls FILE]\n       \
                      cargo run --example demo -- --verify GIF";
 
@@ -173,8 +174,8 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
             other => return Err(format!("{other} is not an option")),
         }
     }
-    if a.allow_dirty && a.record.is_none() {
-        return Err("--allow-dirty goes with --record".to_string());
+    if a.allow_dirty && a.record.is_none() && a.headless.is_none() {
+        return Err("--allow-dirty goes with --record or --headless".to_string());
     }
     if a.forbidden.is_some() != a.controls.is_some() {
         return Err("--forbidden and --controls go together".to_string());
@@ -272,8 +273,10 @@ fn run(args: &Args) -> Result<(), String> {
     }
     // A recording names the commit it filmed, so it is made of a clean
     // tree; this is checked before anything is fetched, built or opened.
-    let tree = match &args.record {
-        Some(_) => {
+    // The headless run makes the README's GIF, whose strip names the build
+    // on every frame, so it is held to the same.
+    let tree = match args.record.is_some() || args.headless.is_some() {
+        true => {
             let t = provenance::tree(&root)?;
             provenance::admit(&t, args.allow_dirty)?;
             println!(
@@ -287,8 +290,17 @@ fn run(args: &Args) -> Result<(), String> {
             );
             Some(t)
         }
-        None => None,
+        false => None,
     };
+    // The headless run posts no event and films no screen, so it returns
+    // before the window's session asks macOS for either.
+    if let Some(stills) = &args.headless {
+        let tree = tree
+            .as_ref()
+            .ok_or("the headless run reads its tree first")?;
+        headless_take(args, &root, tree, stills)?;
+        return Ok(());
+    }
     let host = std::env::var("TERM_PROGRAM").unwrap_or_else(|_| "this terminal".to_string());
     if !args.dry && !mac::trusted() {
         return Err(format!(
@@ -306,9 +318,9 @@ fn run(args: &Args) -> Result<(), String> {
              Nothing was opened."
         ));
     }
-    // `--dry` only reports, and `--headless` opens no window and posts
-    // nothing, so neither is refused for the state of the session.
-    if !args.dry && args.headless.is_none() {
+    // `--dry` only reports, so it is not refused for the state of the
+    // session.
+    if !args.dry {
         clear_to_open()?;
         guard::space(mac::main_space()).map_err(|r| format!("{}. Nothing was opened.", r.0))?;
     }
@@ -411,9 +423,7 @@ fn run(args: &Args) -> Result<(), String> {
         _ => None,
     };
     // Building and fetching can take minutes, so this is asked again.
-    if args.headless.is_none() {
-        clear_to_open()?;
-    }
+    clear_to_open()?;
     // The trailer plays the tour from YouTube and goes nowhere over ssh, so
     // it starts no VM.
     let up = match take {
@@ -425,12 +435,6 @@ fn run(args: &Args) -> Result<(), String> {
         )?),
         Take::Trailer => None,
     };
-    if let Some(stills) = &args.headless {
-        headless(&profile, &prep, stills, forbidden.as_ref())?;
-        drop(up);
-        let _ = fs::remove_dir_all(&prep.at.root);
-        return Ok(());
-    }
     let session = live(args, &prep, &baud, kit.as_ref(), forbidden.as_ref(), &steps);
     drop(up);
     if let (Some(k), Some(r), Some(s)) = (&kit, &run, session?) {
@@ -443,6 +447,43 @@ fn run(args: &Args) -> Result<(), String> {
         record::finish(k, &prep.at, r, &built.target, s, &gate)?;
         keep_full_screen(&prep.at.root, &built.target, &k.gif)?;
     }
+    let _ = fs::remove_dir_all(&prep.at.root);
+    Ok(())
+}
+
+/// **The headless take**: the tour prepared, baud and the opener built, the
+/// container started, and the session filmed with no window
+/// ([`headless`]), asking macOS for no Accessibility and no Screen
+/// Recording, as it posts no event and films no screen.
+fn headless_take(
+    args: &Args,
+    root: &Path,
+    tree: &provenance::Tree,
+    stills: &Path,
+) -> Result<(), String> {
+    let steps = SESSION.to_vec();
+    let prep = prepare(&steps, Take::Tour)?;
+    let names = machine_names(&prep.at.root)?;
+    let profile = Profile::of_this_example()?;
+    let command = profile.command(kept_out(std::env::args().skip(1)));
+    let built = build_baud(&profile, false)?;
+    println!("baud:    {}", built.bin.display());
+    let opener = build_opener(&profile, &prep.at)?;
+    println!("opener:  {}", opener.display());
+    let forbidden = args
+        .forbidden
+        .clone()
+        .zip(args.controls.clone())
+        .map(|(list, controls)| Forbidden { list, controls });
+    let up = container::up(&prep.image, &prep.keys, &prep.home, prep.port)?;
+    let made = Made {
+        root,
+        tree,
+        command: &command,
+        names: &names,
+    };
+    headless(&profile, &prep, stills, forbidden.as_ref(), &made)?;
+    drop(up);
     let _ = fs::remove_dir_all(&prep.at.root);
     Ok(())
 }
@@ -501,15 +542,28 @@ fn full_screen_name(gif: &str) -> String {
 /// stills as `heard.shown.log`. Every byte the session read from the shell,
 /// ssh's session among them, for a replay through baud's core, is kept raw
 /// in cargo's target directory ([`keep_raw`]), never beside the stills.
+///
+/// The session's test is handed this machine's names
+/// ([`machine_names`], the git e-mail addresses with them) and the
+/// container's user and host, and fails if any frame's text shows one of
+/// the first or no frame the second; `--forbidden`'s list searches every
+/// frame's text too. Then the README's GIF is cut from the film
+/// ([`readme_gif`]): `stills/session.gif`, encoded by the pinned ffmpeg and
+/// gifski, decoded and held to the cut, censused as the trailer is
+/// ([`flash_gate`]), and its provenance file written beside it, names
+/// checked, and read back as `--verify` reads it.
 fn headless(
     p: &Profile,
     prep: &Prep,
     stills: &Path,
     forbidden: Option<&Forbidden>,
+    made: &Made,
 ) -> Result<(), String> {
     fs::create_dir_all(stills).map_err(|e| format!("{}: {e}", stills.display()))?;
     let ffmpeg = nix_out("ffmpeg-headless.bin")?.join("bin/ffmpeg");
     let film = stills.join("session.mkv");
+    let mut shown_names = made.names.to_vec();
+    shown_names.extend(readme_gif::git_emails(made.root));
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let status = Command::new(cargo)
         .args(["test", "-p", "baud", "--bin", "baud", "--manifest-path"])
@@ -530,6 +584,13 @@ fn headless(
         // The account the shell runs as, given to the test and written
         // nowhere (`mac::with_account`).
         .env("BAUD_SESSION_ACCOUNT", mac::account()?)
+        // What no frame may show, found now and written nowhere, and what
+        // the container's card must.
+        .env("BAUD_SESSION_NAMES", shown_names.join("\n"))
+        .env(
+            "BAUD_SESSION_SHOWN",
+            format!("{}@{}", container::USER, container::HOST),
+        )
         .envs(
             ["BAUD_SESSION_POINTS", "BAUD_SESSION_WITHOUT"]
                 .into_iter()
@@ -603,8 +664,11 @@ fn headless(
     // bytes in cargo's target directory, never beside them.
     let shown = shown_log(&heard, &prep.at.home(), &stills.join(HEARD_SHOWN))?;
     leaks(&shown, &prep.at.root)?;
+    // Each frame's text as drawn, which the session's test wrote beside
+    // the film.
+    let text = stills.join("session.mkv.text");
     if let Some(f) = forbidden {
-        f.search(std::slice::from_ref(&shown))?;
+        f.search(&[shown.clone(), text])?;
     }
     let raw = keep_raw(&heard, &p.target)?;
     println!(
@@ -613,6 +677,133 @@ fn headless(
         raw.display()
     );
     println!("stills:  {}", stills.display());
+    cut_the_gif(p, prep, stills, forbidden.is_some(), made)?;
+    Ok(())
+}
+
+/// **What the README's GIF's provenance file is made from**, of the run
+/// that made it: the repository, its tree, the command as typed and this
+/// machine's names, which the file must not hold.
+struct Made<'a> {
+    root: &'a Path,
+    tree: &'a provenance::Tree,
+    command: &'a str,
+    names: &'a [String],
+}
+
+/// **The README's GIF, from the session's film** (`demo/readme_gif.rs`):
+/// [`readme_gif::SCENES`] cut by the tour's marks, encoded, decoded and
+/// held to the cut, censused for flashes as the trailer is, and its
+/// provenance file written beside it, which must name nothing of this
+/// machine, then read back as `--verify` reads it.
+fn cut_the_gif(
+    p: &Profile,
+    prep: &Prep,
+    stills: &Path,
+    searched: bool,
+    made: &Made,
+) -> Result<(), String> {
+    let film_at = stills.join("session.mkv");
+    let cut_at = stills.join("session.mkv.cut");
+    let cut_text = fs::read_to_string(&cut_at).map_err(|e| format!("{}: {e}", cut_at.display()))?;
+    let c = readme_gif::cut(&cut_text, &readme_gif::SCENES)?;
+    let t = readme_gif::tools(nix_out)?;
+    let gif = stills.join(readme_gif::GIF);
+    let m = readme_gif::encode(&t, &film_at, &c, &prep.at.root, &gif)?;
+    let gif = fs::canonicalize(&gif).map_err(|e| format!("{}: {e}", gif.display()))?;
+    flash_gate(p, &gif)?;
+    let d = m.decoded;
+    println!(
+        "gif:     {}: scenes {:?}, frames {:?} of the film, {:.2} s; {} frames sampled, {} \
+         shown, {:.2} s, {}x{}",
+        gif.display(),
+        readme_gif::SCENES,
+        c.ranges,
+        c.seconds(),
+        m.pngs,
+        d.frames,
+        d.millis as f64 / 1000.0,
+        d.width,
+        d.height
+    );
+    let mut checks = vec![
+        format!(
+            "{}: every light, the trail plasma through the README's scene and each jump's \
+             plasma, no frame's text showing this machine's names, the container's user and \
+             host shown",
+            readme_gif::SESSION_TEST
+        ),
+        "the session film's flash census, WCAG 2.3.1 (baud-bench/tests/session_flashes.rs)"
+            .to_string(),
+        "this GIF's flash census, WCAG 2.3.1 (baud-bench/tests/trailer_flashes.rs)".to_string(),
+        format!(
+            "decoded by baud's own decoder: {} frames, {:.3} s, {}x{}, as long as the cut",
+            d.frames,
+            d.millis as f64 / 1000.0,
+            d.width,
+            d.height
+        ),
+    ];
+    if searched {
+        checks.push(
+            "the forbidden list's search of every frame's text and the session's bytes, \
+             each pattern found in its control first; the list is kept outside the repository"
+                .to_string(),
+        );
+    }
+    let dir = stills.to_string_lossy();
+    let at_dir = |s: &str| s.replace(&*dir, "<DIR>");
+    let frames_args: Vec<String> = std::iter::once("ffmpeg".to_string())
+        .chain(readme_gif::frames_args(
+            "<DIR>/session.mkv",
+            &c,
+            &format!("{}/gif-frames", record::SCRATCH),
+        ))
+        .collect();
+    let gifski_args: Vec<String> = std::iter::once("gifski".to_string())
+        .chain(film::gifski_args(&format!("<DIR>/{}", readme_gif::GIF)))
+        .chain(std::iter::once(format!(
+            "{}/gif-frames/*.png",
+            record::SCRATCH
+        )))
+        .collect();
+    let facts = readme_gif::Facts {
+        command: at_dir(made.command),
+        from: from_dir(made.root),
+        tree: made.tree,
+        gif_sha256: provenance::sha256(&gif)?,
+        gif_bytes: fs::metadata(&gif)
+            .map_err(|e| format!("{}: {e}", gif.display()))?
+            .len(),
+        made: &m,
+        film_sha256: provenance::sha256(&film_at)?,
+        film_frames: c.film,
+        cut: &c,
+        frames_args,
+        gifski_args,
+        tools: &t,
+        checks,
+    };
+    let header = readme_gif::header();
+    let header: Vec<&str> = header.iter().map(String::as_str).collect();
+    let text = readme_gif::document(&facts).text(&header);
+    let public = names::public_path(env!("CARGO_PKG_REPOSITORY"));
+    let hit = names::named_outside(text.as_bytes(), made.names, &[&public]);
+    if !hit.is_empty() {
+        return Err(format!(
+            "the GIF's provenance file would name this machine: {} names; nothing is written",
+            hit.len()
+        ));
+    }
+    let prov = provenance::path_of(&gif);
+    fs::write(&prov, text).map_err(|e| format!("{}: {e}", prov.display()))?;
+    for l in provenance::verify(&gif, made.root)? {
+        println!("{l}");
+    }
+    println!(
+        "verified: {} is the GIF its provenance file describes",
+        gif.display()
+    );
     Ok(())
 }
 

@@ -7,8 +7,8 @@
 //! AppKit's drawing. A dark theme and a window of that half, the film's.
 //!
 //! * **Where**: the app's own placing, the one function `lights::panel` --
-//!   in a strip [`INSET`] points tall, from the frames note AH §5.1's probe
-//!   measured AppKit lay out in a titled window ([`BUTTONS`]), which the app
+//!   in a strip [`INSET`] points tall, from the frames AppKit lays out in a
+//!   titled window under the SDK the app links ([`BUTTONS`]), which the app
 //!   reads off its window instead.
 //! * **The lights**: each light's picture as the app draws it
 //!   (`Renderer::panel_light` in baud's embedded JetBrains Mono Bold, the
@@ -50,19 +50,13 @@ use macos_liquid_glass::objc2_foundation::{NSPoint, NSRect, NSSize};
 /// resolves it itself.
 pub(crate) const VERSION_INK: Argb = Argb(0x8C_FF_FF_FF);
 
-/// **The title strip's height, in points**: a titled window's on macOS
-/// 27, whose `contentLayoutRect` is 28 points short of the window (note
-/// AH §5.1); the app measures it off its window.
-pub(crate) const INSET: CGFloat = 28.0;
-
-/// **AppKit's traffic lights**, close, minimise and zoom: 14 by 16 point
-/// frames at x 9, 29 and 49, y 6, in the strip (note AH §5.1; `mark.rs`'s
-/// tests place the lockup beside the same frames).
-pub(crate) const BUTTONS: [(CGFloat, CGFloat, CGFloat, CGFloat); 3] = [
-    (9.0, 6.0, 14.0, 16.0),
-    (29.0, 6.0, 14.0, 16.0),
-    (49.0, 6.0, 14.0, 16.0),
-];
+/// **The title strip's height, in points, and AppKit's traffic lights**,
+/// close, minimise and zoom, in the strip: a titled window's under the SDK
+/// the app links, 32 points with 14 by 14 point frames at x 9, 32 and 55,
+/// y 9 (`titled.rs`, which says where each number comes from and which the
+/// window test holds to a real window's); the app measures them off its
+/// window.
+pub(crate) use super::titled::{BUTTONS, INSET};
 
 /// **Each traffic light's circle, in points across**, centred in its
 /// frame: the filmed take's, `assets/readme/hero.gif` as c6d97ceb holds
@@ -621,18 +615,19 @@ mod tests {
     }
 
     /// **The build's name is at the bar's left and gives way first**: in
-    /// the film's window it starts where the lockup used to, 69 points in,
-    /// and is inked there with every light placed; in a window too narrow for
-    /// it and all nine it is gone and every light stays, as the app does
-    /// it; narrower still the leftmost lights drop as they always did.
-    /// Perturbation: place the name after the lockup and the first half
-    /// fails; show it whatever the width and the second does.
+    /// the film's window it starts where the lockup used to, 78 points in,
+    /// a gap past the zoom button, and is inked there with every light
+    /// placed; in a window too narrow for it and all nine it is gone and
+    /// every light stays, as the app does it; narrower still the leftmost
+    /// lights drop as they always did. Perturbation: place the name after
+    /// the lockup and the first half fails; show it whatever the width and
+    /// the second does.
     #[test]
     fn the_name_of_the_build_is_at_the_left_and_yields_before_the_lights() {
         let wide = Strip::new(WIDE, 2.0, VERSION);
         let l = &wide.layout;
         let at = l.version.expect("the film's window has room");
-        assert_eq!(at, Px::of(138), "69 points in, at 2x");
+        assert_eq!(at, Px::of(156), "78 points in, at 2x");
         let row = slots!(l.size.1) / 2;
         let ink = (slots!(at)..slots!(at) + 80).any(|x| {
             wide.base[(row - 2) * slots!(l.size.0) + x] != GROUND_DARK.0
@@ -644,8 +639,8 @@ mod tests {
         let across = name_across();
         let columns = columns_at(2.0);
         // All nine with the name, just; then one point short of that. The
-        // plate is 221 across and 16 in from the right; the name starts at 69.
-        let room = 69.0 + across + crate::mark::VERSION_GAP + 221.0 + 16.0;
+        // plate is 221 across and 16 in from the right; the name starts at 78.
+        let room = 78.0 + across + crate::mark::VERSION_GAP + 221.0 + 16.0;
         let px = |pt: f64| Px::of(u32::try_from((pt * 2.0).ceil() as i64).unwrap());
         let fits = layout(px(room), 2.0, &columns, across);
         assert!(fits.version.is_some(), "at {room} points");
@@ -673,25 +668,28 @@ mod tests {
     }
 
     /// **The strip is the app's, at the app's places, the one function**:
-    /// 28 points tall, 56 pixels at 2x; the traffic lights centred in
-    /// AppKit's frames, 16, 36 and 56 points along and 14 down; the plate,
-    /// the lockup and all nine lights where `lights::panel` puts them in a
-    /// window this wide, at every width the module has a shape at, so the
-    /// film and the window cannot draw two strips. Perturbation: compose the
-    /// lockup at 69 points, where it used to be, and this goes red.
+    /// 32 points tall, 64 pixels at 2x, a titled window's under the SDK the
+    /// app links; the traffic lights centred in AppKit's 14-point frames,
+    /// 16, 39 and 62 points along and 16 down; the lockup's place a gap past
+    /// the zoom button, 78 points in; the plate 4 points down, 24 tall, and
+    /// the lockup centred on the strip; the plate, the lockup and all nine
+    /// lights where `lights::panel` puts them in a window this wide, at
+    /// every width the module has a shape at, so the film and the window
+    /// cannot draw two strips. Perturbation: the 14.4 SDK's bar, 28 points
+    /// with 14 by 16 frames at x 9, 29 and 49, and this goes red.
     #[test]
     fn the_strip_has_the_apps_height_and_places() {
         let s = Strip::new(WIDE, 2.0, VERSION);
         let l = &s.layout;
-        assert_eq!(l.size, (WIDE, Px::of(56)));
-        assert_eq!(s.height(), Px::of(56));
+        assert_eq!(l.size, (WIDE, Px::of(64)));
+        assert_eq!(s.height(), Px::of(64));
         let centres: Vec<(f64, f64)> = l.buttons.iter().map(|b| (b.0, b.1)).collect();
-        assert_eq!(centres, [(32.0, 28.0), (72.0, 28.0), (112.0, 28.0)]);
+        assert_eq!(centres, [(32.0, 32.0), (78.0, 32.0), (124.0, 32.0)]);
         assert!(l.buttons.iter().all(|b| b.2 == DOT / 2.0 * 2.0));
         let [c, m, z] = buttons();
         let art = Lockup::OnDark.art().unwrap();
         let place = Place::beside(c, m, z, INSET, art).unwrap();
-        assert_eq!(place.x, 69.0);
+        assert_eq!(place.x, 78.0);
         let across = name_across();
         for (scale, widths) in [(1.0, [1392, 295, 240, 200]), (2.0, [2784, 590, 480, 400])] {
             let columns = columns_at(scale);
@@ -710,7 +708,7 @@ mod tests {
                 let at = format!("{width} pixels at {scale}x");
                 let (x, y, w, h) = lay.plate.expect("a plate");
                 assert_eq!(f64::from(x.value()), module.plate.origin.x * scale, "{at}");
-                assert_eq!(f64::from(y.value()), 2.0 * scale, "{at}");
+                assert_eq!(f64::from(y.value()), 4.0 * scale, "{at}");
                 assert_eq!(
                     f64::from(w.value()),
                     module.plate.size.width * scale,
@@ -720,7 +718,7 @@ mod tests {
                 let (lx, ly, lw, lh) = lay.lockup;
                 assert_eq!(lx, module.logo.origin.x * scale, "{at}");
                 assert!(
-                    (ly + lh / 2.0 - 14.0 * scale).abs() <= 0.5,
+                    (ly + lh / 2.0 - 16.0 * scale).abs() <= 0.5,
                     "{at}: centred on the strip: {ly} {lh}"
                 );
                 assert_eq!(
@@ -759,7 +757,7 @@ mod tests {
     /// falls where the lockup's own proportions put it, 611.57 of 687.94
     /// units across, inside a pixel; that one column is part-covered and is
     /// not checked. Break: the frame unsnapped, the lockup at 12.544
-    /// points centred on a 28-point strip (y 15.456 pixels at 2x), and the
+    /// points centred on a 32-point strip (y 19.456 pixels at 2x), and the
     /// block's top row reads part-covered, not amber.
     #[test]
     fn the_blocks_edges_are_whole_pixels_and_its_amber_exact() {
@@ -808,15 +806,16 @@ mod tests {
     }
 
     /// **With no plate the composed strip has the lockup where the app has
-    /// it**: past the buttons, centred. No lamp fits under 144 points, which
-    /// no window is, so this is the fallback's own check.
+    /// it**: past the buttons, a gap past the zoom button, centred. No lamp
+    /// fits in a window 100 points wide, which no window is, so this is the
+    /// fallback's own check.
     #[test]
     fn no_light_placed_is_no_plate_and_the_lockup_past_the_buttons() {
         let columns = columns_at(2.0);
         let lay = layout(Px::of(200), 2.0, &columns, name_across());
         assert_eq!(lay.plate, None);
         assert_eq!(lay.version, None);
-        assert_eq!(lay.lockup.0, 138.0);
+        assert_eq!(lay.lockup.0, 156.0, "78 points in, at 2x");
         assert!(Led::ALL.into_iter().all(|l| lay.lights.get(l).is_none()));
     }
 
@@ -838,7 +837,7 @@ mod tests {
             ..Shown::DARK
         };
         s.compose(lit, &below, &mut rd);
-        let strip = slots!(WIDE) * 56;
+        let strip = slots!(WIDE) * 64;
         assert_eq!(dark.len(), strip + below.len());
         assert_eq!(&dark[strip..], &below[..], "the frame under the strip");
         assert_eq!(&dark[..strip], &s.base[..]);

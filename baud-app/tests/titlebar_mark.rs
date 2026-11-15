@@ -70,6 +70,11 @@ mod full_screen_check;
 #[path = "../src/lights.rs"]
 mod lights;
 
+// The bar the film's composed strip is laid out by, held here to a window's.
+#[cfg(target_os = "macos")]
+#[path = "../src/film/titled.rs"]
+mod titled;
+
 /// The face the lights' letters are drawn in, as `embedded.rs` holds it.
 #[cfg(target_os = "macos")]
 mod embedded {
@@ -285,6 +290,7 @@ fn run() {
         }
     }
     assert_eq!(checked, 8, "two bodies at four sizes");
+    the_films_bar_is_the_windows(mtm);
     on_the_plate(mtm);
     theme_files_keep_their_plate(mtm);
     grey_in_a_window_not_active(mtm);
@@ -639,6 +645,51 @@ fn the_plate_picks_the_form(mtm: MainThreadMarker) {
     assert!(mark.on_plate(), "wide again");
     assert_eq!(mark.shown(), OnDark, "the plate's");
     window.set_appearance(None);
+}
+
+/// **The bar the film composes is this window's** (`src/film/titled.rs`):
+/// a titled window never shown, the size the app opens, has a title bar
+/// `titled::INSET` tall by `strip::inset_of`, and its close, minimise and
+/// zoom buttons have `titled::BUTTONS`' x, width and height, each centred
+/// on the bar, so the strip's left edge (`strip::edges`) is where the film
+/// starts it, a gap past the zoom button. The numbers follow the SDK the
+/// binary links, so this is the film's pin to that SDK: linked against the
+/// 14.4 SDK the bar is 28 and the buttons 14 by 16 at x 9, 29 and 49, and
+/// this fails. Perturbation: `titled::INSET` 28 and the first check fails.
+#[cfg(target_os = "macos")]
+fn the_films_bar_is_the_windows(mtm: MainThreadMarker) {
+    let window = GlassWindow::new(mtm, WINDOW_SIZE, "baud");
+    let w = window.ns_window();
+    w.layoutIfNeeded();
+    let inset = strip::inset_of(w);
+    assert_eq!(inset, titled::INSET, "the title bar's height");
+    let buttons = [
+        NSWindowButton::CloseButton,
+        NSWindowButton::MiniaturizeButton,
+        NSWindowButton::ZoomButton,
+    ];
+    for (button, (x, _, bw, bh)) in buttons.into_iter().zip(titled::BUTTONS) {
+        let f = w
+            .standardWindowButton(button)
+            .expect("a titled window's button")
+            .frame();
+        assert_eq!(
+            (f.origin.x, f.size.width, f.size.height),
+            (x, bw, bh),
+            "{button:?}: {f:?}"
+        );
+        assert!(
+            (f.origin.y + f.size.height / 2.0 - inset / 2.0).abs() < 0.5,
+            "{button:?} is not centred on the {inset}-point bar: {f:?}"
+        );
+    }
+    let (_, _, zw, _) = titled::BUTTONS[2];
+    let gap = titled::BUTTONS[1].0 - (titled::BUTTONS[0].0 + titled::BUTTONS[0].2);
+    assert_eq!(
+        strip::edges(w).left,
+        titled::BUTTONS[2].0 + zw + gap,
+        "the strip's left edge"
+    );
 }
 
 /// **A window just too narrow for the name and every light gives up the

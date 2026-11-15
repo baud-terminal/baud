@@ -18,7 +18,7 @@
 //! ```text
 //! cargo run --release --example demo              # the tour
 //! cargo run --release --example demo -- --dry     # all but the window
-//! cargo run --release --example demo -- --headless DIR   # no window
+//! cargo run --release --example demo -- --headless DIR   # no window, the GIF
 //! devenv shell -- cargo run --release --example demo -- \
 //!     --record assets/demo/tour.mp4 --forbidden LIST --controls FILE
 //! devenv shell -- cargo run --release --example demo -- --trailer \
@@ -158,7 +158,16 @@
 //! baud-bench's flash census must
 //! pass its trails', fireworks' and clear's shots (WCAG 2.3.1); every
 //! character the programs printed must be drawn by baud's faces or a
-//! pinned one. `BAUD_SESSION_POINTS` draws at another size and
+//! pinned one; and no frame's text, as drawn, may show this machine's
+//! names, the git e-mail addresses among them, while some frame shows the
+//! container's user and host. Then the README's GIF is cut from the film
+//! by the tour's scene marks (`demo/readme_gif.rs`), `DIR/session.gif`,
+//! encoded by the pinned ffmpeg and gifski, decoded and held to the cut,
+//! censused by baud-bench as the trailer is, and written with its
+//! provenance file beside it, which `--verify` reads. A tree that differs
+//! from its commit is refused, as `--record` refuses it, unless
+//! `--allow-dirty`, which the provenance file records: the strip on every
+//! frame names the build. `BAUD_SESSION_POINTS` draws at another size and
 //! `BAUD_SESSION_WITHOUT` takes a command out, for a perturbation.
 //!
 //! **`--record OUT.gif`**, with `--trailer`: the README's GIF from one
@@ -268,6 +277,9 @@ mod names;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[path = "demo/provenance.rs"]
 mod provenance;
+#[cfg(target_os = "macos")]
+#[path = "demo/readme_gif.rs"]
+mod readme_gif;
 #[cfg(target_os = "macos")]
 #[path = "demo/record.rs"]
 mod record;

@@ -6,15 +6,15 @@
 //! prepares and builds; two of baud's tests, run by cargo
 //! (`film::session::the_readme_session_lights_every_light` and
 //! `programs::chawan_draws_a_pages_picture_by_kittys_protocol`); and
-//! baud-bench's flash census of the film. Each is held here or beside its
-//! test:
+//! baud-bench's flash censuses of the film and of the README's GIF cut from
+//! it, which ffmpeg and gifski make. Each is held here or beside its test:
 //!
 //! - this example: [`the_headless_run_reaches_no_window`] walks what the
 //!   headless branch reaches and finds no AppKit, no event posted, no
 //!   pasteboard, and no program started but the build and fetch tools;
 //!   [`nothing_in_the_demo_starts_an_application`] finds no application,
 //!   window or marker named anywhere in the example at all;
-//! - the census: [`the_flash_census_names_no_appkit`];
+//! - the censuses: [`the_flash_census_names_no_appkit`];
 //! - baud's two tests: `film/session.rs`, which holds each off the main
 //!   thread, where alone AppKit's marker is made, and holds every command
 //!   line the session submits to programs that open no window.
@@ -53,12 +53,12 @@ fn modules() -> Vec<String> {
 /// headless branch.
 const RUN_CALL: &str = "let ran = run(&args);";
 
-/// Where `run`'s headless branch has returned: the window's session and
-/// everything after it, taken out of `run`.
-const LIVE_CALL: &str = "let session = live(";
+/// Where `run`'s headless branch has returned: the window's session, its
+/// questions to macOS first, and everything after it, taken out of `run`.
+const WINDOW_PATH: &str = "let host = std::env::var(";
 
 /// **What the headless run reaches**: `main` without its call of `run`,
-/// and `run` up to [`LIVE_CALL`], every fn of every module of the example
+/// and `run` up to [`WINDOW_PATH`], every fn of every module of the example
 /// they call followed, fn by fn.
 fn headless() -> Reached {
     let names = modules();
@@ -69,7 +69,7 @@ fn headless() -> Reached {
         src: &demo(),
         start: vec![
             Part::Cut(vec![s("run")], s("main"), s(RUN_CALL), s(RUN_CALL)),
-            Part::Cut(vec![s("run")], s("run"), s(LIVE_CALL), s("\n}")),
+            Part::Cut(vec![s("run")], s("run"), s(WINDOW_PATH), s("\n}")),
         ],
         by_fn: &by_fn,
         sinks: &[],
@@ -79,9 +79,10 @@ fn headless() -> Reached {
 
 /// What the window's session does, which the headless run must reach
 /// none of: AppKit's workspace and pasteboard, a posted event, raising an
-/// application, starting baud, and the trust check that prompts, whose
-/// dialog is a window on the screen (`mac::trusted` asks without one).
-const CALLS: [&str; 9] = [
+/// application, starting baud, and both trust checks, the one that prompts,
+/// whose dialog is a window on the screen, and `mac::trusted`, which asks
+/// without one: the headless run posts no event, so it asks neither.
+const CALLS: [&str; 11] = [
     "NSWorkspace",
     "NSPasteboard",
     "CGEvent",
@@ -91,15 +92,16 @@ const CALLS: [&str; 9] = [
     "objc2_app_kit",
     "AXIsProcessTrustedWithOptions",
     "kAXTrustedCheckOptionPrompt",
+    "AXIsProcessTrusted",
+    "mac::trusted",
 ];
 
 /// **The programs the headless branch can start**, as each reached
 /// `Command::new`, or `say`, names its program, and what each is. The walk
-/// follows calls by name and both arms of every `match`, so the recording
-/// kit's programs are here though `--headless` refuses `--record`, and
-/// colima's though a run given `DOCKER_HOST` starts no VM. None is a GUI
+/// follows calls by name and both arms of every `match`, so colima's is
+/// here though a run given `DOCKER_HOST` starts no VM. None is a GUI
 /// application, and none is baud.
-const STARTED: [(&str, &str); 25] = [
+const STARTED: [(&str, &str); 19] = [
     (
         "\"/bin/hostname\"",
         "this machine's names, kept out of the film",
@@ -113,20 +115,17 @@ const STARTED: [(&str, &str); 25] = [
         "this machine's names, kept out of the film",
     ),
     ("\"/usr/bin/curl\"", "a pinned download"),
-    ("\"/usr/bin/defaults\"", "reads com.apple.spaces"),
     ("\"/usr/bin/shasum\"", "a pinned file's hash"),
-    ("\"/usr/bin/sw_vers\"", "the recording kit's system version"),
     ("\"/usr/bin/tar\"", "packs the source tree"),
     ("\"colima\"", "the VM, only when no DOCKER_HOST is given"),
     ("\"docker\"", "the session's container"),
     ("\"git\"", "the source tree and its commit"),
     ("\"nix\"", "builds the pinned programs"),
-    ("&check", "the recording kit's check of a raw film, a CLI"),
-    ("&kit.ffmpeg", "the recording kit's encoder, a CLI"),
-    ("&kit.ffprobe", "the recording kit's probe, a CLI"),
-    ("&kit.gifski", "the recording kit's GIF encoder, a CLI"),
-    ("&swiftc", "the recording kit's compiler"),
-    ("swiftc", "the recording kit's compiler"),
+    (
+        "&t.ffmpeg",
+        "the README GIF's frames from the session's film, a CLI",
+    ),
+    ("&t.gifski", "the README GIF's encoder, a CLI"),
     ("cargo", "builds baud and runs the three tests"),
     (
         "cmd",
@@ -184,11 +183,11 @@ fn started(reached: &Reached) -> Vec<String> {
 }
 
 /// **The headless branch reaches no window**: walked from `main` and from
-/// `run` up to [`LIVE_CALL`], the example's code names none of
+/// `run` up to [`WINDOW_PATH`], the example's code names none of
 /// [`FORBIDDEN`] and makes none of [`CALLS`], and every program it starts
 /// is one of [`STARTED`]. The controls: the walk reaches the headless
 /// branch, the container and the build, and does not reach the window's
-/// session; and the same walk past [`LIVE_CALL`] is caught.
+/// session; and the same walk past [`WINDOW_PATH`] is caught.
 #[test]
 fn the_headless_run_reaches_no_window() {
     // The cut is sound only while the headless branch returns before the
@@ -196,7 +195,7 @@ fn the_headless_run_reaches_no_window() {
     let run = include_str!("run.rs");
     let branch = run
         .split_once("    if let Some(stills) = &args.headless {\n")
-        .and_then(|(_, b)| b.split_once(LIVE_CALL))
+        .and_then(|(_, b)| b.split_once(WINDOW_PATH))
         .map(|(b, _)| b)
         .expect("the headless branch, then the window's session");
     assert!(
@@ -210,14 +209,20 @@ fn the_headless_run_reaches_no_window() {
         ("run", "build_baud"),
         ("run", "prepare"),
         ("container", "up"),
-        ("mac", "trusted"),
+        ("mac", "account"),
     ] {
         assert!(
             reached.parts.contains_key(&fns(m, f)),
             "the control: {m}::{f} is reached"
         );
     }
-    for (m, f) in [("run", "live"), ("run", "play"), ("run", "run")] {
+    for (m, f) in [
+        ("run", "live"),
+        ("run", "play"),
+        ("run", "run"),
+        ("mac", "trusted"),
+        ("record", "kit"),
+    ] {
         assert!(
             !reached.parts.contains_key(&fns(m, f)),
             "{m}::{f} is reached"
@@ -333,8 +338,9 @@ fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 /// **The flash census names no AppKit**: baud-bench's
-/// `tests/session_flashes.rs`, its library and every first-party crate the
-/// library is built from, comments and literals aside, name none of
+/// `tests/session_flashes.rs` and `tests/trailer_flashes.rs`, which the
+/// headless run gives the README's GIF, its library and every first-party
+/// crate the library is built from, comments and literals aside, name none of
 /// [`FORBIDDEN`], no objc2 crate and no window crate, so the census binary
 /// calls nothing that could make an application. baud-bench's benches and
 /// dev-dependencies, which draw through Metal, are not in it. The control:
@@ -351,7 +357,10 @@ fn the_flash_census_names_no_appkit() {
             "the control: {c} is read"
         );
     }
-    let mut files = vec![root.join("baud-bench/tests/session_flashes.rs")];
+    let mut files = vec![
+        root.join("baud-bench/tests/session_flashes.rs"),
+        root.join("baud-bench/tests/trailer_flashes.rs"),
+    ];
     for d in &dirs {
         sources(d, &mut files);
     }

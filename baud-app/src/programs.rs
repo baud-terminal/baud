@@ -524,6 +524,14 @@ pub(crate) fn screen(t: &Term<'_>) -> Vec<String> {
         .collect()
 }
 
+/// **What a frame shows as text**: [`screen`]'s rows, then the status
+/// line's when the program keeps one (DECSSDT), which is drawn below them.
+pub(crate) fn shown(t: &Term<'_>) -> Vec<String> {
+    let mut rows = screen(t);
+    rows.extend(t.status_line().map(|s| row_text(t, s.cells)));
+    rows
+}
+
 /// A row's text: each cell's base, read through the cluster store, and the
 /// codepoints attached to it; a cell with none, a wide character's tail
 /// among them, a space.
