@@ -5217,3 +5217,55 @@ change and A/A read cat 1562.1, 1552.2 and 1493.4, cat-cjk 508.0, 510.5 and
 round each and so no range: no result. No test has been run, so nothing
 above proves the frames right; the bench asserts only that every tick moved
 the frame.
+
+## The AVX2 scan on an x86-64 host
+
+The first timing of the `avx2-scan` arm on real x86-64 hardware. The record's
+earlier figure was a CI runner's. Taken at `e364dff4`, 2026-11-14: the tree
+built was a later commit whose `baud-core`, `baud-domain`, `baud-bench`,
+`baud-isa`, `baud-isa-x86-64`, `baud-render`, `Cargo.lock` and toolchain
+files are identical to `e364dff4`'s (`git diff --quiet`), so the code measured
+is `e364dff4`'s. On an x86_64 NixOS host, an AMD Ryzen Threadripper 9980X
+(Zen 5, 64 cores, 128 threads, one NUMA node), Linux 7.2.6, rustc
+1.101.0-nightly 249c1e4e3, on mains.
+
+**Method.** One `git archive` of that tree, every file touched. `ingest2`
+built three times, each in its own target directory and copied out:
+portable, `avx2-scan`, and a second `avx2-scan` (A/A). All three carry
+`RUSTFLAGS="-C target-feature=+avx2"`, so the only difference is the
+feature. `cmp`: the two `avx2-scan` binaries are byte-identical, and the
+portable one differs. The `avx2-scan` binary holds 24 `vpmovmskb` on a `%ymm`
+against the portable's 16 (VEX-encoded under `+avx2`), so the 32-byte arm is
+live. Six rounds, the arm order rotated each round, round 1 dropped. Load1
+1.6-2.7 throughout. `cells_written` is equal on every arm and payload.
+
+**Pinned to one core.** A first sweep, not pinned, read bimodal on every
+payload (cat: 731-744 or 935-964 MB/s within one arm), which is the process
+landing on different cores. Every figure below is from a second sweep under
+`taskset -c 10`.
+
+Medians of rounds 2-6, [range], MB/s:
+
+| payload | reps | portable | avx2-scan | avx2-scan A/A |
+|---|---|---|---|---|
+| cat | 200 | 902.3 [891.7-909.4] | 897.5 [892.1-901.1] | 895.3 [838.8-898.9] |
+| git-log | 200 | 1075.7 [1002.5-1078.9] | 1064.4 [990.3-1074.6] | 1063.2 [986.3-1068.8] |
+| less | 400 | 1180.3 [1056.5-1189.7] | 1185.3 [1133.3-1202.1] | 1166.4 [1056.5-1189.1] |
+| pipes | 200 | 427.2 [419.7-430.2] | 429.9 [425.9-431.8] | 425.4 [412.2-431.2] |
+| btop | 200 | 695.3 [646.8-697.0] | 689.0 [683.7-693.8] | 695.9 [688.2-698.5] |
+| cat-cjk | 200 | 355.3 [354.8-356.3] | 351.6 [348.4-353.2] | 350.9 [327.5-353.1] |
+| cava | 200 | 395.0 [393.4-397.7] | 396.2 [393.4-397.2] | 394.8 [370.0-396.6] |
+| less-cjk | 400 | 360.2 [356.9-361.0] | 356.0 [353.7-356.3] | 356.5 [355.2-357.2] |
+| vim | 400 | 425.5 [396.1-429.6] | 426.5 [395.6-427.6] | 421.8 [397.1-425.9] |
+
+**Result.** Seven payloads: the ranges overlap, no result. cat-cjk and
+less-cjk: `avx2-scan` reads about 1% below portable with the ranges apart,
+and the A/A copy overlaps `avx2-scan`. That is five short rounds on one
+host; it says the arm gains nothing here, not that it costs 1% everywhere.
+The release builds portable x86-64, and the `avx2-scan` arm and its checks
+(`baud-isa-x86-64/tests/agrees.rs`, `scripts/x86-avx2.sh`) stay as they
+are.
+
+**What would have proven this wrong:** `cmp` reading the two arms
+identical (a vacuous A/B), the `%ymm` movemask absent from the avx2 binary,
+or `cells_written` differing between arms. None did.
