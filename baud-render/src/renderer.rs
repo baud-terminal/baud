@@ -1871,18 +1871,45 @@ mod links {
 
     /// **Whether every row a link's solid is drawn on is drawn in its own
     /// order, and no display is held**: there a run is its own cells,
-    /// whatever wrote the row's paragraph, so a key that held then and
-    /// holds now places the solids where they are.
+    /// whatever wrote the row's paragraph or any other, so a key that held
+    /// then and holds now places the solids where they are, whatever the
+    /// maps were laid out as since.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub(super) enum OwnOrder {
         Every,
         NotEvery,
     }
 
-    /// The solids to place again, into a kept buffer, and the key they are
-    /// placed under: none for a placement on a row in another order.
+    /// **What a placement was made under**: its key, whether every row a
+    /// solid was drawn on was in its own order with no display held, and
+    /// the layout's seal then ([`Orders::laid_seal`]): a solid on a row in
+    /// another order, or under a display, is placed from the rows' maps
+    /// and the display, and from nothing else the key does not hold.
+    #[derive(Clone, Copy, Debug)]
+    pub(super) struct PlacedUnder {
+        key: SolidsKey,
+        order: OwnOrder,
+        laid: LaidSeal,
+    }
+
+    impl PlacedUnder {
+        /// **Whether solids placed under this are the ones `now`, `order`
+        /// and `orders` place**: the key the same, and either every row a
+        /// solid is drawn on in its own order then and now, or no row's
+        /// order or joins nor the display laid out otherwise since
+        /// ([`Orders::moved_since`]) -- a row laid out again as it was is
+        /// not.
+        fn holds(&self, now: SolidsKey, order: OwnOrder, orders: &Orders) -> bool {
+            self.key == now
+                && ((self.order == OwnOrder::Every && order == OwnOrder::Every)
+                    || !orders.moved_since(&self.laid))
+        }
+    }
+
+    /// The solids to place again, into a kept buffer, and what they are
+    /// placed under.
     pub(super) struct Placement {
-        key: Option<SolidsKey>,
+        under: PlacedUnder,
         solids: Vec<Instance>,
     }
 
@@ -1901,47 +1928,61 @@ mod links {
     }
 
     /// **The solids of the lines at rest, the strikes and `hover = "line"`,
-    /// and the key they were placed under**: `None` when they were placed
-    /// with a carrying row in another order, or a display held, which no
-    /// key holds.
+    /// and what they were placed under**: `None` until a placement is
+    /// given back, and while one is out.
     pub(super) struct KeptSolids {
-        key: Option<SolidsKey>,
+        under: Option<PlacedUnder>,
         solids: Vec<Instance>,
     }
 
     impl KeptSolids {
         pub(super) fn none() -> KeptSolids {
             KeptSolids {
-                key: None,
+                under: None,
                 solids: Vec::new(),
             }
         }
 
-        /// **Holds the key `now`**: the solids kept are this frame's only
-        /// where they were placed under it with every carrying row in its
-        /// own order, every one is now (`order`), and the frame is not one
-        /// that draws everything again (`force`). Otherwise their buffer is
-        /// handed out, emptied, to be placed into and given back
-        /// ([`KeptSolids::placed`]); the key is forgotten until then.
-        pub(super) fn hold(&mut self, now: SolidsKey, order: OwnOrder, force: Force) -> Placing {
-            if force == Force::No && order == OwnOrder::Every && self.key == Some(now) {
+        /// **Holds the key `now`**: the solids kept are this frame's where
+        /// what they were placed under holds `now`, `order` and `orders`
+        /// ([`PlacedUnder::holds`]) -- on a row in another order and under
+        /// a held display as on a row in its own -- and the frame is not
+        /// one that draws everything again (`force`). Otherwise their
+        /// buffer is handed out, emptied, to be placed into under `now`,
+        /// `order` and the layout's seal now, and given back
+        /// ([`KeptSolids::placed`]); what they were placed under is
+        /// forgotten until then.
+        pub(super) fn hold(
+            &mut self,
+            now: SolidsKey,
+            order: OwnOrder,
+            orders: &Orders,
+            force: Force,
+        ) -> Placing {
+            if force == Force::No
+                && self
+                    .under
+                    .as_ref()
+                    .is_some_and(|u| u.holds(now, order, orders))
+            {
                 return Placing::Kept;
             }
-            self.key = None;
+            self.under = None;
             let mut solids = core::mem::take(&mut self.solids);
             solids.clear();
             Placing::Place(Placement {
-                key: match order {
-                    OwnOrder::Every => Some(now),
-                    OwnOrder::NotEvery => None,
+                under: PlacedUnder {
+                    key: now,
+                    order,
+                    laid: orders.laid_seal(),
                 },
                 solids,
             })
         }
 
-        /// The solids `p` placed, kept under its key.
+        /// The solids `p` placed, kept under what it was placed under.
         pub(super) fn placed(&mut self, p: Placement) {
-            self.key = p.key;
+            self.under = Some(p.under);
             self.solids = p.solids;
         }
 
@@ -5928,7 +5969,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             metrics: self.metrics,
         };
         let order = self.own_order();
-        if let Placing::Place(mut p) = self.kept_solids.hold(now, order, force) {
+        if let Placing::Place(mut p) = self.kept_solids.hold(now, order, self.bidi.orders(), force)
+        {
             self.place_solids(term, p.solids());
             crate::counters::add(
                 Counter::LinkInstancesBuilt,

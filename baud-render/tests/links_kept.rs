@@ -16,6 +16,12 @@
 //! against the seal the steady frame was drawn under; and caret frames
 //! over a struck link, on the CPU path and the cell path, each what a
 //! fresh renderer draws.
+//!
+//! The last hold the solids placed on rows in another order and under a
+//! held display, which are kept as those in their own order are: caret
+//! frames there place no link record, by count, on either path; and a
+//! write that lays a line's runs out otherwise, with nothing the driver
+//! hands moved, places them again.
 
 mod support;
 
@@ -25,6 +31,7 @@ use baud_domain::{
 };
 use baud_font::{Face, Px};
 use baud_render::cell_frame::{CellInputs, CellParts, build};
+use baud_render::counters::{self, Counter, Site};
 use baud_render::screens::{SETS, Screens, SetIx};
 use baud_render::{
     Argb, Blend, Candidate, Damage, GlyphMap, Ground, Highlight, HoverPaint, Instance, Leaving,
@@ -1005,8 +1012,9 @@ fn bdsm_toggled_with_nothing_written_moves_the_line() {
 
 /// **C6-20: BDSM reset with nothing written moves the line back**: the
 /// placement was made with its row reordered, and the row is drawn as
-/// stored now. Named break: a placement kept that was made with a row in
-/// another order.
+/// stored now. Named breaks: a placement made with a row in another order
+/// kept on its key alone, the layout's seal not asked; and one kept
+/// wherever every row is in its own order now, whatever it was then.
 #[test]
 fn bdsm_reset_with_nothing_written_moves_the_line_back() {
     let case = Case {
@@ -1097,7 +1105,8 @@ const THEN: At = At::Then;
 
 /// **C6-18: word wrap turned on with nothing written moves the line to
 /// the row and cells its display draws the word on.** Named break: a
-/// placement kept with a display held.
+/// placement made with every row in its own order kept whatever the rows
+/// are now, the layout's seal not asked.
 #[test]
 fn word_wrap_turned_on_moves_the_line_to_its_display_row() {
     let links = Links {
@@ -1784,5 +1793,384 @@ fn a_look_back_onto_a_wide_cell_at_the_selections_edge_finds_the_struck_cells_ag
     assert!(
         wrong.is_empty(),
         "cell frames {wrong:?} looked back lend otherwise"
+    );
+}
+
+// **The solids on rows in another order and under a held display**
+// (FS-C6's follow-up): kept while what they were placed under holds --
+// the key, and no row's order nor the display laid out otherwise since
+// the layout's seal then -- as the solids on rows in their own order are.
+
+/// The link records placed since this thread's counts were last read:
+/// the solids of the lines at rest, the strikes and `hover = "line"`.
+fn placed() -> Tally {
+    counters::take().at(Site::Links, Counter::LinkInstancesBuilt)
+}
+
+/// **[`cut_paragraph`]'s links for the caret frames under its display**:
+/// "then" and "do" lines at rest, "do" struck in [`PINK`] -- drawn on the
+/// row below its cells -- and "then" under the pointer, drawn as a line.
+const UNDER_DISPLAY: Links = Links {
+    lines: &[THEN, DO],
+    strikes: &[DO],
+    missing: PINK,
+    hover: Some((THEN, HoverPaint::Line)),
+    ..RESTING
+};
+
+/// **Both links at rest on [`hebrew_first`]'s right-to-left row and the
+/// row below**, [`FIRST`] struck in [`PINK`] and under the pointer, drawn
+/// as a line.
+const ON_REORDERED: Links = Links {
+    strikes: &[FIRST],
+    missing: PINK,
+    hover: Some((FIRST, HoverPaint::Line)),
+    ..RESTING
+};
+
+/// Whether a display is held and [`DO`]'s cells are drawn on the row
+/// below theirs alone.
+fn do_drawn_below(r: &Renderer<'_, '_>) -> bool {
+    let run = DO.run();
+    let runs = r.bidi().stored_runs(run.row, run.from, run.to);
+    r.bidi().display().is_some()
+        && !runs.is_empty()
+        && runs.iter().all(|&(y, _, _)| y.index() == DO.row() + 1)
+}
+
+/// Whether [`FIRST`]'s row is drawn in another order, no display held.
+fn first_reordered_alone(r: &Renderer<'_, '_>) -> bool {
+    first_reordered(r) && r.bidi().display().is_none()
+}
+
+/// Whether a display is held.
+fn display_held(r: &Renderer<'_, '_>) -> bool {
+    r.bidi().display().is_some()
+}
+
+/// **What caret frames on `setup` under `h` placed**, on the CPU path and
+/// the cell path, by path and frame: a full frame and one more on the CPU
+/// path, a frame into each set and one more on the cell path, then the
+/// cursor moved six times on each, nothing else. The controls: `premise`
+/// holds after the first frame; the first frame places link records; each
+/// caret frame writes no window row and lays no row's order nor the
+/// display out otherwise.
+fn caret_frames_placed(setup: &str, h: &Host, premise: Premise) -> Vec<String> {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut wrong = Vec::new();
+    {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, setup.as_bytes());
+        let mut r = made(&faces);
+        set_host(&mut r, h, &BASE);
+        let mut px = Vec::new();
+        let _ = counters::take();
+        frame(&mut r, &mut t, h, &mut px, Damage::Full);
+        assert!(
+            placed().value() > 0,
+            "the control: the first CPU frame places link records"
+        );
+        assert!(premise(&r), "the control: the premise, on the CPU path");
+        frame(&mut r, &mut t, h, &mut px, Damage::Incremental);
+        for k in 0..6 {
+            let (seal, laid) = (t.sealed(), r.bidi().laid_seal());
+            feed(&mut t, format!("\x1b[{ROWS};{}H", k + 1).as_bytes());
+            let _ = counters::take();
+            frame(&mut r, &mut t, h, &mut px, Damage::Incremental);
+            let n = placed();
+            assert!(
+                written(&t, h.back, &seal).is_empty() && !r.bidi().moved_since(&laid),
+                "the isolation: a CPU caret frame writes no row and lays none out otherwise"
+            );
+            if n.value() > 0 {
+                wrong.push(format!("cpu caret frame {k}: {} placed", n.value()));
+            }
+        }
+    }
+    {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, setup.as_bytes());
+        let mut r = made(&faces);
+        set_host(&mut r, h, &BASE);
+        let mut backing = GlyphMap::backing();
+        let mut cells = Cells::new(&mut backing, &t);
+        let mut sets = (0..).map(|k| SetIx(k % SETS));
+        let mut next = || sets.next().expect("a set");
+        let _ = counters::take();
+        cell_frame(&mut r, &mut t, h, &mut cells, next());
+        assert!(
+            placed().value() > 0,
+            "the control: the first cell frame places link records"
+        );
+        assert!(premise(&r), "the control: the premise, on the cell path");
+        for _ in 0..SETS {
+            cell_frame(&mut r, &mut t, h, &mut cells, next());
+        }
+        for k in 0..6 {
+            let (seal, laid) = (t.sealed(), r.bidi().laid_seal());
+            feed(&mut t, format!("\x1b[{ROWS};{}H", k + 1).as_bytes());
+            let _ = counters::take();
+            cell_frame(&mut r, &mut t, h, &mut cells, next());
+            let n = placed();
+            assert!(
+                written(&t, h.back, &seal).is_empty() && !r.bidi().moved_since(&laid),
+                "the isolation: a cell caret frame writes no row and lays none out otherwise"
+            );
+            if n.value() > 0 {
+                wrong.push(format!("cell caret frame {k}: {} placed", n.value()));
+            }
+        }
+    }
+    wrong
+}
+
+/// **FS-C6-H: caret frames under a held display place no link record**,
+/// on the CPU path and the cell path: [`cut_paragraph`] drawn at its
+/// words, [`UNDER_DISPLAY`]'s lines, strike and line under the pointer,
+/// "do" drawn on the row below its cells. The solids are placed from the
+/// display and the rows' maps, which a caret frame lays out no otherwise,
+/// so they are kept. Named break: the solids kept only where every row a
+/// solid is drawn on is in its own order, no display held.
+#[test]
+fn caret_frames_under_a_held_display_place_no_link_record() {
+    let wrong = caret_frames_placed(&cut_paragraph(), &with(UNDER_DISPLAY), do_drawn_below);
+    assert!(wrong.is_empty(), "{wrong:?}");
+}
+
+/// **FS-C6-R: caret frames over a link on a row in another order place
+/// no link record**, on the CPU path and the cell path: [`FIRST`]'s row
+/// begun with Hebrew under BDSM, as the terminal cut it, its link a line
+/// at rest, struck and under the pointer drawn as a line. Named break: the
+/// solids kept only where every row a solid is drawn on is in its own
+/// order, no display held.
+#[test]
+fn caret_frames_over_a_reordered_link_row_place_no_link_record() {
+    let wrong = caret_frames_placed(
+        &hebrew_first("\x1b[8h"),
+        &as_cut(ON_REORDERED),
+        first_reordered_alone,
+    );
+    assert!(wrong.is_empty(), "{wrong:?}");
+}
+
+/// **The runs `at`'s cells are drawn in, on `setup` under `h`**, by a
+/// renderer of its own after one full frame, and whether `premise` holds
+/// there.
+fn runs_of(setup: &str, h: &Host, at: At, premise: Premise) -> (Vec<(Row, Col, Cols)>, bool) {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, setup.as_bytes());
+    let mut r = made(&faces);
+    set_host(&mut r, h, &BASE);
+    let mut px = Vec::new();
+    frame(&mut r, &mut t, h, &mut px, Damage::Full);
+    let run = at.run();
+    (r.bidi().stored_runs(run.row, run.from, run.to), premise(&r))
+}
+
+/// **The control of a write that moves a line**: `at`'s cells drawn in
+/// other runs once `write` is fed after `setup` than before it, by a
+/// renderer of its own under `h` each time, `premise` holding before it.
+fn the_write_moves(setup: &str, write: &str, h: &Host, at: At, premise: Premise) {
+    let before = runs_of(setup, h, at, premise);
+    let after = runs_of(&format!("{setup}{write}"), h, at, premise);
+    assert!(
+        before.1 && before.0 != after.0,
+        "the control: the write moves {at:?}'s runs, the premise holding before it: \
+         {before:?} -> {after:?}"
+    );
+}
+
+/// **FS-C6-S1: a write on another row of a paragraph a held display
+/// draws moves its line**: "y" over the space between "lazy" and "do" on
+/// [`cut_paragraph`]'s first row joins them into one word, which the
+/// display draws whole on the row below, so "then", on the paragraph's
+/// second row and not written, is drawn elsewhere. Nothing the driver
+/// hands moved; the display was laid out otherwise. Named break: the
+/// solids kept on their key alone, the layout's seal not asked.
+#[test]
+fn a_write_on_another_row_of_a_held_paragraph_moves_the_line() {
+    let host = with(Links {
+        lines: &[THEN],
+        ..RESTING
+    });
+    let write = "\x1b[3;38Hy";
+    the_write_moves(&cut_paragraph(), write, &host, THEN, display_held);
+    // The paragraph's first row, above "then"'s.
+    let case = Case {
+        setup: cut_paragraph(),
+        writes: &[2],
+        ..input(
+            "y written on the row above",
+            host,
+            vec![Step::Bytes(write.into())],
+        )
+    };
+    assert_eq!(kept(&case), None);
+}
+
+/// **FS-C6-S2: a write in a line's row under a held display moves the
+/// line**: a space over "g", the first cell of "then"'s row, ends "do" on
+/// the paragraph's first row, so "dog" is no longer drawn on "then"'s row
+/// and "then", its own cells unwritten, is drawn elsewhere. Named
+/// break: the solids kept on their key alone, the layout's seal not
+/// asked.
+#[test]
+fn a_write_in_a_line_row_under_a_held_display_moves_the_line() {
+    let host = with(Links {
+        lines: &[THEN],
+        ..RESTING
+    });
+    let write = "\x1b[4;1H ";
+    the_write_moves(&cut_paragraph(), write, &host, THEN, display_held);
+    // "then"'s own row.
+    let case = Case {
+        setup: cut_paragraph(),
+        writes: &[3],
+        ..input(
+            "a space written on the line's row",
+            host,
+            vec![Step::Bytes(write.into())],
+        )
+    };
+    assert_eq!(kept(&case), None);
+}
+
+/// **FS-C6-S3: a write in a reordered line's row moves the line**:
+/// Hebrew over " here", after [`FIRST`]'s link on [`hebrew_first`]'s
+/// right-to-left row, ends the left-to-right run the link is drawn in at
+/// the link, so the row, still in another order, draws the link
+/// elsewhere; its cells are unwritten. Named break: the solids kept on
+/// their key alone, the layout's seal not asked.
+#[test]
+fn a_write_in_a_reordered_line_row_moves_the_line() {
+    let host = as_cut(Links {
+        lines: &[FIRST],
+        ..RESTING
+    });
+    let write = format!(
+        "\x1b[{};{}H\u{5D3}\u{5D4}\u{5D5}\u{5D6}\u{5D7}",
+        FIRST.row() + 1,
+        LINK.1 + 2
+    );
+    let setup = hebrew_first("\x1b[8h");
+    the_write_moves(&setup, &write, &host, FIRST, first_reordered_alone);
+    let case = Case {
+        setup,
+        writes: &[LINK_ROW],
+        ..input(
+            "Hebrew written after the link on its row",
+            host,
+            vec![Step::Bytes(write)],
+        )
+    };
+    assert_eq!(kept(&case), None);
+}
+
+/// **FS-C6-S4: word wrap turned off with nothing written moves the line
+/// back to its cells**: the placement was made under a held display, and
+/// none is held now. Named break: the solids kept on their key alone, the
+/// layout's seal not asked.
+#[test]
+fn word_wrap_turned_off_moves_the_line_back_to_its_cells() {
+    let links = Links {
+        lines: &[THEN],
+        ..RESTING
+    };
+    let case = Case {
+        setup: cut_paragraph(),
+        moves: Some(display_held),
+        ..input(
+            "wrap_words off",
+            with(links),
+            vec![Step::Host(as_cut(links))],
+        )
+    };
+    assert_eq!(kept(&case), None);
+}
+
+/// **FS-C6-S5: BDSM reset with nothing written under a held display
+/// moves the line back to its cells**: a paragraph is drawn at its words
+/// only while BDSM is set, so the display is let go, and "then" is drawn
+/// where its cells are stored: a mode, which stamps no row. Named break:
+/// the solids kept on their key alone, the layout's seal not asked.
+#[test]
+fn bdsm_reset_under_a_held_display_moves_the_line_back_to_its_cells() {
+    let case = Case {
+        setup: cut_paragraph(),
+        moves: Some(display_held),
+        ..input(
+            "BDSM reset under a display",
+            with(Links {
+                lines: &[THEN],
+                ..RESTING
+            }),
+            vec![Step::Bytes("\x1b[8l".into())],
+        )
+    };
+    assert_eq!(kept(&case), None);
+}
+
+/// **FS-C6-G: a write that lays out a row no link is on places no link
+/// record**: three Hebrew letters over the last row's first word turn it
+/// right to left, on [`two_links`] as the terminal cut it, and every row a
+/// line is on is still drawn in its own order, where a run is its own
+/// cells whatever the maps hold. The frame draws what a renderer of its
+/// own draws. The controls: the write is on that row alone and lays its
+/// order out otherwise -- the maps moved -- and the first frame places
+/// link records. Named break: the solids on rows in their own order kept
+/// only while no row of the window is in another.
+#[test]
+fn a_write_that_lays_out_a_row_no_link_is_on_places_no_link_record() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, two_links().as_bytes());
+    let host = as_cut(RESTING);
+    let mut r = made(&faces);
+    set_host(&mut r, &host, &BASE);
+    let mut px = Vec::new();
+    let _ = counters::take();
+    frame(&mut r, &mut t, &host, &mut px, Damage::Full);
+    assert!(
+        placed().value() > 0,
+        "the control: the first frame places link records"
+    );
+    frame(&mut r, &mut t, &host, &mut px, Damage::Incremental);
+    let (seal, laid) = (t.sealed(), r.bidi().laid_seal());
+    feed(
+        &mut t,
+        format!("\x1b[{};1H\u{5D0}\u{5D1}\u{5D2}", LAST_ROW + 1).as_bytes(),
+    );
+    let _ = counters::take();
+    let now = frame(&mut r, &mut t, &host, &mut px, Damage::Incremental);
+    let n = placed();
+    assert_eq!(
+        written(&t, Rows::ZERO, &seal),
+        [LAST_ROW],
+        "the isolation: the last row alone written"
+    );
+    assert!(
+        r.bidi().moved_since(&laid) && r.bidi().reordered(Row::from_index(LAST_ROW)),
+        "the control: the write lays the last row out in another order"
+    );
+    let mut wrong = Vec::new();
+    differs(
+        &now,
+        &fresh_under(&faces, &mut t, &host),
+        "the frame after",
+        &mut wrong,
+    );
+    assert!(wrong.is_empty(), "{wrong:?}");
+    assert_eq!(
+        n.value(),
+        0,
+        "the frame after the write placed link records"
     );
 }
