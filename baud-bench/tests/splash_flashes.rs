@@ -251,13 +251,12 @@ fn the_plasmas_remainder_fades_into_the_page() {
 /// and the frames, in points squared and seconds. Split where the logo
 /// starts to leave, [`baud_render::splash::OUT`]: coming in before it,
 /// going out from it to the last frame that draws any of the logo. At 64
-/// by 20 cells at 1x, 60 frames a second, on the four grounds. Coming in
-/// was 13.54, 59.54, 11.32 and 12.64 in amber with the box collapsing from
-/// its first frame, the word's letters outside the plasma within a few
-/// frames; the plasma spanning the lockup while the glyphs are drawn, in
-/// each one's colour, it is at least 1.5 times that (29.66, 123.54, 24.88
-/// and 26.95 measured), and going out is at least 0.7 of coming in (1.33
-/// to 1.41 measured): a second plasma at the same pace and place.
+/// by 20 cells at 1x, 60 frames a second, on the four grounds, the plasma
+/// its filaments and ions alone, no tube in the box
+/// ([`baud_render::effect::Body::Bare`]). Coming in is at least 0.9 of
+/// 10.74, 30.76, 8.95 and 10.05, as measured, and going out at least 0.7
+/// of coming in (1.35 to 1.53 measured): a second plasma at the same pace
+/// and place.
 #[test]
 fn the_plasma_is_seen_carrying_the_logo_in_and_out() {
     use baud_render::{Kind, Pt};
@@ -270,11 +269,11 @@ fn the_plasma_is_seen_carrying_the_logo_in_and_out() {
         .take_while(|&a| a < baud_render::splash::GONE)
         .map(|a| Some(SplashPhase::Plasma(a)))
         .collect();
-    for (name, theme, before) in [
-        ("dark", Theme::dark(), 13.54),
-        ("light", Theme::light(), 59.54),
-        ("#CD0000", red(0xFFCD_0000), 11.32),
-        ("#1A0000", red(0xFF1A_0000), 12.64),
+    for (name, theme, measured) in [
+        ("dark", Theme::dark(), 10.74),
+        ("light", Theme::light(), 30.76),
+        ("#CD0000", red(0xFFCD_0000), 8.95),
+        ("#1A0000", red(0xFF1A_0000), 10.05),
     ] {
         let page = theme.bg;
         let (regular, bold) = (
@@ -373,12 +372,12 @@ fn the_plasma_is_seen_carrying_the_logo_in_and_out() {
             .map(|f| f.1)
             .sum();
         eprintln!(
-            "{name}: coming in {coming:.2}, going out {going:.2} (before: {before} coming in)"
+            "{name}: coming in {coming:.2}, going out {going:.2} (measured: {measured} coming in)"
         );
         assert!(
-            coming >= 1.5 * before && going >= 0.7 * coming,
+            coming >= 0.9 * measured && going >= 0.7 * coming,
             "{name}: coming in {coming}, at least {}; going out {going}, at least {}",
-            1.5 * before,
+            0.9 * measured,
             0.7 * coming
         );
     }

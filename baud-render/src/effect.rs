@@ -234,6 +234,18 @@ pub struct Ignition {
     /// **The plasma's insides on a clock of their own** ([`Live`]); `None`
     /// for every trail and the splash, which draw exactly as before.
     pub live: Option<Live>,
+    /// **Whether the plasma's tube and sheath are drawn** ([`Body`]).
+    pub body: Body,
+}
+
+/// **A plasma's body**: `Filled`, the tube inside the quad and the sheath
+/// round it, as every trail draws; `Bare`, neither, the filaments and the
+/// ions alone, as the launch splash draws over the lockup's box
+/// (`crate::splash::vfx`). The other effects read none of it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Body {
+    Filled,
+    Bare,
 }
 
 /// **A plasma whose insides run apart from its body**: the README logo's
@@ -274,6 +286,7 @@ impl Ignition {
             unit,
             rode: 0.0,
             live: None,
+            body: Body::Filled,
         }
     }
 

@@ -21,7 +21,7 @@
 //! light -- and the amber over `❯` and the block, stepping from the one
 //! to the other across the gap between them. Every path draws it
 //! source-over in its record's colour, so on the light page the word's
-//! plasma is a dark glow by the same tube, filaments and ions. The cursor
+//! plasma is a dark glow by the same filaments and ions. The cursor
 //! trails keep the cursor's colour. It goes where it stands rather than
 //! flying its block to the shell's cursor. It is drawn as the lockup's
 //! own pixels, not as cells.
@@ -29,12 +29,12 @@
 //! **It is the plasma trail's own model, at kitty's pace**,
 //! [`crate::plasma`]: the lockup's block is a cursor, and the box from the
 //! wordmark's left to the block collapses into it as kitty's quad
-//! collapses into the cell a cursor reached ([`Segment`]), the tube
-//! filling it, the filaments braiding into the block and the ions peeling
-//! off, on kitty's constants and kitty's clock. **Where it is over time is
-//! the splash's own**: the first pass's box spans the whole lockup for
-//! [`HOLD`] while an even edge crosses the glyphs inside it, the block
-//! last, so the logo is drawn inside the plasma, which it stands faintly
+//! collapses into the cell a cursor reached ([`Segment`]), the filaments
+//! braiding into the block and the ions peeling off, on the trail's
+//! constants and clock, with no tube filling the box ([`Body::Bare`]).
+//! **Where it is over time is the splash's own**: the first pass's box
+//! spans the whole lockup for [`HOLD`] while an even edge crosses the
+//! glyphs inside it, the block last, so the logo is drawn inside the plasma, which it stands faintly
 //! in from its first frame ([`GHOST`]); the second pass lights over the
 //! whole logo on the frame the block is drawn, its edge takes each letter
 //! through its own [`HOLD`], and its box then collapses into the block on
@@ -57,7 +57,7 @@
 
 use crate::atlas::{Kind, Tex};
 use crate::color::Argb;
-use crate::effect::{Effect, Ignition, Seed, Vfx, smoothstep};
+use crate::effect::{Body, Effect, Ignition, Seed, Vfx, smoothstep};
 use crate::flash::Strength;
 use crate::instance::{Instance, Screen};
 use crate::trail::{Pt, Rect, Segment, Shape, Smear};
@@ -244,8 +244,7 @@ pub const SEAM: (f32, f32) = (
 
 /// **How many slivers the plasma's colour turns in across the [`SEAM`]**,
 /// each its own colour stepped from the word's ink to the amber: a blend
-/// over the gap, where a cut at its middle drew a straight colour edge
-/// through the sheath above and below the lockup (note AJ, section 17).
+/// over the gap rather than a straight colour edge at its middle.
 pub const SLIVERS: u8 = 8;
 
 /// **The plasma's records in the colour of the glyph each is over**: a
@@ -364,9 +363,17 @@ fn corners(e: Rect, block: Rect, t: f32) -> crate::trail::Corners {
 /// lockup, then collapsing from its box into the block ([`corners`]), the
 /// block its hole, the axis the move's, the ignition on kitty's clock from
 /// the frame it lights, at full strength -- a cursor trail's plasma, as
-/// the trail draws one.
+/// the trail draws one, with no body ([`Body::Bare`]): its filaments and
+/// ions over the lockup, and no tube filling the box nor sheath round it.
 fn pass(at: Pt, scale: f32, seed: Seed, t: f32) -> Vfx {
-    pass_over(EMITTER, at, scale, seed, t)
+    let v = pass_over(EMITTER, at, scale, seed, t);
+    Vfx {
+        ignition: Ignition {
+            body: Body::Bare,
+            ..v.ignition
+        },
+        ..v
+    }
 }
 
 /// **A pass over part of the lockup**: [`vfx`]'s pass with `emitter`, in
@@ -808,18 +815,26 @@ mod tests {
     }
 
     /// **A pass over the whole lockup is the splash's own**: [`pass_over`]
-    /// with [`EMITTER`] is [`vfx`]'s pass in each of the two, and one over
-    /// the word alone lights from the same point with corners of its own.
+    /// with [`EMITTER`] is [`vfx`]'s pass in each of the two but for the
+    /// splash's body, which is bare ([`Body::Bare`]), and one over the word
+    /// alone lights from the same point with corners of its own.
     #[test]
     fn a_pass_over_the_emitter_is_the_splashs() {
         let s = scale(FRAME);
         let o = origin(FRAME, s);
+        let bare = |v: Vfx| Vfx {
+            ignition: Ignition {
+                body: Body::Bare,
+                ..v.ignition
+            },
+            ..v
+        };
         for t in [0.0, 0.05, OUT - 1e-4] {
-            assert_eq!(pass_over(EMITTER, o, s, SEED, t), vfx(o, s, t), "{t}");
+            assert_eq!(bare(pass_over(EMITTER, o, s, SEED, t)), vfx(o, s, t), "{t}");
         }
         for t in [OUT, OUT + HOLD + 0.1] {
             assert_eq!(
-                pass_over(EMITTER, o, s, SEED_OUT, t - OUT),
+                bare(pass_over(EMITTER, o, s, SEED_OUT, t - OUT)),
                 vfx(o, s, t),
                 "{t}"
             );
@@ -829,7 +844,7 @@ mod tests {
             ..EMITTER
         };
         let (w, whole) = (pass_over(word, o, s, SEED, 0.05), vfx(o, s, 0.05));
-        assert_eq!(w.ignition, whole.ignition);
+        assert_eq!(bare(w).ignition, whole.ignition);
         assert_ne!(w.emitter.corners, whole.emitter.corners);
     }
 
@@ -901,8 +916,8 @@ mod tests {
     /// ends, and the ignition from the emitter's left aged at the pass's
     /// own clock, the seconds since it lit: the splash's for the first, the
     /// seconds since [`OUT`] for the second. So the plasma itself, its
-    /// tube, filaments and ions, runs at kitty's pace from the frame each
-    /// pass lights, and only where its box is changes.
+    /// filaments and ions, runs at the trail's pace from the frame each
+    /// pass lights, its body bare, and only where its box is changes.
     #[test]
     fn each_pass_is_kittys_plasma_at_kittys_pace() {
         for frame in [FRAME, (3400.0, 1850.0), (640.0, 400.0)] {
@@ -922,7 +937,10 @@ mod tests {
                     true => (SEED, age),
                     false => (SEED_OUT, age - OUT),
                 };
-                let lit = Ignition::ignite(from, b, seed, b.bottom - b.top).at(t);
+                let lit = Ignition {
+                    body: Body::Bare,
+                    ..Ignition::ignite(from, b, seed, b.bottom - b.top).at(t)
+                };
                 let v = vfx(o, s, age);
                 assert_eq!(v.effect, Effect::Plasma, "{age}");
                 let box_at = match t < HOLD {
@@ -1116,8 +1134,8 @@ mod tests {
     /// **Every letter is drawn and taken under the plasma**: at 60 and 120
     /// frames a second, on every frame a letter of `baud ❯` grows more
     /// opaque coming in, or less going out, the plasma burns and its quad
-    /// covers at least half the letter's width -- the tube and the
-    /// filaments are inside the quad -- and each letter has the plasma over
+    /// covers at least half the letter's width -- the filaments are
+    /// inside the quad -- and each letter has the plasma over
     /// it for at least 0.08 s in each pass, so the plasma is on the word as
     /// well as the mark. With the box collapsing from its first frame, `b`
     /// turned whole outside it at 60 Hz and left with none over it. The

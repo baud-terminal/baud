@@ -495,6 +495,93 @@ fn the_plasma_is_full_strength_and_its_remainder_fades_out() {
     }
 }
 
+/// **The splash's plasma fills nothing**: its filaments and ions alone,
+/// with no tube inside the lockup's box and no sheath around it. A cursor
+/// trail's plasma keeps both. Over the box's top row, a fifth of a block
+/// in from its top, the light is under 1/255 at 48 of 64 points or more
+/// (the braid lights the rest), and a third of a block above the box it
+/// is under 1/255 at every point; on the frame, the page at the box's top
+/// centre is the page without the splash. The control: under a trail's
+/// plasma over the same box, the points inside, but for the block it
+/// leaves out, are lit over 0.2 by the tube, and those above over 0.01 by
+/// the sheath. Perturbation: the splash's body filled again lights 57 of
+/// the 64 points inside.
+#[test]
+fn the_splash_plasma_fills_nothing_round_its_strands() {
+    let (regular, bold) = (
+        font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    );
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    let mut r = renderer(&faces, Theme::dark());
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut px = Vec::new();
+    let bare = paint(&mut r, &mut t, &mut px, Damage::Full);
+    let age = 0.05;
+    r.set_splash(look(SplashPhase::Plasma(age)));
+    let drawn = paint(&mut r, &mut t, &mut px, Damage::Full);
+    let v = r.vfx().expect("the splash's plasma");
+    let xs = v.emitter.corners.0.iter().map(|p| p.x);
+    let ys = v.emitter.corners.0.iter().map(|p| p.y);
+    let (left, right) = (
+        xs.clone().fold(f32::MAX, f32::min),
+        xs.fold(f32::MIN, f32::max),
+    );
+    let top = ys.fold(f32::MAX, f32::min);
+    let unit = v.ignition.unit;
+    let trail = Vfx {
+        ignition: Ignition::ignite(v.ignition.tail, v.emitter.hole, v.ignition.seed, unit).at(age),
+        ..v
+    };
+    let light = |v: &Vfx, x: f32, y: f32| baud_render::plasma::light(v, baud_render::Pt { x, y });
+    let row = |y: f32| {
+        (0u16..64)
+            .map(move |i| left + (right - left) * (f32::from(i) + 0.5) / 64.0)
+            .map(move |x| (x, y))
+    };
+    let inside = row(top + 0.2 * unit);
+    let above = row(top - unit / 3.0);
+    let unlit = inside
+        .clone()
+        .filter(|&(x, y)| light(&v, x, y) < 1.0 / 255.0)
+        .count();
+    assert!(
+        unlit >= 48,
+        "the splash's box lit at {} of 64 points",
+        64 - unlit
+    );
+    for (x, y) in above.clone() {
+        assert!(
+            light(&v, x, y) < 1.0 / 255.0,
+            "the sheath at ({x}, {y}): {}",
+            light(&v, x, y)
+        );
+    }
+    let hole = v.emitter.hole;
+    let outside = |&(x, y): &(f32, f32)| !hole.contains(baud_render::Pt { x, y });
+    for ((x, y), least) in inside
+        .filter(outside)
+        .map(|p| (p, 0.2))
+        .chain(above.map(|p| (p, 0.01)))
+    {
+        assert!(
+            light(&trail, x, y) > least,
+            "the control at ({x}, {y}): {}",
+            light(&trail, x, y)
+        );
+    }
+    // The same point in the frame's pixels, from the lockup's records: the
+    // box runs from the wordmark's first glyph to the block, its top the
+    // block's.
+    let (first, block) = (r.splash()[0], *r.splash().last().unwrap());
+    let x = (i32::from(first.x.0) + i32::from(block.x.0) + i32::from(block.w.0)) / 2;
+    let y = i32::from(block.y.0) + i32::from(block.h.0) / 5;
+    let (w, _) = r.pixel_size();
+    let i = usize::try_from(y * i32::try_from(w.value()).unwrap() + x).unwrap();
+    assert_eq!(drawn[i], bare[i], "the page at the box's top centre");
+}
+
 /// Text on every row of the window, so a row the splash repaints in part
 /// has glyphs on both sides of its records.
 fn text_everywhere(t: &mut Term<'_>) {

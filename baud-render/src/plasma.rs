@@ -28,7 +28,7 @@
 //! `plasma_tube` in Rust, which the CPU path draws by.
 
 use crate::det::Det;
-use crate::effect::{self, Hash, Ignition, Live, Particle, Vfx, smoothstep};
+use crate::effect::{self, Body, Hash, Ignition, Live, Particle, Vfx, smoothstep};
 use crate::trail::Pt;
 use core::ops::Range;
 
@@ -57,13 +57,18 @@ pub const FILAMENT: f32 = 0.95;
 pub const KNOT: f32 = 2.5;
 
 /// The effect's own numbers this frame, `k` in `EffectU`: the braid's half
-/// width across the axis in cells, the axis, then the constants above.
+/// width across the axis in cells, the axis, then the constants above,
+/// the tube's and the sheath's zero for a [`Body::Bare`] plasma.
 pub fn params(vfx: &Vfx) -> [f32; effect::PARAMS] {
     let a = vfx.axis;
     let h = vfx.emitter.hole;
     let unit = vfx.ignition.unit.max(1.0);
     let half = 0.5 * (a.y.abs() * (h.right - h.left) + a.x.abs() * (h.bottom - h.top)) / unit;
-    [half, a.x, a.y, TUBE, SHEATH, DECAY, FILAMENT, KNOT]
+    let (tube, sheath) = match vfx.ignition.body {
+        Body::Filled => (TUBE, SHEATH),
+        Body::Bare => (0.0, 0.0),
+    };
+    [half, a.x, a.y, tube, sheath, DECAY, FILAMENT, KNOT]
 }
 
 /// **The plasma's handedness**: the side of its move the braid's offset
