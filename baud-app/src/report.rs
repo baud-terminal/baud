@@ -433,10 +433,13 @@ mod tests {
         assert!(present < turn, "after the present");
         assert_eq!(body.matches("d.report.turn(").count(), 1, "once a turn");
         let drawn = src
-            .split_once(".render_at(&mut self.term, back, &mut target, self.damage);")
+            .split_once("renderer.render_at(term, back, target, damage)")
             .map(|(_, rest)| bare(rest))
             .expect("the paint");
-        assert!(drawn.starts_with("self.report.drawn(painted);"), "kept");
+        assert!(
+            drawn.starts_with("})else{return;};self.report.drawn(painted);"),
+            "kept"
+        );
         let taken = src
             .split_once("== Presented::Yes")
             .and_then(|(_, rest)| rest.split_once("\n        }\n"))

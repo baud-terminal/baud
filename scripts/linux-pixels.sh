@@ -73,6 +73,11 @@
 # size in pixels, and Linux's own point, 96 dpi times the desktop's text
 # scaling (`typesize.rs`), is a larger size the benches do not draw.
 #
+# The app runs with `padding = 0` in every arm, and the grid is cropped
+# from the screenshot where the app centres it, half of what the window
+# leaves beyond whole cells on each axis (`origin.rs`): 6 px down at
+# 800x608 and scale 1, 35 rows of 17 leaving 13.
+#
 # The app runs with `[window] activity_lights = "off"` in every arm: the
 # bench draws the grid alone, and the lights' own line, which the Linux app
 # draws at the window's top by default (`config::lights_at`), would take
@@ -184,7 +189,7 @@ mono=/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf
 cp "$mono" /io/faces/
 cp /usr/share/fonts/truetype/dejavu/*.ttf /io/faces/system/
 export XDG_RUNTIME_DIR=/tmp/xdg && mkdir -p -m 0700 $XDG_RUNTIME_DIR
-printf '[launch]\nsplash = "off"\n[window]\nactivity_lights = "off"\n[font]\ndpi = 72\n' > /tmp/baud.toml
+printf 'padding = 0\n[launch]\nsplash = "off"\n[window]\nactivity_lights = "off"\n[font]\ndpi = 72\n' > /tmp/baud.toml
 printf '[shell]\npanel-position=none\nbackground-color=0xff000000\nlocking=false\nanimation=none\nstartup-animation=none\n' > /tmp/weston.ini
 # The headless backend's width and height are the output's points: at
 # --scale=2 an 800x600 output is 1600x1200 pixels, and its screenshot too.
@@ -249,7 +254,7 @@ export WAYLAND_DISPLAY=wayland-1
 export SWAYSOCK=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock)
 wl-copy before
 echo "sway control: wl-copy then wl-paste: [$(timeout 5 wl-paste -n 2>&1)]"
-printf '[launch]\nsplash = "off"\n[window]\nactivity_lights = "off"\n[font]\ndpi = 72\n' > baud.toml
+printf 'padding = 0\n[launch]\nsplash = "off"\n[window]\nactivity_lights = "off"\n[font]\ndpi = 72\n' > baud.toml
 # The child: one key, then a program's OSC 52 write, then whatever
 # arrives -- a paste -- kept in a file.
 cat > child.sh <<C
@@ -319,7 +324,7 @@ set -u
 O=/io/out
 D=$(mktemp -d) && cd "$D"
 export XDG_RUNTIME_DIR=$D/xdg && mkdir -m 0700 "$XDG_RUNTIME_DIR"
-printf '[launch]\nsplash = "off"\n[window]\nactivity_lights = "off"\n[font]\ndpi = 72\n' > baud.toml
+printf 'padding = 0\n[launch]\nsplash = "off"\n[window]\nactivity_lights = "off"\n[font]\ndpi = 72\n' > baud.toml
 # Outputs as sway.conf lines, one per output, each with a black
 # background; the window floats at the layout's origin, 800x608 points.
 # Each sway gets a runtime directory of its own.
@@ -444,6 +449,15 @@ done
 # arm's bench was.
 cargo build -q --release --manifest-path "$root/Cargo.toml" -p baud-bench --example linux-pixels
 px=${CARGO_TARGET_DIR:-$root/target}/release/examples/linux-pixels
+# The grid of a screenshot `$1`, `$2` x `$3` pixels, where the app centres
+# it: half of what the screenshot leaves beyond it on each axis. A PNG's
+# width and height are its IHDR's first eight bytes, big-endian, at 16.
+grid_at() {
+  local sw sh
+  read -r sw sh < <(od -An -tu1 -j 16 -N 8 "$1" |
+    awk '{print $1 * 16777216 + $2 * 65536 + $3 * 256 + $4, $5 * 16777216 + $6 * 65536 + $7 * 256 + $8}')
+  $px crop "$1" $(((sw - $2) / 2)) $(((sh - $3) / 2)) "$2" "$3" "$4"
+}
 echo "$fixtures" | while read -r name rec ws scale comp; do
   [ -n "$name" ] || continue
   echo "== $name ($ws, scale $scale, $comp)"
@@ -460,7 +474,7 @@ echo "$fixtures" | while read -r name rec ws scale comp; do
   $px over-black "$out/linux/$name.pam" "$out/linux/$name.over.pam"
   w=$(sed -n 's/^WIDTH //p' "$out/linux/$name.pam" | head -1)
   h=$(sed -n 's/^HEIGHT //p' "$out/linux/$name.pam" | head -1)
-  $px crop "$out/shot/$name.png" 0 0 "$w" "$h" "$out/shot/$name.grid.pam"
+  grid_at "$out/shot/$name.png" "$w" "$h" "$out/shot/$name.grid.pam"
   printf 'linux over black against the screenshot: '
   $px diff "$out/linux/$name.over.pam" "$out/shot/$name.grid.pam" "$out/diff/$name-app.png" || true
 done
@@ -487,7 +501,7 @@ for arm in bookworm trixie; do
     h=$(sed -n 's/^HEIGHT //p' "$out/linux/$b.pam" | head -1)
     printf '%s, its screenshot %s, against the bench at %s: ' "$f" \
       "$($px png-size "$m/$f.png")" "$sc"
-    $px crop "$m/$f.png" 0 0 "$w" "$h" "$m/$f.grid.pam"
+    grid_at "$m/$f.png" "$w" "$h" "$m/$f.grid.pam"
     $px diff "$out/linux/$b.over.pam" "$m/$f.grid.pam" "$out/diff/$arm-$f.png" || true
   done
   echo "-- every window buffer size and scale told, in order:"

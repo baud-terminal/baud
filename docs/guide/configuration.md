@@ -88,8 +88,8 @@ how a shell is started.
 - **A new `ambiguous_width` or `join_spacing_marks` measures the next
   character.** Text already on the screen keeps the columns it was written
   with.
-- **On Linux, padding, the scroll mode, the glass's tint and shadow and
-  the activity lights** are not drawn, so a change to them shows nothing
+- **On Linux, the scroll mode, the glass's tint and shadow and the
+  activity lights** are not drawn, so a change to them shows nothing
   there; the Linux window has no title bar to hold the lights.
 - **A size you zoomed to stays.** A new `font_size` shows only while the
   window is at the old one; Actual Size then returns to the new one.

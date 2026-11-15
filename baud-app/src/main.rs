@@ -241,6 +241,9 @@ mod rules;
 // The activity lights on their own line, as the Linux driver feeds them.
 #[cfg(any(target_os = "linux", test))]
 mod own_line;
+// Where the frame sits in the Linux surface: the padding and the leftover.
+#[cfg(any(target_os = "linux", test))]
+mod origin;
 // Where the Linux driver sends a key's release: its tests run on every
 // platform.
 #[cfg(any(target_os = "linux", test))]

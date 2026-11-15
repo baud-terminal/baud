@@ -166,8 +166,8 @@ impl LightsLine {
     }
 
     /// **The line's lights in the pointer's pixels**, the frame's corner at
-    /// `corner` among them: the buffer's corner on Linux, where the
-    /// centred frame sits in the view on macOS.
+    /// `corner` among them: the frame's origin in the buffer on Linux
+    /// (`origin.rs`), where the centred frame sits in the view on macOS.
     pub(crate) fn at(&self, corner: (f64, f64)) -> LightsAt {
         let px = |v: Px| f64::from(v.value());
         LightsAt {
@@ -461,7 +461,8 @@ mod tests {
     /// the cell path drawing its lines with the link preview's bar; the
     /// Linux seat's pointer, its keys, each turn and each frame the same.
     /// Both give the tip where the lights are, with the pointer's pixel,
-    /// so a light shows its own text: the Linux driver its line as drawn,
+    /// so a light shows its own text: the Linux driver its line as drawn
+    /// at the frame's origin (`origin.rs`),
     /// the macOS driver its line or the title strip's lights, each crossing
     /// of a light there heard by a tracking area before the next pump. No
     /// `toolTip` is set anywhere. The strip's lights carry the same text as
@@ -597,7 +598,9 @@ mod tests {
                 "Option<crate::line_tip::LightsAt> {"
             ),
         );
-        assert!(drawn.contains("LightsLine::drawn(&self.renderer).map(|l| l.at((0.0, 0.0)))"));
+        assert!(drawn.contains("f64::from(self.origin.x.value()),"));
+        assert!(drawn.contains("f64::from(self.origin.y.value()),"));
+        assert!(drawn.contains("LightsLine::drawn(&self.renderer).map(|l| l.at(corner))"));
         const HERE: &str = include_str!("line_tip.rs");
         let line = body(
             HERE,

@@ -116,7 +116,7 @@ use baud_font::Px;
 use baud_present_wayland::{
     Board, BufferScale, Changed, Copied, Event, PointerEvent, Presented, Shaped, Window,
 };
-use baud_render::{Argb, Blend, Damage, PxSize, Renderer, Target};
+use baud_render::{Argb, Blend, Damage, PxSize, Renderer};
 use baud_wayland::Connection;
 use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
@@ -222,6 +222,12 @@ struct Driver {
     fonts: crate::fonts::Fonts,
     font_size: f32,
     font_base: f32,
+    /// The gutter around the frame on every side, in points (`origin.rs`).
+    padding: f32,
+    /// Where the frame was last placed in the surface (`origin.rs`): every
+    /// conversion between the surface and the frame adds it. Set only by
+    /// [`Driver::place`].
+    origin: crate::origin::Origin,
     configured: Option<(baud_present_wayland::Px, baud_present_wayland::Px)>,
     /// The scale the frame is laid out and drawn at, the window's when it
     /// was last configured: the font's pixels a point, and the frame's
@@ -458,20 +464,21 @@ struct Reloading {
 
 /// **The scrollbar's share of a pointer event** (`bar.rs`), after DEC's
 /// locator: at the position the seat last had for a press or a release,
-/// a move a drag while a button is down, its points `scale` pixels each.
+/// a move a drag while a button is down, its points `g.scale` pixels each,
+/// the grid's corner in the surface at `g.pad`.
 fn thumb(
     timed: &mut crate::timed::Timed,
     renderer: &Renderer<'_, '_>,
     pending: &mut Pending,
     term: &mut Term<'_>,
     beside: crate::seat::Beside,
-    scale: f64,
+    g: crate::seat::Geometry,
 ) -> crate::bar::Took {
-    let strip = f64::from(renderer.strip().value());
-    let top = f64::from(renderer.grid_top().value());
-    let Some(e) = crate::bar::event_beside(beside, (strip, top), scale) else {
+    let pad = (f64::from(g.pad.0), f64::from(g.pad.1));
+    let Some(e) = crate::bar::event_beside(beside, pad, g.scale) else {
         return crate::bar::Took::No;
     };
+    let scale = g.scale;
     let f = bar_frame(renderer, scale);
     let now = timed.clock.host(Instant::now());
     let (took, owes) = timed.bar.input(term, e, f, now);
@@ -774,6 +781,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         fonts,
         font_size: cfg.font_size,
         font_base: cfg.font_size,
+        padding: cfg.padding,
+        origin: crate::origin::Origin::CORNER,
         configured: None,
         scale: BufferScale::ONE,
         status_rows: Rows::ZERO,
@@ -1533,10 +1542,15 @@ impl Driver {
             // goes to the window whole. Nothing is kept for no slide.
             let form = self.timed.switched(Instant::now(), self.term.screen());
             if let Some(crate::effects::SwitchForm::Slide(_)) = form {
-                let (w, h) = self.renderer.whole_size();
-                if let Some(mut target) = Target::new(&mut self.frame, self.stride, w, h) {
-                    self.renderer.render_hidden(&self.term, &mut target);
-                }
+                let whole = self.renderer.whole_size();
+                let (renderer, term) = (&mut self.renderer, &self.term);
+                let _ = crate::origin::in_frame(
+                    &mut self.frame,
+                    self.stride,
+                    self.origin,
+                    whole,
+                    |target| renderer.render_hidden(term, target),
+                );
                 self.kept.clone_from(&self.frame);
                 self.slid = crate::effects::Composed::Yes;
             }
@@ -1727,7 +1741,7 @@ impl Driver {
             mods,
             g,
             |b| outbox.push(b),
-            |term, beside| thumb(timed, renderer, pending, term, beside, g.scale),
+            |term, beside| thumb(timed, renderer, pending, term, beside, g),
         );
         // The wheel that moved the window over the history reveals the
         // thumb, as AppKit's does.
@@ -1818,8 +1832,8 @@ impl Driver {
         let (cols, rows) = self.term.geometry();
         crate::seat::Geometry {
             pad: (
-                self.renderer.strip().value(),
-                self.renderer.grid_top().value(),
+                self.origin.x.value() + self.renderer.strip().value(),
+                self.origin.y.value() + self.renderer.grid_top().value(),
             ),
             cell: (f64::from(m.cell_w.value()), f64::from(m.cell_h.value())),
             grid: (
@@ -1836,6 +1850,31 @@ impl Driver {
     /// backing scale the core reports in stays the compositor's.
     fn type_px(&self) -> f64 {
         crate::typesize::px_per_point(self.type_size, self.scale.factor()).0
+    }
+
+    /// **The padding's gutter** in the frame's pixels: `padding` points at
+    /// the desktop's pixels to a point (`origin.rs`).
+    fn gutter(&self) -> Px {
+        crate::origin::gutter(self.padding, self.type_px())
+    }
+
+    /// **Places the frame in the surface** (`origin.rs`): the gutter, then
+    /// what the surface leaves beyond the frame split between opposite
+    /// sides. A frame that moved leaves its old pixels behind, so the
+    /// buffer is filled with the margin again and the frame repainted
+    /// whole. The only writer of `origin`.
+    fn place(&mut self) {
+        let rows = usize::try_from(self.stride.value())
+            .ok()
+            .filter(|&p| p > 0)
+            .map_or(0, |p| self.frame.len() / p);
+        let surface = (self.stride, Px::of(u32::try_from(rows).unwrap_or(0)));
+        let at = crate::origin::origin(surface, self.renderer.whole_size(), self.gutter());
+        if at != self.origin {
+            self.origin = at;
+            self.frame.fill(self.margin.0);
+            self.damage = Damage::Full;
+        }
     }
 
     /// **The font's pixel size at `points`**: the points at the desktop's
@@ -2525,9 +2564,8 @@ impl Driver {
     }
 
     /// **Each part of a config read again, applied to the window**, as the
-    /// macOS driver's `apply_config` does: no padding, scroll mode or
-    /// glass here, which this driver does not draw. Returns what it could
-    /// not act on.
+    /// macOS driver's `apply_config` does: no scroll mode or glass here,
+    /// which this driver does not draw. Returns what it could not act on.
     fn apply_config(&mut self, c: &Config, parts: &[crate::live::Part]) -> Vec<String> {
         use crate::live::Part;
         let mut said = Vec::new();
@@ -2631,7 +2669,8 @@ impl Driver {
                     self.renderer.set_word_wrap(c.wrap_words);
                     self.seat.set_word_wrap(c.wrap_words);
                 }
-                // No padding to lend: the marks are never drawn here.
+                // The padding is not lent to the marks here, so they are
+                // never drawn.
                 Part::WrapMarker => self.renderer.set_wrap_marker(c.wrap_marker),
                 // On their own line, the window having no title bar: its
                 // pixels given or taken back now.
@@ -2665,7 +2704,12 @@ impl Driver {
                 }
                 Part::Palette => said.extend(self.reload_palette(c)),
                 Part::Fonts | Part::FontSize => {}
-                Part::Padding | Part::Scroll | Part::Reload => {}
+                // The gutter: fewer or more cells, laid out again.
+                Part::Padding => {
+                    self.padding = c.padding;
+                    reconfigure = true;
+                }
+                Part::Scroll | Part::Reload => {}
                 Part::ColourSpace
                 | Part::GlassStyle
                 | Part::Images
@@ -3175,6 +3219,7 @@ impl Driver {
             status: self.term.status_rows(),
             line: self.renderer.lights_height(),
             marks: self.renderer.status_marks(),
+            pad: self.gutter(),
         };
         let toggle = |s: Set| match s {
             Set::On => Toggle::Set,
@@ -3252,6 +3297,7 @@ impl Driver {
             status: now,
             line: self.renderer.lights_height(),
             marks: self.renderer.status_marks(),
+            pad: self.gutter(),
         };
         let resized = match crate::winops::wayland_status(shown, self.term.window_ops()) {
             StatusChange::Resize => {
@@ -3304,10 +3350,15 @@ impl Driver {
 
     /// **The lights' own line as the last frame drew it**, for their hover
     /// text, which baud draws on Linux as on macOS: the whole frame is
-    /// drawn from the buffer's corner, so its pixels are the surface's at
-    /// the scale. None while the lights are elsewhere or off.
+    /// drawn at its origin in the buffer (`origin.rs`), so its pixels are
+    /// the surface's at the scale, less the origin. None while the lights
+    /// are elsewhere or off.
     fn lights_drawn(&self) -> Option<crate::line_tip::LightsAt> {
-        crate::line_tip::LightsLine::drawn(&self.renderer).map(|l| l.at((0.0, 0.0)))
+        let corner = (
+            f64::from(self.origin.x.value()),
+            f64::from(self.origin.y.value()),
+        );
+        crate::line_tip::LightsLine::drawn(&self.renderer).map(|l| l.at(corner))
     }
 
     /// **Who is in front at `now`**: the terminal's foreground group
@@ -3416,6 +3467,7 @@ impl Driver {
             status: self.term.status_rows(),
             line: self.renderer.lights_height(),
             marks: self.renderer.status_marks(),
+            pad: self.gutter(),
         };
         let resized = match at.shown {
             Shown::Floating => {
@@ -3589,9 +3641,12 @@ impl Driver {
         // activity lights' own line its pixels at this scale, no row.
         self.renderer
             .set_lights_line(self.activity_lights.line(), self.type_px() as f32);
-        let text_w = width.0.saturating_sub(self.renderer.strip().value());
-        let text_h = height
-            .0
+        // Inside the padding's gutter on every side (`origin.rs`).
+        let (room_w, room_h) =
+            crate::origin::room((Px::of(width.0), Px::of(height.0)), self.gutter());
+        let text_w = room_w.value().saturating_sub(self.renderer.strip().value());
+        let text_h = room_h
+            .value()
             .saturating_sub(self.renderer.lights_height().value());
         let cols = (text_w / m.cell_w.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_col));
         let rows = (text_h / m.cell_h.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_row));
@@ -3648,6 +3703,7 @@ impl Driver {
         let words = usize::try_from(u64::from(width.0) * u64::from(height.0)).unwrap_or(0);
         self.frame = vec![self.margin.0; words];
         self.stride = Px::of(width.0);
+        self.place();
         self.damage = Damage::Full;
         self.pending = Pending::Dirty;
         // The grid the terminal *has*, not the one asked for -- `resize`
@@ -3850,10 +3906,14 @@ impl Driver {
         };
         self.renderer.set_composition(composition);
         // In the surface's points, "surface local coordinates": the grid
-        // begins past the exit-status strip, and the frame's pixels are
-        // the scale's a point (`surface.rs`).
+        // begins at the frame's origin past the exit-status strip, and the
+        // frame's pixels are the scale's a point (`surface.rs`).
+        let grid = (
+            Px::of(self.origin.x.value() + self.renderer.strip().value()),
+            Px::of(self.origin.y.value() + self.renderer.grid_top().value()),
+        );
         let rect = rect.map(|r| {
-            let r = crate::marked::in_frame(r, (self.renderer.strip(), self.renderer.grid_top()));
+            let r = crate::marked::in_frame(r, grid);
             crate::surface::Scale120(self.scale.0).cover(r)
         });
         let point = |p: crate::surface::Points| baud_present_wayland::Px(p.0);
@@ -3923,28 +3983,38 @@ impl Driver {
             baud_render::Leaving::None,
             Px::of(0),
         );
-        let (w, h) = self.renderer.whole_size();
-        let Some(mut target) = Target::new(&mut self.frame, self.stride, w, h) else {
-            return;
-        };
+        // The frame at its origin in the surface (`origin.rs`), placed
+        // again for a frame whose size changed.
+        self.place();
         // A frame the driver repaints whole -- a new size, the margin
-        // refilled -- changed pixels past the grid's rows too, which no
-        // band the renderer paints covers: the whole buffer is damaged.
+        // refilled, the frame moved -- changed pixels past the grid's rows
+        // too, which no band the renderer paints covers: the whole buffer
+        // is damaged.
         let whole = self.damage;
         // The rows the window shows, `window_back` lines up the history
         // while the wheel or the thumb holds it there: the rows the
         // selection, the link under a click and the thumb already read.
         let back = self.term.window_back();
-        let painted = self
-            .renderer
-            .render_at(&mut self.term, back, &mut target, self.damage);
+        let size = self.renderer.whole_size();
+        let damage = self.damage;
+        let (renderer, term) = (&mut self.renderer, &mut self.term);
+        let Some(painted) =
+            crate::origin::in_frame(&mut self.frame, self.stride, self.origin, size, |target| {
+                renderer.render_at(term, back, target, damage)
+            })
+        else {
+            return;
+        };
         self.report.drawn(painted);
         // The order each row was drawn in, which the pointer maps back
         // through.
         self.seat.drawn(self.renderer.bidi());
         self.damage = Damage::Incremental;
         self.strips.clear();
-        let px = |p: Px| baud_present_wayland::Px(p.value());
+        // The renderer's bands are the frame's rows: in the surface, below
+        // the origin.
+        let oy = self.origin.y.value();
+        let px = |p: Px| baud_present_wayland::Px(oy + p.value());
         self.strips.extend(
             self.renderer
                 .painted()
@@ -3964,7 +4034,7 @@ impl Driver {
                 // holds still as the margin does.
                 let rows = self.renderer.frame_size().1;
                 let span = crate::width::slide_span(
-                    self.renderer.grid_top(),
+                    Px::of(self.origin.y.value() + self.renderer.grid_top().value()),
                     rows,
                     self.stride,
                     &self.frame,

@@ -7,8 +7,11 @@
 # directory and no session bus, so no settings portal answers and the point
 # is the untold desktop's, 96 dots to the inch --
 # with the font pinned by file to the committed JetBrains Mono Regular at
-# 13 points, prints a run of 50 full blocks, takes the compositor's output
-# with grim, and measures the run's width in the screenshot's pixels.
+# 13 points and `padding = 0` -- 900 px hold 39 rows of 23, and the 3 px
+# left put the grid 1 px down, so screen row 8 crosses its first row
+# (scripts/linux-padding.sh reads where the frame sits) -- prints a run
+# of 50 full blocks, takes the compositor's output with grim, and
+# measures the run's width in the screenshot's pixels.
 #
 # 13 points at 96 dpi is 17.33 px, and JetBrains Mono's advance of 600 units
 # to the em makes a cell of 10.4, drawn as 10 px: the run is 500 px. A build
@@ -54,6 +57,7 @@ cat >"$out/baud.toml" <<EOF
 fonts = ["$font"]
 font_fallback = false
 font_size = 13
+padding = 0
 [window]
 activity_lights = "off"
 [launch]

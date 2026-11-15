@@ -556,6 +556,9 @@ pub struct WaylandWindow {
     /// Whether the exit-status strip, one cell wide, is beside the grid,
     /// which a resize in cells keeps.
     pub marks: baud_render::StatusMarks,
+    /// The padding's gutter on each side, in the frame's pixels, which a
+    /// resize in cells adds twice to each axis.
+    pub pad: baud_font::Px,
 }
 
 /// A toplevel state set or unset.
@@ -629,15 +632,19 @@ pub fn wayland(r: WindowRequest, w: &WaylandWindow) -> WaylandAction {
     // The status line's rows beside the grid's: a resize in cells gives
     // the grid what it asks and keeps the line's row below it.
     let line = u32::try_from(w.status.index()).unwrap_or(0);
+    // The padding's gutter on both sides of each axis.
+    let pads = w.pad.value().saturating_mul(2);
     let cells =
         |ask: SizeAsk, now: u16, cell: u32, most: u16, bound: Option<u32>, extra: u32| match ask {
-            SizeAsk::Keep => Some(points((u32::from(now) + extra) * cell)),
+            SizeAsk::Keep => Some(points((u32::from(now) + extra) * cell + pads)),
             SizeAsk::Screen => bound,
-            SizeAsk::Exactly(n) => Some(points((u32::from(n.clamp(1, most)) + extra) * cell)),
+            SizeAsk::Exactly(n) => {
+                Some(points((u32::from(n.clamp(1, most)) + extra) * cell + pads))
+            }
         };
     // The rows the same way, and the lights' own line's pixels beside
     // them, which are no row.
-    let lit = w.line.value();
+    let lit = w.line.value() + pads;
     let tall = |ask: SizeAsk, bound: Option<u32>| match ask {
         SizeAsk::Keep => Some(points((u32::from(w.grid.rows) + line) * w.cell.1 + lit)),
         SizeAsk::Screen => bound,
@@ -741,6 +748,7 @@ pub fn wayland_abilities(bounds: BoundsEvent) -> baud_core::WindowAbilities {
         status: Rows::ZERO,
         line: baud_font::Px::of(0),
         marks: baud_render::StatusMarks::Off,
+        pad: baud_font::Px::of(0),
     };
     baud_core::WindowAbilities::of(|r| {
         !matches!(wayland(r, &floating), WaylandAction::Unbuilt(u)
@@ -1199,6 +1207,7 @@ mod tests {
             status: Rows::ZERO,
             line: baud_font::Px::of(0),
             marks: baud_render::StatusMarks::Off,
+            pad: baud_font::Px::of(0),
         }
     }
 
@@ -1551,6 +1560,36 @@ mod tests {
         );
     }
 
+    /// **A size in cells carries the padding's gutter on every side**: at
+    /// scale 1, 80 x 24 cells of 16 x 32 with an 11-pixel gutter and a
+    /// 20-pixel lights line ask for 80·16 + 22 by 24·32 + 20 + 22, and the
+    /// grid kept asks for its own cells and the gutter; a size in pixels is
+    /// the whole surface, gutter included. Perturbation: drop the gutter
+    /// from the cells -- the window comes back a column and a row short.
+    #[test]
+    fn a_wayland_resize_in_cells_keeps_the_padding() {
+        use SizeAsk::*;
+        let w = WaylandWindow {
+            line: baud_font::Px::of(20),
+            pad: baud_font::Px::of(11),
+            ..wayland_window()
+        };
+        let cells = |rows, cols| WindowRequest::ResizeCells { rows, cols };
+        assert_eq!(
+            wayland(cells(Exactly(24), Exactly(80)), &w),
+            WaylandAction::Resize(80 * 16 + 22, 24 * 32 + 20 + 22)
+        );
+        assert_eq!(
+            wayland(cells(Keep, Keep), &w),
+            WaylandAction::Resize(80 * 16 + 22, 22 * 32 + 20 + 22)
+        );
+        let px = WindowRequest::ResizePixels {
+            height: Exactly(600),
+            width: Exactly(800),
+        };
+        assert_eq!(wayland(px, &w), WaylandAction::Resize(800, 600));
+    }
+
     /// **A floating Wayland window grows by the line's row and gives it
     /// back**, and a request in the same read is measured on the grown
     /// window: thirty rows and the line.
@@ -1791,6 +1830,7 @@ mod tests {
                     status: Rows::ZERO,
                     line: baud_font::Px::of(0),
                     marks: baud_render::StatusMarks::Off,
+                    pad: baud_font::Px::of(0),
                 };
                 for m in M::ALL {
                     let lacks = !m.done_by(
@@ -1837,6 +1877,7 @@ mod tests {
             status: Rows::ZERO,
             line: baud_font::Px::of(0),
             marks: baud_render::StatusMarks::Off,
+            pad: baud_font::Px::of(0),
         };
         for m in M::ALL.iter().copied().filter(|&m| below.has(m)) {
             let done = m.done_by(&|r| !matches!(wayland(r, &floating), WaylandAction::Unbuilt(_)));

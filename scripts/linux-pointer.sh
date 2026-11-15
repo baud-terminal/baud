@@ -130,7 +130,7 @@ export SWAYSOCK=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock)
 xkbcli compile-keymap --layout us > keymap.xkb
 # `[font] dpi = 72` keeps the 13-point font at the 17-pixel rows these
 # checks count in; the desktop's own point (`typesize.rs`) is larger.
-printf '[launch]\nsplash = "off"\n[font]\ndpi = 72\n' > baud.toml
+printf 'padding = 0\n[launch]\nsplash = "off"\n[font]\ndpi = 72\n' > baud.toml
 # xdg-open, first on the path: it writes down its arguments and opens
 # nothing.
 mkdir bin
