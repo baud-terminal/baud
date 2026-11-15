@@ -751,11 +751,14 @@ check "at scale $SCALE, the layout: the first and the last cell's centres" $D/la
 # the same two from half points, the extent doubled. Then the pixel
 # report, ?1016, from the first and the last point: the frame's pixel each
 # is in, which at a scale of 2 or 1.5 is not the point. The points and the
-# pixel are the run's (the table at the end of this script).
+# pixel are the run's (the table at the end of this script). The child
+# reads its input from the start, and the pixel report goes on only once
+# the first six clicks' twelve reports have come back, so none of them is
+# made under it.
 session edges '
-printf "\033[?1049h\033[?1000h\033[?1006h"; touch $S/ready
-until [ -e $S/go1 ]; do sleep 0.05; done; printf "\033[?1016h"; touch $S/did1
-exec cat > $S/got' <<P
+printf "\033[?1049h\033[?1000h\033[?1006h"; exec 3<&0; cat <&3 > $S/got & touch $S/ready
+until [ -e $S/go1 ]; do sleep 0.05; done; printf "\033[?1016h"; touch $S/did1; wait
+' <<P
 move 0 0
 click left
 move $LAST
@@ -775,6 +778,7 @@ move $HALF_BEFORE
 tick 1000
 click left
 extent 1024 768
+waitfor [ "\$(grep -o "<" \$S/got | wc -l)" -ge 12 ]
 sh touch \$S/go1
 waitfor [ -e \$S/did1 ]
 sleep 200
