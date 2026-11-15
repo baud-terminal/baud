@@ -137,7 +137,13 @@ pub const SPDX_IDS: [&str; 15] = [
     "Zlib",
 ];
 /// The workspace members that are not published.
-pub const UNPUBLISHED: [&str; 4] = ["baud-bench", "baud-difftest", "baud-sfte-difftest", "xtask"];
+pub const UNPUBLISHED: [&str; 5] = [
+    "baud-bench",
+    "baud-difftest",
+    "baud-present-vulkan",
+    "baud-sfte-difftest",
+    "xtask",
+];
 /// Statuses that say the licence of a file is not settled. A file under
 /// one of these may sit in the repository, and must not go out in a
 /// published crate: a crates.io version cannot be taken back. `copyleft`

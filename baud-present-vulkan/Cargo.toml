@@ -7,6 +7,9 @@ license = "CC-BY-NC-SA-4.0"
 repository.workspace = true
 description = "baud's Vulkan presentation on Linux: frames drawn into exported dmabufs and shown through baud-present-wayland."
 rust-version.workspace = true
+# Not published until `baud` depends on it (`xtask`'s `UNPUBLISHED`): the
+# Linux driver draws through shared memory today.
+publish = false
 readme = "README.md"
 keywords = ["terminal", "vulkan", "wayland", "linux"]
 categories = ["gui", "os::linux-apis"]
