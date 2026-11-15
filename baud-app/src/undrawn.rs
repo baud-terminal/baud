@@ -82,7 +82,7 @@ mod tests {
     use super::shown_bytes;
 
     const HOST: &str = "build-host.example";
-    const HOME: &[u8] = b"/private/var/folders/xy/T/baud-demo-1-0/home";
+    const HOME: &[u8] = b"/Users/me";
 
     /// Whether `bytes` hold `name`.
     fn holds(bytes: &[u8], name: &str) -> bool {
@@ -99,7 +99,7 @@ mod tests {
     /// BEL or by `ESC \`, is not, and is the folder relative to the home;
     /// a report cut by `CAN`, and the host printed after it, are kept. A
     /// folder outside the home whose path the title shows whole keeps
-    /// `/private/` in sight, and the same folder under the home does not.
+    /// `/Users/` in sight, and the same folder under the home does not.
     /// Named breaks: strip every `OSC` (the title keeps no host); end a
     /// body at BEL alone (the `ESC \` report keeps its host); strip a body
     /// cut short (the host printed after it goes).
@@ -118,23 +118,20 @@ mod tests {
             let r = report(&format!("{home_s}/src"), end);
             let shown = shown_bytes(r.as_bytes(), home);
             assert!(!holds(&shown, HOST), "{end:?}: the host is not drawn");
-            assert!(
-                !holds(&shown, "/private/"),
-                "{end:?}: the home is not drawn"
-            );
+            assert!(!holds(&shown, "/Users/"), "{end:?}: the home is not drawn");
             assert_eq!(String::from_utf8_lossy(&shown), "~/src", "{end:?}");
         }
         let cut = format!("\x1b]7;file://{HOST}/x\x18{HOST} printed\r\n");
         let shown = shown_bytes(cut.as_bytes(), home);
         assert_eq!(shown, cut.as_bytes(), "a cut report is kept whole");
-        let outside = report("/private/tmp/x", "\x07");
+        let outside = report("/Users/you/x", "\x07");
         assert!(
-            holds(&shown_bytes(outside.as_bytes(), home), "/private/"),
+            holds(&shown_bytes(outside.as_bytes(), home), "/Users/"),
             "outside the home"
         );
         let inside = report(&format!("{home_s}/x"), "\x07");
         assert!(
-            !holds(&shown_bytes(inside.as_bytes(), home), "/private/"),
+            !holds(&shown_bytes(inside.as_bytes(), home), "/Users/"),
             "under the home"
         );
         let other = "\x1b]8;;https://a.example\x07a\x1b]8;;\x07";

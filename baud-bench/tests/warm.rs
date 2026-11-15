@@ -307,7 +307,7 @@ fn a_build_waits_for_a_test_run_in_its_own_checkout_alone() {
     let mut scene = Scene::new("waits");
     let outside = scene.dir.with_extension("elsewhere");
     scene.fake_test_run(&outside);
-    scene.fake_test_run(&scene.dir.join(".claude/worktrees/lane"));
+    scene.fake_test_run(&scene.dir.join(".claude/other"));
     let build = "echo $$ >'{dir}/sleeper.pid'; exec sleep 600";
     scene.spawn(build);
     scene.wait_for(&["sleeper.pid"]);
