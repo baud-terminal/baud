@@ -1794,11 +1794,11 @@ tests = ["baud-app/src/appearance.rs::auto_follows_the_portal_and_a_pinned_theme
 id = "linux-accessibility"
 area = "window"
 name = "Reduced motion and higher contrast on Linux"
-does = "With the desktop's reduced-motion setting on there is no default cursor trail, a plain blink and still blinking text; with its high-contrast setting on, text too close to its background is lifted further, as on a Mac. Both follow the setting the moment you change it. The motion setting arrives just after launch, so a trail can light and text can blink in the frames before it does, where a Mac reads it before its first frame."
+does = "With the desktop's reduced-motion setting on, or its animations turned off, there is no default cursor trail, a plain blink and still blinking text; with its high-contrast setting on, text too close to its background is lifted further, as on a Mac. Both follow the setting the moment you change it. The motion setting arrives just after launch, so a trail can light and text can blink in the frames before it does, where a Mac reads it before its first frame."
 status = "partial"
 gap = "it has not run, even on a headless compositor."
 platform = "linux"
-tests = ["baud-app/src/bus.rs::the_portals_contrast_and_motion_are_read_and_followed", "baud-app/src/appearance.rs::higher_contrast_draws_the_stricter_floor_on_either_half", "baud-app/src/appearance.rs::the_desktops_motion_is_reduce_motion_unless_fixed", "baud-app/src/timed.rs::reduced_motion_holds_text_shown_and_turns_the_default_trail_off"]
+tests = ["baud-app/src/bus.rs::the_portals_contrast_and_motion_are_read_and_followed", "baud-app/src/bus.rs::the_desktops_animations_setting_is_read_and_followed", "baud-app/src/appearance.rs::higher_contrast_draws_the_stricter_floor_on_either_half", "baud-app/src/appearance.rs::the_desktops_motion_is_reduce_motion_unless_fixed", "baud-app/src/timed.rs::reduced_motion_holds_text_shown_and_turns_the_default_trail_off"]
 
 [[feature]]
 id = "built-in-colours"

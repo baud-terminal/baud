@@ -16,7 +16,8 @@
 //! * **The appearance and the text scale**: `AddMatch` for the portal's
 //!   `SettingChanged`, then `ReadAll` of `org.freedesktop.appearance` and
 //!   `org.gnome.desktop.interface`, whose `text-scaling-factor` (a `d`) baud
-//!   sizes a point by (`typesize.rs`) -- `ReadAll` being the
+//!   sizes a point by (`typesize.rs`) and whose `enable-animations` (a `b`)
+//!   off reduces motion as `reduced-motion` does -- `ReadAll` being the
 //!   method every version of the interface has and the one whose reply
 //!   holds each value inside one variant (`[[source: xdg-portal-settings-v2]]`;
 //!   `Read`'s reply holds two, its own documentation says, and `ReadOne` is
@@ -94,6 +95,25 @@ impl Motion {
     }
 }
 
+/// **The desktop's `enable-animations`** (`org.gnome.desktop.interface`),
+/// a `b`: animations off asks for as little motion as reduced motion does
+/// (`appearance::motion_of`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Animations {
+    On,
+    Off,
+}
+
+impl Animations {
+    /// A boolean's word: 0 off, anything else on.
+    fn of(v: Word) -> Animations {
+        match v.0 {
+            0 => Animations::Off,
+            _ => Animations::On,
+        }
+    }
+}
+
 /// The portal's `contrast`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Contrast {
@@ -133,6 +153,8 @@ pub(crate) enum Heard {
     Motion(Motion),
     /// The desktop's contrast preference, read or changed, the same way.
     Contrast(Contrast),
+    /// The desktop's `enable-animations`, read or changed, the same way.
+    Animations(Animations),
     /// The desktop's text-scaling factor (`org.gnome.desktop.interface
     /// text-scaling-factor`), read or changed; a reply
     /// without one says nothing of it, and the driver keeps 1.
@@ -722,6 +744,8 @@ struct Appearance {
     motion: Option<Motion>,
     /// The interface namespace's `text-scaling-factor`.
     text_scale: Option<TextScale>,
+    /// The interface namespace's `enable-animations`.
+    animations: Option<Animations>,
 }
 
 /// **The desktop's text-scaling factor**, kept in thousandths so [`Heard`]
@@ -775,6 +799,9 @@ fn appearance_in_read_all(m: &Message<'_>) -> Option<Appearance> {
                 (false, "text-scaling-factor", "d") if namespace == INTERFACE => {
                     found.text_scale = TextScale::of(r.double()?);
                 }
+                (false, "enable-animations", "b") if namespace == INTERFACE => {
+                    found.animations = Some(Animations::of(r.word()?));
+                }
                 _ => {
                     r.skip(sig)?;
                 }
@@ -801,6 +828,7 @@ fn heard_in_read_all(m: &Message<'_>) -> Vec<Heard> {
         .chain(a.contrast.map(Heard::Contrast))
         .chain(a.motion.map(Heard::Motion))
         .chain(a.text_scale.map(Heard::TextScale))
+        .chain(a.animations.map(Heard::Animations))
         .collect()
 }
 
@@ -821,6 +849,9 @@ fn heard_in_signal(m: &Message<'_>) -> Option<Heard> {
     let sig = r.signature()?;
     if (namespace, key, sig) == (INTERFACE, "text-scaling-factor", "d") {
         return TextScale::of(r.double()?).map(Heard::TextScale);
+    }
+    if (namespace, key, sig) == (INTERFACE, "enable-animations", "b") {
+        return Some(Heard::Animations(Animations::of(r.word()?)));
     }
     if namespace != APPEARANCE || sig != "u" {
         return None;
@@ -1812,6 +1843,37 @@ mod tests {
             ),
             ("changed_motion", Heard::Motion(Motion::Reduced)),
             ("changed_motion_off", Heard::Motion(Motion::NoPreference)),
+        ] {
+            assert_eq!(s.received(&reply_bytes(fixture)), [want], "{fixture}");
+        }
+    }
+
+    /// **The desktop's animations setting is read and followed**:
+    /// `org.gnome.desktop.interface enable-animations`, a `b`, read beside
+    /// the appearance in the one `ReadAll` -- here a reply with no
+    /// `reduced-motion`, as a portal without it gives -- and followed through
+    /// its `SettingChanged`, off and on. Fixtures are another D-Bus
+    /// implementation's bytes. Perturbation: drop the signal's arm -- the
+    /// change is unheard.
+    #[test]
+    fn the_desktops_animations_setting_is_read_and_followed() {
+        let read = |fixture: &str| ready().received(&reply_bytes(fixture));
+        let appearance = [
+            Heard::Scheme(Scheme::Dark, Origin::Read),
+            Heard::Contrast(Contrast::NoPreference),
+        ];
+        for (fixture, on) in [
+            ("read_all_animations_off", Animations::Off),
+            ("read_all_animations_on", Animations::On),
+        ] {
+            let mut want = appearance.to_vec();
+            want.push(Heard::Animations(on));
+            assert_eq!(read(fixture), want, "{fixture}");
+        }
+        let mut s = ready();
+        for (fixture, want) in [
+            ("changed_animations_off", Heard::Animations(Animations::Off)),
+            ("changed_animations_on", Heard::Animations(Animations::On)),
         ] {
             assert_eq!(s.received(&reply_bytes(fixture)), [want], "{fixture}");
         }

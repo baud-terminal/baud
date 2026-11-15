@@ -58,10 +58,17 @@ pub(crate) fn contrast_of(c: crate::bus::Contrast) -> Contrast {
 }
 
 /// **The desktop's motion preference as the effects take it**: the
-/// portal's "Reduced motion" is macOS's Reduce Motion, unless
-/// `BAUD_MOTION` fixed the preference, which the desktop then never moves.
-pub(crate) fn motion_of(source: MotionSource, m: crate::bus::Motion) -> SystemMotion {
-    crate::access::system_motion(source, || m == crate::bus::Motion::Reduced)
+/// portal's "Reduced motion", or the desktop's animations turned off,
+/// either of the two, is macOS's Reduce Motion, unless `BAUD_MOTION` fixed
+/// the preference, which the desktop then never moves.
+pub(crate) fn motion_of(
+    source: MotionSource,
+    m: crate::bus::Motion,
+    a: crate::bus::Animations,
+) -> SystemMotion {
+    crate::access::system_motion(source, || {
+        m == crate::bus::Motion::Reduced || a == crate::bus::Animations::Off
+    })
 }
 
 /// **The theme a half is drawn with**: `palette::half_theme`, the floor
@@ -176,20 +183,29 @@ mod tests {
     }
 
     /// **Reduced motion on the desktop is macOS's Reduce Motion, and
-    /// `BAUD_MOTION` outranks it**: the portal's reduced is reduced and no
-    /// preference full, while a fixed preference is what it fixed
-    /// whatever the desktop says. Perturbation: ask the portal under a
-    /// fixed source -- the fixed-full assertion fails.
+    /// `BAUD_MOTION` outranks it**: the portal's reduced is reduced, and so
+    /// are the desktop's animations turned off, either of the two; no
+    /// preference with animations on is full; a fixed preference is what
+    /// it fixed whatever the desktop says. Perturbation: ask the portal
+    /// under a fixed source -- the fixed-full assertion fails; read the
+    /// animations off as full -- the second assertion fails.
     #[test]
     fn the_desktops_motion_is_reduce_motion_unless_fixed() {
-        use crate::bus::Motion;
+        use crate::bus::{Animations, Motion};
         use SystemMotion::{Full, Reduced};
         let sys = MotionSource::System;
-        assert_eq!(motion_of(sys, Motion::Reduced), Reduced);
-        assert_eq!(motion_of(sys, Motion::NoPreference), Full);
+        assert_eq!(motion_of(sys, Motion::Reduced, Animations::On), Reduced);
+        assert_eq!(
+            motion_of(sys, Motion::NoPreference, Animations::Off),
+            Reduced
+        );
+        assert_eq!(motion_of(sys, Motion::Reduced, Animations::Off), Reduced);
+        assert_eq!(motion_of(sys, Motion::NoPreference, Animations::On), Full);
         for fixed in [Full, Reduced] {
             for m in [Motion::Reduced, Motion::NoPreference] {
-                assert_eq!(motion_of(MotionSource::Fixed(fixed), m), fixed);
+                for a in [Animations::On, Animations::Off] {
+                    assert_eq!(motion_of(MotionSource::Fixed(fixed), m, a), fixed);
+                }
             }
         }
     }

@@ -382,6 +382,9 @@ struct Driver {
     /// animation, which reduced motion makes a hard switch.
     motion_source: crate::access::MotionSource,
     motion: crate::config::SystemMotion,
+    /// The desktop's two answers the preference is made of, as last heard:
+    /// the portal's `reduced-motion` and `enable-animations`.
+    heard_motion: (crate::bus::Motion, crate::bus::Animations),
     blink_animation: crate::config::BlinkAnimation,
     /// `[cursor] guide`: the cursor guide while no program has set it.
     cursor_guide: baud_domain::CursorGuide,
@@ -858,6 +861,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         contrast: crate::access::Contrast::Standard,
         motion_source,
         motion: crate::config::SystemMotion::Full,
+        heard_motion: (crate::bus::Motion::NoPreference, crate::bus::Animations::On),
         blink_animation: cfg.blink_animation,
         cursor_guide: cfg.cursor_guide,
         badge: cfg.badge,
@@ -2378,7 +2382,14 @@ impl Driver {
             }
             Heard::NoScheme(_) => {}
             Heard::Motion(m) => {
-                self.set_motion(crate::appearance::motion_of(self.motion_source, m))
+                self.heard_motion.0 = m;
+                let (m, a) = self.heard_motion;
+                self.set_motion(crate::appearance::motion_of(self.motion_source, m, a))
+            }
+            Heard::Animations(a) => {
+                self.heard_motion.1 = a;
+                let (m, a) = self.heard_motion;
+                self.set_motion(crate::appearance::motion_of(self.motion_source, m, a))
             }
             Heard::TextScale(t) => {
                 let factor = t.factor();
