@@ -127,6 +127,12 @@ use std::time::{Duration, Instant};
 /// frozen window.
 const SYNC_MAX: Duration = Duration::from_millis(33);
 
+/// How long the launch waits on the compositor for its globals and its
+/// outputs: two round trips, each well under a millisecond on the same
+/// machine and a network round trip apiece over waypipe, so only a
+/// compositor that has stopped answering reaches it.
+const LAUNCH_ANSWER: Duration = Duration::from_secs(10);
+
 /// The grid before the compositor has said how large the window is.
 const FIRST: WinSize = WinSize {
     ws_col: 80,
@@ -601,10 +607,21 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             std::process::exit(1);
         }
     };
+    let answer_by = Instant::now() + LAUNCH_ANSWER;
     while !window.outputs_settled() {
-        if let Err(e) = conn.roundtrip_once(&mut window) {
-            crate::warn!("wayland: {e:?}");
-            std::process::exit(1);
+        match conn.roundtrip_until(&mut window, answer_by) {
+            Ok(_) => {}
+            Err(baud_wayland::client::Error::TimedOut) => {
+                crate::warn!(
+                    "wayland: the compositor did not answer within {} s",
+                    LAUNCH_ANSWER.as_secs()
+                );
+                std::process::exit(1);
+            }
+            Err(e) => {
+                crate::warn!("wayland: {e:?}");
+                std::process::exit(1);
+            }
         }
     }
     for o in window.outputs() {

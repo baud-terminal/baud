@@ -58,6 +58,8 @@ pub enum Error {
     },
     /// The peer hung up.
     Closed,
+    /// The peer sent nothing by the deadline ([`Connection::roundtrip_until`]).
+    TimedOut,
 }
 
 impl From<io::Error> for Error {
@@ -414,6 +416,44 @@ impl Connection {
             }
             if self.receive()? == 0 {
                 return Err(Error::Closed);
+            }
+        }
+    }
+
+    /// [`Connection::roundtrip_once`] that gives up at `deadline`:
+    /// [`Error::TimedOut`] when the server has sent nothing whole by then.
+    /// Each read waits at most what is left, through the socket's read
+    /// timeout, which is cleared again after it.
+    pub fn roundtrip_until<H: Handler>(
+        &mut self,
+        h: &mut H,
+        deadline: std::time::Instant,
+    ) -> Result<usize, Error> {
+        self.flush()?;
+        loop {
+            let n = self.dispatch(h)?;
+            if n > 0 {
+                return Ok(n);
+            }
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                return Err(Error::TimedOut);
+            }
+            self.sock.set_read_timeout(Some(left))?;
+            let got = self.receive();
+            self.sock.set_read_timeout(None)?;
+            match got {
+                Ok(0) => return Err(Error::Closed),
+                Ok(_) => {}
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    return Err(Error::TimedOut);
+                }
+                Err(e) => return Err(Error::Io(e)),
             }
         }
     }

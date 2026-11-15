@@ -360,3 +360,62 @@ fn baud_wayland_sys_send(sock: &UnixStream, bytes: &[u8], fds: &[std::os::fd::Bo
     let n = baud_wayland::sys::send(sock, bytes, fds).unwrap();
     assert_eq!(n, bytes.len());
 }
+
+/// **A round trip with a deadline ends at it when the server says
+/// nothing**: a compositor that never answers ends `roundtrip_until` with
+/// `Error::TimedOut` at its deadline, not a read that waits forever; one
+/// that answers ends it with what it sent. Run on a thread, so a call that
+/// waited would fail this test at five seconds instead of hanging it.
+#[test]
+fn a_round_trip_with_a_deadline_ends_at_it_when_the_server_says_nothing() {
+    struct Count(usize);
+    impl Handler for Count {
+        fn event(&mut self, _: &mut Sender<'_>, _: Event<'_>) {
+            self.0 += 1;
+        }
+    }
+    let (c, s) = UnixStream::pair().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut conn = Connection::over(c);
+        let start = std::time::Instant::now();
+        let deadline = start + std::time::Duration::from_millis(200);
+        let got = conn.roundtrip_until(&mut Count(0), deadline);
+        let _ = tx.send((
+            matches!(got, Err(baud_wayland::client::Error::TimedOut)),
+            start.elapsed(),
+        ));
+    });
+    let (timed_out, took) = rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("roundtrip_until returned within five seconds");
+    assert!(timed_out, "a silent server ends it as TimedOut");
+    assert!(
+        took >= std::time::Duration::from_millis(200),
+        "not before its deadline: {took:?}"
+    );
+    drop(s);
+
+    // The control: a server that answers ends it with the event.
+    let (c, mut s) = UnixStream::pair().unwrap();
+    let mut conn = Connection::over(c);
+    let sync = conn
+        .sender()
+        .new_id(Interface::named("wl_callback").unwrap());
+    let mut buf = [0u8; 64];
+    let mut fds = Vec::new();
+    let n = wire::write(
+        &mut buf,
+        &mut fds,
+        sync,
+        Opcode(0),
+        Interface::named("wl_callback").unwrap().events[0].args,
+        &[Arg::Uint(1)],
+    )
+    .unwrap();
+    s.write_all(&buf[..n]).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut count = Count(0);
+    assert_eq!(conn.roundtrip_until(&mut count, deadline).unwrap(), 1);
+    assert_eq!(count.0, 1);
+}
