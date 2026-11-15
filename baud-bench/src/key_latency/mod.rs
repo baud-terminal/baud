@@ -177,6 +177,7 @@
 
 pub mod cli;
 pub mod parse;
+pub mod poster;
 pub mod py;
 pub mod report;
 pub mod rows;

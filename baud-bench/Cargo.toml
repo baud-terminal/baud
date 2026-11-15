@@ -43,6 +43,7 @@ baud-wayland = { path = "../baud-wayland" }
 # driver's window.
 [dev-dependencies]
 baud-present-wayland = { path = "../baud-present-wayland" }
+baud-xkb = { path = "../baud-xkb" }
 
 # `frame_gpu` draws the same frames through Metal; the crate compiles to
 # nothing elsewhere and the bin says so. Its pipelines come from the

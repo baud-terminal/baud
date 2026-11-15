@@ -116,6 +116,7 @@ dependencies = [
  "baud-present-wayland",
  "baud-render",
  "baud-wayland",
+ "baud-xkb",
  "libc",
  "macos-liquid-glass",
  "serde_json",

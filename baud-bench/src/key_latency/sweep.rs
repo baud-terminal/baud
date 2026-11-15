@@ -303,6 +303,90 @@ fn stop_app(app: &mut std::process::Child, stop: &AtomicBool) {
 /// Launch `binary`, wait for it to present, post the keys with the Swift
 /// helper, collect the keylat lines and write the raw rows beside the report.
 /// SIGTERMs the app no sooner than [`DRAIN`] after the last post.
+/// Who posts the keys: the swift helper's CGEvents, the default and
+/// what the macOS arm and the stand-ins speak, or `linux-pointer`'s virtual
+/// keyboard under `KEYLAT_POSTER=wayland`, on a Wayland desktop.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Poster {
+    Swift,
+    Wayland,
+}
+
+impl Poster {
+    fn from_env() -> Poster {
+        match std::env::var("KEYLAT_POSTER").as_deref() {
+            Ok("wayland") => Poster::Wayland,
+            _ => Poster::Swift,
+        }
+    }
+}
+
+/// What a posting run gave: how it was run, its stdout and stderr, and its
+/// exit code.
+struct Posted {
+    helper: Vec<String>,
+    hout: String,
+    herr: String,
+    code: Option<i32>,
+}
+
+/// **The keys posted into the app at `pid`** by the swift helper's CGEvents.
+fn post_swift(pid: Pid, args: &Args) -> Result<Posted, String> {
+    let helper = swift_argv(
+        HELPER_SCRIPT,
+        &[
+            pid.0.to_string(),
+            args.keys.to_string(),
+            args.gap.0.to_string(),
+            args.chars.clone(),
+        ],
+    );
+    let hp = Command::new(&helper[0])
+        .args(&helper[1..])
+        .stdin(Stdio::inherit())
+        .output()
+        .map_err(|e| format!("running the helper {}: {e}", helper.join(" ")))?;
+    Ok(Posted {
+        hout: py::text_mode(&String::from_utf8_lossy(&hp.stdout)),
+        herr: py::text_mode(&String::from_utf8_lossy(&hp.stderr)),
+        code: exit_of(hp.status),
+        helper,
+    })
+}
+
+/// **The keys posted into the app** by `linux-pointer`'s virtual keyboard on
+/// the `WAYLAND_DISPLAY` the app runs on, in this process: the poster's
+/// script (`poster.rs`) and its `post` lines, the swift helper's shape.
+fn post_wayland(pid: Pid, args: &Args) -> Result<Posted, String> {
+    use crate::linux::pointer::{Stop, start};
+    let keys = Count(usize::try_from(args.keys).unwrap_or(0));
+    let script = super::poster::script(&args.chars, keys, args.gap, pid)?;
+    let helper = vec![
+        "linux-pointer".to_string(),
+        super::poster::KEYMAP.to_string(),
+    ];
+    let argv = [std::ffi::OsString::from(super::poster::KEYMAP)];
+    let env = |name: &str| std::env::var_os(name);
+    let mut out = Vec::new();
+    let ended = start(
+        &argv,
+        &env,
+        &mut std::io::Cursor::new(script.into_bytes()),
+        &mut out,
+    );
+    let (code, herr) = match ended {
+        Ok(()) => (Some(0), String::new()),
+        Err(Stop::Unflushed) => (Some(crate::linux::UNFLUSHED), "stdout closed".to_string()),
+        Err(Stop::Failed(why)) => (Some(1), why),
+    };
+    Ok(Posted {
+        helper,
+        hout: String::from_utf8_lossy(&out).into_owned(),
+        herr,
+        code,
+    })
+}
+
 fn run_arm(
     binary: &str,
     args: &Args,
@@ -380,43 +464,40 @@ fn run_arm(
     std::thread::sleep(Duration::from_millis(400)); // let the shell settle before typing
 
     let pid = Pid(app.id());
-    if let Err(front) = activate(pid) {
-        println!(
-            "  round {round} arm {arm}: could not bring baud to the front ({front}); the \
-             helper's guard will decide"
-        );
+    let poster = Poster::from_env();
+    // The swift helper's guard wants baud frontmost; a Wayland compositor
+    // sends the virtual keyboard's keys to the focused window, which the
+    // run's own compositor gives the only window it has.
+    if poster == Poster::Swift {
+        if let Err(front) = activate(pid) {
+            println!(
+                "  round {round} arm {arm}: could not bring baud to the front ({front}); the \
+                 helper's guard will decide"
+            );
+        }
     }
 
     let keylat_start = snapshot(0).len(); // only lines from here belong to this run
-    let helper = swift_argv(
-        HELPER_SCRIPT,
-        &[
-            pid.0.to_string(),
-            args.keys.to_string(),
-            args.gap.0.to_string(),
-            args.chars.clone(),
-        ],
-    );
-    let hp = match Command::new(&helper[0])
-        .args(&helper[1..])
-        .stdin(Stdio::inherit())
-        .output()
-    {
-        Ok(hp) => hp,
+    let posted = match poster {
+        Poster::Swift => post_swift(pid, args),
+        Poster::Wayland => post_wayland(pid, args),
+    };
+    let Posted {
+        helper,
+        hout,
+        herr,
+        code,
+    } = match posted {
+        Ok(p) => p,
         Err(e) => {
             stop_app(&mut app, &stop);
-            return Err(format!("running the helper {}: {e}", helper.join(" ")));
+            return Err(e);
         }
     };
-    let (hout, herr) = (
-        py::text_mode(&String::from_utf8_lossy(&hp.stdout)),
-        py::text_mode(&String::from_utf8_lossy(&hp.stderr)),
-    );
     let posts: Vec<Post> = py::splitlines(&hout)
         .into_iter()
         .filter_map(parse_post_line)
         .collect();
-    let code = exit_of(hp.status);
     let refused = code == Some(3) || hout.contains("REFUSED") || herr.contains("REFUSED");
     if refused {
         println!(
