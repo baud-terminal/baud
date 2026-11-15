@@ -17,7 +17,7 @@
 [![macOS](https://img.shields.io/badge/macOS-2b2b2b?logo=apple&logoColor=white)](#install)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/CC%20BY--NC--SA%204.0-2b2b2b?logo=creativecommons&logoColor=white)](LICENSE)
 
-<img src="assets/readme/session.gif" width="776" alt="A baud session: ssh to a server lights the activity lights in the title bar, fastfetch shows the server's card with baud's logo drawn as a picture, and helix opens this README while a plasma trail follows the cursor down, up, to a search match and back to the top">
+<img src="assets/readme/session.gif" width="776" alt="A baud session: baud's config edited in helix, its cursor trail changing from plasma to liquid on save; this README read in helix; text in many languages, right to left too; a word copied and pasted; a link hovered; a photo and the UFO logo drawn in the terminal; the plasma logo played as video; ssh to a test machine lighting the title bar's activity lights, fastfetch, btop and fireworks; then the trail changed to a flying saucer">
 
 </div>
 
