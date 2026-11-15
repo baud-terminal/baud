@@ -1,7 +1,8 @@
 //! **The kept frame's cursor row is repainted where the grid is**: with
 //! the wrap marks' margins lent, [`Renderer::render_hidden`] paints the
-//! grid's columns past them, so the kept frame equals the screen drawn
-//! with no cursor, as it does with no margins.
+//! grid's columns past them, and with the activity lights' line at the
+//! top, the grid's rows below it, so the kept frame equals the screen
+//! drawn with no cursor, as it does with neither.
 
 mod support;
 
@@ -11,7 +12,7 @@ use baud_domain::{
     ReadLen, Rows, WinSize,
 };
 use baud_font::{Face, Px};
-use baud_render::{Blend, Damage, Leaving, PxSize, Renderer, Stack, Target, Theme};
+use baud_render::{Blend, Damage, Leaving, LineEdge, PxSize, Renderer, Stack, Target, Theme};
 use support::font;
 
 const WS: WinSize = WinSize {
@@ -24,7 +25,7 @@ fn feed(t: &mut Term<'_>, bytes: &str) {
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
 }
 
-fn renderer<'f, 'a>(faces: &'f [Face<'a>], band: Px) -> Renderer<'f, 'a> {
+fn renderer<'f, 'a>(faces: &'f [Face<'a>], band: Px, line: Option<LineEdge>) -> Renderer<'f, 'a> {
     let mut r = Renderer::new(
         Stack::new(faces).unwrap(),
         PxSize::of(14.0).unwrap(),
@@ -35,6 +36,7 @@ fn renderer<'f, 'a>(faces: &'f [Face<'a>], band: Px) -> Renderer<'f, 'a> {
     )
     .unwrap();
     r.set_margins(band);
+    r.set_lights_line(line, 2.0);
     r
 }
 
@@ -46,7 +48,7 @@ fn paint(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut [u32], d: Damage) 
     r.render(t, &mut target, d);
 }
 
-fn check(band: Px) -> Vec<usize> {
+fn check(band: Px, line: Option<LineEdge>) -> Vec<usize> {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     let mut owned = Owned::new(&WS);
@@ -55,13 +57,19 @@ fn check(band: Px) -> Vec<usize> {
         &mut t,
         "\x1b[1 q$ ls\r\nbaud-app docs\r\n$ vim main.rs\x1b[3;3H",
     );
-    let mut r = renderer(&faces, band);
+    let mut r = renderer(&faces, band, line);
+    r.fit(&t);
+    let top = match line {
+        Some(LineEdge::Top) => Px::of(30),
+        _ => Px::of(0),
+    };
+    assert_eq!(r.grid_top(), top, "the grid's rows start below a top line");
     let (w, h) = r.whole_size();
     let width = usize::try_from(w.value()).expect("a width");
     let height = usize::try_from(h.value()).expect("a height");
     // The screen with no cursor, drawn whole by a renderer of its own.
     feed(&mut t, "\x1b[?25l");
-    let mut fresh = renderer(&faces, band);
+    let mut fresh = renderer(&faces, band, line);
     let mut want = vec![0u32; width * height];
     paint(&mut fresh, &mut t, &mut want, Damage::Full);
     feed(&mut t, "\x1b[?25h");
@@ -79,12 +87,31 @@ fn check(band: Px) -> Vec<usize> {
 
 #[test]
 fn render_hidden_without_margins_is_the_screen_with_no_cursor() {
-    assert_eq!(check(Px::of(0)), Vec::<usize>::new());
+    assert_eq!(check(Px::of(0), None), Vec::<usize>::new());
 }
 
 #[test]
 fn render_hidden_with_margins_is_the_screen_with_no_cursor() {
-    assert_eq!(check(Px::of(16)), Vec::<usize>::new());
+    assert_eq!(check(Px::of(16), None), Vec::<usize>::new());
+}
+
+/// **With the lights' line at the top, the cursor's rows are repainted
+/// below it**, a line's height down, with and without margins; with the
+/// line at the bottom the grid's rows start at the top as before.
+/// Perturbation: paint the kept rows into the whole frame from its top,
+/// and the top-line cases go red: the cursor is still drawn a line down
+/// and the rows a line up are painted over.
+#[test]
+fn render_hidden_with_the_lights_line_is_the_screen_with_no_cursor() {
+    for line in [LineEdge::Top, LineEdge::Bottom] {
+        for band in [Px::of(0), Px::of(16)] {
+            assert_eq!(
+                check(band, Some(line)),
+                Vec::<usize>::new(),
+                "{line:?}, margins {band:?}"
+            );
+        }
+    }
 }
 
 /// The partly transparent image's pixel at `(x, y)`: its alpha and colour
@@ -121,12 +148,12 @@ fn kept_over_partial(at: &str, tall: usize, on_cursor_row: bool) -> Vec<usize> {
         },
     );
     feed(&mut t, "\x1b[6;3H");
-    let mut r = renderer(&faces, Px::of(0));
+    let mut r = renderer(&faces, Px::of(0), None);
     let (w, h) = r.whole_size();
     let width = usize::try_from(w.value()).expect("a width");
     let height = usize::try_from(h.value()).expect("a height");
     feed(&mut t, "\x1b[?25l");
-    let mut fresh = renderer(&faces, Px::of(0));
+    let mut fresh = renderer(&faces, Px::of(0), None);
     let mut want = vec![0u32; width * height];
     paint(&mut fresh, &mut t, &mut want, Damage::Full);
     feed(&mut t, "\x1b[?25h");
@@ -273,7 +300,7 @@ fn kept_after(layer: Layer, moved: Moved, cursor: Cursor) -> Option<String> {
     let faces = [Face::parse(&data).unwrap()];
     let mut owned = Owned::new(&WS).with_images(ImageBudget::of(1 << 16));
     let mut t = Term::new(owned.storage(), &WS);
-    let mut r = renderer(&faces, Px::of(0));
+    let mut r = renderer(&faces, Px::of(0), None);
     let m = r.metrics();
     t.set_cell_size(
         ImagePx::of(u16::try_from(m.cell_w.value()).unwrap()),
@@ -306,7 +333,7 @@ fn kept_after(layer: Layer, moved: Moved, cursor: Cursor) -> Option<String> {
     let width = usize::try_from(w.value()).expect("a width");
     let height = usize::try_from(h.value()).expect("a height");
     feed(&mut t, "\x1b[?25l");
-    let mut fresh = renderer(&faces, Px::of(0));
+    let mut fresh = renderer(&faces, Px::of(0), None);
     let mut before = vec![0u32; width * height];
     paint(&mut fresh, &mut t, &mut before, Damage::Full);
     feed(&mut t, "\x1b[?25h");
@@ -349,7 +376,7 @@ fn kept_after(layer: Layer, moved: Moved, cursor: Cursor) -> Option<String> {
         ),
     }
     feed(&mut t, "\x1b[?25l");
-    let mut now = renderer(&faces, Px::of(0));
+    let mut now = renderer(&faces, Px::of(0), None);
     let mut after = vec![0u32; width * height];
     paint(&mut now, &mut t, &mut after, Damage::Full);
     feed(&mut t, "\x1b[?25h");
@@ -453,7 +480,7 @@ fn render_hidden_repaints_the_rows_of_the_image_whose_pixels_moved_alone() {
     let faces = [Face::parse(&data).unwrap()];
     let mut owned = Owned::new(&WS).with_images(ImageBudget::of(1 << 16));
     let mut t = Term::new(owned.storage(), &WS);
-    let mut r = renderer(&faces, Px::of(0));
+    let mut r = renderer(&faces, Px::of(0), None);
     let m = r.metrics();
     t.set_cell_size(
         ImagePx::of(u16::try_from(m.cell_w.value()).unwrap()),
@@ -474,7 +501,7 @@ fn render_hidden_repaints_the_rows_of_the_image_whose_pixels_moved_alone() {
     let width = usize::try_from(w.value()).expect("a width");
     let height = usize::try_from(h.value()).expect("a height");
     feed(&mut t, "\x1b[?25l");
-    let mut fresh = renderer(&faces, Px::of(0));
+    let mut fresh = renderer(&faces, Px::of(0), None);
     let mut before = vec![0u32; width * height];
     paint(&mut fresh, &mut t, &mut before, Damage::Full);
     feed(&mut t, "\x1b[?25h");
@@ -503,7 +530,7 @@ fn render_hidden_repaints_the_rows_of_the_image_whose_pixels_moved_alone() {
         &kitty("a=f,f=32,s=8,v=8,x=0,y=0,r=1,i=2,q=2", &[GREEN; 64]),
     );
     feed(&mut t, "\x1b[?25l");
-    let mut now = renderer(&faces, Px::of(0));
+    let mut now = renderer(&faces, Px::of(0), None);
     let mut after = vec![0u32; width * height];
     paint(&mut now, &mut t, &mut after, Damage::Full);
     feed(&mut t, "\x1b[?25h");
@@ -608,7 +635,7 @@ fn gone_over_live(case: Overlap) -> Option<String> {
     let faces = [Face::parse(&data).unwrap()];
     let mut owned = Owned::new(&WS).with_images(ImageBudget::of(1 << 16));
     let mut t = Term::new(owned.storage(), &WS);
-    let mut r = renderer(&faces, Px::of(0));
+    let mut r = renderer(&faces, Px::of(0), None);
     let m = r.metrics();
     t.set_cell_size(
         ImagePx::of(u16::try_from(m.cell_w.value()).unwrap()),
@@ -651,7 +678,7 @@ fn gone_over_live(case: Overlap) -> Option<String> {
     let width = usize::try_from(w.value()).expect("a width");
     let height = usize::try_from(h.value()).expect("a height");
     feed(&mut t, "\x1b[?25l");
-    let mut fresh = renderer(&faces, Px::of(0));
+    let mut fresh = renderer(&faces, Px::of(0), None);
     let mut before = vec![0u32; width * height];
     paint(&mut fresh, &mut t, &mut before, Damage::Full);
     feed(&mut t, "\x1b[?25h");
@@ -740,7 +767,7 @@ fn gone_over_live(case: Overlap) -> Option<String> {
         );
     }
     feed(&mut t, "\x1b[?25l");
-    let mut now = renderer(&faces, Px::of(0));
+    let mut now = renderer(&faces, Px::of(0), None);
     let mut after = vec![0u32; width * height];
     paint(&mut now, &mut t, &mut after, Damage::Full);
     feed(&mut t, "\x1b[?25h");
@@ -842,7 +869,7 @@ fn written_after_an_edit(resize: Resize) -> Vec<usize> {
     let faces = [Face::parse(&data).unwrap()];
     let mut owned = Owned::new(&WS).with_images(ImageBudget::of(1 << 16));
     let mut t = Term::new(owned.storage(), &WS);
-    let mut r = renderer(&faces, Px::of(0));
+    let mut r = renderer(&faces, Px::of(0), None);
     let m = r.metrics();
     t.set_cell_size(
         ImagePx::of(u16::try_from(m.cell_w.value()).unwrap()),

@@ -11527,7 +11527,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// [`Renderer::hide_cursor`], painted into `target`, which must still
     /// hold the last frame: the grid's columns of it, past the left margin
     /// and the exit-status strip when either is kept
-    /// ([`Renderer::grid_left`]), as [`Renderer::render_at`] paints them, and
+    /// ([`Renderer::grid_left`]), in the rows beside the activity lights'
+    /// line when it is kept ([`Renderer::grid_top`]), as
+    /// [`Renderer::render_at`] paints them, and
     /// the images on those rows, blitted into them alone: an image on no row
     /// painted keeps the last frame's pixels, never blitted over them, which
     /// a partly transparent one would blend twice. **An image the terminal no longer holds**
@@ -11570,6 +11572,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
             )
         });
         let converted = self.hide(term);
+        // With the activity lights' line kept, `target` is the whole frame:
+        // the grid is painted into the rows beside the line.
+        if self.lights.height().value() == 0 {
+            return self.kept_beside(term, target, converted, cell);
+        }
+        let (top, h) = (self.grid_top(), self.frame_size().1);
+        match target.rows(top, h) {
+            Some(mut rest) => self.kept_beside(term, &mut rest, converted, cell),
+            None => Frame::default(),
+        }
+    }
+
+    /// [`Renderer::render_hidden`]'s paint of the rows beside the lights'
+    /// line: the grid's columns of them, past the left margin and the
+    /// exit-status strip when either is kept.
+    fn kept_beside(
+        &mut self,
+        term: &Term<'_>,
+        target: &mut Target<'_>,
+        converted: Option<Converted>,
+        cell: Option<(core::ops::Range<usize>, core::ops::Range<usize>)>,
+    ) -> Frame {
         let left = self.grid_left();
         if left.value() == 0 {
             return self.paint_kept(term, target, converted, cell);
