@@ -82,6 +82,28 @@ let
     if pkgs.stdenv.hostPlatform.isLinux
     then "${pkgs.binutils-unwrapped}/bin/objdump"
     else "objdump";
+  # **nextest 0.9.152, over the pinned nixpkgs' 0.9.146**, on every host.
+  # Before 0.9.151 (nextest-rs/nextest#3697) a test waiting for slots in its
+  # test group, as `pty::tests::terminals_spawned_at_once_hold_none_of_each_others_ends`
+  # (16 of `pty`'s 32) and `terminals_opened_at_once_all_open` (12) do, was
+  # not started when the threads it waited for were freed by a test outside
+  # the group; with no other test of the group still running, the run ended
+  # with it and every `pty` test queued behind it not run. A full workspace
+  # run with no test failing left 94 of them not run, and passed all 8307
+  # with those two overrides taken out. Drop this once the pinned nixpkgs
+  # carries 0.9.151 or later.
+  nextest = pkgs.cargo-nextest.overrideAttrs (finalAttrs: _: {
+    version = "0.9.152";
+    src = pkgs.fetchzip {
+      url = "https://github.com/nextest-rs/nextest/archive/refs/tags/cargo-nextest-${finalAttrs.version}.tar.gz";
+      hash = "sha256-dhDHhvUkpuq9rPQNEAlNNLhECn74qAPytWpbduqrNDs=";
+    };
+    cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
+      inherit (finalAttrs) src;
+      name = "cargo-nextest-${finalAttrs.version}";
+      hash = "sha256-RNfnqA4x1/Tb7IAYJtP5NhMiW5SahQ7AKldIIkz8sYs=";
+    };
+  });
 in
 {
   # Set root explicitly for flake compatibility
@@ -108,7 +130,7 @@ in
     # runs every test of every binary across all cores, each in its own
     # process. It does not run doctests, so `test:unit` runs those after it
     # with `cargo test --doc`.
-    pkgs.cargo-nextest
+    nextest
     # `test:changelog` reads the history through git-cliff
     # (`scripts/check-changelog.sh`).
     pkgs.git-cliff
@@ -495,7 +517,7 @@ in
       # through their `@completed` edges.
       #
       # nextest rather than `cargo test`, since 2026-10-07; why is at
-      # `pkgs.cargo-nextest` above. It builds the same test binaries, with
+      # `nextest` above. It builds the same test binaries, with
       # the same profile and flags, through `cargo test --no-run`.
       exec = "${unitBuild} --no-fail-fast; a=$?; RUSTFLAGS='-D warnings' cargo test --release --quiet --doc ${scope}; b=$?;${rigRun} [ \"$a\" -eq 0 ] && [ \"$b\" -eq 0 ] && [ \"$c\" -eq 0 ]";
       after = [ "test:check" ];
