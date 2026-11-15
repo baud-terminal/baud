@@ -105,7 +105,7 @@ set -u
 mkdir -p /tmp/out && D=$(mktemp -d) && cd "$D"
 O=/tmp/out
 # The grid's rows: the whole window, with the lights off (the header).
-ROWS=24
+export ROWS=24
 export XDG_RUNTIME_DIR=$D/xdg && mkdir -m 0700 "$XDG_RUNTIME_DIR"
 W=$(awk "BEGIN { print 1024 * $SCALE }") H=$(awk "BEGIN { print 768 * $SCALE }")
 cat > sway.conf <<C
@@ -188,7 +188,8 @@ if [ "$SCALE" = 1 ]; then
 # A stream drag, Ctrl+Shift+C, an Alt drag for a block, a double and a
 # triple click, two clicks too far apart to be a double, and the pointer
 # leaving and coming back. Each selection is read back from the
-# compositor's primary selection.
+# compositor's primary selection once it holds what the check wants, or
+# after waitfor's 10 s, when the check then says what it holds.
 session select '
 printf "alpha beta gamma\r\none two three four\r\nblock 0123456789\r\nblock abcdefghij\r\nblock ABCDEFGHIJ\r\n"
 touch $S/ready; exec cat > $S/got' <<'P'
@@ -198,57 +199,60 @@ press left
 move 60 25
 move 52 25
 release left
-sleep 300
+waitfor [ "$(timeout 3 wl-paste -p -n 2>/dev/null)" = "$(printf 'beta gamma\none two')" ]
 sh shot stream
 sh timeout 3 wl-paste -p -n > $S/stream
 mods ctrl+shift
 key 46
 mods none
-sleep 200
+waitfor [ "$(timeout 3 wl-paste -n 2>/dev/null)" = "$(printf 'beta gamma\none two')" ]
 sh timeout 3 wl-paste -n > $S/copied
 mods alt
 move 52 42
+tick 1000
 press left
 move 70 59
 move 76 76
 release left
 mods none
-sleep 300
+waitfor [ "$(timeout 3 wl-paste -p -n 2>/dev/null)" = "$(printf '0123\nabcd\nABCD')" ]
 sh shot block
 sh timeout 3 wl-paste -p -n > $S/block
 move 108 8
 tick 1000
 click left
 click left
-sleep 300
+waitfor [ "$(timeout 3 wl-paste -p -n 2>/dev/null)" = 'gamma' ]
 sh timeout 3 wl-paste -p -n > $S/double
 move 20 25
 tick 1000
 click left
 click left
 click left
-sleep 300
+waitfor [ "$(timeout 3 wl-paste -p -n 2>/dev/null)" = 'one two three four' ]
 sh timeout 3 wl-paste -p -n > $S/triple
 sh wl-copy -p sentinel 2>/dev/null
-sleep 200
+waitfor [ "$(timeout 3 wl-paste -p -n 2>/dev/null)" = 'sentinel' ]
 move 60 8
 tick 1000
 click left
 tick 300
 click left
+# Nothing to wait for: two clicks this far apart change nothing, so the
+# read comes a settle after them.
 sleep 300
 sh timeout 3 wl-paste -p -n > $S/slow
 tick 1000
 click left
 click left
-sleep 300
+waitfor [ "$(timeout 3 wl-paste -p -n 2>/dev/null)" = 'beta' ]
 sh timeout 3 wl-paste -p -n > $S/fast
 mods shift
 move 20 25
 tick 1000
 click left
 mods none
-sleep 300
+waitfor [ "$(timeout 3 wl-paste -p -n 2>/dev/null)" = "$(printf 'beta gamma\none')" ]
 sh timeout 3 wl-paste -p -n > $S/extended
 P
 check "a stream drag, the primary selection" $D/select/stream 'beta gamma\none two'
@@ -265,7 +269,8 @@ check "Shift and a click extend it, by words" $D/select/extended 'beta gamma\non
 # before and after the wheel with the pointer at the right edge, outside
 # the columns compared (sway draws it into the output whether or not
 # grim asks): what the window draws three lines back is the live
-# screen's rows three rows lower.
+# screen's rows three rows lower. A top row is read once the primary
+# selection holds the line wanted, or after waitfor's 10 s.
 session wheel '
 for i in $(seq 1 100); do printf "line %d\r\n" $i; done
 touch $S/ready; exec cat > $S/got' <<'P'
@@ -280,7 +285,7 @@ tick 1000
 click left
 click left
 click left
-sleep 300
+waitfor [ "$(timeout 3 wl-paste -p -n 2>/dev/null)" = "line $((99 - ROWS))" ]
 sh timeout 3 wl-paste -p -n > $S/top
 wheel 3
 sleep 300
@@ -289,7 +294,7 @@ tick 1000
 click left
 click left
 click left
-sleep 300
+waitfor [ "$(timeout 3 wl-paste -p -n 2>/dev/null)" = "line $((102 - ROWS))" ]
 sh timeout 3 wl-paste -p -n > $S/live
 move 620 200
 swipe -51
@@ -299,7 +304,7 @@ tick 1000
 click left
 click left
 click left
-sleep 300
+waitfor [ "$(timeout 3 wl-paste -p -n 2>/dev/null)" = "line $((99 - ROWS))" ]
 sh timeout 3 wl-paste -p -n > $S/swiped
 swipe 51
 sleep 300
@@ -318,7 +323,7 @@ tick 1000
 click left
 click left
 click left
-sleep 300
+waitfor [ "$(timeout 3 wl-paste -p -n 2>/dev/null)" = 'line 1' ]
 sh timeout 3 wl-paste -p -n > $S/thumb
 move 620 200
 wheel 100
