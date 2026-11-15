@@ -19,21 +19,28 @@ programs, and pictures.
   right-to-left line. A paragraph that wraps with both directions in it,
   and ECMA-48's reversed and directed strings, are not drawn yet
   ([bidi](../bidi.md)).
-- **Linux.** The Linux version builds and has run only on headless Wayland
-  compositors, weston and sway, which show nothing on a screen. There,
+- **Linux.** baud runs on Linux under Wayland, and is not ready for
+  everyday use yet. On a real screen, a 4K monitor under Hyprland, it has
+  drawn sharp at scales 1, 1.5 and 2 and followed a change of scale live;
+  drawn Hebrew, Arabic, Devanagari, Chinese, Japanese, Korean, Thai, emoji
+  and ligatures, the cursor trails, the activity lights on the top line,
+  the launch logo and the padding around the text; followed the desktop's
+  light and dark setting both ways; and run programs such as btop, with
+  the keys typed reaching them. A `font_size` in points draws as large as
+  the desktop's other windows draw it: 96 dots to the inch times the
+  desktop's text scale. On headless Wayland compositors, weston and sway,
   given the same fonts and colours at the same size in pixels, it drew the
-  same pixels as the Mac version at scales 1 and 2 and in-between scales
-  such as 1.5 (a `font_size` in points is a larger size in pixels on
-  Linux, which sizes a point at 96 dots to the inch), stayed
-  sharp when its window moved to an output of another scale, copied and
-  pasted with the compositor's clipboard, and a virtual mouse selected
-  text, scrolled back through the history, pasted with the middle button,
-  passed links on to be opened with Ctrl-click and worked in programs
-  that use the mouse. Characters drawn from each system's own fonts, and
-  some programs' dim colours, can still look different. Input methods,
-  the bell, zoom and the desktop's light, dark and accessibility settings
-  have not run even headless. Nobody has used it on a real screen, and
-  its GPU drawing is not started. It is not ready to use.
+  same pixels as the Mac version, stayed sharp when its window moved to an
+  output of another scale, copied and pasted with the compositor's
+  clipboard, and a virtual mouse selected text, scrolled back through the
+  history, pasted with the middle button, passed links on to be opened
+  with Ctrl-click and worked in programs that use the mouse. Not yet tried
+  on a real screen: the mouse, the clipboard, input methods, the bell,
+  zoom and reduced motion. Seen on a real screen and not fixed yet: the
+  launch logo's plasma shows a hard-edged grey band, light mode reads
+  grey under the compositor's blur, and a shell's own colours are lost
+  after a light/dark change. Shift+Page Up and Down do not scroll the
+  history yet. It draws on the CPU; drawing on the GPU is not built yet.
 - **A few control sequences.** The gaps are each listed with their reason
   in [vt-coverage](../vt-coverage.md), as a row at **partial** or **out**.
 
