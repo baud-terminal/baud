@@ -245,8 +245,8 @@ impl Paint<'_, '_> {
         // not carriage-return, so the column stays where the image started, as
         // `[[source: dec-std-070]]` 070-9 §11.3 requires: "The Horizontal
         // Active position of the ANSI text is not affected by Sixel mode and
-        // set exactly to what is was when Sixel mode was entered" (PDF p. 928,
-        // as note AN quotes it). Only when the embedder has said how tall a
+        // set exactly to what is was when Sixel mode was entered" (PDF p.
+        // 928). Only when the embedder has said how tall a
         // cell is; zero leaves the cursor where the image is, the headless
         // default. `finish` refused a zero `h` and `cell_height` is non-zero
         // here, so the row count is at least one without a guard.
@@ -271,7 +271,7 @@ impl Paint<'_, '_> {
         // `new_row = charrow - 1 + ceil(h / FontHeight)`, and under
         // `sixel_scrolls_right` only the column changes). Past the right
         // margin it goes to the left margin of the next row, scrolling at
-        // the bottom, as xterm does. No column moves while the cell width
+        // the bottom. No column moves while the cell width
         // is unknown, and the cursor then goes below the image as without
         // the mode.
         let right_of =

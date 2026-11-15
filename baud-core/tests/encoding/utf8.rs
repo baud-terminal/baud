@@ -273,8 +273,8 @@ fn state_after(bytes: &[u8], size: usize) -> (Vec<PackedCell>, (Row, Col), usize
 /// well-formed -- U+007F, a control -- so the replacement character claimed a
 /// decoding error that was not there; under ISO 8859-1 it is DEL. baud sent it
 /// to `Act::Bad` in every ground. VT52 ground takes the same rule: it has only
-/// 94-character sets, and no text read says DEL draws anything there (note AE,
-/// D4). Each program is held against itself without the DEL, at every read
+/// 94-character sets, and no text read says DEL draws anything there. Each
+/// program is held against itself without the DEL, at every read
 /// size.
 #[test]
 fn del_in_ground_is_ignored() {
@@ -477,29 +477,27 @@ const GR_CANDIDATES: [(&str, &[u8]); 6] = [
 
 /// DEC Special Graphics in GL, by designation into G0 and by `SO` over G1.
 /// Here the character must match and the flags may not: a cell written while
-/// GL holds DEC graphics carries `CellFlags::GRAPHICS` whatever the character
-/// (note AE Q16(a), decided), so the flags are cleared on both sides
-/// before comparing. The payloads set no other flag.
+/// GL holds DEC graphics carries `CellFlags::GRAPHICS` whatever the
+/// character, so the flags are cleared on both sides before comparing. The payloads set no other flag.
 const GL_CANDIDATES: [(&str, &[u8]); 2] = [("ESC ( 0", b"\x1b(0"), ("ESC ) 0 SO", b"\x1b)0\x0e")];
 
-/// **Under UTF-8, bytes `A0-FF` are UTF-8 and never a right half** (note AE,
-/// AE5 part 1, Q5(a): no GR).
+/// **Under UTF-8, bytes `A0-FF` are UTF-8 and never a right half**: there
+/// is no GR.
 ///
 /// The texts: `[[source: unicode18-ch3]]` C4, "A process shall interpret a
 /// coded character sequence according to the character semantics established
 /// by this standard", and D92, which gives every UTF-8 byte sequence its
-/// scalar value or makes it ill-formed. Under note AE's P-A, UTF-8 decides
-/// 80-FF and no ISO 2022 clause applies; under P-B, ECMA-35 9.1 (p. 20) gives
-/// a 7-bit code only "the CL area" and "the GL area". Either way there is no
-/// GR. The departure this guards against is xterm's: decoded
-/// U+0080-U+00FF are mapped through GR, and raw bytes bypass the decoder,
-/// whenever GR is not ASCII (`[[source: xterm-ptydata-c]]` ptydata.c:91-97),
-/// so after `ESC * 0`, `C3 A9` shows `Ã©` (note AE Q5(b), derived by reading).
+/// scalar value or makes it ill-formed. Read as UTF-8 deciding 80-FF, no
+/// ISO 2022 clause applies; read as a 7-bit code, ECMA-35 9.1 (p. 20) gives
+/// it only "the CL area" and "the GL area". Either way there is no GR. What
+/// this guards against: decoded U+0080-U+00FF mapped through GR, and raw
+/// bytes bypassing the decoder, whenever GR is not ASCII, so that after
+/// `ESC * 0`, `C3 A9` would show `Ã©`.
 ///
 /// Three checks, each at every read size, so a split between `C3` and `A9`
 /// -- where a raw-byte bypass would show -- is taken:
 ///
-/// * note AE's own example: `ESC * 0 C3 A9` is `é`;
+/// * `ESC * 0 C3 A9` is `é`;
 /// * every scalar U+00A0-U+00FF, encoded `C2 A0`..`C3 BF`, leaves the screen,
 ///   cursor and counters as it does with nothing designated, after each of
 ///   [`GR_CANDIDATES`] and [`GL_CANDIDATES`];
@@ -870,7 +868,7 @@ const VT52: &[u8] = b"\x1b[?2l";
 
 /// **Under UTF-8 a byte `80-FF` inside a control sequence cancels it and is
 /// the ground's after a control, as after `ESC`; and after a VT52 `ESC` the
-/// same.** Cancel and print it, since 2026-10-13, for `csi entry`,
+/// same.** Cancel and print it, for `csi entry`,
 /// `csi param`, `csi intermediate` and `csi ignore`, and for VT52 as for
 /// `ESC`: the decision's rows at every read size and every split into two
 /// reads, row, cursor and replacement count.

@@ -474,7 +474,7 @@ fn the_generator_reaches_the_measure() {
 /// the shell's block, which a change of width keeps whole, row for row,
 /// cells past the new edge held there -- what these tests narrow to keep
 /// rows past the edge. A mark after the rows would leave them above the
-/// block, finished output a change of width re-cuts (note M).
+/// block, finished output a change of width re-cuts.
 const PROMPT_FIRST: &[u8] = b"\x1b]133;A\x07";
 
 fn at_prompt(f: impl FnOnce(&mut Term<'_>)) {

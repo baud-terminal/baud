@@ -1,5 +1,5 @@
-//! xterm's logging, `?46` and `OSC 46` (`[[source: ctlseqs]]`, "Start
-//! logging (XTLOGGING)", "Change Log File to Pt") (note AV): the core
+//! Logging (XTLOGGING), `?46` and `OSC 46` (`[[source: ctlseqs]]`, "Start
+//! logging (XTLOGGING)", "Change Log File to Pt"): the core
 //! keeps the mode and the name and stops a read at each change, and the
 //! embedder writes the bytes.
 

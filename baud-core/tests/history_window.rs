@@ -1,5 +1,5 @@
-//! **The terminal keeps the window over the history** (note V, V2, option B:
-//! the core keeps the window over the history, as a line number or live).
+//! **The terminal keeps the window over the history**, as a line number or
+//! live.
 //! Before it, baud-app kept the window as a count of lines up from the live
 //! screen and moved it after every read by the read's net movement, which is
 //! not composable: a window a scroll down brought to the live screen stays

@@ -1,11 +1,8 @@
 //! `OSC 4 ; c ; ?` answers every entry.
 //!
-//! `[[source: xterm-reset]]`'s snapshot of `misc.c`, `ReportAnsiColorRequest`,
-//! answers any entry's current colour; every other terminal read for note Y
-//! does the same. baud answered only an entry a program had overridden,
-//! because the core held no palette. The embedder now hands it the theme's
-//! 256 entries beside the default foreground and background, and a query
-//! answers the override, else the embedder's entry, else nothing.
+//! A query answers any entry's current colour. The embedder hands the core
+//! the theme's 256 entries beside the default foreground and background, and
+//! a query answers the override, else the embedder's entry, else nothing.
 
 mod support;
 

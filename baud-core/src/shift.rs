@@ -22,8 +22,8 @@ impl Paint<'_, '_> {
     /// environments is treated as an unassigned graphic character code, and
     /// will cause the error character ... to be displayed", and §3.4.4,
     /// "The character code 15/15 in 8-bit environments is treated as an
-    /// unimplemented control code and shall be ignored" (note AE's AE8,
-    /// decided). A 96-character set has a character at both (8.3.2).
+    /// unimplemented control code and shall be ignored". A 96-character set
+    /// has a character at both (8.3.2).
     #[cold]
     #[inline(never)]
     pub(crate) fn gr_glyph(&mut self, b: StreamByte) {

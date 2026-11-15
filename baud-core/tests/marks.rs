@@ -173,8 +173,7 @@ fn a_mark_attaches_to_a_base_in_the_last_column() {
 /// character's.** The cursor writes a wide character, leaves, comes back
 /// with `CUP`, and only then does a mark arrive: the `CUP` is a control, so
 /// `[[source: uax29]]` GB4/GB5 make the mark a cluster of its own, which
-/// takes the cursor's cell, column 2 (note AB, Q24 item 1). Until 2026-10-23
-/// it went to the wide character at column 0, found through its tail.
+/// takes the cursor's cell, column 2, not the wide character's at column 0.
 #[test]
 fn a_mark_after_the_cursor_has_been_away_takes_its_own_cell() {
     let ws = support::CORPUS;

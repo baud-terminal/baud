@@ -1,8 +1,7 @@
 #![deny(dead_code)]
 //! **A row whose mark is 0 holds no written cell.**
 //!
-//! `RowExtent` is a high-water mark of glyph writes (note F,
-//! `docs/research/notes/f-row-extent.md`): a fill stores 0 only when what it
+//! `RowExtent` is a high-water mark of glyph writes: a fill stores 0 only when what it
 //! fills with is `Content::EMPTY`, whatever its rendition, and every glyph
 //! write raises it. An embedder may therefore read a mark of 0 as "nothing
 //! written on this row", and the app does: the line a part ended on is

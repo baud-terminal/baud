@@ -1,5 +1,5 @@
-//! The kitty graphics protocol through the byte stream
-//! (`[[source: kitty-graphics]]`; note V, V19 steps 5-6): queries answered,
+//! The terminal graphics protocol (APC G) through the byte stream
+//! (`[[source: kitty-graphics]]`): queries answered,
 //! images stored, placed and deleted, the deferred decode, and every
 //! transmission the same however its bytes were cut -- across the `APC`
 //! body, across base64 quanta, across zlib blocks and across `m=1` chunks.

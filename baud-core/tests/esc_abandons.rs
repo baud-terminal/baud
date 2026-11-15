@@ -116,7 +116,7 @@ fn an_esc_in_an_escape_sequence_restarts_it() {
 
 /// `Escape` again, with a final that means something alone: `ESC # ESC 8` is
 /// `DECRC`, not `DECALN`. The cursor is saved at home first, because what
-/// `DECRC` does with nothing saved is its own question (note AE, Q13).
+/// `DECRC` does with nothing saved is held on its own (`tests/decrc_unsaved.rs`).
 #[test]
 fn an_esc_after_hash_is_not_decaln() {
     each_read_size(b"\x1b7\x1b[5;5H\x1b#\x1b8X", |t| {

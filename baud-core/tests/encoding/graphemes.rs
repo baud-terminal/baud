@@ -258,9 +258,8 @@ fn marks_stack_and_do_not_leak_between_cells() {
 /// `[[source: uax29]]` GB1 puts a boundary at start of text, so a leading mark
 /// is its own cluster, a defective combining character sequence (TUS D57, "at
 /// the start of a string"), stored alone and drawn on a no-break space (TUS
-/// 5.13; note AB, Q24 item 1). It was dropped and counted until 2026-10-23,
-/// which the name records: nothing is dropped now, and the `x` after it takes
-/// the next cell.
+/// 5.13). Nothing is dropped, though the name says counted, and the `x`
+/// after it takes the next cell.
 #[test]
 fn a_leading_mark_has_no_base_and_is_counted() {
     let ws = support::CORPUS;
@@ -490,7 +489,7 @@ enum Why {
 /// when the departure does.
 const KNOWN: &[(usize, &[Before], Why)] = &[
     // `06DD 0020`: U+06DD ARABIC END OF AYAH is a Prepended_Concatenation_Mark,
-    // a column of its own since 2026-11-02, so alone at column 0 it takes a
+    // a column of its own, so alone at column 0 it takes a
     // cell as after a letter, and the space after it one more.
     (365, &Before::ALL, Why::AsciiAfterPrepend),
     // `0061 0600 0062`, the file's own GB9b case.
@@ -508,8 +507,8 @@ const KNOWN: &[(usize, &[Before], Why)] = &[
 /// after NUL; and 749, which ends `LF U+0308`. Alone, the lines that begin
 /// with a mark or a joiner and then hold a control join the rest: 141-146
 /// and the like inside 140-292. The suite's Prepends, U+0600 and U+06DD,
-/// are Prepended_Concatenation_Marks, a column each since 2026-11-02, so no
-/// line starts a cluster with a zero-width Prepend any more.
+/// are Prepended_Concatenation_Marks, a column each, so no line starts a
+/// cluster with a zero-width Prepend.
 const ZERO_WIDTH_STARTS_ALONE: &[(usize, usize)] = &[
     (28, 28),
     (30, 30),
@@ -709,7 +708,7 @@ fn put_cell(screen: &mut [Vec<Column>], (r, c): (usize, usize), k: &[Codepoint])
 /// starts with a zero-width codepoint.** A combining mark there, an Extend
 /// that is not default-ignorable, is a defective combining character
 /// sequence (TUS D57) and takes one cell with no base, the mark and the rest
-/// of the cluster in it (`Content::DEFECTIVE`; note AB, Q24 item 1). A
+/// of the cluster in it (`Content::DEFECTIVE`). A
 /// default-ignorable Extend or ZWJ draws nothing and is dropped, and what
 /// follows it starts afresh, as after a control. Any other zero-width head,
 /// a Prepend, joins the written cell before the cursor on the cursor's row,
@@ -1232,8 +1231,8 @@ enum Effect {
 /// continuation takes a cell whatever the machine says, so theirs is
 /// `a_carriage_return_ends_a_regional_indicator_pair`.
 ///
-/// **REP is pinned the other way, in `after_rep_the_cluster_goes_on`, an open
-/// choice (note AB, Q24)**: it writes a graphic character, so the
+/// **REP is pinned the other way, in `after_rep_the_cluster_goes_on`**: it
+/// writes a graphic character, so the
 /// continuation joins the copy. A plain SGR is a control sequence like the
 /// rest and ends the cluster (GB4 on its `ESC`).
 #[test]
@@ -1381,8 +1380,7 @@ fn a_control_function_ends_the_cluster_before_it() {
     );
 }
 
-/// **REP, after which the cluster goes on from the copy**, pinned, an open
-/// choice (note AB, Q24).
+/// **REP, after which the cluster goes on from the copy**, pinned.
 ///
 /// REP writes the letter again, so the continuation joins the copy: `ab`
 /// `CSI b` `U+0903` is `a`, `b`, and `b` with the visarga. `Paint::repeat`
@@ -1533,14 +1531,13 @@ fn a_carriage_return_ends_a_regional_indicator_pair() {
 ///
 /// The replacement is written by `Act::Bad` for a byte that is no character,
 /// by `Act::Resync` for a character a read left unfinished, and by `chars`
-/// for a lead whose character is cut short in the read. It was written
-/// without asking the machine and the machine told nothing, which judged the
-/// next character from what came before the replacement: from the control,
-/// so the visarga took a cell of its own, or from the indicator or the
-/// pictographic, so the second indicator paired with the first and the woman
-/// joined the man. Each of the three then told the machine class Other, and
-/// since 2026-10-13 each asks the machine about U+FFFD as about any
-/// character (`a_replacement_for_ill_formed_bytes_clusters_as_a_literal_one`).
+/// for a lead whose character is cut short in the read. Each of the three
+/// asks the machine about U+FFFD as about any character
+/// (`a_replacement_for_ill_formed_bytes_clusters_as_a_literal_one`). Written
+/// without asking, the next character would be judged from what came before
+/// the replacement: from the control, so the visarga would take a cell of its
+/// own, or from the indicator or the pictographic, so the second indicator
+/// would pair with the first and the woman would join the man.
 /// Every read size, so the unfinished character takes `Resync` as well as
 /// `chars`.
 #[test]

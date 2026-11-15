@@ -525,7 +525,7 @@ fn a_value_is_read_by_kittys_text() {
 }
 
 /// **Under `?5` the default colours are the colours shown**, as
-/// `OSC 10`/`11` are (note V, V17), so the two never disagree: a set acts
+/// `OSC 10`/`11` are, so the two never disagree: a set acts
 /// on the colour shown in its role, and a reset gives that role back.
 #[test]
 fn under_reverse_video_the_colours_shown_answer() {
@@ -547,9 +547,9 @@ fn under_reverse_video_the_colours_shown_answer() {
     });
 }
 
-/// **DECSWT stays out**: a title under `OSC 21` is read as kitty's record,
-/// a key baud does not know, counted, and sets no title -- xterm drops
-/// DECSWT below a VT520, and baud identifies as a VT100 (note AK, 1.4).
+/// **DECSWT stays out**: a title under `OSC 21` is read as a colour control
+/// protocol record, a key baud does not know, counted, and sets no title --
+/// DECSWT is a VT520's, and baud identifies as a VT100.
 #[test]
 fn a_title_under_osc_21_sets_no_title_and_is_counted() {
     told(|t| {

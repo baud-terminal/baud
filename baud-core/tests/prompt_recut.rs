@@ -249,7 +249,7 @@ fn a_narrowing_at_a_prompt_re_cuts_the_output_above_it_through_a_drag() {
 /// **The shell's redraw after the narrowing lands on the block**: zsh's
 /// redraw on `SIGWINCH` counts the rows its prompt drew, moves up that many
 /// from the cursor, erases to the end of the screen and draws the prompt
-/// again (note M). Its `CUU 2` from the cursor reaches the block's first
+/// again. Its `CUU 2` from the cursor reaches the block's first
 /// row, so the redraw replaces the block whole: one prompt on the screen,
 /// and the listing above it untouched.
 #[test]

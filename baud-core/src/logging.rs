@@ -1,7 +1,6 @@
-//! xterm's logging: `CSI ? 46 h`, "Start logging (XTLOGGING), xterm",
+//! Logging (XTLOGGING): `CSI ? 46 h`, "Start logging (XTLOGGING), xterm",
 //! `CSI ? 46 l`, "Stop logging", and `OSC 46 ; Pt`, "Change Log File to Pt.
-//! The parameter Pt sets the logFile resource" (`[[source: ctlseqs]]`)
-//! (note AV).
+//! The parameter Pt sets the logFile resource" (`[[source: ctlseqs]]`).
 //!
 //! **The core keeps the mode and the name, and writes nothing**: the file
 //! is the embedder's, which turns the feature on ([`Logging`]) and writes

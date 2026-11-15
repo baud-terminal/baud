@@ -1001,8 +1001,8 @@ fn oldest_numbered(t: &Term<'_>) -> (usize, usize) {
         .expect("a numbered line in the history")
 }
 
-/// **A narrow drag through a full ring counts the rows it drops** (note V,
-/// V5). `full-ring` is `/bin/sh` running `awk` over 2,600 lines of 145
+/// **A narrow drag through a full ring counts the rows it drops**.
+/// `full-ring` is `/bin/sh` running `awk` over 2,600 lines of 145
 /// characters and then `date` every 50 ms, captured by
 /// the `capture-resize` example through a drag from 200 columns to 40 and
 /// back while the clock still prints, so every width change is in the

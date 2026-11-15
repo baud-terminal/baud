@@ -1,8 +1,7 @@
 //! `CSI ? 996 n`, mode `?2031` and its `CSI ? 997 ; 1|2 n` notification.
 //!
 //! `[[source: contour-palette-notifications]]` specifies the query, the two
-//! replies and the mode; note Y (section 7, decision 5) settles what the spec
-//! leaves open: the class is that of what `OSC 10`/`11 ; ?` would answer, one
+//! replies and the mode. Where the spec leaves it open, the class is that of what `OSC 10`/`11 ; ?` would answer, one
 //! embedder call sends at most one notification, an application's own colour
 //! escapes send none, and nothing is sent on `2031 h`.
 

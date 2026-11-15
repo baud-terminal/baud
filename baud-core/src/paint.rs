@@ -1122,9 +1122,8 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// control function. That is a cluster of its own, a defective combining
     /// character sequence (TUS D57, "a sequence of combining characters
     /// appears at the start of a string or follows a control or format
-    /// character"), and it went to the cell before the cursor until
-    /// 2026-10-23: onto a letter the program did not put it on, or dropped
-    /// where that cell was empty (note AB, Q24 item 1).
+    /// character"), so it never goes to the cell before the cursor: that is
+    /// a letter the program did not put it on, or an empty cell.
     ///
     /// * **A combining mark takes the cursor's cell**, stored alone as a
     ///   cluster with [`Content::DEFECTIVE`] for its base, so a copy returns
@@ -1214,7 +1213,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     pub(crate) fn glyph_by<W: Writer>(&mut self, cp: Codepoint, w: Width, pen: Pen) {
         // **A zero-width codepoint gets no cell of its own unless it starts a
         // cluster** (`Paint::zero_width`: after a control, a combining mark
-        // takes one as a defective sequence, since 2026-10-23). The joined
+        // takes one as a defective sequence). The joined
         // case never reaches here. A combining mark, a ZWJ or a variation
         // selector took a
         // full cell here and advanced the cursor a column, so everything after
@@ -1607,8 +1606,8 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// [`Paint::set_col`], which ends it, and a `?7h` or `?7l` ends it too, as
     /// does a resize that clamps the cursor. A vertical move keeps it, as it
     /// keeps the pending-wrap column with `DECAWM` set, so the mark goes to the
-    /// last column of the row the cursor is on under both modes. Where a mark
-    /// after a control belongs at all is note AB's Q24: GB4 and GB5 end the
+    /// last column of the row the cursor is on under both modes. A mark
+    /// after a control joins nothing before it: GB4 and GB5 end the
     /// cluster there, a defective combining character sequence
     /// (`[[source: unicode18-ch3]]` D57).
     #[cold]

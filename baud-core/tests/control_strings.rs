@@ -276,7 +276,7 @@ const INVALID: &[u8] = b"\x1bP0$r\x1b\\";
 /// took the OSC's edge, so a BEL ended a DECRQSS, answered it, and drew what
 /// followed it.
 ///
-/// **The handler drops it**, since 2026-10-19: DECRQSS ignores every C0
+/// **The handler drops it**: DECRQSS ignores every C0
 /// before it keeps its `Pt`, as `[[source: dec-std-070]]` 3.5.4.4
 /// recommends, so `m BEL` names SGR and answers valid. A terminator would
 /// answer `m` too, so `m BEL X` tells them apart: `mX` names nothing and
@@ -392,8 +392,7 @@ fn a_bel_in_sos_pm_or_apc_is_ignored_and_only_st_ends_it() {
     let cases: [(&str, &[u8], &[u8]); 4] = [
         ("SOS", b"\x1bXa\x07X\x1b\\AFTER", b"AFTER"),
         ("PM", b"\x1b^a\x07X\x1b\\AFTER", b"AFTER"),
-        // Not `G`: an `APC G` is a kitty graphics command since 2026-10-16,
-        // read below.
+        // Not `G`: an `APC G` is a graphics protocol command, read below.
         ("APC", b"\x1b_Ha\x07X\x1b\\AFTER", b"AFTER"),
         (
             "APC under ISO 8859-1, 9F and 9C",

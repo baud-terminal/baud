@@ -1,5 +1,5 @@
-//! **HP's memory lock and unlock, `ESC l` and `ESC m`, done as xterm does
-//! them: a top margin at the cursor's line, and the first line again.**
+//! **Memory lock and unlock, `ESC l` and `ESC m`: a top margin at the
+//! cursor's line, and the first line again.**
 //!
 //! `[[source: ctlseqs]]`: "ESC l Memory Lock (per HP terminals). Locks
 //! memory above the cursor" and "ESC m Memory Unlock (per HP terminals)".

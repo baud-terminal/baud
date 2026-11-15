@@ -1,5 +1,5 @@
-//! **`?12` and the configured blink: foot's OR, and the style saved across
-//! `?1049`** -- since 2026-09-27.
+//! **`?12` and the configured blink: either one blinks the cursor, and the
+//! style is saved across `?1049`**.
 //!
 //! baud folded `?12` into the one cursor style, so `?12l` turned the blink
 //! off for good. vim sends `?12h ?12l` at start and helix ends its session on

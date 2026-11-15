@@ -1679,7 +1679,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // nothing. A row that cannot be reached is a row nobody re-reads.
         // `8E` and `8F` leave a single shift pending in the ANSI grounds; a
         // VT52 ground has no G2 or G3 to shift to, and takes them as every
-        // other C1 there (note AE's D3).
+        // other C1 there.
         if let Some(e) = latin1_c1(enc, b) {
             return match (g, e.next) {
                 (Node::Vt52Ground, Node::SingleShift) => edge(e.act, Node::AfterControl),
@@ -1789,7 +1789,7 @@ const fn escape(b: StreamByte) -> Edge {
         // there: a well-formed character is written as the ground writes one
         // after any control, so U+0903 takes a cell of its own
         // (`[[source: uax29]]` GB4) and a zero-width mark attaches where it
-        // does after any control (note AB's Q24), and a stray continuation, a
+        // does after any control, and a stray continuation, a
         // disallowed lead byte (0xC0, 0xC1, 0xF5-0xFF) or a lead cut off writes
         // U+FFFD. It was `Consume`, which dropped the lead with the sequence,
         // so each continuation of a well-formed U+0903 in `a ESC E0 A4 83`
@@ -2096,9 +2096,8 @@ const fn vt52(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // VT52 follows the `ESC` rule. It went to `Vt52::parse`, which names
         // no such byte, so the lead of `a ESC E0 A4 83 b` was dropped with
         // the escape and its two continuations each wrote U+FFFD. Under ISO
-        // 8859-1 the row is what it was: what a C1 or GR byte does after a
-        // VT52 `ESC` is note AE's D3, which waits on the DEC text for the
-        // mode.
+        // 8859-1 a C1 or GR byte after a VT52 `ESC` goes to `Vt52::parse`
+        // as any other final.
         Node::Vt52Escape => match (enc, b.raw_byte()) {
             (_, 0x1b) => edge(Act::Consume, Node::Vt52Escape),
             (_, b'Y') => edge(Act::Consume, Node::Vt52Row),
@@ -2830,8 +2829,8 @@ mod classes {
         // never enter the sequence. The signature reads `Resync` out of a
         // UTF-8 continuation node as landing in ground, so `1B 9B` from
         // `Utf8One` reached the C1's ground row; and from `Vt52Col` the `ESC`
-        // is a coordinate and lands in VT52 ground, where note AE's D3 leaves
-        // a Latin-1 C1 its ANSI edge. At stride 3 two old classes split five
+        // is a coordinate and lands in VT52 ground, where a Latin-1 C1
+        // keeps its ANSI edge. At stride 3 two old classes split five
         // ways and none merge: `CAN` or `SUB`, then `ESC` or `9B`, then a
         // byte the sequence consumed, which is now one of an executing C1,
         // `90`, the other string introducers, `9B`, or still consumed (`7F`
@@ -2961,8 +2960,8 @@ mod classes {
         // read as `ESC` and a final, the same edge -- and are two now: 48
         // -> 49, and 1,841 -> 1,878, 54,641 -> 55,701 and 1,450,888 ->
         // 1,478,109 at strides 2, 3 and 4. **A byte that is no character
-        // after a control now goes through `EndCluster`, as a character's
-        // lead does** (since 2026-10-13): 154 edges, the 77 such bytes in
+        // after a control goes through `EndCluster`, as a character's
+        // lead does**: 154 edges, the 77 such bytes in
         // `AfterControl` and `Vt52AfterControl` under UTF-8. Strides 1 and
         // 2 do not move; 55,701 -> 55,354 and 1,478,109 -> 1,453,919 at
         // strides 3 and 4; the fall was not decomposed. **A byte `80-FF`
@@ -3201,7 +3200,8 @@ mod classes {
                         ),
                         // A Sixel's body and its `ESC` keep 070-9 §9.1's
                         // rule: `SUB` a blank sixel, `CAN` the image placed;
-                        // a kitty command's keep kitty's, where neither ends it.
+                        // a graphics command's (APC G) keep that protocol's
+                        // rule, where neither ends it.
                         false => assert_eq!(
                             got,
                             match (node, b.raw_byte()) {
@@ -4119,7 +4119,7 @@ mod classes {
         ] {
             assert_eq!(u8_(node, 0x7f), edge(Act::Consume, node), "{node:?} DEL");
         }
-        // Under ISO 8859-1 the VT52 row is what it was, note AE's D3.
+        // Under ISO 8859-1 a byte `80-FF` after a VT52 `ESC` is a VT52 final.
         for v in 0x80..=0xffusize {
             assert_eq!(
                 l1(Node::Vt52Escape, v),

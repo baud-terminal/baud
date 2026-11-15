@@ -1,4 +1,4 @@
-//! `OSC 10` and `11` under `?5` act on the colour shown (note V, V17).
+//! `OSC 10` and `11` under `?5` act on the colour shown.
 //!
 //! xterm's `ReverseVideo` swaps the colours it *stores* -- palette entries 0
 //! and 7 and 8 and 15, the text foreground and background, as whole records
@@ -145,8 +145,8 @@ fn both_resets_clear_an_override_set_under_reverse() {
 }
 
 /// `CSI ? 996 n` answers the class of what `OSC 10`/`11` would answer, so on
-/// a reversed dark theme it answers light (note Y, section 7: "Under `?5`
-/// ... 996 follows it; no unsolicited report for `?5`").
+/// a reversed dark theme it answers light; a `?5` change sends no
+/// unsolicited report.
 #[test]
 fn the_996_answer_follows_the_colours_shown() {
     each_read_size(b"\x1b[?996n", |t| assert_eq!(t.reply(), b"\x1b[?997;1n"));

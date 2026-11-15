@@ -6,12 +6,12 @@
 //! can still lose a cluster the old one kept. A sweep that ran whenever one
 //! cluster's eight slots were full did exactly that -- it freed the growing
 //! prefixes of clusters still on cells, and when such a cluster was written
-//! again its prefix was refused, so 35 cells the base drew right over note
-//! AD's texts were drawn without a point. Sweeping only once every slot is
+//! again its prefix was refused, so 35 cells the base drew right over those
+//! texts were drawn without a point. Sweeping only once every slot is
 //! filled, when all slots are used, keeps them.
 //!
-//! The texts that showed it are external (`[[source: hi-bharat]]` and the
-//! rest of note AD's session), so this test generates the mechanism instead:
+//! The texts that showed it are external (`[[source: hi-bharat]]` and
+//! others), so this test generates the mechanism instead:
 //! clusters of three marks written once, a churn of one-mark clusters kept
 //! on the screen that fills the store's windows short of filling the
 //! store, and the first clusters written again. Each cell's truth is known
@@ -26,7 +26,7 @@ mod support;
 
 use baud_core::{CacheGeometry, Depth, Owned, PackedCell, Row, Term, WinSize};
 
-/// The terminal: note AD's 200x50, with 2,000 lines of history, none of
+/// The terminal: 200x50, with 2,000 lines of history, none of
 /// which the payload's twenty lines reach.
 const WS: WinSize = WinSize {
     ws_row: 50,

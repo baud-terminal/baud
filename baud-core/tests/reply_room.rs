@@ -270,7 +270,7 @@ fn a_macrograph_playing_is_held_between_its_reports() {
 /// **Why the buffer is not sized to what one read can ask**: four bytes,
 /// DECTABSR asked with the C1 introducer under ISO 8859-1, answer 9,139 at
 /// the widest screen with a stop at every column, so one read of
-/// `READ_CHUNK` bytes can owe 9.36 MB (note AG, 1.5).
+/// `READ_CHUNK` bytes can owe 9.36 MB.
 #[test]
 fn four_bytes_can_ask_for_the_longest_tab_report() {
     let wide = WinSize {

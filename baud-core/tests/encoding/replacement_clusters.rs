@@ -1,7 +1,6 @@
 //! **A U+FFFD written for ill-formed bytes is a character to the cluster
-//! rules exactly as a literal `EF BF BD` is.** Chosen on 2026-10-13 over
-//! breaking always before the substitute, and over declaring a UAX29-C1-2
-//! profile that says so.
+//! rules exactly as a literal `EF BF BD` is.** No break is forced before
+//! the substitute, and no UAX29-C1-2 profile is declared that would say so.
 //!
 //! `[[source: unicode-ch3]]` 3.9.5 has a converter substitute "one or more
 //! U+FFFD replacement characters", and `[[source: uax29]]` segments a
@@ -263,7 +262,7 @@ fn a_replacement_for_ill_formed_bytes_clusters_as_a_literal_one() {
 /// control went past before it writes the substitute.
 ///
 /// U+0600 ARABIC NUMBER SIGN is a Prepended_Concatenation_Mark, a column
-/// of its own since 2026-11-02, so it takes the cell after the `a`.
+/// of its own, so it takes the cell after the `a`.
 #[test]
 fn a_control_ends_the_cluster_before_a_replacement_for_ill_formed_bytes() {
     let mut checked = 0usize;

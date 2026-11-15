@@ -1193,10 +1193,10 @@ fn size_of(set: &str) -> LineRendition {
 }
 
 /// **DECIC and DECDC leave an image where it is**, on a sized line as on
-/// any: the kitty text moves images only when "scrolling the screen" and
-/// gives erases "no effect on graphics" (`[[source: kitty-graphics]]`,
-/// "Interaction with other terminal actions"), no DEC text puts a Sixel
-/// under DECIC, and xterm and kitty move none. The text shifts under it.
+/// any: the graphics protocol's text moves images only when "scrolling the
+/// screen" and gives erases "no effect on graphics" (`[[source:
+/// kitty-graphics]]`, "Interaction with other terminal actions"), and no DEC
+/// text puts a Sixel under DECIC. The text shifts under it.
 #[test]
 fn decic_and_decdc_leave_an_image_on_a_sized_line_where_it_is() {
     let kitty = kitty_32x48();

@@ -184,13 +184,10 @@ impl Paint<'_, '_> {
     /// host's, which xterm's `set_termcap` reads through `setupterm` (or
     /// `tgetent`). baud consults none, so no retrieval succeeds, and the
     /// name overrides the one XTGETTCAP uses only "If successful"
-    /// (`[[source: ctlseqs]]` 535-542; `[[source: xterm-xtermcap-c]]`
-    /// 48-51 and 624-657; note AM, 3 and 8.4). xterm's own code, as
-    /// practice, changes no answer outside its tcap keyboard (`?1050`),
-    /// whose table baud compiles from the pinned xterm-256color entry
-    /// rather than loads, and never `TN`'s, which answers the
-    /// `termName` resource under every keyboard (`[[source: xterm-misc]]`
-    /// 5225-5226). The refusal is counted.
+    /// (`[[source: ctlseqs]]` 535-542). So no answer changes: the tcap
+    /// keyboard's (`?1050`) table is compiled from the pinned
+    /// xterm-256color entry rather than loaded, and `TN` answers the
+    /// `termName` resource under every keyboard. The refusal is counted.
     #[cold]
     #[inline(never)]
     pub(crate) fn tcap_end(&mut self, body: TcapBody) {
@@ -276,13 +273,12 @@ impl Paint<'_, '_> {
     /// backwards would tell every application that every setting it asked
     /// about is unsupported.
     ///
-    /// **Built whole, then sent whole or not at all.** It was written into the
-    /// reply buffer a fragment at a time, each fragment checked on its own, so
-    /// once the answer stopped fitting a fragment too long was skipped and a
-    /// later, shorter one written: with 200 bytes already pending the child
-    /// received a DCS with no `ST`, and with 252 `ESC P 0 ;` with the `1 $ r`
-    /// gone (note AG, section 1.3). An unterminated DCS swallows every reply
-    /// after it on the application's side. Now the answer is assembled in a
+    /// **Built whole, then sent whole or not at all.** A reply written a
+    /// fragment at a time, each fragment checked on its own, skips a fragment
+    /// too long for the room left and writes a later, shorter one: a DCS with
+    /// no `ST`, or `ESC P 0 ;` with the `1 $ r` gone. An unterminated DCS
+    /// swallows every reply after it on the application's side. So the answer
+    /// is assembled in a
     /// [`DECRQSS_MAX`]-byte [`Status`] on the stack and copied under one check,
     /// as `want_reply` copies a `Report`; one that does not fit is dropped and
     /// counted once in `ReplyCounts::overflows`.

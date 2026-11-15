@@ -100,8 +100,7 @@ fn cpr(r: usize, c: usize) -> String {
 /// the Active Position is outside the Scroll Area, it will advance to the
 /// last column of the Active Line" (p. 5-139). The test's `Output across
 /// right margin, before top` and `beyond bottom`, logged `(8, 66)
-/// 'H0123456789H'` and `(17, 66) 'Q0123456789Q'` on both terminals. Until
-/// now baud wrapped at the right margin, as xterm does.
+/// 'H0123456789H'` and `(17, 66) 'Q0123456789Q'` on both terminals.
 #[test]
 fn a_write_outside_the_vertical_margins_runs_past_the_right_margin() {
     for r in [8, 17] {

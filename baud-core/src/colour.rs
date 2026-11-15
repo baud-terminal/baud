@@ -474,10 +474,9 @@ impl Paint<'_, '_> {
 
     /// The stored slot a named colour is under the video shown: **under
     /// `?5` foreground and background name the colour shown in that role**,
-    /// as `OSC 10`/`11` do (note V, V17: they set, query and reset the
-    /// colour shown), which kitty's text replaces with these keys; so
-    /// `background=?` and `OSC 11 ; ?` never disagree. kitty's code reads
-    /// its profile's stored colours instead; V17 decides it here.
+    /// as `OSC 10`/`11` do (they set, query and reset the colour shown),
+    /// which the colour control protocol (OSC 21) names by these keys; so
+    /// `background=?` and `OSC 11 ; ?` never disagree.
     fn slot(&self, n: Named) -> Kept {
         match n.kept() {
             Kept::Dynamic(d) => Kept::Dynamic(self.cold.video().role(d)),

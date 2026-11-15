@@ -1,5 +1,5 @@
 //! A cursor colour equal to the text moves to the background on each `?5`
-//! change (note V, V17's residue).
+//! change.
 //!
 //! xterm's `ReverseVideo` does it before the swap: "if (T_COLOR(screen,
 //! TEXT_CURSOR) == T_COLOR(screen, TEXT_FG)) T_COLOR(screen, TEXT_CURSOR) =

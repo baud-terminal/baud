@@ -462,8 +462,7 @@ fn irm_under_preceding_and_presentation_shifts_only_inside_the_margins() {
 /// **`ICH` under PRESENTATION and PRECEDING the same** (8.3.64): on `f` a
 /// blank is drawn at position 2 and `f` leaves the line, on `e` the blank
 /// at 3, `e` at 2; the blank joins the string of the cell it pushed (TR/53
-/// note A.1). Until now `ICH` on `f` changed nothing, and on `e` put the
-/// blank at 2 and kept `e` at 3, `abcde.gh..`.
+/// note A.1).
 #[test]
 fn ich_under_preceding_and_presentation_shifts_only_inside_the_margins() {
     assert_eq!(

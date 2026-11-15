@@ -141,22 +141,17 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// **Move the cursor past a placement, as kitty moves it**: right by
-    /// the columns the placement covers and down by its rows less one, so it
-    /// ends on the placement's last row (`handle_put_command`, `[[source:
-    /// kitty-graphics-c]]`: `c->x += ref->effective_num_cols;` and, for rows,
-    /// `c->y += ref->effective_num_rows - 1;`), then to the next row's start
-    /// past the right edge and scrolling past the bottom (`[[source:
-    /// kitty-screen-c]]`, its screen_handle_graphics_command). The text says
-    /// "to the right by the number of cols in the image placement rectangle
-    /// and down by the number of rows" (`[[source: kitty-graphics]]`,
-    /// "Controlling displayed image layout"); kitty's graphics protocol is
-    /// defined by kitty's behaviour, and every client is written against
-    /// kitty's, so baud moves as kitty does and the text's wording is a row
-    /// more than either. Down is `index`, so a placement at the bottom
-    /// scrolls. Past the right margin the cursor goes to the left margin of
-    /// the next row, the Sixel `?8452` rule; with no margins set that is
-    /// kitty's column 0. A move longer than the ring scrolls no further than
+    /// **Move the cursor past a placement**: right by the columns the
+    /// placement covers and down by its rows less one, so it ends on the
+    /// placement's last row, then to the next row's start past the right
+    /// edge and scrolling past the bottom. The protocol's text says "to the
+    /// right by the number of cols in the image placement rectangle and down
+    /// by the number of rows" (`[[source: kitty-graphics]]`, "Controlling
+    /// displayed image layout"), a row more than this move; clients are
+    /// written against the row less one. Down is `index`, so a placement at
+    /// the bottom scrolls. Past the right margin the cursor goes to the left
+    /// margin of the next row, the Sixel `?8452` rule; with no margins set
+    /// that is column 0. A move longer than the ring scrolls no further than
     /// the ring, which it has blanked by then.
     ///
     /// **Right of the image on the row it lands on**: its right edge on the
@@ -278,7 +273,8 @@ impl Term<'_> {
         self.store.strs.kitty.counts
     }
 
-    /// How the kitty stream was fed ([`KittyFeed`]): one call a byte on
+    /// How the graphics protocol's stream (APC G) was fed ([`KittyFeed`]):
+    /// one call a byte on
     /// a per-byte path, one a run on the bulk path. Where the reads fell
     /// decides it, so it is beside [`Term::kitty`] and not in it.
     pub fn kitty_feed(&self) -> KittyFeed {

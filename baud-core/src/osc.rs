@@ -317,7 +317,7 @@ impl Paint<'_, '_> {
     }
 
     /// **`OSC 3`: the window's name or its icon's, as the property's type
-    /// reads it**, and every other property counted and dropped (note AV).
+    /// reads it**, and every other property counted and dropped.
     /// `WM_NAME` and `_NET_WM_NAME` set the one title, `WM_ICON_NAME` and
     /// `_NET_WM_ICON_NAME` the one icon name, the last write winning:
     /// ICCCM's two in ISO 8859-1, the `STRING` xterm writes them as, and
@@ -725,14 +725,11 @@ impl Paint<'_, '_> {
                     }
                 }
             }
-            // **Under `?5` each names the colour shown in its role** (note V,
-            // V17): every cell is drawn exchanged, so a default cell shows the
-            // stored background as its text and the stored foreground as its
-            // page, and the role maps to the other slot through the [`Video`]
-            // the renderer draws by -- where xterm's `OSC 10`-family handlers
-            // land, on its swapped tables (`[[source: xterm-misc]]` misc.c
-            // 3568-3750). A query keeps the code the program sent, as xterm's
-            // replies do.
+            // **Under `?5` each names the colour shown in its role**: every
+            // cell is drawn exchanged, so a default cell shows the stored
+            // background as its text and the stored foreground as its page,
+            // and the role maps to the other slot through the [`Video`] the
+            // renderer draws by. A query keeps the code the program sent.
             // Each spec in turn, from the number sent on: a query answered
             // where it stands.
             //

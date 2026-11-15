@@ -202,10 +202,10 @@ fn modify_function_keys_each_value() {
 }
 
 /// **modifyKeypadKeys, modifyModifierKeys and modifySpecialKeys act at 4**,
-/// "Like modifyCursorKeys 4" (`[[source: xterm-man]]`); xterm reads each as
-/// `>= mfkExtended` and nothing else, so below 4 a key is unchanged. Each
-/// takes its own format resource. A media key's keysym is past what a
-/// parameter names, so it sends nothing, as it did.
+/// "Like modifyCursorKeys 4" (`[[source: xterm-man]]`), at 4 and above and
+/// nothing else, so below 4 a key is unchanged. Each takes its own format
+/// resource. A media key's keysym is past what a parameter names, so it
+/// sends nothing.
 #[test]
 fn the_keypad_modifier_and_special_resources_act_at_4() {
     let kp1 = KeyCode::Keypad(KeypadKey::Digit1);
@@ -416,9 +416,8 @@ fn an_undocumented_value_is_refused_and_counted() {
 
 /// **Open departure: ctlseqs' own example of the mask is refused.** "For
 /// example CSI > 4 : 1 m factors out the shift modifier"
-/// (`[[source: ctlseqs]]`) puts the mask on `Pp`; xterm's parser reads it
-/// only as `Pv`'s sub-parameter, `CSI > 4 ; Pv : mask m`, and baud reads it
-/// as xterm does. The text's form is counted and changes nothing.
+/// (`[[source: ctlseqs]]`) puts the mask on `Pp`; baud reads it only as
+/// `Pv`'s sub-parameter, `CSI > 4 ; Pv : mask m`. The text's form is counted and changes nothing.
 #[test]
 fn the_texts_mask_example_is_refused_and_counted() {
     support::with_corpus(|t| {

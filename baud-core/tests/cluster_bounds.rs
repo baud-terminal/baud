@@ -3,7 +3,7 @@
 //! sweeps, every cluster a cell held when the store filled, whichever
 //! screen and however far back in the history the cell is.
 //!
-//! **The bounds, as decided on 2026-10-13**: 1024 slots, each cluster's
+//! **The bounds**: 1024 slots, each cluster's
 //! hash probing eight of them, the slot named from the cell's `Content`
 //! above U+10FFFF, and, once every slot holds a cluster, a sweep of the
 //! live cells reclaiming the slots no cell names. The store this replaced

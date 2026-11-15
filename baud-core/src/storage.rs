@@ -227,7 +227,7 @@ pub struct Book<'b> {
     /// bumped by `RIS` beside `hist`, which it zeroes. Here rather than in
     /// `Cold`, whose size is pinned at 464 and had no padding left for a
     /// `u32` (its assert refused it), and beside the history counts a reset
-    /// is the other half of (note V, V1). `Paint` carries this word by
+    /// is the other half of. `Paint` carries this word by
     /// reference, so the per-byte loop carries nothing more for it.
     pub(crate) resets: crate::term::Resets,
     /// **The absolute line at the top of the primary window.** It moves with
@@ -294,7 +294,7 @@ pub struct Book<'b> {
     /// and cost about 0.3% more instructions retired on `cat`; `Cold`'s
     /// three bytes of padding held the kept erasure and not this word too.
     pub(crate) watched_at: crate::term::HistoryErasures,
-    /// **The primary's window over the history** (note V, V2): the live
+    /// **The primary's window over the history**: the live
     /// screen, or the absolute line at its top. An absolute line holds its
     /// text as lines retire with no write at all -- `top` moves past it --
     /// so the per-byte path that retires a line touches nothing here. What
@@ -422,8 +422,7 @@ pub struct StrBuf<'b> {
     ///
     /// Here rather than on `Paint` because `Paint` is inlined into the
     /// per-byte loop and carries this struct by reference already: a slice
-    /// there is two more words through the loop, the class this repo records
-    /// at 3.5-10% (note V, V11 design 1).
+    /// there is two more words through the loop.
     pub(crate) clip_area: &'b mut [u8],
     /// The `OSC 52` string in flight, what was last published, and the
     /// counts (`clip.rs`): here rather than in `Cold`, whose size is pinned
@@ -1393,10 +1392,10 @@ pub const NLINK: usize = baud_domain::LinkBook::SLOTS;
 pub const LINK_MAX: usize = 256;
 
 /// **The most one control can owe**: XTGETTCAP's answer to a full list,
-/// 10,412 bytes (`tcap_reply_max`), since 2026-10-21; before it, DECTABSR
-/// with a stop at every one of `MAX_COLS` columns, 9,139 bytes
-/// (`tab_report_max`), since 2026-10-19; and before those 256, which held a
-/// `DECRQSS` rendition string of at most `DECRQSS_MAX` bytes. The controls
+/// 10,412 bytes (`tcap_reply_max`), more than DECTABSR's with a stop at
+/// every one of `MAX_COLS` columns, 9,139 bytes (`tab_report_max`), and
+/// more than a `DECRQSS` rendition string of at most `DECRQSS_MAX` bytes.
+/// The controls
 /// with long answers are held under it where their bound is made (`dcs.rs`
 /// and `tsr.rs` by const assert, `colour.rs` by the size of the `OSC 21`
 /// body, and here); the rest answer far less, a notification's step at most

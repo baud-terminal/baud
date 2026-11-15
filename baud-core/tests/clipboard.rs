@@ -1,6 +1,6 @@
 //! `OSC 52` writes: what a program puts on the clipboard reaches the embedder
 //! whole, at any read size, and what cannot be honoured is refused whole and
-//! counted. Reads stay refused with silence (note V, V11; `tests/xterm/osc.rs`).
+//! counted. Reads are refused with silence (`tests/xterm/osc.rs`).
 //!
 //! `[[source: ctlseqs]]` 2156-2180: `OSC 52 ; Pc ; Pd`, `Pd` "a string encoded
 //! in base64 (RFC-4648)", `?` a read, and "If the second parameter is neither a
@@ -127,9 +127,9 @@ fn a_copy_is_the_same_at_every_read_size() {
 
 #[test]
 fn a_second_copy_starting_in_the_read_the_first_ended_in_leaves_the_first_intact() {
-    // The reviewer's bug (note V, V11 design 2): one area for both, and the
-    // second body overwrites the first's bytes after they were announced but
-    // before the embedder read them. Every read size where the first ends
+    // With one area for both, the second body would overwrite the first's
+    // bytes after they were announced but before the embedder read them.
+    // Every read size where the first ends
     // and the second begins inside one read.
     let first = b"the first copy, long enough to span a quantum or two".to_vec();
     let second = text_4k();

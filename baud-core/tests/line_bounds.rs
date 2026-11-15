@@ -365,7 +365,7 @@ fn wrong(cases: &[(&[u8], &str, WrapPending)]) -> Vec<String> {
 /// map the move reads the cursor through, `CHT` and `CBT` too; and `HTS` and `TBC 0` set and clear
 /// the stop at the limit, which an `HT` from the line's start then finds.
 /// `CUB` counts from the limit too, as it counts from a right margin's
-/// pending wrap (since 2026-11-01; the wait was its first step before).
+/// pending wrap.
 #[test]
 fn a_move_from_a_wrap_waiting_at_the_line_limit_counts_from_the_limit() {
     const W: &[u8] = b"\x1b[1;6H\x1bH\x1b[1;1H\x1b[5 Vabcde";

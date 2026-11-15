@@ -1,5 +1,5 @@
-//! kitty's Unicode placeholders through the byte stream
-//! (`[[source: kitty-graphics]]`, "Unicode placeholders"; note V, V19):
+//! The graphics protocol's Unicode placeholders (U+10EEEE) through the byte
+//! stream (`[[source: kitty-graphics]]`, "Unicode placeholders"):
 //! a virtual placement (`U=1`) made, answered and moving nothing; the
 //! diacritics after U+10EEEE kept whole, at any read size; what a row of
 //! placeholder cells resolves to, inheritance included; and which deletes

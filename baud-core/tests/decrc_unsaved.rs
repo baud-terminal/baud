@@ -20,8 +20,7 @@
 //! to G2 with the slots (`the_resets_restore_gr_and_the_supplemental_slots`).
 //! `SCORC` keeps its own path, `scorc_without_a_save_is_inert`:
 //! its own text, MS-DOS 2.00's ANSI.SYS (`[[source: msdos2-ansi-doc]]`),
-//! restores a position it says nothing about before a save, and what xterm
-//! does is note AE's Q13.
+//! restores a position it says nothing about before a save.
 //!
 //! Every case is asserted at every read size.
 

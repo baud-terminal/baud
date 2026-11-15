@@ -40,7 +40,7 @@ const WS: WinSize = WinSize {
 /// said this happened; the parser routes `?` through its private branch
 /// first, and this is the test that says which is true.
 ///
-/// Since 2026-10-15 the three-parameter form is answered
+/// The three-parameter form is answered
 /// (`sixel_modes.rs`); here, on a terminal not configured for graphics, with
 /// failures but for ReGIS's, which is always on, and a form of another
 /// arity is still counted unanswered.

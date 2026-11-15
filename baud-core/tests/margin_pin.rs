@@ -312,7 +312,7 @@ fn where_a_character_lands(s: &str, read: usize) -> Option<(usize, usize)> {
 
 /// **After a control, a combining mark is a cluster of its own and takes the
 /// cell a character would** (`[[source: uax29]]` GB4/GB5; TUS D57's
-/// defective combining character sequence; note AB, Q24 item 1): for each of
+/// defective combining character sequence): for each of
 /// `s`, under both `DECAWM` modes after `prefix`, the only marked cell on
 /// the screen is where a `z` put in the mark's place lands, at every read
 /// size. Until 2026-10-23 the mark went to the cell before the cursor, the
@@ -346,10 +346,9 @@ fn as_a_character_after(s: &str, wrong: &mut Vec<String>) {
 
 /// **A zero-width codepoint the cluster machine does not join**, after a
 /// control that does not move the cursor -- an `SGR`, a `BEL`, a `DECSCA`,
-/// an `OSC` -- went on the character just written; since 2026-10-23 a
-/// combining mark there is a cluster of its own and takes the cell a
-/// character would ([`as_a_character`]): the next row's first column with
-/// autowrap set, the `e`'s with it reset. The name is from when `DECAWM`
+/// an `OSC`: a combining mark there is a cluster of its own and takes the
+/// cell a character would ([`as_a_character`]), the next row's first column
+/// with autowrap set, the `e`'s with it reset. The name is from when `DECAWM`
 /// decided nothing here.
 #[test]
 fn a_mark_after_a_control_goes_where_it_goes_with_autowrap_set() {
@@ -429,13 +428,12 @@ fn a_move_to_the_first_column_ends_it() {
 /// **A pin from before a `?7h` is not read after the `?7l` that follows.**
 /// With `DECAWM` set a write leaves `Cold::pinned` alone, so `abc` wrapping
 /// onto row 1 left the pin naming the `e`; the mark after the `?7l` belongs
-/// to the `c`. `DECSTR` sets `DECAWM` again and, since 2026-10-14, leaves
-/// the cursor on the `e` ("DECSTR has no affect on the Active Position",
+/// to the `c`. `DECSTR` sets `DECAWM` again and leaves the cursor on the
+/// `e` ("DECSTR has no affect on the Active Position",
 /// `[[source: dec-std-070]]` 070-4, note c), so it is `?7h` here: the pin it
-/// leaves is not read while `DECAWM` is set, and the `?7l` ends it. It homed
-/// until then, and `abc` landed on row 0 with the mark on the `c` at 0;2.
+/// leaves is not read while `DECAWM` is set, and the `?7l` ends it.
 ///
-/// Since 2026-10-23 the `SGR` before the mark makes it a cluster of its own,
+/// The `SGR` before the mark makes it a cluster of its own,
 /// which takes the cell a character would, after the `c` at 1;3
 /// ([`as_a_character`]). The `?7l` is a control too, so no mark here joins
 /// the `c` any longer; the pin is held by the joined cases above.
@@ -468,11 +466,10 @@ fn a_step_back_ends_it() {
 /// with autowrap reset, cut to six columns, leaves the cursor on the `f`,
 /// which was not written last, and a mark the machine joins goes to the `e`
 /// before it, through `continue_cluster`. After a control it is a cluster
-/// of its own and takes the cursor's cell, the `f`'s, as a character would
-/// (since 2026-10-23).
+/// of its own and takes the cursor's cell, the `f`'s, as a character would.
 ///
 /// **With autowrap set there is no pin but a pending wrap, which the clamp
-/// keeps on the new last column** (since 2026-11-01): a joined mark goes to
+/// keeps on the new last column**: a joined mark goes to
 /// the `f` the wrap waits after, and one after a control wraps first, as a
 /// character would, to the next row's first cell.
 #[test]

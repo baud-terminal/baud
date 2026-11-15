@@ -1,6 +1,6 @@
 //! `OSC 52` writes: the clipboard body, streamed past `OSC_MAX` into its own
 //! areas, decoded as it arrives, and published at the terminator for the
-//! embedder to read (note V, V11).
+//! embedder to read.
 //!
 //! **Routed by a prefix, not a graph action.** Every other string kind is
 //! named by the graph -- `Act::DcsQuery` and `Act::SixelStart` in `write.rs`
@@ -11,7 +11,7 @@
 //! terminator, so nothing is published, and the next `52;` starts afresh.
 //!
 //! **Two areas**, because the embedder polls after each read and a second
-//! copy may begin in the read the first one ended in (note V, V11 design 2).
+//! copy may begin in the read the first one ended in.
 //! The first half of [`StrBuf::clip_area`] collects the copy in flight; the
 //! second holds the last one finished, written only at a terminator that
 //! publishes.

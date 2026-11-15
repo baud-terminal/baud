@@ -20,7 +20,7 @@ use baud_domain::*;
 pub(crate) const HOST_MAX: usize = 255;
 
 /// The messages not acted on, a key at a time, and the ones naming a key
-/// iTerm2 does not know ([`crate::Term::iterm_counts`]): each also counts
+/// OSC 1337 does not define ([`crate::Term::iterm_counts`]): each also counts
 /// in `strings_ignored` and `unsupported_total`, but a `ReportCellSize`
 /// asked before its facts are told, which counts in `unsupported_param`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

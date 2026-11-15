@@ -69,10 +69,10 @@ fn a_taller_alternate_screen_does_not_move_what_is_on_it() {
 /// as "a taller primary screen does not pull history back", and it could not
 /// fail: `with_corpus` provisions exactly the fifty rows the screen has, so
 /// the growth came back `Truncated` into a `let _`, nothing grew, and the
-/// comparison held on a screen that had not moved. On 2026-09-18 the rule
-/// for the primary became "pull down to the bottom, and blank-fill only when
-/// nothing is left to pull" (`Term::resize`, and note M), because refusing
-/// to pull lost the lines a shrink had pushed into the history. The
+/// comparison held on a screen that had not moved. The rule for the primary
+/// is "pull down to the bottom, and blank-fill only when nothing is left to
+/// pull" (`Term::resize`), because refusing to pull loses the lines a shrink
+/// pushed into the history. The
 /// alternate screen keeps no history and has nothing to pull, which is why
 /// the report above still governs it.
 ///

@@ -366,7 +366,7 @@ fn a_full_ring_narrows_and_keeps_what_fits() {
 // moved, and a re-cut renumbers that line by the growth of every line above
 // it -- the lines above the one the window shows included, which do not move
 // it at all. `Term::resize` maps the terminal's own window's first row
-// through the re-cut the way an image's row is mapped (note V, V2).
+// through the re-cut the way an image's row is mapped.
 
 /// The line at the top of a view `back` lines up.
 fn viewed(t: &Term<'_>, back: Rows) -> String {
