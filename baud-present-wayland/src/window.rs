@@ -28,6 +28,7 @@
 use crate::clip::{Board, Clip, Copied, Done, Pasting, Want};
 use crate::cursor::{self, Drawn, Scale};
 use crate::damage::{Changed, RowSet};
+use crate::dmabuf::{self, Count, Dmabuf, Feedback, Imported, Points, Timeline};
 use crate::ime::{
     ActionCode, ByteAt, CursorAt, CursorRect, HintCode, Preedit, PreeditCursor, Serial, Step,
     TextInput,
@@ -305,6 +306,23 @@ pub enum Presented {
     No,
 }
 
+/// Whether a dmabuf frame reached the compositor
+/// ([`Window::present_dmabuf`]), and if not, why. Each refusal past `No`
+/// is a commit that would have been a fatal protocol error.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DmabufShown {
+    Yes,
+    /// Not configured yet, or a frame still in flight.
+    No,
+    /// The buffer is not [`Window::buffer_size`]: the scale it was drawn
+    /// for is not the one in force.
+    WrongSize,
+    /// Points given, and the compositor offers no syncobj manager.
+    NoExplicitSync,
+    /// Acquire not before release on one timeline: `conflicting_points`.
+    ConflictingPoints,
+}
+
 /// `wl_keyboard.repeat_info`: the time between repeats of a held key, and the
 /// wait before the first. **Repeat is the client's job**: the protocol's
 /// "repeated" key state is version 10's, and the seat is bound at 9, so no
@@ -370,6 +388,11 @@ struct Globals {
     /// (`scale.rs`).
     viewporter: Option<ObjectId>,
     fractional: Option<ObjectId>,
+    /// `zwp_linux_dmabuf_v1` at version 4 or later, whose formats come as
+    /// feedback, and the syncobj manager, where the compositor offers them
+    /// (`dmabuf.rs`).
+    dmabuf: Option<ObjectId>,
+    syncobj: Option<ObjectId>,
 }
 
 /// The longest gap between two frame callbacks read as a frame's length:
@@ -478,6 +501,18 @@ pub struct Window {
     timer: Option<ObjectId>,
     tearing_control: Option<ObjectId>,
     tearing: Tearing,
+    /// The surface's dmabuf feedback object, the burst it is sending, the
+    /// last whole one and how many have come (`dmabuf.rs`).
+    formats_object: Option<ObjectId>,
+    formats_burst: dmabuf::Gather,
+    formats: Option<Feedback>,
+    formats_sent: Count,
+    /// The surface's syncobj object, made at the first frame presented
+    /// with points and destroyed before one presented without: while it
+    /// lives, a commit that attaches a buffer without both points is
+    /// `no_acquire_point` or `no_release_point`, and one of a shm buffer
+    /// may be `unsupported_buffer`.
+    sync_surface: Option<ObjectId>,
     /// The moment the next frame presented is drawn for
     /// ([`Window::draw_for`]), taken by that frame.
     drawn_for: Option<Instant>,
@@ -583,6 +618,11 @@ impl Window {
             timer: None,
             tearing_control: None,
             tearing: Tearing::Off,
+            formats_object: None,
+            formats_burst: dmabuf::Gather::default(),
+            formats: None,
+            formats_sent: Count(0),
+            sync_surface: None,
             drawn_for: None,
             callback_time: None,
             cadence: None,
@@ -1350,6 +1390,17 @@ impl Window {
             );
             self.fractional_scale = Some(id);
         }
+        // The surface's own feedback, not the default: it adds the
+        // tranches "the compositor prefers to directly scan-out" for it.
+        if let (Some(m), None) = (self.globals.dmabuf, self.formats_object) {
+            let id = s.new_id(Interface::named("zwp_linux_dmabuf_feedback_v1").expect("pinned"));
+            let _ = s.request(
+                m,
+                Opcode(protocol::zwp_linux_dmabuf_v1::request::GET_SURFACE_FEEDBACK),
+                &[Arg::NewId(id), Arg::Object(surface)],
+            );
+            self.formats_object = Some(id);
+        }
         if let (Some(m), None) = (self.globals.fifo, self.fifo) {
             let id = s.new_id(Interface::named("wp_fifo_v1").expect("pinned"));
             let _ = s.request(
@@ -1566,27 +1617,10 @@ impl Window {
             // The surface shows a buffer of another size, or none.
             rows = RowSet::all(h);
         }
-        // The frame callback, and the presentation feedback where the
-        // compositor offers it: both for this commit.
+        // A shm buffer goes without points, so the syncobj object goes.
+        self.drop_sync_surface(s);
         let presentation = self.globals.presentation;
-        let cb = |s: &mut Sender<'_>| {
-            let cb = s.new_id(Interface::named("wl_callback").expect("pinned"));
-            let _ = s.request(
-                surface,
-                Opcode(protocol::wl_surface::request::FRAME),
-                &[Arg::NewId(cb)],
-            );
-            let fb = presentation.map(|p| {
-                let fb = s.new_id(Interface::named("wp_presentation_feedback").expect("pinned"));
-                let _ = s.request(
-                    p,
-                    Opcode(protocol::wp_presentation::request::FEEDBACK),
-                    &[Arg::Object(surface), Arg::NewId(fb)],
-                );
-                fb
-            });
-            (cb, fb)
-        };
+        let cb = |s: &mut Sender<'_>| Window::frame_objects(s, surface, presentation);
         if rows.is_empty() {
             let (callback, feedback) = cb(s);
             let stamp = self.pace(s, Picture::Same, drawn_for);
@@ -1646,6 +1680,168 @@ impl Window {
         rows.clear();
         self.owed = rows;
         Presented::Yes
+    }
+
+    /// The frame callback, and the presentation feedback where the
+    /// compositor offers it: both for the commit that follows.
+    fn frame_objects(
+        s: &mut Sender<'_>,
+        surface: ObjectId,
+        presentation: Option<ObjectId>,
+    ) -> (ObjectId, Option<ObjectId>) {
+        let cb = s.new_id(Interface::named("wl_callback").expect("pinned"));
+        let _ = s.request(
+            surface,
+            Opcode(protocol::wl_surface::request::FRAME),
+            &[Arg::NewId(cb)],
+        );
+        let fb = presentation.map(|p| {
+            let fb = s.new_id(Interface::named("wp_presentation_feedback").expect("pinned"));
+            let _ = s.request(
+                p,
+                Opcode(protocol::wp_presentation::request::FEEDBACK),
+                &[Arg::Object(surface), Arg::NewId(fb)],
+            );
+            fb
+        });
+        (cb, fb)
+    }
+
+    /// **The formats the compositor imports for this window's surface**,
+    /// from its last whole feedback burst; `None` without
+    /// `zwp_linux_dmabuf_v1` at version 4 or before the first `done`.
+    pub fn buffer_formats(&self) -> Option<&Feedback> {
+        self.formats.as_ref()
+    }
+
+    /// How many feedback bursts have come: a renderer that allocated for
+    /// one count reallocates when it moves, as the compositor re-sends
+    /// "when the current client buffer allocations are sub-optimal".
+    pub fn formats_sent(&self) -> Count {
+        self.formats_sent
+    }
+
+    /// **A `wl_buffer` of a dmabuf** the renderer allocated, checked
+    /// against the surface's formats first (`dmabuf::import`).
+    pub fn import(&mut self, s: &mut Sender<'_>, d: &Dmabuf<'_>) -> Imported {
+        match (self.globals.dmabuf, self.formats.as_ref()) {
+            (Some(m), Some(f)) => dmabuf::import(s, m, f, d),
+            _ => Imported::NoFormats,
+        }
+    }
+
+    /// **Import a DRM syncobj as a timeline**, where the compositor offers
+    /// `wp_linux_drm_syncobj_manager_v1`; `None` without it, where frames
+    /// are presented without points and the buffer's own fences order
+    /// them.
+    pub fn import_timeline(&mut self, s: &mut Sender<'_>, fd: BorrowedFd<'_>) -> Option<Timeline> {
+        let m = self.globals.syncobj?;
+        Some(dmabuf::import_timeline(s, m, fd))
+    }
+
+    /// Destroy the surface's syncobj object, if there is one.
+    fn drop_sync_surface(&mut self, s: &mut Sender<'_>) {
+        if let Some(sync) = self.sync_surface.take() {
+            let _ = s.request(
+                sync,
+                Opcode(protocol::wp_linux_drm_syncobj_surface_v1::request::DESTROY),
+                &[],
+            );
+        }
+    }
+
+    /// **Show `buffer`, a dmabuf's `wl_buffer` the renderer drew**, of
+    /// `size` pixels -- [`Window::buffer_size`], or nothing is sent -- with
+    /// `points` where the renderer synchronises explicitly, and a frame
+    /// callback for the next, paced as [`Window::present`] paces. `changed`
+    /// is what differs from the frame the surface shows, damaged a strip
+    /// of rows at a time; what the buffer itself is missing is the
+    /// renderer's to know, because it owns the buffers.
+    ///
+    /// With points, the surface's syncobj object is made at the first such
+    /// frame and both points are set before the commit, which carries
+    /// them; "Clients must set both acquire and release points if and only
+    /// if a non-null buffer is attached in the same surface commit".
+    /// Without, the object is destroyed first. The shm pool is let go once
+    /// a dmabuf is shown, so a frame presented through [`Window::present`]
+    /// after it starts from a whole new buffer.
+    pub fn present_dmabuf(
+        &mut self,
+        s: &mut Sender<'_>,
+        buffer: ObjectId,
+        size: (Px, Px),
+        points: Option<Points>,
+        changed: Changed<'_>,
+    ) -> DmabufShown {
+        let drawn_for = self.drawn_for.take();
+        let (Some(surface), Some(window)) = (self.surface, self.size) else {
+            return DmabufShown::No;
+        };
+        if self.callback.is_some() {
+            return DmabufShown::No;
+        }
+        let (scale, mapped) = self.mapping();
+        let (w, h) = (scale.buffer(window.0), scale.buffer(window.1));
+        if size != (w, h) {
+            return DmabufShown::WrongSize;
+        }
+        match points {
+            Some(p) if p.conflict() => return DmabufShown::ConflictingPoints,
+            Some(p) => {
+                let Some(m) = self.globals.syncobj else {
+                    return DmabufShown::NoExplicitSync;
+                };
+                let sync = match self.sync_surface {
+                    Some(sync) => sync,
+                    None => {
+                        let id = s.new_id(
+                            Interface::named("wp_linux_drm_syncobj_surface_v1").expect("pinned"),
+                        );
+                        let _ = s.request(
+                            m,
+                            Opcode(protocol::wp_linux_drm_syncobj_manager_v1::request::GET_SURFACE),
+                            &[Arg::NewId(id), Arg::Object(surface)],
+                        );
+                        self.sync_surface = Some(id);
+                        id
+                    }
+                };
+                dmabuf::set_points(s, sync, p);
+            }
+            None => self.drop_sync_surface(s),
+        }
+        let _ = s.request(
+            surface,
+            Opcode(protocol::wl_surface::request::ATTACH),
+            &[Arg::Object(buffer), Arg::Int(0), Arg::Int(0)],
+        );
+        self.tell(s, surface, Told::of(mapped, window));
+        let int = |v: u32| Arg::Int(i32::try_from(v).unwrap_or(i32::MAX));
+        let mut rows = RowSet::none(h);
+        rows.add_changed(changed);
+        for strip in rows.runs() {
+            let _ = s.request(
+                surface,
+                Opcode(protocol::wl_surface::request::DAMAGE_BUFFER),
+                &[
+                    Arg::Int(0),
+                    int(strip.top.0),
+                    int(w.0),
+                    int(strip.bottom.0 - strip.top.0),
+                ],
+            );
+        }
+        let (callback, feedback) = Window::frame_objects(s, surface, self.globals.presentation);
+        let stamp = self.pace(s, Picture::New, drawn_for);
+        self.unseen = self.held(feedback, stamp);
+        let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
+        self.callback = Some(callback);
+        self.copied = Px(0);
+        if let Some(p) = self.pool.take() {
+            p.destroy(s);
+        }
+        self.owed = RowSet::default();
+        DmabufShown::Yes
     }
 
     /// **The scale a commit carries, with the buffer whose size it makes**:
@@ -2020,6 +2216,18 @@ impl Handler for Window {
                     "wp_fractional_scale_manager_v1" => {
                         self.globals.fractional = Window::bind(s, self.registry, name, iface, 1);
                         self.surface_objects(s);
+                    }
+                    // Version 4 for the feedback, which a surface's formats
+                    // come by, and at most 5: from 6 `main_device` "is no
+                    // longer sent", and a tranche's device is chosen by its
+                    // `sampling` flag instead, which nothing here reads.
+                    "zwp_linux_dmabuf_v1" if version >= 4 => {
+                        self.globals.dmabuf =
+                            Window::bind(s, self.registry, name, iface, version.min(5));
+                        self.surface_objects(s);
+                    }
+                    "wp_linux_drm_syncobj_manager_v1" => {
+                        self.globals.syncobj = Window::bind(s, self.registry, name, iface, 1);
                     }
                     // Version 1: its 34 shapes are every one `pointer::shape`
                     // names.
@@ -2490,6 +2698,31 @@ impl Handler for Window {
             ("wl_buffer", "release", _) => {
                 if let Some(p) = self.pool.as_mut() {
                     p.released(ev.object);
+                }
+            }
+            // The surface's formats, a burst at a time (`dmabuf.rs`). A
+            // table that cannot be mapped leaves the tranches naming
+            // nothing, counted as unknown indices.
+            ("zwp_linux_dmabuf_feedback_v1", name, args)
+                if Some(ev.object) == self.formats_object =>
+            {
+                use dmabuf::TrancheFlags;
+                let g = &mut self.formats_burst;
+                match (name, args) {
+                    ("format_table", [Read::Fd(fd), Read::Uint(size)]) => {
+                        let len = usize::try_from(*size).unwrap_or(0);
+                        let _ = g.table(fd, crate::sys::FileLen(len));
+                    }
+                    ("main_device", [Read::Array(a)]) => g.main_device(a),
+                    ("tranche_target_device", [Read::Array(a)]) => g.target_device(a),
+                    ("tranche_flags", [Read::Uint(f)]) => g.flags(TrancheFlags(*f)),
+                    ("tranche_formats", [Read::Array(a)]) => g.formats(a),
+                    ("tranche_done", []) => g.tranche_done(),
+                    ("done", []) => {
+                        self.formats = Some(g.done());
+                        self.formats_sent.0 += 1;
+                    }
+                    _ => {}
                 }
             }
             ("wp_presentation", "clock_id", [Read::Uint(id)]) => {

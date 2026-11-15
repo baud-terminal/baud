@@ -619,6 +619,14 @@ fn every_test_named_in_the_docs_exists() {
             "a Wayland interface name, cited in note J for the version Hyprland              advertises",
         ),
         (
+            "zwp_linux_buffer_params_v1",
+            "a Wayland interface name, the dmabuf parameters object a buffer is made through",
+        ),
+        (
+            "wp_linux_drm_syncobj_manager_v1",
+            "a Wayland interface name, the explicit synchronisation manager a window binds",
+        ),
+        (
             "zwp_linux_buffer_params",
             "a Wayland interface name, cited in note J for the dmabuf swapchain              a pure-protocol client has to build itself",
         ),

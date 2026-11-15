@@ -76,6 +76,7 @@ pub fn nonblocking(fd: &impl AsRawFd) -> io::Result<()> {
 const PROT_READ: i32 = 1;
 const PROT_WRITE: i32 = 2;
 const MAP_SHARED: i32 = 1;
+const MAP_PRIVATE: i32 = 2;
 
 /// A shared file's length in bytes: what `ftruncate` sets and `mmap` maps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,6 +166,48 @@ impl Map {
 }
 
 impl Drop for Map {
+    fn drop(&mut self) {
+        // SAFETY: the mapping this struct made and nothing else refers to.
+        unsafe { munmap(self.ptr, self.len.0) };
+    }
+}
+
+/// **A read-only private mapping of `fd`'s first `len` bytes**: what a
+/// file the compositor sends to be read -- the dmabuf format table, which
+/// "The client must map ... in read-only private mode" -- is mapped as.
+pub struct ReadMap {
+    ptr: *mut u8,
+    len: FileLen,
+}
+
+impl ReadMap {
+    pub fn private(fd: &OwnedFd, len: FileLen) -> io::Result<ReadMap> {
+        // SAFETY: a private read-only mapping of an open file at offset
+        // zero; the kernel validates the length against the file.
+        let ptr = unsafe {
+            mmap(
+                core::ptr::null_mut(),
+                len.0,
+                PROT_READ,
+                MAP_PRIVATE,
+                fd.as_raw_fd(),
+                0,
+            )
+        };
+        if ptr as isize == -1 || ptr.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(ReadMap { ptr, len })
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        // SAFETY: the mapping is `len` readable bytes and lives as long as
+        // `self`; nothing writes it.
+        unsafe { core::slice::from_raw_parts(self.ptr, self.len.0) }
+    }
+}
+
+impl Drop for ReadMap {
     fn drop(&mut self) {
         // SAFETY: the mapping this struct made and nothing else refers to.
         unsafe { munmap(self.ptr, self.len.0) };

@@ -10,7 +10,10 @@
 //! primary selection (`clip.rs`), an input method through `text-input-v3`
 //! (`ime.rs`), Compose sequences and dead keys (`compose.rs`), and the
 //! keyboard through `baud-xkb` -- the register's D13 for Linux, CPU
-//! path first. The GPU path (Vulkan over dmabuf) is not here.
+//! path first. The GPU path's protocols are here too: the surface's
+//! dmabuf formats, a dmabuf made a buffer and shown, and explicit
+//! synchronisation by syncobj timelines (`dmabuf.rs`); the renderer that
+//! draws into those buffers is not.
 //!
 //! Every piece is tested against a fake compositor over a socket pair, so
 //! the handshake, the buffer traffic and the keys are exercised on any
@@ -23,6 +26,7 @@ pub mod clip;
 pub mod compose;
 pub mod cursor;
 pub mod damage;
+pub mod dmabuf;
 pub mod ime;
 pub mod keys;
 pub mod pointer;
@@ -41,6 +45,6 @@ pub use scale::BufferScale;
 pub use shm::{Pool, Px};
 pub use timing::{ClockId, Presentation, Stamp, Unseen};
 pub use window::{
-    Activated, ConfigureBounds, Event, OutputPx, Presented, Resize, Rung, Shaped, Shown, Tearing,
-    Toggle, Window,
+    Activated, ConfigureBounds, DmabufShown, Event, OutputPx, Presented, Resize, Rung, Shaped,
+    Shown, Tearing, Toggle, Window,
 };

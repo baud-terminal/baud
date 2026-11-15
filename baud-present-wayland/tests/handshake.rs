@@ -6231,3 +6231,389 @@ fn a_resize_at_a_fraction_is_the_new_size_times_the_scale() {
     assert_eq!(told.destination, Some((320, 200)));
     let _ = (t.top, t.xdg);
 }
+
+/// The surface's dmabuf feedback object, which the window asked for
+/// before its first commit.
+fn feedback_object(server: &Server) -> ObjectId {
+    *server
+        .objects
+        .iter()
+        .find(|(_, i)| i.name == "zwp_linux_dmabuf_feedback_v1")
+        .expect("the surface's feedback")
+        .0
+}
+
+const TILED: dmabuf::Modifier = dmabuf::Modifier(0x0200_0000_1234_5678);
+const ARGB_TILED: dmabuf::Format = dmabuf::Format {
+    fourcc: dmabuf::Fourcc::ARGB8888,
+    modifier: TILED,
+};
+const ARGB_LINEAR: dmabuf::Format = dmabuf::Format {
+    fourcc: dmabuf::Fourcc::ARGB8888,
+    modifier: dmabuf::Modifier::LINEAR,
+};
+
+/// A whole burst on `fb`: a table of `ARGB_LINEAR` and `ARGB_TILED`, a
+/// main device, and one scan-out tranche of the tiled pair and one of the
+/// linear; `done` only where `done` says.
+fn send_formats(server: &mut Server, fb: ObjectId, done: bool) {
+    let mut table = tempfile();
+    for f in [ARGB_LINEAR, ARGB_TILED] {
+        table.write_all(&f.fourcc.0.to_ne_bytes()).unwrap();
+        table.write_all(&[0; 4]).unwrap();
+        table.write_all(&f.modifier.0.to_ne_bytes()).unwrap();
+    }
+    let iface = "zwp_linux_dmabuf_feedback_v1";
+    server.send(
+        fb,
+        iface,
+        "format_table",
+        &[Arg::Fd(table.as_fd()), Arg::Uint(32)],
+    );
+    let dev = 0xe280_u64.to_ne_bytes();
+    server.send(fb, iface, "main_device", &[Arg::Array(&dev)]);
+    for (flags, index) in [(1u32, 1u16), (0, 0)] {
+        server.send(fb, iface, "tranche_target_device", &[Arg::Array(&dev)]);
+        server.send(fb, iface, "tranche_flags", &[Arg::Uint(flags)]);
+        server.send(
+            fb,
+            iface,
+            "tranche_formats",
+            &[Arg::Array(&index.to_ne_bytes())],
+        );
+        server.send(fb, iface, "tranche_done", &[]);
+    }
+    if done {
+        server.send(fb, iface, "done", &[]);
+    }
+}
+
+/// **A surface's formats come as its feedback and are read only whole**:
+/// the window asks `zwp_linux_dmabuf_v1` at version 4 or later for its
+/// surface's feedback before its first commit; a burst without its `done`
+/// publishes nothing, and with it, the main device and the tranches in
+/// the order sent, each format read from the table by its index. Below
+/// version 4 nothing is bound and there are no formats to import with.
+#[test]
+fn a_surfaces_formats_come_as_its_feedback_and_are_read_whole() {
+    let (mut conn, mut server, mut w, bound) = session_with(&[("zwp_linux_dmabuf_v1", 5)]);
+    assert_eq!(bound.len(), 1);
+    let fb = feedback_object(&server);
+    send_formats(&mut server, fb, false);
+    pump(&mut conn, &mut w);
+    assert!(w.buffer_formats().is_none(), "no done, no formats");
+    assert_eq!(w.formats_sent(), dmabuf::Count(0));
+    server.send(fb, "zwp_linux_dmabuf_feedback_v1", "done", &[]);
+    pump(&mut conn, &mut w);
+    let f = w.buffer_formats().expect("a whole burst");
+    assert_eq!(f.main, Some(dmabuf::Device(0xe280)));
+    assert_eq!(f.tranches.len(), 2);
+    assert!(f.tranches[0].flags.has(dmabuf::TrancheFlags::SCANOUT));
+    assert_eq!(f.tranches[0].formats, vec![ARGB_TILED]);
+    assert_eq!(f.tranches[1].formats, vec![ARGB_LINEAR]);
+    assert_eq!(f.unknown_indices, dmabuf::Count(0));
+    assert_eq!(w.formats_sent(), dmabuf::Count(1));
+
+    let (mut conn, server, mut w, bound) = session_with(&[("zwp_linux_dmabuf_v1", 3)]);
+    assert!(bound.is_empty(), "version 3 has no feedback");
+    assert!(
+        !server
+            .objects
+            .values()
+            .any(|i| i.name == "zwp_linux_dmabuf_feedback_v1")
+    );
+    let plane = tempfile();
+    let planes = [dmabuf::Plane {
+        fd: plane.as_fd(),
+        offset: dmabuf::Bytes(0),
+        stride: dmabuf::Bytes(256),
+    }];
+    let d = dmabuf::Dmabuf {
+        width: Px(64),
+        height: Px(32),
+        format: ARGB_LINEAR,
+        planes: &planes,
+    };
+    assert_eq!(
+        w.import(&mut conn.sender(), &d),
+        dmabuf::Imported::NoFormats
+    );
+}
+
+/// The requests up to and with the next `wl_surface.commit`, by name
+/// with their arguments.
+fn until_commit(server: &mut Server) -> Vec<(String, Vec<Val>)> {
+    commit_requests(server)
+        .into_iter()
+        .map(|(i, n, a)| (format!("{i}.{n}"), a))
+        .collect()
+}
+
+fn frame_done(server: &mut Server, requests: &[(String, Vec<Val>)]) {
+    let cb = requests
+        .iter()
+        .find_map(|(n, a)| match (n.as_str(), &a[..]) {
+            ("wl_surface.frame", [Val::New(id)]) => Some(*id),
+            _ => None,
+        })
+        .expect("a frame callback");
+    server.send(cb, "wl_callback", "done", &[Arg::Uint(1)]);
+}
+
+/// **A dmabuf is made a buffer of its planes and shown with its points**:
+/// an offered pair is imported through `create_params`, an `add` with the
+/// plane's fd, index, offset, stride and modifier, `create_immed` and the
+/// params' `destroy`; a pair not offered sends nothing. A frame with
+/// points makes the surface's syncobj object once and sets both points,
+/// split high word first, before the attach, the damage and the commit;
+/// conflicting points and a buffer not of the window's size send nothing;
+/// a frame without points, and a shm frame after it, destroy the object
+/// before they attach.
+#[test]
+fn a_dmabuf_is_imported_and_shown_with_its_points() {
+    let (mut conn, mut server, mut w, bound) = session_with(&[
+        ("zwp_linux_dmabuf_v1", 6),
+        ("wp_linux_drm_syncobj_manager_v1", 1),
+    ]);
+    let (manager, syncobj) = (bound[0], bound[1]);
+    let fb = feedback_object(&server);
+    send_formats(&mut server, fb, true);
+    pump(&mut conn, &mut w);
+
+    let plane = tempfile();
+    let planes = [dmabuf::Plane {
+        fd: plane.as_fd(),
+        offset: dmabuf::Bytes(64),
+        stride: dmabuf::Bytes(256),
+    }];
+    let size = w.buffer_size().unwrap();
+    let mut d = dmabuf::Dmabuf {
+        width: size.0,
+        height: size.1,
+        format: ARGB_TILED,
+        planes: &planes,
+    };
+    let dmabuf::Imported::Buffer(buffer) = w.import(&mut conn.sender(), &d) else {
+        panic!("an offered pair is imported")
+    };
+    conn.flush().unwrap();
+    let r = server.expect("zwp_linux_dmabuf_v1", "create_params");
+    assert_eq!(r.sender, manager);
+    let Val::New(params) = r.args[0] else {
+        panic!()
+    };
+    let r = server.expect("zwp_linux_buffer_params_v1", "add");
+    assert_eq!(r.sender, params);
+    assert!(matches!(
+        r.args[..],
+        [
+            Val::Fd,
+            Val::Uint(0),
+            Val::Uint(64),
+            Val::Uint(256),
+            Val::Uint(0x0200_0000),
+            Val::Uint(0x1234_5678)
+        ]
+    ));
+    let r = server.expect("zwp_linux_buffer_params_v1", "create_immed");
+    assert!(matches!(
+        r.args[..],
+        [Val::New(b), Val::Int(64), Val::Int(32), Val::Uint(f), Val::Uint(0)]
+            if b == buffer && f == dmabuf::Fourcc::ARGB8888.0
+    ));
+    server.expect("zwp_linux_buffer_params_v1", "destroy");
+    d.format = dmabuf::Format {
+        fourcc: dmabuf::Fourcc::XRGB8888,
+        modifier: dmabuf::Modifier::LINEAR,
+    };
+    assert_eq!(
+        w.import(&mut conn.sender(), &d),
+        dmabuf::Imported::NotOffered
+    );
+
+    let syncfd = tempfile();
+    let t = w
+        .import_timeline(&mut conn.sender(), syncfd.as_fd())
+        .expect("the manager is bound");
+    conn.flush().unwrap();
+    let r = server.expect("wp_linux_drm_syncobj_manager_v1", "import_timeline");
+    assert_eq!(r.sender, syncobj);
+    assert!(matches!(r.args[..], [Val::New(id), Val::Fd] if id == t.0));
+
+    let points = |a, b| dmabuf::Points {
+        acquire: (t, dmabuf::Point(a)),
+        release: (t, dmabuf::Point(b)),
+    };
+    let whole = Changed::Whole;
+    let s = &mut conn.sender();
+    assert_eq!(
+        w.present_dmabuf(s, buffer, (Px(1), Px(1)), Some(points(1, 2)), whole),
+        DmabufShown::WrongSize
+    );
+    assert_eq!(
+        w.present_dmabuf(s, buffer, size, Some(points(2, 2)), whole),
+        DmabufShown::ConflictingPoints
+    );
+    let far = (5 << 32) + 1;
+    assert_eq!(
+        w.present_dmabuf(s, buffer, size, Some(points(far, far + 1)), whole),
+        DmabufShown::Yes
+    );
+    conn.flush().unwrap();
+    let first = until_commit(&mut server);
+    let names: Vec<&str> = first.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "wp_linux_drm_syncobj_manager_v1.get_surface",
+            "wp_linux_drm_syncobj_surface_v1.set_acquire_point",
+            "wp_linux_drm_syncobj_surface_v1.set_release_point",
+            "wl_surface.attach",
+            "wl_surface.damage_buffer",
+            "wl_surface.frame",
+            "wl_surface.commit",
+        ],
+        "the refusals sent nothing"
+    );
+    assert!(matches!(
+        first[1].1[..],
+        [Val::Obj(o), Val::Uint(5), Val::Uint(1)] if o == t.0
+    ));
+    assert!(matches!(
+        first[2].1[..],
+        [Val::Obj(o), Val::Uint(5), Val::Uint(2)] if o == t.0
+    ));
+    assert!(matches!(first[3].1[..], [Val::Obj(b), ..] if b == buffer));
+    assert!(matches!(
+        first[4].1[..],
+        [Val::Int(0), Val::Int(0), Val::Int(64), Val::Int(32)]
+    ));
+    assert_eq!(
+        w.present_dmabuf(&mut conn.sender(), buffer, size, Some(points(3, 4)), whole),
+        DmabufShown::No,
+        "a frame in flight"
+    );
+
+    frame_done(&mut server, &first);
+    pump(&mut conn, &mut w);
+    let strips = [Strip {
+        top: Px(4),
+        bottom: Px(6),
+    }];
+    let s = &mut conn.sender();
+    let changed = Changed::Strips(&strips);
+    assert_eq!(
+        w.present_dmabuf(s, buffer, size, Some(points(3, 4)), changed),
+        DmabufShown::Yes
+    );
+    conn.flush().unwrap();
+    let second = until_commit(&mut server);
+    assert_eq!(
+        second[0].0, "wp_linux_drm_syncobj_surface_v1.set_acquire_point",
+        "the object is made once"
+    );
+    assert!(second.iter().any(|(n, a)| n == "wl_surface.damage_buffer"
+        && matches!(a[..], [Val::Int(0), Val::Int(4), Val::Int(64), Val::Int(2)])));
+
+    frame_done(&mut server, &second);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        w.present_dmabuf(&mut conn.sender(), buffer, size, None, whole),
+        DmabufShown::Yes
+    );
+    conn.flush().unwrap();
+    let third = until_commit(&mut server);
+    assert_eq!(third[0].0, "wp_linux_drm_syncobj_surface_v1.destroy");
+    assert_eq!(third[1].0, "wl_surface.attach");
+
+    // Points again, then a shm frame: the object is made anew and goes
+    // before the shm buffer is attached.
+    frame_done(&mut server, &third);
+    pump(&mut conn, &mut w);
+    let s = &mut conn.sender();
+    assert_eq!(
+        w.present_dmabuf(s, buffer, size, Some(points(5, 6)), whole),
+        DmabufShown::Yes
+    );
+    conn.flush().unwrap();
+    let fourth = until_commit(&mut server);
+    assert_eq!(fourth[0].0, "wp_linux_drm_syncobj_manager_v1.get_surface");
+    frame_done(&mut server, &fourth);
+    pump(&mut conn, &mut w);
+    let frame = vec![0xff00_00ffu32; 64 * 32];
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let fifth = until_commit(&mut server);
+    let at = |name: &str| fifth.iter().position(|(n, _)| n == name).unwrap();
+    assert!(at("wp_linux_drm_syncobj_surface_v1.destroy") < at("wl_surface.attach"));
+    assert!(
+        at("wl_shm.create_pool") < at("wl_surface.attach"),
+        "a new pool"
+    );
+}
+
+/// **Without the syncobj manager there is no timeline and no frame with
+/// points**, and a frame without them is shown as it is.
+#[test]
+fn without_the_syncobj_manager_frames_go_without_points() {
+    let (mut conn, mut server, mut w, _) = session_with(&[("zwp_linux_dmabuf_v1", 5)]);
+    let fb = feedback_object(&server);
+    send_formats(&mut server, fb, true);
+    pump(&mut conn, &mut w);
+    let syncfd = tempfile();
+    assert!(
+        w.import_timeline(&mut conn.sender(), syncfd.as_fd())
+            .is_none()
+    );
+    let plane = tempfile();
+    let planes = [dmabuf::Plane {
+        fd: plane.as_fd(),
+        offset: dmabuf::Bytes(0),
+        stride: dmabuf::Bytes(256),
+    }];
+    let size = w.buffer_size().unwrap();
+    let d = dmabuf::Dmabuf {
+        width: size.0,
+        height: size.1,
+        format: ARGB_LINEAR,
+        planes: &planes,
+    };
+    let dmabuf::Imported::Buffer(buffer) = w.import(&mut conn.sender(), &d) else {
+        panic!()
+    };
+    let t = dmabuf::Timeline(ObjectId(900));
+    let points = dmabuf::Points {
+        acquire: (t, dmabuf::Point(1)),
+        release: (t, dmabuf::Point(2)),
+    };
+    let s = &mut conn.sender();
+    assert_eq!(
+        w.present_dmabuf(s, buffer, size, Some(points), Changed::Whole),
+        DmabufShown::NoExplicitSync
+    );
+    assert_eq!(
+        w.present_dmabuf(s, buffer, size, None, Changed::Whole),
+        DmabufShown::Yes
+    );
+    conn.flush().unwrap();
+    server.expect("zwp_linux_dmabuf_v1", "create_params");
+    for name in ["add", "create_immed", "destroy"] {
+        server.expect("zwp_linux_buffer_params_v1", name);
+    }
+    let names: Vec<String> = until_commit(&mut server)
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "wl_surface.attach",
+            "wl_surface.damage_buffer",
+            "wl_surface.frame",
+            "wl_surface.commit"
+        ]
+    );
+}
