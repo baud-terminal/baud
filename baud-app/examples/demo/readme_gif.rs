@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::film;
+use crate::names;
 use crate::provenance::{self, Doc, Tree};
 
 /// The GIF's name, beside the session's film: not the old README clip's
@@ -155,23 +156,72 @@ pub fn cut(text: &str, scenes: &[u8]) -> Result<Cut, String> {
     Ok(Cut { rate, film, ranges })
 }
 
-/// **The e-mail addresses git is set up with here**, every `user.email`
-/// in any of git's files as the repository at `root` reads them: names no
-/// frame may show. None when git says none.
-pub fn git_emails(root: &Path) -> Vec<String> {
+/// **Every value of git's `key`** in any of git's files as the repository
+/// at `root` reads them, a line each. Empty when git says none.
+fn git_all(root: &Path, key: &str) -> String {
     Command::new("git")
         .arg("-C")
         .arg(root)
-        .args(["config", "--get-all", "user.email"])
+        .args(["config", "--get-all", key])
         .output()
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .map(|l| l.trim().to_string())
-                .filter(|l| !l.is_empty())
-                .collect()
-        })
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
         .unwrap_or_default()
+}
+
+/// **The names no frame of the session and no line of the GIF's
+/// provenance file may show**: `machine`, the machine's, and those of the
+/// git set up with the repository at `root`, by [`session_names`].
+pub fn shown_names(machine: &[String], root: &Path) -> Vec<String> {
+    session_names(
+        machine,
+        &git_all(root, "user.email"),
+        &git_all(root, "user.name"),
+    )
+}
+
+/// **`machine`, then each address of `emails`, then the words of
+/// `users`** ([`name_words`]): `emails` and `users` are git's `user.email`
+/// and `user.name` values, a line each.
+pub fn session_names(machine: &[String], emails: &str, users: &str) -> Vec<String> {
+    let mut all = machine.to_vec();
+    all.extend(
+        emails
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string),
+    );
+    all.extend(name_words(users));
+    all
+}
+
+/// **Which of `names` `text` holds outside each of `public`, matched
+/// without case**: text, names and `public` lowercased, then
+/// [`names::named_outside`]. Returns the names as given.
+pub fn named_in(text: &str, names: &[String], public: &[&str]) -> Vec<String> {
+    let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
+    let public: Vec<String> = public.iter().map(|p| p.to_lowercase()).collect();
+    let public: Vec<&str> = public.iter().map(String::as_str).collect();
+    let hit = names::named_outside(text.to_lowercase().as_bytes(), &lower, &public);
+    names
+        .iter()
+        .zip(&lower)
+        .filter(|(_, l)| hit.contains(l))
+        .map(|(n, _)| n.clone())
+        .collect()
+}
+
+/// **The words of `text`, a user name a line**: split at every character
+/// that is not a letter or a digit, those of three characters or more,
+/// each once. A shorter word is too short to tell from text.
+pub fn name_words(text: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    for w in text.split(|c: char| !c.is_alphanumeric()) {
+        if w.chars().count() >= 3 && !words.iter().any(|k| k == w) {
+            words.push(w.to_string());
+        }
+    }
+    words
 }
 
 /// **ffmpeg's arguments**: the film's frames in the cut, by their numbers,
@@ -434,6 +484,58 @@ mod tests {
         assert!(
             cut("rate 100\nframes 9\nscene 6 1 20\n", &[6]).is_err(),
             "past the film"
+        );
+    }
+
+    /// **A user name's words of three characters or more are names**, each
+    /// once, a line a name: a word of two is left out, and so is what
+    /// separates the words. The names are made up for the test.
+    /// Perturbation: keep the whole line and neither word is a name of its
+    /// own.
+    #[test]
+    fn a_user_names_words_are_names() {
+        assert_eq!(
+            name_words("Qzfirst Al Qzlast\nQzfirst O'Qzother-Vex\n"),
+            ["Qzfirst", "Qzlast", "Qzother", "Vex"]
+        );
+        assert_eq!(name_words(""), Vec::<String>::new());
+    }
+
+    /// **The names the session and the provenance file are held to are the
+    /// machine's, git's addresses and the words of git's user names**, in
+    /// that order, an empty line no name. The names are made up for the
+    /// test. Perturbation: leave the user names out and `Qzfirst` and
+    /// `Qzlast` are missing.
+    #[test]
+    fn the_shown_names_hold_the_addresses_and_the_user_names_words() {
+        let machine = ["qzuser".to_string(), "qzhost".to_string()];
+        assert_eq!(
+            session_names(&machine, "qz@example.org\n\n", "Qzfirst Al Qzlast\n"),
+            ["qzuser", "qzhost", "qz@example.org", "Qzfirst", "Qzlast"]
+        );
+        assert_eq!(session_names(&machine, "", ""), machine);
+    }
+
+    /// **The provenance file's check matches without case, and takes the
+    /// repository's address out**: an upper-cased name and a name given
+    /// upper-cased are found and returned as given, the address on the
+    /// forge in another case names nobody, and the same user elsewhere is
+    /// found. The names are made up for the test. The control: a name the
+    /// text does not hold is not found. Perturbation: compare with case and
+    /// neither `qzfirst` nor `QZHOST` is found.
+    #[test]
+    fn the_provenance_check_matches_without_case() {
+        let n = [
+            "qzfirst".to_string(),
+            "QZHOST".to_string(),
+            "qzuser".to_string(),
+            "elsewhere".to_string(),
+        ];
+        let text = "made by QZFIRST on qzhost\nnix run github:QzUser/baud\n";
+        assert_eq!(named_in(text, &n, &["qzuser/baud"]), ["qzfirst", "QZHOST"]);
+        assert_eq!(
+            named_in("see /x/QZUSER/y\n", &n, &["qzuser/baud"]),
+            ["qzuser"]
         );
     }
 

@@ -1182,11 +1182,11 @@ fn the_readme_session_lights_every_light() {
         std::fs::write(&list, &dump.text).expect("the frames' text");
         println!("film:    {} frames, {}", frame_steps.len(), to.display());
         // **No frame shows this machine, and the container shows its own
-        // names**: each frame's text searched for this machine's names,
-        // those the demo hands this test among them (`BAUD_SESSION_NAMES`,
-        // a line each, found at run time and written nowhere), and the
-        // container's user and host (`BAUD_SESSION_SHOWN`) shown in some
-        // frame, fastfetch's card's title.
+        // names**: each frame's text searched, without case, for this
+        // machine's names, those the demo hands this test among them
+        // (`BAUD_SESSION_NAMES`, a line each, found at run time and written
+        // nowhere), and the container's user and host (`BAUD_SESSION_SHOWN`)
+        // shown in some frame, fastfetch's card's title.
         let extra: Vec<String> = std::env::var("BAUD_SESSION_NAMES")
             .map(|v| v.lines().map(str::to_string).collect())
             .unwrap_or_default();
@@ -1560,10 +1560,12 @@ impl Dump {
 }
 
 /// **The frames of a [`Dump`] that show one of `names`**, as fixed
-/// strings: each such frame and the name's place in `names`, a frame once
-/// for each name it shows. The strip's line counts as every frame's; what
-/// precedes the first frame is the strip's alone.
+/// strings matched without case: each such frame and the name's place in
+/// `names`, a frame once for each name it shows. The strip's line counts as
+/// every frame's; what precedes the first frame is the strip's alone.
 fn frames_naming(dump: &str, names: &[String]) -> Vec<(usize, usize)> {
+    let dump = dump.to_lowercase();
+    let names: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
     let mut hits = Vec::new();
     let mut strip: Vec<&str> = Vec::new();
     let mut frame: Option<(usize, Vec<&str>)> = None;
@@ -1689,6 +1691,30 @@ fn a_frame_showing_a_name_is_found_by_its_frame() {
         frames_naming(&d.text, &["elsewhere-0b9c".to_string()]),
         Vec::<(usize, usize)>::new(),
         "the control"
+    );
+}
+
+/// **A name is found in a frame whatever its case**: a lower-case name in
+/// a frame that shows it upper-cased, and an upper-cased name in a frame
+/// that shows it in lower case, each found in its own frame. The names are
+/// made up for the test. The control: a name no frame shows, in any case,
+/// finds nothing. Perturbation: compare with case and neither frame is
+/// found.
+#[test]
+fn a_name_is_found_whatever_its_case() {
+    let shown = |rows: &[&str]| rows.iter().map(|r| r.to_string()).collect::<Vec<String>>();
+    let mut d = Dump::new("1.0.0-unstable+0123abc");
+    d.frame(FrameAt(0), &shown(&["QZFIRST@demo"]));
+    d.frame(FrameAt(1), &shown(&["host qzlast-box"]));
+    let names = [
+        "qzfirst".to_string(),
+        "QZLAST".to_string(),
+        "Elsewhere".to_string(),
+    ];
+    assert_eq!(
+        frames_naming(&d.text, &names),
+        [(0, 0), (1, 1)],
+        "each name in its own frame, the control in none"
     );
 }
 

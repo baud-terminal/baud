@@ -549,10 +549,11 @@ fn full_screen_name(gif: &str) -> String {
 /// in cargo's target directory ([`keep_raw`]), never beside the stills.
 ///
 /// The session's test is handed this machine's names
-/// ([`machine_names`], the git e-mail addresses with them) and the
-/// container's user and host, and fails if any frame's text shows one of
-/// the first or no frame the second; `--forbidden`'s list searches every
-/// frame's text too. Then the README's GIF is cut from the film
+/// ([`machine_names`], the git e-mail addresses and the words of the git
+/// user names with them) and the container's user and host, and fails if
+/// any frame's text shows one of the first, in any case, or no frame the
+/// second; `--forbidden`'s list searches every frame's text too. Then the
+/// README's GIF is cut from the film
 /// ([`readme_gif`]): `stills/session.gif`, encoded by the pinned ffmpeg and
 /// gifski, decoded and held to the cut, censused as the trailer is
 /// ([`flash_gate`]), and its provenance file written beside it, names
@@ -567,8 +568,7 @@ fn headless(
     fs::create_dir_all(stills).map_err(|e| format!("{}: {e}", stills.display()))?;
     let ffmpeg = nix_out("ffmpeg-headless.bin")?.join("bin/ffmpeg");
     let film = stills.join("session.mkv");
-    let mut shown_names = made.names.to_vec();
-    shown_names.extend(readme_gif::git_emails(made.root));
+    let shown_names = readme_gif::shown_names(made.names, made.root);
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let status = Command::new(cargo)
         .args(["test", "-p", "baud", "--bin", "baud", "--manifest-path"])
@@ -682,7 +682,7 @@ fn headless(
         raw.display()
     );
     println!("stills:  {}", stills.display());
-    cut_the_gif(p, prep, stills, forbidden.is_some(), made)?;
+    cut_the_gif(p, prep, stills, forbidden.is_some(), made, &shown_names)?;
     Ok(())
 }
 
@@ -699,14 +699,16 @@ struct Made<'a> {
 /// **The README's GIF, from the session's film** (`demo/readme_gif.rs`):
 /// [`readme_gif::SCENES`] cut by the tour's marks, encoded, decoded and
 /// held to the cut, censused for flashes as the trailer is, and its
-/// provenance file written beside it, which must name nothing of this
-/// machine, then read back as `--verify` reads it.
+/// provenance file written beside it, which must hold none of `shown`, in
+/// any case ([`readme_gif::named_in`]), then read back as `--verify` reads
+/// it.
 fn cut_the_gif(
     p: &Profile,
     prep: &Prep,
     stills: &Path,
     searched: bool,
     made: &Made,
+    shown: &[String],
 ) -> Result<(), String> {
     let film_at = stills.join("session.mkv");
     let cut_at = stills.join("session.mkv.cut");
@@ -793,7 +795,7 @@ fn cut_the_gif(
     let header: Vec<&str> = header.iter().map(String::as_str).collect();
     let text = readme_gif::document(&facts).text(&header);
     let public = names::public_path(env!("CARGO_PKG_REPOSITORY"));
-    let hit = names::named_outside(text.as_bytes(), made.names, &[&public]);
+    let hit = readme_gif::named_in(&text, shown, &[&public]);
     if !hit.is_empty() {
         return Err(format!(
             "the GIF's provenance file would name this machine: {} names; nothing is written",
