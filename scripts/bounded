@@ -235,6 +235,12 @@ __bounded_linux() {
   if systemctl --user cat runs.slice >/dev/null 2>&1; then
     local -a __bounded_scope=(--user --scope --quiet --slice=runs.slice
       -p "MemoryMax=${__bounded_mib}M" -p MemorySwapMax=0 -p OOMPolicy=kill)
+    # systemd-run expands `$VAR` in the command line and writes `$$` as `$`,
+    # so `bash -c 'echo $$'` would print a dollar sign: the command is
+    # passed as it is where systemd-run can be told so (systemd 254 on).
+    if systemd-run --help 2>/dev/null | grep -q -- --expand-environment; then
+      __bounded_scope+=(--expand-environment=no)
+    fi
     if ((__bounded_timeout == 0)); then
       exec systemd-run "${__bounded_scope[@]}" -- "$@"
       __bounded_refuse "systemd-run could not be started"
