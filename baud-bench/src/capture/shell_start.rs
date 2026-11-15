@@ -6,11 +6,12 @@
 //! `TERM` xterm-256color, `COLORTERM` truecolor and `TERM_PROGRAM` baud. The
 //! rest of the caller's environment is kept, including the outer terminal's
 //! own variables, which baud's spawn removes (`OUTER` in
-//! `baud-app/src/pty.rs`). It is read for the given seconds and then sent
-//! `exit`.
+//! `baud-app/src/pty.rs`). It is read for the given seconds, or with
+//! `--until` until its output holds the given text, and then sent `exit`.
 //!
 //! ```text
 //! record-shell-start <out> [seconds]
+//! record-shell-start <out> --until <text>
 //! ```
 //!
 //! `<out>` holds each read as a little-endian f64 of seconds since the fork,
@@ -29,10 +30,12 @@ use super::py;
 const DOC: &str = "Record a login shell's start through a pty, with each read's time.
 
 Usage: record-shell-start <out> [seconds]
+       record-shell-start <out> --until <text>
 
-<out> holds each read as a little-endian f64 of seconds since the fork, a
-u32 length and the bytes: what `cargo bench -p baud-bench --bench
-splash_shell -- <out>` replays under the launch logo.";
+The shell is read for the seconds, 3 by default, or until its output holds
+<text>, and then sent `exit`. <out> holds each read as a little-endian f64
+of seconds since the fork, a u32 length and the bytes: what `cargo bench -p
+baud-bench --bench splash_shell -- <out>` replays under the launch logo.";
 
 /// The file's bytes: each read as its time, its length and itself.
 pub fn file_bytes(reads: &[(f64, Vec<u8>)]) -> Vec<u8> {
@@ -53,15 +56,35 @@ pub fn login_name(shell: &OsStr) -> OsString {
     OsString::from_vec([b"-", base].concat())
 }
 
+/// How long the shell is read before it is sent `exit`.
+enum Until {
+    /// This many seconds since the fork.
+    Seconds(f64),
+    /// Until its output holds these bytes, with no bound in time.
+    Shown(Vec<u8>),
+}
+
+/// How long one wait for output lasts when the read has no end in time.
+const WAIT: f64 = 1.0;
+
+/// Whether `hay` holds `needle`, which is not empty.
+fn holds(hay: &[u8], needle: &[u8]) -> bool {
+    hay.windows(needle.len()).any(|w| w == needle)
+}
+
 /// The example.
 pub fn run(args: &[OsString]) -> i32 {
     let Some(out) = args.first() else {
         return super::died(DOC);
     };
-    let seconds = match args.get(1) {
-        None => 3.0,
+    let until = match args.get(1) {
+        None => Until::Seconds(3.0),
+        Some(s) if s.as_bytes() == b"--until" => match args.get(2) {
+            Some(t) if !t.is_empty() => Until::Shown(t.as_bytes().to_vec()),
+            _ => return super::died(DOC),
+        },
         Some(s) => match py::float(&s.to_string_lossy()) {
-            Some(v) => v,
+            Some(v) => Until::Seconds(v),
             None => {
                 return super::died(&format!(
                     "could not convert string to float: {}",
@@ -70,14 +93,14 @@ pub fn run(args: &[OsString]) -> i32 {
             }
         },
     };
-    match record(out, seconds) {
+    match record(out, &until) {
         Ok(()) => 0,
         Err(e) => super::died(&e),
     }
 }
 
 /// Everything past the arguments.
-fn record(out: &OsString, seconds: f64) -> Result<(), String> {
+fn record(out: &OsString, until: &Until) -> Result<(), String> {
     let mut env = Environ::current();
     let shell = env
         .get("SHELL")
@@ -102,10 +125,14 @@ fn record(out: &OsString, seconds: f64) -> Result<(), String> {
     child.set_size(120, 36, 0, 0)?;
 
     let mut reads: Vec<(f64, Vec<u8>)> = Vec::new();
-    let end = start + seconds;
+    let mut shown: Vec<u8> = Vec::new();
+    let end = match until {
+        Until::Seconds(seconds) => Some(start + seconds),
+        Until::Shown(_) => None,
+    };
     let mut gone = false;
     loop {
-        let left = end - clock();
+        let left = end.map_or(WAIT, |end| end - clock());
         if left.is_nan() || left <= 0.0 {
             break;
         }
@@ -113,7 +140,15 @@ fn record(out: &OsString, seconds: f64) -> Result<(), String> {
             continue;
         }
         match child.read(4096) {
-            Ok(b) if !b.is_empty() => reads.push((clock() - start, b)),
+            Ok(b) if !b.is_empty() => {
+                shown.extend_from_slice(&b);
+                reads.push((clock() - start, b));
+                if let Until::Shown(text) = until {
+                    if holds(&shown, text) {
+                        break;
+                    }
+                }
+            }
             _ => {
                 gone = true;
                 break;
@@ -130,7 +165,7 @@ fn record(out: &OsString, seconds: f64) -> Result<(), String> {
     // hung its terminal up and goes on running, which Darwin's `revoke` lets
     // reach here, is given 2 s, as the shell is after `exit`, and then
     // killed. On Linux no read fails while such a shell runs: it is read until
-    // it ends or the recording's seconds are up, then sent `exit` and killed
+    // it ends or the recording is over, then sent `exit` and killed
     // after 2 s. The write below is no test of it: Darwin
     // refuses a write to a pty no process holds, and Linux takes it into the
     // buffer and answers success.

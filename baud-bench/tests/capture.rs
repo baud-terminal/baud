@@ -1794,9 +1794,11 @@ fn a_shell_start_records_each_read_with_its_time() {
     let home = s.0.canonicalize().unwrap();
     let home = home.to_str().unwrap();
     let out = s.at("start.bin");
+    let last = format!("xterm-256color truecolor baud {home}\r\n");
+    let started = Instant::now();
     let r = tool_in(
         "record-shell-start",
-        &words(&[&out, "4"]),
+        &words(&[&out, "--until", &last]),
         &[
             ("SHELL", &shell),
             ("HOME", home),
@@ -1805,23 +1807,43 @@ fn a_shell_start_records_each_read_with_its_time() {
             ("TERM_PROGRAM", "other"),
         ],
     );
+    let took = started.elapsed().as_secs_f64();
     assert_eq!(r.code, Some(0), "{}", r.err);
     let reads = parse_start(&read(&out));
     let bytes: Vec<u8> = reads.iter().flat_map(|(_, b)| b.clone()).collect();
     let shown = String::from_utf8_lossy(&bytes);
     assert!(shown.starts_with("36 120\r\n"), "{shown}");
-    assert!(
-        shown.contains(&format!("xterm-256color truecolor baud {home}\r\n")),
-        "{shown}"
-    );
+    assert!(shown.contains(&last), "{shown}");
     let times: Vec<f64> = reads.iter().map(|(t, _)| *t).collect();
     assert!(times.windows(2).all(|w| w[0] <= w[1]), "{times:?}");
-    assert!(times.iter().all(|t| *t > 0.0 && *t < 4.0), "{times:?}");
+    assert!(times.iter().all(|t| *t > 0.0 && *t < took), "{times:?}");
     let lines: Vec<&str> = r.out.lines().collect();
     assert_eq!(lines.len(), reads.len());
     for (line, (at, b)) in lines.iter().zip(&reads) {
         assert_eq!(*line, format!("{:9.1} ms {:6} bytes", at * 1e3, b.len()));
     }
+}
+
+/// **What a shell prints after the seconds is not recorded**: this shell
+/// prints only once it has read a line, and the first line it is sent is
+/// the `exit` that follows the seconds, so the file holds no read however
+/// soon the shell starts.
+#[test]
+fn what_a_shell_prints_after_the_seconds_is_not_recorded() {
+    let s = Scratch::new("start-late");
+    let shell = s.at("shell");
+    exec::script(
+        Path::new(&shell),
+        "#!/usr/bin/env -S bash --noprofile --norc\nexport HISTFILE=/dev/null\nread line\nprintf 'late\\n'\n",
+    );
+    let out = s.at("start.bin");
+    let r = tool_in(
+        "record-shell-start",
+        &words(&[&out, "1"]),
+        &[("SHELL", &shell), ("HOME", s.0.to_str().unwrap())],
+    );
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    assert!(parse_start(&read(&out)).is_empty());
 }
 
 /// A home it cannot enter ends the child on its pty, with the reason there,
@@ -1960,6 +1982,18 @@ fn the_shell_start_tool_dies_where_the_script_died() {
     let r = tool("record-shell-start", &words(&[&s.at("o"), "abc"]));
     assert_eq!(r.code, Some(1));
     assert_eq!(r.err, "could not convert string to float: 'abc'\n");
+    for args in [
+        words(&[&s.at("o"), "--until"]),
+        words(&[&s.at("o"), "--until", ""]),
+    ] {
+        let r = tool("record-shell-start", &args);
+        assert_eq!(r.code, Some(1));
+        assert!(
+            r.err.contains("record-shell-start <out> --until <text>"),
+            "{}",
+            r.err
+        );
+    }
 }
 
 // The generators' command lines.
