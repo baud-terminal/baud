@@ -71,8 +71,8 @@
 //! counted at the wrap, a loading animation waiting at its last frame.
 
 use super::{
-    ImageAlpha, ImageId, ImageOwner, ImagePx, ImageRefusal, ImageSlot, ImageState, ImageStore,
-    Pixel,
+    Drew, ImageAlpha, ImageId, ImageOwner, ImagePx, ImageRefusal, ImageSlot, ImageState,
+    ImageStore, Pixel,
 };
 use crate::style::Chan;
 use crate::time::HostTime;
@@ -767,7 +767,7 @@ impl<'b> ImageStore<'b> {
                 }
             }
         }
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Slot(i));
         Ok(FrameNo(k as u32 + 1))
     }
 
@@ -856,7 +856,7 @@ impl<'b> ImageStore<'b> {
             let a = s.area();
             self.slots[i].alpha = ImageAlpha::of(&self.pixels[s.start()..s.start() + a]);
         }
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Slot(i));
         Ok(())
     }
 
@@ -923,7 +923,7 @@ impl<'b> ImageStore<'b> {
             let s = self.slots[i];
             self.slots[i].alpha = ImageAlpha::of(&self.pixels[s.start()..s.start() + area]);
         }
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Slot(i));
         FrameDeleted::Frame
     }
 
@@ -2234,7 +2234,7 @@ impl<'b> ImageStore<'b> {
             }
         };
         self.release_free(lo + words, hi);
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Slot(i));
         Some(b.id)
     }
 
@@ -2251,7 +2251,7 @@ impl<'b> ImageStore<'b> {
         // Never counted among the images with frames.
         self.slots[i].anim.count = 0;
         self.forget(i);
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Freed);
     }
 
     /// **A `width` x `height` picture of slot `si`'s frames, each
@@ -2312,18 +2312,19 @@ impl<'b> ImageStore<'b> {
         a.shown_at = None;
     }
 
-    /// **Slot `s`'s frames' columns `x0..x1` of rows `y0..y1` moved `k`
+    /// **Slot `i`'s frames' columns `x0..x1` of rows `y0..y1` moved `k`
     /// rows `way`** in its own span ([`Shape::shift`]).
     pub(crate) fn move_rects(
         &mut self,
-        s: &ImageSlot,
+        i: usize,
         cols: (usize, usize),
         rows: (usize, usize),
         k: usize,
         way: super::BandMove,
     ) {
-        Shape::of(s).shift(&mut self.pixels[s.start()..s.end()], cols, rows, k, way);
-        self.epoch = self.epoch.bumped();
+        let s = self.slots[i];
+        Shape::of(&s).shift(&mut self.pixels[s.start()..s.end()], cols, rows, k, way);
+        self.moved(Drew::Slot(i));
     }
 
     /// The frame slot `s`'s canvas holds, a picture's of rectangles.

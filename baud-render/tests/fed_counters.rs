@@ -375,7 +375,7 @@ fn counted(src: &str, into: &mut std::collections::BTreeSet<(String, String)>) -
 /// somewhere, and each is fed by a check that reads it moving ([`FED`],
 /// with the check), and the three it asserts zero that no source counts
 /// ([`GUARDS`]) are counted nowhere, so their zeros are guards that a
-/// count does not come back there. The two pairs fed by a control on
+/// count does not come back there. The three pairs fed by a control on
 /// their counter's total ([`TOTALS`]) are each counted at their one site.
 /// The controls:
 /// the reader finds at least as many calls as there were when this was
@@ -393,7 +393,7 @@ fn the_sites_a_caret_frame_is_counted_at_zero_are_each_fed_or_count_nothing() {
         calls += counted(&std::fs::read_to_string(f).expect("a source"), &mut pairs);
     }
     assert!(
-        calls >= 49,
+        calls >= 50,
         "the counter calls are read: {calls}, {pairs:?}"
     );
     for (counter, site, by) in FED {
@@ -426,7 +426,7 @@ fn the_sites_a_caret_frame_is_counted_at_zero_are_each_fed_or_count_nothing() {
 /// **Each pair of a counter and a site a caret frame is asserted zero at,
 /// and what feeds it**: a check here, one of `src/screens.rs`'s, or one of
 /// the harness's (`caret_frame's <check>`), with which of its counts.
-const FED: [(&str, &str, &str); 14] = [
+const FED: [(&str, &str, &str); 15] = [
     (
         "CellsCompared",
         "Screens",
@@ -499,6 +499,12 @@ const FED: [(&str, &str, &str); 14] = [
         "Totals",
         "caret_frame's a_caret_frame_tallies_the_rows_it_converts, against the first frame",
     ),
+    (
+        "ImagePixelsBlitted",
+        "Images",
+        "caret_frame's a_caret_frame_blits_no_image_pixel, its controls on the first frame \
+             and a written row, caret_frame's every_counter_moves_on_a_full_frame",
+    ),
 ];
 
 /// **The pairs a caret frame is asserted zero at that no source counts**:
@@ -513,9 +519,14 @@ const GUARDS: [(&str, &str); 3] = [
 ];
 
 /// **The pairs of [`FED`] whose control reads their counter's total** over
-/// every site -- the rows laid out and the instances tallied -- which feeds
-/// the pair only while the counter is counted at that site alone.
-const TOTALS: [(&str, &str); 2] = [("BidiRowsLaid", "Layout"), ("InstancesTallied", "Totals")];
+/// every site -- the rows laid out, the instances tallied and the image
+/// pixels blitted -- which feeds the pair only while the counter is
+/// counted at that site alone.
+const TOTALS: [(&str, &str); 3] = [
+    ("BidiRowsLaid", "Layout"),
+    ("InstancesTallied", "Totals"),
+    ("ImagePixelsBlitted", "Images"),
+];
 
 /// **Named in the harness, and in no pair a caret frame is asserted zero
 /// at**, each with why it is named there.

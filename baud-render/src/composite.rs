@@ -10,6 +10,7 @@
 
 use crate::atlas::{Atlas, Kind};
 use crate::color::Argb;
+use crate::counters::{Counter, Site};
 use crate::det::Det;
 use crate::effect::Vfx;
 use crate::instance::Instance;
@@ -710,8 +711,9 @@ impl<'p> Target<'p> {
     /// screen top-left of its visible rectangle, which may be above the top
     /// when an image has scrolled partway off it, and `blit.texels` says
     /// which image pixel each drawn pixel shows. Clipped to the buffer on
-    /// every side and to the rows of `blit.band`: the whole frame for an
-    /// image over the text, the row being repainted for one under it. A
+    /// every side, to the rows of `blit.band` and to the columns drawn: the
+    /// row being repainted, for an image over the text or under it, and
+    /// counted (`Counter::ImagePixelsBlitted`, the clipped pixels). A
     /// pixel is composited `blend.over`, exactly as a `Kind::Color` glyph is
     /// (an image is ARGB the same way an `sbix` glyph is), so an image drawn
     /// over glyphs reads over them; a clear pixel draws nothing and lets the
@@ -746,7 +748,13 @@ impl<'p> Target<'p> {
     /// **A replacing placement** ([`ImageComposite::Replace`]) stores its
     /// words, the loop an opaque-or-clear image takes under `Native`: its
     /// data is opaque, and its fill lands with its own alpha.
-    pub fn blit_image(
+    ///
+    /// **The crate's own**: a renderer blits an image only into a row it
+    /// repaints, through `RowTarget::blit` for one over the text and
+    /// `Renderer::paint_under` for one under it, and nothing outside the
+    /// crate reaches the pixels another way (`baud-render/tests/image.rs`
+    /// reads every crate's sources for the callers).
+    pub(crate) fn blit_image(
         &mut self,
         blit: &Blit<'_>,
         view: &ImageView<'_>,
@@ -757,6 +765,11 @@ impl<'p> Target<'p> {
         let Some(area) = self.clip(blit) else {
             return;
         };
+        crate::counters::add(
+            Counter::ImagePixelsBlitted,
+            Site::Images,
+            crate::Tally::of(area.rows.len() * area.cols.len()),
+        );
         match (view.ground, composite) {
             (ImageGround::Clear, _) => {
                 self.blit_texels(&area, blit, view, |p| p, view.alpha, blend, page);

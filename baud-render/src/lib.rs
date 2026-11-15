@@ -28,6 +28,10 @@
 // exponentials run in core::simd lanes, each lane by the scalar's own
 // operations, as baud-domain uses core::simd.
 #![feature(portable_simd)]
+// `Counter::ALL`'s length is checked against the counters there are with
+// `core::mem::variant_count`, so a counter left out of it fails the build
+// (`counters.rs`), as `baud-domain`'s `ModeBit` counts its variants.
+#![feature(variant_count)]
 
 mod atlas;
 mod badge;

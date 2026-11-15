@@ -38,7 +38,7 @@
 //! asserts (`ImageStore::kitty_rows_unmoved`).
 
 use super::{
-    Build, Canvas, FrameCompose, FrameDeleted, FrameDepth, FrameLayout, FrameLoad, FrameNo,
+    Build, Canvas, Drew, FrameCompose, FrameDeleted, FrameDepth, FrameLayout, FrameLoad, FrameNo,
     FrameRefusal, GAP_MASK, Head, ImageAlpha, ImageId, ImageRefusal, ImageSlot, ImageStore, KEEP,
     Palette, Pixel, REC_AT, REC_BASE, REC_BLEND, REC_COLOURS, REC_GROUND, REC_HEAD, REC_SIZE,
     REC_WORD, RGB_BIT, RowMap, Shape, UNKNOWN, data_len, gap_of, lend, put,
@@ -436,7 +436,7 @@ impl<'b> ImageStore<'b> {
         t.anim.used = word32(end);
         self.release_free(lo, hi);
         self.release_free(at + keep, at + len);
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Slot(i));
         Some(())
     }
 
@@ -537,7 +537,7 @@ impl<'b> ImageStore<'b> {
         if a.count == 2 {
             self.framed += 1;
         }
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Slot(i));
         Ok(FrameNo(word32(k + 1)))
     }
 
@@ -582,7 +582,7 @@ impl<'b> ImageStore<'b> {
         if load.gap != 0 {
             self.change_gap(i, k, gap_of(load.gap));
         }
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Slot(i));
         Ok(FrameNo(word32(k + 1)))
     }
 
@@ -637,7 +637,7 @@ impl<'b> ImageStore<'b> {
             }
         };
         self.slots[i].anim.used = word32(used);
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Slot(i));
         Ok(())
     }
 
@@ -710,7 +710,7 @@ impl<'b> ImageStore<'b> {
             self.framed = self.framed.saturating_sub(1);
             self.records_to_whole(i);
         }
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Slot(i));
         FrameDeleted::Frame
     }
 

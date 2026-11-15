@@ -159,11 +159,14 @@ fn pictured(owned: &mut Owned, swirl: bool) -> Term<'_> {
 /// under the bar would hide the address it shows, or show one of its own
 /// in its place. With the swirl at the top right, each overlay over it
 /// changes the image's pixels, on the frame that draws it and on the
-/// next, which blits the image again and draws nothing else; the bar's
-/// and the field's cells are what they are with no image; and an
-/// incremental frame is the full one. Perturbations: blit the images
-/// after the overlays again, or leave a row holding both to the damage
-/// it had -- each fails here.
+/// next, which repaints nothing and blits no image, so the overlay stays
+/// over it; the bar's and the field's cells are what they are with no
+/// image; and an incremental frame is the full one. Each case stops at its
+/// first failure, and every case's is asserted once, so one case failing
+/// leaves the others run. Perturbations: blit every image over the text
+/// over the whole frame on every frame again (the thumb, which no
+/// `baud-render/tests/image.rs` arm draws, is the steady frame's case
+/// here), or blit the images after the overlays -- each fails here.
 #[test]
 fn baud_s_own_overlays_are_drawn_over_an_image() {
     let mono = font("JetBrainsMono-Regular.ttf");
@@ -218,7 +221,6 @@ fn baud_s_own_overlays_are_drawn_over_an_image() {
         },
         scroller: Scroller::Overlay,
     };
-    type Set = Box<dyn Fn(&mut Renderer<'_, '_>, &Term<'_>)>;
     let cases: [(&str, Set, bool); 4] = [
         (
             "the link bar",
@@ -241,57 +243,87 @@ fn baud_s_own_overlays_are_drawn_over_an_image() {
             false,
         ),
     ];
-    for (what, set, cells) in cases {
+    let mut wrong = Vec::new();
+    for case in &cases {
         let (mut r0, mut r) = (renderer(), renderer());
-        let (w, h) = r.pixel_size();
-        let n = usize::try_from(w.value() * h.value()).unwrap();
-        let stride = usize::try_from(w.value()).unwrap();
-        // The overlay with no image under it.
-        let mut want = vec![0u32; n];
-        set(&mut r0, &t0);
-        paint(&mut r0, &mut t0, &mut want, Damage::Full);
-        // The image alone, then the overlay over it, incrementally.
-        let mut shown = vec![0u32; n];
-        paint(&mut r, &mut t, &mut shown, Damage::Full);
-        let alone = shown.clone();
-        let p = r.image_placements()[0];
-        let rect = |px: &[u32]| -> Vec<u32> {
-            let (x, y) = (usize::try_from(p.x).unwrap(), usize::try_from(p.y).unwrap());
-            (y..y + usize::from(p.h))
-                .flat_map(|y| (x..x + usize::from(p.w)).map(move |x| y * stride + x))
+        let got = overlay_case(case, (&mut r0, &mut r), (&mut t0, &mut t));
+        if let Err(e) = got {
+            wrong.push(e);
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:?}");
+}
+
+/// What sets an overlay on a renderer for its next frame.
+type Set = Box<dyn Fn(&mut Renderer<'_, '_>, &Term<'_>)>;
+
+/// `Ok` when `ok`, else the failure `what` says.
+fn check(ok: bool, what: impl FnOnce() -> String) -> Result<(), String> {
+    match ok {
+        true => Ok(()),
+        false => Err(what()),
+    }
+}
+
+/// [`baud_s_own_overlays_are_drawn_over_an_image`]'s case: its name
+/// `what`, its overlay `set`, and whether the overlay's cells are its own,
+/// drawn by `r0` on `t0`, the screen with no image, and by `r` on `t`, the
+/// one with the swirl: its first failure, if any.
+fn overlay_case(
+    case: &(&str, Set, bool),
+    (r0, r): (&mut Renderer<'_, '_>, &mut Renderer<'_, '_>),
+    (t0, t): (&mut Term<'_>, &mut Term<'_>),
+) -> Result<(), String> {
+    let (what, set, cells) = (case.0, &case.1, case.2);
+    let (w, h) = r.pixel_size();
+    let n = usize::try_from(w.value() * h.value()).unwrap();
+    let stride = usize::try_from(w.value()).unwrap();
+    // The overlay with no image under it.
+    let mut want = vec![0u32; n];
+    set(&mut *r0, &*t0);
+    paint(r0, t0, &mut want, Damage::Full);
+    // The image alone, then the overlay over it, incrementally.
+    let mut shown = vec![0u32; n];
+    paint(r, t, &mut shown, Damage::Full);
+    let alone = shown.clone();
+    let p = r.image_placements()[0];
+    let rect = |px: &[u32]| -> Vec<u32> {
+        let (x, y) = (usize::try_from(p.x).unwrap(), usize::try_from(p.y).unwrap());
+        (y..y + usize::from(p.h))
+            .flat_map(|y| (x..x + usize::from(p.w)).map(move |x| y * stride + x))
+            .map(|i| px[i])
+            .collect()
+    };
+    set(&mut *r, &*t);
+    paint(r, t, &mut shown, Damage::Incremental);
+    check(rect(&shown) != rect(&alone), || {
+        format!("{what} is drawn over the image")
+    })?;
+    if cells {
+        let m = r.metrics();
+        let (cw, ch) = (
+            usize::try_from(m.cell_w.value()).unwrap(),
+            usize::try_from(m.cell_h.value()).unwrap(),
+        );
+        let row = |px: &[u32]| -> Vec<u32> {
+            (0..ch)
+                .flat_map(|y| (8 * cw..30 * cw).map(move |x| y * stride + x))
                 .map(|i| px[i])
                 .collect()
         };
-        set(&mut r, &t);
-        paint(&mut r, &mut t, &mut shown, Damage::Incremental);
-        assert!(
-            rect(&shown) != rect(&alone),
-            "{what} is drawn over the image"
-        );
-        if cells {
-            let m = r.metrics();
-            let (cw, ch) = (
-                usize::try_from(m.cell_w.value()).unwrap(),
-                usize::try_from(m.cell_h.value()).unwrap(),
-            );
-            let row = |px: &[u32]| -> Vec<u32> {
-                (0..ch)
-                    .flat_map(|y| (8 * cw..30 * cw).map(move |x| y * stride + x))
-                    .map(|i| px[i])
-                    .collect()
-            };
-            assert!(row(&alone) != row(&want), "{what}: the control");
-            assert!(row(&shown) == row(&want), "{what}'s cells are its own");
-        }
-        // The next frame changes nothing and blits the image again.
-        let before = shown.clone();
-        paint(&mut r, &mut t, &mut shown, Damage::Incremental);
-        assert!(shown == before, "{what} stays over the image");
-        let mut full = vec![0u32; n];
-        paint(&mut r, &mut t, &mut full, Damage::Full);
-        assert!(
-            full == shown,
-            "{what}: an incremental frame is the full one"
-        );
+        check(row(&alone) != row(&want), || format!("{what}: the control"))?;
+        check(row(&shown) == row(&want), || {
+            format!("{what}'s cells are its own")
+        })?;
     }
+    // The next frame changes nothing, repaints nothing and blits no image,
+    // so the overlay stays over it.
+    let before = shown.clone();
+    paint(r, t, &mut shown, Damage::Incremental);
+    check(shown == before, || format!("{what} stays over the image"))?;
+    let mut full = vec![0u32; n];
+    paint(r, t, &mut full, Damage::Full);
+    check(full == shown, || {
+        format!("{what}: an incremental frame is the full one")
+    })
 }

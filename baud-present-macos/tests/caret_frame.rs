@@ -43,7 +43,7 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 24] = [
+const NAMES: [&str; 25] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_caret_frame_drawn_as_stored_copies_and_compares_no_cell",
@@ -64,6 +64,7 @@ const NAMES: [&str; 24] = [
     "the_pointer_at_rest_costs_a_caret_frame_no_allocation",
     "a_struck_link_lent_a_slot_counts_what_its_caret_frames_cost",
     "a_caret_frame_places_no_link_record",
+    "a_caret_frame_blits_no_image_pixel",
     "a_caret_frame_tallies_the_rows_it_converts",
     "the_frames_totals_follow_every_write_of_a_row",
     "the_cell_driver_builds_as_present_builds",
@@ -146,6 +147,7 @@ fn main() {
             "a_caret_frame_places_no_link_record" => {
                 checks::a_caret_frame_places_no_link_record();
             }
+            "a_caret_frame_blits_no_image_pixel" => checks::a_caret_frame_blits_no_image_pixel(),
             "a_caret_frame_tallies_the_rows_it_converts" => {
                 checks::a_caret_frame_tallies_the_rows_it_converts();
             }
@@ -1038,6 +1040,13 @@ mod checks {
                 // (`a_caret_frame_over_a_re_broken_display_lays_out_and_reads_nothing_at_the_re_cut`,
                 // `a_write_outside_the_display_reads_its_rows_once`).
                 Counter::DisplaysLaid | Counter::GensRead => continue,
+                // The CPU path blits the kitty image and the Sixel; the
+                // cell path blits no image, which the GPU draws.
+                Counter::ImagePixelsBlitted => {
+                    assert!(on_cpu > 0, "the CPU path's full frame blits the images");
+                    assert_eq!(cell_sum(c), 0, "the cell path blits no image");
+                    continue;
+                }
                 _ => assert!(on_cpu > 0, "the CPU path's full frame moves {}", c.name()),
             }
             assert!(
@@ -2641,6 +2650,100 @@ mod checks {
                 );
             }
         }
+    }
+
+    /// **A caret frame blits no image pixel** (FS-C8): an image over the
+    /// text is blitted only into the rows a frame repaints, so on C0's
+    /// screen, whose kitty image and Sixel are on no row the caret is on,
+    /// each CPU caret frame past the first ones blits none and repaints the
+    /// caret's row alone, where every frame blitted both images over the
+    /// whole frame. Its controls: the first frame blits the images, and a
+    /// cell written on the Sixel's middle row -- the swirl, over three rows
+    /// or more -- blits that row's band of the swirl and no more, which a
+    /// blit of the whole placement would not. Named break: every image
+    /// blitted over the whole frame on every frame.
+    pub fn a_caret_frame_blits_no_image_pixel() {
+        let blitted = |c: &Cost| {
+            c.counts
+                .at(Site::Images, Counter::ImagePixelsBlitted)
+                .value()
+        };
+        let caret = |_: &Term<'_>, k: Nth| Inputs::at(caret_at(k));
+        let cpu = cpu_costs(Blinking::No, caret, Nth::ALL);
+        assert!(
+            blitted(&cpu[0]) > 0,
+            "the control: the first frame blits the images"
+        );
+        let mut wrong = Vec::new();
+        for (k, c) in cpu.iter().enumerate() {
+            let dirty = c.rows_dirty.map(|t| t.value());
+            println!(
+                "blit cpu frame {k}: image_pixels_blitted={} rows_dirty={dirty:?}",
+                blitted(c)
+            );
+            if !Nth(k).warming() && (blitted(c) != 0 || dirty != Some(1)) {
+                wrong.push(format!(
+                    "cpu caret frame {k}: {} image pixels blitted, rows_dirty {dirty:?}\n  {}",
+                    blitted(c),
+                    c.line()
+                ));
+            }
+        }
+        // The control: a cell written on the swirl's middle row, away from
+        // its columns, blits the band of the swirl on that row alone.
+        with_screen(Blinking::No, |t, r| {
+            let still = Inputs::at(CursorPhase::SHOWN);
+            r.fit(t);
+            let mut a = Pixels::of(r);
+            cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Full);
+            cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Incremental);
+            let ch = i64::from(r.metrics().cell_h.value());
+            let width = i64::from(r.pixel_size().0.value());
+            let swirl = r
+                .image_placements()
+                .iter()
+                .max_by_key(|p| p.h)
+                .expect("the premise: the images are placed");
+            let (top, h) = (i64::from(swirl.y), i64::from(swirl.h));
+            let (first, last) = (top.div_euclid(ch), (top + h - 1).div_euclid(ch));
+            assert!(
+                last - first >= 2,
+                "the premise: the swirl covers three rows or more, {first}..={last}"
+            );
+            let mid = (first + last) / 2;
+            let rows = (top + h).min((mid + 1) * ch) - top.max(mid * ch);
+            let cols =
+                (i64::from(swirl.x) + i64::from(swirl.w)).min(width) - i64::from(swirl.x).max(0);
+            let want = u64::try_from(rows * cols).expect("a count");
+            feed(t, format!("\x1b7\x1b[{};1HX\x1b8", mid + 1).as_bytes());
+            Cost::take();
+            let f = cpu_frame_sized(r, t, &still, &mut a.target(), Damage::Incremental);
+            let cost = Cost::take();
+            println!(
+                "blit written cpu: image_pixels_blitted={} want={want} rows_dirty={}",
+                blitted(&cost),
+                f.rows_dirty.value()
+            );
+            assert_eq!(
+                f.rows_dirty.value(),
+                1,
+                "the premise: the written row alone repaints"
+            );
+            assert!(
+                u64::try_from(h * cols).expect("a count") > want,
+                "the premise: the swirl is more than the row's band of it"
+            );
+            assert_eq!(
+                blitted(&cost),
+                want,
+                "the control: the written row's band of the swirl is blitted, and no more"
+            );
+        });
+        assert!(
+            wrong.is_empty(),
+            "a caret frame blitted an image:\n{}",
+            wrong.join("\n")
+        );
     }
 
     /// **A caret frame tallies only the rows it converts** (FS-C7): the

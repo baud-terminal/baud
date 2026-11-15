@@ -40,8 +40,8 @@ use baud_domain::themefile::CellPaint;
 use baud_domain::{
     Attrs, BidiDirection, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle,
     FrameNo, GlyphId, ImageAge, ImageAlpha, ImageDraw, ImageGen, ImageGround, ImageId, ImagePx,
-    ImageScreen, ImageStore, KittyId, KittyRoot, LineRendition, PackedCell, Pixel, PlaceSerial,
-    Row, RowAt, RowGens, Rows, Seal, Viewport, ZIndex,
+    ImageScreen, ImageSince, ImageStore, KittyId, KittyRoot, LineRendition, PackedCell, Pixel,
+    PlaceSerial, Row, RowAt, RowGens, Rows, Seal, Viewport, ZIndex,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -302,9 +302,6 @@ impl Blinking {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Converted {
     pub rows_dirty: Tally,
-    /// Of the dirty rows, those under a partly transparent image, which are
-    /// repainted on every frame it is on (`ImageAlpha::Partial`).
-    pub rows_partial: Tally,
     pub rows: Tally,
     pub convert: Duration,
     pub exceptions: Exceptions,
@@ -535,11 +532,11 @@ pub struct Frame {
     /// The image placements the repainted rows examined to find those
     /// under their text, twice a row -- the cells they reach, then the
     /// draw: a row's own when the frame indexed them, every one when it
-    /// repainted too few rows to ([`INDEX_ROWS`]).
+    /// repainted too few rows to ([`INDEX_ROWS`]). The row's pass over the
+    /// placements over its text, which blits them after its glyphs, is not
+    /// counted here: its cost is the pixels it blits
+    /// (`Counter::ImagePixelsBlitted`).
     pub places_examined: Tally,
-    /// Of the dirty rows, those under a partly transparent image, which are
-    /// repainted on every frame it is on (`ImageAlpha::Partial`).
-    pub rows_partial: Tally,
     pub rows: Tally,
     pub instances: Tally,
     /// Of the instances, those on the colour texture and those solid.
@@ -3281,15 +3278,6 @@ struct Beside {
 trait Under {
     /// Paints, returning how many placements it examined for the row.
     fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, row: Row, page: Page) -> Tally;
-    /// Whether it reads the placements by row ([`PlaceRows`]).
-    fn by_row(&self) -> Indexed;
-}
-
-/// Whether an [`Under`] reads the placements by row.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Indexed {
-    No,
-    Yes,
 }
 
 /// **How much of a dirty row a frame repaints**: the whole of it, or,
@@ -3302,6 +3290,122 @@ enum Indexed {
 enum Repaint {
     Whole,
     Cols { left: Px, right: Px },
+}
+
+/// **A dirty row's pixels as this frame repaints them**: the target held
+/// to the columns the row repaints ([`Repaint`]), the row, and its band.
+/// **Made by [`Renderer::repainted`] alone, by type**: its fields are this
+/// module's, and `repainted` is the one maker in it. **An image over the
+/// text is blitted only through it** ([`RowTarget::blit`]), into the band
+/// and the columns the row's own pass has just drawn again, so a placement
+/// never lands over its own last blit -- which a partly transparent one
+/// would blend twice -- and a row nothing repaints keeps the last frame's
+/// pixels, image and overlays alike. `Target::blit_image` is the crate's
+/// own, and is reached from here and from [`Renderer::paint_under`] alone
+/// (`baud-render/tests/image.rs` reads every crate's sources for it).
+mod row_target {
+    use super::{Band, ImagePlacement, Page, Renderer, Repaint, Row};
+    use crate::composite::Target;
+    use baud_domain::ImageView;
+    use baud_font::Px;
+
+    pub(super) struct RowTarget<'t> {
+        target: Target<'t>,
+        row: Row,
+        band: Band,
+    }
+
+    impl<'t> core::ops::Deref for RowTarget<'t> {
+        type Target = Target<'t>;
+
+        fn deref(&self) -> &Target<'t> {
+            &self.target
+        }
+    }
+
+    impl core::ops::DerefMut for RowTarget<'_> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.target
+        }
+    }
+
+    impl RowTarget<'_> {
+        /// The row repainted.
+        pub(super) fn row(&self) -> Row {
+            self.row
+        }
+
+        /// The row's band.
+        pub(super) fn band(&self) -> Band {
+            self.band
+        }
+
+        /// Blits placement `p` of `view` into the row: its band, and the
+        /// columns it repaints.
+        pub(super) fn blit(
+            &mut self,
+            r: &Renderer<'_, '_>,
+            p: &ImagePlacement,
+            view: &ImageView<'_>,
+            page: Page,
+        ) {
+            self.target.blit_image(
+                &r.blit_of(p, self.band),
+                view,
+                (p.ground, p.composite),
+                r.blend,
+                page,
+            );
+        }
+    }
+
+    impl Renderer<'_, '_> {
+        /// `target` over what dirty row `r` repaints ([`Repaint`]), with
+        /// the row and its band: the one place a [`RowTarget`] is made.
+        pub(super) fn repainted<'t>(&self, target: &'t mut Target<'_>, r: usize) -> RowTarget<'t> {
+            let target = match self.repaint.get(r) {
+                Some(&Repaint::Cols { left, right }) => target.within(left, right),
+                _ => target.within(Px::of(0), Px::of(u32::MAX)),
+            };
+            let row = Row::from_index(r);
+            RowTarget {
+                target,
+                row,
+                band: self.band(row),
+            }
+        }
+    }
+}
+
+use row_target::RowTarget;
+
+/// **The pixels placement `p`'s image holds now, if the store still holds
+/// that image**: `None` once it is freed or its slot holds another image
+/// ([`ImageSince::Gone`], which the placement's `born` tells). A frame
+/// places its images first ([`Renderer::place_images`]) from the store it
+/// then paints from, so on a frame this is always the image. The kept
+/// frame ([`Renderer::render_hidden`]) places nothing, and there an image
+/// gone is kept as the last frame drew it, and one whose pixels moved is
+/// drawn in its new pixels on every row it covers ([`since_placed`]).
+fn held<'s>(imgs: &'s ImageStore<'_>, p: &ImagePlacement) -> Option<baud_domain::ImageView<'s>> {
+    match imgs.since(p.id, p.born, p.epoch) {
+        ImageSince::Gone => None,
+        ImageSince::Redrawn | ImageSince::Same => imgs.image(p.id),
+    }
+}
+
+/// **What became of placement `p`'s image since the frame that placed
+/// it**, asked of that image and not of the store's epoch, which every
+/// other image's store, edit and free moves too ([`ImageStore::since`]):
+/// gone, redrawn -- a pixel of it written since, or another of its frames
+/// shown, which the animation clock moves without a write -- or the same.
+fn since_placed(imgs: &ImageStore<'_>, p: &ImagePlacement) -> ImageSince {
+    match imgs.since(p.id, p.born, p.epoch) {
+        ImageSince::Same if imgs.image(p.id).is_some_and(|v| v.frame != p.frame) => {
+            ImageSince::Redrawn
+        }
+        since => since,
+    }
 }
 
 /// Whether any of `records` meets the pixel rows of `band`.
@@ -3323,10 +3427,6 @@ impl Under for NoUnder {
     fn paint(&self, _: &Renderer<'_, '_>, _: &mut Target<'_>, _: Row, _: Page) -> Tally {
         Tally::of(0)
     }
-
-    fn by_row(&self) -> Indexed {
-        Indexed::No
-    }
 }
 
 /// The placements under the text, from the term's images.
@@ -3335,10 +3435,6 @@ struct UnderImages<'s, 'b>(&'s ImageStore<'b>);
 impl Under for UnderImages<'_, '_> {
     fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, row: Row, page: Page) -> Tally {
         r.paint_under(self.0, target, row, page)
-    }
-
-    fn by_row(&self) -> Indexed {
-        Indexed::Yes
     }
 }
 
@@ -3355,62 +3451,31 @@ pub(crate) fn filled(p: Pixel, ground: Pixel) -> Pixel {
     }
 }
 
-/// Whether a partly transparent placement over the text covers the band:
-/// its rows are repainted every CPU frame, since its blit over its own last
-/// blit would blend it twice. One under the text is blitted only into a
-/// row being repainted, over the row's fresh background, so never twice.
-fn partial_over(now: &[ImagePlacement], on: &[usize]) -> bool {
-    on.iter()
-        .any(|&i| now[i].alpha == ImageAlpha::Partial && now[i].layer == ImageLayer::Over)
-}
-
 /// Whether a placement's pixel rows meet the band's.
 fn covers(p: &ImagePlacement, band: Band) -> bool {
     let top = i64::from(p.y);
     top < i64::from(band.bottom.value()) && top + i64::from(p.h) > i64::from(band.top.value())
 }
 
-/// Whether placement `p` meets the scrollbar's knob or track inside
-/// `band`: a row the CPU path repaints on every frame, since the thumb is
-/// drawn over the image's blit.
-fn bar_meets(bar: Option<Bar>, p: &ImagePlacement, band: Band) -> bool {
-    let (x0, x1) = (i64::from(p.x), i64::from(p.x) + i64::from(p.w));
-    bar.into_iter()
-        .flat_map(|b| [b.knob, b.track])
-        .flatten()
-        .any(|t| {
-            let left = i64::from(t.left.value());
-            let (top, bottom) = (
-                t.top.value(),
-                t.top.value().saturating_add(t.height.value()),
-            );
-            x0 < left + i64::from(t.width.value())
-                && left < x1
-                && top < band.bottom.value()
-                && band.top.value() < bottom
-        })
-}
-
-/// Whether the last CPU frame blitted a placement over the band that this
+/// Whether the last CPU frame drew a placement over the band that this
 /// frame does not: an image left or moved from there, or another took its
 /// rect. Whole placements are compared -- image, epoch and rect -- so a
-/// different image in the same rect still counts. One that *arrives* needs no
-/// repaint: its blit lands on the cells, which is what a repaint would give.
-/// `gone` is [`PlaceDiff::gone`], the last frame's placements this one
-/// does not hold.
+/// different image in the same rect still counts. `gone` is
+/// [`PlaceDiff::gone`], the last frame's placements this one does not
+/// hold.
 fn left_from(last: &[ImagePlacement], gone: &[usize], band: Band) -> bool {
     gone.iter().any(|&j| covers(&last[j], band))
 }
 
-/// Whether a placement under the text arrived on the band, or changed
-/// there, since the last CPU frame. Its blit lands only in a row being
-/// repainted, under the row's text, so a row it arrives on is repainted
-/// where one over the text needs none. `arrived` is
-/// [`PlaceDiff::arrived`].
-fn arrived_under(now: &[ImagePlacement], arrived: &[usize], band: Band) -> bool {
-    arrived
-        .iter()
-        .any(|&i| now[i].layer.under_text() && covers(&now[i], band))
+/// Whether a placement arrived on the band, or changed there, since the
+/// last CPU frame, under the text or over it: every placement is blitted
+/// only into a row being repainted ([`RowTarget`]), so a row one arrives
+/// on is repainted for it. A new image, a moved one, one drawn in other
+/// pixels (a new store `epoch`) and an animation's next frame (a new
+/// `frame`) each arrive, since [`ImagePlacement`]'s key holds them.
+/// `arrived` is [`PlaceDiff::arrived`].
+fn arrived_on(now: &[ImagePlacement], arrived: &[usize], band: Band) -> bool {
+    arrived.iter().any(|&i| covers(&now[i], band))
 }
 
 /// **The frame's placements by the screen rows they cover**: row `r`'s
@@ -3671,7 +3736,8 @@ pub struct ImagePlacement {
     /// The image height in device pixels.
     pub h: u16,
     /// Whether any of its pixels is partly transparent: the CPU path then
-    /// repaints the rows under it on every frame.
+    /// blends it, and blits it only into the rows it repaints, never over
+    /// its own last blit.
     pub alpha: ImageAlpha,
     /// Its draw order, the kitty `z`; zero for a Sixel.
     pub z: ZIndex,
@@ -4339,7 +4405,7 @@ pub struct Renderer<'f, 'a> {
     flash: VideoFlash,
     /// The visible image placements this frame, screen rects in device
     /// pixels, computed once by [`Renderer::set_images`] and consumed by
-    /// both the CPU `paint_images` and the two GPU arms -- one description
+    /// both the CPU path's row blits and the two GPU arms -- one description
     /// of where an image goes, not three.
     image_places: Vec<ImagePlacement>,
     /// [`Renderer::image_places`] by the rows each covers, built with it.
@@ -9098,12 +9164,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **The pixel rows the last [`Renderer::render`] wrote**, top to
-    /// bottom: each run of repainted rows as one band, then the rows under
-    /// each image blitted over the text, clipped to the frame -- every
-    /// such image is blitted on every frame, and one that arrived changes
-    /// rows no cell moved (`render_at`). What a presenter copies and
-    /// tells its compositor changed; a pixel outside every band is the
-    /// frame before's. Bands may overlap.
+    /// bottom: each run of repainted rows as one band. An image is blitted
+    /// only into the rows a frame repaints, and a row one arrived on, left
+    /// or changed on is repainted for it (`render_at`), so its pixels are in
+    /// these runs. What a presenter copies and tells its compositor
+    /// changed; a pixel outside every band is the frame before's. Bands may
+    /// overlap.
     pub fn painted(&self) -> impl Iterator<Item = Band> + '_ {
         let h = self.metrics.cell_h.value();
         let rows = self.rows.index().min(self.dirty.len());
@@ -9122,20 +9188,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 bottom: px(r),
             })
         });
-        let bottom = i64::from(self.frame_size().1.value());
-        let images = self
-            .image_places
-            .iter()
-            .filter(|p| p.layer == ImageLayer::Over)
-            .filter_map(move |p| {
-                let top = i64::from(p.y).clamp(0, bottom);
-                let end = (i64::from(p.y) + i64::from(p.h)).clamp(0, bottom);
-                let px = |v: i64| Px::of(u32::try_from(v).unwrap_or(0));
-                (top < end).then(|| Band {
-                    top: px(top),
-                    bottom: px(end),
-                })
-            });
         let strip = (self.strip_fresh == StripFresh::Yes || self.margin_fresh == StripFresh::Yes)
             .then_some(Band {
                 top: Px::of(0),
@@ -9151,8 +9203,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 bottom: Px::of(top.value().saturating_add(self.lights.height().value())),
             }
         });
-        runs.chain(images)
-            .chain(strip)
+        runs.chain(strip)
             .map(move |b| Band {
                 top: Px::of(b.top.value().saturating_add(down.value())),
                 bottom: Px::of(b.bottom.value().saturating_add(down.value())),
@@ -9182,26 +9233,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
         target: &mut Target<'_>,
         damage: Damage,
     ) -> Frame {
-        // **Images draw on every frame, and the rows one left are repainted.**
-        // They drew only on a full frame, and a live terminal renders
-        // incrementally after its first, so on the Linux driver, which is
-        // CPU-only, and on the macOS CPU path, a Sixel a program printed did
-        // not appear until a resize. Blitting every frame is sound because
-        // the blit is idempotent -- an image pixel is opaque or clear, so
-        // blitting it again over the pixel it left changes nothing -- and the
-        // one hazard is an image never erased where it moved from. So the
-        // placements are computed first, and the rows under a placement the
-        // last CPU frame blitted and this one does not are repainted; a still
-        // image's rows are not, and a new one's need not be, since its blit
-        // lands on the cells. That holds for an opaque-or-clear image; one
-        // with a partly transparent pixel (`ImageAlpha::Partial`) blitted
-        // over its own last blit would blend twice, so the rows under it are
-        // repainted on every frame it is on, and counted in `rows_partial`.
-        //
-        // An image under the text (`ImageLayer::Under`) is blitted inside the
-        // row loop instead, over a repainted row's background and under its
-        // glyphs, so it is never over its own last blit; the rows one
-        // arrives on are repainted for it (`arrived_under`).
+        // **An image is part of the rows a frame repaints.** Images drew
+        // only on a full frame, and a live terminal renders incrementally
+        // after its first, so on the Linux driver, which is CPU-only, and
+        // on the macOS CPU path, a Sixel a program printed did not appear
+        // until a resize. So the placements are computed first, and every
+        // row a placement arrived on, changed on or left since the last CPU
+        // frame is repainted (`arrived_on`, `left_from`); a still image's
+        // rows are not. A repainted row draws its images with its pixels:
+        // one under the text inside the row's own pass, over its
+        // background and under its glyphs, and one over the text after the
+        // row's glyphs, the trail and the glow and before baud's overlays,
+        // through the row's own target (`RowTarget`), so into its band and
+        // the columns it repaints alone. No placement is ever blitted over
+        // its own last blit -- which a partly transparent one
+        // (`ImageAlpha::Partial`) would blend twice -- nor over an overlay
+        // drawn on an earlier frame, and a frame that repaints no row an
+        // image covers blits none of it.
         //
         // **One write generation closed a frame, before anything reads**
         // (`Term::seal_writes`): the copy the convert keeps is taken under
@@ -9296,7 +9344,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// above the top.
     ///
     /// This is the one place the placement-to-screen arithmetic is written:
-    /// the CPU `paint_images` and the two GPU arms all read the list and its
+    /// the CPU path's row blits and the two GPU arms all read the list and its
     /// tables, so three paths cannot disagree about where an image goes or
     /// which pixel it shows -- which the pixel oracle could not otherwise
     /// tell from a blit bug.
@@ -9894,31 +9942,30 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.image_snapshots
     }
 
-    /// Blits every image placement over the text over the frame, after
-    /// the glyphs and before baud's own overlays, in order, reading the
-    /// list [`Renderer::set_images`] built and the term's own pixels.
-    fn paint_images(&self, imgs: &ImageStore<'_>, target: &mut Target<'_>) {
-        let page = self.page();
-        let (_, h) = self.frame_size();
-        let all = Band {
-            top: Px::of(0),
-            bottom: h,
+    /// **Blits the placements over the text that cover the row `target`
+    /// repaints into it**, in draw order, after the row's glyphs and before
+    /// baud's own overlays: through the row's own target, so into its band
+    /// and the columns it repaints alone ([`RowTarget`]). The row's own
+    /// placements if they are indexed, else every one asked whether it
+    /// covers the row, as [`Renderer::paint_under`] reads them. Each in the
+    /// pixels its image holds ([`held`]): on the kept frame an image gone
+    /// is skipped here and kept as the last frame drew it, and every row of
+    /// one whose pixels moved is repainted ([`Renderer::paint_kept`]).
+    fn paint_over(&self, imgs: &ImageStore<'_>, target: &mut RowTarget<'_>, page: Page) {
+        let band = target.band();
+        let (on, all): (&[usize], &[ImagePlacement]) = match self.place_rows.row(target.row()) {
+            Some(on) => (on, &[]),
+            None => (&[], &self.image_places),
         };
-        for p in self
-            .image_places
+        let places = on
             .iter()
-            .filter(|p| p.layer == ImageLayer::Over)
-        {
-            let Some(view) = imgs.image(p.id) else {
+            .map(|&i| &self.image_places[i])
+            .chain(all.iter().filter(|p| covers(p, band)));
+        for p in places.filter(|p| p.layer == ImageLayer::Over) {
+            let Some(view) = held(imgs, p) else {
                 continue;
             };
-            target.blit_image(
-                &self.blit_of(p, all),
-                &view,
-                (p.ground, p.composite),
-                self.blend,
-                page,
-            );
+            target.blit(self, p, &view, page);
         }
     }
 
@@ -9969,7 +10016,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if p.layer == ImageLayer::Over {
                 continue;
             }
-            let Some(view) = imgs.image(p.id) else {
+            let Some(view) = held(imgs, p) else {
                 continue;
             };
             if p.layer == ImageLayer::Below && !below {
@@ -10943,7 +10990,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || self.hover_bars != self.last_hover_bars;
         let tip_changed = self.tip != self.last_tip;
         let mut rows_dirty = Tally::default();
-        let mut rows_partial = Tally::default();
         let mut exceptions = Exceptions::default();
         // Whether a row is dirty for anything but the cursor, its blink
         // animation, its trail or the cursor guide, which makes this frame's
@@ -10953,28 +10999,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // The splash's records changed: a row they meet, now or in the last
         // frame, is dirty, for them alone.
         let splash_changed = self.splash_inst != self.last_splash_inst;
-        // Which placements left and arrived, and whether one under the
-        // text arrived or changed, and whether one partly transparent is
-        // over it: once a frame, so a frame with none asks no row about it.
+        // Which placements left and arrived, and whether any arrived or
+        // changed: once a frame, so a frame with none asks no row about it.
         let mut diff = core::mem::take(&mut self.place_diff);
         if images == ImageRows::Repainted {
             diff.diff(&self.image_places, &self.last_image_places);
         }
-        let under_new = images == ImageRows::Repainted
-            && diff
-                .arrived
-                .iter()
-                .any(|&i| self.image_places[i].layer.under_text());
-        let any_partial = images == ImageRows::Repainted
-            && self
-                .image_places
-                .iter()
-                .any(|p| p.alpha == ImageAlpha::Partial && p.layer == ImageLayer::Over);
-        // Every row asks whether one is over it.
-        if any_partial {
-            self.place_rows
-                .ensure(&self.image_places, self.rows, self.metrics.cell_h);
-        }
+        let any_new = images == ImageRows::Repainted && !diff.arrived.is_empty();
         let mut composed_parts: Option<crate::overlay::Composed> = None;
         self.splice = None;
         // **The rows compared with the last frame's**: those taken again,
@@ -11168,40 +11199,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let relaid = self
                 .laid_drawn
                 .is_none_or(|laid| self.bidi.orders().laid_after(row, &laid));
-            // An image the CPU path blitted over this row last frame is not
-            // there now: see `render_at`.
+            // An image the CPU path drew on this row last frame is not
+            // there now, or one arrived or changed on it, under the text or
+            // over it: see `render_at`.
             let imaged = images == ImageRows::Repainted
-                && left_from(&self.last_image_places, &diff.gone, band);
-            // And one the CPU path blits over this row that is partly
-            // transparent: repainted every frame, and counted.
-            let partial = any_partial
-                && partial_over(&self.image_places, self.place_rows.row(row).unwrap_or(&[]));
-            // And one under the text that arrived or changed on this row.
-            let imaged =
-                imaged || (under_new && arrived_under(&self.image_places, &diff.arrived, band));
-            // And one over the text on a row that holds one of baud's own
-            // overlays, which the CPU path draws over the image's blit:
-            // repainted every frame, as a partly transparent image's row is,
-            // since the blit lands on every frame and would cover it.
-            // The thumb's share only where it meets the image, so a legacy
-            // track down every row repaints only the rows an image reaches
-            // it on.
-            let fields = field_on(&self.find, row).is_some()
-                || bar_on(&self.link, row).is_some()
-                || bars_on(&self.hover_bars, row).next().is_some()
-                || tip_on(&self.tip, row).is_some()
-                || field_at(&notice, row).is_some()
-                || self.fade.is_some()
-                || self.bell.is_some();
-            let chromed = images == ImageRows::Repainted
-                && self.image_places.iter().any(|p| {
-                    p.layer == ImageLayer::Over
-                        && covers(p, band)
-                        && (fields || bar_meets(self.bar, p, band))
-                });
-            if partial {
-                rows_partial.bump();
-            }
+                && (left_from(&self.last_image_places, &diff.gone, band)
+                    || (any_new && arrived_on(&self.image_places, &diff.arrived, band)));
             // The guide is the cursor's row's: it moves with the cursor
             // and is drawn by that row's band, the cursor's own.
             let beyond = changed
@@ -11210,8 +11213,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || bar_moved
                 || pictured
                 || imaged
-                || partial
-                || chromed
                 || composed
                 || found
                 || linked
@@ -11400,7 +11401,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         Converted {
             rows_dirty,
-            rows_partial,
             rows: Tally::of(rows.index()),
             convert: t0.elapsed(),
             exceptions,
@@ -11446,11 +11446,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// [`Renderer::render_hidden`]. The next convert takes its change
     /// against this frame. Nothing is converted before a first frame.
     pub fn hide_cursor(&mut self, term: &Term<'_>) -> Converted {
+        self.hide(term).unwrap_or_default()
+    }
+
+    /// [`Renderer::hide_cursor`], `None` where it declines: before a first
+    /// frame, or after a resize or anything else that leaves this renderer
+    /// no last frame to convert from (`Prev::Unknown`), when the kept frame
+    /// is what the target holds.
+    fn hide(&mut self, term: &Term<'_>) -> Option<Converted> {
         let t0 = Instant::now();
         let rows = self.rows.index();
         let mut exceptions = Exceptions::default();
         if self.known != Prev::Known || self.prev.len() < rows * self.cols.index() {
-            return Converted::default();
+            return None;
         }
         // What the cursor brought, as the last frame drew it, then gone.
         let mut was: Vec<Instance> = Vec::new();
@@ -11508,24 +11516,50 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_trail = None;
         self.last_trail_inst.clear();
         self.redraw = crate::Redraw::Whole;
-        Converted {
+        Some(Converted {
             rows_dirty: converted,
-            rows_partial: Tally::default(),
             rows: Tally::of(rows),
             convert: t0.elapsed(),
             exceptions,
-        }
+        })
     }
 
     /// [`Renderer::hide_cursor`], painted into `target`, which must still
     /// hold the last frame: the grid's columns of it, past the left margin
     /// and the exit-status strip when either is kept
     /// ([`Renderer::grid_left`]), as [`Renderer::render_at`] paints them, and
-    /// the images on those rows. **An image the terminal no longer holds**
+    /// the images on those rows, blitted into them alone: an image on no row
+    /// painted keeps the last frame's pixels, never blitted over them, which
+    /// a partly transparent one would blend twice. **An image the terminal no longer holds**
     /// -- the alternate screen's, which leaving it deletes before the
-    /// switch is seen -- cannot be blitted again, so on the rows painted it
-    /// is kept as the last frame drew it: whole over the text, which the
-    /// cursor was under, and under the text but in the cursor's cell.
+    /// switch is seen, or one whose slot holds another image now -- cannot
+    /// be blitted again, so on the rows painted it is kept as the last
+    /// frame drew it: whole over the text, which the cursor was under, and
+    /// under the text but in the cursor's cell. **An image whose pixels
+    /// moved since the last frame** -- a pixel of it written, or another of
+    /// its frames shown, asked of that image (`since_placed`) -- has every
+    /// row it covers painted again, whole, and is drawn there in the pixels
+    /// it holds now, under the text or over it: drawn into the cursor's
+    /// rows alone it showed new pixels beside old, and kept there as the
+    /// last frame drew it it showed the cursor through a partly transparent
+    /// image for as long as the kept frame is shown. **A gone image's
+    /// pieces go back clipped to the images redrawn above it** -- whose
+    /// pixels moved, drawn after it in the passes' order -- which the rows
+    /// painted drew live: a piece holds what the last frame drew, an image
+    /// over the gone one in its last pixels among it, and put back whole
+    /// over one redrawn it showed those over the new. Nowhere else: an
+    /// image the same as the last frame drew it is in the piece as it is
+    /// now, and one under the gone image is under it in the piece, so a
+    /// clip against either showed it through the gone image, or over it.
+    /// Each piece's clip goes back right after the piece, so a gone image
+    /// over the redrawn one still goes over both. Two residues, of a kept
+    /// frame that draws no gone image afresh: through a partly transparent
+    /// gone image over one redrawn, the redrawn one's last pixels show; and
+    /// a partly transparent image redrawn over a gone one shows its new
+    /// pixels with nothing of the gone one under them. Where
+    /// [`Renderer::hide_cursor`] declines, with no last frame to convert
+    /// from, nothing is painted for an image either: the kept frame is what
+    /// the target holds.
     pub fn render_hidden(&mut self, term: &Term<'_>, target: &mut Target<'_>) -> Frame {
         let cell = self.last_cursor.map(|(r, c, _)| {
             let (x, y, w, h) = self.cursor_px(r, c, CursorStyle::SteadyBlock);
@@ -11535,7 +11569,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 at(y)..at(y).saturating_add(at(h)),
             )
         });
-        let converted = self.hide_cursor(term);
+        let converted = self.hide(term);
         let left = self.grid_left();
         if left.value() == 0 {
             return self.paint_kept(term, target, converted, cell);
@@ -11548,21 +11582,68 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// [`Renderer::render_hidden`]'s paint into the grid's columns, `cell`
-    /// the cursor's cell as the last frame drew it.
+    /// the cursor's cell as the last frame drew it, `converted` `None`
+    /// where [`Renderer::hide_cursor`] declined.
     fn paint_kept(
         &mut self,
         term: &Term<'_>,
         grid: &mut Target<'_>,
-        converted: Converted,
+        converted: Option<Converted>,
         cell: Option<(core::ops::Range<usize>, core::ops::Range<usize>)>,
     ) -> Frame {
         let at = |v: i32| usize::try_from(v.max(0)).unwrap_or(0);
+        type Span = (core::ops::Range<usize>, core::ops::Range<usize>);
         type Piece = (core::ops::Range<usize>, core::ops::Range<usize>, Vec<u32>);
-        let (mut under_gone, mut over_gone): (Vec<Piece>, Vec<Piece>) = (Vec::new(), Vec::new());
-        for p in self
+        // A gone image's piece, its place in `image_places`' order (the
+        // order the passes draw in), and what goes back over it.
+        type Gone = (usize, Piece, Vec<Piece>);
+        let (mut under_gone, mut over_gone): (Vec<Gone>, Vec<Gone>) = (Vec::new(), Vec::new());
+        let imgs = term.images();
+        // Every row an image whose pixels moved since the last frame covers
+        // is painted again, whole, from the last frame's cells, and the image
+        // drawn there in the pixels it holds now, under the text or over it:
+        // so no row of it shows the old pixels beside a row in the new. Not
+        // where the cursor's rows were not converted either: with no last
+        // frame, its rows are blank.
+        if converted.is_some() {
+            for i in 0..self.image_places.len() {
+                let p = self.image_places[i];
+                if since_placed(imgs, &p) != ImageSince::Redrawn {
+                    continue;
+                }
+                for r in 0..self.rows.index() {
+                    if covers(&p, self.band(Row::from_index(r))) {
+                        self.dirty[r] = true;
+                        self.repaint[r] = Repaint::Whole;
+                    }
+                }
+            }
+        }
+        let converted = converted.unwrap_or_default();
+        // A placement's pixel columns and rows in the grid.
+        let span = |p: &ImagePlacement| -> Span {
+            let (x, y) = (i32::from(p.x), i32::from(p.y));
+            (at(x)..at(x + i32::from(p.w)), at(y)..at(y + i32::from(p.h)))
+        };
+        // The images redrawn, which the rows painted draw live in their new
+        // pixels, each with its place in `image_places`' order: a gone
+        // image's piece is clipped to those after it alone, the ones drawn
+        // over it.
+        let redrawn: Vec<(usize, Span)> = self
             .image_places
             .iter()
-            .filter(|p| term.images().image(p.id).is_none())
+            .enumerate()
+            .filter(|&(_, p)| since_placed(imgs, p) == ImageSince::Redrawn)
+            .map(|(i, p)| (i, span(p)))
+            .collect();
+        // An image the terminal no longer holds is kept from the last frame
+        // on the rows painted ([`held`]), and the passes skip it.
+        let kept = |p: &ImagePlacement| imgs.since(p.id, p.born, p.epoch) == ImageSince::Gone;
+        for (i, p) in self
+            .image_places
+            .iter()
+            .enumerate()
+            .filter(|&(_, p)| kept(p))
         {
             let (x, y) = (i32::from(p.x), i32::from(p.y));
             let xs = at(x)..at(x + i32::from(p.w));
@@ -11574,8 +11655,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 if top < bottom && !xs.is_empty() {
                     let piece = (xs.clone(), top..bottom, grid.take(xs.clone(), top..bottom));
                     match p.layer {
-                        ImageLayer::Over => over_gone.push(piece),
-                        ImageLayer::Under | ImageLayer::Below => under_gone.push(piece),
+                        ImageLayer::Over => over_gone.push((i, piece, Vec::new())),
+                        ImageLayer::Under | ImageLayer::Below => {
+                            under_gone.push((i, piece, Vec::new()))
+                        }
                     }
                 }
             }
@@ -11586,18 +11669,34 @@ impl<'f, 'a> Renderer<'f, 'a> {
             true => self.paint_rows(grid, converted, UnderImages(term.images()), over),
             false => self.paint_rows(grid, converted, NoUnder, over),
         };
+        // What the rows painted drew where a piece meets an image redrawn
+        // over it, taken before any piece goes back: the piece's clip.
+        for (i, (xs, ys, _), clip) in under_gone.iter_mut().chain(over_gone.iter_mut()) {
+            for (_, (lx, ly)) in redrawn.iter().filter(|(j, _)| *j > *i) {
+                let x = xs.start.max(lx.start)..xs.end.min(lx.end);
+                let y = ys.start.max(ly.start)..ys.end.min(ly.end);
+                if !x.is_empty() && !y.is_empty() {
+                    clip.push((x.clone(), y.clone(), grid.take(x, y)));
+                }
+            }
+        }
+        // Each piece goes back, then its clip over it, in the passes' order.
+        fn put_back(grid: &mut Target<'_>, gone: Vec<Gone>) {
+            for (_, (xs, ys, px), clip) in gone {
+                grid.put(xs, ys, &px);
+                for (xs, ys, px) in clip {
+                    grid.put(xs, ys, &px);
+                }
+            }
+        }
         if !under_gone.is_empty() {
             let fresh = cell.map(|(xs, ys)| (xs.clone(), ys.clone(), grid.take(xs, ys)));
-            for (xs, ys, px) in under_gone {
-                grid.put(xs, ys, &px);
-            }
+            put_back(grid, under_gone);
             if let Some((xs, ys, px)) = fresh {
                 grid.put(xs, ys, &px);
             }
         }
-        for (xs, ys, px) in over_gone {
-            grid.put(xs, ys, &px);
-        }
+        put_back(grid, over_gone);
         frame
     }
 
@@ -11621,7 +11720,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let t1 = Instant::now();
         let mut frame = Frame {
             rows_dirty: converted.rows_dirty,
-            rows_partial: converted.rows_partial,
             rows: converted.rows,
             convert: converted.convert,
             exceptions: converted.exceptions,
@@ -11633,7 +11731,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // screen whose glyphs stay in their rows asks no row about it.
         let reaching =
             (0..self.rows.index()).any(|q| self.reach[q].leaves(self.band(Row::from_index(q))));
-        if under.by_row() == Indexed::Yes
+        // The placements by row, for the passes under the text and over it
+        // alike, when this frame draws images and repaints enough rows.
+        if over.is_some()
+            && !self.image_places.is_empty()
             && self.dirty[..self.rows.index()]
                 .iter()
                 .filter(|&&d| d)
@@ -11775,12 +11876,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
         }
         // The images over the text, then baud's own overlays over them
-        // (`Renderer::chrome`) on the rows repainted: a row that holds both
-        // is repainted on every frame (`chromed` in `convert`), so the
-        // image's blit, which lands on every frame, never covers an
-        // overlay drawn on an earlier one.
+        // (`Renderer::chrome`), on the rows repainted alone: each row's
+        // through its own target, so an image lands only on the pixels the
+        // row drew again and an overlay a row kept stays uncovered.
         if let Some(imgs) = over {
-            self.paint_images(imgs, target);
+            for r in (0..self.rows.index()).filter(|&r| self.dirty[r]) {
+                let mut row = self.repainted(target, r);
+                self.paint_over(imgs, &mut row, page);
+            }
         }
         for r in (0..self.rows.index()).filter(|&r| self.dirty[r]) {
             let band = self.band(Row::from_index(r));
@@ -11946,14 +12049,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// pixels are the same at any number.
     pub fn set_threads(&mut self, n: core::num::NonZeroUsize) {
         self.threads = n;
-    }
-
-    /// `target` over what dirty row `r` repaints ([`Repaint`]).
-    fn repainted<'t>(&self, target: &'t mut Target<'_>, r: usize) -> Target<'t> {
-        match self.repaint.get(r) {
-            Some(&Repaint::Cols { left, right }) => target.within(left, right),
-            _ => target.within(Px::of(0), Px::of(u32::MAX)),
-        }
     }
 
     /// Every instance of the current frame, row by row: what a GPU path
@@ -15984,8 +16079,7 @@ mod place_diff {
     }
 
     fn searched_arrived(now: &[ImagePlacement], last: &[ImagePlacement], band: Band) -> bool {
-        now.iter()
-            .any(|p| p.layer.under_text() && covers(p, band) && !last.contains(p))
+        now.iter().any(|p| covers(p, band) && !last.contains(p))
     }
 
     /// A pool of placements: equal draws are equal placements, so two
@@ -16039,7 +16133,7 @@ mod place_diff {
     /// **The sorted diff answers every row as the search did**: 4,000
     /// pairs of lists drawn from a pool of 40 placements, repeats among
     /// them, against eight 9-pixel bands, for the rows an image left and
-    /// the rows one arrived on under the text.
+    /// the rows one arrived on, under the text or over it.
     #[test]
     fn the_sorted_diff_answers_every_row_as_the_search_did() {
         let mut seed = 0x9e37_79b9_u32;
@@ -16071,7 +16165,7 @@ mod place_diff {
                     bottom: Px::of(r * 9 + 9),
                 };
                 let l = left_from(&last, &diff.gone, band);
-                let a = arrived_under(&now, &diff.arrived, band);
+                let a = arrived_on(&now, &diff.arrived, band);
                 assert_eq!(l, searched_left(&now, &last, band));
                 assert_eq!(a, searched_arrived(&now, &last, band));
                 left += usize::from(l);

@@ -1,9 +1,9 @@
 //! **What a frame did, counted where it does it**: the cells it compared,
 //! copied and converted, the rows it laid out for their direction, the
 //! cells the overlay built records for, the cells scanned for pictures, the
-//! link records placed, the image tables built, the instances tallied
-//! for the frame's totals, and the displays the re-cut laid out and the
-//! rows' generations it read.
+//! link records placed, the image tables built and pixels blitted, the
+//! instances tallied for the frame's totals, and the displays the re-cut
+//! laid out and the rows' generations it read.
 //!
 //! The counts are kept only under the `counters` feature, which nothing
 //! that ships enables: each [`add`] is an empty function without it, so the
@@ -72,11 +72,15 @@ pub enum Counter {
     /// layout's, a paragraph's rows and its context's and the status
     /// line's (`crate::bidi`).
     GensRead,
+    /// Pixels an image placement was blitted into the CPU path's target:
+    /// each blit's rectangle clipped to the target, its band and its
+    /// columns (`crate::composite`), over the text and under it alike.
+    ImagePixelsBlitted,
 }
 
 impl Counter {
     /// Every counter, in the order a harness prints them.
-    pub const ALL: [Counter; 11] = [
+    pub const ALL: [Counter; 12] = [
         Counter::CellsCompared,
         Counter::CellsCopied,
         Counter::CellsConverted,
@@ -88,6 +92,7 @@ impl Counter {
         Counter::InstancesTallied,
         Counter::DisplaysLaid,
         Counter::GensRead,
+        Counter::ImagePixelsBlitted,
     ];
 
     /// The counter's name, as a harness prints it.
@@ -104,9 +109,62 @@ impl Counter {
             Counter::InstancesTallied => "instances_tallied",
             Counter::DisplaysLaid => "displays_laid",
             Counter::GensRead => "gens_read",
+            Counter::ImagePixelsBlitted => "image_pixels_blitted",
+        }
+    }
+
+    /// **The counter's place in a site's row**, which is its place in
+    /// [`Counter::ALL`]: held so by the check below it when this crate
+    /// compiles, so two counters given one place -- two lines merged from
+    /// two branches that each added a counter at the next free place --
+    /// fail the build rather than share a count.
+    const fn slot(self) -> Slot {
+        match self {
+            Counter::CellsCompared => Slot(0),
+            Counter::CellsCopied => Slot(1),
+            Counter::CellsConverted => Slot(2),
+            Counter::BidiRowsLaid => Slot(3),
+            Counter::OverlayCellsBuilt => Slot(4),
+            Counter::PictureCellsScanned => Slot(5),
+            Counter::LinkInstancesBuilt => Slot(6),
+            Counter::ImageTablesBuilt => Slot(7),
+            Counter::InstancesTallied => Slot(8),
+            Counter::DisplaysLaid => Slot(9),
+            Counter::GensRead => Slot(10),
+            Counter::ImagePixelsBlitted => Slot(11),
         }
     }
 }
+
+/// **A counter's place in a site's row** (`Counter::slot`).
+#[derive(Clone, Copy)]
+struct Slot(usize);
+
+// **Each counter's place is its place in `Counter::ALL`, and `ALL` holds
+// every counter**, checked as the crate compiles. Each place in `ALL`
+// names the counter whose place it is, so `ALL`'s counters are all
+// different; and `ALL` is as long as the enum has variants
+// (`core::mem::variant_count`, as `baud-domain`'s `ModeBit` counts its
+// own), so it holds every one, and each counter's place is its own. A
+// counter left out of `ALL` -- two branches each adding one at the next
+// free place, merged keeping one entry -- or a place given twice is an
+// error here, where a match spelled by hand would compile and count two
+// counters as one. (Not the discriminant cast: the audit holds this
+// crate's sources at no raw cast, `xtask/src/audit.rs`.)
+const _: () = {
+    assert!(
+        Counter::ALL.len() == core::mem::variant_count::<Counter>(),
+        "a counter is missing from Counter::ALL"
+    );
+    let mut i = 0;
+    while i < Counter::ALL.len() {
+        assert!(
+            Counter::ALL[i].slot().0 == i,
+            "a counter's place is not its place in Counter::ALL"
+        );
+        i += 1;
+    }
+};
 
 /// **Where in a frame a count was made.**
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -136,7 +194,7 @@ pub enum Site {
     Pictures,
     /// The link records.
     Links,
-    /// The image placements' tables.
+    /// The image placements: their tables, and their pixels blitted.
     Images,
     /// The frame's totals of its instances (`crate::per_row`).
     Totals,
@@ -243,21 +301,10 @@ mod on {
             const { [const { [const { Cell::new(Tally::ZERO) }; COUNTERS] }; SITES] };
     }
 
-    /// `counter`'s place in a site's row, kept in [`Counter::ALL`]'s order.
+    /// `counter`'s place in a site's row, its place in [`Counter::ALL`]
+    /// (`Counter::slot`).
     fn slot<T>(of: &[T; COUNTERS], counter: Counter) -> &T {
-        match counter {
-            Counter::CellsCompared => &of[0],
-            Counter::CellsCopied => &of[1],
-            Counter::CellsConverted => &of[2],
-            Counter::BidiRowsLaid => &of[3],
-            Counter::OverlayCellsBuilt => &of[4],
-            Counter::PictureCellsScanned => &of[5],
-            Counter::LinkInstancesBuilt => &of[6],
-            Counter::ImageTablesBuilt => &of[7],
-            Counter::InstancesTallied => &of[8],
-            Counter::DisplaysLaid => &of[9],
-            Counter::GensRead => &of[10],
-        }
+        &of[counter.slot().0]
     }
 
     /// `site`'s row, kept in [`Site::ALL`]'s order.

@@ -208,12 +208,15 @@ impl Pixel {
 /// over its own last blit.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ImageAlpha {
-    /// Every pixel opaque or clear: a blit over the pixel the last one left
-    /// changes nothing, so the rows under a still image need no repaint. A
-    /// Sixel is always this.
+    /// Every pixel opaque or clear: drawn over anything, each pixel is
+    /// itself or leaves what is under it, so a second blit over the first
+    /// changes nothing. A Sixel is always this.
     OpaqueOrClear,
-    /// Some pixel partly transparent: a second blit over the first blends
-    /// it twice, so the rows under it are repainted on every frame it is on.
+    /// Some pixel partly transparent: it is blended with what is under it,
+    /// so a second blit over the first blends it twice. A renderer that
+    /// keeps its last frame never blits it over its own last blit
+    /// (`baud-render` blits every image only into the rows a frame
+    /// repaints).
     Partial,
 }
 
@@ -342,16 +345,20 @@ impl ImageId {
     }
 }
 
-/// A monotonic epoch bumped whenever the set of stored images changes -- a
-/// `store`, a `free`, an `unplace` that drops an image, or a `reset`.
+/// A monotonic epoch bumped whenever the set of stored images or any
+/// image's pixels change -- a `store`, an edit, a `free`, an `unplace` that
+/// drops an image, or a `reset` -- each through `ImageStore::moved`.
 ///
-/// A GPU texture cache keyed on `(generation, id)` drops stale textures
-/// without a per-image generation: an image slot reused after a `reset` (RIS)
-/// lands under a new epoch, so the cache cannot return the old texture for a
-/// reused id. Per-slot generations -- so adding one image does not invalidate
-/// the textures of the others -- are the follow-on if images ever churn per
-/// frame; the corpus stores an image a handful of times a session, so the
-/// coarse epoch re-uploads nothing that is hot.
+/// A GPU texture cache keyed on `(generation, id)` drops stale textures:
+/// an image slot reused after a `reset` (RIS) lands under a new epoch, so
+/// the cache cannot return the old texture for a reused id. The corpus
+/// stores an image a handful of times a session, so the coarse key
+/// re-uploads nothing that is hot. **Which images a move drew is kept per
+/// slot as well** (`ImageSlot::drawn`, read through
+/// [`ImageStore::since`]), so a renderer that has to know whether one
+/// image's pixels moved since an epoch -- the CPU path's kept frame, which
+/// places nothing -- asks of that image and not of the store's every
+/// change.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct ImageGen(u32);
 
@@ -367,6 +374,41 @@ impl ImageGen {
     fn bumped(self) -> ImageGen {
         ImageGen(self.0.wrapping_add(1))
     }
+
+    /// **Whether this epoch is `then` or later**, both taken at or before
+    /// `now`: counted back from `now`, so the 32-bit epoch wrapping between
+    /// them reads right as long as fewer than 2^32 moves lie between the
+    /// older and `now`.
+    fn at_or_after(self, then: ImageGen, now: ImageGen) -> bool {
+        now.0.wrapping_sub(self.0) <= now.0.wrapping_sub(then.0)
+    }
+}
+
+/// **Whether an image still shows the pixels it showed at an epoch**
+/// ([`ImageStore::since`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ImageSince {
+    /// The image is not held: freed, still decoding, or its slot holding
+    /// another image now.
+    Gone,
+    /// Held, and its pixels were written at or after that epoch.
+    Redrawn,
+    /// Held, and no pixel of it written since.
+    Same,
+}
+
+/// **Which images' pixels an epoch move wrote** ([`ImageStore::moved`]):
+/// every move names one, so no change to an image's pixels moves the epoch
+/// without its slot being stamped (`ImageSlot::drawn`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Drew {
+    /// The image in this slot: stamped by the move.
+    Slot(usize),
+    /// Each slot whose pixels the caller wrote, stamped by the caller
+    /// ([`ImageStore::drew`]) before the move.
+    Stamped,
+    /// None: images freed (their slots emptied) or placements dropped.
+    Freed,
 }
 
 /// **Which image stored in a store's life**: every image stored takes the
@@ -996,6 +1038,12 @@ pub struct ImageSlot {
     /// Whether a register number for each pixel follows its pixels in its
     /// span: a Sixel drawn under shared colour registers ([`Plane`]).
     plane: Plane,
+    /// **The store's epoch when its pixels were last written**, taken
+    /// before the move that write makes ([`ImageStore::moved`]): its pixels
+    /// moved since epoch `e` exactly when this is `e` or later
+    /// ([`ImageStore::since`]). A stamp taken where nothing then moved
+    /// reads as a write, never the other way.
+    drawn: ImageGen,
 }
 
 /// **Whether an image keeps the colour register each pixel was drawn
@@ -1058,6 +1106,7 @@ impl ImageSlot {
         ground: ImageGround::Clear,
         anim: frames::Frames::ONE,
         plane: Plane::None,
+        drawn: ImageGen::ZERO,
     };
 
     fn is_empty(self) -> bool {
@@ -2001,11 +2050,54 @@ impl<'b> ImageStore<'b> {
         self.rescan(ImageScreen::Alternate);
     }
 
-    /// The store's epoch: bumped on every `store`, `free`, `reset`, and every
-    /// `unplace` that drops an image. A GPU texture cache keyed on it and the
-    /// [`ImageId`] survives an image being freed and its slot reused.
+    /// The store's epoch: bumped on every `store`, every write to an
+    /// image's pixels, `free`, `reset`, and every `unplace` that drops an
+    /// image. A GPU texture cache keyed on it and the [`ImageId`] survives
+    /// an image being freed and its slot reused.
     pub fn generation(&self) -> ImageGen {
         self.epoch
+    }
+
+    /// **Whether image `id`, stored at `born`, still shows the pixels it
+    /// showed at epoch `then`**: [`ImageSince::Gone`] if no image stored at
+    /// `born` is held under `id` -- freed, still decoding, or its slot
+    /// holding another image now, which `born` tells apart -- else
+    /// [`ImageSince::Redrawn`] if its pixels were written at or after
+    /// `then` (`ImageSlot::drawn`), and [`ImageSince::Same`] if not. Per
+    /// image, where [`ImageStore::generation`] moves for every image's
+    /// change. The frame an animation shows is not a write:
+    /// [`ImageView::frame`] says which.
+    pub fn since(&self, id: ImageId, born: ImageAge, then: ImageGen) -> ImageSince {
+        let held = id
+            .index()
+            .and_then(|i| self.slots.get(i))
+            .filter(|s| !s.is_empty() && s.state != ImageState::Decoding && s.born == born);
+        match held {
+            None => ImageSince::Gone,
+            Some(s) if s.drawn.at_or_after(then, self.epoch) => ImageSince::Redrawn,
+            Some(_) => ImageSince::Same,
+        }
+    }
+
+    /// **The one move of the epoch**, naming the images whose pixels it
+    /// wrote ([`Drew`]): a slot it stamps, the slots the caller stamped
+    /// ([`ImageStore::drew`]), or none. Each stamp is the epoch before the
+    /// move, so an image written after a renderer took the epoch reads as
+    /// written since it ([`ImageStore::since`]).
+    fn moved(&mut self, drew: Drew) {
+        if let Drew::Slot(i) = drew {
+            self.drew(i);
+        }
+        self.epoch = self.epoch.bumped();
+    }
+
+    /// Stamps slot `i`'s pixels written at the epoch now, before the move
+    /// a write makes ([`Drew::Stamped`]).
+    fn drew(&mut self, i: usize) {
+        let now = self.epoch;
+        if let Some(s) = self.slots.get_mut(i) {
+            s.drawn = now;
+        }
     }
 
     /// Reserve a `width` x `height` span and return its id and the slice to
@@ -2100,7 +2192,6 @@ impl<'b> ImageStore<'b> {
             self.refuse(ImageRefusal::Arena(width, height));
             return None;
         };
-        self.epoch = self.epoch.bumped();
         self.stored = self.stored.next();
         self.slots[slot] = ImageSlot {
             offset,
@@ -2115,7 +2206,9 @@ impl<'b> ImageStore<'b> {
             ground: ImageGround::Clear,
             anim: frames::Frames::ONE,
             plane,
+            drawn: ImageGen::ZERO,
         };
+        self.moved(Drew::Slot(slot));
         self.tallest = self.tallest.max(height);
         Some(ImageId::from_index(slot))
     }
@@ -2145,18 +2238,23 @@ impl<'b> ImageStore<'b> {
                 continue;
             }
             let (px, plane) = self.pixels[s.start()..s.end()].split_at_mut(s.area());
+            let mut this = false;
             for (p, &r) in px.iter_mut().zip(plane.as_bytes()) {
                 if *p == Pixel::CLEAR || *p == Pixel::FILL {
                     continue;
                 }
                 if let Some(c) = colour(r).filter(|c| c != p) {
                     *p = c;
-                    changed = true;
+                    this = true;
                 }
+            }
+            if this {
+                self.drew(i);
+                changed = true;
             }
         }
         if changed {
-            self.epoch = self.epoch.bumped();
+            self.moved(Drew::Stamped);
         }
     }
 
@@ -2449,7 +2547,10 @@ impl<'b> ImageStore<'b> {
     /// cache keyed on it uploads the pixels now there.
     pub fn complete(&mut self, id: ImageId, alpha: ImageAlpha) {
         // The probe is never shown, so completing it changes nothing.
-        let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) else {
+        let Some(i) = id.index() else {
+            return;
+        };
+        let Some(s) = self.slots.get_mut(i) else {
             return;
         };
         if s.is_empty() {
@@ -2457,7 +2558,7 @@ impl<'b> ImageStore<'b> {
         }
         s.state = ImageState::Ready;
         s.alpha = alpha;
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Slot(i));
     }
 
     /// The size of a live image, decoding or not.
@@ -2613,7 +2714,7 @@ impl<'b> ImageStore<'b> {
         if s.placements.index() == 0 && (free == KittyFree::Data || s.goes_with_placements()) {
             self.forget(i);
             self.images_dropped += 1;
-            self.epoch = self.epoch.bumped();
+            self.moved(Drew::Freed);
         }
     }
 
@@ -2831,7 +2932,7 @@ impl<'b> ImageStore<'b> {
             // pages go back as every other free's do.
             self.forget(i);
             self.images_dropped += 1;
-            self.epoch = self.epoch.bumped();
+            self.moved(Drew::Freed);
         }
     }
 
@@ -3064,7 +3165,7 @@ impl<'b> ImageStore<'b> {
         if s.placements.index() == 0 {
             self.forget(i);
             self.images_dropped += 1;
-            self.epoch = self.epoch.bumped();
+            self.moved(Drew::Freed);
         }
     }
 
@@ -3111,7 +3212,7 @@ impl<'b> ImageStore<'b> {
             }
         }
         if n > 0 {
-            self.epoch = self.epoch.bumped();
+            self.moved(Drew::Freed);
         }
         n
     }
@@ -3195,10 +3296,12 @@ impl<'b> ImageStore<'b> {
         if s.state == ImageState::Decoding {
             return None;
         }
-        // The frame shown; an animated image's frames change under a
-        // renderer that keeps its last blit, so it is repainted under as
-        // a partial one is. A picture's frames are its canvas, which holds
-        // the frame composed last.
+        // The frame shown. An animated image is marked partly transparent
+        // whatever its slot's mark says: that mark is taken from the pixels
+        // while the image has one frame alone (`image/frames.rs`), and no
+        // other frame's pixels are marked, so a frame shown later is
+        // blended as one that may be. A picture's frames are its canvas,
+        // which holds the frame composed last.
         let (at, frame) = match s.anim.layout() {
             frames::FrameLayout::Whole => (
                 s.start() + s.anim.shown_index() * s.area(),
@@ -3358,7 +3461,10 @@ impl<'b> ImageStore<'b> {
                 .lit
                 .map(|n| n.saturating_sub(before).saturating_add(after));
         }
-        self.epoch = self.epoch.bumped();
+        for i in [page.index(), plane.index()].into_iter().flatten() {
+            self.drew(i);
+        }
+        self.moved(Drew::Stamped);
         // A clear that would have freed the page while it showed another
         // plane frees it now, if its own shows nothing.
         if was == PageShows::OtherCleared && self.page_shows == PageShows::Own {
@@ -3439,7 +3545,13 @@ impl<'b> ImageStore<'b> {
         self.link_page(new, plane);
         self.page_shows = shows;
         self.free_if_unlit(old);
-        self.epoch = self.epoch.bumped();
+        for i in [old.index(), new.index(), plane.index()]
+            .into_iter()
+            .flatten()
+        {
+            self.drew(i);
+        }
+        self.moved(Drew::Stamped);
         true
     }
 
@@ -3645,7 +3757,8 @@ impl<'b> ImageStore<'b> {
                 }
             }
         }
-        self.epoch = self.epoch.bumped();
+        self.drew_page(id);
+        self.moved(Drew::Stamped);
         was_lit
     }
 
@@ -3702,7 +3815,7 @@ impl<'b> ImageStore<'b> {
         if left == 0 && s.goes_with_placements() {
             self.forget(i);
             self.images_dropped += 1;
-            self.epoch = self.epoch.bumped();
+            self.moved(Drew::Freed);
         }
     }
 
@@ -3746,7 +3859,7 @@ impl<'b> ImageStore<'b> {
         self.forget(i);
         self.trim();
         self.images_dropped += 1;
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Freed);
     }
 
     /// Every live placement, for the renderer to draw. Order is slot order, not
@@ -3786,7 +3899,7 @@ impl<'b> ImageStore<'b> {
         self.reach = [None; 2];
         self.tallest = ImagePx::ZERO;
         self.probe_size = None;
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Freed);
     }
 
     /// Whether any placement is live -- the O(1) gate for the write path's
@@ -4523,6 +4636,7 @@ impl<'b> ImageStore<'b> {
                         .lit
                         .map(|n| n.saturating_sub(before).saturating_add(after));
                 }
+                self.drew_page(slot.image);
                 self.free_if_unlit(slot.image);
                 moved = true;
                 continue;
@@ -4552,11 +4666,24 @@ impl<'b> ImageStore<'b> {
             // after: the page's count, over the pixels the move copied.
             let after = self.lit_in(img, (x0, y0, x1, y1));
             self.unlit(slot.image, before.saturating_sub(after));
+            self.drew_page(slot.image);
             self.free_if_unlit(slot.image);
             moved = true;
         }
         if moved {
-            self.epoch = self.epoch.bumped();
+            self.moved(Drew::Stamped);
+        }
+    }
+
+    /// Stamps ReGIS page `page` written ([`ImageStore::drew`]), and the
+    /// plane it is drawn from with it when it is the page being drawn.
+    fn drew_page(&mut self, page: ImageId) {
+        let plane = self.page_plane.filter(|&(p, _)| p == page);
+        for i in [page.index(), plane.and_then(|(_, pl)| pl.index())]
+            .into_iter()
+            .flatten()
+        {
+            self.drew(i);
         }
     }
 
@@ -4607,7 +4734,7 @@ impl<'b> ImageStore<'b> {
         way: BandMove,
     ) {
         let s = self.slots[i];
-        self.move_rects(&s, cols, rows, k, way);
+        self.move_rects(i, cols, rows, k, way);
         if s.lit.is_some() {
             let (w, h) = (s.width.index(), s.height.index());
             self.slots[i].lit = Some(self.lit_in(s, (0, 0, w, h)));
@@ -4701,8 +4828,14 @@ impl<'b> ImageStore<'b> {
                     self.place(id, screen, s.line, Col::at_index(l.max(c0)), s.z),
                 )
             });
+            // The original's pixels inside the margins move or are cleared
+            // either way.
+            self.drew(i);
             match placed {
                 Some((id, pid)) if !pid.is_none() => {
+                    if let Some(j) = id.index() {
+                        self.drew(j);
+                    }
                     let to = id.index().map_or(0, |j| self.slots[j].start());
                     for y in 0..h {
                         let from = img.start() + y * w;
@@ -4759,7 +4892,7 @@ impl<'b> ImageStore<'b> {
                 }
             }
         }
-        self.epoch = self.epoch.bumped();
+        self.moved(Drew::Stamped);
     }
 
     fn is_regis(&self, s: PlacementSlot) -> bool {
@@ -4889,5 +5022,100 @@ fn hang(n: i64) -> (usize, usize) {
     match usize::try_from(n) {
         Ok(n) => (n, 0),
         Err(_) => (0, usize::try_from(n.unsigned_abs()).unwrap_or(usize::MAX)),
+    }
+}
+
+#[cfg(test)]
+mod since_tests {
+    use super::*;
+
+    /// **An image written after an epoch reads as written since it, and
+    /// only that image** ([`ImageStore::since`]): two images stored, the
+    /// epoch taken, the second's pixels marked written (`complete`, which
+    /// moves the epoch for it). The first is the same, the second redrawn;
+    /// the first freed is gone, and gone still once another image takes
+    /// its slot, which its `born` tells apart. The control: the epoch moved.
+    #[test]
+    fn an_image_written_after_an_epoch_reads_as_written_since_it_alone() {
+        let mut pixels = [Pixel::CLEAR; 64];
+        let mut slots = [ImageSlot::EMPTY; 4];
+        let mut placements = [PlacementSlot::EMPTY; 4];
+        let mut index = [PlacementId::NONE; 8];
+        let mut s = ImageStore::new(&mut pixels, &mut slots, &mut placements, &mut index);
+        let two = ImagePx::of(2);
+        let a = s
+            .store(two, two, ImageAlpha::OpaqueOrClear)
+            .expect("A stored")
+            .0;
+        let b = s
+            .store(two, two, ImageAlpha::OpaqueOrClear)
+            .expect("B stored")
+            .0;
+        let (a_born, b_born) = (s.born(a).expect("A's age"), s.born(b).expect("B's age"));
+        let then = s.generation();
+        assert_eq!(s.since(a, a_born, then), ImageSince::Same);
+        assert_eq!(s.since(b, b_born, then), ImageSince::Same);
+        s.complete(b, ImageAlpha::OpaqueOrClear);
+        assert_ne!(s.generation(), then, "the control: the epoch moved");
+        assert_eq!(s.since(a, a_born, then), ImageSince::Same, "A not written");
+        assert_eq!(s.since(b, b_born, then), ImageSince::Redrawn, "B written");
+        s.free(a);
+        assert_eq!(s.since(a, a_born, then), ImageSince::Gone, "A freed");
+        let c = s
+            .store(two, two, ImageAlpha::OpaqueOrClear)
+            .expect("C stored")
+            .0;
+        assert_eq!(c, a, "the premise: C takes A's slot");
+        assert_eq!(
+            s.since(a, a_born, then),
+            ImageSince::Gone,
+            "A's id holds another image"
+        );
+    }
+
+    /// **The epoch wrapping between two stamps reads right**: counted back
+    /// from the epoch now, a stamp taken after `then` is at or after it on
+    /// either side of the wrap, one taken before is not.
+    #[test]
+    fn a_stamp_reads_after_an_epoch_across_the_wrap() {
+        let (then, now) = (ImageGen(u32::MAX - 2), ImageGen(5));
+        assert!(then.at_or_after(then, now), "then itself");
+        assert!(
+            ImageGen(u32::MAX).at_or_after(then, now),
+            "after, before the wrap"
+        );
+        assert!(ImageGen(3).at_or_after(then, now), "after, past the wrap");
+        assert!(now.at_or_after(then, now), "now");
+        assert!(!ImageGen(u32::MAX - 3).at_or_after(then, now), "before");
+    }
+
+    /// **The epoch moves in one place**, [`ImageStore::moved`], which names
+    /// the images each move wrote ([`Drew`]): nowhere in the store's code
+    /// is it assigned otherwise, so no write to an image's pixels moves it
+    /// without stamping that image. A source check over `image.rs` and the
+    /// frames' two files, with a control: the one assignment is found.
+    #[test]
+    fn the_epoch_moves_only_through_moved() {
+        let needle = concat!("self.", "epoch = ");
+        let files = [
+            ("image.rs", include_str!("image.rs")),
+            ("image/frames.rs", include_str!("image/frames.rs")),
+            (
+                "image/frames/records.rs",
+                include_str!("image/frames/records.rs"),
+            ),
+        ];
+        let mut found = 0;
+        for (name, src) in files {
+            for (at, _) in src.match_indices(needle) {
+                found += 1;
+                let head = src[..at].rfind("fn ").map(|f| &src[f..at]);
+                assert!(
+                    head.is_some_and(|h| h.starts_with("fn moved(")),
+                    "{name}: the epoch assigned outside ImageStore::moved"
+                );
+            }
+        }
+        assert_eq!(found, 1, "the control: the one assignment, in moved");
     }
 }
