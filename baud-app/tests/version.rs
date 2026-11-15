@@ -1,7 +1,9 @@
 //! **baud's version, and the two places outside Cargo that spell it.**
 //!
-//! The version is `1.0.0-beta`, then `1.0.0-beta.N`: SemVer orders the bare
-//! one first. The workspace version is the one source:
+//! The version is `1.0.0-unstable`, then `1.0.0-unstable.N`: SemVer orders
+//! the bare one first, and the series goes from there to `1.0.0`, never
+//! through an `-rc`, which sorts below every `-unstable`
+//! (`release-plz.toml` has the rule). The workspace version is the one source:
 //! every crate inherits it, `build.rs` adds the build's identifier after a
 //! `+` for what the app says of itself -- `TERM_PROGRAM_VERSION` and
 //! XTVERSION among it (`baud-app/src/pty.rs` holds those two to each other),
@@ -42,14 +44,15 @@ fn integer(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) && (s == "0" || !s.starts_with('0'))
 }
 
-/// The scheme: `1.0.0-beta`, or `1.0.0-beta.N` with N a positive integer.
+/// The scheme: `1.0.0-unstable`, or `1.0.0-unstable.N` with N a positive
+/// integer.
 #[test]
-fn the_version_is_the_beta_scheme() {
+fn the_version_is_the_unstable_scheme() {
     let v = workspace_version();
-    if v != "1.0.0-beta" {
+    if v != "1.0.0-unstable" {
         let n = v
-            .strip_prefix("1.0.0-beta.")
-            .unwrap_or_else(|| panic!("{v} is neither 1.0.0-beta nor 1.0.0-beta.N"));
+            .strip_prefix("1.0.0-unstable.")
+            .unwrap_or_else(|| panic!("{v} is neither 1.0.0-unstable nor 1.0.0-unstable.N"));
         assert!(integer(n) && n != "0", "{v}: N is a positive integer");
     }
     assert_eq!(env!("CARGO_PKG_VERSION"), v, "the baud package inherits it");
@@ -113,8 +116,9 @@ fn the_bundle_says_the_version_as_apple_allows() {
 /// **Every version of the scheme reaches the plist, and no other does**: the
 /// script run from a copy of what it reads, each version in that copy's
 /// manifest, so the next bump is tested before it happens. Without this the
-/// script stops, and with it the nix package. Perturbation: take `-beta` out
-/// of its pattern, or make the `.N` required.
+/// script stops, and with it the nix package. Perturbation: take `-unstable`
+/// out of its pattern, or make the `.N` required; let it take any letters and
+/// the `-rc` and the old `-beta` are written.
 #[test]
 fn the_bundle_takes_each_shape_of_the_scheme() {
     let plist_of = |version: &str, at: &str| {
@@ -143,8 +147,8 @@ fn the_bundle_takes_each_shape_of_the_scheme() {
     };
     for (at, version, short) in [
         ("release", "1.2.3", "1.2.3"),
-        ("bare", "1.2.3-beta", "1.2.3"),
-        ("numbered", "1.2.3-beta.4", "1.2.3"),
+        ("bare", "1.2.3-unstable", "1.2.3"),
+        ("numbered", "1.2.3-unstable.4", "1.2.3"),
     ] {
         let out = plist_of(version, at);
         assert!(
@@ -160,10 +164,13 @@ fn the_bundle_takes_each_shape_of_the_scheme() {
         );
     }
     for (at, version) in [
-        ("empty-number", "1.2.3-beta."),
-        ("zero-led", "1.2.3-beta.01"),
-        ("two-numbers", "1.2.3-beta.1.2"),
+        ("empty-number", "1.2.3-unstable."),
+        ("zero-led", "1.2.3-unstable.01"),
+        ("two-numbers", "1.2.3-unstable.1.2"),
         ("alpha", "1.2.3-alpha"),
+        ("beta", "1.2.3-beta"),
+        ("rc", "1.2.3-rc.1"),
+        ("capital", "1.2.3-Unstable"),
         ("two-parts", "1.2"),
     ] {
         let out = plist_of(version, at);
@@ -301,8 +308,8 @@ fn no_git_is_unknown() {
     }
     assert!(build_id::is_build_metadata(build_id::UNKNOWN));
     assert_eq!(
-        build_id::full("1.0.0-beta", build_id::UNKNOWN),
-        "1.0.0-beta+unknown"
+        build_id::full("1.0.0-unstable", build_id::UNKNOWN),
+        "1.0.0-unstable+unknown"
     );
 }
 

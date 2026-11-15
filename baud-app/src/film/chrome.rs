@@ -593,7 +593,7 @@ mod tests {
 
     /// The build's name in these tests, whatever this build is called, so
     /// the layout pinned below is not a commit's.
-    const VERSION: &str = "1.0.0-beta+0123abc.dirty";
+    const VERSION: &str = "1.0.0-unstable+0123abc.dirty";
 
     /// The lights' columns at `scale`, as the strip has them.
     fn columns_at(scale: CGFloat) -> Columns {
@@ -879,7 +879,7 @@ mod tests {
     /// `layout.plate` fails the narrow ones.
     #[test]
     fn the_composed_strip_makes_the_apps_choice_of_form() {
-        let v = "1.0.0-beta+0123abc";
+        let v = "1.0.0-unstable+0123abc";
         let wide = whole(1920.0);
         // How many of the strip's pixels are the colour, exactly.
         let inked = |s: &Strip, colour: Argb| s.ground.iter().filter(|p| **p == colour.0).count();
@@ -921,7 +921,7 @@ mod tests {
     /// `Lockup::for_appearance(appearance)` in `Strip::of` for the second.
     #[test]
     fn a_theme_of_the_windows_half_keeps_its_form() {
-        let v = "1.0.0-beta+0123abc";
+        let v = "1.0.0-unstable+0123abc";
         for (theme, window, other) in [
             (Theme::dark(), Appearance::Dark, Appearance::Light),
             (Theme::light(), Appearance::Light, Appearance::Dark),
@@ -997,7 +997,7 @@ mod tests {
                     let s = Strip::of(
                         width,
                         scale,
-                        "1.0.0-beta+0123abc",
+                        "1.0.0-unstable+0123abc",
                         theme.clone(),
                         ground,
                         appearance,

@@ -150,15 +150,18 @@ mod tests {
     /// and from a named one.**
     #[test]
     fn the_lines_say_the_build() {
-        assert_eq!(line("1.0.0-beta+abc1234"), "baud 1.0.0-beta+abc1234");
+        assert_eq!(
+            line("1.0.0-unstable+abc1234"),
+            "baud 1.0.0-unstable+abc1234"
+        );
         assert_eq!(line(BUILD), format!("baud {BUILD}"));
         assert_eq!(
-            about_line("1.0.0-beta+abc1234.dirty"),
-            "Version 1.0.0-beta (abc1234.dirty)"
+            about_line("1.0.0-unstable+abc1234.dirty"),
+            "Version 1.0.0-unstable (abc1234.dirty)"
         );
         assert_eq!(
-            about_line("1.0.0-beta.2+abc1234"),
-            "Version 1.0.0-beta.2 (abc1234)"
+            about_line("1.0.0-unstable.2+abc1234"),
+            "Version 1.0.0-unstable.2 (abc1234)"
         );
         assert_eq!(about_line("1.0.0+unknown"), "Version 1.0.0 (unknown)");
         assert_eq!(about_line("1.0.0"), "Version 1.0.0");
@@ -175,13 +178,13 @@ mod tests {
     /// dropped fails its line.
     #[test]
     fn version_says_the_copyright_the_licence_and_where_credits_are() {
-        let text = text("1.0.0-beta+abc1234");
+        let text = text("1.0.0-unstable+abc1234");
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(
-            lines[0], "baud 1.0.0-beta+abc1234",
+            lines[0], "baud 1.0.0-unstable+abc1234",
             "the first line, as scripts read it"
         );
-        assert_eq!(lines[0], line("1.0.0-beta+abc1234"));
+        assert_eq!(lines[0], line("1.0.0-unstable+abc1234"));
         let (copyright, licence) = notice();
         assert_eq!(lines[1], copyright);
         assert_eq!(lines[2], licence);
@@ -273,17 +276,17 @@ mod tests {
     fn no_age_without_a_commit_and_its_time() {
         let at = |secs| std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs);
         assert_eq!(released("1.0.0+unknown", "1794042906"), None);
-        assert_eq!(released("1.0.0-beta+0123abc", ""), None);
-        assert_eq!(released("1.0.0-beta+0123abc", "0"), None);
-        assert_eq!(released("1.0.0-beta+0123abc", "-5"), None);
-        assert_eq!(released("1.0.0-beta+0123abc", "17940x"), None);
+        assert_eq!(released("1.0.0-unstable+0123abc", ""), None);
+        assert_eq!(released("1.0.0-unstable+0123abc", "0"), None);
+        assert_eq!(released("1.0.0-unstable+0123abc", "-5"), None);
+        assert_eq!(released("1.0.0-unstable+0123abc", "17940x"), None);
         assert_eq!(released("1.0.0", "1794042906"), None);
         assert_eq!(
-            released("1.0.0-beta+0123abc", "1794042906"),
+            released("1.0.0-unstable+0123abc", "1794042906"),
             Some(at(1_794_042_906))
         );
         assert_eq!(
-            released("1.0.0-beta+0123abc.dirty", "1794042906"),
+            released("1.0.0-unstable+0123abc.dirty", "1794042906"),
             Some(at(1_794_042_906))
         );
     }

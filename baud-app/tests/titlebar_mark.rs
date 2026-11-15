@@ -158,7 +158,7 @@ const SMALLEST: NSSize = NSSize::new(200.0, 100.0);
 
 /// The longest name a build has: seven digits of hash and `.dirty`.
 #[cfg(target_os = "macos")]
-const VERSION: &str = "1.0.0-beta+0123abc.dirty";
+const VERSION: &str = "1.0.0-unstable+0123abc.dirty";
 
 /// What the container is put in.
 #[cfg(target_os = "macos")]

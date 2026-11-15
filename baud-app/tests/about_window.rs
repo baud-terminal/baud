@@ -65,7 +65,7 @@ mod checks {
     use std::rc::Rc;
     use std::time::SystemTime;
 
-    const BUILD: &str = "1.0.0-beta+0123abc.dirty";
+    const BUILD: &str = "1.0.0-unstable+0123abc.dirty";
     /// A commit time as `build.rs` stamps it: 936f9c19's.
     const STAMP: &str = "1794042906";
     /// The profile a click on the picture goes to.
@@ -269,7 +269,7 @@ mod checks {
         )
         .expect("the window");
         let lines = about.lines();
-        assert_eq!(lines[0], "Version 1.0.0-beta (0123abc.dirty)");
+        assert_eq!(lines[0], "Version 1.0.0-unstable (0123abc.dirty)");
         assert_eq!(lines[1], "github.com/baud-terminal/baud");
         assert_eq!(
             about.link_url().as_deref(),
@@ -800,7 +800,7 @@ mod checks {
     fn the_block_is_centred_for_a_long_and_a_short_version(mtm: MainThreadMarker) {
         let (_, opens) = recorder();
         for (build, stamp) in [
-            ("1.0.0-beta.12+0123abc.dirty", STAMP),
+            ("1.0.0-unstable.12+0123abc.dirty", STAMP),
             ("1.0.0+unknown", ""),
         ] {
             let about =
@@ -964,8 +964,8 @@ mod checks {
             age.origin.y + age.size.height <= version.origin.y,
             "under the version"
         );
-        assert_eq!(signed.lines()[0], "Version 1.0.0-beta (0123abc.dirty)");
-        for (build, stamp) in [("1.0.0-beta+unknown", STAMP), (BUILD, "")] {
+        assert_eq!(signed.lines()[0], "Version 1.0.0-unstable (0123abc.dirty)");
+        for (build, stamp) in [("1.0.0-unstable+unknown", STAMP), (BUILD, "")] {
             let none = crate::about::build(mtm, build, stamp, bundled(None, face()), opens.clone())
                 .expect("the window");
             none.age_at(made + Duration::from_secs(60));
@@ -1052,9 +1052,9 @@ mod checks {
         );
         let blob = "https://github.com/baud-terminal/baud/blob";
         for (build, at) in [
-            ("1.0.0-beta.3+0123abc", "0123abc"),
-            ("1.0.0-beta.3+0123abc.dirty", "0123abc"),
-            ("1.0.0-beta.3+unknown", "baud-v1.0.0-beta.3"),
+            ("1.0.0-unstable.3+0123abc", "0123abc"),
+            ("1.0.0-unstable.3+0123abc.dirty", "0123abc"),
+            ("1.0.0-unstable.3+unknown", "baud-v1.0.0-unstable.3"),
         ] {
             let (got, opens) = recorder();
             let about = crate::about::build(mtm, build, "", bundled(None, None), opens)

@@ -23,13 +23,27 @@
 # from `CARGO_REGISTRY_TOKEN`. Nothing checks the order, the branch or
 # that the repository is public: whoever runs the release does.
 #
-# **The next version is release-plz's to set.** Once `1.0.0-beta` is on
-# crates.io, a commit since makes the next one `1.0.0-beta.1`, then
-# `1.0.0-beta.2`: on a pre-release every commit is a pre-release bump, which
-# adds one to a numeric last identifier and appends `.1` to any other, and a
-# bare `beta` is the other (`increment_prerelease` in its `next_version`
-# crate, whose tests pin `1.0.0-alpha` to `1.0.0-alpha.1`). A version not yet
-# published stays as it is. SemVer orders `1.0.0-beta` before `1.0.0-beta.1`.
+# **The next version is release-plz's to set.** Once `1.0.0-unstable` is on
+# crates.io, a commit since makes the next one `1.0.0-unstable.1`, then
+# `1.0.0-unstable.2`: on a pre-release every commit is a pre-release bump,
+# which adds one to a numeric last identifier and appends `.1` to any other,
+# and a bare `unstable` is the other (`increment_prerelease` in its
+# `next_version` crate, whose tests pin `1.0.0-alpha` to `1.0.0-alpha.1`). A
+# version not yet published stays as it is. SemVer orders `1.0.0-unstable`
+# before `1.0.0-unstable.1`: "A larger set of pre-release fields has a higher
+# precedence than a smaller set, if all of the preceding identifiers are
+# equal" (`[[source: semver]]`, rule 11.4.4).
+#
+# **The series goes from `-unstable` straight to `1.0.0`, never through an
+# `-rc`.** SemVer compares pre-release identifiers that hold letters
+# "lexically in ASCII sort order" (rule 11.4.2), so `beta` < `rc` <
+# `unstable` (b 0x62, r 0x72, u 0x75), and every `1.0.0-rc.N` sorts below
+# every `1.0.0-unstable.N`: an rc published after them would be older than
+# all of them by precedence. A release sorts above all of its pre-releases
+# (rule 11.3), so `1.0.0`, set in the manifest by hand, is the step out. The
+# identifier stays lowercase: ASCII puts every capital before every small
+# letter. `scripts/bundle-macos.sh` refuses any other pre-release, `-rc`
+# and `-beta` among them, and `baud-app/tests/version.rs` holds it to that.
 #
 # **A bump leaves `tools/` stale, and a Release PR has to carry the repair.**
 # `baud-fontbuild` depends on `baud-font`, so `tools/Cargo.lock` names the
@@ -59,14 +73,14 @@
 git_release_enable = false
 
 # "auto" marks a version carrying a pre-release suffix as a GitHub
-# pre-release, so a beta does not present itself as the latest stable
-# download.
+# pre-release, so an unstable version does not present itself as the latest
+# stable download.
 git_release_type = "auto"
 
 # cargo-semver-checks before each release: a breaking change proposed as a
 # patch bump is rejected and the version escalated. Every bump between
 # pre-release versions is a major change, which permits anything, so this
-# guards nothing during the 1.0.0-beta series; it is on so that it starts
+# guards nothing during the 1.0.0-unstable series; it is on so that it starts
 # working by itself after 1.0.0.
 semver_check = true
 

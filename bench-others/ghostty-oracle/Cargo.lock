@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "baud-core"
-version = "1.0.0-beta"
+version = "1.0.0-unstable"
 dependencies = [
  "baud-domain",
  "baud-isa",
@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "baud-domain"
-version = "1.0.0-beta"
+version = "1.0.0-unstable"
 dependencies = [
  "baud-tablegen",
  "zerocopy",
@@ -21,14 +21,14 @@ dependencies = [
 
 [[package]]
 name = "baud-isa"
-version = "1.0.0-beta"
+version = "1.0.0-unstable"
 dependencies = [
  "baud-domain",
 ]
 
 [[package]]
 name = "baud-isa-aarch64"
-version = "1.0.0-beta"
+version = "1.0.0-unstable"
 dependencies = [
  "baud-domain",
  "baud-isa",
@@ -36,7 +36,7 @@ dependencies = [
 
 [[package]]
 name = "baud-tablegen"
-version = "1.0.0-beta"
+version = "1.0.0-unstable"
 
 [[package]]
 name = "ghostty-oracle"

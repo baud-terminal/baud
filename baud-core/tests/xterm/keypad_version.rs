@@ -115,7 +115,7 @@ fn xtversion_names_baud_and_its_version() {
 /// `VersionText::PACKAGE` in `Paint::want_reply` and this fails.
 #[test]
 fn xtversion_names_what_the_embedder_tells() {
-    const TOLD: &str = "1.0.0-beta+0123abc.dirty.and.a.longer.tail";
+    const TOLD: &str = "1.0.0-unstable+0123abc.dirty.and.a.longer.tail";
     static TEXT: VersionText = match VersionText::new(TOLD) {
         Some(t) => t,
         None => panic!("printable, and within the bound"),
@@ -149,7 +149,7 @@ fn xtversion_names_what_the_embedder_tells() {
 /// text told, as they keep the `TERM` XTGETTCAP names.
 #[test]
 fn a_reset_keeps_the_version_told() {
-    const TOLD: &str = "1.0.0-beta+abc1234";
+    const TOLD: &str = "1.0.0-unstable+abc1234";
     static TEXT: VersionText = match VersionText::new(TOLD) {
         Some(t) => t,
         None => panic!("told"),
