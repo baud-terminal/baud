@@ -10050,8 +10050,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .copied()
             .unwrap_or_default();
         let orders = self.bidi.orders();
+        // Only a row of the window takes a selection, as `convert_row`
+        // draws it: the status line's row and the notice rows after it are
+        // asked nothing, though a selection's unclipped ends run onto them.
         let selected = match self
             .highlight
+            .filter(|_| self.is_window_row(row))
             .is_some_and(|h| orders.selects(&h, row, orders.logical_col(row, col), cell.content))
         {
             true => Selected::Yes,
@@ -10537,6 +10541,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The main display's rows, above the status line's.
     pub fn main_rows(&self) -> Rows {
         self.main
+    }
+
+    /// Whether frame row `r` is a row of the window: one of the main
+    /// display's, above the status line's row and the notice rows after it.
+    fn is_window_row(&self, r: Row) -> bool {
+        r.index() < self.main.index()
     }
 
     /// **The status line's row, converted as the instance path converts a
@@ -13983,6 +13993,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .extend((0..n).map(|v| orders.stored_line_at(r, logical_of(Col::at_index(v)))));
         }
         let stored = &scratch.stored[..];
+        // **Only a row of the window takes a selection.** The status line's
+        // row and the notice rows after it are no line of the window, but a
+        // selection's unclipped ends (`Highlight::ends`) run past the
+        // window's last row onto them when it ends below a scrolled-back
+        // window, so the selection is asked nothing there, and the hilite,
+        // which swaps only a selected cell, goes with it.
+        let highlight = self.highlight.filter(|_| self.is_window_row(r));
         let selects = |h: &Highlight, col: Col, content: baud_domain::Content| match stored
             .get(col.index())
         {
@@ -14133,10 +14150,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             blinks = blinks.with(Blinking::of(res.shapes));
             // A wide tail follows its lead, so a block's edge never cuts a
             // character in two: `Highlight::selects`.
-            let selected = if self
-                .highlight
-                .is_some_and(|h| selects(&h, col, cell.content))
-            {
+            let selected = if highlight.is_some_and(|h| selects(&h, col, cell.content)) {
                 Selected::Yes
             } else {
                 Selected::No

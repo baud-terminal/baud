@@ -10,9 +10,12 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{BytePos, Col, Cols, ReadLen, Row, Rows, WinSize};
+use baud_domain::{BytePos, Col, Cols, Content, ReadLen, Row, Rows, WinSize};
 use baud_font::Face;
-use baud_render::{Argb, Damage, Instance, Kind, Renderer, Theme};
+use baud_render::{
+    Argb, Damage, Grain, Ground, Highlight, Instance, Kind, Renderer, Scrolled, Selection, Span,
+    Theme,
+};
 use support::font;
 
 const WS: WinSize = WinSize {
@@ -270,5 +273,163 @@ fn a_target_a_row_short_takes_the_main_display_and_no_more() {
     assert!(
         short.pixels.iter().any(|&p| p & 0x00FF_FFFF != 0),
         "the main display's rows are painted"
+    );
+}
+
+/// A host-writable status line holding `AB`, and four lines on the main
+/// display, two of them retained, handed to `f` on a terminal of its own.
+fn scrolled_back<R>(f: impl FnOnce(&mut Term<'_>) -> R) -> R {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(
+        &mut t,
+        b"\x1b[?25l\x1b[2$~\x1b[1$}AB\x1b[0$}one\r\ntwo\r\nthree\r\nfour",
+    );
+    assert_eq!(t.scrollback().len(), 2, "two lines retained");
+    f(&mut t)
+}
+
+/// What one CPU frame drew on the status line's row, row 2, and on the
+/// window's cell `(0, 5)`, the controls: the backgrounds, glyphs and
+/// pixels it drew, and the grounds the renderer reports for them
+/// (`Renderer::grounds`, the instance path's second background pass).
+struct StatusDrawn {
+    control: Argb,
+    ground_control: Ground,
+    backgrounds: Vec<u32>,
+    glyphs: Vec<Instance>,
+    pixels: Vec<u32>,
+    grounds: Vec<Ground>,
+}
+
+/// One full CPU frame of [`scrolled_back`]'s window `back` lines up, on a
+/// renderer of its own with `highlight` set.
+fn status_drawn(faces: &[Face<'_>], back: Rows, highlight: Option<Highlight>) -> StatusDrawn {
+    scrolled_back(|t| {
+        let mut r = support::renderer(faces);
+        r.fit(t);
+        r.set_highlight(highlight);
+        let mut c = support::Canvas::for_renderer(&r);
+        {
+            let mut target = c.target();
+            r.render_at(t, back, &mut target, Damage::Full);
+        }
+        let line = Row::from_index(2);
+        let mut grounds = Vec::new();
+        r.grounds(&mut grounds);
+        StatusDrawn {
+            control: r.background()[5],
+            ground_control: grounds[5],
+            backgrounds: r.background()[24..36].iter().map(|&a| rgb(a)).collect(),
+            glyphs: glyphs_on(&r, line),
+            pixels: (0..12)
+                .flat_map(|x| cell_pixels(&r, &c, line, Col::at_index(x)))
+                .collect(),
+            grounds: grounds[24..36].to_vec(),
+        }
+    })
+}
+
+/// **A selection reaching below a scrolled-back window leaves the status
+/// line unselected.** Two lines up, a selection from the window's first
+/// cell to the live screen's last row ends past the window's bottom, so
+/// the row under the window, the status line's, is inside its unclipped
+/// ends (`Highlight::selects`), while its clipped corners, which the cell
+/// shader draws the window's backgrounds by, stop at the window
+/// (`Highlight::covers_row`). The status line is no line of the window,
+/// and no selection reaches it: drawn with the selection, on the cell path
+/// (`Renderer::status_records`) and on the CPU path (its row loop, which
+/// never calls `status_records`), the line is what a renderer with no
+/// selection draws, and the grounds the renderer reports for it after the
+/// CPU frame (`Renderer::grounds`) are that renderer's too. The controls:
+/// the selection is drawn on the window, and its ground reported there.
+/// Named breaks: both gates dropped, `convert_row`'s and `ground`'s (every
+/// arm red); `convert_row`'s dropped and the gate in `status_records`
+/// alone (the CPU path's drawing red); `ground`'s alone dropped (the
+/// line's grounds red).
+#[test]
+fn a_selection_reaching_below_the_window_leaves_the_status_line_unselected() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).expect("parse")];
+    let back = Rows::of_count(2);
+    let line = Row::from_index(2);
+    // As the app takes it: the window's top, its rows and its columns.
+    let h = scrolled_back(|t| {
+        let scrolled = Scrolled::START.advanced(Rows::of_count(t.scrollback().len()));
+        let view = t.view(back);
+        let mut s = Selection::at(
+            Span::cell(
+                view.row(Row::ZERO),
+                scrolled.line(back, Row::ZERO),
+                Col::ZERO,
+            ),
+            Grain::Cell,
+        );
+        let live = t.viewport();
+        s.extend(Span::cell(
+            live.row(Row::from_index(1)),
+            scrolled.line(Rows::ZERO, Row::from_index(1)),
+            Col::at_index(3),
+        ));
+        let (cols, rows) = t.geometry();
+        s.highlight(scrolled.top(back), rows, cols)
+            .expect("on the window")
+    });
+    assert!(
+        !h.covers_row(line),
+        "the premise: the clipped corners stop at the window"
+    );
+    assert!(
+        h.selects(line, Col::ZERO, Content::EMPTY),
+        "the premise: the unclipped ends reach the line's row"
+    );
+    // The cell path: the line's records, as `Overlay::status` asks for them.
+    let records = |highlight: Option<Highlight>| {
+        scrolled_back(|t| {
+            let mut r = support::renderer(&faces);
+            r.fit(t);
+            r.set_highlight(highlight);
+            let mut out = Vec::new();
+            r.status_records(t, None, &mut out);
+            out
+        })
+    };
+    let (cell, cell_fresh) = (records(Some(h)), records(None));
+    assert!(
+        cell_fresh.len() >= 2,
+        "the line's two glyphs: {}",
+        cell_fresh.len()
+    );
+    let (cpu, cpu_fresh) = (
+        status_drawn(&faces, back, Some(h)),
+        status_drawn(&faces, back, None),
+    );
+    assert_ne!(
+        cpu.control, cpu_fresh.control,
+        "the control: the selection is drawn on the window"
+    );
+    assert_ne!(
+        cpu.ground_control, cpu_fresh.ground_control,
+        "the control: the selection's ground is reported on the window"
+    );
+    let mut wrong = Vec::new();
+    if cell != cell_fresh {
+        wrong.push("cell path: the line's records");
+    }
+    if cpu.backgrounds != cpu_fresh.backgrounds {
+        wrong.push("CPU path: the line's backgrounds");
+    }
+    if cpu.glyphs != cpu_fresh.glyphs {
+        wrong.push("CPU path: the line's glyphs");
+    }
+    if cpu.pixels != cpu_fresh.pixels {
+        wrong.push("CPU path: the line's pixels");
+    }
+    if cpu.grounds != cpu_fresh.grounds {
+        wrong.push("grounds: the line's reported grounds");
+    }
+    assert!(
+        wrong.is_empty(),
+        "drawn selected, against a renderer with no selection: {wrong:?}"
     );
 }
