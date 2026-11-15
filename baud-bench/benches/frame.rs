@@ -225,6 +225,10 @@ mod rules;
 #[allow(dead_code, unused_imports)]
 #[path = "../../baud-app/src/sys.rs"]
 mod sys;
+// The program `paths.rs`'s tests run, found where this system keeps it.
+#[cfg(test)]
+#[path = "../../baud-app/src/tool.rs"]
+mod tool;
 
 /// `FRAME_LINKS`: what each frame does about links.
 #[derive(Clone, Copy, PartialEq, Eq)]

@@ -30,13 +30,16 @@ pub fn script(path: &Path, body: &str) {
     assert!(status.success(), "{}: {status}", path.display());
 }
 
-/// `from` copied to `to` by `cp`, which keeps a runnable file runnable.
+/// `from` copied to `to` by `cp`, which keeps a runnable file runnable:
+/// `/bin/cp` where there is one, else the `cp` this process's `PATH`
+/// finds (NixOS keeps no `/bin/cp`).
 pub fn copy(from: &Path, to: &Path) {
-    let status = Command::new("/bin/cp")
-        .arg(from)
-        .arg(to)
-        .status()
-        .expect("cp");
+    let cp = if Path::new("/bin/cp").is_file() {
+        "/bin/cp"
+    } else {
+        "cp"
+    };
+    let status = Command::new(cp).arg(from).arg(to).status().expect("cp");
     assert!(
         status.success(),
         "{} to {}: {status}",

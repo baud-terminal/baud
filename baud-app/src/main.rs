@@ -335,6 +335,10 @@ mod reveal;
 mod seat;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod sys;
+// The program a test runs, found at /bin, /usr/bin or on the test's PATH:
+// the tests only.
+#[cfg(test)]
+mod tool;
 // The launch splash's timing: pure, so its tests run on every platform,
 // and both drivers time it through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

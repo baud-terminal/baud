@@ -3631,6 +3631,7 @@ mod shell_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tool::tool;
 
     /// **A font file two windows' fonts map is mapped once, and unmapped
     /// only when the last gives it back**: the second map is the first's
@@ -4324,7 +4325,7 @@ mod tests {
         ];
         for (name, fork) in forks {
             let probe = "exec 3</dev/tty && echo ctty";
-            let m = bare_fork_in(fork, "/bin/dash", grid_80x24(), probe, &env);
+            let m = bare_fork_in(fork, &tool("dash"), grid_80x24(), probe, &env);
             let out = String::from_utf8_lossy(&read_all(m.as_raw_fd())).into_owned();
             drop(m);
             let lines: Vec<&str> = out.lines().map(|l| l.trim_end_matches('\r')).collect();
@@ -4389,7 +4390,7 @@ mod tests {
         );
     }
 
-    /// What `/bin/stty -a` printed on `master`, word by word, once the child
+    /// What `stty -a` printed on `master`, word by word, once the child
     /// has gone; the descriptor is closed after.
     fn stty_words(master: std::os::fd::OwnedFd) -> Vec<String> {
         let out = read_all(master.as_raw_fd());
@@ -4415,13 +4416,13 @@ mod tests {
         };
         let ws = text_area(&size, Px::of(8), Px::of(16));
         let env = child_env(outer_parent(), None);
-        let bare = stty_words(bare_fork(ws, "exec /bin/stty -a", &env));
+        let cmd = format!("exec {} -a", tool("stty"));
+        let bare = stty_words(bare_fork(ws, &cmd, &env));
         assert!(
             bare.iter().any(|w| w == "-iutf8"),
             "the control: a bare forkpty's terminal reads -iutf8: {bare:?}"
         );
-        let ours =
-            stty_words(Pty::fork_with(ws, Some("exec /bin/stty -a".into()), env).expect("forkpty"));
+        let ours = stty_words(Pty::fork_with(ws, Some(cmd), env).expect("forkpty"));
         let want: Vec<String> = bare
             .iter()
             .map(|w| match w.as_str() {
@@ -4443,10 +4444,12 @@ mod tests {
         };
         let master = Pty::fork_with(
             text_area(&size, Px::of(8), Px::of(16)),
-            Some(
-                r#"/bin/stty -echo; echo ready; IFS= read -r l; printf 'GOT[%s]\n' "$(printf '%s' "$l" | /usr/bin/od -An -tx1 | /usr/bin/tr -d ' \n')""#
-                    .into(),
-            ),
+            Some(format!(
+                r#"{} -echo; echo ready; IFS= read -r l; printf 'GOT[%s]\n' "$(printf '%s' "$l" | {} -An -tx1 | {} -d ' \n')""#,
+                tool("stty"),
+                tool("od"),
+                tool("tr")
+            )),
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
@@ -4496,9 +4499,10 @@ mod tests {
             .iter()
             .map(|e| CString::new(*e).expect("no NUL"))
             .collect();
+        let (stty_at, od, tr, grep) = (tool("stty"), tool("od"), tool("tr"), tool("grep"));
         let line_and_flag = |stty: &str, typed: &[u8]| -> (String, String) {
             let script = format!(
-                r#"stty -echo {stty}; echo ready; IFS= read -r l; printf 'GOT[%s]\n' "$(printf '%s' "$l" | od -An -tx1 | tr -d ' \n')"; stty -a | tr ' ' '\n' | grep -E '^-?iutf8$'"#
+                r#"{stty_at} -echo {stty}; echo ready; IFS= read -r l; printf 'GOT[%s]\n' "$(printf '%s' "$l" | {od} -An -tx1 | {tr} -d ' \n')"; {stty_at} -a | {tr} ' ' '\n' | {grep} -E '^-?iutf8$'"#
             );
             let master = bare_fork(ws, &script, &env);
             read_until(master.as_raw_fd(), "ready\r\n");
@@ -4586,10 +4590,11 @@ mod tests {
     /// `]`. `before` is printed ahead of each marker -- `ESC % @` or
     /// `ESC % G`, which the core reads in the same output.
     fn line_script(steps: &[(&str, &str)]) -> String {
-        let mut s = String::from("/bin/stty -echo");
+        let (od, tr) = (tool("od"), tool("tr"));
+        let mut s = format!("{} -echo", tool("stty"));
         for (before, marker) in steps {
             s.push_str(&format!(
-                r#"; printf '{before}{marker}\n'; IFS= read -r l; printf 'GOT[%s]\n' "$(printf '%s' "$l" | /usr/bin/od -An -tx1 | /usr/bin/tr -d ' \n')""#
+                r#"; printf '{before}{marker}\n'; IFS= read -r l; printf 'GOT[%s]\n' "$(printf '%s' "$l" | {od} -An -tx1 | {tr} -d ' \n')""#
             ));
         }
         s
@@ -4743,10 +4748,10 @@ mod tests {
         };
         let master = Pty::fork_with(
             text_area(&size, Px::of(8), Px::of(16)),
-            Some(
-                r#"/bin/stty -echo; printf '\033%%@ready\n'; IFS= read -r l; exec /bin/stty -a < /dev/tty"#
-                    .into(),
-            ),
+            Some(format!(
+                r#"{stty} -echo; printf '\033%%@ready\n'; IFS= read -r l; exec {stty} -a < /dev/tty"#,
+                stty = tool("stty")
+            )),
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
@@ -4802,10 +4807,10 @@ mod tests {
         };
         let master = Pty::fork_with(
             text_area(&size, Px::of(8), Px::of(16)),
-            Some(
-                r#"/bin/stty -echo; printf '\033%%@latin\n'; IFS= read -r l; /bin/stty -a < /dev/tty; printf 'cleared\n'; IFS= read -r l; printf '\033creset\n'; IFS= read -r l; exec /bin/stty -a < /dev/tty"#
-                    .into(),
-            ),
+            Some(format!(
+                r#"{stty} -echo; printf '\033%%@latin\n'; IFS= read -r l; {stty} -a < /dev/tty; printf 'cleared\n'; IFS= read -r l; printf '\033creset\n'; IFS= read -r l; exec {stty} -a < /dev/tty"#,
+                stty = tool("stty")
+            )),
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
@@ -5036,7 +5041,7 @@ mod tests {
             ]);
             let master = Pty::fork_from(
                 text_area(&size, Px::of(8), Px::of(16)),
-                Some("/bin/pwd -P; printf 'PWD=%s\\n' \"$PWD\"".into()),
+                Some(format!("{} -P; printf 'PWD=%s\\n' \"$PWD\"", tool("pwd"))),
                 parent,
                 || None,
                 started_by,
@@ -5093,7 +5098,7 @@ mod tests {
             ]);
             let master = Pty::fork_from(
                 text_area(&size, Px::of(8), Px::of(16)),
-                Some("/bin/pwd -P; printf 'PWD=%s\\n' \"$PWD\"".into()),
+                Some(format!("{} -P; printf 'PWD=%s\\n' \"$PWD\"", tool("pwd"))),
                 parent,
                 || None,
                 started_by,
@@ -5134,7 +5139,7 @@ mod tests {
     fn a_closed_windows_pty_hangs_up_its_shell() {
         let scratch = scratch_dir("hang-up");
         let fifo = scratch.join("hup");
-        let made = std::process::Command::new("/usr/bin/mkfifo")
+        let made = std::process::Command::new(tool("mkfifo"))
             .arg(&fifo)
             .status()
             .expect("mkfifo runs");
@@ -5147,7 +5152,8 @@ mod tests {
         let master = Pty::fork_with(
             told,
             Some(format!(
-                "/bin/stty -echo; trap 'printf hup > {}; exit 0' HUP; echo ready; while :; do read x; echo \"got $x\"; done",
+                "{} -echo; trap 'printf hup > {}; exit 0' HUP; echo ready; while :; do read x; echo \"got $x\"; done",
+                tool("stty"),
                 fifo.display()
             )),
             child_env(outer_parent(), None),
@@ -5250,7 +5256,7 @@ mod tests {
         ]);
         let master = Pty::fork_from(
             text_area(&size, Px::of(8), Px::of(16)),
-            Some("/bin/pwd -P; printf 'PWD=%s\\n' \"$PWD\"".into()),
+            Some(format!("{} -P; printf 'PWD=%s\\n' \"$PWD\"", tool("pwd"))),
             parent,
             || None,
             Parent::Launchd,
@@ -5646,7 +5652,10 @@ mod tests {
             cmd.current_dir(&launch)
                 .env("HOME", &link)
                 .env("PWD", &launch)
-                .env("BAUD_CMD", "/bin/pwd -P; printf 'PWD=%s\\n' \"$PWD\"")
+                .env(
+                    "BAUD_CMD",
+                    format!("{} -P; printf 'PWD=%s\\n' \"$PWD\"", tool("pwd")),
+                )
                 .env(SPAWN_HELPER, how);
             let out = cmd.output().expect("the helper runs");
             let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -6679,7 +6688,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch");
         let f = dir.join("go");
-        let made = std::process::Command::new("/usr/bin/mkfifo")
+        let made = std::process::Command::new(tool("mkfifo"))
             .arg(&f)
             .status()
             .expect("mkfifo runs");
@@ -7438,9 +7447,9 @@ mod tests {
             .expect("forkpty");
             String::from_utf8_lossy(&read_all(master.as_raw_fd())).replace("\r\n", "\n")
         };
-        let out = run(&["printf", "%s|", "a b", "--", "$x;`y`", "{url}"]);
+        let out = run(&[&tool("printf"), "%s|", "a b", "--", "$x;`y`", "{url}"]);
         assert_eq!(out, "a b|--|$x;`y`|{url}|");
-        let env = run(&["env"]);
+        let env = run(&[&tool("env")]);
         assert!(env.contains("TERM_PROGRAM=baud\n"), "{env}");
         assert!(
             env.contains(&format!("TERM={}\n", crate::bell::TERM)),
@@ -7906,8 +7915,10 @@ mod tests {
         std::fs::create_dir_all(&made).expect("a folder");
         let dir = made.canonicalize().expect("canonical");
         let cmd = format!(
-            "cd '{}' && /bin/stty -echo && echo ready && read x && exec /bin/sleep 30",
-            dir.display()
+            "cd '{}' && {} -echo && echo ready && read x && exec {} 30",
+            dir.display(),
+            tool("stty"),
+            tool("sleep")
         );
         let master = Pty::fork_with(
             text_area(&size, Px::of(8), Px::of(16)),
@@ -8003,7 +8014,10 @@ mod tests {
         };
         let master = Pty::fork_with(
             text_area(&size, Px::of(8), Px::of(16)),
-            Some("/bin/stty -echo; echo ready; read x; echo hi".into()),
+            Some(format!(
+                "{} -echo; echo ready; read x; echo hi",
+                tool("stty")
+            )),
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
@@ -8055,7 +8069,11 @@ mod tests {
         };
         let master = Pty::fork_with(
             text_area(&size, Px::of(8), Px::of(16)),
-            Some("/bin/stty raw -echo; echo ready; exec /bin/sleep 30".into()),
+            Some(format!(
+                "{} raw -echo; echo ready; exec {} 30",
+                tool("stty"),
+                tool("sleep")
+            )),
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
@@ -8088,7 +8106,11 @@ mod tests {
         };
         let master = Pty::fork_with(
             text_area(&size, Px::of(8), Px::of(16)),
-            Some("/bin/stty raw -echo; echo ready; exec /usr/bin/head -c 8192".into()),
+            Some(format!(
+                "{} raw -echo; echo ready; exec {} -c 8192",
+                tool("stty"),
+                tool("head")
+            )),
             child_env(outer_parent(), None),
         )
         .expect("forkpty");

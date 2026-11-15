@@ -126,7 +126,12 @@ in
     # The two watchers `devenv up` runs (`processes` below).
     pkgs.bacon
     pkgs.cargo-watch
-  ];
+  ]
+  # dash, for the pty test that opens the controlling terminal through a
+  # shell that opens none before its command
+  # (`pty::tests::a_spawned_child_opens_its_controlling_terminal_by_dev_tty`).
+  # macOS ships it at /bin/dash; a Linux host may have none.
+  ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dash ];
 
   # **The release test build, kept warm while you work.** `warm-run` runs a
   # watcher in the foreground that runs

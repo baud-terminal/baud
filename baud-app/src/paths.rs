@@ -4261,6 +4261,7 @@ mod tests {
     use super::*;
     use crate::lined::Lines;
     use crate::link::admit;
+    use crate::tool::tool;
     use baud_core::Owned;
     use baud_domain::{BytePos, ReadLen, WinSize};
 
@@ -5567,7 +5568,8 @@ mod tests {
         let (_, strikes, _, p) = struck_scan(text.as_bytes(), &|_| Probe::Missing, &|_| {});
         assert_eq!(strikes, [(0, 0, 3)], "the control: struck, found gone");
         let uri = b"file://here.example/gone";
-        let path = "[link.path]\ncommand = [\"/bin/echo\", \"{path}\"]\n";
+        let echo = tool("echo");
+        let path = format!("[link.path]\ncommand = [\"{echo}\", \"{{path}}\"]\n");
         let rule = |r: &str| {
             let mut c = crate::config::Config::defaults();
             let said = c.apply(&format!("{path}{r}"));
@@ -5575,7 +5577,9 @@ mod tests {
             c.link.rules
         };
         let copy = rule("[link.file]\naction = \"copy\"\n");
-        let command = rule("[link.file]\ncommand = [\"/bin/echo\", \"{url}\"]\n");
+        let command = rule(&format!(
+            "[link.file]\ncommand = [\"{echo}\", \"{{url}}\"]\n"
+        ));
         let none = rule("");
         let mut came = Vec::new();
         for (name, rules) in [("copy", &copy), ("command", &command)] {
@@ -5720,7 +5724,10 @@ mod tests {
     #[test]
     fn a_gone_then_found_link_reveals_whatever_link_path_says() {
         let mut c = crate::config::Config::defaults();
-        let said = c.apply("[link.path]\ncommand = [\"/bin/echo\", \"{path}\"]\n");
+        let said = c.apply(&format!(
+            "[link.path]\ncommand = [\"{}\", \"{{path}}\"]\n",
+            tool("echo")
+        ));
         assert!(said.is_empty(), "{said:?}");
         let rules = &c.link.rules;
         let printed = on_found(
@@ -5750,10 +5757,11 @@ mod tests {
     #[test]
     fn a_found_printed_path_comes_to_its_window() {
         let mut c = crate::config::Config::defaults();
-        let said = c.apply(
+        let echo = tool("echo");
+        let said = c.apply(&format!(
             "[link.path]\nline_col = \"on\"\naction = \"window\"\n\
-             command = [\"/bin/echo\", \"{path}:{line}\"]\n",
-        );
+             command = [\"{echo}\", \"{{path}}:{{line}}\"]\n",
+        ));
         assert!(said.is_empty(), "{said:?}");
         let rules = &c.link.rules;
         let lc = LineCol {
@@ -5769,7 +5777,7 @@ mod tests {
         let Found::Window(Ok(run)) = printed else {
             panic!("a window: {printed:?}");
         };
-        assert_eq!(run.argv(), ["/bin/echo", "/etc/hosts:7"]);
+        assert_eq!(run.argv(), [echo.as_str(), "/etc/hosts:7"]);
         let link = on_found(
             &Asked::Link,
             b"/etc/hosts",
@@ -7307,10 +7315,11 @@ mod tests {
     fn a_file_window_rule_never_opens_a_remote_programs_link() {
         use crate::link::{Click, Refused};
         let mut c = crate::config::Config::defaults();
-        let said = c.apply(
+        let said = c.apply(&format!(
             "[link]\npaths = \"off\"\n\n[link.file]\naction = \"window\"\n\
-             command = [\"/usr/bin/true\", \"{url}\"]\n",
-        );
+             command = [\"{}\", \"{{url}}\"]\n",
+            tool("true")
+        ));
         assert!(said.is_empty(), "{said:?}");
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);

@@ -24,6 +24,19 @@ mod exec;
 
 const DATA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/host");
 
+/// The `PATH` a stand-in runs under: the system's four directories, then
+/// this process's own `PATH`, so the stand-in's `cat`, `grep` and `awk` are
+/// the system's where it has them and are found on a system that keeps them
+/// elsewhere (NixOS keeps none in `/usr/bin` or `/bin`).
+fn stand_in_path() -> OsString {
+    let mut path = OsString::from("/usr/bin:/bin:/usr/sbin:/sbin");
+    if let Some(own) = std::env::var_os("PATH").filter(|p| !p.is_empty()) {
+        path.push(":");
+        path.push(own);
+    }
+    path
+}
+
 /// A row of `cases.tsv`.
 struct Case {
     tool: String,
@@ -129,7 +142,7 @@ impl Scene {
 
     fn env(&self, c: &Case) -> Vec<(OsString, OsString)> {
         let mut env: Vec<(OsString, OsString)> = vec![
-            ("PATH".into(), "/usr/bin:/bin:/usr/sbin:/sbin".into()),
+            ("PATH".into(), stand_in_path()),
             ("HOME".into(), self.dir.clone().into()),
             ("TMPDIR".into(), self.dir.clone().into()),
         ];
@@ -1334,7 +1347,7 @@ fn a_real_interrupt_ends_the_sleep_and_stops_the_child() {
                 "--nocapture",
             ])
             .env(DRIVER, &args)
-            .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+            .env("PATH", stand_in_path())
             .env("TMPDIR", &scene.dir)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
