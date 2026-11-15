@@ -657,7 +657,10 @@ fn fish_gets_nothing_with_integration_off() {
 
 /// What a shell says of itself, written to `$HOME/state` by one command:
 /// the startup files that ran, in order, a variable the user's file set,
-/// its environment sorted, and its options.
+/// its environment sorted, and its options. The two arms run on two
+/// terminals, so a terminal, `/dev/pts/N`, is written `<tty>` wherever the
+/// environment names one: a system startup file that exports `$(tty)`, as
+/// `GPG_TTY` is, then reads the same in both.
 ///
 /// **bash's state holds what the shell itself writes to stderr -- its
 /// builtins, and a DEBUG trap's first firing before the line's first
@@ -676,16 +679,18 @@ fn state_command(sh: Sh) -> &'static str {
     match sh {
         Sh::Zsh => {
             "{ cat ~/ran; print -r -- rc=$FROM_RC zdotdir=${ZDOTDIR-unset} \
-             histfile=${HISTFILE-unset}; env | LC_ALL=C sort; setopt; } > ~/state"
+             histfile=${HISTFILE-unset}; env | sed -E \"s|/dev/pts/[0-9]+|<tty>|g\" | LC_ALL=C sort; \
+             setopt; } > ~/state"
         }
         Sh::Bash => {
             "{ { while IFS= read -r l; do printf '%s\\n' \"$l\"; done < ~/ran; \
-             echo rc=$FROM_RC; } 2>&1; env | LC_ALL=C sort; { shopt -p; set +o; \
+             echo rc=$FROM_RC; } 2>&1; env | sed -E \"s|/dev/pts/[0-9]+|<tty>|g\" | LC_ALL=C sort; \
+             { shopt -p; set +o; \
              declare -p HISTFILE; history 2; trap -p; } 2>&1; } > ~/state"
         }
         Sh::Fish => {
-            "begin; cat ~/ran; echo rc=$FROM_RC; env | LC_ALL=C sort; status is-login; \
-             and echo login; end > ~/state"
+            "begin; cat ~/ran; echo rc=$FROM_RC; env | sed -E \"s|/dev/pts/[0-9]+|<tty>|g\" | \
+             LC_ALL=C sort; status is-login; and echo login; end > ~/state"
         }
     }
 }
