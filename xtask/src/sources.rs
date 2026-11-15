@@ -15,7 +15,10 @@
 //!    with the site's chrome, so its check is the text (`crate::page_text`);
 //! 7. a `derived_from` naming a key the manifest does not carry, carries as
 //!    `gated`, or the entry itself: a file transcribed from a source is
-//!    pinned with its own sha256 and names the source it was read from.
+//!    pinned with its own sha256 and names the source it was read from;
+//! 8. docs/citations.md not what `cargo xtask citations` writes, or a row
+//!    of docs/data/citations-code.tsv naming a key the manifest does not
+//!    carry or carries as `gated`, or a path that is not in the tree.
 //!
 //! (4) is the one that matters: it stops a design document resting on a
 //! citation nobody could check. Notes cite with `[[source: <key>]]`.
@@ -71,7 +74,7 @@ use toml::{Table, Value};
 
 use crate::html::Count;
 use crate::third_party::{self, Mode, Outcome};
-use crate::{page_text, py, sha256, toml10};
+use crate::{citations, page_text, py, sha256, toml10};
 
 pub const SRC: &str = "docs/research/sources";
 pub const MANIFEST: &str = "docs/research/sources/MANIFEST.toml";
@@ -556,6 +559,11 @@ pub fn run(root: &Path, out: &mut impl Write) -> io::Result<Outcome> {
     // Committing a file is distributing it, so a source in the manifest is
     // also a licence obligation.
     if third_party::run(root, Mode::Check, out)? == Outcome::Failed {
+        fail = true;
+    }
+
+    // 8: the citations list is what the manifest and the citations give.
+    if citations::run(root, citations::Mode::Check, out)? == Outcome::Failed {
         fail = true;
     }
     Ok(if fail {

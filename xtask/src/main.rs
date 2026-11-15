@@ -16,8 +16,8 @@ use xtask::scan_audit::{self, Limit};
 use xtask::sources;
 use xtask::third_party::{self, Mode, Outcome};
 use xtask::{
-    changelog, credits, features, features_since, fnv, forbidden, loop_head, no_python, pdf_search,
-    pmc, test_scope, text, vt_table,
+    changelog, citations, credits, features, features_since, fnv, forbidden, loop_head, no_python,
+    pdf_search, pmc, test_scope, text, vt_table,
 };
 
 fn main() -> ExitCode {
@@ -102,6 +102,18 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
         }
         ["sources"] => {
             let o = sources::run(root, &mut stdout).map_err(|e| e.to_string())?;
+            Ok(outcome(o))
+        }
+        ["citations", rest @ ..] => {
+            let o = match rest {
+                [] => citations::run(root, citations::Mode::Write, &mut stdout),
+                ["--check"] => citations::run(root, citations::Mode::Check, &mut stdout),
+                ["--merge", fragments @ ..] if !fragments.is_empty() => {
+                    citations::merge(root, fragments, &mut stdout)
+                }
+                _ => return Err(format!("not an option: {}", rest.join(" "))),
+            }
+            .map_err(|e| e.to_string())?;
             Ok(outcome(o))
         }
         ["no-python"] => {
@@ -194,7 +206,7 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
                 "usage: cargo xtask audit | impl-audit <file> | scan-audit [limit] \
                  | changelog <context> | features [--check] | features-since <rev>|--explain \
                  | fnv1a <src> <lib> <sdig> <ldig> \
-                 | sources | no-python \
+                 | sources | no-python | citations [--check|--merge <tsv>...] \
                  | third-party [--check] | credits [--check|--list] | publish [--size|--verify|--release\
                  |--write-notices|--write-licences] | page-text [--key K] [--from DIR] [--save DIR] \
                  [--print] [--self-test] | pdf-search <key> [<term>...] \

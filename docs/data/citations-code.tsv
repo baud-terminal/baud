@@ -1,0 +1,4 @@
+# The code items each source supports, one row per item and key:
+# item (path::name) <TAB> key <TAB> what the source supports in it.
+# `cargo xtask citations --merge <fragment>...` adds rows; docs/citations.md
+# lists them under each key.

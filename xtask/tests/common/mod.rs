@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use xtask::sha256;
 use xtask::third_party::{self, Mode, Outcome};
+use xtask::{citations, sha256};
 
 /// A directory under the system's temporary directory, removed on drop.
 pub struct Tree(pub PathBuf);
@@ -176,7 +176,7 @@ impl Tree {
     }
 
     /// Puts the tree in the index: the row checks read `git ls-files`.
-    fn stage(&self) {
+    pub fn stage(&self) {
         for args in [&["init", "-q"][..], &["add", "-A"][..]] {
             let mut git = Command::new("git");
             git.current_dir(&self.0).args(args);
@@ -188,12 +188,22 @@ impl Tree {
         }
     }
 
-    /// THIRD_PARTY.md as the generator writes it for this tree.
+    /// THIRD_PARTY.md and docs/citations.md as the generators write them
+    /// for this tree.
     pub fn regenerate(&self) {
         self.stage();
         let mut out = Vec::new();
         let o = third_party::run(&self.0, Mode::Write, &mut out).expect("a run");
         assert_eq!(o, Outcome::Passed, "{}", String::from_utf8_lossy(&out));
+        let o = citations::run(&self.0, citations::Mode::Write, &mut out).expect("a run");
+        assert_eq!(o, Outcome::Passed, "{}", String::from_utf8_lossy(&out));
+    }
+
+    pub fn citations(&self) -> (Outcome, String) {
+        self.stage();
+        let mut out = Vec::new();
+        let o = citations::run(&self.0, citations::Mode::Check, &mut out).expect("a run");
+        (o, String::from_utf8(out).expect("UTF-8"))
     }
 
     pub fn sources(&self) -> (Outcome, String) {
@@ -222,6 +232,7 @@ pub fn base() -> Tree {
     t.put("docs/research/sources/a.txt", DOC);
     t.put("docs/research/third-party.toml", &sidecar());
     t.put("docs/notes.md", &notes());
+    t.put(citations::CODE, &citations::code_file(&[]));
     t.put("LICENSES/MIT.txt", MIT);
     t.put("LICENSE", LICENCE);
     t.put("README.md", README);

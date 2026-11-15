@@ -28,7 +28,8 @@ fn the_base_tree_passes() {
         out,
         "  ok   59 learn.microsoft.com pages carry their article text's sha256\n\
          \x20 ok   50 citations resolve, 61 sources in manifest\n\
-         \x20 ok   1 sources and 8 other entries indexed, 1 licence texts, 55 fonts\n"
+         \x20 ok   1 sources and 8 other entries indexed, 1 licence texts, 55 fonts\n\
+         \x20 ok   51 sources listed in docs/citations.md, 0 code items\n"
     );
 }
 

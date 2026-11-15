@@ -17,7 +17,11 @@
 //! - `test-scope <from> <to>|<rev>`: the tests and gates a change needs, for
 //!   `scripts/scoped-test.sh`.
 //! - `sources`: the source-provenance gate (`scripts/check-sources.sh`),
-//!   which runs `third-party --check` and the offline half of `page-text`.
+//!   which runs `third-party --check`, `citations --check` and the offline
+//!   half of `page-text`.
+//! - `citations [--check|--merge <tsv>...]`: docs/citations.md, the sources
+//!   the tree cites, written or checked, and code-item rows merged into
+//!   docs/data/citations-code.tsv.
 //! - `third-party [--check]`: THIRD_PARTY.md, written or checked.
 //! - `credits [--check|--list]`: baud-app/assets/CREDITS.txt, the notices
 //!   of every third-party work the binary embeds, written or checked, or
@@ -44,6 +48,7 @@
 
 pub mod audit;
 pub mod changelog;
+pub mod citations;
 pub mod credits;
 pub mod difflib;
 pub mod features;
