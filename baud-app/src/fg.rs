@@ -1,6 +1,6 @@
 //! **The program in the foreground and the folder it is in**, read from
-//! the kernel for the window's title when a program sets none (note AK,
-//! section 2; `title.rs`).
+//! the kernel for the window's title when a program sets none
+//! (`title.rs`).
 //!
 //! No standard covers any of it: POSIX's `tcgetpgrp` "shall fail if ... the
 //! file is not the controlling terminal" (`[[source: posix-tcgetpgrp]]`),
@@ -13,7 +13,7 @@
 //! * **Its name**: argv[0]'s last component, a login shell's leading `-`
 //!   dropped -- what `ps` shows and what the user typed. macOS's
 //!   `proc_name` is cheaper and answered `coreutils` for nix's `sleep`, a
-//!   symlink to a multi-call binary (note AK 2.3, measured), where Linux's
+//!   symlink to a multi-call binary, where Linux's
 //!   `comm` says `sleep`; argv[0] is the same on both. When argv[0] cannot
 //!   be read -- a root process under `sudo` -- the executable's file name
 //!   stands in.
@@ -130,7 +130,7 @@ fn argv0(pid: Pid) -> Option<Vec<u8>> {
 }
 
 /// The executable `pid` runs: `proc_pidpath`, which still answers for a
-/// root process (note AK 2.5, measured against pid 1).
+/// root process, pid 1 included.
 #[cfg(target_os = "macos")]
 fn exe(pid: Pid) -> Option<PathBuf> {
     use crate::sys::{PROC_PIDPATHINFO_MAXSIZE, PathSize, proc_pidpath};
@@ -275,7 +275,7 @@ pub enum Moved {
     Moved,
 }
 
-/// **The process events a job starts and ends with** (note AK 2.7): a
+/// **The process events a job starts and ends with**: a
 /// kqueue watching the shell and each foreground leader for
 /// `NOTE_FORK`, `NOTE_EXEC` and `NOTE_EXIT`, waited on by a thread of its
 /// own, as the pty's reader waits on the master, which wakes the main

@@ -41,12 +41,12 @@
 //!   flashes: counted on the frames the trails draw, one pixel flashed up to
 //!   23 times a second under it, and at 32 pt the fire and the orb fail WCAG
 //!   2.3.1 on a light ground; at the default 13 pt every effect passes, by
-//!   the area clause alone (note AL).
+//!   the area clause alone.
 //! * **Typing never ignites**: a move of two cells or fewer snaps, as it does
 //!   for the quad, and a burning flame follows the cursor it snapped to.
 //!
 //! **Above a 32 pt cell, a repeat pass is drawn under the flash thresholds**
-//! (note AL, option O2; every trail takes the bound, the ghost's sweeps
+//! (every trail takes the bound, the ghost's sweeps
 //! weighed as a long move is, on the one [`Ledger`] every trail shares,
 //! so a change of trail keeps the second's passes). The
 //! first pass over a stretch of screen in any second is drawn as it is; a
@@ -70,10 +70,9 @@
 //! its new place, so the frame that starts it is already that far along.
 //!
 //! **A program that hides the cursor fades the trail out** rather than
-//! ending it, as kitty does (`[[source: kitty-cursor-trail]]` 64, 134-139):
-//! over [`FADE`] from the last frame the cursor was shown on, the trail
-//! going on as it would, and back at that rate when it is shown again
-//! ([`Chase::frame`]). sfte's and Neovide's end at once (note W, 5.12).
+//! ending it: over [`FADE`] from the last frame the cursor was shown on,
+//! the trail going on as it would, and back at that rate when it is shown
+//! again ([`Chase::frame`]).
 
 use baud_render::det::Det;
 use core::time::Duration;
@@ -104,11 +103,11 @@ pub const REIGNITE: Duration = Duration::from_millis(334);
 /// it is shown (`[[source: kitty-cursor-trail]]` 134-139).
 pub const FADE: f32 = baud_render::TAU_SLOW;
 
-/// **The size gate of the flash bound** (note AL, option O2): on a cell
+/// **The size gate of the flash bound**: on a cell
 /// taller than this, a long move over a stretch of screen a full pass swept
 /// less than [`LEDGER`] before is a repeat, drawn under the flash
 /// thresholds ([`Strength::UnderThreshold`]). At 32 pt and up the fire and
-/// the orb fail WCAG 2.3.1 as shipped (note AL); JetBrains Mono's cell is
+/// the orb fail WCAG 2.3.1 without the bound; JetBrains Mono's cell is
 /// 32 pt at 24 pt, which the strict test keeps below it.
 pub const GATE: Points = Points(32.0);
 
@@ -671,8 +670,8 @@ impl<M: Moment> Chase<M> {
     /// its filaments thin and its sheath tightens with it. WCAG 2.3.1 does
     /// not need the guard for it: lit every move, the plasma fails none of
     /// the flash census's cases under the size gate, and over it the ledger
-    /// still holds every repeat under the thresholds (note AL;
-    /// MEASUREMENTS.md, "The plasma at full strength"). Its `last_lit`
+    /// still holds every repeat under the thresholds
+    /// (MEASUREMENTS.md, "The plasma at full strength"). Its `last_lit`
     /// still runs, so a switch to another effect keeps that effect's guard.
     fn ignite(&mut self, tail: Pt, rect: Rect, at: M, cell: (f32, f32)) {
         let Style::Effect(effect) = self.style else {
@@ -2147,8 +2146,8 @@ mod tests {
     }
 
     /// **The drawn trail moves as the text does across a retire** -- the ride
-    /// and the slide's lift together, as `pump` and `present` compose them
-    /// (note X's test 10). At the instant a read retires `n` lines, from a
+    /// and the slide's lift together, as `pump` and `present` compose
+    /// them. At the instant a read retires `n` lines, from a
     /// settled slide and from one mid-slide, every part drawn from the path
     /// -- a quad's corners, a fire's path -- moves by what the text drawn
     /// moves, `-n*h` and the pan's change, and the hole by what the drawn

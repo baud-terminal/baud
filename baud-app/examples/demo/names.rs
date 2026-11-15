@@ -103,7 +103,7 @@ fn without(bytes: &[u8], cut: &[u8]) -> Vec<u8> {
 /// package's `repository` URL: `https://github.com/baud-terminal/baud` is
 /// `baud-terminal/baud`. It is public, and the README the session prints
 /// carries it, so [`named_outside`] takes it out before looking: its
-/// owner's handle can hold the user's name.
+/// handle before the slash can hold the user's name.
 pub fn public_path(repository: &str) -> String {
     let rest = repository.split_once("://").map_or(repository, |(_, r)| r);
     rest.split_once('/')

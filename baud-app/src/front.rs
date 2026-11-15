@@ -1,17 +1,16 @@
-//! **What the two process lights read: OH and CD** (note AH, 3.2 and 3.3).
+//! **What the two process lights read: OH and CD**.
 //!
 //! * **OH**, Off Hook, is lit while a job other than the shell is in front:
 //!   the shell's `e_tpgid`, "tty process group id", differs from its own
 //!   `pbi_pgid` (`[[source: macos-sdk-sys-proc-info-h]]` 78), both out of
-//!   one `PROC_PIDTBSDINFO` of the shell, 0.16 us on this Mac (note AH 3.2,
-//!   measured). It is not `tcgetpgrp` on the master, which both kernels
+//!   one `PROC_PIDTBSDINFO` of the shell, 0.16 us on this Mac. It is not `tcgetpgrp` on the master, which both kernels
 //!   answer against POSIX's "shall fail if ... the file is not the
 //!   controlling terminal" (`[[source: posix-tcgetpgrp]]`), and costs 2.6 us.
 //! * **CD**, Carrier Detect, is lit while a member of that group is an ssh
 //!   holding an established TCP socket: its name `ssh` out of
 //!   `PROC_PIDT_SHORTBSDINFO`, then `PROC_PIDLISTFDS` and, for each socket,
 //!   `PROC_PIDFDSOCKETINFO`'s `soi_kind` `SOCKINFO_TCP` with `tcpsi_state`
-//!   `TSI_S_ESTABLISHED` (note AH 3.3, measured on a live ssh client).
+//!   `TSI_S_ESTABLISHED`.
 //!
 //! **Every turn, a few microseconds**: the shell's record each turn of the
 //! window, and each ssh member's sockets, about a microsecond each; the
@@ -22,9 +21,9 @@
 //! catches a member the watch did not report (`Front::next_listing`). A
 //! read the kernel refuses -- a root ssh under `sudo`, a shell that
 //! exec'd a set-user-ID program -- is shown as such
-//! ([`Reading::Refused`]), never as a quiet program (note AH, 3.8 and Q8).
+//! ([`Reading::Refused`]), never as a quiet program.
 //!
-//! What it cannot see, from the process model (note AH 3.3): an ssh inside
+//! What it cannot see, from the process model: an ssh inside
 //! `tmux attach`, whose server runs it on another pty; and an ssh
 //! ControlMaster client, said to hold no TCP socket of its own.
 
@@ -103,7 +102,7 @@ pub(crate) const RELIST: Duration = Duration::from_secs(1);
 /// ms at 60 Hz and 55 ms at 120; below 37.5 Hz nothing is left, the group
 /// is listed every tick and the bound is not met, as the printer field's
 /// is not below 38.5 Hz (`print::indicator_every`). A listing is
-/// 7.96-8.16 us (note AH 3.3).
+/// 7.96-8.16 us.
 pub(crate) fn line_relist(tick: Duration) -> Duration {
     crate::line_lamps::BOUND.saturating_sub(tick * 3)
 }

@@ -89,12 +89,8 @@ impl Pressed {
     /// compositor sends it no release -- `wl_keyboard.leave` "resets all
     /// values to their defaults", the keys logically down among them,
     /// empty by default (`[[source: wayland]]`). The core sends a release
-    /// only where kitty's event types asked for one. Ghostty releases on a
-    /// focus loss too, "better than not sending a key release event at
-    /// all" (`[[source: ghostty-d9840f3-surface]]`, `focusCallback`);
-    /// kitty builds the releases and drops them before the program
-    /// (`[[source: kitty-glfw-window-c-6d5d0c4]]`,
-    /// `[[source: kitty-glfw-c-6d5d0c4]]` line 605), and foot sends none.
+    /// only where a program asked for release events through the progressive
+    /// keyboard enhancement protocol (CSI > flags u).
     pub fn let_go(&mut self) -> impl Iterator<Item = KeyEvent> + '_ {
         self.0.drain(..).map(|press| KeyEvent {
             kind: KeyEventKind::Release,

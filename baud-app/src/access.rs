@@ -138,11 +138,11 @@ impl Contrast {
 }
 
 /// **Increase Contrast's floor**: a trigger of at least 3.0 and a target of
-/// at least 4.5 (note Y, decision 9), the HIG's "higher contrast color
+/// at least 4.5, the HIG's "higher contrast color
 /// scheme when the system setting Increase Contrast is turned on"
 /// ([[source: apple-hig-accessibility]]). It overrides `floor = "off"` while
-/// the setting is on, as Reduce Transparency overrides the dim -- decided by
-/// analogy in note Y. A reader's stricter floor is kept: "at least" is this
+/// the setting is on, as Reduce Transparency overrides the dim. A reader's
+/// stricter floor is kept: "at least" is this
 /// reading of "stricter". The brief's "target 4.5" and
 /// `max(configured, 4.5)` agree for every config whose floor is at or below
 /// 4.5, because the config's `floor()` already parses every target to at

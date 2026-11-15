@@ -1,12 +1,12 @@
 //! A program's print jobs, from the core to the print panel: the policy,
-//! pure, so its tests run on every platform (note AW, section 1).
+//! pure, so its tests run on every platform.
 //!
 //! **The core is told there is a printer only where one can be offered**:
 //! on macOS with `[screen] printing` on and a printer listed, where DSR
 //! `?15` then answers ready. A printer that macOS stops listing makes it
 //! "not ready": `?15` answers so and the jobs wait for one to be listed
 //! again. Anywhere else it answers "no printer" and every print is ignored
-//! and counted, as 070-7 § 7.3.2 ties the two (note AW). `[screen]
+//! and counted, as 070-7 § 7.3.2 ties the two. `[screen]
 //! printing` is read once, at launch, so "off" is never a lost printer.
 //! The Linux driver has no print panel, so its core never has a printer.
 //!

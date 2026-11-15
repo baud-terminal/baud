@@ -370,10 +370,7 @@ fn zoom_fill_site(sources: &[(PathBuf, String)]) -> Result<(String, String), Str
 
 /// **AppKit's private `_zoomFill:`, the title bar's Fill, is called at one
 /// site, and only after `respondsToSelector:`**: no header names it, so it
-/// is called only where the window says it has it, as Chromium
-/// ([[source: chromium-native-widget-mac-nswindow-e44f559]] 778-780),
-/// Firefox ([[source: firefox-nscocoautils-293c306]] 1259-1261) and iTerm2
-/// ([[source: iterm2-nswindow-iterm-2a8d67e]] 40-42) call it, and
+/// is called only where the window says it has it, and
 /// `container::fill` is that one site. Positive control: the site is found
 /// in the sources, in `container.rs`'s `fill`. Named breaks, each built
 /// from the real sources and each refused: a second call in another

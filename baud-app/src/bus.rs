@@ -1481,7 +1481,7 @@ impl Bus {
     }
 }
 
-/// This process's user ID, the identity `EXTERNAL` sends: the owner of
+/// This process's user ID, the identity `EXTERNAL` sends: the uid that owns
 /// `/proc/self`, which is the process's own.
 #[cfg(target_os = "linux")]
 fn uid() -> Option<Uid> {

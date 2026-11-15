@@ -1,5 +1,6 @@
-//! **The kitty file mediums, read for the core** (`[[source:
-//! kitty-graphics]]`, "The transmission medium"; note V, V19): `t=f` a
+//! **The file mediums of the terminal graphics protocol (APC G), read for
+//! the core** (`[[source: kitty-graphics]]`, "The transmission medium"):
+//! `t=f` a
 //! file, `t=t` a temporary file deleted once read, `t=s` a POSIX
 //! shared-memory object unlinked once read. The core hands out the decoded
 //! path, `O`, `S` and the most bytes the transmission can use

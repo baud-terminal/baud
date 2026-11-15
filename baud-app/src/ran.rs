@@ -1,9 +1,7 @@
 //! **What the shell says it runs**, read off the bytes as the reader takes
-//! them: `OSC 133 ; C` with kitty's `cmdline=` or `cmdline_url=`
-//! (`[[source: kitty-shell-integration]]`, "kitty also optionally supports
-//! sending the cmdline going to be executed with `<OSC>133;C`"; fish sends
-//! the second form itself, `[[source: fish-terminal-compat]]`), and the
-//! `OSC 133 ; D` that ends the command.
+//! them: the semantic prompt marks' (OSC 133) `OSC 133 ; C` with its
+//! `cmdline=` or `cmdline_url=` key (`[[source: kitty-shell-integration]]`),
+//! and the `OSC 133 ; D` that ends the command.
 //!
 //! A command whose program is one not on this machine -- ssh and its kin,
 //! the paths worker's own list (`probe::front_of`) -- makes every read
@@ -1428,7 +1426,7 @@ mod tests {
     /// **The program is the first word past assignments, the prefixes and
     /// their options, unquoted as the shell would**, its last path
     /// component named: every shape of `ssh` names one not local, and the
-    /// same shapes of `ls` do not. Encoded as kitty does in both forms:
+    /// same shapes of `ls` do not. Encoded in both forms:
     /// `cmdline=` with `printf %q`'s quoting, `cmdline_url=` with `%XX`.
     /// Named break: take the line's first word as it is -- the prefixed and
     /// quoted ones read as `sudo`, `'ssh'` and the like.

@@ -17,7 +17,7 @@ use baud_domain::{AmbiguousWidth, Classified, Codepoint, InputEncoding, Width};
 /// into a space in every paste, bracketed or not, while every other C0
 /// control passes (`[[source: xterm-man]]`; `removeControls`,
 /// `[[source: xterm-button]]` 2582-2690). The conforming choice: keeping
-/// the paste whole, or stripping as foot does, would each depart from it.
+/// the paste whole, or stripping the controls out, would each depart from it.
 /// Both drivers tell the core, so `OSC 61 ; allowPasteControls` names
 /// them (`host::set_window_abilities`).
 pub const FILTER: PasteControls = PasteControls::XtermDefault;

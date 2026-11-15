@@ -99,7 +99,7 @@ macro_rules! verbose {
 }
 
 /// The exit message for a failed `Connection::connect`: baud draws through
-/// Wayland alone in this release (note V, V20), so a session without a
+/// Wayland alone in this release, so a session without a
 /// compositor socket is told so, with the connection's own error after it.
 #[cfg(any(target_os = "linux", test))]
 pub fn no_wayland_session(cause: impl std::fmt::Display) -> String {

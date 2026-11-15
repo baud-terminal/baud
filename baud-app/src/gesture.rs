@@ -579,7 +579,8 @@ mod route_tests {
     }
 
     /// **A move with no press is decided as it comes**, so `?1003` hover
-    /// reaches the child and Shift hover does not, and it leaves the owner.
+    /// reaches the child and Shift hover does not, and it leaves the
+    /// pointer's `Owner` free.
     #[test]
     fn a_move_with_no_press_is_decided_as_it_comes() {
         for (shift, want) in [(Shift::Up, To::Child), (Shift::Held, To::Select)] {

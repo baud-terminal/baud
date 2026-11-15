@@ -873,8 +873,9 @@ pub enum Shown {
     Changed,
 }
 
-/// **One step of a deferred kitty decode** (note V, V19 step 3: deferred
-/// inside the core, in bounded steps): a picture is placed when its size
+/// **One step of a deferred decode for the terminal graphics protocol
+/// (APC G)**, deferred inside the core, in bounded steps: a picture is
+/// placed when its size
 /// is known and its pixels are made here, [`KITTY_DECODE_STEP`] a call.
 /// The macOS pump calls it on each turn that is not the display link's
 /// tick, owing itself the next turn while more is left, and the Linux loop

@@ -1003,7 +1003,7 @@ mod tests {
     /// notice** -- the two conformance fixes of 2026-10-08. OpenType's DFLT
     /// rule is met without a `hebr` record, but Microsoft's Hebrew script
     /// spec registers `hebr`, and HarfBuzz's Hebrew shaper applies GPOS only
-    /// when the script it chose is `hebr` (note AB 7.3); with DFLT alone it
+    /// when the script it chose is `hebr`; with DFLT alone it
     /// places the points by combining class and the anchors go unused. So
     /// GSUB and GPOS each carry `hebr` naming what DFLT names -- in GPOS,
     /// mark and mkmk. baud selects latn first, so what baud draws does not

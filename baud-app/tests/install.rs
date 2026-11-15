@@ -214,7 +214,7 @@ fn home() -> String {
 
 /// Every file a reader or a build takes the repository's address from:
 /// the Markdown, Nix and TOML files and the crates' NOTICEs that git
-/// tracks. A file git does not track, such as a local `TODO.md`, is not
+/// tracks. A file git does not track, such as a local notes file, is not
 /// the repository's; the evidence is kept as it was fetched or recorded,
 /// and the history as it was written.
 fn addressed() -> Vec<PathBuf> {

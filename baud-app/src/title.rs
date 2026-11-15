@@ -100,8 +100,7 @@ impl Shown {
     }
 }
 
-/// **The icon name on macOS: the minimized window's title** (note AK
-/// question 8, I1). ctlseqs: "Ps = 1 -> Change Icon Name to Pt"; AppKit's
+/// **The icon name on macOS: the minimized window's title**. ctlseqs: "Ps = 1 -> Change Icon Name to Pt"; AppKit's
 /// nearest place is `miniwindowTitle`, and "changing the full-size
 /// `NSWindow` object's title ... automatically changes the minimized
 /// window's title as well" (`[[source: apple-nswindow-miniwindowtitle]]`),
@@ -143,8 +142,7 @@ impl Mini {
     }
 }
 
-// **When a program sets no title, the folder and the program** (note AK
-// question 2, T2): a program's title wins outright, as ctlseqs' "Change
+// **When a program sets no title, the folder and the program**: a program's title wins outright, as ctlseqs' "Change
 // Window Title to Pt" has it, and the derived title stands only in place
 // of a missing one, so nothing is added to what a program set. Spelled
 // `folder — program`, the folder as [`folder_text`] spells it.
@@ -217,10 +215,10 @@ impl Judged {
 /// app makes it once, on the turn that owed it (macOS, at most one a frame
 /// interval, a turn sooner waiting for a wake at its end) or its next
 /// frame (Linux), however many were owed -- a flood of reads costs one
-/// check a frame, and an idle terminal none (note AK 6.5). A check reads the
+/// check a frame, and an idle terminal none. A check reads the
 /// group, 2.5 us measured on this Mac, and the directory, 0.45 us; the
 /// name only for a new group or after a process event, argv[0] costing
-/// 3.8-5.9 us (note AK 2.6).
+/// 3.8-5.9 us.
 pub struct Derive {
     owed: Owed,
     stale: Stale,
@@ -483,7 +481,7 @@ mod tests {
     }
 
     /// **The name is read for a new group or after a process event**, not
-    /// on every check: argv[0] is the costly read (note AK 2.6).
+    /// on every check: argv[0] is the costly read.
     #[test]
     fn the_name_is_read_once_per_group_and_after_a_process_event() {
         let mut d = Derive::new();

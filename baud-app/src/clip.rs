@@ -1,11 +1,9 @@
 //! What an `OSC 52` write the core published does to the clipboard: the
-//! policy, pure, so its tests run on every platform (note V, V11).
+//! policy, pure, so its tests run on every platform.
 //!
-//! **On by default, with `[clipboard] osc52 = "off"` to turn it off**, as
-//! kitty and sfte do (note V, V11). No focus gate: one is to be tested over a
-//! real slow ssh link before it is adopted, because a yank that arrives a
-//! round trip after the user switched away would be refused and the old
-//! clipboard pasted.
+//! **On by default, with `[clipboard] osc52 = "off"` to turn it off**. No
+//! focus gate, because a yank that arrives a round trip after the user
+//! switched away would be refused and the old clipboard pasted.
 //!
 //! **macOS has one pasteboard**, so a write that names the clipboard (`c`),
 //! the primary (`p`) or xterm's select (`s`, which an empty `Pc` means) lands
@@ -89,9 +87,9 @@ pub fn select_board(term: &Term<'_>) -> Board {
 }
 
 /// **Whether a finished selection goes to the macOS pasteboard**: always
-/// under `[clipboard] copy_on_select = "on"` (note V, V13), and under
-/// `"off"` only while a program has set `?1041`, xterm's selectToClipboard
-/// putting SELECT on CLIPBOARD (the program's mode is honoured; the key
+/// under `[clipboard] copy_on_select = "on"`, and under
+/// `"off"` only while a program has set `?1041`, the copy-to-clipboard
+/// selection target, putting SELECT on CLIPBOARD (the program's mode is honoured; the key
 /// stops only the copy it adds).
 #[cfg(any(target_os = "macos", test))]
 pub fn selected_to_pasteboard(term: &Term<'_>, c: crate::config::CopyOnSelect) -> bool {

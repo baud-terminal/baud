@@ -110,8 +110,8 @@ struct Hash(u64);
 
 /// **A hash of `words`**, FNV-1a's step over four lanes of two words
 /// each, folded at the end: four independent multiplies an eight words
-/// rather than one chain a word, whose latency was the vote's whole cost
-/// (the record, note W 5.15). Every match it finds is compared word for
+/// rather than one chain a word, whose latency would be the vote's whole
+/// cost. Every match it finds is compared word for
 /// word, so a collision costs a comparison and never a wrong vote.
 fn hash(words: &[u32]) -> Hash {
     const PRIME: u64 = 0x0000_0100_0000_01B3;

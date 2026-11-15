@@ -35,7 +35,7 @@ pub type Fd = c_int;
 ///
 /// Both drivers poll the master. The Linux loop waits on it beside the
 /// compositor's socket; the macOS reader thread waits on it alone, when a
-/// read of the master -- non-blocking since 2026-10-09, because the main
+/// read of the master -- non-blocking, because the main
 /// thread writes it (`pty.rs`) -- finds nothing.
 #[cfg(target_os = "macos")]
 pub type Nfds = c_uint;
@@ -1497,7 +1497,7 @@ unsafe extern "C" {
 }
 
 // **What the window's title is derived from when a program sets none**
-// (`fg.rs`, note AK section 2): the pty's foreground process group, its
+// (`fg.rs`): the pty's foreground process group, its
 // program's argv[0] and its directory. `TIOCGPGRP` is asked on the
 // master, which both kernels answer although POSIX's `tcgetpgrp` requires
 // the controlling terminal: XNU's pty driver answers it "on the controller"
@@ -1540,7 +1540,7 @@ pub const CTL_KERN: c_int = 1;
 pub const KERN_PROCARGS2: c_int = 49;
 
 // **What the activity lights' OH and CD read of the job in front**
-// (`front.rs`, note AH 3.2 and 3.3), through the same "private interfaces"
+// (`front.rs`), through the same "private interfaces"
 // (`[[source: macos-sdk-libproc-h]]` 41-44) and `sys/proc_info.h`'s
 // records (`[[source: macos-sdk-sys-proc-info-h]]`), each taken as bytes
 // at the offsets the probe pins, as `proc_vnodepathinfo` is.
@@ -1565,7 +1565,7 @@ pub const BSDINFO_START_USEC: usize = 128;
 
 /// `proc_pidinfo`'s flavor for `struct proc_bsdshortinfo`, whose
 /// `pbsi_comm` is the program's name, `MAXCOMLEN` bytes: answered for a
-/// root process too (note AH 3.8, measured against pid 1).
+/// root process too, pid 1 included.
 #[cfg(target_os = "macos")]
 pub const PROC_PIDT_SHORTBSDINFO: c_int = 13;
 #[cfg(target_os = "macos")]

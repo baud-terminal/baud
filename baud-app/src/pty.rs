@@ -1307,9 +1307,8 @@ fn shell_locale() -> Option<String> {
     found
 }
 
-/// On Linux the parent's environment passes on as it is, as it does from
-/// every terminal surveyed (note AA, section 3); whether baud should fill
-/// an unset `LANG` there is open.
+/// On Linux the parent's environment passes on as it is, an unset `LANG`
+/// included.
 #[cfg(target_os = "linux")]
 fn shell_locale() -> Option<String> {
     None
@@ -1677,12 +1676,8 @@ fn tell(master: crate::sys::Fd, told: &mut crate::sys::Winsize, ws: crate::sys::
 /// a Hebrew letter's lead byte `d7` after Backspace.
 ///
 /// Called in the child, on descriptor 0, before the exec, so the shell's
-/// first look at its terminal already has the flag: Terminal.app 2.15's
-/// route (`[[source: macos-terminal-2-15-binary]]`), and foot's on the
-/// subsidiary before it dups it to 0. The route only: Terminal.app
-/// writes a whole `c_iflag` of its own, with `IUTF8` only when a
-/// `CharacterEncoding` value is 4, `NSUTF8StringEncoding`, where this
-/// changes one bit (note AA). A failed call leaves the kernel's default
+/// first look at its terminal already has the flag. It changes that one
+/// bit of the `c_iflag` it reads. A failed call leaves the kernel's default
 /// and the shell still starts: the parent is not told (an open
 /// question). After the spawn the parent keeps the bit with the input
 /// encoding ([`LineDiscipline`]).
@@ -1819,8 +1814,7 @@ pub fn start_dir() -> std::path::PathBuf {
 /// (`[[source: posix-xbd-8]]`). A child sent home would inherit a `PWD`
 /// naming somewhere else -- `open` run from a shell passes that shell's on
 /// to the app it starts, while the app's directory is `/`
-/// (measured with `open -n`) -- so it is replaced with `HOME`,
-/// as Ghostty sets it (note AA section 9). A
+/// (measured with `open -n`) -- so it is replaced with `HOME`. A
 /// child that stays keeps its environment as it is.
 fn with_pwd(mut env: ChildEnv, start: &StartIn) -> ChildEnv {
     if let StartIn::Dir(dir) = start {
@@ -4454,8 +4448,8 @@ mod tests {
     }
 
     /// **Backspace after a Hebrew letter leaves an empty line**, where the
-    /// kernel's default left its lead byte `d7` (note AA section 5, measured
-    /// by `the_kernels_erase_follows_iutf8_alone`). The control, `ab` then
+    /// kernel's default leaves its lead byte `d7`
+    /// (`the_kernels_erase_follows_iutf8_alone`). The control, `ab` then
     /// Backspace, leaves `61` with the flag or without it, so a probe that
     /// erased everything would fail it.
     #[test]
@@ -8027,7 +8021,7 @@ mod tests {
     }
 
     /// **A write the full queue takes nothing of says so**, so the activity
-    /// lights' SD stays dark for bytes still owed (note AH, section 7): a
+    /// lights' SD stays dark for bytes still owed: a
     /// raw child that never reads lets Darwin's master take 1022 bytes of
     /// 8192, a part, and the next write finds no room and takes none, every
     /// byte still owed.

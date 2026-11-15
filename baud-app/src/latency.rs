@@ -134,7 +134,7 @@ struct Open {
     period: Option<Duration>,
 }
 
-/// How the echo judged a key's predicted glyph (row 9 of note N): not
+/// How the echo judged a key's predicted glyph: not
 /// yet, or not at all if the record closed first; confirmed, the read
 /// that came put that codepoint where the prediction stood; contradicted,
 /// it put something else there, or nothing came in time.

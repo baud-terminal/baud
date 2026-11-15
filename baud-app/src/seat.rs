@@ -932,7 +932,7 @@ impl Seat {
     /// **A new width re-cuts every line**, so the columns a selection
     /// named no longer name cells and it goes; a change of height alone on
     /// the primary keeps it on its lines, renumbered by what the resize
-    /// retired or took back (`keep::kept_across_resize`, note V, V3), as
+    /// retired or took back (`keep::kept_across_resize`), as
     /// the macOS driver's resize does. `was` is read before the resize, and
     /// `rec` is the core's record of it.
     pub(crate) fn resized(

@@ -1,11 +1,11 @@
-//! The theme files `[palette] light` and `dark` name (note Y, step 7).
+//! The theme files `[palette] light` and `dark` name.
 //!
 //! `config.rs`'s `apply` stays pure and stores the two strings; reading the
 //! files is I/O and happens here, at launch, with its **own complaint list**,
 //! so a file that fails is reported and leaves baud's own half in place
 //! rather than stopping the terminal.
 //!
-//! **The content chooses the reader** (note AR):
+//! **The content chooses the reader**:
 //! [`themefile::detect::classify`] gives one verdict and only that verdict's
 //! reader runs. Every load says what the file was read as and the line that
 //! decided; a file named for another format is read by its content and the
@@ -1057,10 +1057,10 @@ mod tests {
         themefile::hex(hex.as_bytes()).unwrap()
     }
 
-    /// **A double-quoted alacritty file never draws its search colour as
-    /// the page.** Read line by line as ghostty, its section headers were
-    /// ignored and the last `background =`, `[colors.search.matches]`'s
-    /// `#ffff00`, became the page (note AR, section 1.3).
+    /// **A double-quoted `[colors.*]` TOML file never draws its search
+    /// colour as the page.** Read line by line as `key = value` lines, its
+    /// section headers would be ignored and the last `background =`,
+    /// `[colors.search.matches]`'s `#ffff00`, would become the page.
     #[test]
     fn an_alacritty_file_never_draws_its_search_colour_as_the_page() {
         let (dark, said) = dark_of("alacritty", "alacritty.toml");
@@ -1173,8 +1173,9 @@ mod tests {
         s
     }
 
-    /// **kitty's and foot's own theme files are read**, each to the colours
-    /// it carries, and each says what it was read as.
+    /// **`Kind::Kitty` and `Kind::Foot` theme files are read** (a
+    /// `name value` config, and an `.ini` with a `[colors-dark]` section),
+    /// each to the colours it carries, and each says what it was read as.
     #[test]
     fn kitty_and_foot_files_read_as_the_colours_they_carry() {
         for (file, why) in [
@@ -1192,9 +1193,11 @@ mod tests {
         }
     }
 
-    /// **iTerm2's presets and Windows Terminal's schemes are read**, each
-    /// to the colours it carries; Windows Terminal has no cursor text or
-    /// selection text colour.
+    /// **`Kind::ITermPlist` presets and `Kind::WindowsTerminal` schemes are
+    /// read** (an XML plist with `Ansi 0 Color`, and a JSON object with
+    /// `brightBlack`), each to the colours it carries; a
+    /// `Kind::WindowsTerminal` scheme has no cursor text or selection text
+    /// colour.
     #[test]
     fn iterm2_and_windows_terminal_files_read_as_the_colours_they_carry() {
         let (got, said) = dark_of("iterm", "night.itermcolors");
@@ -1338,8 +1341,8 @@ mod tests {
     }
 
     /// **The config's selection colours win over a theme file's, and a
-    /// file's over reverse video** (a key set after the theme wins, as in
-    /// ghostty and kitty); `"none"` takes a file's colour away. The file
+    /// file's over reverse video** (a key set after the theme wins);
+    /// `"none"` takes a file's colour away. The file
     /// here is iTerm2's, which names both.
     #[test]
     fn the_configs_selection_wins_over_the_files_and_none_takes_it_away() {
@@ -1696,8 +1699,7 @@ mod tests {
     }
 
     /// **An empty or comments-only file loads empty**, setting nothing and
-    /// saying so: TOML's grammar allows an empty document, and ghostty,
-    /// kitty, foot and alacritty each load one and set nothing.
+    /// saying so: TOML's grammar allows an empty document.
     #[test]
     fn an_empty_or_comments_only_file_loads_empty_with_the_unset_notice() {
         for (tag, text) in [

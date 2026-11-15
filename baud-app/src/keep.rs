@@ -13,7 +13,7 @@ pub(crate) use baud_core::Moved as Ring;
 
 /// Where the live ring stood before a read or a resize, for the
 /// selection's line count and a slide, and the counts a read is judged by.
-/// The window over the history is the core's (note V, V2), so nothing here
+/// The window over the history is the core's, so nothing here
 /// anchors it.
 #[derive(Clone, Copy)]
 pub(crate) struct Before {
@@ -530,7 +530,7 @@ impl Counts {
 /// its rows and trims what it takes out of the region, a scroll down trims
 /// what it pushes under the screen, the alternate screen's top trims what
 /// leaves it, the rows under a top region keep theirs, and `IL` and `DL`
-/// move it below the cursor (`Term::watched_lines`, note V). Unchanged by
+/// move it below the cursor (`Term::watched_lines`). Unchanged by
 /// a read that moved no rows in place; the caller has dropped one the
 /// watch reached.
 pub(crate) fn followed(term: &Term<'_>, selection: &mut Option<Selection>, scrolled: Scrolled) {
@@ -541,7 +541,7 @@ pub(crate) fn followed(term: &Term<'_>, selection: &mut Option<Selection>, scrol
 }
 
 /// **What a window resize leaves of the selection, and how the count that
-/// numbers it moves** (note V, V3): on the primary the count moves by the
+/// numbers it moves**: on the primary the count moves by the
 /// rows the resize retired into the history or took back from it, as a
 /// read's would -- the core counts them by the window's top line
 /// (`Term::history_moved_since`), however many -- and across a change of
@@ -636,7 +636,7 @@ pub(crate) fn kept_across_resize_owing(
 
 /// **Whether `sel` reaches a line under the screen's bottom**, numbered by
 /// `scrolled`: a row a shrink cut below the screen, which may come back or
-/// be blanked when history is pulled instead (note V, V3).
+/// be blanked when history is pulled instead.
 pub(crate) fn below_the_screen(term: &Term<'_>, sel: &Selection, scrolled: Scrolled) -> bool {
     let bottom = Row::from_index(term.geometry().1.index().saturating_sub(1));
     sel.ordered().1.line > scrolled.line(Rows::ZERO, bottom)
@@ -688,7 +688,7 @@ pub(crate) fn tracked_highlight(
 /// core's count, because nothing else across a read says so: a reset scrolls
 /// nothing and keeps the rotation, so on a terminal with no history both ends
 /// of the read look alike, and [`erased`] moves on `CSI 3 J` too, which keeps
-/// the screen and a selection on it (note V, V1).
+/// the screen and a selection on it.
 pub(crate) fn reset_in(term: &Term<'_>, before: Before) -> bool {
     term.resets() != before.resets
 }

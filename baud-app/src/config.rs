@@ -227,8 +227,7 @@ pub enum Printing {
 /// Whether the embedded faces follow a configured stack -- the embedded
 /// Regular, then the icon face, then STIX Two Math -- so a glyph none of the
 /// named faces carries, Hebrew or a Nerd Fonts icon, draws from them instead
-/// of as `.notdef`. kitty, wezterm and ghostty all put their bundled symbols
-/// behind the user's fonts the same way.
+/// of as `.notdef`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FontFallback {
     Embedded,
@@ -347,8 +346,7 @@ pub struct Config {
     /// `[cursor] unfocused_hollow`: how the cursor is drawn while another
     /// window has the keyboard -- in its shape, as when focused, by default
     /// (`"off"`), or with `"on"` as a hollow box round its cell whatever
-    /// its shape, as kitty, ghostty, foot, alacritty and WezTerm draw it
-    /// (note AZ).
+    /// its shape.
     pub unfocused_cursor: baud_render::CursorLook,
     /// `[screen] transition`: whether a switch to or from the alternate
     /// screen slides the new one in over the old (veils it, under Reduce
@@ -475,7 +473,7 @@ pub struct Config {
     pub tearing: Tearing,
     /// `[launch] splash`: whether each window shows baud's colour logo in
     /// its middle once it is on screen, carried in and out by the plasma
-    /// -- `"on"` by default (note AJ) -- or `"off"`. On follows Reduce
+    /// -- `"on"` by default -- or `"off"`. On follows Reduce
     /// Motion, which shows it whole and fades it instead (`splash.rs`).
     pub launch_splash: LaunchSplash,
     /// `[pointer] hide_while_typing`: whether a key hides the pointer unless
@@ -529,8 +527,8 @@ pub struct Config {
     /// program that sets `?2027` gets two cells under either.
     pub vs16_width: baud_domain::Vs16Width,
     /// `[text] ambiguous_width`: whether an East Asian Ambiguous character
-    /// takes one column, `"narrow"`, the default, or two, `"wide"` (note V,
-    /// V14). `[[source: uax11]]` § 5: narrow when the context cannot be
+    /// takes one column, `"narrow"`, the default, or two, `"wide"`.
+    /// `[[source: uax11]]` § 5: narrow when the context cannot be
     /// established, and a terminal cannot see the program's width function.
     /// Private Use Area characters, the icons, stay one column under either.
     /// `DECRQM ?1021` reports it.
@@ -553,7 +551,7 @@ pub struct Config {
     /// (`bell.rs`, `ring`).
     pub bell: BellStyle,
     /// `[clipboard]`: whether a program's `OSC 52` copy reaches the
-    /// pasteboard, and how large a copy the terminal holds (note V, V11).
+    /// pasteboard, and how large a copy the terminal holds.
     pub clipboard: Clipboard,
     /// `[message]`, `[message.copy]`, `[message.held]` and `[message.link]`.
     pub message: Message,
@@ -564,7 +562,7 @@ pub struct Config {
 }
 
 /// `[clipboard] osc52`: whether a program may write the clipboard with
-/// `OSC 52`. **`Write` by default** (note V, V11), as kitty and sfte do;
+/// `OSC 52`. **`Write` by default**;
 /// reads stay refused whatever this says.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Osc52 {
@@ -572,8 +570,8 @@ pub enum Osc52 {
     Off,
 }
 
-/// `[clipboard] copy_on_select`: whether finishing a selection copies it,
-/// note V's V13. **`On` by default**: on macOS a finished selection goes
+/// `[clipboard] copy_on_select`: whether finishing a selection copies it.
+/// **`On` by default**: on macOS a finished selection goes
 /// to the pasteboard; `Off` copies one only while a program has set
 /// `?1041`. On Linux a finished selection sets the primary either way, as
 /// Linux terminals do, and the clipboard under `?1041`, so the key
@@ -597,7 +595,7 @@ pub struct Clipboard {
 }
 
 impl Clipboard {
-    /// Writes on, and a 256 KiB body: note V's design, item 8.
+    /// Writes on, and a 256 KiB body.
     pub const DEFAULT: Clipboard = Clipboard {
         osc52: Osc52::Write,
         copy_on_select: CopyOnSelect::On,
@@ -947,8 +945,7 @@ pub struct Glass {
 pub enum Material {
     /// `.underWindowBackground`, behind-window blending, its state
     /// following the window's: Apple's standard material for app
-    /// backgrounds ([[source: apple-hig-materials]]; note AT). The default
-    /// since 2026-10-18.
+    /// backgrounds ([[source: apple-hig-materials]]). The default.
     #[default]
     Standard,
     /// Clear Liquid Glass.
@@ -2929,8 +2926,8 @@ impl Config {
         }
         if let Some(mut faces) = named {
             // The order: the configured faces, then baud's embedded font,
-            // then the system, which is not built for a configured stack yet
-            // (note AC decision 9). The embedded Regular goes first of the
+            // then the system, which is not built for a configured stack
+            // yet. The embedded Regular goes first of the
             // three, so it draws whatever the named faces lack and it maps:
             // the 52 Hebrew code points, which were `.notdef`, and whatever
             // else JetBrains Mono maps. By cmap, not rendering, that is 458
@@ -3007,7 +3004,7 @@ fn sixel_backgrounds(value: &str, said: &mut Vec<String>) -> baud_render::SixelB
 /// Its own parser, because `unit` clamps to 0-1 and would turn 1.2 into 1.0,
 /// which is off. **The target is the larger of 4.5 and the trigger**, so a
 /// reader asking for 7 (WCAG AAA) gets text lifted to 7, never to a ratio
-/// below the one they set; at or below 4.5 it is 4.5 (note Y, decision 6). A
+/// below the one they set; at or below 4.5 it is 4.5. A
 /// value that does not parse keeps the default and says so.
 fn floor(value: &str, said: &mut Vec<String>) -> baud_render::Floor {
     let raw = value.trim().trim_matches('"');
@@ -3141,8 +3138,8 @@ fn cursor_pick(value: &str, said: &mut Vec<String>) -> CursorPick {
 /// **`[palette] selection` and `selection_text`, the `Theme` selection
 /// setting**: the page under selected text and the selected text, over both
 /// halves. Each wins over a theme file's colour, as a key set after the
-/// theme wins in ghostty and kitty; both unset and no theme colour is
-/// reverse video, the default (note V, V13).
+/// theme wins; both unset and no theme colour is
+/// reverse video, the default.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Selection {
     pub page: SelectionPick,

@@ -1,4 +1,4 @@
-//! **The launch splash, as both drivers time it** (note AJ): nothing of
+//! **The launch splash, as both drivers time it**: nothing of
 //! it until the window is shown -- on macOS the first display-link tick at
 //! which a frame has reached the layer and AppKit reports the window
 //! visible, which it showed once the app finished launching, its first
@@ -280,7 +280,7 @@ pub(crate) fn splash_override(env: Option<&str>, config: LaunchSplash) -> Launch
 }
 
 /// **What the launch logo's frames and the shell's first reads did**, for
-/// `BAUD_STARTUP=1` (note AJ section 18): each frame committed while the
+/// `BAUD_STARTUP=1`: each frame committed while the
 /// logo is drawn, the first frame with a visible cell, each read that
 /// arrived before the logo ended and the frame that drew it, and the
 /// longest display-link tick or wake on the main thread, said once, when
@@ -1238,7 +1238,7 @@ mod tests {
     }
 
     /// **The launch log says what the logo's frames and the shell's reads
-    /// did** (note AJ section 18): the frames and their worst interval and
+    /// did**: the frames and their worst interval and
     /// where it ended, the frame the shell's first visible cell was drawn
     /// on and the interval before it, each read's arrival and the wait for
     /// the frame that drew it, and the main thread's longest turn -- once,

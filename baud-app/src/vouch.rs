@@ -59,7 +59,7 @@ pub enum Why {
 /// holding cells -- text, or blanks other than the default -- or the
 /// status line's, read once per part, with its record (`reads::paced`).
 /// A mark of 0 means nothing was written there: a fill stores 0 only when
-/// it fills with nothing, and every glyph raises it (note F; pinned in
+/// it fills with nothing, and every glyph raises it (pinned in
 /// `baud-core/tests/extent_zero_is_empty.rs`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EndRow {

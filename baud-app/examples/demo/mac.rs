@@ -513,7 +513,7 @@ pub fn front_app() -> Option<i32> {
         .map(|a| a.processIdentifier())
 }
 
-/// The owner of the frontmost ordinary window.
+/// The process that owns the frontmost ordinary window.
 pub fn front_owner() -> Option<i32> {
     windows(true).iter().find(|w| w.layer == 0).map(|w| w.owner)
 }

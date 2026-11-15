@@ -40,12 +40,8 @@ pub fn cell_px(cell_h: Px) -> ImagePx {
 /// may image" (its p. 9, PDF p. 920), §2 makes "'picture too complex'" for an
 /// 800x240 raster not permitted and says "The protocol should support any size
 /// rasters, although not all devices will be capable of displaying them" (p.
-/// 2, PDF p. 913), and no section read names a limit on a body's bytes. Until
-/// 2026-10-14 a body was held whole in a scratch, 256 KiB and then a 3 MiB
-/// interim; at 256 KiB yazi's UI screenshot (334-390 KiB at 600x375), photo
-/// (474-680 KiB at 600x800) and text-PDF page (797-820 KiB at 600x776)
-/// previews were refused whole though each fit the arena, and the pane went
-/// blank (note S). The single source of the default; `Config::defaults` reads
+/// 2, PDF p. 913), and no section read names a limit on a body's bytes.
+/// The single source of the default; `Config::defaults` reads
 /// it, and `[images] pixels_mb` overrides it.
 ///
 /// **Sized to the kitty quota's "It should allow at least a few full
@@ -86,8 +82,8 @@ pub fn describe_images(b: &ImageBudget) -> String {
 /// It exists because the refusal was invisible: yazi's previews went blank
 /// against the body default, 256 KiB on 2026-10-09, counted in a total that
 /// also counted the arena and the slots and that nothing in the app read. No
-/// body is refused since 2026-10-14, when a Sixel began decoding as it
-/// arrived, so the limits said are the arena's and the slots'. An
+/// body is refused, because a Sixel is decoded as it arrives, so the
+/// limits said are the arena's and the slots'. An
 /// image with no pixels, or one wider or taller than the 65535 pixels an
 /// image coordinate holds, is counted and not said -- no limit refused it and
 /// none raised would draw it. A `ColorWord` is four bytes, so a pixel count
@@ -257,7 +253,7 @@ pub fn set_up_term<'t>(
     crate::host::set_logging(&mut term, cfg.logging);
     // **No print panel in this driver**: the core is told there is no
     // printer, so DSR `?15` answers "no printer" and a print is ignored and
-    // counted, whatever `[screen] printing` says (`print.rs`; note AW).
+    // counted, whatever `[screen] printing` says (`print.rs`).
     crate::print::set_printer(&mut term, cfg.printing, crate::print::Printers::None);
     term.set_graphics_print(cfg.graphics_print);
     crate::host::set_pointer_mode(&mut term, cfg.pointer_mode);
@@ -599,13 +595,12 @@ static WANTED: OnceLock<Wanted> = OnceLock::new();
 static TIMELINE: OnceLock<std::sync::Mutex<Timeline>> = OnceLock::new();
 
 /// **The launch timeline's file**, beside stderr: a launch from the Dock,
-/// Finder or `open` has its stderr on `/dev/null` (note AI, section 1.3), so
+/// Finder or `open` has its stderr on `/dev/null`, so
 /// a line written there alone is lost, and with it every launch whose shell
 /// the account names. On macOS `~/Library/Logs/baud/startup.log`, the
-/// directory note AI's option (b) names for an app's log files; on Linux
+/// directory macOS keeps an app's log files in; on Linux
 /// `$XDG_STATE_HOME/baud/startup.log`, else `~/.local/state/baud/`, the
-/// XDG directory whose state "may contain ... logs". Note AI decided the
-/// unified log for baud's warnings and left its route open; this is the
+/// XDG directory whose state "may contain ... logs". This is the
 /// opt-in timeline `BAUD_STARTUP` asks for, `open --env BAUD_STARTUP=1`
 /// included, and nothing is written without it. Each launch appends, under
 /// a line naming its process.
@@ -2782,7 +2777,7 @@ mod tests {
     }
 
     /// **An OS flip under `auto` drops the application's colours and reports
-    /// once** -- note Y's decision 5, through the call the app makes. A
+    /// once**, through the call the app makes. A
     /// program subscribed with `?2031` has set palette entry 1 and the
     /// background; the flip to the light theme clears both and sends one
     /// `CSI ? 997 ; 2 n`. The same flip with `Keep` clears nothing, the
