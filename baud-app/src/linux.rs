@@ -151,6 +151,35 @@ enum FrameFor {
     Soonest,
 }
 
+/// Whether the window holds events already read ([`Window::has_events`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Held {
+    Events,
+    Nothing,
+}
+
+impl Held {
+    fn of(w: &Window) -> Held {
+        match w.has_events() {
+            true => Held::Events,
+            false => Held::Nothing,
+        }
+    }
+}
+
+/// **How long the loop's wait may last**: the soonest of `deadlines`, and
+/// none at all while the window holds events already read, as the
+/// launch's round trips read the first configure. Those are in the
+/// window's queue, not on the socket, so the wait would not wake for them
+/// and the first frame would wait for whatever woke it next.
+fn wait_bound(deadlines: &[Option<Duration>], held: Held) -> Option<Duration> {
+    let queued = match held {
+        Held::Events => Some(Duration::ZERO),
+        Held::Nothing => None,
+    };
+    deadlines.iter().copied().chain([queued]).flatten().min()
+}
+
 /// `[window] tearing`, as the window takes it.
 fn tearing(t: crate::config::Tearing) -> baud_present_wayland::Tearing {
     match t {
@@ -528,6 +557,39 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     let faces = crate::host::parse_faces(&cfg, &data, &mut held);
     let fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
     startup_mark("faces");
+    // **The outputs, before the storage is provisioned**: the registry's
+    // round trip, and where it offered an output a second one after the
+    // binds, which that output's `mode`, `scale` and `done` precede
+    // (`Window::outputs_settled`). The provision is still `MAX_GRID`.
+    let mut conn = match Connection::connect() {
+        Ok(c) => c,
+        Err(e) => {
+            crate::warn!("{}", crate::log::no_wayland_session(e));
+            std::process::exit(1);
+        }
+    };
+    let mut window = match Window::open(&mut conn, "baud", "org.baud.terminal") {
+        Ok(w) => w,
+        Err(e) => {
+            crate::warn!("wayland: {e:?}");
+            std::process::exit(1);
+        }
+    };
+    while !window.outputs_settled() {
+        if let Err(e) = conn.roundtrip_once(&mut window) {
+            crate::warn!("wayland: {e:?}");
+            std::process::exit(1);
+        }
+    }
+    for o in window.outputs() {
+        crate::info!(
+            "output: {} x {} px, scale {}",
+            o.width.0,
+            o.height.0,
+            o.scale
+        );
+    }
+    startup_mark("wayland");
     let geom = host_geometry();
     crate::info!("cache: {}", describe(&geom));
     let owned: &'static mut Owned = Box::leak(Box::new(
@@ -618,21 +680,6 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     startup_mark("pty");
     // The scan of the shell's marks, against the token baud handed it.
     let groups = crate::probe::Sampler::for_shell(pty.shell_token());
-    let mut conn = match Connection::connect() {
-        Ok(c) => c,
-        Err(e) => {
-            crate::warn!("{}", crate::log::no_wayland_session(e));
-            std::process::exit(1);
-        }
-    };
-    startup_mark("wayland");
-    let mut window = match Window::open(&mut conn, "baud", "org.baud.terminal") {
-        Ok(w) => w,
-        Err(e) => {
-            crate::warn!("wayland: {e:?}");
-            std::process::exit(1);
-        }
-    };
     // Dead keys and `Multi_key` sequences, from the table the session's
     // locale names, found where libxkbcommon finds it.
     match baud_present_wayland::compose::from_session(&crate::pty::locale_installed) {
@@ -918,13 +965,13 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             .map(|t| t.saturating_duration_since(now));
         // With no pidfd, the one more look a hung-up master's child is owed.
         let reap = d.pty.reap_owed().map(|t| t.saturating_duration_since(now));
+        // The deadlines, one list (`own_line::wait_bounds` reads it), and
+        // the window's held events over them (`wait_bound`).
         let timeout = [
             sync, repeat, flash, copied, caret, decode, paste, delay, effects, frames, expiry,
             settle, report, lights, words, paths, reap,
-        ]
-        .into_iter()
-        .flatten()
-        .min();
+        ];
+        let timeout = wait_bound(&timeout, Held::of(&d.window));
         // The clipboard's pipes, each waited on for what it owes, and the
         // session bus, for what it sends and the room to send it.
         let mut transfers: Vec<_> = d
@@ -3915,4 +3962,67 @@ fn program_copy(
         };
     }
     took
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **The wait ends at once while the window holds events read
+    /// already**: with no deadline and with one five seconds out, events
+    /// in the window's queue bound the wait at zero, and with none the
+    /// wait is the soonest deadline, or unbounded with none. The launch's
+    /// round trips read the first configure into that queue, where the
+    /// socket's readiness does not show it.
+    #[test]
+    fn the_wait_ends_at_once_while_the_window_holds_events() {
+        let five = Some(Duration::from_secs(5));
+        assert_eq!(
+            wait_bound(&[None, None], Held::Events),
+            Some(Duration::ZERO)
+        );
+        assert_eq!(
+            wait_bound(&[five, None], Held::Events),
+            Some(Duration::ZERO)
+        );
+        // The controls: the deadlines alone.
+        assert_eq!(wait_bound(&[five, None], Held::Nothing), five);
+        assert_eq!(wait_bound(&[None, None], Held::Nothing), None);
+        let one = Some(Duration::from_millis(1));
+        assert_eq!(wait_bound(&[five, one], Held::Nothing), one);
+    }
+
+    /// **The shell is spawned before anything is presented**: the launch
+    /// opens the window and runs its round trips before the storage is
+    /// provisioned, and the window's opening commit attaches no buffer
+    /// (`a_window_opens_shows_a_frame_and_types`, baud-present-wayland),
+    /// so the first frame is the loop's `present`. In `run`, no present
+    /// comes before `Pty::spawn_polled`, and the driver whose `present`
+    /// draws is built after it. The loop is bound to a compositor, so the
+    /// source is what can fail.
+    #[test]
+    fn the_shell_is_spawned_before_anything_is_presented() {
+        const SRC: &str = include_str!("linux.rs");
+        let (_, run) = SRC
+            .split_once(concat!("pub fn ", "run(given"))
+            .expect("the launch");
+        let (before, after) = run
+            .split_once(concat!("Pty::", "spawn_polled("))
+            .expect("the shell's spawn");
+        assert!(
+            before.contains(concat!("Window::", "open(")),
+            "the control: the window is opened before the shell"
+        );
+        assert!(
+            !before.contains(concat!(".", "present(")),
+            "a present before the shell is spawned"
+        );
+        let built = after
+            .find(concat!("let mut d = ", "Driver {"))
+            .expect("the driver");
+        let drawn = after
+            .find(concat!("d.", "present();"))
+            .expect("the loop's present");
+        assert!(built < drawn, "the driver is built before it presents");
+    }
 }

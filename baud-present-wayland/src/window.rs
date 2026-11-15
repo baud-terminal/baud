@@ -192,12 +192,23 @@ enum Scaling {
 
 /// A `wl_output` bound, by its registry name, and the scale it last said:
 /// one until it says, "If it is not sent, the client should assume a scale
-/// of 1".
+/// of 1". Its current mode's width and height, once one has come.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Output {
     name: GlobalName,
     id: ObjectId,
     scale: Scale,
+    mode: Option<(Px, Px)>,
+}
+
+/// **An output's size in pixels and its scale** ([`Window::outputs`]):
+/// its current `wl_output.mode`, "in physical hardware units of the
+/// output device", and its `wl_output.scale`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutputPx {
+    pub width: Px,
+    pub height: Px,
+    pub scale: u32,
 }
 
 /// A global's numeric name in the registry, which `global_remove` names
@@ -369,6 +380,10 @@ pub struct Window {
     registry: ObjectId,
     /// The callback after the registry burst.
     sync: Option<ObjectId>,
+    /// The callback after the outputs' binds, asked for when the registry's
+    /// comes and any output was bound: their `mode`, `scale` and `done`
+    /// precede its `done`.
+    outputs_sync: Option<ObjectId>,
     globals: Globals,
     surface: Option<ObjectId>,
     xdg_surface: Option<ObjectId>,
@@ -512,6 +527,7 @@ impl Window {
         )?;
         Ok(Window {
             sync: Some(sync),
+            outputs_sync: None,
             title: title.to_string(),
             app_id: app_id.to_string(),
             registry,
@@ -577,6 +593,13 @@ impl Window {
 
     pub fn next_event(&mut self) -> Option<Event> {
         self.events.pop_front()
+    }
+
+    /// Whether an event is waiting for [`Window::next_event`]: one read
+    /// before a caller's wait, as at launch, which the socket will not
+    /// wake it for.
+    pub fn has_events(&self) -> bool {
+        !self.events.is_empty()
     }
 
     /// The surface's size in its own points, as the compositor configured
@@ -1008,6 +1031,25 @@ impl Window {
     /// version 4 never sends it, and nothing is known before one is bound.
     pub fn configure_bounds(&self) -> ConfigureBounds {
         self.globals.configure_bounds
+    }
+
+    /// **Whether the outputs offered at launch have said their modes**: the
+    /// registry's burst read and, where it offered an output, the round
+    /// trip after the binds answered. With no output offered nothing more
+    /// is asked, and this is so once the registry is read.
+    pub fn outputs_settled(&self) -> bool {
+        self.sync.is_none() && self.outputs_sync.is_none()
+    }
+
+    /// The outputs whose current mode has been said.
+    pub fn outputs(&self) -> impl Iterator<Item = OutputPx> + '_ {
+        self.globals.outputs.iter().filter_map(|o| {
+            o.mode.map(|(width, height)| OutputPx {
+                width,
+                height,
+                scale: o.scale.0,
+            })
+        })
     }
 
     /// `xdg_toplevel.set_minimized`, `CSI 2 t`'s request. "There is no way
@@ -1926,6 +1968,7 @@ impl Handler for Window {
                                 name: GlobalName(name),
                                 id,
                                 scale: Scale(1),
+                                mode: None,
                             });
                         }
                     }
@@ -1986,6 +2029,17 @@ impl Handler for Window {
                     o.scale = Scale(u32::try_from(*f).unwrap_or(1).max(1));
                 }
                 self.announce();
+            }
+            // "The current mode is always the last mode that was received
+            // with the current flag set" (0x1); any other is a mode the
+            // output could take.
+            ("wl_output", "mode", [Read::Uint(flags), Read::Int(w), Read::Int(h), _])
+                if flags & 0x1 != 0 =>
+            {
+                if let Some(o) = self.globals.outputs.iter_mut().find(|o| o.id == ev.object) {
+                    let px = |v: &i32| Px(u32::try_from(*v).unwrap_or(0));
+                    o.mode = Some((px(w), px(h)));
+                }
             }
             // An output unplugged: its scale counts no more.
             ("wl_registry", "global_remove", [Read::Uint(name)]) => {
@@ -2430,7 +2484,24 @@ impl Handler for Window {
             ("wl_callback", "done", args) => {
                 if self.sync == Some(ev.object) {
                     self.sync = None;
+                    // The binds went out as the burst was read, so a sync
+                    // now is answered after the outputs have said.
+                    if !self.globals.outputs.is_empty() {
+                        let cb = s.new_id(Interface::named("wl_callback").expect("pinned"));
+                        if s.request(
+                            ObjectId::DISPLAY,
+                            Opcode(protocol::wl_display::request::SYNC),
+                            &[Arg::NewId(cb)],
+                        )
+                        .is_ok()
+                        {
+                            self.outputs_sync = Some(cb);
+                        }
+                    }
                     self.create_surface(s);
+                }
+                if self.outputs_sync == Some(ev.object) {
+                    self.outputs_sync = None;
                 }
                 if self.callback == Some(ev.object) {
                     self.callback = None;

@@ -5364,6 +5364,8 @@ struct Scaled {
     fractional: Option<ObjectId>,
     /// The `wl_output`, if one was offered.
     output: Option<ObjectId>,
+    /// The registry, which a global's removal is sent on.
+    registry: ObjectId,
 }
 
 /// **A window over `globals`**, the first of them `wl_compositor`, then
@@ -5470,6 +5472,7 @@ fn scaled(
         viewport,
         fractional,
         output,
+        registry,
     }
 }
 
@@ -5838,6 +5841,152 @@ fn an_old_compositor_draws_the_window_at_its_outputs_scale() {
     let (_, told) = present_scaled(&mut t, (640, 408));
     assert_eq!(told.buffers, [(640, 408), (640, 408)]);
     assert_eq!(told.buffer_scale, Some(1));
+}
+
+/// **The outputs are known by their current mode**, in pixels, with
+/// their scale: `wl_output.mode` "is sent again if an output changes mode,
+/// for the mode that is now current. In other words, the current mode is
+/// always the last mode that was received with the current flag set", and
+/// a mode without that flag (0x1) is another the output could take
+/// (`[[source: wayland]]`). An output is listed once its current mode has
+/// come, and goes with its global.
+#[test]
+fn the_outputs_are_their_current_modes_and_go_with_their_globals() {
+    let mut t = scaled(
+        &[("wl_compositor", 4), ("wl_output", 4)],
+        (640, 408),
+        |_, _, _, _| {},
+    );
+    assert_eq!(t.w.outputs().count(), 0, "no mode said yet");
+    let output = t.output.expect("the output bound");
+    let mode =
+        |w: i32, h: i32, flags: u32| [Arg::Uint(flags), Arg::Int(w), Arg::Int(h), Arg::Int(60_000)];
+    t.server
+        .send(output, "wl_output", "mode", &mode(3840, 2160, 0x2));
+    t.server.send(output, "wl_output", "done", &[]);
+    pump(&mut t.conn, &mut t.w);
+    assert_eq!(
+        t.w.outputs().count(),
+        0,
+        "a mode not current is not the output's"
+    );
+    t.server
+        .send(output, "wl_output", "mode", &mode(2560, 1440, 0x1 | 0x2));
+    t.server.send(output, "wl_output", "scale", &[Arg::Int(2)]);
+    t.server
+        .send(output, "wl_output", "mode", &mode(1280, 720, 0x2));
+    t.server.send(output, "wl_output", "done", &[]);
+    pump(&mut t.conn, &mut t.w);
+    let px = |w: u32, h: u32| OutputPx {
+        width: Px(w),
+        height: Px(h),
+        scale: 2,
+    };
+    assert_eq!(t.w.outputs().collect::<Vec<_>>(), [px(2560, 1440)]);
+    t.server
+        .send(output, "wl_output", "mode", &mode(1920, 1080, 0x1));
+    t.server.send(output, "wl_output", "done", &[]);
+    pump(&mut t.conn, &mut t.w);
+    assert_eq!(
+        t.w.outputs().collect::<Vec<_>>(),
+        [px(1920, 1080)],
+        "the last current"
+    );
+    // The output is the fourth global offered, after wl_compositor,
+    // wl_shm and xdg_wm_base.
+    t.server
+        .send(t.registry, "wl_registry", "global_remove", &[Arg::Uint(4)]);
+    pump(&mut t.conn, &mut t.w);
+    assert_eq!(t.w.outputs().count(), 0, "the output unplugged");
+}
+
+/// **The outputs are learnt in a second round trip, and only where there
+/// are outputs**: an output's `mode`, `scale` and `done` come only after
+/// it is bound, and it is bound while the registry's burst is read, so the
+/// window asks for a second `sync` after its binds and the outputs are
+/// settled when that is answered. With no `wl_output` offered nothing
+/// more is asked, and they are settled when the registry is.
+#[test]
+fn the_outputs_settle_a_round_trip_after_the_registry_and_at_once_without_one() {
+    for offered in [true, false] {
+        let (c, s) = UnixStream::pair().unwrap();
+        let mut conn = Connection::over(c);
+        let mut server = Server::new(s);
+        let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+        conn.flush().unwrap();
+        let r = server.expect("wl_display", "get_registry");
+        let Val::New(registry) = r.args[0] else {
+            panic!()
+        };
+        server
+            .objects
+            .insert(registry, Interface::named("wl_registry").unwrap());
+        let r = server.expect("wl_display", "sync");
+        let Val::New(sync) = r.args[0] else { panic!() };
+        let mut globals = vec![("wl_compositor", 6u32), ("wl_shm", 2), ("xdg_wm_base", 6)];
+        if offered {
+            globals.push(("wl_output", 4));
+        }
+        for (name, (iface, version)) in (1u32..).zip(&globals) {
+            server.send(
+                registry,
+                "wl_registry",
+                "global",
+                &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(*version)],
+            );
+        }
+        assert!(!w.outputs_settled(), "nothing read yet");
+        server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
+        pump(&mut conn, &mut w);
+        let (mut output, mut second) = (None, None);
+        loop {
+            let r = server.next();
+            match (r.iface, r.name, &r.args[..]) {
+                ("wl_registry", "bind", [_, Val::NewWith(i, _, id)]) if i == "wl_output" => {
+                    output = Some(*id)
+                }
+                ("wl_display", "sync", [Val::New(id)]) => {
+                    assert!(second.is_none(), "one second sync");
+                    second = Some(*id);
+                }
+                ("wl_surface", "commit", _) => break,
+                _ => {}
+            }
+        }
+        if !offered {
+            assert_eq!(second, None, "no output, no second round trip");
+            assert!(w.outputs_settled(), "settled with the registry");
+            assert_eq!(w.outputs().count(), 0);
+            continue;
+        }
+        assert!(!w.outputs_settled(), "the output has not said");
+        let output = output.expect("the output bound");
+        let second = second.expect("a sync after the binds");
+        server.send(
+            output,
+            "wl_output",
+            "mode",
+            &[
+                Arg::Uint(0x1),
+                Arg::Int(2560),
+                Arg::Int(1440),
+                Arg::Int(60_000),
+            ],
+        );
+        server.send(output, "wl_output", "scale", &[Arg::Int(2)]);
+        server.send(output, "wl_output", "done", &[]);
+        server.send(second, "wl_callback", "done", &[Arg::Uint(2)]);
+        pump(&mut conn, &mut w);
+        assert!(w.outputs_settled(), "settled by the second sync");
+        assert_eq!(
+            w.outputs().collect::<Vec<_>>(),
+            [OutputPx {
+                width: Px(2560),
+                height: Px(1440),
+                scale: 2,
+            }]
+        );
+    }
 }
 
 /// **A new destination goes with a buffer even when the buffer's size is
