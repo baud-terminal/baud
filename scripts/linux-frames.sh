@@ -69,8 +69,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     --no-install-recommends sway wayland-utils \
     && rm -rf /var/lib/apt/lists/* && useradd -m baud
 EOF
-docker volume create "$tag-target" >/dev/null
-docker volume create "$tag-registry" >/dev/null
+docker volume inspect "$tag-target" >/dev/null 2>&1 || docker volume create "$tag-target" >/dev/null
+docker volume inspect "$tag-registry" >/dev/null 2>&1 || docker volume create "$tag-registry" >/dev/null
 docker run --rm -v "$root":/src:ro \
   -v "$tag-target":/target \
   -v "$tag-registry":/usr/local/cargo/registry \

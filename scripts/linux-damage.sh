@@ -71,8 +71,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     && rm -rf /var/lib/apt/lists/* && useradd -m baud
 EOF
 done
-docker volume create "$tag-target" >/dev/null
-docker volume create "$tag-registry" >/dev/null
+docker volume inspect "$tag-target" >/dev/null 2>&1 || docker volume create "$tag-target" >/dev/null
+docker volume inspect "$tag-registry" >/dev/null 2>&1 || docker volume create "$tag-registry" >/dev/null
 # The tree, copied so a patch can be applied, and built into a target of
 # the arm's own, so no arm's build is another's left in place. The patch
 # comes in on stdin.

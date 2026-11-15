@@ -160,8 +160,8 @@ if [ "$there" != "$toolchain" ]; then
   exit 1
 fi
 
-docker volume create "$image-target" >/dev/null
-docker volume create "$image-registry" >/dev/null
+docker volume inspect "$image-target" >/dev/null 2>&1 || docker volume create "$image-target" >/dev/null
+docker volume inspect "$image-registry" >/dev/null 2>&1 || docker volume create "$image-registry" >/dev/null
 
 # Inside: build, then each fixture through the bench and through the app
 # under a weston of its own. weston's desktop-shell leaves a window's size
