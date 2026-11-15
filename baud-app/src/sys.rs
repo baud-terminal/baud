@@ -1253,6 +1253,50 @@ unsafe extern "C" {
 // given. `uid_t` is a 32-bit unsigned on Darwin and on Linux.
 pub type Uid = u32;
 
+// **The account's login shell** (`pty.rs`, a window with no `$SHELL` on
+// Linux): `getpwuid(getuid())`'s `pw_shell`. `struct passwd` (`<pwd.h>`)
+// is name, password, uid, gid, gecos, home and shell, in that order.
+#[cfg(target_os = "linux")]
+#[repr(C)]
+pub struct Passwd {
+    pub pw_name: *mut c_char,
+    pub pw_passwd: *mut c_char,
+    pub pw_uid: Uid,
+    pub pw_gid: Uid,
+    pub pw_gecos: *mut c_char,
+    pub pw_dir: *mut c_char,
+    pub pw_shell: *mut c_char,
+}
+
+#[cfg(target_os = "linux")]
+unsafe extern "C" {
+    pub fn getpwuid(uid: Uid) -> *mut Passwd;
+}
+
+/// **The login shell the password database names for this process's
+/// user**, when it has an entry and the entry a shell that is UTF-8.
+/// `getpwuid`'s entry is in storage the next call overwrites, so the shell
+/// is copied out before this returns.
+#[cfg(target_os = "linux")]
+pub fn passwd_shell() -> Option<String> {
+    // SAFETY: `getuid` takes nothing and cannot fail; `getpwuid` takes any
+    // uid and returns null or an entry valid until the next call, read here
+    // at once.
+    let entry = unsafe { getpwuid(getuid()) };
+    if entry.is_null() {
+        return None;
+    }
+    // SAFETY: a non-null entry from `getpwuid`, its `pw_shell` null or a
+    // NUL-terminated string in the same storage.
+    let shell = unsafe { (*entry).pw_shell };
+    if shell.is_null() {
+        return None;
+    }
+    // SAFETY: a NUL-terminated string `getpwuid` gave, still valid.
+    let shell = unsafe { std::ffi::CStr::from_ptr(shell) };
+    shell.to_str().ok().map(str::to_owned)
+}
+
 unsafe extern "C" {
     pub fn getuid() -> Uid;
     pub fn gethostname(name: *mut c_char, len: NameLen) -> c_int;
@@ -2089,6 +2133,7 @@ mod tests {
 #include <sys/inotify.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
+#include <pwd.h>
 #endif
 int main(void) {
     printf("winsize.size=%zu\n", sizeof(struct winsize));
@@ -2375,6 +2420,10 @@ int main(void) {
     printf("IN_MOVE_SELF=%lld\n", (long long)IN_MOVE_SELF);
     printf("SYS_pidfd_open=%lld\n", (long long)SYS_pidfd_open);
     printf("SYS_close_range=%lld\n", (long long)SYS_close_range);
+    printf("passwd.size=%zu\n", sizeof(struct passwd));
+    printf("passwd.uid=%zu\n", offsetof(struct passwd, pw_uid));
+    printf("passwd.dir=%zu\n", offsetof(struct passwd, pw_dir));
+    printf("passwd.shell=%zu\n", offsetof(struct passwd, pw_shell));
 #endif
     return 0;
 }
@@ -2648,6 +2697,13 @@ int main(void) {
         assert_eq!(h["SYS_pidfd_open"], i128::from(SYS_PIDFD_OPEN));
         #[cfg(target_os = "linux")]
         assert_eq!(h["SYS_close_range"], i128::from(SYS_CLOSE_RANGE));
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(h["passwd.size"], size_of::<Passwd>() as i128);
+            assert_eq!(h["passwd.uid"], offset_of!(Passwd, pw_uid) as i128);
+            assert_eq!(h["passwd.dir"], offset_of!(Passwd, pw_dir) as i128);
+            assert_eq!(h["passwd.shell"], offset_of!(Passwd, pw_shell) as i128);
+        }
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["MAP_ANON"], i128::from(MAP_ANON));

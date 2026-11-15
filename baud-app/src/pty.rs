@@ -946,6 +946,28 @@ const DEFAULT_SHELL: &str = "/bin/zsh";
 #[cfg(not(target_os = "macos"))]
 const DEFAULT_SHELL: &str = "/bin/sh";
 
+/// **The shell a window starts when `$SHELL` is unset**, given the
+/// account's login shell as the password database has it: on Linux that
+/// shell when it is absolute, else [`DEFAULT_SHELL`]; on macOS the system's,
+/// [`DEFAULT_SHELL`], whatever the entry says.
+fn system_shell(passwd: Option<&str>) -> String {
+    #[cfg(not(target_os = "macos"))]
+    if let Some(p) = passwd.filter(|p| p.starts_with('/')) {
+        return p.to_string();
+    }
+    #[cfg(target_os = "macos")]
+    let _ = passwd;
+    DEFAULT_SHELL.to_string()
+}
+
+/// The account's login shell from the password database, where it is read.
+fn passwd_shell() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    return crate::sys::passwd_shell();
+    #[cfg(not(target_os = "linux"))]
+    None
+}
+
 /// The variables a terminal sets to name itself to what runs inside it,
 /// so a program can pick the terminal's own features -- and the ones a
 /// multiplexer sets to say it sits in between. baud's shell is in none of
@@ -1449,9 +1471,7 @@ impl Exec {
         }
         let (shell, refused) = login_shell(program, parent);
         if let Some(v) = refused {
-            crate::warn!(
-                "SHELL={v:?} is not an absolute path, so the window starts {DEFAULT_SHELL}"
-            );
+            crate::warn!("SHELL={v:?} is not an absolute path, so the window starts {shell}");
         }
         let at = exec::ExecPath::resolve(OsStr::new(&shell), path_var(parent))
             .unwrap_or_else(exec::ExecPath::default_shell);
@@ -1473,7 +1493,7 @@ impl Exec {
 
 /// **The shell a session starts**: `program`, `[shell] program` when the
 /// config names one ([`crate::config::shell_program`]), else `$SHELL` as
-/// `parent` has it when it is absolute, else the system's: what
+/// `parent` has it when it is absolute, else [`system_shell`]: what
 /// [`Exec::of`] runs when no command is given. Beside it, a `$SHELL` that
 /// was set and refused, for the caller to say.
 ///
@@ -1493,16 +1513,14 @@ fn login_shell(program: Option<&str>, parent: &[(OsString, OsString)]) -> (Strin
         .find(|(k, _)| k.as_bytes() == b"SHELL")
         .map(|(_, v)| v)
         .filter(|v| !v.is_empty());
+    let system = || system_shell(passwd_shell().as_deref());
     match set {
         Some(v) if v.as_bytes().first() == Some(&b'/') => match v.to_str() {
             Some(s) => (s.to_string(), None),
-            None => (DEFAULT_SHELL.to_string(), None),
+            None => (system(), None),
         },
-        Some(v) => (
-            DEFAULT_SHELL.to_string(),
-            Some(v.to_string_lossy().into_owned()),
-        ),
-        None => (DEFAULT_SHELL.to_string(), None),
+        Some(v) => (system(), Some(v.to_string_lossy().into_owned())),
+        None => (system(), None),
     }
 }
 
@@ -5462,6 +5480,31 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// **With no `$SHELL`, Linux starts the account's login shell**: the
+    /// password database's shell for this user when it is absolute, else
+    /// `/bin/sh`. macOS starts its own, `/bin/zsh`, whatever the entry
+    /// says. The control: with no `$SHELL` at all, the shell a window
+    /// starts is the one this reads.
+    #[test]
+    fn with_no_shell_the_account_s_login_shell_starts() {
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(
+                system_shell(Some("/opt/fish/bin/fish")),
+                "/opt/fish/bin/fish"
+            );
+            assert_eq!(system_shell(Some("fish")), "/bin/sh", "not absolute");
+            assert_eq!(system_shell(Some("")), "/bin/sh", "empty");
+            assert_eq!(system_shell(None), "/bin/sh", "no entry");
+        }
+        #[cfg(target_os = "macos")]
+        assert_eq!(system_shell(Some("/opt/fish/bin/fish")), "/bin/zsh");
+        assert_eq!(
+            login_shell(None, &env_of(&[])).0,
+            system_shell(passwd_shell().as_deref())
+        );
+    }
+
     /// **A `$SHELL` that is not absolute is unset**, so the system's shell
     /// starts: POSIX has `SHELL` "represent a pathname of the user's
     /// preferred command language interpreter" (`[[source: posix-xbd-8]]`),
@@ -5475,13 +5518,16 @@ mod tests {
         for shell in ["bin/zsh", "./zsh", "zsh"] {
             assert_eq!(
                 login_shell(None, &env_of(&[("SHELL", shell)])),
-                (DEFAULT_SHELL.to_string(), Some(shell.to_string())),
+                (
+                    system_shell(passwd_shell().as_deref()),
+                    Some(shell.to_string())
+                ),
                 "SHELL={shell}, refused and said"
             );
         }
         assert_eq!(
             login_shell(None, &env_of(&[("SHELL", "")])),
-            (DEFAULT_SHELL.to_string(), None),
+            (system_shell(passwd_shell().as_deref()), None),
             "empty is unset, and nothing to say"
         );
         assert_eq!(
@@ -5499,7 +5545,7 @@ mod tests {
         .expect("an exec");
         assert_eq!(
             exec.path.as_str(),
-            Some(DEFAULT_SHELL),
+            Some(system_shell(passwd_shell().as_deref()).as_str()),
             "what the child runs"
         );
     }
@@ -5517,6 +5563,9 @@ mod tests {
             &dir.join("bin/zsh"),
             &format!("#!/bin/sh\n: > '{}'\necho STAND-IN\n", marker.display()),
         );
+        // A startup file in the scratch home, so a zsh the account names
+        // starts as it would and reads `exit`, not its first-run menu.
+        std::fs::write(dir.join(".zshrc"), "").expect("a .zshrc");
         let home = dir.to_str().expect("a UTF-8 path");
         let parent = env_of(&[
             ("SHELL", "bin/zsh"),
@@ -6331,7 +6380,10 @@ mod tests {
             .cloned()
             .collect();
         let e = Exec::of(None, &bare, off, crate::shell::SshEnv::Off, None).expect("an exec");
-        assert_eq!(e.path.as_str(), Some(DEFAULT_SHELL));
+        assert_eq!(
+            e.path.as_str(),
+            Some(system_shell(passwd_shell().as_deref()).as_str())
+        );
         let c = Exec::of(
             Some("true".into()),
             &parent,
