@@ -35,8 +35,8 @@
 # The window floats at 640x408 at the origin of a 1024x768 output: 80x23
 # cells of 8x17 px, so a cell's centre is (8c + 4, 17r + 8), and a point
 # past (640, 408) is off the window. The grid is the window less the
-# activity lights' own line, which the Linux app draws at the window's
-# bottom with the default config (`config::lights_at`) and which these
+# activity lights' own line, which baud.toml below pins to the window's
+# bottom (`[window] activity_lights = "bottom_line"`) and which these
 # checks keep: the 17 points below row 23 are that line, and the inner
 # script's ROWS is the grid's height. Each arm runs again with the output
 # at scale 2 and at scale 1.5, its mode 2048x1536 and 1536x1152, so the
@@ -105,7 +105,7 @@ set -u
 mkdir -p /tmp/out && D=$(mktemp -d) && cd "$D"
 O=/tmp/out
 # The grid's rows: the window's 24 less the activity lights' own line at
-# its bottom, the default on Linux (the header).
+# its bottom, where baud.toml pins it (the header).
 ROWS=23
 export XDG_RUNTIME_DIR=$D/xdg && mkdir -m 0700 "$XDG_RUNTIME_DIR"
 W=$(awk "BEGIN { print 1024 * $SCALE }") H=$(awk "BEGIN { print 768 * $SCALE }")
@@ -130,7 +130,7 @@ export SWAYSOCK=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock)
 xkbcli compile-keymap --layout us > keymap.xkb
 # `[font] dpi = 72` keeps the 13-point font at the 17-pixel rows these
 # checks count in; the desktop's own point (`typesize.rs`) is larger.
-printf 'padding = 0\n[launch]\nsplash = "off"\n[font]\ndpi = 72\n' > baud.toml
+printf 'padding = 0\n[launch]\nsplash = "off"\n[font]\ndpi = 72\n[window]\nactivity_lights = "bottom_line"\n' > baud.toml
 # xdg-open, first on the path: it writes down its arguments and opens
 # nothing.
 mkdir bin
