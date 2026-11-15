@@ -1,7 +1,6 @@
 # baud
 
-**The terminal with character: its own font, its own cursor effects, and
-the speed to keep up.**
+**The terminal with character.**
 
 baud is a terminal emulator for macOS 26 and later. It ships with its own
 font, so text looks right on the first launch with nothing to install;

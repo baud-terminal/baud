@@ -7,9 +7,17 @@
   <img alt="baud: the word baud, an amber prompt and block cursor; unless reduced motion is asked for, a strand of plasma weaves through the letters, repeating with no rest" src="assets/readme/logo-light.gif" width="420">
 </picture>
 
-**The terminal with character: its own font, its own cursor effects, and the speed to keep up.**
+**The terminal with character.**
 
 [Install](#install) · [Features](docs/guide/features.md) · [Configuration](docs/guide/configuration.md) · [Roadmap](docs/roadmap.md) · [Documentation](docs/README.md)
+
+[![Nix](https://img.shields.io/badge/Nix-2b2b2b?logo=nixos&logoColor=white)](https://nixos.org)
+[![devenv](https://img.shields.io/badge/devenv-2b2b2b?logo=nixos&logoColor=white)](https://devenv.sh)
+[![Linux](https://img.shields.io/badge/Linux-2b2b2b?logo=linux&logoColor=white)](#install)
+[![macOS](https://img.shields.io/badge/macOS-2b2b2b?logo=apple&logoColor=white)](#install)
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/CC%20BY--NC--SA%204.0-2b2b2b?logo=creativecommons&logoColor=white)](LICENSE)
+
+<img src="assets/readme/session.gif" width="776" alt="A baud session: ssh to a server lights the activity lights in the title bar, fastfetch shows the server's card with baud's logo drawn as a picture, and helix opens this README while a plasma trail follows the cursor down, up, to a search match and back to the top">
 
 </div>
 
