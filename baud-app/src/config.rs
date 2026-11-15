@@ -1077,20 +1077,21 @@ impl Os {
 
 /// **Where `asked` draws the lights on `os`**, and what the config notice
 /// says when it cannot be done as asked: `"on"` is the system's default,
-/// the title strip on macOS and the bottom line on Linux, as the owner
-/// chose on 2026-11-03; `"title_bar"` on Linux, which has no title bar,
-/// draws the bottom line and says so; every other value is drawn as
-/// asked on both.
+/// the title strip on macOS and the top line on Linux, right-aligned on it,
+/// the nearest place Linux has to the title strip's plate at the top
+/// right; `"title_bar"` on Linux, which has no title bar,
+/// draws the top line and says so; every other value is drawn as asked on
+/// both.
 pub fn lights_at(asked: LightsSetting, os: Os) -> (baud_render::ActivityLights, Option<String>) {
     use baud_render::ActivityLights as At;
     match (asked, os) {
         (LightsSetting::System | LightsSetting::TitleBar, Os::MacOs) => (At::TitleBar, None),
-        (LightsSetting::System, Os::Linux) => (At::BottomLine, None),
+        (LightsSetting::System, Os::Linux) => (At::TopLine, None),
         (LightsSetting::TitleBar, Os::Linux) => (
-            At::BottomLine,
+            At::TopLine,
             Some(
                 "config: [window] activity_lights \"title_bar\" has no title bar to go in on \
-                 Linux; the lights are on a line of their own at the window's bottom"
+                 Linux; the lights are on a line of their own at the window's top"
                     .to_string(),
             ),
         ),
@@ -5683,9 +5684,10 @@ mod reader {
 
     /// **Each system's place for the lights, and the notice when a place
     /// cannot be had**, both systems tested on either: `"on"` is the title
-    /// strip on macOS and the bottom line on Linux, as the owner chose on
-    /// 2026-11-03; `"title_bar"` on Linux, which has no title bar, is the
-    /// bottom line, and the config notice says so; the lines and `"off"`
+    /// strip on macOS and the top line on Linux, the nearest place Linux
+    /// has to the title strip's plate at the top right; `"title_bar"` on
+    /// Linux, which has no title bar, is the top line, and the config
+    /// notice says so; the lines and `"off"`
     /// are as asked on both, with nothing said. Perturbation: answer
     /// `"title_bar"` on Linux with the title strip -- the lights would go
     /// where Linux draws nothing, silently -- and this goes red.
@@ -5698,20 +5700,17 @@ mod reader {
         );
         assert_eq!(
             lights_at(LightsSetting::System, Os::Linux),
-            (At::BottomLine, None)
+            (At::TopLine, None)
         );
         assert_eq!(
             lights_at(LightsSetting::TitleBar, Os::MacOs),
             (At::TitleBar, None)
         );
         let (at, said) = lights_at(LightsSetting::TitleBar, Os::Linux);
-        assert_eq!(at, At::BottomLine);
+        assert_eq!(at, At::TopLine);
         let said = said.expect("a notice");
         assert!(said.contains("[window] activity_lights"), "{said}");
-        assert!(
-            said.contains("title_bar") && said.contains("bottom"),
-            "{said}"
-        );
+        assert!(said.contains("title_bar") && said.contains("top"), "{said}");
         for os in [Os::MacOs, Os::Linux] {
             assert_eq!(
                 lights_at(LightsSetting::BottomLine, os),

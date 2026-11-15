@@ -788,12 +788,13 @@
 #                  baud's logo and the nine on one plate, each lamp over its
 #                  letters. With the lights anywhere else there is no plate
 #                  in the title bar, and the logo is beside its buttons
-#   "bottom_line"  on a thin line of their own under the program's last
-#                  line, only as tall as the lights; the program is never
-#                  told about it (Linux, which has no title bar)
-#   "top_line"     the same line above the program's first line
+#   "top_line"     on a thin line of their own above the program's first
+#                  line, only as tall as the lights and right-aligned on
+#                  it; the program is never told about it (Linux, which
+#                  has no title bar)
+#   "bottom_line"  the same line under the program's last line
 #   "on"           your system's place: the title bar on macOS, the
-#                  bottom line on Linux
+#                  top line on Linux
 #   "off"          nowhere, and nothing is read for them
 # activity_lights = "on"
 # Which of your theme's sixteen colours each light is lit in:
