@@ -551,7 +551,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         None => (None, FIRST),
     };
     crate::warn!(
-        "baud on Wayland: run only on headless compositors, where its pixels, keys, pointer and clipboard are checked; no screen has shown it"
+        "baud on Wayland is not ready for everyday use; docs/guide/status.md says what has run where"
     );
     // **The default config, before the config is read**: written once when
     // none is anywhere baud looks (`default_config.rs`), so the watch below
@@ -4298,6 +4298,26 @@ mod tests {
         assert_eq!(wait_bound(&[None, None], Held::Nothing), None);
         let one = Some(Duration::from_millis(1));
         assert_eq!(wait_bound(&[five, one], Held::Nothing), one);
+    }
+
+    /// **The launch says where baud stands on Wayland as the status page
+    /// does**: not ready for everyday use, with the page that says what has
+    /// run where -- not that no screen has shown it, which the page's own
+    /// runs on a desktop contradict. Perturbation: the old warning -- this
+    /// fails.
+    #[test]
+    fn the_launch_says_what_the_status_page_says() {
+        const SRC: &str = include_str!("linux.rs");
+        let code = SRC
+            .rsplit_once(concat!("#[cfg(test)]\n", "mod tests {"))
+            .map_or(SRC, |(c, _)| c);
+        assert!(!code.contains(concat!("no screen has ", "shown it")));
+        assert!(code.contains(concat!(
+            "\"baud on Wayland is not ready for everyday use; ",
+            "docs/guide/status.md says what has run where\""
+        )));
+        let status = include_str!("../../docs/guide/status.md");
+        assert!(status.contains("is not ready for\n  everyday use"));
     }
 
     /// **The shell is spawned before anything is presented**: the launch
