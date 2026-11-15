@@ -177,7 +177,7 @@ pub const CHAWAN_TOML: &str = "# Chawan for the tour: its defaults, a page's pic
 /// ([`REPO_AT`]), each path at the take's commit (`git archive HEAD`): the
 /// README and every file of the repository it links to, so each link a
 /// click follows finds its file. A path ending in `/` is a folder, whole.
-pub const REPO_COPY: [&str; 20] = [
+pub const REPO_COPY: [&str; 21] = [
     "README.md",
     "CODE_OF_CONDUCT.md",
     "LICENSE",
@@ -187,6 +187,7 @@ pub const REPO_COPY: [&str; 20] = [
     "assets/logo/baud-lockup-light-tight.svg",
     "assets/readme/logo-dark.gif",
     "assets/readme/logo-light.gif",
+    "assets/readme/session.gif",
     "budgets.toml",
     "docs/README.md",
     "docs/embedding.md",
