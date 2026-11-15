@@ -5900,6 +5900,73 @@ fn the_outputs_are_their_current_modes_and_go_with_their_globals() {
     assert_eq!(t.w.outputs().count(), 0, "the output unplugged");
 }
 
+/// **An output turned a quarter is listed as the window sees it**: a mode
+/// is "in physical hardware units of the output device", before
+/// `wl_output.transform`, so under 90, 270, flipped_90 and flipped_270
+/// (1, 3, 5, 7) its width and height are the window's height and width,
+/// and under the others they are as the mode says (`[[source:
+/// wayland]]`). The transform comes in `geometry`, before or after the
+/// mode, and a new one turns the mode already said.
+#[test]
+fn an_output_turned_a_quarter_is_listed_with_its_sides_swapped() {
+    let mut t = scaled(
+        &[("wl_compositor", 4), ("wl_output", 4)],
+        (640, 408),
+        |_, _, _, _| {},
+    );
+    let output = t.output.expect("the output bound");
+    let geometry = |transform: i32| {
+        [
+            Arg::Int(0),
+            Arg::Int(0),
+            Arg::Int(600),
+            Arg::Int(340),
+            Arg::Int(0),
+            Arg::Str(Some("make")),
+            Arg::Str(Some("model")),
+            Arg::Int(transform),
+        ]
+    };
+    let listed = |t: &mut Scaled| {
+        pump(&mut t.conn, &mut t.w);
+        t.w.outputs()
+            .map(|o| (o.width, o.height))
+            .collect::<Vec<_>>()
+    };
+    t.server.send(output, "wl_output", "geometry", &geometry(1));
+    t.server.send(
+        output,
+        "wl_output",
+        "mode",
+        &[
+            Arg::Uint(0x1),
+            Arg::Int(3840),
+            Arg::Int(2160),
+            Arg::Int(60_000),
+        ],
+    );
+    t.server.send(output, "wl_output", "done", &[]);
+    assert_eq!(listed(&mut t), [(Px(2160), Px(3840))], "90");
+    for (transform, turned) in [
+        (0, false),
+        (2, false),
+        (3, true),
+        (4, false),
+        (5, true),
+        (6, false),
+        (7, true),
+    ] {
+        t.server
+            .send(output, "wl_output", "geometry", &geometry(transform));
+        t.server.send(output, "wl_output", "done", &[]);
+        let want = match turned {
+            true => (Px(2160), Px(3840)),
+            false => (Px(3840), Px(2160)),
+        };
+        assert_eq!(listed(&mut t), [want], "transform {transform}");
+    }
+}
+
 /// **The outputs are learnt in a second round trip, and only where there
 /// are outputs**: an output's `mode`, `scale` and `done` come only after
 /// it is bound, and it is bound while the registry's burst is read, so the

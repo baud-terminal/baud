@@ -192,18 +192,31 @@ enum Scaling {
 
 /// A `wl_output` bound, by its registry name, and the scale it last said:
 /// one until it says, "If it is not sent, the client should assume a scale
-/// of 1". Its current mode's width and height, once one has come.
+/// of 1". Its current mode's width and height, once one has come, and
+/// whether its `transform` turns them a quarter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Output {
     name: GlobalName,
     id: ObjectId,
     scale: Scale,
     mode: Option<(Px, Px)>,
+    turn: Turn,
+}
+
+/// Whether an output's `wl_output.transform` swaps its mode's sides as a
+/// window sees them: 90, 270, flipped_90 and flipped_270 (1, 3, 5, 7) do,
+/// normal, 180, flipped and flipped_180 do not (`[[source: wayland]]`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Turn {
+    #[default]
+    Upright,
+    Quarter,
 }
 
 /// **An output's size in pixels and its scale** ([`Window::outputs`]):
 /// its current `wl_output.mode`, "in physical hardware units of the
-/// output device", and its `wl_output.scale`.
+/// output device", turned by its transform to the sides a window on it
+/// has, and its `wl_output.scale`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OutputPx {
     pub width: Px,
@@ -1044,10 +1057,16 @@ impl Window {
     /// The outputs whose current mode has been said.
     pub fn outputs(&self) -> impl Iterator<Item = OutputPx> + '_ {
         self.globals.outputs.iter().filter_map(|o| {
-            o.mode.map(|(width, height)| OutputPx {
-                width,
-                height,
-                scale: o.scale.0,
+            o.mode.map(|(w, h)| {
+                let (width, height) = match o.turn {
+                    Turn::Upright => (w, h),
+                    Turn::Quarter => (h, w),
+                };
+                OutputPx {
+                    width,
+                    height,
+                    scale: o.scale.0,
+                }
             })
         })
     }
@@ -1969,6 +1988,7 @@ impl Handler for Window {
                                 id,
                                 scale: Scale(1),
                                 mode: None,
+                                turn: Turn::Upright,
                             });
                         }
                     }
@@ -2039,6 +2059,16 @@ impl Handler for Window {
                 if let Some(o) = self.globals.outputs.iter_mut().find(|o| o.id == ev.object) {
                     let px = |v: &i32| Px(u32::try_from(*v).unwrap_or(0));
                     o.mode = Some((px(w), px(h)));
+                }
+            }
+            // The transform, the last of `geometry`'s arguments: an odd
+            // value is a quarter turn.
+            ("wl_output", "geometry", [.., Read::Int(transform)]) => {
+                if let Some(o) = self.globals.outputs.iter_mut().find(|o| o.id == ev.object) {
+                    o.turn = match transform & 1 {
+                        1 => Turn::Quarter,
+                        _ => Turn::Upright,
+                    };
                 }
             }
             // An output unplugged: its scale counts no more.
