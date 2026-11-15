@@ -179,8 +179,8 @@ nothing on a network, FUSE or automounted file system, and nothing under
 `ssh` or a program like it is in front, and nothing it printed is looked up
 after it exits: which program wrote each part of the output is noted as it
 is read. On macOS the lookups ask that no cloud-folder file that is only a
-placeholder be downloaded to answer them; whether macOS honours that has
-not yet been tested. A check that stops answering turns
+placeholder be downloaded to answer them; whether macOS honours that is
+untested. A check that stops answering turns
 path lines off for that window and is not retried. The underline is drawn
 over the screen and never written to it, so no query a program can send
 answers differently, and no program can learn whether a file exists from it.
@@ -188,7 +188,7 @@ A click checks again, then hands the path to the same list as a `file://`
 link, so it is shown in Finder (the file manager on Linux) and never opened or
 launched. No path is written to a log; the log counts the checks. Paths
 under your Documents, Desktop and Downloads folders are checked the same way;
-whether macOS asks for permission when they are has not yet been tested.
+whether macOS asks for permission when they are is untested.
 
 **A link that would open nothing is struck, and a strike never asks with a
 program's bytes.** An `OSC 8` `file://` link that names this computer by name
@@ -209,8 +209,8 @@ query a program can send answers differently.
 ## Deliberate refusals
 
 These look like missing features and are security decisions. Please do not
-report them as gaps; if you think one is wrong, the reasoning is in
-[docs/protocol-decisions.md](docs/protocol-decisions.md).
+report them as gaps; if you think one is wrong, each one's row in
+[docs/vt-coverage.md](docs/vt-coverage.md) gives its reason.
 
 - **`OSC 52` clipboard *reads* get no reply.** A hostile program could otherwise
   read back whatever the user last copied, which may be a password. Any answer —

@@ -130,7 +130,7 @@ what separates it from the "set and never read" failure. Who acts on each:
   columns inside the read that asked and the window follows, its rows kept;
   under `BAUD_GRID`, and on Linux, the width stays and a warning says so once
   (`width.rs`).
-* **Nothing yet**: DECSCLM, exposed as `Term::smooth_scroll`; nothing outside
+* **Nothing**: DECSCLM, exposed as `Term::smooth_scroll`; nothing outside
   the core reads it.
 
 Bracketed paste is a **security** mode, not a cosmetic one: without it a pasted
@@ -165,7 +165,9 @@ an entry from. The row in `docs/vt-coverage.md` has the details.
 
 ## Declined
 
-`OSC 52` clipboard **reads** get no reply; see
-[../protocol-decisions.md](../protocol-decisions.md).
+`OSC 52` clipboard **reads** get no reply: a remote program could otherwise read
+back whatever the user last copied, and any answer, an empty one included,
+tells it the feature works. Each is counted in `clipboard_reads_refused`
+(the `OSC 52` row of [../vt-coverage.md](../vt-coverage.md)).
 
 This listed `?1001` as declined until 2026-10-10, for the hang warning above.

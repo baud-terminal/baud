@@ -2985,7 +2985,7 @@ the feature list.
 
 | arm | inputs | result |
 |---|---|---|
-| the pages | the tree's data | `features.md` and `roadmap.md` written byte-equal to the script's |
+| the page | the tree's data | `features.md` written byte-equal to the script's |
 | a 10-file tree | its pages written by each | byte-equal; done items newest first, a tie in title order |
 | the checks | 38 perturbations of it, one or more per check | 34 of 38 equal in stderr and exit; 4 below |
 | the stops | 5 more, a CRLF page among them | exit equal; text below |

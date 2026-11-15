@@ -9,7 +9,7 @@
 
 **The terminal with character.**
 
-[Install](#install) · [Features](docs/guide/features.md) · [Configuration](docs/guide/configuration.md) · [Roadmap](docs/roadmap.md) · [Documentation](docs/README.md)
+[Install](#install) · [Features](docs/guide/features.md) · [Configuration](docs/guide/configuration.md) · [Documentation](docs/README.md)
 
 [![Nix](https://img.shields.io/badge/Nix-2b2b2b?logo=nixos&logoColor=white)](https://nixos.org)
 [![devenv](https://img.shields.io/badge/devenv-2b2b2b?logo=nixos&logoColor=white)](https://devenv.sh)
@@ -27,9 +27,10 @@ the job: every character a program sends, on your screen, drawn right and
 in time. baud does it with a look of its own.
 
 **Status:** baud runs as an everyday terminal on macOS 26 and later, and
-the Linux version is in progress. [What works today, and what doesn't yet](docs/guide/status.md).
+runs on Linux under Wayland, where it is not ready for everyday use. [What
+works today, and what does not](docs/guide/status.md).
 
-**[See all 219 features](docs/guide/features.md)** · **[See the roadmap](docs/roadmap.md)**
+**[See all 219 features](docs/guide/features.md)**
 
 ## Install
 

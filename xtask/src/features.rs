@@ -1,18 +1,15 @@
-//! `cargo xtask features [--check]`: docs/guide/features.md and
-//! docs/roadmap.md, written from docs/data/features.toml and
-//! docs/data/roadmap.toml.
+//! `cargo xtask features [--check]`: docs/guide/features.md, written
+//! from docs/data/features.toml.
 //!
 //! ```text
-//! cargo xtask features           write both pages
+//! cargo xtask features           write the page
 //! cargo xtask features --check   fail if anything below is wrong,
-//!                                both pages included
+//!                                the page included
 //! ```
 //!
-//! Of the twelve terminals surveyed for this, five keep a second feature
-//! list by hand -- iTerm2, contour, rio, Windows Terminal and Wave -- and
-//! all five have drifted from their programs. These two pages are
-//! generated instead, and the data under them is checked against the
-//! tree. The checks, each of which has to be able to fail:
+//! The page is generated, and the data under it is checked against the
+//! tree, so a feature list cannot drift from the program. The checks,
+//! each of which has to be able to fail:
 //!
 //! 1. every feature names its proof, and a feature marked `built` names at
 //!    least one test, a coverage row that is done, or a measurement in
@@ -24,21 +21,17 @@
 //! 4. every coverage row a feature cites is a row of that table, and a
 //!    `built` feature's rows are all done;
 //! 5. every protocol chip is a protocol the data defines;
-//! 6. every roadmap id a feature or gap names exists and is not done yet;
-//! 7. every done roadmap item is claimed by a feature, or listed as not a
-//!    feature with the reason, so a built feature cannot be missing from
-//!    the list;
-//! 8. the count README.md links the list with ("See all N features") is
+//! 6. every field of the data is one this module reads (`FIELDS`), so a
+//!    field nothing renders or checks is refused rather than kept unread;
+//! 7. the count README.md links the list with ("See all N features") is
 //!    the number of features the data holds;
-//! 9. both pages are byte for byte what this module writes.
+//! 8. the page is byte for byte what this module writes.
 //!
-//! The data files' headers say what each field means. Every file is read
-//! as Python's text layer read it for the script this replaced
-//! (`text::read_universal`), so a page checked out with `\r\n` endings
-//! passes as it did, and each failure line is the line it printed, but
-//! for the command the stale line names. Where the script stopped on a
-//! `KeyError` or a `TypeError` -- a feature with no `id`, a test that is
-//! not a string -- the run fails with a line naming it.
+//! The data file's header says what each field means. Every file is read
+//! with universal newlines (`text::read_universal`), so a page checked
+//! out with `\r\n` endings passes. A feature with no `id`, or a test
+//! that is not a string, stops the run with a `KeyError` or `TypeError`
+//! line naming it.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -54,9 +47,7 @@ use crate::third_party::{self, Outcome};
 use crate::{py, text};
 
 pub const FEATURES: &str = "docs/data/features.toml";
-pub const ROADMAP: &str = "docs/data/roadmap.toml";
 pub const FEATURES_MD: &str = "docs/guide/features.md";
-pub const ROADMAP_MD: &str = "docs/roadmap.md";
 pub const README: &str = "README.md";
 pub const MEASUREMENTS: &str = "MEASUREMENTS.md";
 /// The coverage tables a `rows` entry names by its prefix.
@@ -70,8 +61,36 @@ pub const GENERATOR: &str = "cargo xtask features";
 
 const STATUS: [&str; 3] = ["built", "partial", "interim"];
 const PLATFORM: [&str; 3] = ["both", "macos", "linux"];
-const ROAD_STATUS: [&str; 3] = ["in_progress", "planned", "done"];
 const ROW_WORDS: [&str; 6] = ["done", "partial", "out", "todo", "parsed", "counted"];
+
+/// The fields the data may hold, by where they stand -- the file's top
+/// level, an `[[area]]`, a `[[feature]]` and a `[[protocol]]` -- with the
+/// field a failure line names each table by.
+const FIELDS: [(&str, &str, &[&str]); 4] = [
+    (
+        "",
+        "",
+        &[
+            "intro",
+            "legend",
+            "protocols_intro",
+            "footer",
+            "area",
+            "feature",
+            "protocol",
+        ],
+    ),
+    ("area", "id", &["id", "title", "intro"]),
+    (
+        "feature",
+        "id",
+        &[
+            "id", "area", "name", "does", "status", "gap", "platform", "tests", "rows", "paths",
+            "measured", "chips",
+        ],
+    ),
+    ("protocol", "name", &["name", "row"]),
+];
 
 /// Write the pages, or check them.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -353,7 +372,7 @@ impl Tree<'_> {
 }
 
 /// The data, read and checked: the failure lines, or what stopped it.
-fn check_data(tree: &mut Tree, feat: &Table, road: &Table) -> Result<Vec<String>, Stop> {
+fn check_data(tree: &mut Tree, feat: &Table) -> Result<Vec<String>, Stop> {
     let mut errs = Vec::new();
     let areas: Vec<String> = tables(feat, "area", Missing::KeyError)?
         .iter()
@@ -364,11 +383,6 @@ fn check_data(tree: &mut Tree, feat: &Table, road: &Table) -> Result<Vec<String>
         .iter()
         .map(|p| at(p, "name").map(key))
         .collect::<Result<_, _>>()?;
-    let mut road_items: HashMap<String, &Table> = HashMap::new();
-    let items = tables(road, "item", Missing::Empty)?;
-    for i in &items {
-        road_items.insert(key(at(i, "id")?), i);
-    }
     let mut ids = HashSet::new();
     for p in &protocol {
         let (t, _, cell) = partition(string(at(p, "row")?)?, ":");
@@ -376,22 +390,7 @@ fn check_data(tree: &mut Tree, feat: &Table, road: &Table) -> Result<Vec<String>
             errs.push(format!("protocol {}: no {t} row {cell}", s(at(p, "name")?)));
         }
     }
-    let roadmap_refs = |errs: &mut Vec<String>, at_: &str, refs: &[Value]| -> Result<(), Stop> {
-        for r in refs {
-            match road_items.get(&key(r)) {
-                None => errs.push(format!("{at_}: roadmap id {} is not in {ROADMAP}", s(r))),
-                Some(i) if at(i, "status")? == &Value::String("done".into()) => errs.push(format!(
-                    "{at_}: roadmap id {} is done, so it closes no gap",
-                    s(r)
-                )),
-                Some(_) => {}
-            }
-        }
-        Ok(())
-    };
     let built = Value::String("built".into());
-    // `claimed` keeps the order its keys were first claimed in.
-    let mut claimed: Vec<(String, Value)> = Vec::new();
     for f in tables(feat, "feature", Missing::KeyError)? {
         let wh = format!("feature {}", f.get("id").map_or_else(|| "?".to_string(), s));
         for k in ["id", "area", "name", "does", "status", "platform"] {
@@ -502,95 +501,30 @@ fn check_data(tree: &mut Tree, feat: &Table, road: &Table) -> Result<Vec<String>
                 errs.push(format!("{wh}: chip {} is not a defined protocol", s(&c)));
             }
         }
-        roadmap_refs(&mut errs, &wh, &get_items(f, "roadmap")?)?;
-        for sh in get_items(f, "shipped")? {
-            let k = key(&sh);
-            if !claimed.iter().any(|(c, _)| *c == k) {
-                claimed.push((k, sh));
+    }
+    errs.extend(unknown_fields(feat)?);
+    Ok(errs)
+}
+
+/// A line for each field `FIELDS` does not list, in the order the file
+/// gives them.
+fn unknown_fields(feat: &Table) -> Result<Vec<String>, Stop> {
+    let mut errs = Vec::new();
+    for (place, by, known) in FIELDS {
+        let held: Vec<&Table> = if place.is_empty() {
+            vec![feat]
+        } else {
+            tables(feat, place, Missing::Empty)?
+        };
+        for t in held {
+            let wh = if place.is_empty() {
+                FEATURES.to_string()
+            } else {
+                format!("{place} {}", t.get(by).map_or_else(|| "?".to_string(), s))
+            };
+            for k in t.keys().filter(|k| !known.contains(&k.as_str())) {
+                errs.push(format!("{wh}: {k} is not a field of the list"));
             }
-        }
-    }
-    for g in tables(feat, "missing", Missing::Empty)? {
-        let wh = format!(
-            "missing {}",
-            g.get("name").map_or_else(|| "?".to_string(), s)
-        );
-        let area = g.get("area");
-        if !area.is_some_and(|a| areas.contains(&key(a))) {
-            errs.push(format!("{wh}: area {} is not defined", py::str_of(area)));
-        }
-        if !truthy(g.get("roadmap")) {
-            errs.push(format!("{wh}: names no roadmap item"));
-        }
-        roadmap_refs(&mut errs, &wh, &get_items(g, "roadmap")?)?;
-    }
-    // `{u["id"]: u}`: a key at its first place, holding its last entry.
-    let mut unlisted: Vec<(String, &Table)> = Vec::new();
-    for u in tables(feat, "unlisted", Missing::Empty)? {
-        let k = key(at(u, "id")?);
-        match unlisted.iter_mut().find(|(c, _)| *c == k) {
-            Some(slot) => slot.1 = u,
-            None => unlisted.push((k, u)),
-        }
-    }
-    for (_, u) in &unlisted {
-        if !truthy(u.get("why")) {
-            errs.push(format!("unlisted {}: no reason", s(at(u, "id")?)));
-        }
-    }
-    let done = Value::String("done".into());
-    for i in &items {
-        let wh = format!("roadmap {}", i.get("id").map_or_else(|| "?".to_string(), s));
-        let status = i.get("status");
-        if !status.is_some_and(|st| {
-            ROAD_STATUS
-                .iter()
-                .any(|x| st == &Value::String((*x).into()))
-        }) {
-            errs.push(format!(
-                "{wh}: status {} is not one of {}",
-                py::str_of(status),
-                tuple(&ROAD_STATUS)
-            ));
-        }
-        let area = i.get("area");
-        if !area.is_some_and(|a| areas.contains(&key(a))) {
-            errs.push(format!("{wh}: area {} is not defined", py::str_of(area)));
-        }
-        if status == Some(&done) {
-            let k = key(at(i, "id")?);
-            let c = claimed.iter().any(|(x, _)| *x == k);
-            let u = unlisted.iter().any(|(x, _)| *x == k);
-            if c && u {
-                errs.push(format!(
-                    "{wh}: both claimed by a feature and listed as not a feature"
-                ));
-            } else if !c && !u {
-                errs.push(format!(
-                    "{wh}: done, and no feature claims it in `shipped` -- a built \
-                     feature missing from the list, or an `unlisted` entry with its reason"
-                ));
-            }
-        }
-    }
-    let named: Vec<(&String, String)> = claimed
-        .iter()
-        .map(|(k, v)| (k, s(v)))
-        .chain(
-            unlisted
-                .iter()
-                .map(|(k, u)| (k, u.get("id").map(s).unwrap_or_default())),
-        )
-        .collect();
-    for (k, shown) in named {
-        match road_items.get(k) {
-            None => errs.push(format!(
-                "shipped or unlisted id {shown} is not in {ROADMAP}"
-            )),
-            Some(i) if at(i, "status")? != &done => {
-                errs.push(format!("shipped or unlisted id {shown} is not done"));
-            }
-            Some(_) => {}
         }
     }
     Ok(errs)
@@ -666,10 +600,6 @@ fn render_features(feat: &Table, cov: &Coverage) -> Result<String, Stop> {
         .iter()
         .map(|p| Ok((key(at(p, "name")?), *p)))
         .collect::<Result<_, Stop>>()?;
-    let mut road_anchor: HashMap<String, String> = HashMap::new();
-    for a in &area {
-        road_anchor.insert(key(at(a, "id")?), slug(at_str(a, "title")?));
-    }
     let mut out: Vec<String> = vec![
         "# Features".into(),
         String::new(),
@@ -685,7 +615,7 @@ fn render_features(feat: &Table, cov: &Coverage) -> Result<String, Stop> {
             Ok(format!("[{t}](#{})", slug(t)))
         })
         .collect::<Result<_, Stop>>()?;
-    out.push(nav.join(" · ") + " · [Where baud is behind](#where-baud-is-behind)");
+    out.push(nav.join(" · "));
     out.push(String::new());
     for a in &area {
         let id = at(a, "id")?;
@@ -704,7 +634,7 @@ fn render_features(feat: &Table, cov: &Coverage) -> Result<String, Stop> {
             );
             match at_str(f, "status")? {
                 "partial" => line += &format!(" **Partly:** {}", stripped(f, "gap")?),
-                "interim" => line += &format!(" **For now:** {}", stripped(f, "gap")?),
+                "interim" => line += &format!(" **Stopgap:** {}", stripped(f, "gap")?),
                 _ => {}
             }
             let mut small = Vec::new();
@@ -743,48 +673,13 @@ fn render_features(feat: &Table, cov: &Coverage) -> Result<String, Stop> {
     out.push(String::new());
     out.push(stripped(feat, "protocols_intro")?);
     out.push(String::new());
-    out.push("| protocol | from | reference |".into());
-    out.push("|---|---|---|".into());
+    out.push("| protocol | reference |".into());
+    out.push("|---|---|".into());
     for p in &protocol {
         out.push(format!(
-            "| {} | {} | [in the coverage table]({}) |",
+            "| {} | [in the coverage table]({}) |",
             s(at(p, "name")?),
-            s(at(p, "origin")?),
             row_link(cov, at_str(p, "row")?)?
-        ));
-    }
-    out.push(String::new());
-    out.push("## Where baud is behind".into());
-    out.push(String::new());
-    out.push(stripped(feat, "behind_intro")?);
-    out.push(String::new());
-    let anchor = |t: &Table| -> Result<String, Stop> {
-        let a = at(t, "area")?;
-        road_anchor
-            .get(&key(a))
-            .cloned()
-            .ok_or_else(|| format!("KeyError: {}", py::repr(Some(a))))
-    };
-    for f in &features {
-        if truthy(f.get("behind")) {
-            let tail = if truthy(f.get("roadmap")) {
-                format!(" [Roadmap](../roadmap.md#{})", anchor(f)?)
-            } else {
-                String::new()
-            };
-            out.push(format!(
-                "- **{}** — {}{tail}",
-                s(at(f, "name")?),
-                stripped(f, "behind")?
-            ));
-        }
-    }
-    for g in tables(feat, "missing", Missing::Empty)? {
-        out.push(format!(
-            "- **{}** — {} [Roadmap](../roadmap.md#{})",
-            s(at(g, "name")?),
-            stripped(g, "does")?,
-            anchor(g)?
         ));
     }
     out.push(String::new());
@@ -792,104 +687,6 @@ fn render_features(feat: &Table, cov: &Coverage) -> Result<String, Stop> {
     out.push(String::new());
     out.push(stripped(feat, "footer")?);
     Ok(out.join("\n") + "\n")
-}
-
-/// The order an item sorts in: by `(order[status], title)` for an open
-/// one, and by title, then by date, newest first, for a done one.
-fn sort_key(v: &Value) -> String {
-    match v {
-        Value::String(x) => x.clone(),
-        other => s(other),
-    }
-}
-
-fn render_roadmap(feat: &Table, road: &Table) -> Result<String, Stop> {
-    let area = tables(feat, "area", Missing::KeyError)?;
-    let all = tables(road, "item", Missing::Empty)?;
-    let mut out: Vec<String> = vec![
-        "# Roadmap".into(),
-        String::new(),
-        stripped(road, "intro")?,
-        String::new(),
-    ];
-    // Only the areas the page has a heading for: an area with no roadmap
-    // item gets none, and a link to it would go nowhere.
-    let mut listed = Vec::new();
-    for a in &area {
-        let id = at(a, "id")?;
-        let mut any = false;
-        for i in &all {
-            if at(i, "area")? == id {
-                any = true;
-                break;
-            }
-        }
-        if any {
-            let t = at_str(a, "title")?;
-            listed.push(format!("[{t}](#{})", slug(t)));
-        }
-    }
-    out.push(listed.join(" · "));
-    out.push(String::new());
-    let order = |st: &str| -> Result<Order, Stop> {
-        match st {
-            "in_progress" => Ok(Order::InProgress),
-            "planned" => Ok(Order::Planned),
-            "done" => Ok(Order::Done),
-            other => Err(format!("KeyError: {}", py::repr_str(other))),
-        }
-    };
-    for a in &area {
-        let id = at(a, "id")?;
-        let mut items = Vec::new();
-        for i in &all {
-            if at(i, "area")? == id {
-                items.push(*i);
-            }
-        }
-        if items.is_empty() {
-            continue;
-        }
-        let mut open = Vec::new();
-        let mut done = Vec::new();
-        for i in items {
-            let st = at_str(i, "status")?;
-            let title = sort_key(at(i, "title")?);
-            if st == "done" {
-                done.push((title, sort_key(at(i, "date")?), i));
-            } else {
-                open.push(((order(st)?, title), i));
-            }
-        }
-        open.sort_by(|x, y| x.0.cmp(&y.0));
-        done.sort_by(|x, y| x.0.cmp(&y.0));
-        // `reverse=True` keeps equal dates in the order the title sort left.
-        done.sort_by(|x, y| y.1.cmp(&x.1));
-        out.push(format!("## {}", s(at(a, "title")?)));
-        out.push(String::new());
-        for i in open.iter().map(|o| o.1).chain(done.iter().map(|d| d.2)) {
-            let txt = stripped(i, "summary")?;
-            let title = s(at(i, "title")?);
-            match at_str(i, "status")? {
-                "done" => out.push(format!("- [x] **{title}** — {txt} ({})", s(at(i, "date")?))),
-                "in_progress" => out.push(format!("- [ ] **{title}** — {txt} *In progress.*")),
-                _ => out.push(format!("- [ ] **{title}** — {txt}")),
-            }
-        }
-        out.push(String::new());
-    }
-    out.push("## How this page stays true".into());
-    out.push(String::new());
-    out.push(stripped(road, "footer")?);
-    Ok(out.join("\n") + "\n")
-}
-
-/// An open item's place: in progress, then planned.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-enum Order {
-    InProgress,
-    Planned,
-    Done,
 }
 
 /// `cargo xtask features [--check]`, run against `root`; what the script
@@ -900,10 +697,6 @@ pub fn run(root: &Path, mode: Mode, err: &mut impl Write) -> io::Result<Outcome>
         Ok(Outcome::Failed)
     };
     let feat = match third_party::load(root, FEATURES) {
-        Ok(t) => t,
-        Err(e) => return stop(err, e),
-    };
-    let road = match third_party::load(root, ROADMAP) {
         Ok(t) => t,
         Err(e) => return stop(err, e),
     };
@@ -925,7 +718,7 @@ pub fn run(root: &Path, mode: Mode, err: &mut impl Write) -> io::Result<Outcome>
         headings,
         fns: HashMap::new(),
     };
-    let errs = match check_data(&mut tree, &feat, &road).and_then(|mut e| {
+    let errs = match check_data(&mut tree, &feat).and_then(|mut e| {
         check_readme(root, &feat).map(|r| {
             e.extend(r);
             e
@@ -935,18 +728,14 @@ pub fn run(root: &Path, mode: Mode, err: &mut impl Write) -> io::Result<Outcome>
         Err(e) => return stop(err, e),
     };
     if !errs.is_empty() {
-        writeln!(err, "{} problem(s) in {FEATURES} / {ROADMAP}:", errs.len())?;
+        writeln!(err, "{} problem(s) in {FEATURES}:", errs.len())?;
         for e in &errs {
             writeln!(err, "  {e}")?;
         }
         return Ok(Outcome::Failed);
     }
-    // Both rendered before either is written, as the script built its
-    // dictionary of pages first.
-    let rendered = match render_features(&feat, &tree.coverage)
-        .and_then(|f| render_roadmap(&feat, &road).map(|r| [(FEATURES_MD, f), (ROADMAP_MD, r)]))
-    {
-        Ok(r) => r,
+    let rendered = match render_features(&feat, &tree.coverage) {
+        Ok(f) => [(FEATURES_MD, f)],
         Err(e) => return stop(err, e),
     };
     let mut stale = Vec::new();

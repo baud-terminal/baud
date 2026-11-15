@@ -5,9 +5,8 @@
 //! `OSC 8 ; ; ST` — an empty URI, not a link to nowhere.
 //!
 //! The link table is bounded at `NLINK` -- a URI is attacker-supplied content
-//! used as a key, which `docs/protocol-decisions.md` names as the failure
-//! mode: a page cycling through thousands of links must cost the same as one
-//! with four -- and **it never gives a slot something names to another
+//! used as a key, so a page cycling through thousands of links must cost the
+//! same as one with four -- and **it never gives a slot something names to another
 //! target**. It evicted like the style table until activation was designed
 //! and a review showed what that lets a program do: an `OSC 8` run that writes
 //! no cell lands in the slot an honest link already on screen resolves

@@ -551,8 +551,8 @@ pub enum ChecksumReport {
 /// `kitten icat`'s detection ends only on a DA whose CSI, final byte
 /// included, is longer than three bytes (`[[source: kitty-icat-detect]]`,
 /// `detect.go:93`), and VT102's `?6c` is three: kitten waited out its ten
-/// seconds and drew nothing. `docs/protocol-decisions.md` lists it under its
-/// open departures.
+/// seconds and drew nothing. `docs/vt-coverage.md` lists it under its open
+/// departures.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DeviceAttribute {
     /// `CSI ? 1 ; 2 c`, "VT100 with Advanced Video Option"

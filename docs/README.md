@@ -9,11 +9,10 @@ them.
 | | read it for |
 |---|---|
 | [guide/features.md](guide/features.md) | everything baud does for you, by area, each line backed by a test |
-| [roadmap.md](roadmap.md) | what is being built, what is planned, and what has shipped |
 | [guide/install.md](guide/install.md) | building baud and getting it running |
 | [guide/configuration.md](guide/configuration.md) | the config file: where it goes, every key, its default and what it changes |
 | [guide/starship.md](guide/starship.md) | baud's prompt for starship: the folder and an amber ❯, a light palette, and what to add |
-| [guide/status.md](guide/status.md) | what works today and what is not built yet |
+| [guide/status.md](guide/status.md) | what works today and what is not built |
 | [guide/performance.md](guide/performance.md) | how fast baud is, what was measured, and what was not |
 | [cursor.md](cursor.md) | the cursor trails, a still of each; [cursor.html](cursor.html) plays them side by side from a checkout |
 | [guide/licensing.md](guide/licensing.md) | what the licence allows, a commercial licence, and sponsoring |
@@ -36,11 +35,10 @@ them.
 
 | | read it for |
 |---|---|
-| [vt-coverage.md](vt-coverage.md) | whether a specific control sequence works: one row per operation, against its primary source |
+| [vt-coverage.md](vt-coverage.md) | whether a specific control sequence works: one row per operation, against its primary source, and the open departures from the standards |
 | [input-coverage.md](input-coverage.md) | what baud sends for each key, modifier and input mode |
 | [protocols/](protocols/) | one document per level (VT52, VT100, VT220, VT420, xterm), mirroring the code and tests, and a page per `$TERM` profile |
-| [bidi.md](bidi.md) | right-to-left text: lines drawn in their visual order from the start, what is decided, what is open and what is next |
-| [protocol-decisions.md](protocol-decisions.md) | whether something that looks like a gap is deliberate, and the open departures from the standards |
+| [bidi.md](bidi.md) | right-to-left text: lines drawn in their visual order from the start, what is decided and what is open |
 | [../MEASUREMENTS.md](../MEASUREMENTS.md) | every number, stamped with the host and commit that produced it |
 | [../THIRD_PARTY.md](../THIRD_PARTY.md) | every third-party file, with its licence and source |
 
@@ -127,11 +125,6 @@ A claim is either mechanically checked or it is not made.
   re-hashes the file behind each key.
 - Type-system claims are checked by `audit_all.sh`.
 
-This rule is written down because it was broken: `vt-coverage.md` claimed for
-most of the project's life to be verified by a `tests/coverage.rs` that did not
-exist, in the same paragraph where it warned against documentation claiming
-coverage it does not have.
-
 ## How these documents are kept true
 
 Nothing here is trusted because someone read it carefully. These checks fail
@@ -148,17 +141,6 @@ the build instead:
 | `baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists; every manifest group has a row in the index above |
 | `scripts/check-sources.sh` | every `[[source: …]]` citation — in the docs **and** in the code — resolves to a document pinned by SHA-256 in `MANIFEST.toml`, and every learn.microsoft.com page there carries the SHA-256 of its article text, which `cargo xtask page-text` fetches and compares on demand |
 | `xtask/tests/no_python.rs` | `cargo xtask no-python`: no tracked file is Python or runs it, in a script, a shebang, a nix attribute, a `Command::new` or a recipe in a document; each form is planted and red, and the repository itself passes |
-| `xtask/tests/features.rs` | `guide/features.md` and `roadmap.md` are what `cargo xtask features` writes from `docs/data/`; every proof path and test a feature names exists; a feature marked built names a test, a done coverage row or a measurement; every shipped roadmap item is claimed by a feature |
+| `xtask/tests/features.rs` | `guide/features.md` is what `cargo xtask features` writes from `docs/data/features.toml`; every proof path and test a feature names exists; a feature marked built names a test, a done coverage row or a measurement; the data holds no field the generator does not read |
 | `baud-core/tests/embedding.rs` | the usage example in `docs/embedding.md` is compiled, and its block matches the example's body line for line, apart from blank lines, `use` lines and the example's `println!` |
 | `baud-app/src/config.rs` | `docs/guide/configuration.md` lists every key `Config::apply` matches and no other; `config.toml.example` names every key the reader acts on and no retired one, each commented out and, uncommented alone, read as its default but for a marked list of examples, and the file baud writes from it reads as the defaults with nothing said (`baud-app/build.rs` stops on a line in force, a key with no comment, a key or section given twice or a section out of place); `docs/cursor.md` and `docs/cursor.html` show every trail |
-
-Each was written after the corresponding claim turned out to be false. The
-coverage document spent most of this project's life naming `tests/coverage.rs`
-as the thing that kept it honest, in a file that did not exist; a document pointed
-at a vt_parser_states.rs that the SRP split had moved; the README pointed at a
-bench/src/payload.rs that the rename to baud-bench had left behind. (Neither
-path is written in backticks here, because both are gone and the check below
-would rightly flag them — which is the check working on this very paragraph.)
-The
-failure is always the same shape — prose stays put while the thing it names
-moves — and it is mechanical enough that a test can hold it.

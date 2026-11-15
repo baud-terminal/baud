@@ -1,5 +1,5 @@
 //! **A prompt pinned to the window's last row** (`[screen]
-//! prompt_at_bottom`, roadmap F1-49), driven by recorded shells.
+//! prompt_at_bottom`), driven by recorded shells.
 //!
 //! `tests/prompt/` holds real bash 5.3 traffic captured through a pty with
 //! the `capture-tui` and `capture-resize` examples, the shell's

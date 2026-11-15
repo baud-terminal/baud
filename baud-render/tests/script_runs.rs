@@ -129,7 +129,7 @@ fn a_hebrew_point_draws_in_its_letters_cell() {
 }
 
 /// **A Hebrew point draws in its letter's cell on Arial Unicode MS and
-/// Arial Hebrew, which put it elsewhere** (roadmap B1-13; Courier New's
+/// Arial Hebrew, which put it elsewhere** (Courier New's
 /// points stayed in their cell, and the shaping fixtures hold where in
 /// it they sit). Arial Unicode MS's `GPOS`
 /// selects no Script table for Hebrew, so its points kept their advances

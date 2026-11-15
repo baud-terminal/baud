@@ -10,8 +10,8 @@
 //!   (`scripts/check-changelog.sh`).
 //! - `fnv1a <src> <lib> <sdig> <ldig>`: the Metal library's digests
 //!   (`scripts/build-metallib.sh`).
-//! - `features [--check]`: docs/guide/features.md and docs/roadmap.md,
-//!   written from docs/data/ or checked against it and the tree.
+//! - `features [--check]`: docs/guide/features.md, written from
+//!   docs/data/features.toml or checked against it and the tree.
 //! - `features-since <rev>|--explain`: the crates a change can reach, for
 //!   `scripts/check-features.sh --since`.
 //! - `test-scope <from> <to>|<rev>`: the tests and gates a change needs, for
