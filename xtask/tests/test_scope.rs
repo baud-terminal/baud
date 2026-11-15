@@ -148,6 +148,17 @@ fn a_change_in_core_pulls_in_every_crate_that_builds_from_it() {
 }
 
 #[test]
+fn a_test_only_change_in_core_selects_only_its_own_binary() {
+    let r = Repo::new();
+    r.put("core/tests/t.rs", "#[test]\nfn t() {}\n");
+    r.commit("core test");
+    assert_eq!(
+        r.scope(),
+        ["binary baud-core baud-core::t", "clippy baud-core"]
+    );
+}
+
+#[test]
 fn a_change_in_a_crate_nothing_builds_from_stays_in_it() {
     let r = Repo::new();
     r.put("other/src/lib.rs", "pub fn f() {}\npub fn g() {}\n");

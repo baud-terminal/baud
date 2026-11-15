@@ -170,6 +170,20 @@ impl Plan {
     }
 }
 
+/// Whether a path of the member at `dir` is a test, a bench or an
+/// example: compiled into that member's own binaries only, so nothing that
+/// builds from the member is reached.
+pub fn is_test_only(dir: &str, path: &str) -> bool {
+    let rel = if dir.is_empty() {
+        path
+    } else {
+        path.strip_prefix(&format!("{dir}/")).unwrap_or(path)
+    };
+    ["tests/", "benches/", "examples/"]
+        .iter()
+        .any(|d| rel.starts_with(d))
+}
+
 /// Whether a changed path is documentation.
 pub fn is_doc(path: &str) -> bool {
     path.ends_with(".md") || path.starts_with("assets/readme/")
@@ -266,6 +280,9 @@ struct Builder<'a> {
     plan: Plan,
     /// Packages reached as code, whose clippy and rig run.
     code: BTreeSet<String>,
+    /// Packages whose tests, benches or examples alone changed: their clippy
+    /// runs, and nothing that builds from them.
+    own: BTreeSet<String>,
 }
 
 impl Builder<'_> {
@@ -389,16 +406,29 @@ pub fn plan(i: &Inputs) -> Plan {
         i,
         plan: Plan::default(),
         code: BTreeSet::new(),
+        own: BTreeSet::new(),
     };
     let (inside, outside): (Vec<String>, Vec<String>) = paths
         .iter()
         .cloned()
         .partition(|p| i.packages.iter().any(|k| under(p, &k.dir)));
-    if !inside.is_empty() {
-        let Some(reached) = (i.reach)(&inside) else {
+    let (tests_only, code): (Vec<String>, Vec<String>) = inside
+        .into_iter()
+        .partition(|p| b.package_of(p).is_some_and(|k| is_test_only(&k.dir, p)));
+    if !code.is_empty() {
+        let Some(reached) = (i.reach)(&code) else {
             return Plan::everything("the reach could not be computed".to_string());
         };
         b.whole(&reached);
+    }
+    for p in &tests_only {
+        if let Some(k) = b.package_of(p).map(|k| k.name.clone()) {
+            b.binaries(p, &format!("changed: {p}"));
+            b.own.insert(k);
+        }
+        if !b.outside(p) {
+            return Plan::everything(format!("{p} reaches every crate"));
+        }
     }
     for p in &outside {
         if !b.outside(p) {
@@ -418,11 +448,19 @@ pub fn plan(i: &Inputs) -> Plan {
         }
     }
     if let Some(code) = paths.iter().find(|p| !is_doc(p)) {
-        plan.clippy = b.code.clone();
+        plan.clippy = b.code.union(&b.own).cloned().collect();
         if b.code.contains(RIG) {
             let why = format!("{RIG} is reached by {code}");
             plan.rig = Some(why.clone());
             plan.linux = Some(why);
+        } else if b.own.contains(RIG) {
+            plan.linux = Some(format!("{RIG}'s tests changed ({code})"));
+            if plan
+                .binaries
+                .contains_key(&(RIG.to_string(), format!("{RIG}::event_rig")))
+            {
+                plan.rig = Some(format!("the rig's own test changed ({code})"));
+            }
         }
         if let Some(name) = BARE.iter().find(|n| b.code.contains(**n)) {
             plan.bare = Some(format!("{name} is reached by {code}"));
