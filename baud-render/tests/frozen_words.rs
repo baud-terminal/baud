@@ -14,7 +14,7 @@ mod support;
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Cols, PackedCell, ReadLen, Row, Rows, WinSize};
 use baud_font::Face;
-use baud_render::{Blend, Damage, PxSize, Renderer, Reorder, Stack, Theme, WordWrap};
+use baud_render::{Blend, Damage, DrawnRows, PxSize, Renderer, Reorder, Stack, Theme, WordWrap};
 use support::{Canvas, font};
 
 const WS: WinSize = WinSize {
@@ -53,9 +53,8 @@ fn drawn(t: &Term<'_>, back: Rows) -> Vec<String> {
     let mut o = Reorder::new();
     o.set_word_wrap(WordWrap::On);
     o.lay_out(t, back);
-    let mut cells = Vec::new();
-    let mut used = Vec::new();
-    let vp = o.orders().window(t, back, &mut cells, &mut used);
+    let mut fresh = DrawnRows::default();
+    let vp = o.orders().window_kept(t, back, &mut fresh);
     (0..vp.rows().index())
         .map(|y| text(vp.row(Row::from_index(y))))
         .collect()

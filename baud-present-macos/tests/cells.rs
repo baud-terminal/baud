@@ -39,11 +39,11 @@ use baud_render::plasma;
 use baud_render::ufo;
 use baud_render::{
     Argb, BellFlash, BellKind, BellShown, Blend, Blink, BlinkPhases, Candidate, Caret, Composition,
-    Corners, CursorLook, CursorPhase, Damage, FaceRole, FaceStyle, FontSlot, GlyphMap, Highlight,
-    Hover, Instance, Kind, Look, Mix, Overlay, Pt, PxSize, Rang, Rect, Region, Renderer, Resolved,
-    Scene, ScreenSlide, Scroll, Scroller, Segment, Shape, SixelBg, Smear, SplashLook, SplashPhase,
-    Stack, StatusMarks, StyleStamp, Tally, Target, Theme, Toward, Trail, TrailLook, Transition,
-    VideoFlash, Widths, Window, compose_slide, quad_coverage, slide_offsets,
+    Corners, CursorLook, CursorPhase, Damage, DrawnRows, FaceRole, FaceStyle, FontSlot, GlyphMap,
+    Highlight, Hover, Instance, Kind, Look, Mix, Overlay, Pt, PxSize, Rang, Rect, Region, Renderer,
+    Resolved, Scene, ScreenSlide, Scroll, Scroller, Segment, Shape, SixelBg, Smear, SplashLook,
+    SplashPhase, Stack, StatusMarks, StyleStamp, Tally, Target, Theme, Toward, Trail, TrailLook,
+    Transition, VideoFlash, Widths, Window, compose_slide, quad_coverage, slide_offsets,
 };
 
 #[path = "../../baud-font/tests/sha256/mod.rs"]
@@ -174,10 +174,10 @@ struct Arms<'f, 'a> {
     /// from it and be compared against the two that read the live grid.
     copy: GridBuffer,
     copy_mem: &'static mut [PackedCell],
-    /// The window in the order each row is drawn in, as the app lays it
-    /// out (`Orders::window`): what the cell arm's walks read.
-    bidi_cells: Vec<PackedCell>,
-    bidi_used: Vec<baud_domain::RowExtent>,
+    /// The window in the order each row is drawn in, kept from frame to
+    /// frame as the renderer keeps its own for the app's cell frame
+    /// (`Orders::window_kept`): what the cell arm's walks read.
+    drawn: DrawnRows,
     /// Smooth scroll: the pixels the screen is shifted down, or none. Both
     /// cell arms draw one extra leaving row above the window when set.
     slide: Option<Px>,
@@ -429,10 +429,10 @@ impl Arms<'_, '_> {
         // the app's frame closes it.
         let seal = t.seal_writes();
         let rejoin = self.renderer.lay_out_bidi_copied(t, self.back);
-        let view =
-            self.renderer
-                .bidi()
-                .window(t, self.back, &mut self.bidi_cells, &mut self.bidi_used);
+        let view = self
+            .renderer
+            .bidi()
+            .window_kept(t, self.back, &mut self.drawn);
         self.renderer.set_highlight(self.highlight);
         self.renderer.set_cursor_guide(self.guide);
         self.renderer.set_badge(self.badge.clone());
@@ -1744,8 +1744,7 @@ macro_rules! arms {
             chrome: Tally::default(),
             copy,
             copy_mem,
-            bidi_cells: Vec::new(),
-            bidi_used: Vec::new(),
+            drawn: DrawnRows::default(),
             slide: None,
             stamp: StyleStamp::default(),
             moving: (0, 0),
@@ -8637,10 +8636,11 @@ fn copy_window(
     copy_mem: &mut [PackedCell],
 ) -> usize {
     // The window in its drawn order, as the app reads it: the display's
-    // lines where it re-broke a paragraph (`Orders::window`).
-    let (mut cells, mut used) = (Vec::new(), Vec::new());
+    // lines where it re-broke a paragraph (`Orders::window_kept`), copied
+    // afresh: this arm is compared with the two that read the grid.
+    let mut fresh = DrawnRows::default();
     let stride = t.stride().index();
-    let view = renderer.bidi().window(t, back, &mut cells, &mut used);
+    let view = renderer.bidi().window_kept(t, back, &mut fresh);
     let (cols, rows) = (view.cols().index(), view.rows().index());
     for y in 0..rows {
         let r = Row::from_index(y);
@@ -16543,14 +16543,14 @@ fn the_cell_path_rejoins_only_the_rows_the_copy_finds_changed() {
     let rows = u64::from(WS.ws_row);
     let mut screens = Screens::new();
     let mut copy = vec![PackedCell::EMPTY; t.stride().index() * (usize::from(WS.ws_row) + 2)];
-    let (mut cells, mut used) = (Vec::new(), Vec::new());
+    let mut drawn = DrawnRows::default();
     // One frame of the cell path as the app builds it, to the walk: what
     // the layout read, and whether its joins are a fresh layout's.
     let mut frame = |r: &mut Renderer<'_, '_>, t: &mut Term<'_>| {
         let seal = t.seal_writes();
         let t = &*t;
         let rejoin = r.lay_out_bidi_copied(t, Rows::ZERO);
-        let view = r.bidi().window(t, Rows::ZERO, &mut cells, &mut used);
+        let view = r.bidi().window_kept(t, Rows::ZERO, &mut drawn);
         screens.compare = Compare::for_rejoin(rejoin);
         let status = t.status_line();
         let orders = r.bidi();

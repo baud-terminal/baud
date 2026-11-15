@@ -328,12 +328,6 @@ struct CellMemory {
     /// screen does less** (`Screens`): the map walk is skipped and a set
     /// whose copy already holds the screen is not copied again.
     screens: Screens,
-    /// **The window in the order UAX #9 gives each row**, while a row is
-    /// drawn in another order (`baud_render::Orders::window`): what the map
-    /// walk, the overlay and the copy read. Empty, and the core's own view
-    /// read, while none is.
-    bidi_cells: Vec<PackedCell>,
-    bidi_used: Vec<baud_domain::RowExtent>,
     /// What the last frame was built from, besides its set's buffers and
     /// `records` and `grounds`, which hold it until the next is built.
     last: Option<CellBuilt>,
@@ -1518,8 +1512,6 @@ impl App {
                         styles,
                         styles_mem,
                         screens: Screens::new(),
-                        bidi_cells: Vec::new(),
-                        bidi_used: Vec::new(),
                         last: None,
                         maps: Maps {
                             buffers: [first_map, second_map],
@@ -3029,8 +3021,6 @@ impl App {
                         candidates: &mut cell.candidates,
                         records: &mut cell.records,
                         grounds: &mut cell.grounds,
-                        bidi_cells: &mut cell.bidi_cells,
-                        bidi_used: &mut cell.bidi_used,
                         lent_cells: &mut cell.lent_cells,
                         lent_used: &mut cell.lent_used,
                     },

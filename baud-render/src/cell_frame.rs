@@ -60,10 +60,6 @@ pub struct CellParts<'a, 'g, 'm> {
     pub candidates: &'a mut Vec<Candidate>,
     pub records: &'a mut Vec<Instance>,
     pub grounds: &'a mut Vec<Instance>,
-    /// Unread: the window in drawn order is the renderer's own, kept with
-    /// its key (`crate::bidi::DrawnOrder`). Goes with the app's buffer.
-    pub bidi_cells: &'a mut Vec<PackedCell>,
-    pub bidi_used: &'a mut Vec<RowExtent>,
     pub lent_cells: &'a mut Vec<PackedCell>,
     pub lent_used: &'a mut Vec<RowExtent>,
 }

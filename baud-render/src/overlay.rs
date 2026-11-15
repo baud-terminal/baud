@@ -872,7 +872,7 @@ impl Overlay {
             pan: scene.pan,
         };
         // **The order the rows are drawn in**, this frame's: the view is the
-        // window in that order (`Orders::window`), and the cursor and the
+        // window in that order (`Orders::window_kept`), and the cursor and the
         // selection, kept by logical cells, are mapped through it. A copy,
         // so the walk may borrow the renderer mutably; none while no row
         // is reordered.

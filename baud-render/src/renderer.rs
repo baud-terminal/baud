@@ -5423,7 +5423,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// UAX #9 gives each row**, for the frame about to be drawn, and draws
     /// the find marks and the link underline through it. [`Renderer::convert`]
     /// calls it; the cell path calls it before it reads the window
-    /// ([`crate::Orders::window`]) through [`Renderer::lay_out_bidi_copied`].
+    /// ([`crate::Orders::window_kept`]) through [`Renderer::lay_out_bidi_copied`].
     /// While BDSM is reset nothing is reordered, and once the renderer has
     /// shaped a letter that takes a joining form each row's joins are kept
     /// while the row was not written: this is the layout for a caller with

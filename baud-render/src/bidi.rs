@@ -1295,9 +1295,10 @@ pub use maps::LaidSeal;
 /// ([`Orders::window_kept`]), with what it was drawn under: the window's
 /// physical rows, the core's seal and the layout's, the display, and its
 /// size. Owned by the renderer and lent by move, the buffer and its key
-/// together, so no key outlives the cells it describes.
+/// together, so no key outlives the cells it describes. A new one holds no
+/// key, so the first read copies every row: the copy a fresh layout reads.
 #[derive(Default)]
-pub(crate) struct DrawnRows {
+pub struct DrawnRows {
     cells: Vec<PackedCell>,
     used: Vec<RowExtent>,
     key: Option<DrawnKey>,
@@ -1833,7 +1834,7 @@ impl Orders {
     /// **Where each cell of window row `y` names its rendition id, in the
     /// order it is drawn**: [`Orders::row_source_logical`]'s runs at the
     /// columns this row's order draws their cells at, so a copy of the
-    /// window in drawn order ([`Orders::window`]) is read cell for cell.
+    /// window in drawn order ([`Orders::window_kept`]) is read cell for cell.
     pub fn row_source<'t>(&self, term: &'t Term<'_>, back: Rows, y: Row) -> RowSource<'t> {
         let src = self.row_source_logical(term, back, y);
         let RowSource::Runs(runs) = &src else {
@@ -1872,65 +1873,6 @@ impl Orders {
         }
     }
 
-    /// **The window as the cell path reads it**: the core's own view when
-    /// no row is reordered, else every row copied into `cells` at the
-    /// window's width, each in its drawn order, with its extent in `used`.
-    pub fn window<'a>(
-        &self,
-        term: &'a Term<'_>,
-        back: Rows,
-        cells: &'a mut Vec<PackedCell>,
-        used: &'a mut Vec<RowExtent>,
-    ) -> Viewport<'a> {
-        if let Some(d) = self.maps.display().cloned() {
-            return self.copied(&d.window(), cells, used);
-        }
-        let vp = term.view(back);
-        if self.any == Any::No {
-            return vp;
-        }
-        // Each row the core's own row, permuted within it, so it names the
-        // ids that row names, in that row's table (`Viewport::styles`).
-        self.copied(&vp, cells, used).styled_from(&vp)
-    }
-
-    /// Every row of `vp` copied into `cells` in its drawn order, with its
-    /// extent in `used`, as [`Orders::window`] answers it.
-    fn copied<'a>(
-        &self,
-        vp: &Viewport<'_>,
-        cells: &'a mut Vec<PackedCell>,
-        used: &'a mut Vec<RowExtent>,
-    ) -> Viewport<'a> {
-        let (nrows, ncols) = (vp.rows().index(), vp.cols().index());
-        cells.clear();
-        cells.resize(nrows * ncols, PackedCell::EMPTY);
-        crate::counters::add(
-            crate::counters::Counter::CellsCopied,
-            crate::counters::Site::Layout,
-            Tally::of(nrows * ncols),
-        );
-        used.clear();
-        for y in 0..nrows {
-            let r = Row::from_index(y);
-            self.permute(r, vp.row(r), &mut cells[y * ncols..(y + 1) * ncols]);
-            let mut e = RowExtent::of(ncols).with_rendition(vp.rendition(r), vp.cols());
-            if vp.wrapped(r) == Wrap::Continues {
-                e = e.wrapping(ncols);
-            }
-            used.push(e);
-        }
-        Viewport::new(
-            cells,
-            used,
-            Stride::of_cells(ncols),
-            vp.cols(),
-            vp.rows(),
-            vp.rows(),
-            RowRot::NONE,
-        )
-    }
-
     /// **The seal a reader keeps beside what it drew from these maps**:
     /// every map write after it -- a row's order or joins laid out again
     /// otherwise than they were, or another display -- reads as after it
@@ -1960,13 +1902,17 @@ impl Orders {
         self.maps.display()
     }
 
-    /// **[`Orders::window`], kept in `kept` from the last frame**: the
-    /// core's own view when no row is reordered and no display held, else
-    /// the window in drawn order, each row permuted again only where its
-    /// maps were laid out or its cells written since the copy was made --
-    /// none on a frame where nothing was written. Every row again for
-    /// another window, size or display.
-    pub(crate) fn window_kept<'a>(
+    /// **The window as the cell path reads it, kept in `kept` from the
+    /// last frame**: the core's own view when no row is reordered and no
+    /// display held, else the window in drawn order, each row permuted
+    /// again only where its maps were laid out or its cells written since
+    /// the copy was made -- none on a frame where nothing was written.
+    /// Every row again for another window, size or display, and into a new
+    /// [`DrawnRows`], which is the fresh copy a check compares a kept one
+    /// with. The only copy of the window in drawn order: a driver keeps
+    /// its `kept` from frame to frame (`crate::cell_frame::build` lends
+    /// the renderer's).
+    pub fn window_kept<'a>(
         &self,
         term: &'a Term<'_>,
         back: Rows,

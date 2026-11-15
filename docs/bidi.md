@@ -787,10 +787,13 @@ eight rounds with the first dropped, on mains:
   those rows out: cat-cjk's convert +9.8%. vim-unicode reads 2.1% lower,
   its range clear of base's (268.7-273.7 against 275.7-280.1), which is
   unexplained.
-- **Unmeasured: the app's cell path** copies the whole window
-  (`Orders::window`) and clones the maps for the overlay walk on each frame
-  in which any row is reordered; the bench's convert column does not hold
-  that.
+- **Unmeasured: the app's cell path** keeps the window in drawn order
+  from frame to frame (`Orders::window_kept`), permuting a row again only
+  where its maps were laid out or its cells written since, and every row
+  for another window, size or display; and it clones the window's and the
+  status line's orders and joins for the overlay walk on each frame that
+  holds a reordered or joined row or a display. The bench's convert column
+  holds neither.
 - Reading a program's output is unchanged: the core's only change is BDSM's
   state, and the instructions `ingest2` retires overlap base's on five
   recordings.

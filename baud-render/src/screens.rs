@@ -577,7 +577,7 @@ fn row_same(
 #[cfg(test)]
 mod tests {
     use super::{Built, Compare, Screens, SetIx, Taking};
-    use crate::{Leaving, Reorder};
+    use crate::{DrawnRows, Leaving, Reorder};
     use baud_core::{Owned, Term};
     use baud_domain::{BytePos, PackedCell, ReadLen, Row, Rows, WinSize};
 
@@ -630,8 +630,8 @@ mod tests {
         o.lay_out(t, Rows::ZERO);
         let [a, b] = sets;
         let mut copies: [&mut [PackedCell]; 2] = [a, b];
-        let (mut cells, mut used) = (Vec::new(), Vec::new());
-        let view = o.orders().window(t, Rows::ZERO, &mut cells, &mut used);
+        let mut drawn = DrawnRows::default();
+        let view = o.orders().window_kept(t, Rows::ZERO, &mut drawn);
         let status = t.status_line();
         s.take(
             &mut copies,

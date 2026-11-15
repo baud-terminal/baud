@@ -393,7 +393,7 @@ fn the_sites_a_caret_frame_is_counted_at_zero_are_each_fed_or_count_nothing() {
         calls += counted(&std::fs::read_to_string(f).expect("a source"), &mut pairs);
     }
     assert!(
-        calls >= 50,
+        calls >= 49,
         "the counter calls are read: {calls}, {pairs:?}"
     );
     for (counter, site, by) in FED {

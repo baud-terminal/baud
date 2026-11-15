@@ -11,9 +11,10 @@
 //! screen holds (`baud_render::cell_frame::build`, as the app builds it,
 //! its sets taken in turn): the frames after the operation are new screens
 //! whose sets hold the window and the status line as a fresh layout draws
-//! them (`Orders::window`, `Orders::status_line`), so a set's key and the
-//! renderer's own copy in drawn order are each held to what the layout
-//! laid out again with no cell written.
+//! them (`Orders::window_kept` into a new `DrawnRows`,
+//! `Orders::status_line`), so a set's key and the renderer's own copy in
+//! drawn order are each held to what the layout laid out again with no
+//! cell written.
 
 mod support;
 
@@ -26,8 +27,8 @@ use baud_font::{Face, Px};
 use baud_render::cell_frame::{CellInputs, CellParts, build};
 use baud_render::screens::{Built, SETS, Screens, SetIx};
 use baud_render::{
-    AppBg, Blend, Candidate, Caret, Composition, Current, Damage, FaceRole, FaceStyle, Field,
-    FindLook, FontSlot, GlyphMap, Ground, Hints, Instance, Joins, Leaving, Lent, LinkLook,
+    AppBg, Blend, Candidate, Caret, Composition, Current, Damage, DrawnRows, FaceRole, FaceStyle,
+    Field, FindLook, FontSlot, GlyphMap, Ground, Hints, Instance, Joins, Leaving, Lent, LinkLook,
     LinkSpan, MapEntry, Mark, Measure, Orders, Overlay, PictureBg, Pictures, PxSize, Redraw,
     Renderer, Reorder, Resolved, Stack, StyleStamp, Target, TextFace, Theme, WindowLine, WordWrap,
     Written,
@@ -455,8 +456,6 @@ struct Cells<'m> {
     candidates: Vec<Candidate>,
     records: Vec<Instance>,
     grounds: Vec<Instance>,
-    bidi_cells: Vec<PackedCell>,
-    bidi_used: Vec<RowExtent>,
     lent_cells: Vec<PackedCell>,
     lent_used: Vec<RowExtent>,
     used: Vec<RowExtent>,
@@ -477,8 +476,6 @@ impl<'m> Cells<'m> {
             candidates: Vec::new(),
             records: Vec::new(),
             grounds: Vec::new(),
-            bidi_cells: Vec::new(),
-            bidi_used: Vec::new(),
             lent_cells: Vec::new(),
             lent_used: Vec::new(),
             used: Vec::new(),
@@ -545,8 +542,6 @@ fn cell_frame_on(
             candidates: &mut cell.candidates,
             records: &mut cell.records,
             grounds: &mut cell.grounds,
-            bidi_cells: &mut cell.bidi_cells,
-            bidi_used: &mut cell.bidi_used,
             lent_cells: &mut cell.lent_cells,
             lent_used: &mut cell.lent_used,
         },
@@ -557,11 +552,12 @@ fn cell_frame_on(
 }
 
 /// **What a set's copy holds as a fresh layout draws it**: the window
-/// `back` lines into the history in drawn order (`Orders::window`), then
-/// the status line's row (`Orders::status_line`), each at the copy's
-/// pitch, the columns past the window's left out. A composition shown on
-/// the live window is read as its text written, in the rendition of the
-/// cell it starts on, as the renderer writes it over the window.
+/// `back` lines into the history in drawn order (`Orders::window_kept`
+/// into a new `DrawnRows`), then the status line's row
+/// (`Orders::status_line`), each at the copy's pitch, the columns past the
+/// window's left out. A composition shown on the live window is read as
+/// its text written, in the rendition of the cell it starts on, as the
+/// renderer writes it over the window.
 fn fresh_copy(t: &Term<'_>, s: &Setting, back: Rows) -> Vec<Vec<PackedCell>> {
     let mut o = Reorder::new();
     o.set_word_wrap(s.wrap);
@@ -578,8 +574,8 @@ fn fresh_copy(t: &Term<'_>, s: &Setting, back: Rows) -> Vec<Vec<PackedCell>> {
         }
         None => o.lay_out(t, back),
     }
-    let (mut cells, mut used) = (Vec::new(), Vec::new());
-    let view = o.orders().window(t, back, &mut cells, &mut used);
+    let mut drawn = DrawnRows::default();
+    let view = o.orders().window_kept(t, back, &mut drawn);
     let (cols, rows) = (view.cols().index(), view.rows().index());
     let mut out: Vec<Vec<PackedCell>> = (0..rows)
         .map(|y| view.row(Row::from_index(y))[..cols].to_vec())
@@ -1327,8 +1323,8 @@ fn a_picture_over_a_row_drawn_in_another_order_is_found_where_it_is_drawn() {
         o.orders().reordered(Row::from_index(2)),
         "the control: row 2 drawn in another order"
     );
-    let (mut cells, mut used) = (Vec::new(), Vec::new());
-    let drawn = o.orders().window(&t, Rows::ZERO, &mut cells, &mut used);
+    let mut fresh = DrawnRows::default();
+    let drawn = o.orders().window_kept(&t, Rows::ZERO, &mut fresh);
     assert_eq!(
         Pictures::new().find(&t, &drawn, Video::Normal).value(),
         20,
