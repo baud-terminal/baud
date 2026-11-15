@@ -1825,6 +1825,73 @@ mod tests {
         assert_eq!(scanned(b"\x1b[8mhttps://a.example\x1b[m"), []);
     }
 
+    /// An editor's soft-wrapped Markdown link, as it wrote it at 80x24: the
+    /// first row ends in `logoColor=`, the wrap row is `↪ white)](URL)`, and
+    /// both URLs are underlined by the editor itself (`SGR 4`).
+    const WRAPPED: &[u8] = b"\x1b[16;8H\x1b[38;2;164;160;232;48;2;59;34;76m[![\x1b[38;2;236;205;186;48;2;59;34;76mNix\x1b[38;2;164;160;232;48;2;59;34;76m](\x1b[38;2;204;204;204;48;2;59;34;76m\x1b[4mhttps://img.shields.io/badge/Nix-2b2b2b?logo=nixos&logoColor=\x1b[17;3H\x1b[39;48;2;59;34;76m\x1b[24m   \x1b[17;8H\x1b[38;2;90;89;119;48;2;59;34;76m\xe2\x86\xaa \x1b[38;2;204;204;204;48;2;59;34;76m\x1b[4mwhite\x1b[38;2;164;160;232;48;2;59;34;76m\x1b[24m)](\x1b[38;2;204;204;204;48;2;59;34;76m\x1b[4mhttps://nixos.org\x1b[38;2;164;160;232;48;2;59;34;76m\x1b[24m)\x1b[38;2;90;89;119;48;2;59;34;76m ";
+
+    /// The same editor's unwrapped row of that link, as it wrote it.
+    const UNWRAPPED: &[u8] = b"\x1b[17;8H\x1b[7m\x1b[38;2;164;160;232;48;2;59;34;76m[\x1b[27m\x1b[38;2;236;205;186;48;2;59;34;76mNix\x1b[38;2;33;33;33;48;2;108;105;153m]\x1b[38;2;164;160;232;48;2;59;34;76m(\x1b[38;2;204;204;204;48;2;59;34;76m\x1b[4mhttps://nixos.org\x1b[38;2;164;160;232;48;2;59;34;76m\x1b[24m)\x1b[38;2;90;89;119;48;2;59;34;76m \x1b[38;2;164;160;232;48;2;59;34;76m(with\x1b[38;2;90;89;119;48;2;59;34;76m \x1b[38;2;164;160;232;48;2;59;34;76mflakes\x1b[38;2;90;89;119;48;2;59;34;76m \x1b[38;2;164;160;232;48;2;59;34;76mturned\x1b[38;2;90;89;119;48;2;59;34;76m \x1b[38;2;164;160;232;48;2;59;34;76mon).\x1b[38;2;90;89;119;48;2;59;34;76m ";
+
+    /// `bytes` with every `SGR 4` taken out.
+    fn not_underlined(bytes: &[u8]) -> Vec<u8> {
+        let sgr4 = b"\x1b[4m";
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i..].starts_with(sgr4) {
+                i += sgr4.len();
+            } else {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+        out
+    }
+
+    /// The lines at rest over `bytes` on an 80x24 grid, and the URI a click
+    /// at `(row, col)` reads.
+    fn at_80x24(bytes: &[u8], (row, col): (usize, usize)) -> (Vec<(usize, usize, usize)>, Vec<u8>) {
+        let ws = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        feed(&mut t, bytes);
+        let mut l = Lines::default();
+        let _ = l.scan(&t, at(), &mut Uris::default());
+        let on = at().line(Rows::ZERO, Row::from_index(row));
+        let w = window(&t, at(), on, Col::at_index(col)).expect("a window");
+        let bare = w.bare().expect("a URI under the click");
+        (runs(&l), bare.uri().expect("one that opens").to_vec())
+    }
+
+    /// **A URL on a soft-wrap row is found as one on an unwrapped row is,
+    /// and a program's own underline is all that keeps baud's line off
+    /// either**: the wrap row's `↪` and the `](`/`)` around the URL end no
+    /// read short. As written, a click on either row reads
+    /// `https://nixos.org` and neither row gets a line of baud's; with the
+    /// `SGR 4` taken out, each URL gets one line over exactly its cells.
+    /// Perturbation: drop the attribute test in `push_cell` -- the two
+    /// as-written arms light.
+    #[test]
+    fn a_url_on_a_soft_wrap_row_is_found_as_on_an_unwrapped_one() {
+        let url = b"https://nixos.org".to_vec();
+        // The wrap row: `↪` at column 7, the URL at 17..=33, a click at 25.
+        assert_eq!(at_80x24(WRAPPED, (16, 25)), (vec![], url.clone()));
+        assert_eq!(
+            at_80x24(&not_underlined(WRAPPED), (16, 25)),
+            (vec![(15, 15, 75), (16, 17, 33)], url.clone())
+        );
+        // The unwrapped row: the URL at 13..=29, a click at 21.
+        assert_eq!(at_80x24(UNWRAPPED, (16, 21)), (vec![], url.clone()));
+        assert_eq!(
+            at_80x24(&not_underlined(UNWRAPPED), (16, 21)),
+            (vec![(16, 13, 29)], url)
+        );
+    }
+
     /// **A URI across a soft wrap is read whole, and a change on one of its
     /// rows reads the others**: the scheme overwritten on the first row takes
     /// the line off the second, which did not change. Perturbation: read only
