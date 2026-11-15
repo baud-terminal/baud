@@ -158,3 +158,20 @@ fn a_commit_kept_as_written_is_left_out_by_its_full_id_only() {
         "the same subject under another id is lost"
     );
 }
+
+/// Each commit listed as kept as written passes under its subject: one
+/// whose scope lists three crates, which no scope pattern takes.
+#[test]
+fn the_three_crate_scope_is_kept_as_written() {
+    let kept = "ef431c5e10e6834dbd758b9e69d0a9fd1a05dec3";
+    assert!(xtask::changelog::KEPT_AS_WRITTEN.contains(&kept));
+    let subject = "test(app, present-macos, render): copied text reaches the pasteboard as UTF-8";
+    let v = check(
+        &log(&[(kept, subject)]),
+        PLZ,
+        &cliff(&[(kept, false, None)]),
+    )
+    .expect("parses");
+    let (out, ok) = v.report();
+    assert!(ok, "{out}");
+}

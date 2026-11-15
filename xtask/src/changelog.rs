@@ -28,7 +28,10 @@ pub const TYPES: &str = "feat|fix|perf|docs|refactor|test|build|ci|style|revert|
 /// Commits whose subjects are not Conventional Commits and stay as written, by
 /// full id: each is left out of the changelog on purpose, so legs 1 and 3 do
 /// not read it. Any other commit with such a subject still fails.
-pub const KEPT_AS_WRITTEN: &[&str] = &["32e48259ce6b033040a75189cd5ae7e717afdc65"];
+pub const KEPT_AS_WRITTEN: &[&str] = &[
+    "32e48259ce6b033040a75189cd5ae7e717afdc65",
+    "ef431c5e10e6834dbd758b9e69d0a9fd1a05dec3",
+];
 
 /// Why a commit would be lost.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
