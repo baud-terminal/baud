@@ -29,7 +29,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use crate::child_env::{ChildEnv, EnvName, LANG, LC_ALL, LC_CTYPE, PWD, SHELL};
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use baud_domain::HostTime;
 use baud_domain::{InputEncoding, WinSize};
 use baud_font::Px;
@@ -3594,6 +3594,27 @@ pub fn host_now() -> HostTime {
     // SAFETY: a libSystem call with no preconditions beyond a valid clock
     // id, which `CLOCK_UPTIME_RAW` is.
     unsafe { clock_gettime_nsec_np(crate::sys::CLOCK_UPTIME_RAW) }
+}
+
+/// Now, on Linux's `CLOCK_MONOTONIC` in nanoseconds: the clock
+/// `wp_presentation` names here and the one the key-latency tool's poster
+/// stamps a key on, so a key's legs and its frame's presentation are read
+/// on one clock. The driver refuses the instrument's run where the
+/// compositor names another. Zero if the call fails, which it does not
+/// for a valid clock id.
+#[cfg(target_os = "linux")]
+pub fn host_now() -> HostTime {
+    let mut ts = crate::sys::Timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: a valid clock id and a timespec the call fills.
+    if unsafe { crate::sys::clock_gettime(crate::sys::CLOCK_MONOTONIC, &mut ts) } != 0 {
+        return HostTime::ZERO;
+    }
+    let secs = u64::try_from(ts.tv_sec).unwrap_or(0);
+    let nanos = u64::try_from(ts.tv_nsec).unwrap_or(0);
+    HostTime::of_nanos(secs.saturating_mul(1_000_000_000).saturating_add(nanos))
 }
 
 #[cfg(test)]

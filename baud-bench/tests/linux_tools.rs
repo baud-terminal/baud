@@ -661,3 +661,68 @@ fn the_opcodes_are_the_pinned_protocols() {
     );
     assert_eq!(manager[0], "create_virtual_keyboard");
 }
+
+/// One run of a script against the fake compositor, offering the seat and
+/// both virtual-device managers: the requests' bytes and what it printed.
+fn posted_run(script: &str) -> (Vec<u8>, String) {
+    let (client, server) = UnixStream::pair().expect("a pair");
+    let patience = Some(std::time::Duration::from_secs(30));
+    client.set_read_timeout(patience).expect("a timeout");
+    server.set_read_timeout(patience).expect("a timeout");
+    let globals = vec![
+        ("wl_seat".to_string(), 7),
+        ("zwlr_virtual_pointer_manager_v1".to_string(), 2),
+        ("zwp_virtual_keyboard_manager_v1".to_string(), 1),
+    ];
+    let fake = std::thread::spawn(move || {
+        compositor(server, globals, None, None, pointer_goldens::Split::Whole)
+    });
+    let mut out = Vec::new();
+    let keymap = pointer_goldens::CASES[0].keymap;
+    let ended = pointer::script(
+        pointer::Wire::over(client),
+        keymap,
+        ("1024", "768"),
+        &mut Cursor::new(script.as_bytes()),
+        &mut out,
+    );
+    assert!(ended.is_ok(), "{ended:?}");
+    let (wire, _) = fake.join().expect("the fake compositor");
+    (wire, String::from_utf8(out).expect("text"))
+}
+
+/// **A posted key is a key, stamped on the monotonic clock as it is
+/// sent**: the same requests as `key`, and one `post <n> <ns> <char>` line
+/// a key, numbered from one, each stamp between the clock read before the
+/// run and after it, and later than the one before. That clock is the one
+/// the compositor's presentation feedback names, so a key's stamp and its
+/// frame's are one clock.
+#[test]
+fn a_posted_key_is_a_key_stamped_on_the_monotonic_clock() {
+    let now = || {
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: a valid clock id and a timespec the call fills.
+        assert_eq!(
+            unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) },
+            0
+        );
+        u128::try_from(ts.tv_sec).unwrap() * 1_000_000_000 + u128::try_from(ts.tv_nsec).unwrap()
+    };
+    let before = now();
+    let (posted_wire, printed) = posted_run("post 30 a\npost 48 b\n");
+    let after = now();
+    let (keyed_wire, _) = posted_run("key 30\nkey 48\n");
+    assert_eq!(posted_wire, keyed_wire, "a post sends what a key sends");
+    let lines: Vec<Vec<&str>> = printed.lines().map(|l| l.split(' ').collect()).collect();
+    assert_eq!(lines.len(), 2, "{printed}");
+    let mut last = before;
+    for (line, (n, c)) in lines.iter().zip([("1", "a"), ("2", "b")]) {
+        assert_eq!((line[0], line[1], line[3]), ("post", n, c), "{printed}");
+        let at: u128 = line[2].parse().expect("nanoseconds");
+        assert!(at >= last && at <= after, "{at} in [{last}, {after}]");
+        last = at;
+    }
+}

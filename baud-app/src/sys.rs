@@ -179,6 +179,18 @@ pub const MAP_FAILED: *mut c_void = usize::MAX as *mut c_void;
 #[cfg(target_os = "macos")]
 pub const CLOCK_UPTIME_RAW: c_uint = 8;
 
+/// Linux's monotonic clock: the one `wp_presentation` names on the
+/// compositors baud runs under, so a key's stamps and its frame's
+/// presentation are one clock, which the keystroke instrument stamps on.
+#[cfg(target_os = "linux")]
+pub const CLOCK_MONOTONIC: c_int = 1;
+
+#[cfg(target_os = "linux")]
+unsafe extern "C" {
+    /// Reads `clock` into `ts`; 0 on success.
+    pub fn clock_gettime(clock: c_int, ts: *mut Timespec) -> c_int;
+}
+
 /// `dlopen`'s modes: resolve symbols when first used, keep them out of the
 /// global namespace, and -- with `RTLD_NOLOAD` -- answer only a library
 /// already loaded. The accessibility switch's read asks for a framework
@@ -1973,7 +1985,8 @@ pub const IN_DELETE_SELF: u32 = 0x400;
 pub const IN_MOVE_SELF: u32 = 0x800;
 
 /// `struct timespec`, `kevent`'s timeout: seconds and nanoseconds.
-#[cfg(target_os = "macos")]
+/// On Linux, also what `clock_gettime` fills.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Timespec {
@@ -2221,6 +2234,11 @@ int main(void) {
     }
 #ifdef CLOCK_UPTIME_RAW
     printf("CLOCK_UPTIME_RAW=%lld\n", (long long)CLOCK_UPTIME_RAW);
+#endif
+#ifdef __linux__
+    printf("CLOCK_MONOTONIC=%lld\n", (long long)CLOCK_MONOTONIC);
+    printf("linux.timespec.size=%zu\n", sizeof(struct timespec));
+    printf("linux.timespec.nsec=%zu\n", offsetof(struct timespec, tv_nsec));
 #endif
 #ifdef __APPLE__
     printf("locale_t.size=%zu\n", sizeof(locale_t));
@@ -2643,6 +2661,15 @@ int main(void) {
         }
         #[cfg(not(target_os = "macos"))]
         assert_eq!(h["MADV_DONTNEED"], i128::from(MADV_DONTNEED));
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(h["CLOCK_MONOTONIC"], i128::from(CLOCK_MONOTONIC));
+            assert_eq!(h["linux.timespec.size"], size_of::<Timespec>() as i128);
+            assert_eq!(
+                h["linux.timespec.nsec"],
+                offset_of!(Timespec, tv_nsec) as i128
+            );
+        }
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["CLOCK_UPTIME_RAW"], i128::from(CLOCK_UPTIME_RAW));

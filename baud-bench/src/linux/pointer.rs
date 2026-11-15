@@ -40,6 +40,11 @@
 //!                    by '+'; sent as the keymap's bits, Shift 0, Control 2,
 //!                    Mod1 3
 //! key K              an evdev key code pressed and released
+//! post K C           key K, and the line `post <n> <ns> <C>`: the n-th post,
+//!                    and CLOCK_MONOTONIC in nanoseconds as the press was
+//!                    sent, for `key-latency` to pair with the frame that
+//!                    showed C; the release follows at once, well inside
+//!                    any repeat delay
 //! tick MS            advance the event clock; every event advances it 10
 //! sleep MS           wait in real time, and advance the event clock as much
 //! sh CMD             run CMD with bash, waiting for it
@@ -337,6 +342,8 @@ struct Devices {
     extent: Vec<i128>,
     clock: i128,
     keymap: Vec<u8>,
+    /// The posts so far, which numbers the next.
+    posted: Posted,
 }
 
 impl Devices {
@@ -534,6 +541,17 @@ fn command(
                 &[Arg::Uint(bits), Arg::Uint(0), Arg::Uint(0), Arg::Uint(0)],
             )?;
         }
+        "post" => {
+            let (k, c) = rest.split_once(' ').ok_or("post K C")?;
+            let k = low32(int(k)?);
+            d.key(w, k, 1)?;
+            let at = monotonic()?;
+            d.key(w, k, 0)?;
+            d.posted.0 += 1;
+            writeln!(out, "post {} {} {c}", d.posted.0, at.0)
+                .and_then(|()| out.flush())
+                .map_err(|_| Stop::Unflushed)?;
+        }
         "key" => {
             let k = low32(int(rest)?);
             d.key(w, k, 1)?;
@@ -626,6 +644,7 @@ pub fn script(
         extent: Vec::new(),
         clock: 1000,
         keymap: map,
+        posted: Posted(0),
     };
     d.make(&mut w)?;
     d.extent = vec![int(size.0)?, int(size.1)?];
@@ -679,4 +698,28 @@ pub fn run(args: &[OsString]) -> i32 {
             1
         }
     }
+}
+
+/// The posts a script has made.
+#[derive(Clone, Copy, Debug)]
+struct Posted(u64);
+
+/// A moment on CLOCK_MONOTONIC, in nanoseconds: the clock the compositor's
+/// presentation feedback names here, so a post and a frame are one clock.
+#[derive(Clone, Copy, Debug)]
+struct Monotonic(u128);
+
+/// Now, on CLOCK_MONOTONIC.
+fn monotonic() -> Result<Monotonic, Stop> {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: a valid clock id and a timespec the call fills.
+    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } != 0 {
+        return Err("the monotonic clock".into());
+    }
+    let secs = u128::try_from(ts.tv_sec).map_err(|_| "the monotonic clock")?;
+    let nanos = u128::try_from(ts.tv_nsec).map_err(|_| "the monotonic clock")?;
+    Ok(Monotonic(secs * 1_000_000_000 + nanos))
 }

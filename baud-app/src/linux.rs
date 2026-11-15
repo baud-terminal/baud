@@ -457,6 +457,11 @@ struct Driver {
     /// activated, logged at `info` from the end of each turn, its deadline
     /// a bound on the wait while the log shows it.
     report: crate::report::Polled<Instant>,
+    /// The keystroke instrument (`latency.rs`), on under `BAUD_KEYLAT=1`,
+    /// and the last presentation it was told of: on Linux a key is shown
+    /// when `wp_presentation` says its frame turned into light.
+    latency: crate::latency::Latency,
+    last_presented: Option<baud_present_wayland::Stamp>,
     /// Whether a link's window is held open after its program failed
     /// (`held.rs`), with its line, until a key closes it.
     holding: crate::held::Holding,
@@ -912,6 +917,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         scheme: None,
         type_size,
         report: crate::report::Polled::new(Instant::now(), crate::report::Logged::now()),
+        latency: crate::latency::Latency::from_env(),
+        last_presented: None,
         holding: crate::held::Holding::No,
         quit: Quit::No,
     };
@@ -1120,8 +1127,12 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                         ),
                         crate::probe::Asks::No => (d.groups.unasked(), crate::probe::Linked::No),
                     };
+                    if d.latency.on() == crate::latency::Switch::On {
+                        d.latency.echoed([crate::pty::host_now()]);
+                    }
                     let began = d.seat.cursor_on(&d.term);
                     let took = d.feed(&bytes, (writers, linked));
+                    d.latency.fed(crate::pty::host_now);
                     let ended = d.seat.cursor_on(&d.term);
                     // Filed under the reads this feed fed, a held one's own
                     // when its bytes go on, and none still held.
@@ -1358,6 +1369,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         // DEC's line, after this turn's reads and writes (`line_lamps.rs`).
         d.show_line_lamps();
         d.present();
+        // The frames the compositor has shown up to now, for the instrument.
+        d.presentation_tick();
         if let Err(e) = d.conn.flush() {
             crate::warn!("wayland: {e}");
             break 'run;
@@ -3017,6 +3030,33 @@ impl Driver {
     }
 
     /// A key event where `pressed.rs` sends it.
+    /// **A frame the compositor showed, told to the keystroke instrument**:
+    /// `wp_presentation`'s `presented` is the moment it "turned into light",
+    /// on the presentation clock, so each new one is the vsync every shown
+    /// key's record takes -- its early bound, and the next one's its late
+    /// bound. A presentation clock other than `CLOCK_MONOTONIC`, the clock
+    /// every other stamp is read on, refuses the run rather than mix two
+    /// clocks in one leg. Nothing is read with the instrument off.
+    fn presentation_tick(&mut self) {
+        if self.latency.on() == crate::latency::Switch::Off {
+            return;
+        }
+        let Some(p) = self.window.presented() else {
+            return;
+        };
+        if self.last_presented == Some(p.at) {
+            return;
+        }
+        self.last_presented = Some(p.at);
+        if p.clock != baud_present_wayland::ClockId(crate::sys::CLOCK_MONOTONIC) {
+            self.latency.refused("presentation clock");
+            return;
+        }
+        let at = u64::try_from(p.at.0.as_nanos()).unwrap_or(u64::MAX);
+        self.latency
+            .tick(|| Some(baud_domain::HostTime::of_nanos(at)));
+    }
+
     fn route_key(&mut self, route: crate::pressed::Route) {
         // A key takes a copy's words down, and still goes on (`copied.rs`).
         if route.typed() && self.copied.dismiss() == crate::copied::Owes::Frame {
@@ -3057,8 +3097,14 @@ impl Driver {
         // again, and is said.
         let overflows = self.term.reply_counts().overflows;
         let drawn = self.term.images().generation();
+        // A record opens for the key as it is sent (`latency.rs`), and
+        // one that sent nothing is closed as such.
+        self.latency.key(|| None, crate::pty::host_now);
         let outbox = &mut self.outbox;
         let queued = crate::reads::input(&mut self.term, |t| t.key(k), |b| outbox.push(b));
+        if !queued {
+            self.latency.unsent();
+        }
         // An arrow key moved a ReGIS input cursor, or a key ended the input
         // and took it away: a frame.
         if self.term.images().generation() != drawn {
@@ -3464,6 +3510,9 @@ impl Driver {
         self.term.clear_reply();
         if !self.outbox.is_empty() {
             let wrote = self.pty.write(&mut self.outbox);
+            if self.outbox.is_empty() {
+                self.latency.written(crate::pty::host_now);
+            }
             // SD for what the kernel took, CS dark for what it refused.
             let now = self.timed.clock.host(Instant::now());
             self.lights.wrote(wrote, now);
@@ -4158,6 +4207,7 @@ impl Driver {
         {
             startup_first("first present", &FIRST_PRESENT);
             self.report.presented();
+            self.latency.shown_cpu(crate::pty::host_now);
             self.bell.commit(bell);
             self.caret.commit(caret);
             self.pending = Pending::Clean;
@@ -4282,5 +4332,33 @@ mod tests {
             .find(concat!("d.", "present();"))
             .expect("the loop's present");
         assert!(built < drawn, "the driver is built before it presents");
+    }
+
+    /// **The keystroke instrument costs nothing when it is off**: every
+    /// stamp this driver hands it is the clock function itself, read only
+    /// inside the instrument once it is on, but for the one read beside a
+    /// pty read, which sits behind the instrument's own `on()` test on the
+    /// line before it. Read off this file's code, its tests left out; the
+    /// positive control is the count of hooks the driver carries.
+    #[test]
+    fn the_instrument_reads_no_clock_while_it_is_off() {
+        let src = include_str!("linux.rs");
+        let code = src
+            .rsplit_once(concat!("#[cfg(test)]\n", "mod tests {"))
+            .map_or(src, |(c, _)| c);
+        let lines: Vec<&str> = code.lines().collect();
+        let hooks = lines.iter().filter(|l| l.contains("latency.")).count();
+        assert!(hooks >= 9, "the scan finds the driver's hooks ({hooks})");
+        let called = concat!("host_now", "()");
+        for (i, l) in lines.iter().enumerate() {
+            if l.contains(called) {
+                let guard = i.checked_sub(1).map_or("", |j| lines[j]);
+                assert!(
+                    guard.contains("latency.on() == crate::latency::Switch::On"),
+                    "line {}: the clock is read with no `on()` test before it: {l}",
+                    i + 1
+                );
+            }
+        }
     }
 }
