@@ -3461,7 +3461,12 @@ const FRAME_SITES: [FrameSite; 53] = [
     },
     // **FS-A4**: Reduce Motion and Reduce Transparency turned on are heard
     // with the link paused, from the workspace's notification, and no tick
-    // polls for them.
+    // polls for them. The activity lights are off ([`STEADY_DARK`]): Reduce
+    // Motion sets the lights' pace to two seconds a hold and a dwell
+    // (`access::lights_pace`), so each light the setup changed less than two
+    // seconds before the act asks for a step two seconds after that change
+    // (`Activity::next_change`), and the link runs for it on whichever of the
+    // offered ticks come after it.
     FrameSite {
         name: SiteName("the display options changed are heard with the link paused"),
         setup: STILL,
@@ -3470,7 +3475,7 @@ const FRAME_SITES: [FrameSite; 53] = [
         ticks: RigFrameTicks::Offered,
         window: RigWindow::DisplayOptions,
         env: &[],
-        config: STEADY,
+        config: STEADY_DARK,
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Accessed,
@@ -4503,6 +4508,29 @@ fn a_row_heard_with_ticks_offered_is_not_met_by_a_tick_delivered() {
         assert!(row.holds(&met), "{row:?}, nothing delivered: {met:?}");
         let ticked = counts(1, focus, taken, preview);
         assert!(!row.holds(&ticked), "{row:?}, a tick delivered: {ticked:?}");
+    }
+}
+
+/// **A row that turns Reduce Motion on runs with the activity lights off**
+/// (`RigWindow::DisplayOptions`): the motion preference sets the lights'
+/// pace (`access::lights_pace`), a light the setup changed asks for a step
+/// at the new pace's dwell after that change, and the link runs for that
+/// step on an offered tick, which a row bounded at nothing delivered reads
+/// as a tick that could have polled what the row hears.
+#[test]
+fn a_row_that_turns_reduce_motion_on_runs_with_the_lights_off() {
+    let rows: Vec<&FrameSite> = FRAME_SITES
+        .iter()
+        .filter(|s| s.window == RigWindow::DisplayOptions)
+        .collect();
+    assert!(!rows.is_empty(), "no frame row turns Reduce Motion on");
+    for site in rows {
+        assert!(
+            site.config.contains("activity_lights = \"off\""),
+            "{:?} runs with the activity lights shown: {:?}",
+            site.name,
+            site.config
+        );
     }
 }
 
