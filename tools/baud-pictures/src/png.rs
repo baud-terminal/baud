@@ -1,3 +1,18 @@
+//! ```text
+//! Pillow 12.3.0, parts of it transcribed into Rust in this file.
+//! Copyright © 1997-2011 by Secret Labs AB
+//! Copyright © 1995-2011 by Fredrik Lundh and contributors
+//! Copyright © 2010 by Jeffrey 'Alex' Clark and contributors
+//!
+//! Licence: MIT-CMU. Its text is in LICENSES/pillow-MIT-CMU.txt.
+//!
+//! Ported: PngImagePlugin._save's and ImageFile._save's PNG writer and
+//! src/libImaging/ZipEncode.c's filter choice and deflate loop (Mode,
+//! chunk, cost, filter, Encoder, encode_with, encode). Changed: written in
+//! Rust for an RGB or RGBA image saved with optimize=True, deflating
+//! through this crate's zlib module. The rest of this file is baud's.
+//! ```
+//!
 //! **Pillow 12.3.0's PNG writer**, `im.save(buf, "PNG", optimize=True)`
 //! for an `RGB` or `RGBA` image, ported from `PngImagePlugin._save`,
 //! `ImageFile._save` and `src/libImaging/ZipEncode.c`, and a reader for

@@ -1,4 +1,19 @@
 //! ```text
+//! Pillow 12.3.0, parts of it transcribed into Rust in this file.
+//! Copyright © 1997-2011 by Secret Labs AB
+//! Copyright © 1995-2011 by Fredrik Lundh and contributors
+//! Copyright © 2010 by Jeffrey 'Alex' Clark and contributors
+//!
+//! Licence: MIT-CMU. Its text is in LICENSES/pillow-MIT-CMU.txt.
+//!
+//! Ported: _webp.c's WebPEncode_wrapper (encode) and import_frame_libwebp,
+//! with WebPImagePlugin's _save and the WebPAnimDecoder it opens a file
+//! with (decode). Changed: written in Rust over libwebp's extern "C", for
+//! one RGBA image with no ICC, EXIF or XMP, and a decode that returns the
+//! first frame's canvas. The rest of this file is baud's.
+//! ```
+//!
+//! ```text
 //! libwebp 1.6.0 (encode.h, decode.h, mux.h, demux.h, mux_types.h), its
 //! interface transcribed into Rust in this file.
 //! Copyright (c) 2010, Google Inc. All rights reserved.

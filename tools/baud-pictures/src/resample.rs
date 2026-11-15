@@ -1,3 +1,18 @@
+//! ```text
+//! Pillow 12.3.0, parts of it transcribed into Rust in this file.
+//! Copyright © 1997-2011 by Secret Labs AB
+//! Copyright © 1995-2011 by Fredrik Lundh and contributors
+//! Copyright © 2010 by Jeffrey 'Alex' Clark and contributors
+//!
+//! Licence: MIT-CMU. Its text is in LICENSES/pillow-MIT-CMU.txt.
+//!
+//! Ported: src/libImaging/Resample.c's sinc and lanczos filters,
+//! precompute_coeffs (coeffs) and its 32-bit float horizontal and vertical
+//! passes (Float::lanczos). Changed: written in Rust for a mode F image and
+//! the LANCZOS filter only, each pass summed as the compiled C loop sums it
+//! (Pass, sum).
+//! ```
+//!
 //! **Pillow 12.3.0's LANCZOS resize of a mode `F` image**, ported from
 //! `src/libImaging/Resample.c`: coefficients in `f64`, normalised per
 //! output pixel, a horizontal pass over the rows the vertical pass reads,

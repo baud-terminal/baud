@@ -1,3 +1,17 @@
+//! ```text
+//! Pillow 12.3.0, parts of it transcribed into Rust in this file.
+//! Copyright © 1997-2011 by Secret Labs AB
+//! Copyright © 1995-2011 by Fredrik Lundh and contributors
+//! Copyright © 2010 by Jeffrey 'Alex' Clark and contributors
+//!
+//! Licence: MIT-CMU. Its text is in LICENSES/pillow-MIT-CMU.txt.
+//!
+//! Ported: GifImagePlugin._seek's NETSCAPE2.0 application extension
+//! read, the "loop" it sets in im.info (loops). Changed: written in Rust
+//! over the file's bytes, answering only whether the GIF loops. The rest of
+//! this file is baud's.
+//! ```
+//!
 //! **The byte edits made to gifski's GIF of the README logo**: every
 //! colour-table entry within [`PALETTE_SNAP`] levels of the page set to
 //! the page, and each Graphic Control Extension's delay set to the film's

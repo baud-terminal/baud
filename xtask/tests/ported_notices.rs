@@ -149,3 +149,40 @@ fn the_numpy_arithmetic_carries_its_notice() {
         Some("LICENSES/numpy-BSD-3-Clause.txt"),
     );
 }
+
+/// Pillow's copyright lines, as `LICENSES/pillow-MIT-CMU.txt` gives them.
+const PILLOW: [&str; 3] = [
+    "Copyright © 1997-2011 by Secret Labs AB",
+    "Copyright © 1995-2011 by Fredrik Lundh and contributors",
+    "Copyright © 2010 by Jeffrey 'Alex' Clark and contributors",
+];
+
+/// `path` carries Pillow's notice.
+fn carries_pillow(path: &str) {
+    carries(
+        path,
+        &PILLOW,
+        &["Licence: MIT-CMU.", "LICENSES/pillow-MIT-CMU.txt"],
+        Some("LICENSES/pillow-MIT-CMU.txt"),
+    );
+}
+
+#[test]
+fn the_pillow_png_writer_carries_its_notice() {
+    carries_pillow("tools/baud-pictures/src/png.rs");
+}
+
+#[test]
+fn the_pillow_lanczos_resize_carries_its_notice() {
+    carries_pillow("tools/baud-pictures/src/resample.rs");
+}
+
+#[test]
+fn the_pillow_webp_writer_and_reader_carry_its_notice() {
+    carries_pillow("tools/baud-pictures/src/webp.rs");
+}
+
+#[test]
+fn the_pillow_gif_loop_test_carries_its_notice() {
+    carries_pillow("tools/baud-pictures/src/gif.rs");
+}
