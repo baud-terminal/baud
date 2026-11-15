@@ -1632,7 +1632,7 @@ impl NoticeDesk {
     /// **[`NoticeDesk::simple`] with iTerm2's subtitle and picture**
     /// (`screenPostUserNotification:rich:`): a message alone stands as the
     /// title, as an `OSC 9`'s text does; a subtitle with no title leaves
-    /// the title empty, as iTerm2 does, and a picture alone posts, the
+    /// the title empty, and a picture alone posts, the
     /// embedder deciding what its platform can show of either. Nothing at
     /// all is refused as empty, and a path past [`NOTICE_PATH_MAX`] as too
     /// long.

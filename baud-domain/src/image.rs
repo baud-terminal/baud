@@ -1198,11 +1198,11 @@ pub enum BelowWindow {
     /// screen's geometry or of the cell's height, a top region's rotation
     /// writing over it, or the screen being left.
     Goes,
-    /// A kitty placement there stays and every other goes: the alternate
-    /// screen's scroll, which keeps no row below its window and keeps a
-    /// kitty picture a reverse scroll pushed there, as kitty does, on its
-    /// screen row through a scroll inside margins; and a resize to the
-    /// geometry the screen already has.
+    /// A placement of the terminal graphics protocol (APC G) there stays and
+    /// every other goes: the alternate screen's scroll, which keeps no row
+    /// below its window and keeps such a picture a reverse scroll pushed
+    /// there on its screen row through a scroll inside margins; and a
+    /// resize to the geometry the screen already has.
     KittyStays,
 }
 
@@ -1323,8 +1323,8 @@ pub struct PlacementSlot {
     staged: Staged,
     /// When it was made ([`PlaceSerial`]).
     pub serial: PlaceSerial,
-    /// A kitty placement's geometry and id; [`KittyPlace::NONE`] for any
-    /// other.
+    /// The geometry and id of a placement of the terminal graphics protocol
+    /// (APC G); [`KittyPlace::NONE`] for any other.
     pub kitty: KittyPlace,
 }
 
@@ -1449,11 +1449,10 @@ pub enum ImageRefusal {
 
 /// The image refusals split by the limit each hit, with the size the last one
 /// of each carried. [`ImageStore::images_refused`] is their total, and stays
-/// the one number for a caller that only asks how many: it mixed a body over
-/// the scratch with an image over the arena, two different knobs -- yazi's
-/// previews went blank on the first (a 600x375 screenshot was a 334 KiB body
-/// against the app's 256 KiB scratch of 2026-10-09) while the arena held them.
-/// The body scratch is gone since 2026-10-14, and with it that cause.
+/// the one number for a caller that only asks how many. The split names the
+/// limit that refused each image, because each limit is a different knob:
+/// an image the arena cannot hold is not an image with no pixels or no
+/// free slot.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ImageRefusals {
     /// Images refused for having no pixels.

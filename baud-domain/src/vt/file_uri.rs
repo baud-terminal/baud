@@ -23,10 +23,10 @@
 //! fragment, so a `?` or a `#` is off it. A byte the grammar does not allow
 //! -- a space, a raw UTF-8 byte, a control -- makes the report malformed:
 //! RFC 8089 § 4 asks for a name's UTF-8 "before percent-encoding is applied"
-//! (253-257), and an unencoded path is not a URI. The shells that send
-//! one unencoded (`kitty-shell-cwd://` in kitty's and ghostty's
-//! integrations, note AK 1.5) are refused and counted by the core, which
-//! then reads the directory the way it reads one that sent nothing.
+//! (253-257), and an unencoded path is not a URI. A shell integration that
+//! sends one unencoded (`kitty-shell-cwd://`) is refused and counted by the
+//! core, which then reads the directory the way it reads one that sent
+//! nothing.
 //!
 //! **The scheme and `localhost` are matched without case**: ABNF's quoted
 //! strings are case-insensitive, and RFC 3986 § 3.1 says "An implementation

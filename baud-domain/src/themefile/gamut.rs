@@ -13,7 +13,7 @@
 //!   numbers are the system profile's D50 colorants, copied below as stored
 //!   (`[[source: macos-generic-rgb-icc]]`), with gamma 1.8 -- what macOS's
 //!   own conversion uses, where the profile stores the nearest u8Fixed8,
-//!   1.80078125 (note AR, 2026-10-17); to sRGB through the sRGB profile's D50
+//!   1.80078125; to sRGB through the sRGB profile's D50
 //!   colorants (`[[source: macos-srgb-icc]]`). An input outside [0, 1] "is
 //!   interpreted as" the bound (`[[source: apple-nscolor-calibrated]]`).
 //! - **sRGB**: the curve of `[[source: css-color-4-20261009]]` 10.2.

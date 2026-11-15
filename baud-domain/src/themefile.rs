@@ -1,5 +1,5 @@
 //! Colour scheme files: bytes to a [`Scheme`], refusing what a format leaves
-//! unsettled (note Y, section 4; the pattern `terminfo` follows).
+//! unsettled.
 //!
 //! **Each format lands on sixteen ANSI slots by its own published mapping**,
 //! plus a page and a text colour held apart from the slots, because every
@@ -269,8 +269,8 @@ impl Scheme {
         }
     }
 
-    /// Dark or light by the rule `CSI ? 996 n` answers with (note Y,
-    /// decision 5): the page's relative luminance against the text's.
+    /// Dark or light by the rule `CSI ? 996 n` answers with: the page's
+    /// relative luminance against the text's.
     pub fn polarity(&self) -> Option<ColorScheme> {
         ColorScheme::of(
             ColorWord::from_color(self.text?),
@@ -310,8 +310,7 @@ pub enum SchemeErrorKind {
     /// `[[source: xorg-rgb-749182c]]`, and kitty's one addition).
     ColourName,
     /// A dark and a light theme in one file (foot's two sections), where
-    /// which half to read is undecided (note AR, O8): the line of the
-    /// second.
+    /// which half to read is undecided: the line of the second.
     Pair,
     /// A Windows Terminal scheme without the `name` it requires.
     NoName,

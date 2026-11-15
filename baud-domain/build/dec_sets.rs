@@ -19,7 +19,7 @@
 //! * **DEC Supplemental** (`ESC ( <` and `ESC ( % 5`): xterm's
 //!   `map_DEC_Supp_Graphic`, under xterm's licence (X11), its 81 glyphs
 //!   and its 13 `UNDEF` cells, which must be [`FIGURE_A2_RESERVED`], the
-//!   cells `[[source: dec-pplv2-pm]]` Figure A-2 hatches (note AF §3.1).
+//!   cells `[[source: dec-pplv2-pm]]` Figure A-2 hatches.
 //!   Where the macro departs from DEC's text, DEC's text is the standard
 //!   and the cell is DEC's, listed in [`CONFORM`]: one cell, 5/15.
 //! * **JIS-Katakana** (`ESC ( I`): `[[source: dec-pplv2-pm]]` §A.12,
@@ -27,8 +27,8 @@
 //!   2/1-5/15, the rest reserved; the characters from
 //!   `[[source: unicode-jis0201]]`, read here, 0xA1-0xDF.
 //! * **JIS-Roman** (`ESC ( J`): `[[source: vt382-rm]]` §2.4.5, ASCII but
-//!   5/12 the Yen sign and 7/14 the over line. 7/14 is open (note AF,
-//!   Q-JIS-Roman), so it is listed in [`OPEN`] and stays `~` until
+//!   5/12 the Yen sign and 7/14 the over line. 7/14 has no codepoint
+//!   given yet, so it is listed in [`OPEN`] and stays `~` until
 //!   answered.
 //!
 //! A reserved position draws `DEC_ERROR_CHARACTER`: "The error character
@@ -104,8 +104,8 @@ pub struct Departs {
 }
 
 /// `[[source: dec-pplv2-pm]]` Figure A-2 (PDF p. 182), its hatched cells,
-/// read by stroke detection from the hash-checked research copy (note AF
-/// §3.1): DEC Supplemental's reserved positions, as a second DEC text
+/// read by stroke detection from the hash-checked research copy: DEC
+/// Supplemental's reserved positions, as a second DEC text
 /// draws them.
 pub const FIGURE_A2_RESERVED: [u8; 13] = [
     0x24, 0x26, 0x2C, 0x2D, 0x2E, 0x2F, 0x34, 0x38, 0x3E, 0x50, 0x5E, 0x70, 0x7E,

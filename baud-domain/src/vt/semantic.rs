@@ -4,11 +4,10 @@
 //! (`[[source: semantic-prompts]]`), the extension of FinalTerm's four
 //! letters that iTerm2 documents (`[[source: iterm2-doc-escape-codes]]`) and
 //! WezTerm cites as its definition (`[[source: wezterm-shell-integration]]`).
-//! kitty adds options to `A` (`[[source: kitty-shell-integration]]`) and
-//! Ghostty adds `redraw=last` (`[[source: ghostty-semantic-prompt]]`); both
+//! Options on `A` and `redraw=last`, which the proposal does not define,
 //! are read here because shells send them: fish's built-in integration
-//! sends `A;click_events=1` (`[[source: fish-terminal-compat]]`) and
-//! Ghostty's bash integration `A;redraw=last;cl=line;aid=<pid>`.
+//! sends `A;click_events=1` (`[[source: fish-terminal-compat]]`), and a
+//! bash integration sends `A;redraw=last;cl=line;aid=<pid>`.
 //!
 //! "A terminal must ignore an option whose option-name it doesn't
 //! recognize", so an unknown or malformed option is skipped and never

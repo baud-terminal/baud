@@ -1,4 +1,4 @@
-//! The scheme file readers (note Y, section 4). Fixtures are hand-made in
+//! The scheme file readers. Fixtures are hand-made in
 //! the shapes `[[source: tinted-builder]]` 0.11.2 specifies, each slot a
 //! distinct colour so a slot landing in the wrong entry cannot pass.
 

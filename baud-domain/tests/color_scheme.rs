@@ -1,6 +1,6 @@
 //! The dark/light classifier behind `CSI ? 996 n` and `?2031`, and its report.
 //!
-//! The rule is note Y's decision 5: WCAG 2.2 relative luminance of the
+//! The rule is WCAG 2.2 relative luminance of the
 //! background against the text, dark when the background is the darker. The
 //! core has no `powf`, so the sRGB linearisation is a table; these tests hold
 //! the table and the verdicts to the formula computed in `f64`.
@@ -106,8 +106,9 @@ fn a_tie_reads_light_and_the_defaults_read_nothing() {
         ColorScheme::of(ColorWord::indexed(Chan::from_u8(1)), g),
         None
     );
-    // baud's two themes, and mid-grey on white, which note Y records as the
-    // pair where classifiers disagree: WCAG's comparison says dark there.
+    // baud's two themes, and mid-grey on white, the pair where a
+    // background-only rule and this one part: WCAG's comparison says dark
+    // there.
     let (lt, dk) = (word((0xe5, 0xe5, 0xe5)), word((0x10, 0x10, 0x10)));
     assert_eq!(ColorScheme::of(lt, dk), Some(ColorScheme::Dark));
     assert_eq!(ColorScheme::of(dk, lt), Some(ColorScheme::Light));

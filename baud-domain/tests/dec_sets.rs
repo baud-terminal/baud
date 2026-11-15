@@ -5,8 +5,7 @@
 //! xterm's macros and the constants typed from DEC's texts, and never read
 //! DEC's pages. This file reads DEC's tables and the mappings they name
 //! itself and shares no code with the build, so a cell the build mis-reads
-//! cannot pass on both sides -- the shape that let Swedish 4/0 go missing
-//! while two tests of the national tables stayed green (note AF §2.3).
+//! cannot pass on both sides.
 //!
 //! Table 2-3 is read from `vt220_tables.tsv`, the cells read out of the
 //! VT220 manual's chapter 2, fetched by its pinned URL and refused unless it
@@ -31,8 +30,8 @@ const JIS0201: &str = include_str!(concat!(
 ));
 
 /// `[[source: dec-pplv2-pm]]` Figure A-2's hatched cells, DEC Supplemental's
-/// reserved positions as a second DEC text draws them (note AF §3.1), typed
-/// here from the note and not taken from the generator.
+/// reserved positions as a second DEC text draws them, typed here by hand
+/// and not taken from the generator.
 const FIGURE_A2_RESERVED: [u8; 13] = [
     0x24, 0x26, 0x2c, 0x2d, 0x2e, 0x2f, 0x34, 0x38, 0x3e, 0x50, 0x5e, 0x70, 0x7e,
 ];
@@ -101,7 +100,7 @@ fn dec_supplemental_is_table_2_3() {
             assert_eq!(at(set, *code), want, "{set:?} 0x{code:02x}");
         }
     }
-    // The one cell where xterm's table is not DEC's (note AF §3.1).
+    // The one cell where xterm's table is not DEC's.
     assert_eq!(at(DecSet::Supplemental, 0x5f), 0x00df, "5/15 is ß, not `_`");
 }
 
@@ -146,8 +145,8 @@ fn jis_katakana_is_jis_x_0201_and_reserves_columns_6_and_7() {
 }
 
 /// **JIS-Roman is ASCII with the Yen sign at 5/12** (`[[source: vt382-rm]]`
-/// §2.4.5). 7/14 is not asserted: "over line" or "Macron" is note AF's
-/// Q-JIS-Roman, open, and the table keeps `~` there until it is answered.
+/// §2.4.5). 7/14 is not asserted: "over line" or "Macron" is open, and the
+/// table keeps `~` there until it is answered.
 #[test]
 fn jis_roman_is_ascii_with_the_yen_sign() {
     for code in 0x21u8..=0x7d {

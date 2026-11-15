@@ -6,8 +6,7 @@
 //! four-character quantum can arrive as one character in one read and three in
 //! the next. The carry -- at most three sextets -- is the decoder's state and
 //! nothing else, so the caller keeps one `Base64` across its reads and the
-//! octets come out the same wherever the boundaries fell. One decoder for both
-//! (note V, V11 and V19).
+//! octets come out the same wherever the boundaries fell. One decoder for both.
 //!
 //! **No buffer.** Each quantum's octets are handed back as they complete, and
 //! where they go -- a bounded caller buffer, counted past its end -- is the
@@ -214,7 +213,7 @@ impl Base64 {
     ///
     /// **Any length, because a chunk is not a quantum.** kitty's text asks a
     /// client for chunks that are multiples of four but the last, and baud
-    /// takes chunks of any length (note V, V19); a `read(2)` boundary falls
+    /// takes chunks of any length; a `read(2)` boundary falls
     /// anywhere regardless. So a quantum may start in one feed and end in
     /// the next, held in the same carry [`Self::push`] keeps, and the octets
     /// are the same wherever the reads were cut.

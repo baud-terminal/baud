@@ -20,15 +20,15 @@ include!(concat!(env!("OUT_DIR"), "/nrcs_data.rs"));
 /// SUB, the control DEC ties it to, and its reference glyph is a reversed
 /// question mark (`[[source: unicode18-chart-2400]]`). U+FFFD, one of the
 /// three other options asked (with U+2E2E and U+2592), departs from that
-/// description by name and by glyph (note AF, Q-UNDEF; note AE's AE8.1).
+/// description by name and by glyph.
 ///
 /// **It is drawn at a reserved position of a DEC set baud translates**,
 /// DEC Supplemental's 13 and JIS-Katakana's 31 (`build/dec_sets.rs`): "The
 /// error character is printed when one of these reserved characters is
 /// received by the device" (`[[source: dec-pplv2-pm]]` §A.2, §A.12). Where
-/// else it is drawn waits on open questions: A0 with a 94-set in GR (note AE,
-/// AE8), SUB's display (`docs/vt-coverage.md`), and Greek NRC 7/9 and 7/10,
-/// which no DEC table charts (note AF, Q-UNDEF).
+/// else it is drawn waits on open questions: A0 with a 94-set in GR, SUB's
+/// display (`docs/vt-coverage.md`), and Greek NRC 7/9 and 7/10, which no
+/// DEC table charts.
 pub const DEC_ERROR_CHARACTER: Codepoint = Codepoint(0x2426);
 
 /// `ESC ( A` — United Kingdom, whose one substitution xterm spells inline

@@ -2748,8 +2748,7 @@ impl<'a> View<'a> {
     /// a written space included, since U+0020 is a character written and
     /// an erase leaves `EMPTY` in whatever colour it erased in. Colour alone
     /// is not text: the renderer decides how an empty cell looks, so a row
-    /// erased in a background holds nothing here. foot, ghostty and kitty
-    /// test a row the same way (note V, V9). `width` is clamped to the
+    /// erased in a background holds nothing here. `width` is clamped to the
     /// pitch.
     pub fn ring_row_holds(&self, at: RowRot, width: Cols) -> Holds {
         let w = width.index().min(self.stride().index());

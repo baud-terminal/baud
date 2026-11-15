@@ -4,8 +4,8 @@
 //! `cpp -P` with its `-D` symbols (`[[source: xrdb-c-aaf6f3d]]` 1362-1373,
 //! 1431-1433), `COLOR` among them on a colour visual (664-672). So a
 //! tinted file's `#define base05 #fcfcfc` and `*foreground: base05` set the
-//! text to `#fcfcfc`. baud runs the subset every theme in the 1503-file
-//! corpus of note AR uses, and refuses the rest by name rather than reading
+//! text to `#fcfcfc`. baud runs the subset of cpp that theme files use,
+//! and refuses the rest by name rather than reading
 //! the file as something cpp would not make of it:
 //!
 //! - **Run**: C comments (`/* */` and `//`, outside quotes) and spliced
@@ -28,7 +28,7 @@
 //! That is xrdb's rule for one spelling of a name; `xrdb -load` keeps a
 //! repeated name at its first line (260-287), so where `*color0` and
 //! `*.color0` alternate the X server's database can hold the other value,
-//! which note AR lists open. The name is Xrm's: components bound by `.` or
+//! which is left open. The name is Xrm's: components bound by `.` or
 //! `*`, two separators with nothing between them one binding, loose if
 //! either is `*` (`[[source: libx11-xrm-b8d5a70]]` 1270-1295). **Only a name
 //! every client matches is read** -- one loose component, `*color0` or
@@ -55,10 +55,8 @@
 //! xterm skips a colour XParseColor refuses.
 //!
 //! Four choices are made here: the subset, every client's names, includes
-//! followed, and the high byte. On the corpus note AR measured -- 575
-//! tinted-xresources, 815 iTerm2-Color-Schemes and 113 xcolors files -- this
-//! reader gives the same scheme from each file as from clang's
-//! `cpp -P -DCOLOR` output of it, 1503 of 1503.
+//! followed, and the high byte. On a theme file inside the subset, this
+//! reader gives the same scheme as from `cpp -P -DCOLOR`'s output of it.
 
 use super::terminals::Skipped;
 use super::{Format, Line, Scheme, SchemeError, SchemeErrorKind, Target, rgb};

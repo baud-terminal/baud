@@ -5,8 +5,7 @@
 //! `rgb:` digits are "scaled"; and for the `#` forms, "When fewer than 16 bits
 //! each are specified, they represent the most significant bits of the value
 //! (unlike the ``rgb:'' syntax, in which values are scaled). For example, the
-//! string ``#3a7'' is the same as ``#3000a0007000''." xterm hands the spec to
-//! XParseColor unread (`[[source: xterm-misc]]`, `xtermAllocColor`).
+//! string ``#3a7'' is the same as ``#3000a0007000''."
 //!
 //! The oracle is libX11 1.8.13 against a 24-bit TrueColor Xvfb
 //! (`[[source: xparsecolor-obs-rgb-out]]`): each line is the spec, the

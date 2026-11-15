@@ -250,8 +250,8 @@ impl Received {
 pub enum DecSet {
     /// `<` — DEC Supplemental (VT200), and the User Preference Supplemental
     /// Set (UPSS, VT300; `[[source: dec-std-070]]` 070-3 p. 3-63), which share
-    /// a final byte. Which of the two `<` should designate is note AE's Q14;
-    /// both readings draw DEC Supplemental while baud has no DECAUPSS, the
+    /// a final byte. Which of the two `<` should designate is open; both
+    /// readings draw DEC Supplemental while baud has no DECAUPSS, the
     /// UPSS's "Default: DEC Supplemental Graphic" (`[[source: vt510-decaupss]]`).
     Supplemental,
     /// `>` — DEC Technical, VT300. Not translated: which DEC layout (VT420
@@ -262,26 +262,26 @@ pub enum DecSet {
     /// `I` — JIS-Katakana, VT382. Translated.
     JisKatakana,
     /// `J` — JIS-Roman, VT382. Translated but for 7/14, which draws `~` until
-    /// note AF's Q-JIS-Roman says whether it is U+203E or U+00AF.
+    /// it is settled whether it is U+203E or U+00AF.
     JisRoman,
     /// `" 4` — DEC Hebrew Supplemental, VT500. Not translated: DEC charts it
     /// only in `[[source: dec-pplv2-pm]]` Figure A-22, which is `external`,
     /// and its glyphs have not been read from the figure cell by cell against
-    /// xterm's `map_DEC_Hebrew_Supp` (note AF §3.5, §6).
+    /// xterm's `map_DEC_Hebrew_Supp`.
     Hebrew,
     /// `" ?` — DEC Greek Supplemental, VT500. Not translated, for Hebrew's
     /// reason, Figure A-24.
     Greek,
     /// `% 0` — DEC Turkish Supplemental, VT500. Not translated, for Hebrew's
     /// reason, Figure A-27; and its seven hatched cells have no
-    /// error-character sentence in §A.10 (note AF §3).
+    /// error-character sentence in §A.10.
     Turkish,
     /// `% 5` — DEC Supplemental Graphics, VT300: DEC Supplemental, under the
     /// final `[[source: dec-std-070]]` gives it (`DEC_SUPPLEMENTAL_G %5`, p.
     /// 5-117). The same table as [`DecSet::Supplemental`].
     SupplementalGraphics,
     /// `& 4` — DEC Cyrillic, VT500. Not translated: no DEC chart of it has been
-    /// found (note AF §3.6), and xterm's `map_DEC_Cyrillic` is "from
+    /// found, and xterm's `map_DEC_Cyrillic` is "from
     /// screenshot".
     Cyrillic,
     /// `% 3` — SCS NRCS, and `& 5` — Russian NRCS, VT500: the names the
@@ -297,9 +297,7 @@ pub enum DecSet {
     /// `map_NRCS_Russian`) -- and designates them only at level 5
     /// (`[[source: xterm-reset]]` `charproc.c:1861-1862`). No DEC chart for
     /// either has been read, so both are designated and draw ASCII; what they
-    /// should draw is note AF's Q-SCS-Russian. This also said
-    /// they were "recognised as designations, which is all baud does with any
-    /// set", stale since the national tables landed.
+    /// should draw is open.
     Undocumented,
 }
 
@@ -508,7 +506,7 @@ impl Charset {
     /// `Ascii`.
     pub fn from_flags(f: CellFlags) -> Charset {
         // **The tag before the line-drawing flag**: the flag names the set
-        // GL held (note AE, Q16(a)), and a character written through GR or
+        // GL held, and a character written through GR or
         // a single shift while GL held line drawing carries it beside the
         // tag of the set it was received under, which is the one written.
         match (f.received(), f.is_graphics()) {

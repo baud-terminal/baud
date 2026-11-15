@@ -1,6 +1,5 @@
-//! The kitty graphics protocol: control data, replies, and a transmission
-//! decoded as it arrives (`[[source: kitty-graphics]]`; note V, V19 steps
-//! 5-6).
+//! The terminal graphics protocol (APC G): control data, replies, and a
+//! transmission decoded as it arrives (`[[source: kitty-graphics]]`).
 //!
 //! **Everything that is protocol is here, and the core only routes bytes.**
 //! An `APC G` body reaches [`KittyStream`] a byte at a time: the control

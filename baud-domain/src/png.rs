@@ -3,8 +3,8 @@
 //!
 //! **Why it lives here.** Two crates decode PNG: `baud-font` its colour emoji
 //! strikes -- Apple Color Emoji's `sbix` carries 31,707 of them on this Mac,
-//! Noto Color Emoji's `CBDT` thousands more -- and the core a kitty `f=100`
-//! picture (note V, V19 step 2: "In baud-domain"). Both depend on this crate,
+//! Noto Color Emoji's `CBDT` thousands more -- and the core an `f=100`
+//! picture of the terminal graphics protocol (APC G). Both depend on this crate,
 //! and "no engine dependencies" covers image libraries too. The decoder is
 //! the smallest complete one: every colour type and bit depth the
 //! specification allows, the five filters, both interlace methods, CRC-32 on
@@ -1039,8 +1039,8 @@ impl<'a> Iterator for Idat<'a> {
 }
 
 /// **A decode advanced a bounded amount at a time**: [`Png::step`] resumes
-/// it. What the core's deferred `f=100` decode keeps between steps (note V,
-/// V19 step 3: deferred inside the core, in bounded steps). The same work as
+/// it. What the core's deferred `f=100` decode keeps between steps, so the
+/// core decodes in bounded steps. The same work as
 /// [`Png::decode`] in the same order -- the `IDAT` stream inflated into the
 /// scratch, then each reduced image unfiltered and expanded a scanline at a
 /// time -- so the output is the same whatever the steps' sizes. `Copy`, for

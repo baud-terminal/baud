@@ -553,8 +553,7 @@ impl Checksum {
     /// CODE_RECEIVED would count the code sent; the cell does not keep it.
     /// A character sent as UTF-8 carries no tag and counts itself under
     /// line drawing too, a UTF-8 `─` 0x1B, though its cell keeps the
-    /// line-drawing flag (note AE, Q16(a)), as xterm's `charSeen` counts
-    /// it.
+    /// line-drawing flag.
     ///
     /// **Under XTCHECKSUM**: an unwritten cell counts as a space where
     /// [`ChecksumExtension::counts_unwritten`] says; bit 4 counts a written

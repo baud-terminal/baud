@@ -301,8 +301,8 @@ impl PasteControls {
 ///
 /// The core keeps two areas of that size -- the copy being collected and the
 /// last one finished -- because the embedder reads a finished copy after the
-/// read it ended in, and a second copy may begin in that same read (note V,
-/// V11 design 2). So the buffer is twice the text, and a copy longer than the
+/// read it ended in, and a second copy may begin in that same read. So the
+/// buffer is twice the text, and a copy longer than the
 /// text area is refused whole rather than cut.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ClipboardBudget {

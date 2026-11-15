@@ -194,7 +194,7 @@ fn iterm_slot<'s>(s: &'s mut Scheme, key: &[u8]) -> Option<Target<'s>> {
 ///
 /// **A preset with `Foreground Color (Light)`** holds a light and a dark
 /// scheme, iTerm2's own test (`[[source: iterm2-color-presets-9e29604]]`
-/// 329-331); which one a baud half reads is undecided (note AR, O8), so it
+/// 329-331); which one a baud half reads is undecided, so it
 /// is refused. Keys iTerm2 has and a scheme does not (`Bold Color`,
 /// `Link Color`, ...) are said, and so is every other key.
 pub fn iterm(

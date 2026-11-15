@@ -194,8 +194,7 @@ pub enum WindowAsked {
 
 /// Whether the window operations, XTWINOPS 1-10 and DECSLPP, reach the
 /// embedder. `On` by default, and `Off` refuses every one, counted and
-/// nothing queued, as xterm does with them among its disallowed window
-/// operations (`AllowWindowOps`, `[[source: xterm-reset]]`'s file). A
+/// nothing queued. A
 /// program on the other end of the line, a remote one included, can move,
 /// resize, hide or raise the window, which is why a setting turns them
 /// off. The reports and the title stack are not window operations here

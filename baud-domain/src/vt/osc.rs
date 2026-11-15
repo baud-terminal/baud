@@ -102,7 +102,7 @@ pub enum Osc<'a> {
     /// `OSC 21 ; key=value ; ...`: kitty's colour control, the records
     /// after the `21;`, each a [`KittyRecord`] (`[[source:
     /// kitty-6d5d0c4-color-stack]]`). Not DECSWT, the VT520's title under
-    /// the same number, which xterm drops below a VT520 (note AK, 1.4).
+    /// the same number.
     /// The core streams the records past `OSC_MAX`; a body arrives here
     /// whole only when it is `21` alone, which asks nothing, or when a test
     /// or an embedder without the core hands it.
@@ -1067,17 +1067,15 @@ impl DynamicColor {
 /// Extension says it "will affect which attribute bits from display memory
 /// are used to render the text foreground and background color. It does not
 /// affect the current rendition" (§ 5.6.3.2, page 5-107, PDF 362). This
-/// reading is taken (since 2026-10-13) over xterm's `ReverseVideo`, which
-/// swaps the defaults and palette entries 0/7 and 8/15 and leaves every
-/// other colour where it was (util.c 3269-3307, the file
-/// `[[source: xterm-scroll]]` pins). A cell's own `SGR 7` exchanges again
+/// reading is taken: every colour exchanges, not only the defaults and
+/// palette entries 0/7 and 8/15. A cell's own `SGR 7` exchanges again
 /// ([`Video::drawn`]), and no palette entry moves, so an `OSC 4 ; i` or
 /// `OSC 104 ; i` names the entry drawn wherever `i` is named.
 ///
 /// A default cell drawn exchanged shows the stored background as its text
 /// and the stored foreground as its page, so the colour shown in a role is
 /// the other role's stored colour ([`Video::role`]): what an `OSC 10`,
-/// `11`, `110` or `111` sent under `?5` acts on (note V, V17), and what the
+/// `11`, `110` or `111` sent under `?5` acts on, and what the
 /// margin, the scrollbar and a fade take.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Video {

@@ -12,8 +12,7 @@
 //! code printed after it, as the manifest's comment on
 //! `[[source: dec-special-graphics]]` records. This file reads that table and
 //! shares no code with `build/nrcs.rs`, which compiles baud's tables from
-//! xterm's: the two tests that cited the tables before compared baud with
-//! itself, and neither could see Swedish 4/0 go missing (note AF §2.3, D2).
+//! xterm's, so a cell the build drops cannot pass on both sides.
 //!
 //! **It compares tables. It never renders through `Term`.** Whether a
 //! designated national set acts outside national mode was note AF's
@@ -39,7 +38,7 @@ const UNICODE_DATA: &str = include_str!(concat!(
 /// **Norwegian/Danish, Table 2-12, is extracted and not asserted.** Its finals
 /// `E` and `6` name the DEC repertoire here (Ä Ü ä ü), and the VT420 and
 /// EK-PPLV2-PM chart an ISO one under `` ` ``; which repertoire each final
-/// names is note AF's Q-ND-backtick, open (§2.6). Asserting Table 2-12 against
+/// names is open. Asserting Table 2-12 against
 /// what `E` reaches would build in two of its three options.
 const VT220: [(&str, &str, Charset); 10] = [
     ("British", "T2-5", Charset::Uk),
@@ -60,7 +59,7 @@ const VT220: [(&str, &str, Charset); 10] = [
 
 /// Tables 2-5 to 2-15 and the number of cells each shades, in order: UK,
 /// Dutch, Finnish, French, French Canadian, German, Italian,
-/// Norwegian/Danish, Spanish, Swedish, Swiss (note AF §1).
+/// Norwegian/Danish, Spanish, Swedish, Swiss.
 const SHADED: [(&str, usize); 11] = [
     ("T2-5", 1),
     ("T2-6", 9),
@@ -156,7 +155,7 @@ fn differing(t: &DecTable) -> BTreeSet<u8> {
         .collect()
 }
 
-/// A table, read through both of note AF §1's controls: 96 cells, `SP` at
+/// A table, read through two controls: 96 cells, `SP` at
 /// 2/0 and `DEL` at 7/15, and every differing cell shaded and every shaded
 /// cell differing.
 fn checked(id: &str) -> DecTable {
@@ -190,7 +189,7 @@ fn baud_table(set: Charset) -> &'static [(u8, u32)] {
 
 /// **The extraction is itself checked.** Table 2-1, ASCII, reads back as
 /// ASCII with nothing shaded, and each national table shades exactly the
-/// cells that differ, as many as note AF §1 counted.
+/// cells that differ, as many as `SHADED` lists.
 #[test]
 fn the_vt220_tables_extract_with_both_controls() {
     let ascii = checked("T2-1");
@@ -305,9 +304,9 @@ fn table_4_4() -> Vec<(String, Vec<u8>)> {
 ///
 /// `Charset::from_final` takes the byte and nothing else -- no mode, no level
 /// -- so a gate either open question would add sits after it, and this
-/// asserts names only. `E` and `6` wait on Q-ND-backtick with Table 2-12.
-/// `f`, which no DEC table lists, is never sent: it waits on note AF's
-/// Q-French-f and Q-Unlisted.
+/// asserts names only. `E` and `6` wait with Table 2-12 on which repertoire
+/// they name. `f`, which no DEC table lists, is never sent: what it names is
+/// open.
 #[test]
 fn each_vt220_national_final_names_the_set_checked() {
     let listed = table_4_4();
@@ -362,12 +361,11 @@ fn unicode_name(v: u32) -> Option<&'static str> {
         .and_then(|l| l.split(';').nth(1))
 }
 
-/// DEC's error character is stored as U+2426 SYMBOL FOR SUBSTITUTE FORM TWO
-/// (note AE's AE8.1). DEC names no codepoint: 070-3 §3.4.3 has the character
+/// DEC's error character is stored as U+2426 SYMBOL FOR SUBSTITUTE FORM TWO.
+/// DEC names no codepoint: 070-3 §3.4.3 has the character
 /// "usually imaged as a REVERSE QUESTION MARK", and U+2426 is ISO 2047's
 /// picture of SUB, the control DEC ties it to, with a reversed question mark
-/// for its reference glyph (`[[source: unicode18-chart-2400]]`, note AF
-/// Q-UNDEF).
+/// for its reference glyph (`[[source: unicode18-chart-2400]]`).
 ///
 /// The value is checked by its name in the pinned database, so a constant
 /// moved to any of the three other options asked -- U+FFFD, which departs

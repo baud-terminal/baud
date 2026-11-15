@@ -140,7 +140,7 @@ pub enum Esc {
     LockingShift2Right,
     /// LS3R -- Locking Shift Three Right, `ESC |`: G3 into GR.
     LockingShift3Right,
-    /// HP's memory lock, `ESC l`, done as xterm does it: the top margin
+    /// HP's memory lock, `ESC l`: the top margin
     /// moves to the cursor's line, so the lines above it stay while later
     /// output scrolls beneath them. `[[source: ctlseqs]]`: "Memory Lock
     /// (per HP terminals). Locks memory above the cursor"; xterm's

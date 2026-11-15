@@ -1,7 +1,7 @@
 //! `Video`, the one spelling of what `?5` DECSCNM does to colour: every
 //! cell's foreground and background exchanged (`[[source: dec-std-070]]` §
 //! 5.6.3.2), and which dynamic colour is shown in each role -- read by the
-//! renderer to draw and by the core to set, query and reset (note V, V17).
+//! renderer to draw and by the core to set, query and reset.
 
 use baud_domain::{Attrs, DynamicColor, Video};
 

@@ -2,10 +2,8 @@
 //! from, at the data level.
 //!
 //! `build/nrcs.rs` compiles the tables, and a reader that compares its own
-//! output with itself cannot see a line it skips: that is how Swedish 4/0
-//! went missing -- the generator then read a `MAP` line's codepoint from its
-//! `/* U+ */` comment, and `MAP(0x40, XK_Eacute)` has none -- with both tests
-//! that cite the tables green (note AF §2.3, D1 and D2). This file counts the
+//! output with itself cannot see a line it skips, such as a `MAP` line
+//! with no `/* U+ */` comment, `MAP(0x40, XK_Eacute)`. This file counts the
 //! lines of the pinned `[[source: xterm-charsets]]` itself and shares no code
 //! with the build.
 //!
@@ -26,8 +24,7 @@ const CHARSETS_H: &str = include_str!(concat!(
 ///
 /// * **Greek, -2.** `XXX(0x79, UNDEF)` and `XXX(0x7a, UNDEF)`, which xterm
 ///   marks "unused" and draws as U+2426. What an undefined position draws is
-///   note AF's Q-UNDEF, open, so neither line is emitted until it is
-///   answered.
+///   open, so neither line is emitted until it is answered.
 /// * **Turkish, +1.** 2/1, which `[[source: dec-pplv2-pm]]` Figure A-26 draws
 ///   as a dotless small i, U+0131, and xterm's macro leaves as `!` although
 ///   its comment cites the same figure. The value is typed into the
@@ -122,7 +119,7 @@ fn every_set_carries_every_line_of_its_source() {
 ///
 /// `[[source: dec-special-graphics]]` Table 2-14 shades it and draws É, and
 /// `[[source: vt220-pocket-guide]]` p. 16, `[[source: vt420-rm]]` Table 2-1
-/// and `[[source: dec-pplv2-pm]]` Figure A-15 agree (note AF §2.3). xterm has
+/// and `[[source: dec-pplv2-pm]]` Figure A-15 agree. xterm has
 /// it as `MAP(0x40, XK_Eacute)` (`charsets.h:393`), and `XK_Eacute` is
 /// `0x00c9` in `[[source: xorg-keysymdef]]` (line 769).
 #[test]
@@ -139,7 +136,7 @@ fn swedish_4_0_is_e_with_acute() {
 ///
 /// `[[source: dec-pplv2-pm]]` Figure A-26 draws a Helvetica-Bold `i` there
 /// with its dot covered by a white rectangle, the only white shape on the
-/// page; the `i` at 6/9 has none (note AF §2.4). xterm's macro has no 2/1.
+/// page; the `i` at 6/9 has none. xterm's macro has no 2/1.
 #[test]
 fn turkish_2_1_is_a_dotless_i() {
     let tr = nrcs_table(Nrcs::Turkish);

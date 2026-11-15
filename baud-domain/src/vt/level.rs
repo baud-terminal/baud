@@ -8,7 +8,8 @@
 //! `x` there being an extension baud has: "Higher levels, by definition,
 //! support the functionality of lower levels" (070-4 DA, PDF 221), and the
 //! chapters whose fields stop at 2 or 3 predate Level 4. A function no DEC
-//! level defines -- xterm's, kitty's, one only ECMA-48 has -- acts at every
+//! level defines -- one the control sequences (ctlseqs) or another
+//! protocol define, one only ECMA-48 has -- acts at every
 //! level, and one only a DEC terminal's own manual defines is that terminal's
 //! level, the VT510's and VT520's Level 4, whose DECSCL makes 62, 63 and 64
 //! one "VT Level 4 mode" (`[[source: vt510-decscl]]`).

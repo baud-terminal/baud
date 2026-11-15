@@ -34,7 +34,7 @@ pub enum UnfitMark {
 }
 
 impl ErrorCharacter {
-    /// DEC's, U+2426 SYMBOL FOR SUBSTITUTE FORM TWO (note AE's AE8.1).
+    /// DEC's, U+2426 SYMBOL FOR SUBSTITUTE FORM TWO.
     pub const DEC: ErrorCharacter = match core::num::NonZeroU32::new(DEC_ERROR_CHARACTER.0) {
         Some(v) => ErrorCharacter(v),
         None => panic!("U+2426 is not NUL"),

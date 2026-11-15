@@ -33,7 +33,7 @@ fn foot_of(text: &str) -> (Result<Scheme, SchemeError>, Skips) {
 }
 
 /// kitty's `#` forms: three digits doubled, six, and nine or twelve read
-/// as each component's first two digits (note AR's rules 4 and 5);
+/// as each component's first two digits;
 /// `rgb:` one digit doubled or the first two; a trailing comment cut.
 #[test]
 fn kitty_reads_its_own_colour_forms() {
@@ -247,7 +247,7 @@ fn kitty_row(row: &str) -> (String, &str, Option<&str>, Option<&str>) {
 /// 753 names in three cases, every `#` and `rgb:` form, and `oklch(` and
 /// `lab(` with each number form C's `strtod` takes or refuses. A value kitty
 /// refuses skips its line; a name resolves; an `oklch(` or `lab(` kitty
-/// reads is drawn as note AR's O14 has it: black or white at an edge, a grey
+/// reads is drawn: black or white at an edge, a grey
 /// and a colour inside sRGB as kitty's terminal draws them, a colour outside
 /// sRGB as kitty's Go code does -- byte for byte.
 #[test]
@@ -441,7 +441,7 @@ fn foot_cursor_palette_numbers_and_other_sections() {
 }
 
 /// **A dark and a light theme in one file are refused**, at the second's
-/// first colour: which one a baud half reads is undecided (note AR, O8).
+/// first colour: which one a baud half reads is undecided.
 /// Either section alone is read.
 #[test]
 fn foot_with_both_halves_is_refused_and_either_alone_is_read() {

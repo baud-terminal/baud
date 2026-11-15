@@ -1716,9 +1716,8 @@ impl PositionOp {
 }
 
 /// TBC, `CSI g`: `[[source: ecma48]]` 8.3.154's six values, the line
-/// tabulation stops' included. `[[source: vt510-tbc]]` and xterm keep 0 and
-/// 3 ("There are only two values for Ps"); ECMA-48's whole set is built
-/// (since 2026-10-19).
+/// tabulation stops' included. `[[source: vt510-tbc]]` keeps 0 and 3
+/// ("There are only two values for Ps"); ECMA-48's whole set is built.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TabClear {
     /// 0: "the character tabulation stop at the active presentation

@@ -1,4 +1,4 @@
-//! A theme file's format, from its content (note AR, sections 2 and 5).
+//! A theme file's format, from its content.
 //! Each case names the verdict and the line that decided it; the fixtures
 //! are hand-made in each format's spelling.
 
@@ -87,7 +87,8 @@ fn the_other_yaml_key_sets_are_told_apart() {
     ));
 }
 
-/// The minimal files of note AR 5.3.
+/// The smallest files that decide a verdict: one line, an empty file, a
+/// file of comments, and a list one line short or long of sixteen.
 #[test]
 fn minimal_files() {
     assert_eq!(decided("palette = 0=#000000\n").0, Kind::Ghostty);
@@ -251,9 +252,8 @@ fn bytes_that_are_not_utf_8_do_not_decide_the_format() {
     }
 }
 
-/// Xresources' keys hold `*` or `.` before the `:`, so they are not YAML
-/// (note AR, trap 2), and a ghostty value's `:` does not make a line YAML
-/// (trap 3).
+/// Xresources' keys hold `*` or `.` before the `:`, so they are not YAML,
+/// and a ghostty value's `:` does not make a line YAML.
 #[test]
 fn colons_in_resources_and_in_values() {
     assert_eq!(decided("URxvt*background: #000000\n").0, Kind::Xresources);

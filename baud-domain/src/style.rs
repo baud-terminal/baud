@@ -148,7 +148,7 @@ impl Attrs {
     /// 8.3.117 gives the three as values of one rendition aspect, by rate,
     /// and leaves combinations to the implementation ("The usable
     /// combinations of parameter values are determined by the
-    /// implementation"); the exclusive reading is taken (since 2026-10-13).
+    /// implementation"); the exclusive reading is taken.
     /// The shape [`Attrs::UNDERLINES`] has.
     pub const BLINKS: Attrs = Attrs(Attrs::BLINK.0 | Attrs::RAPID_BLINK.0);
 

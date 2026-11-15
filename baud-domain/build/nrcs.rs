@@ -5,9 +5,9 @@
 //! `charsets.h` does (`[[source: xterm-charsets]]`), as `MAP`/`UNI`
 //! macros: a `UNI` line carries the codepoint, and a `MAP` line names an X
 //! keysym, resolved here by its `#define` in `[[source: xorg-keysymdef]]`.
-//! By the value, not by the line's `/* U+ */` comment: a reader of the
-//! comment dropped Swedish 4/0, `MAP(0x40, XK_Eacute)`, which carries none,
-//! without a word (note AF §2.3, D1). Those entries are xterm's judgement
+//! By the value, not by the line's `/* U+ */` comment, because a `MAP`
+//! line may carry none: Swedish 4/0, `MAP(0x40, XK_Eacute)`, has no
+//! comment and is resolved all the same. Those entries are xterm's judgement
 //! and are cited as xterm's.
 //!
 //! Two typed lists stand between xterm's macros and baud's tables:

@@ -285,8 +285,7 @@ pub struct SixelReport {
     /// the image is missing a colour: an unrecognised coordinate system, and
     /// an HLS (`Pu = 1`) define with a value past its range, which
     /// `[[source: dec-std-070]]` 070-9 §8.1.3 ignores whole. HLS itself is
-    /// applied since 2026-10-11, its hue origin pinned (see `hls`); it was
-    /// counted here until then.
+    /// applied, its hue origin pinned (see `hls`), and is not counted here.
     pub unapplied_registers: u32,
     /// Whether `width` and `height` are the image's or stopped at 65535.
     pub fit: SixelFit,
@@ -978,7 +977,7 @@ impl Walk {
             // [`Sixel::body_byte`] keeps, a GR byte under ISO 8859-1 as its GL
             // byte -- so what does is a byte in `80-FF` under UTF-8, a digit
             // or `;` outside a command, and a command this decoder does not
-            // recognise (note AN, section 11). A caller that hands this a body
+            // recognise. A caller that hands this a body
             // with a `SPACE` in a number gets the number ended there: the drop
             // is `body_byte`'s, before the byte arrives.
             _ => {}

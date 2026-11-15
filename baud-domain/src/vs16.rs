@@ -5,8 +5,7 @@
 //! readline, helix, lipgloss and Rich 14.3+ assume, and the one kitty, foot,
 //! ghostty, contour and Windows Terminal draw. With [`Vs16Width::Two`], the
 //! default, a `U+FE0F` widens its base whichever state `?2027` is in;
-//! `DECRQM ?2027` answers the mode, `1` or `2`. The research is note Z's VS16
-//! section.
+//! `DECRQM ?2027` answers the mode, `1` or `2`.
 //!
 //! Only the bases `[[source: emoji-variation-sequences]]` lists with an
 //! "emoji style" sequence widen, as ghostty, foot and kitty do: `A U+FE0F` is

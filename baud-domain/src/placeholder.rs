@@ -1,5 +1,5 @@
-//! **kitty's Unicode placeholders** (`[[source: kitty-graphics]]`, "Unicode
-//! placeholders"; note V, V19): a U+10EEEE cell shows a slice of an image,
+//! **The graphics protocol's Unicode placeholders**
+//! (`[[source: kitty-graphics]]`, "Unicode placeholders"): a U+10EEEE cell shows a slice of an image,
 //! "encoding the image ID in its foreground color", the placement id in its
 //! underline colour, and its row, its column and the id's most significant
 //! byte in the diacritics after it, "listed in rowcolumn-diacritics.txt"

@@ -17,12 +17,12 @@
 //!    `baseXX`, `scheme.system`, `color_NN` and `colors.primary` in YAML;
 //!    `palette`, `regularN` and `colors.` in `key = v`; and so on.
 //!
-//! No text governs choosing between these families (note AR, section 4,
-//! O1); inside tinted's own it is `[[source: tinted-builder]]` 30, which
+//! No text governs choosing between these families; inside tinted's own it
+//! is `[[source: tinted-builder]]` 30, which
 //! makes the builder "use the provided colors in the palette to determine"
 //! base16 or base24, and that choice stays the base16 reader's.
 //!
-//! Two refinements of note AR's design, each from the format's own text.
+//! Two refinements of these rules, each from the format's own text.
 //! A `key = v` line with no `=` (a bare word) belongs with the `key = v`
 //! lines, because ghostty takes a line without `=` as a key with no value
 //! (`[[source: ghostty-args-d9840f3]]` 1468, the `=` is looked for and its
@@ -125,8 +125,8 @@ pub enum Unknown<'a> {
     /// tinted's nested `scheme.system` naming a system other than
     /// tinted8.
     TintedSystem(Mark<'a>),
-    /// tinted's slot names in `key = value` syntax (note AR, O10, refused:
-    /// tinted is YAML, `[[source: tinted-builder]]` 30, 43).
+    /// tinted's slot names in `key = value` syntax, refused: tinted is
+    /// YAML (`[[source: tinted-builder]]` 30, 43).
     TintedSlotsInEquals(Mark<'a>),
     /// Lines of one grammar with no colour key any format reads.
     Lines(Grammar, Mark<'a>),
@@ -362,8 +362,8 @@ const ALACRITTY_COLORS: [&[u8]; 14] = [
     b"draw_bold_text_with_bright_colors",
 ];
 
-/// wezterm's `[colors]` keys that alacritty does not have (note AR,
-/// peers.md section 4).
+/// The `[colors]` keys of a wezterm theme file that an alacritty theme
+/// file does not have.
 const WEZTERM_COLORS: [&[u8]; 8] = [
     b"ansi",
     b"brights",

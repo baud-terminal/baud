@@ -17,8 +17,7 @@
 //! live [`KeyState`], the press xterm simulates through `Input()`
 //! (`[[source: xterm-misc]]` 5227-5232). A key that sends nothing in that
 //! state -- one baud has no code for, F21-F35 before a kitty flag, any key
-//! under KAM -- answers the empty string and the list goes on, xterm's own
-//! answer for Undo, Clear and every key under KAM (note AM, section 3).
+//! under KAM -- answers the empty string and the list goes on.
 
 use super::tcap_data::{MUL, ROWS};
 use crate::*;

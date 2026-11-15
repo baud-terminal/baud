@@ -170,9 +170,8 @@ pub struct TsrSaved {
     pub rendition: StyleWord,
     /// DECSCA's protection, DECOM, whether the column is one past a
     /// pending wrap's, and whether a wrap waits on the column at the left
-    /// margin, DECRLM's. **Bit 1 of their nibble is the last**: it carried
-    /// DECAWM while DECRC restored it, and a `DECSC` save holds no DECAWM
-    /// since 2026-11-01; the layout of version 10 gives it the wait.
+    /// margin, DECRLM's. **Bit 1 of their nibble is the last**: a `DECSC`
+    /// save holds no DECAWM, and the layout of version 10 gives it the wait.
     pub protect: ModeChange,
     pub origin: ModeChange,
     pub pending: ModeChange,

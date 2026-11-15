@@ -1,6 +1,6 @@
 //! Other terminals' own theme files, each read by its own grammar onto the
-//! same [`Scheme`] (note Y, decision 2: "Adding a format is a new reader
-//! and a new table onto the same type").
+//! same [`Scheme`]: a format is a new reader and a new table onto that one
+//! type.
 //!
 //! Every reader keeps what the format's own parser keeps: a line its
 //! terminal would skip is handed to `ignored` with its line and the file is
@@ -104,7 +104,7 @@ fn decimal_index(t: &[u8]) -> Option<u8> {
     u8::try_from(n).ok()
 }
 
-/// What a kitty value is, by note AR's rules for kitty's colour values.
+/// What a kitty colour value is, by the rules `kitty_colour` reads it with.
 enum KittyValue {
     Colour(Color),
     /// `none`: unset, where the key takes it ([`NoneIs`]).
@@ -116,7 +116,7 @@ enum KittyValue {
 /// C's `isspace`: the white space a kitty value is trimmed of.
 const C_SPACE: &[u8] = b" \t\n\x0b\x0c\r";
 
-/// One component of `#` or `rgb:` (note AR's rules 4-6): one hex digit
+/// One component of `#` or `rgb:` (`kitty_colour`'s rules 4-6): one hex digit
 /// times 17, else its first two characters as two hex digits, and nothing
 /// after them read.
 fn kitty_component(c: &[u8]) -> Option<u8> {
@@ -136,7 +136,7 @@ fn kitty_name(v: &[u8]) -> Option<[u8; 3]> {
     crate::colour_name::find(&SEEDS, &SLOTS, POOL, v)
 }
 
-/// C's `strtod` in the C locale (note AR's rule 7): whether the whole
+/// C's `strtod` in the C locale (`kitty_colour`'s rule 7): whether the whole
 /// token is one number and `errno` stays 0. Leading `isspace` is skipped; then
 /// a sign and `inf`, `infinity`, `nan`, `nan(...)`, a hexadecimal
 /// `0x...p...` or a decimal. `ERANGE` is an overflow, or a result below
@@ -374,13 +374,12 @@ fn after<'a>(v: &'a [u8], prefix: &[u8]) -> Option<&'a [u8]> {
     head.eq_ignore_ascii_case(prefix).then_some(rest)
 }
 
-/// A kitty colour value, by note AR's rules ("The kitty reader against
-/// kitty's code, and its re-derivation"): trimmed of C's white space, case
-/// ignored (1); its comment cut (2); then a name of kitty's table, or a
+/// A kitty colour value, by eight numbered rules: trimmed of C's white
+/// space, case ignored (1); its comment cut (2); then a name of kitty's table, or a
 /// form (3): `#` and 3 digits, each doubled as CSS Color 4 doubles them
 /// (4); `#` and 6, 9 or 12, each third's first two characters, X11's high
-/// bits (5); `rgb:` (6); `oklch(` or `lab(` (7), drawn by [`super::oklab`]
-/// as note AR's O14 has it. `rgbi:` and anything else is refused (8), and
+/// bits (5); `rgb:` (6); `oklch(` or `lab(` (7), drawn by [`super::oklab`].
+/// `rgbi:` and anything else is refused (8), and
 /// its line is skipped, as kitty skips it.
 fn kitty_colour(raw: &[u8]) -> Result<KittyValue, SchemeErrorKind> {
     let v = trim_with(raw, C_SPACE);
@@ -621,9 +620,9 @@ enum FootSection {
 /// to `ignored` and the rest is read.
 ///
 /// **A file with both sections holds two themes**, foot's dark and light
-/// one; which half is baud's to read is undecided (note AR, O8, below 0.9),
-/// so the file is refused naming both, by the design's rule for two
-/// readings that differ. Every other key and section goes to `ignored`.
+/// one; which half is baud's to read is undecided, so the file is refused
+/// naming both, as a file with two readings that differ is. Every other
+/// key and section goes to `ignored`.
 pub fn foot(
     text: &[u8],
     mut ignored: impl FnMut(Line, &[u8], Skipped),
@@ -725,7 +724,7 @@ pub fn foot(
 /// A list of sixteen colours, `#rrggbb` a line, ANSI 0 to 15 in order, as
 /// pywal's `colors` file holds them: `{color0}` to `{color15}`, one a line
 /// (`[[source: pywal-colors-template-236aa48]]`), each written `#%02x%02x%02x`
-/// (`[[source: pywal-util-236aa48]]` 22-23, 173-175); note AR's O9. No page or
+/// (`[[source: pywal-util-236aa48]]` 22-23, 173-175). No page or
 /// text is named, so both stay baud's own. The detector has already found the
 /// sixteen lines and nothing else.
 pub fn plain_list(text: &[u8]) -> Result<Scheme, SchemeError> {
