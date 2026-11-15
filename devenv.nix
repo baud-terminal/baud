@@ -112,6 +112,10 @@ in
     # `test:changelog` reads the history through git-cliff
     # (`scripts/check-changelog.sh`).
     pkgs.git-cliff
+    # Releases run on a developer's machine, from `release-plz.toml`.
+    pkgs.release-plz
+    # A history rewrite runs from the shell as well.
+    pkgs.git-filter-repo
     # The `warm` process watches the tree through watchexec
     # (`scripts/warm.sh watch`).
     pkgs.watchexec
