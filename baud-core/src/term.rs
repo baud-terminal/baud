@@ -1429,6 +1429,9 @@ pub struct Cold {
     pub(crate) flips_held: ReverseFlips,
     /// Moves on every opening of `?2026`: [`Term::updates_opened`].
     pub(crate) updates_opened: UpdatesOpened,
+    /// `flips_held` as the latest update opened:
+    /// [`Term::reverse_flips_held_at_opening`].
+    pub(crate) held_at_opening: ReverseFlips,
     /// The page widths asked of the embedder: [`Term::requested_width`].
     pub(crate) width: WidthAsk,
     /// **One saved cursor per screen**, xterm's `sc[screen->whichBuf]`
@@ -1741,12 +1744,15 @@ pub struct Cold {
 // took it to 1824: written by an erase of whole lines, at most once an
 // `ED` or `EL`, and a move that reaches one, read once a read, never by a
 // glyph.
+// The held count as the latest update opened (`held_at_opening`) took it to
+// 1024, and to 1832 with `read-record` on: a `u32` written by an opening of
+// `?2026` and read by the embedder after a read, never by a glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it
 // more.
 #[cfg(all(not(feature = "sgr-table"), not(feature = "read-record")))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 1016);
+const _: () = assert!(core::mem::size_of::<Cold>() == 1024);
 #[cfg(all(not(feature = "sgr-table"), feature = "read-record"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 1824);
+const _: () = assert!(core::mem::size_of::<Cold>() == 1832);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -2330,6 +2336,7 @@ impl Cold {
             flips: ReverseFlips::FIRST,
             flips_held: ReverseFlips::FIRST,
             updates_opened: UpdatesOpened::FIRST,
+            held_at_opening: ReverseFlips::FIRST,
             width: WidthAsk::NONE,
             saved: None,
             saved_other: None,
@@ -5754,6 +5761,16 @@ impl<'b> Term<'b> {
     /// compare: see [`UpdatesOpened`].
     pub fn updates_opened(&self) -> UpdatesOpened {
         self.cold.updates_opened
+    }
+
+    /// [`Term::reverse_flips_held`] as it read when the latest update opened
+    /// ([`Term::updates_opened`]). The held changes before it were made in
+    /// earlier updates and those after it in this one, so a driver that read
+    /// the held count during one update, and finds a later one opened since,
+    /// can tell whether the update it was timing changed `?5` before it
+    /// closed.
+    pub fn reverse_flips_held_at_opening(&self) -> ReverseFlips {
+        self.cold.held_at_opening
     }
 
     /// `?5` DECSCNM, reverse video. The core records it; `baud-render` draws

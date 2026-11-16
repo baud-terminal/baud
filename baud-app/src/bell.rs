@@ -29,8 +29,14 @@
 //! driver draws because the hold at that frame outlived its bound
 //! ([`Update::Outlived`], which the driver says and this does not guess)
 //! compares the held count too -- so a `tput flash` after a program died
-//! mid-update still flashes. A pair made in an outlived update that closes
-//! before the next frame is not shown: that frame reads the update closed.
+//! mid-update still flashes. The clock also counts, after every read, the
+//! `?5` changes made in a hold already past its bound ([`HeldPast`]), and a
+//! frame that finds that count moved flashes too: a pair made in an outlived
+//! update that closes, or closes and reopens, before the next frame is shown
+//! though that frame reads the update closed or fresh. The core says where in
+//! the held count each update opened ([`Term::reverse_flips_held_at_opening`]),
+//! which splits a read's held changes between the update the clock timed and
+//! the one opened after it.
 //!
 //! **The length is the entry's own**, read at build time from the pinned
 //! file the child is told to use, so the number cannot be one thing in the
@@ -191,6 +197,13 @@ pub enum Update {
     Outlived,
 }
 
+/// Whether a hold check found a `?5` change made past the hold's bound.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Past {
+    No,
+    Yes,
+}
+
 /// **Whether a sampling of the activity lights sees a synchronised
 /// update**, for SYN: open now, or opened since the last sampling
 /// ([`Term::updates_opened`]). A program behind ssh sends its frames in
@@ -232,6 +245,29 @@ pub struct UpdateClock<T> {
     /// What the hold check was last answered.
     last: Update,
     max: Duration,
+    /// The held count ([`Term::reverse_flips_held`]) at the last hold check.
+    held: Option<ReverseFlips>,
+    /// How many hold checks found `?5` changes made in a hold past its bound.
+    past: HeldPast,
+}
+
+/// **How many times the clock's hold check found `?5` changes made in a hold
+/// past its bound**, as a reading to compare ([`UpdateClock::held_past`]). A
+/// change made in an update the driver no longer honours is on screen as any
+/// other, but a frame drawn after the update closes reads it closed and
+/// compares the held count with nothing; this count says such a change
+/// happened since the last drawn frame ([`Bell::past_bound`]). Each check
+/// times the changes since the one before it by its own moment, the read
+/// they came in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct HeldPast(u32);
+
+impl HeldPast {
+    const FIRST: HeldPast = HeldPast(0);
+
+    fn next(self) -> HeldPast {
+        HeldPast(self.0.wrapping_add(1))
+    }
 }
 
 impl<T: Moment> UpdateClock<T> {
@@ -242,6 +278,8 @@ impl<T: Moment> UpdateClock<T> {
             opened: None,
             last: Update::Closed,
             max,
+            held: None,
+            past: HeldPast::FIRST,
         }
     }
 
@@ -249,6 +287,10 @@ impl<T: Moment> UpdateClock<T> {
     /// not seen unless frames are held, and forgetting one that closed. The
     /// driver's own hold check calls this after every read.
     pub fn observe(&mut self, term: &Term<'_>, now: T) -> Update {
+        if self.changed_past_bound(term, now) == Past::Yes {
+            self.past = self.past.next();
+        }
+        self.held = Some(term.reverse_flips_held());
         if !term.synchronized_output() {
             self.opened = None;
             self.last = Update::Closed;
@@ -257,6 +299,36 @@ impl<T: Moment> UpdateClock<T> {
         self.opened = Some(self.timed(term.updates_opened(), now));
         self.last = self.state(term, now);
         self.last
+    }
+
+    /// **Whether a held `?5` change since the last check was made in a hold
+    /// past its bound at `now`**, whether or not the update is still open.
+    /// The update the clock timed is past it once `now` is `max` after its
+    /// start, and so is an update opened since while frames were held, which
+    /// keeps the hold's start ([`UpdateClock::timed`]); one opened since after
+    /// a drawn frame is fresh, and its changes are its own to hide. The held
+    /// count at the latest opening ([`Term::reverse_flips_held_at_opening`])
+    /// is where the timed update's changes end and a fresh one's begin.
+    fn changed_past_bound(&self, term: &Term<'_>, now: T) -> Past {
+        let (Some(was), Some((opening, start))) = (self.held, self.opened) else {
+            return Past::No;
+        };
+        if now.elapsed_since(start) < self.max {
+            return Past::No;
+        }
+        let latest = term.updates_opened();
+        let held = if latest == opening || self.last == Update::Honoured {
+            term.reverse_flips_held()
+        } else {
+            term.reverse_flips_held_at_opening()
+        };
+        if held == was { Past::No } else { Past::Yes }
+    }
+
+    /// How many hold checks found a `?5` change made in a hold past its
+    /// bound: a reading for [`Bell::past_bound`].
+    pub fn held_past(&self) -> HeldPast {
+        self.past
     }
 
     /// Opening `n`, with the moment its hold is timed from at `now`: the
@@ -301,15 +373,17 @@ struct Seen {
     held: ReverseFlips,
     mode: Mode,
     rung: Rung,
+    past: HeldPast,
 }
 
 impl Seen {
-    fn of(term: &Term<'_>, rung: Rung) -> Seen {
+    fn of(term: &Term<'_>, rung: Rung, past: HeldPast) -> Seen {
         Seen {
             shown: term.reverse_flips(),
             held: term.reverse_flips_held(),
             mode: Mode::of(term),
             rung,
+            past,
         }
     }
 }
@@ -348,6 +422,10 @@ pub struct Bell<T> {
     /// and the last drawn frame on it.
     origin: Option<T>,
     drawn: Duration,
+    /// The update clock's count of changes made past a hold's bound, as the
+    /// last hold check left it, of which `seen.past` the last drawn frame
+    /// had shown.
+    past: HeldPast,
 }
 
 /// What one frame shows, decided before it is built and kept by
@@ -375,13 +453,14 @@ impl<T: Moment> Bell<T> {
     /// flash lasts `length` -- [`LENGTH`] in a driver, anything in a test.
     pub fn new(term: &Term<'_>, length: Duration) -> Bell<T> {
         Bell {
-            seen: Seen::of(term, Rung::FIRST),
+            seen: Seen::of(term, Rung::FIRST, HeldPast::FIRST),
             until: None,
             length,
             rung: Rung::FIRST,
             screen: ScreenFlash::new(length, Mode::of(term).video()),
             origin: None,
             drawn: Duration::ZERO,
+            past: HeldPast::FIRST,
         }
     }
 
@@ -390,10 +469,12 @@ impl<T: Moment> Bell<T> {
     /// off leaves the baseline where it was, so the next one asks the same
     /// question again.
     pub fn plan(&self, term: &Term<'_>, now: T, update: Update) -> Plan<T> {
-        let seen = Seen::of(term, self.rung);
-        // Only a frame drawn through an outlived update shows what the update
-        // held; any other either holds it or reads it closed.
-        let held_shown = update == Update::Outlived && seen.held != self.seen.held;
+        let seen = Seen::of(term, self.rung, self.past);
+        // A frame drawn through an outlived update shows what the update
+        // held; any other either holds it or reads it closed, and shows only
+        // the changes the clock found made past a hold's bound.
+        let held_shown = (update == Update::Outlived && seen.held != self.seen.held)
+            || seen.past != self.seen.past;
         let moved = seen.mode != self.seen.mode;
         let until = if moved {
             None
@@ -488,6 +569,15 @@ impl<T: Moment> Bell<T> {
     /// and its next frame shows what the update held.
     pub fn hold(&mut self, term: &Term<'_>) {
         self.seen.held = term.reverse_flips_held();
+    }
+
+    /// The update clock's hold check ran ([`UpdateClock::held_past`]): a
+    /// `?5` change it found made past a hold's bound is shown by the next
+    /// frame drawn, as a pair outside an update is, whether that frame finds
+    /// the update closed or a fresh one open. A frame held for a fresh update
+    /// does not absorb it ([`Bell::hold`]).
+    pub fn past_bound(&mut self, past: HeldPast) {
+        self.past = past;
     }
 
     /// A `BEL` asked for the visual bell ([`ring`]): the next frame drawn
@@ -1088,6 +1178,163 @@ mod tests {
             "the hold is over and the update is still open"
         );
         assert!(t.synchronized_output(), "the control: it never closed");
+    }
+
+    /// The driver's hold check after a read: the clock observes, the bell
+    /// takes its count of changes made past a hold's bound, and a hold the
+    /// clock honours absorbs the held count.
+    fn check(
+        c: &mut UpdateClock<HostTime>,
+        b: &mut Bell<HostTime>,
+        t: &Term<'_>,
+        now: HostTime,
+    ) -> Update {
+        let update = c.observe(t, now);
+        b.past_bound(c.held_past());
+        if update == Update::Honoured {
+            b.hold(t);
+        }
+        update
+    }
+
+    /// **A pair made in an update past its bound flashes, though the update
+    /// closes before the next frame.** The frame after the close reads the
+    /// update closed and compares no held count; the clock's check after the
+    /// read that brought the pair found it made past the bound, and that
+    /// count is what the frame compares. The flash runs its full length from
+    /// the frame that shows it. Perturbation: make `Bell::past_bound` do
+    /// nothing, and the frame after the close is `Off`.
+    #[test]
+    fn a_pair_past_the_bound_flashes_though_the_update_closes_first() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut b = Bell::new(&t, LEN);
+        let mut c: UpdateClock<HostTime> = UpdateClock::new(MS * 33);
+        feed(&mut t, b"\x1b[?2026h");
+        assert_eq!(
+            check(&mut c, &mut b, &t, at(Duration::ZERO)),
+            Update::Honoured
+        );
+        assert_eq!(check(&mut c, &mut b, &t, at(MS * 40)), Update::Outlived);
+        assert_eq!(
+            draw_through(&mut b, &t, at(MS * 40), Update::Outlived),
+            VideoFlash::Off,
+            "drawn through, nothing to flash"
+        );
+        // The pair, past the bound; its frame is put off, and the close
+        // arrives before the next one.
+        feed(&mut t, b"\x1b[?5h\x1b[?5l");
+        assert_eq!(check(&mut c, &mut b, &t, at(MS * 45)), Update::Outlived);
+        feed(&mut t, b"\x1b[?2026l");
+        assert_eq!(check(&mut c, &mut b, &t, at(MS * 46)), Update::Closed);
+        let shown = at(MS * 50);
+        assert_eq!(draw(&mut b, &t, shown), VideoFlash::On, "the pair, shown");
+        assert_eq!(b.deadline(), Some(shown.plus(LEN)), "for its full length");
+        assert_eq!(
+            draw(&mut b, &t, shown.plus(LEN - MS)),
+            VideoFlash::On,
+            "still on a millisecond before its end"
+        );
+        assert_eq!(
+            draw(&mut b, &t, shown.plus(LEN)),
+            VideoFlash::Off,
+            "and over"
+        );
+        assert_eq!(
+            draw(&mut b, &t, shown.plus(LEN * 2)),
+            VideoFlash::Off,
+            "once"
+        );
+    }
+
+    /// The pair and the close in one read, after the bound passed with no
+    /// frame drawn through: the check after that read reads the update
+    /// closed, and finds the pair made in the hold it timed, past its bound.
+    /// The control: the same read inside the bound is the application's to
+    /// hide.
+    #[test]
+    fn a_pair_and_the_close_in_one_read_past_the_bound_flash() {
+        for (close, flash) in [(MS * 40, VideoFlash::On), (MS * 20, VideoFlash::Off)] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut b = Bell::new(&t, LEN);
+            let mut c: UpdateClock<HostTime> = UpdateClock::new(MS * 33);
+            feed(&mut t, b"\x1b[?2026h");
+            assert_eq!(
+                check(&mut c, &mut b, &t, at(Duration::ZERO)),
+                Update::Honoured
+            );
+            feed(&mut t, b"\x1b[?5h\x1b[?5l\x1b[?2026l");
+            assert_eq!(check(&mut c, &mut b, &t, at(close)), Update::Closed);
+            assert_eq!(
+                draw(&mut b, &t, at(close + MS)),
+                flash,
+                "closed at {close:?}"
+            );
+        }
+    }
+
+    /// **A close and a reopen split the read's held changes at the opening**
+    /// ([`Term::reverse_flips_held_at_opening`]). Drawn through an outlived
+    /// update, a pair before the reopen was made in it and flashes once the
+    /// fresh update's hold is over -- its held frames do not absorb it; a
+    /// pair after the reopen is the fresh update's to hide. Perturbation:
+    /// compare the whole held count, and the second arm flashes; leave the
+    /// opening's reading unwritten, and the first does not.
+    #[test]
+    fn a_reopen_splits_the_held_changes_at_the_opening() {
+        let arms: [(&[u8], VideoFlash); 2] = [
+            (b"\x1b[?5h\x1b[?5l\x1b[?2026l\x1b[?2026h", VideoFlash::On),
+            (b"\x1b[?2026l\x1b[?2026h\x1b[?5h\x1b[?5l", VideoFlash::Off),
+        ];
+        for (read, flash) in arms {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut b = Bell::new(&t, LEN);
+            let mut c: UpdateClock<HostTime> = UpdateClock::new(MS * 33);
+            feed(&mut t, b"\x1b[?2026h");
+            assert_eq!(
+                check(&mut c, &mut b, &t, at(Duration::ZERO)),
+                Update::Honoured
+            );
+            assert_eq!(check(&mut c, &mut b, &t, at(MS * 40)), Update::Outlived);
+            assert_eq!(
+                draw_through(&mut b, &t, at(MS * 40), Update::Outlived),
+                VideoFlash::Off
+            );
+            feed(&mut t, read);
+            assert_eq!(
+                check(&mut c, &mut b, &t, at(MS * 45)),
+                Update::Honoured,
+                "the reopen is fresh"
+            );
+            feed(&mut t, b"\x1b[?2026l");
+            assert_eq!(check(&mut c, &mut b, &t, at(MS * 50)), Update::Closed);
+            assert_eq!(draw(&mut b, &t, at(MS * 51)), flash, "{read:?}");
+        }
+    }
+
+    /// A chain of updates, each opened in the read that closed the last, is
+    /// timed from the hold's start ([`UpdateClock::timed`]), so a pair in the
+    /// newest one, past that bound, flashes though the chain then closes
+    /// before a frame. Perturbation: split a chain's changes at the opening
+    /// too, and it does not.
+    #[test]
+    fn a_pair_past_a_chains_bound_flashes() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut b = Bell::new(&t, LEN);
+        let mut c: UpdateClock<HostTime> = UpdateClock::new(MS * 33);
+        feed(&mut t, b"\x1b[?2026h");
+        assert_eq!(
+            check(&mut c, &mut b, &t, at(Duration::ZERO)),
+            Update::Honoured
+        );
+        feed(&mut t, b"\x1b[?2026l\x1b[?2026h\x1b[?5h\x1b[?5l");
+        assert_eq!(check(&mut c, &mut b, &t, at(MS * 40)), Update::Outlived);
+        feed(&mut t, b"\x1b[?2026l");
+        assert_eq!(check(&mut c, &mut b, &t, at(MS * 41)), Update::Closed);
+        assert_eq!(draw(&mut b, &t, at(MS * 42)), VideoFlash::On);
     }
 
     /// A frame drawn during an update the driver still honours -- a resize or

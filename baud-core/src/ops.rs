@@ -4813,8 +4813,12 @@ impl Paint<'_, '_> {
             PrivateMode::GraphemeClustering => self.cold.modes.apply(ModeBit::GraphemeClusters, on),
             PrivateMode::FocusReporting => self.cold.modes.apply(ModeBit::FocusReporting, on),
             PrivateMode::SynchronizedOutput => {
+                // An opening moves its count and reads the held count as it
+                // stands, so a driver can tell the `?5` changes held in the
+                // updates before this one from those held in this one.
                 if on && !self.cold.modes.is_set(ModeBit::SynchronizedOutput) {
                     self.cold.updates_opened = self.cold.updates_opened.next();
+                    self.cold.held_at_opening = self.cold.flips_held;
                 }
                 self.cold.modes.apply(ModeBit::SynchronizedOutput, on)
             }

@@ -3887,6 +3887,9 @@ impl Driver {
         }
         // Each hold is timed from the opening that began it (`UpdateClock`).
         let update = self.updates.observe(&self.term, Instant::now());
+        // A `?5` change the check found made past a hold's bound is shown
+        // by the next frame drawn, whatever the update is by then.
+        self.bell.past_bound(self.updates.held_past());
         if update == Update::Honoured {
             // Honoured: what the update changes of `?5` is its to hide.
             self.bell.hold(&self.term);

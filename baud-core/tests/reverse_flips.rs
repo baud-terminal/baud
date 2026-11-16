@@ -226,3 +226,40 @@ fn a_soft_reset_keeps_reverse_video_and_the_count() {
         assert_eq!(before, after);
     });
 }
+
+/// **The held count is read as each update opens**, so a driver that read the
+/// held count during one update and finds a later one opened can split the
+/// changes between them: the pair before the reopen is the first update's,
+/// the pair after it the second's. A set over a set and a close read
+/// nothing. Every read size ends on the same readings.
+#[test]
+fn the_held_count_is_read_as_each_update_opens() {
+    let mut ends = Vec::new();
+    let bytes: &[u8] = b"\x1b[?2026h\x1b[?5h\x1b[?5l\x1b[?2026l\x1b[?2026h";
+    for chunk in [1, 3, bytes.len()] {
+        let mut owned = Owned::new(&support::CORPUS);
+        let mut t = Term::new(owned.storage(), &support::CORPUS);
+        let start = t.reverse_flips_held();
+        assert_eq!(start, t.reverse_flips_held_at_opening(), "nothing yet");
+        for piece in bytes.chunks(chunk) {
+            support::feed(&mut t, piece);
+        }
+        let reopened = t.reverse_flips_held_at_opening();
+        assert_ne!(start, reopened, "the first update's pair is before it");
+        assert_eq!(t.reverse_flips_held(), reopened, "and none after it");
+        support::feed(&mut t, b"\x1b[?5h\x1b[?5l\x1b[?2026h");
+        assert_ne!(t.reverse_flips_held(), reopened, "the second's pair");
+        assert_eq!(
+            reopened,
+            t.reverse_flips_held_at_opening(),
+            "a set over a set"
+        );
+        support::feed(&mut t, b"\x1b[?2026l");
+        assert_eq!(reopened, t.reverse_flips_held_at_opening(), "a close");
+        ends.push((t.reverse_flips_held(), t.reverse_flips_held_at_opening()));
+    }
+    assert!(
+        ends.windows(2).all(|w| w[0] == w[1]),
+        "the readings depend on the read size: {ends:?}"
+    );
+}

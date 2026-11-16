@@ -14824,6 +14824,9 @@ impl Driver {
         // Asked only when a frame is owed.
         let update = (self.app.pending == Pending::Dirty)
             .then(|| self.app.updates.observe(&self.app.term, Instant::now()));
+        // A `?5` change the check found made past a hold's bound is shown
+        // by the next frame drawn, whatever the update is by then.
+        self.app.bell.past_bound(self.app.updates.held_past());
         // **One frame in flight -- D14 -- and now that is all the gate
         // says.** Before the copy landed, `busy` also meant "do not feed";
         // it means only "do not build a second frame" now. Building one
