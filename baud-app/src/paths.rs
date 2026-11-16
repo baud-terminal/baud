@@ -1447,12 +1447,17 @@ enum Printer {
     None,
     /// One session.
     One(SessionAt),
-    /// More than one, or one past [`SESSIONS`]: none to open through.
+    /// A program on this machine, in no session: filed with every local
+    /// writer ([`Fact::added_to`]), so a row a session's read covered and
+    /// a local program wrote after is printed by two.
+    Here,
+    /// More than one printer, this machine one of them, or a session past
+    /// [`SESSIONS`]: none to open through.
     Several,
 }
 
 impl Printer {
-    /// **`other` filed over rows that hold `self`**: a first session
+    /// **`other` filed over rows that hold `self`**: a first printer
     /// taken, the same one kept, another making several.
     fn with(self, other: Printer) -> Printer {
         match (self, other) {
@@ -1697,6 +1702,10 @@ impl Fact {
         match self {
             Fact::Writer(w) => Facts {
                 writer: Some(facts.writer.map_or(w, |was| was.max(w))),
+                printer: match w {
+                    Writer::Local => facts.printer.with(Printer::Here),
+                    Writer::Multiplexed | Writer::Remote => facts.printer,
+                },
                 ..facts
             },
             Fact::NotNamed => Facts {
@@ -3507,7 +3516,9 @@ impl Paths {
                     .unwrap_or_default();
                 let printed_here = self.printer_over(surface, (here.first, here.last));
                 match (printer, printed_here) {
-                    (Printer::One(_), _) => found.push((here, Fact::Printer(printer))),
+                    (Printer::One(_) | Printer::Here, _) => {
+                        found.push((here, Fact::Printer(printer)));
+                    }
                     (_, Printer::None) => {}
                     (_, _) => found.push((here, Fact::Printer(Printer::Several))),
                 }
@@ -4321,7 +4332,7 @@ impl PathsAt for Paths {
         }
         match origin.1 {
             Printer::One(at) => self.sessions.get(usize::from(at.0)).map(|s| &**s),
-            Printer::None | Printer::Several => None,
+            Printer::None | Printer::Here | Printer::Several => None,
         }
     }
 
@@ -8297,6 +8308,99 @@ mod tests {
             lit && preview.starts_with("In a window on demo"),
             "{preview:?}"
         );
+    }
+
+    /// **A row a local program wrote after an ssh session ended is not that
+    /// session's**: `ssh demo` clears the screen, so its read covers every
+    /// row, and exits; the shell then prints a `file://demo` link on row 2.
+    /// Its click is refused with [`crate::link::Refused::NoSession`] and
+    /// its preview says "Won't open", while the session's own link on row
+    /// 0 still opens on `demo`; so with the shell's rows filed before the
+    /// session's. The control: with no local writer on row 2, its link
+    /// opens on `demo`. Named break: no printer filed with a local writer
+    /// (`Fact::added_to`) -- row 2's click opens a window on `demo`.
+    #[test]
+    fn a_row_printed_here_after_an_ssh_session_ended_is_not_its() {
+        use crate::link::{ClickOn, MachineNames, Refused, click_on, refusal_words};
+        use baud_domain::Row;
+        /// What is filed over the screen's rows: `ssh demo`'s read over
+        /// every row alone; then the shell's over row 2; or the shell's
+        /// over row 2 first and `ssh demo`'s over every row after it.
+        #[derive(Clone, Copy, Debug)]
+        enum Filed {
+            Session,
+            ThenHere,
+            HereFirst,
+        }
+        let demo = std::sync::Arc::new(demo_session());
+        let bytes = format!(
+            " {}\r\n\r\n {}",
+            marked("file://demo/srv/a.md", "a"),
+            marked("file://demo/srv/b.md", "b")
+        );
+        let no_session = format!("Won't open, {}", refusal_words(Refused::NoSession));
+        let line = |r: Row| at().line(Rows::ZERO, r);
+        let shells = LineSpan::of(line(Row::from_index(2)), line(Row::from_index(2)));
+        let every = LineSpan::of(
+            line(Row::ZERO),
+            line(Row::from_index(usize::from(WS.ws_row) - 1)),
+        );
+        // The click on `row`'s link and its preview, with no session in
+        // front: the session has ended.
+        let judged = |filed: Filed, row: Row| {
+            let printed = match filed {
+                Filed::Session | Filed::ThenHere => Some(&*demo),
+                Filed::HereFirst => None,
+            };
+            on_printed(
+                rules_of!(PATH_WINDOW),
+                bytes.as_bytes(),
+                Front::Elsewhere,
+                (printed, None),
+                row,
+                |t, p, under| {
+                    match filed {
+                        Filed::Session => {}
+                        Filed::ThenHere => p.written_by(Seen::Named(Front::Local), None, shells),
+                        Filed::HereFirst => {
+                            p.written_by(Seen::Named(Front::Local), None, shells);
+                            p.written_by(Seen::Named(Front::Elsewhere), Some(&demo), every);
+                        }
+                    }
+                    let opens = match click_on(under, t, &MachineNames::one(HERE), p.rules(), &*p) {
+                        ClickOn::Remote(Ok(_), _) => Ok(()),
+                        ClickOn::Remote(Err(why), _) => Err(why),
+                        got => panic!("{got:?}"),
+                    };
+                    let printed = p.printed(t, under);
+                    let preview = crate::link::preview_text_with(
+                        under,
+                        t,
+                        &MachineNames::one(HERE),
+                        baud_domain::Cols::of_index(120),
+                        &*p,
+                        printed,
+                    )
+                    .expect("a preview");
+                    (opens, preview)
+                },
+            )
+        };
+        for filed in [Filed::ThenHere, Filed::HereFirst] {
+            let (opens, preview) = judged(filed, Row::from_index(2));
+            assert_eq!(opens, Err(Refused::NoSession), "{filed:?}");
+            assert!(preview.starts_with(&no_session), "{filed:?}: {preview:?}");
+            let (opens, preview) = judged(filed, Row::ZERO);
+            assert_eq!(opens, Ok(()), "{filed:?}: the session's own row");
+            assert!(
+                preview.starts_with("In a window on demo"),
+                "{filed:?}: {preview:?}"
+            );
+        }
+        // The control: no local writer on row 2.
+        let (opens, preview) = judged(Filed::Session, Row::from_index(2));
+        assert_eq!(opens, Ok(()));
+        assert!(preview.starts_with("In a window on demo"), "{preview:?}");
     }
 
     /// **A row nothing was filed over is not known, everywhere**: with the
