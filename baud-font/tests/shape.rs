@@ -535,6 +535,174 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
     assert!(rtl == 8, "{rtl}");
 }
 
+/// Fixtures where CoreText's output is not hb-shape's, keyed by face file
+/// and codepoints; baud follows hb-shape there, which the test above pins.
+const CORETEXT_DEPARTS: &[&str] = &[
+    "Apple Color Emoji.ttc 0031 FE0F 20E3",
+    "Apple Color Emoji.ttc 0023 FE0F 20E3",
+    "Apple Color Emoji.ttc 2764 FE0F",
+    "Apple Color Emoji.ttc 00A9 FE0F",
+    "Apple Color Emoji.ttc 1F469 1F3FB 200D 1F91D 200D 1F468 1F3FF",
+    "Apple Color Emoji.ttc 1F3F3 FE0F 200D 1F308",
+    "Apple Color Emoji.ttc 1F3F3 FE0F 200D 26A7 FE0F",
+    "Apple Color Emoji.ttc 1F3F4 200D 2620 FE0F",
+    "Apple Color Emoji.ttc 1F468 200D 1F469",
+    "Apple Color Emoji.ttc 1F468 200D 2764 FE0F 200D 1F468",
+    "Apple Color Emoji.ttc 1F469 200D 2764 FE0F 200D 1F48B 200D 1F468",
+    "Apple Color Emoji.ttc 1F3C3 200D 2640 FE0F",
+    "Apple Color Emoji.ttc 1F3C3 1F3FD 200D 2642 FE0F",
+    "Apple Color Emoji.ttc 1F441 FE0F 200D 1F5E8 FE0F",
+    "Apple Color Emoji.ttc 1F636 200D 1F32B FE0F",
+    "Apple Color Emoji.ttc 0041 1F600 0042",
+    "Apple Color Emoji.ttc 26A0 FE0F",
+    "Apple Color Emoji.ttc 05D0 1F468 200D 1F469 200D 1F467",
+    "Apple Color Emoji.ttc 05D0 1F468 200D 1F469 200D 1F467 200D 1F466",
+    "Apple Color Emoji.ttc 05D0 1F1EC 1F1E7",
+    "Apple Color Emoji.ttc 05D0 1F3F4 E0067 E0062 E0073 E0063 E0074 E007F",
+    "Apple Color Emoji.ttc 05D0 1F44B 1F3FD",
+    "Apple Color Emoji.ttc 05D0 0031 FE0F 20E3",
+    "Apple Color Emoji.ttc 05D0 1F3F3 FE0F 200D 1F308",
+    "Apple Color Emoji.ttc 05D0 1F3C3 1F3FD 200D 2642 FE0F",
+    "Apple Color Emoji.ttc 05BE 1F1EC 1F1E7",
+    "Apple Color Emoji.ttc 05BE 1F1FA 1F1F8",
+    "Apple Color Emoji.ttc 05BE 0031 FE0F 20E3",
+    "Menlo.ttc 0078 0301",
+    "Menlo.ttc 0061 0323 0301",
+    "Menlo.ttc 0031 2044 0034",
+    "Menlo.ttc 006F 0308 0301",
+    "Menlo.ttc 0061 0300 0323",
+    "Monaco.ttf 0078 0301",
+    "Monaco.ttf 0061 0323 0301",
+    "Monaco.ttf 006F 0308 0301",
+    "Monaco.ttf 0061 0300 0323",
+    "Courier.ttc 0078 0301",
+    "Courier.ttc 0061 0323 0301",
+    "Courier.ttc 006F 0308 0301",
+    "Courier.ttc 0061 0300 0323",
+    "Helvetica.ttc 0078 0301",
+    "Helvetica.ttc 0061 0323 0301",
+    "Helvetica.ttc 006F 0308 0301",
+    "Helvetica.ttc 0061 0300 0323",
+    "Geneva.ttf 0078 0301",
+    "Geneva.ttf 0061 0323 0301",
+    "Geneva.ttf 006F 0308 0301",
+    "Geneva.ttf 0061 0300 0323",
+    "Times.ttc 0078 0301",
+    "Times.ttc 0061 0323 0301",
+    "Times.ttc 006F 0308 0301",
+    "Times.ttc 0061 0300 0323",
+];
+
+#[test]
+fn every_morx_fixture_shapes_as_coretext_does() {
+    // CoreText is the OS's own AAT shaper, recorded by
+    // scripts/morx-coretext.swift into morx-coretext.txt's seventh column.
+    // A listed departure must still differ from hb-shape, so the list cannot
+    // outlive a regeneration that closed it.
+    if !cfg!(target_os = "macos") {
+        eprintln!("skipped: the morx fixtures name macOS system faces");
+        return;
+    }
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/shape/morx-coretext.txt"
+    ))
+    .unwrap();
+    let mut files = std::collections::HashMap::new();
+    let mut fixtures = 0usize;
+    let mut departed = 0usize;
+    let mut ligated = 0usize;
+    let mut rtl = 0usize;
+    let mut faces = std::collections::HashSet::new();
+    for line in text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+    {
+        let f: Vec<&str> = line.split('\t').collect();
+        let (path, index, digest, cps, hb, shaped) = (f[0], f[1], f[2], f[4], f[5], f[6]);
+        let key = format!("{} {cps}", path.rsplit('/').next().unwrap());
+        if CORETEXT_DEPARTS.contains(&key.as_str()) {
+            assert_ne!(hb, shaped, "{key} is listed as a departure and agrees");
+            departed += 1;
+            continue;
+        }
+        let data = files.entry(path.to_string()).or_insert_with(|| {
+            let d = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+            assert_eq!(
+                format!("{:016x}", fnv64(&d)),
+                digest,
+                "{path} is not the file the fixtures were shaped with; rerun \
+                 scripts/morx-coretext.swift on the regenerated morx.txt"
+            );
+            d
+        });
+        let face = Face::parse_index(data, FaceIndex::of(index.parse().unwrap())).unwrap();
+        assert!(face.morx().is_some() && face.gsub().is_none(), "{path}");
+        faces.insert((path.to_string(), index.to_string()));
+        let cps: Vec<u32> = cps
+            .split_whitespace()
+            .map(|h| u32::from_str_radix(h, 16).unwrap())
+            .collect();
+        let expected = parse_positioned(shaped);
+        let mut placed: Vec<(&HbGlyph, i32)> = Vec::new();
+        let mut pen = 0i32;
+        for e in &expected {
+            placed.push((e, pen));
+            pen += e.ax;
+        }
+        if expected.first().map(|e| e.cluster) > expected.last().map(|e| e.cluster) {
+            placed.reverse();
+            rtl += 1;
+        }
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
+        let (buf, shaped) = shape(&face, &cps, &mut storage);
+        assert!(
+            shaped.declined.is_zero(),
+            "{path} {cps:04X?}: subtables declined"
+        );
+        let got: Vec<(u16, u16, i32, i32)> = buf
+            .as_slice()
+            .iter()
+            .map(|g| {
+                (
+                    u16::try_from(g.id.index()).unwrap(),
+                    g.cluster.0,
+                    i32::from(g.dx),
+                    i32::from(g.dy),
+                )
+            })
+            .collect();
+        let mut left = std::collections::HashMap::new();
+        for &(e, pen) in &placed {
+            let l = left.entry(e.cluster).or_insert(pen);
+            *l = (*l).min(pen);
+        }
+        let want: Vec<(u16, u16, i32, i32)> = placed
+            .iter()
+            .map(|&(e, pen)| (e.id, e.cluster, pen + e.dx - left[&e.cluster], e.dy))
+            .collect();
+        assert_eq!(
+            got, want,
+            "{path} {cps:04X?}: baud {got:?} against CoreText {want:?}"
+        );
+        if got.len() < cps.len() {
+            ligated += 1;
+        }
+        fixtures += 1;
+    }
+    eprintln!(
+        "{fixtures} morx fixtures as CoreText over {} faces, {departed} departures, \
+         {ligated} formed a ligature, {rtl} right to left",
+        faces.len()
+    );
+    // Positive controls: every listed departure was met, and the agreeing
+    // rows still span every face and Apple Color Emoji's ligatures.
+    assert_eq!(departed, CORETEXT_DEPARTS.len());
+    assert!(faces.len() >= 7, "{}", faces.len());
+    assert!(fixtures >= 150, "{fixtures}");
+    assert!(ligated >= 30, "{ligated}");
+}
+
 #[test]
 fn the_lookup_digests_change_nothing_on_any_gsub_fixture() {
     // The accelerator may only skip lookups that cannot match, so every
