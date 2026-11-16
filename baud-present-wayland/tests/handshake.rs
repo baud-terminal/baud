@@ -2868,6 +2868,99 @@ fn the_pointer_reports_by_frame_and_takes_its_shape() {
     );
 }
 
+/// **Each `OSC 22` name reaches the compositor as its own shape**: every
+/// one of the 77 names `OSC 22` takes, through [`pointer::shape`], is one
+/// `wp_cursor_shape_device_v1.set_shape` with the enter's serial and the
+/// shape this table names by that name (`[[source: wp-cursor-shape-v1]]`),
+/// the arrow for a name it leaves out; with no `OSC 22`, the text cursor.
+/// Named break: in `pointer::shape`, take `Hand2` to the arrow.
+#[test]
+fn each_osc_22_name_reaches_the_compositor_as_its_shape() {
+    use baud_domain::PointerShape;
+    use protocol::wp_cursor_shape_device_v1::shape as C;
+    let own: [(&[u8], u32); 25] = [
+        (b"xterm", C::TEXT),
+        (b"hand1", C::POINTER),
+        (b"hand2", C::POINTER),
+        (b"watch", C::WAIT),
+        (b"question_arrow", C::HELP),
+        (b"crosshair", C::CROSSHAIR),
+        (b"cross", C::CROSSHAIR),
+        (b"cross_reverse", C::CROSSHAIR),
+        (b"tcross", C::CROSSHAIR),
+        (b"diamond_cross", C::CROSSHAIR),
+        (b"plus", C::CELL),
+        (b"fleur", C::MOVE),
+        (b"X_cursor", C::NOT_ALLOWED),
+        (b"pirate", C::NOT_ALLOWED),
+        (b"top_side", C::N_RESIZE),
+        (b"bottom_side", C::S_RESIZE),
+        (b"left_side", C::W_RESIZE),
+        (b"right_side", C::E_RESIZE),
+        (b"top_left_corner", C::NW_RESIZE),
+        (b"top_right_corner", C::NE_RESIZE),
+        (b"bottom_left_corner", C::SW_RESIZE),
+        (b"bottom_right_corner", C::SE_RESIZE),
+        (b"sb_h_double_arrow", C::EW_RESIZE),
+        (b"sb_v_double_arrow", C::NS_RESIZE),
+        (b"double_arrow", C::NS_RESIZE),
+    ];
+    let Pointed {
+        mut conn,
+        mut server,
+        mut w,
+        pointer,
+        device,
+        surface,
+        ..
+    } = pointer_session(9, Shapes::Offered);
+    let device = device.expect("the shape device");
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(11), Arg::Object(surface), fixed(1.0), fixed(1.0)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        pointer_drain(&mut w),
+        [PointerEvent::Entered(At { x: 1.0, y: 1.0 })]
+    );
+    let asked = std::iter::once(None).chain(PointerShape::ALL.into_iter().map(Some));
+    let mut seen = 0;
+    for name in asked {
+        let want = match name {
+            None => C::TEXT,
+            Some(n) => own
+                .iter()
+                .find(|(x, _)| *x == n.name())
+                .map_or(C::DEFAULT, |&(_, c)| c),
+        };
+        let said = String::from_utf8_lossy(name.map_or(&b"(none)"[..], PointerShape::name));
+        assert_eq!(
+            w.set_pointer_shape(&mut conn.sender(), pointer::shape(name)),
+            Shaped::Set,
+            "{said}"
+        );
+        conn.flush().unwrap();
+        let r = server.expect("wp_cursor_shape_device_v1", "set_shape");
+        assert_eq!(r.sender, device, "{said}");
+        assert!(
+            matches!(r.args[..], [Val::Uint(11), Val::Uint(c)] if c == want),
+            "{said}: {:?}, want {want}",
+            r.args
+        );
+        seen += usize::from(name.is_some());
+    }
+    assert_eq!(seen, 77, "every name was set");
+    assert!(
+        own.iter()
+            .all(|(x, _)| PointerShape::ALL.iter().any(|n| n.name() == *x)),
+        "every name the table gives a shape is one OSC 22 takes"
+    );
+}
+
 /// **A seat that loses its pointer lets it go**: the shape device
 /// destroyed, being inert, and the pointer released, its version having
 /// the request; the pointer that was over the surface has left.
