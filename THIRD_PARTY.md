@@ -1958,9 +1958,9 @@ THIS SOFTWARE.
 | status | research sources | other entries | meaning |
 |---|---|---|---|
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 339 | 69 | redistributable, and its notice is satisfied |
-| own | 10 | 8 | the work of baud's author |
-| total | 350 | 77 | |
+| kept | 343 | 69 | redistributable, and its notice is satisfied |
+| own | 10 | 11 | the work of baud's author |
+| total | 354 | 80 | |
 
 ## Licence texts in LICENSES/
 
@@ -2015,6 +2015,7 @@ they were built from.
 | [tinted-home-MIT.txt](LICENSES/tinted-home-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/home/38fdf7d4c74417ea86f1e354c628fc2d2aeb5d96/LICENSE | 4e287e2ce0ff0679 |
 | [tinted-shell-MIT.txt](LICENSES/tinted-shell-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/tinted-shell/d1a0085b06670b770b818b00592b1f1e37d65bc5/LICENSE | f17613282ac66e6b |
 | [tinted-xresources-MIT.txt](LICENSES/tinted-xresources-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/tinted-xresources/b97e7eca0fd20a80110f82d7485114db2387c368/LICENSE.md | f22c838ab1f27f24 |
+| [tomorrow-theme-MIT.txt](LICENSES/tomorrow-theme-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/LICENSE.md | a9773fd575f48ea3 |
 | [ttf-parser-MIT.txt](LICENSES/ttf-parser-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/harfbuzz/ttf-parser/v0.25.1/LICENSE-MIT | f3c9fe731c701ed7 |
 | [Unicode-3.0.txt](LICENSES/Unicode-3.0.txt) | Unicode-3.0 | fetched: https://web.archive.org/web/20261009185036id_/https://www.unicode.org/license.txt | e7a93b009565cfce |
 | [vma-MIT.txt](LICENSES/vma-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/3aa921224c154a0d2c43912bc88e1c42ce1f7607/LICENSE.txt | 52df2c03d6cfc9ff |
@@ -2592,6 +2593,30 @@ they were built from.
 - **Notice:** [LICENSE](LICENSE)
 - **From:** baud's own build
 - **Files:** [baud-app/fonts/glyphs/languages/devanagari/SOURCE](baud-app/fonts/glyphs/languages/devanagari/SOURCE)
+
+### The theme reader's fixtures, written for baud's tests: a base16 light scheme and one dark scheme, each spelled in the formats the reader detects (tests/themes/README.md names each), and that README; the dark scheme's sixteen ANSI values are palette values from Tomorrow Night and Tomorrow Night Bright (MIT, Copyright (C) 2011 Chris Kempson; `LICENSES/tomorrow-theme-MIT.txt`), the files themselves baud's
+
+- **Status:** own -- the work of baud's author
+- **Licence:** CC-BY-NC-SA-4.0
+- **Notice:** [LICENSE](LICENSE)
+- **From:** baud's own tests
+- **Files:** [tests/themes/README.md](tests/themes/README.md), [tests/themes/Xresources](tests/themes/Xresources), [tests/themes/alacritty.toml](tests/themes/alacritty.toml), [tests/themes/alacritty.yml](tests/themes/alacritty.yml), [tests/themes/broken.yaml](tests/themes/broken.yaml), [tests/themes/colors](tests/themes/colors), [tests/themes/dawn](tests/themes/dawn), [tests/themes/day.yaml](tests/themes/day.yaml), [tests/themes/foot.ini](tests/themes/foot.ini), [tests/themes/kitty.conf](tests/themes/kitty.conf), [tests/themes/mixed](tests/themes/mixed), [tests/themes/night](tests/themes/night), [tests/themes/night.itermcolors](tests/themes/night.itermcolors), [tests/themes/night.yaml](tests/themes/night.yaml), [tests/themes/sepia.yml](tests/themes/sepia.yml), [tests/themes/slots-eq](tests/themes/slots-eq), [tests/themes/tinted8.yaml](tests/themes/tinted8.yaml), [tests/themes/urxvt.Xresources](tests/themes/urxvt.Xresources), [tests/themes/windows-terminal.json](tests/themes/windows-terminal.json), [tests/themes/xres-colours](tests/themes/xres-colours), [tests/themes/xres-main](tests/themes/xres-main)
+
+### Two kitty graphics recordings that carry no one's picture (tests/recordings/README.md): kitten icat 0.49.2's --unicode-placeholder output for a gradient generated for it, and one chunk in the framing mpv 0.41.0's --vo=kitty wrote, its status line where it fell, with the video's pixels replaced by generated base64 of the same lengths
+
+- **Status:** own -- the work of baud's author
+- **Licence:** CC-BY-NC-SA-4.0
+- **Notice:** [LICENSE](LICENSE)
+- **From:** generated: tests/recordings/README.md
+- **Files:** [tests/recordings/kitty/grad-80x24-placeholder.raw](tests/recordings/kitty/grad-80x24-placeholder.raw), [tests/recordings/kitty/mpv-status-in-chunk.raw](tests/recordings/kitty/mpv-status-in-chunk.raw)
+
+### HarfBuzz 12.3.0's and FreeType 2.14.3's drawings of baud's own bearing, component and vertical case fonts, written by tools/baud-oracle's bearing, component and vertical bins, the oracle baud-font's glyf code is tested against; and bake/VERSION, the note naming the fontTools release the bake's instances were made by. No third-party font is measured and no third-party text is kept
+
+- **Status:** own -- the work of baud's author
+- **Licence:** CC-BY-NC-SA-4.0
+- **Notice:** [LICENSE](LICENSE)
+- **From:** baud's own tests and tools/baud-oracle
+- **Files:** [baud-font/tests/var/bearings.txt](baud-font/tests/var/bearings.txt), [baud-font/tests/var/components.txt](baud-font/tests/var/components.txt), [baud-font/tests/var/vertical.txt](baud-font/tests/var/vertical.txt), [baud-font/tests/var/bake/VERSION](baud-font/tests/var/bake/VERSION)
 
 ### The test fonts baud wrote from nothing, by baud-font's tests and tools/baud-oracle (baud-font/tests/licences.rs names what writes each), and the note saying so beside sbix-strikes.ttf: no third-party data, under the repository's licence
 
@@ -3467,6 +3492,20 @@ notice is, and the URL each file was copied from.
 |---|---|
 | [tmux-input.c](docs/research/sources/tmux-input.c) | https://raw.githubusercontent.com/tmux/tmux/94796f6b1182507efac8a272fc309a79e22e58a5/input.c |
 | [tmux-tty.c](docs/research/sources/tmux-tty.c) | https://raw.githubusercontent.com/tmux/tmux/94796f6b1182507efac8a272fc309a79e22e58a5/tty.c |
+
+### Tomorrow Theme, Chris Kempson's palettes: the licence, the README and the Tomorrow Night and Tomorrow Night Bright Xresources files, read for the theme fixtures' credit
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** [LICENSES/tomorrow-theme-MIT.txt](LICENSES/tomorrow-theme-MIT.txt)
+- **Files:** 4
+
+| file | copied from |
+|---|---|
+| [tomorrow-theme-LICENSE.md](docs/research/sources/tomorrow-theme-LICENSE.md) | https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/LICENSE.md |
+| [tomorrow-theme-README.md](docs/research/sources/tomorrow-theme-README.md) | https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/README.md |
+| [tomorrow-theme-XresourceTomorrowNight](docs/research/sources/tomorrow-theme-XresourceTomorrowNight) | https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/Xresources/XresourceTomorrowNight |
+| [tomorrow-theme-XresourceTomorrowNightBright](docs/research/sources/tomorrow-theme-XresourceTomorrowNightBright) | https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/Xresources/XresourceTomorrowNightBright |
 
 ### Typometer (Pavel Fatin)
 

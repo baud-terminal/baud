@@ -9102,6 +9102,42 @@ TOML v1.0.0 (8e29e84), toml.md -- the language alacritty's config is written in.
 - **Read:** 2026-10-17
 - **Cited in:** `baud-domain/src/themefile/alacritty.rs`, `baud-domain/tests/themealacritty.rs`
 
+<a id="tomorrow-night-bright-xresources"></a>
+### tomorrow-night-bright-xresources
+
+tomorrow-theme ccf6666d, Xresources/XresourceTomorrowNightBright -- Tomorrow Night Bright's named colours. Chris Kempson, 2011, Tomorrow Theme.
+
+- **URL:** <https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/Xresources/XresourceTomorrowNightBright>
+- **sha256:** `20f6eff85d53cc8b7f0a4f12c004aff4263a6ee22b87117471f84e883f3c5f9f` (1135 bytes)
+- **Copy:** [docs/research/sources/tomorrow-theme-XresourceTomorrowNightBright](research/sources/tomorrow-theme-XresourceTomorrowNightBright)
+
+<a id="tomorrow-night-xresources"></a>
+### tomorrow-night-xresources
+
+tomorrow-theme ccf6666d, Xresources/XresourceTomorrowNight -- Tomorrow Night's named colours. Chris Kempson, 2011, Tomorrow Theme.
+
+- **URL:** <https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/Xresources/XresourceTomorrowNight>
+- **sha256:** `c52cb7aa3c0136c108ad8715da61984b4c23b6c3b44c63f5ec9a477ef8c07b54` (1129 bytes)
+- **Copy:** [docs/research/sources/tomorrow-theme-XresourceTomorrowNight](research/sources/tomorrow-theme-XresourceTomorrowNight)
+
+<a id="tomorrow-theme-license"></a>
+### tomorrow-theme-license
+
+tomorrow-theme ccf6666d, LICENSE.md -- the MIT licence of the Tomorrow palettes. Chris Kempson, 2011, Tomorrow Theme.
+
+- **URL:** <https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/LICENSE.md>
+- **sha256:** `a9773fd575f48ea3648b54eeaf09d1512a9f0c7c20d284dc3f8295bd92123bf9` (1152 bytes)
+- **Copy:** [docs/research/sources/tomorrow-theme-LICENSE.md](research/sources/tomorrow-theme-LICENSE.md)
+
+<a id="tomorrow-theme-readme"></a>
+### tomorrow-theme-readme
+
+tomorrow-theme ccf6666d, README.md -- the Tomorrow, Tomorrow Night and Tomorrow Night Bright palettes. Chris Kempson, 2011, Tomorrow Theme.
+
+- **URL:** <https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/README.md>
+- **sha256:** `5a266ebc1acbc0e2720c9469a7af8e75b95868842dd89c704c06de3a2b220487` (1230 bytes)
+- **Copy:** [docs/research/sources/tomorrow-theme-README.md](research/sources/tomorrow-theme-README.md)
+
 <a id="typometer-benchmark-impl"></a>
 ### typometer-benchmark-impl
 

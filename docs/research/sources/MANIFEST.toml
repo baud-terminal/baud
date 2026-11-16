@@ -41096,3 +41096,71 @@ group  = "BU"
 # (1018-1026), so `-T`'s REQUEST_TTY_NO prints "false"; sessiontype's are
 # "none", "subsystem", "default" (1027-1032), the default "default"
 # (fill_default_options, 2872-2875).
+
+[sources.tomorrow-theme-license]
+key    = "tomorrow-theme-license"
+title  = "tomorrow-theme ccf6666d, LICENSE.md -- the MIT licence of the Tomorrow palettes"
+author = "Chris Kempson"
+year   = 2011
+venue  = "Tomorrow Theme"
+url    = "https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/LICENSE.md"
+file   = "tomorrow-theme-LICENSE.md"
+sha256 = "a9773fd575f48ea3648b54eeaf09d1512a9f0c7c20d284dc3f8295bd92123bf9"
+bytes  = 1152
+status = "retrieved"
+group  = "F"
+
+# Fetched 2026-11-16. The theme fixtures' sixteen ANSI values are Tomorrow
+# Night's named colours (0-7) and Tomorrow Night Bright's (9-15), with #666666
+# both files' color8.
+
+[sources.tomorrow-theme-readme]
+key    = "tomorrow-theme-readme"
+title  = "tomorrow-theme ccf6666d, README.md -- the Tomorrow, Tomorrow Night and Tomorrow Night Bright palettes"
+author = "Chris Kempson"
+year   = 2011
+venue  = "Tomorrow Theme"
+url    = "https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/README.md"
+file   = "tomorrow-theme-README.md"
+sha256 = "5a266ebc1acbc0e2720c9469a7af8e75b95868842dd89c704c06de3a2b220487"
+bytes  = 1230
+status = "retrieved"
+group  = "F"
+
+# Fetched 2026-11-16. The theme fixtures' sixteen ANSI values are Tomorrow
+# Night's named colours (0-7) and Tomorrow Night Bright's (9-15), with #666666
+# both files' color8.
+
+[sources.tomorrow-night-xresources]
+key    = "tomorrow-night-xresources"
+title  = "tomorrow-theme ccf6666d, Xresources/XresourceTomorrowNight -- Tomorrow Night's named colours"
+author = "Chris Kempson"
+year   = 2011
+venue  = "Tomorrow Theme"
+url    = "https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/Xresources/XresourceTomorrowNight"
+file   = "tomorrow-theme-XresourceTomorrowNight"
+sha256 = "c52cb7aa3c0136c108ad8715da61984b4c23b6c3b44c63f5ec9a477ef8c07b54"
+bytes  = 1129
+status = "retrieved"
+group  = "F"
+
+# Fetched 2026-11-16. The theme fixtures' sixteen ANSI values are Tomorrow
+# Night's named colours (0-7) and Tomorrow Night Bright's (9-15), with #666666
+# both files' color8.
+
+[sources.tomorrow-night-bright-xresources]
+key    = "tomorrow-night-bright-xresources"
+title  = "tomorrow-theme ccf6666d, Xresources/XresourceTomorrowNightBright -- Tomorrow Night Bright's named colours"
+author = "Chris Kempson"
+year   = 2011
+venue  = "Tomorrow Theme"
+url    = "https://raw.githubusercontent.com/chriskempson/tomorrow-theme/ccf6666d888198d341b26b3a99d0bc96500ad503/Xresources/XresourceTomorrowNightBright"
+file   = "tomorrow-theme-XresourceTomorrowNightBright"
+sha256 = "20f6eff85d53cc8b7f0a4f12c004aff4263a6ee22b87117471f84e883f3c5f9f"
+bytes  = 1135
+status = "retrieved"
+group  = "F"
+
+# Fetched 2026-11-16. The theme fixtures' sixteen ANSI values are Tomorrow
+# Night's named colours (0-7) and Tomorrow Night Bright's (9-15), with #666666
+# both files' color8.
