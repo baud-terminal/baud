@@ -968,9 +968,9 @@ pub enum Shadow {
 /// **The light half's default dim**: 0.60 on macOS, over the standard
 /// material, which is light under a light appearance; 0.85 on Linux, where
 /// no material is under the page and what shows through it is the
-/// compositor's blur of the desktop, which a desktop may darken. Over a
-/// blur measured at 131 grey the light theme's page reads 196 at 0.60 and
-/// 223 at 0.85 (`on_linux_the_light_page_reads_light_over_a_darkened_blur`).
+/// compositor's blur of the desktop, which a desktop may darken; at 0.85
+/// the light theme's page stays light over a darkened blur
+/// (`on_linux_the_light_page_reads_light_over_a_darkened_blur`).
 #[cfg(target_os = "linux")]
 const DIM_LIGHT: f32 = 0.85;
 #[cfg(not(target_os = "linux"))]
@@ -4790,11 +4790,10 @@ mod reader {
 
     /// **On Linux the light page reads light over a darkened blur**: with
     /// no material under it, what shows through the page is the
-    /// compositor's blur of the desktop, which a desktop may darken; one
-    /// measured at 131 grey under a 0.60 page of the light theme's
-    /// background read 196. At the Linux default the page over that
-    /// backdrop is 220 or more on every channel. The control: at 0.60 it is
-    /// under 200.
+    /// compositor's blur of the desktop, which a desktop may darken. Over a
+    /// backdrop of 131 grey, the page of the light theme's background at
+    /// the Linux default is 220 or more on every channel. The control: at
+    /// 0.60 it is under 200.
     #[cfg(target_os = "linux")]
     #[test]
     fn on_linux_the_light_page_reads_light_over_a_darkened_blur() {

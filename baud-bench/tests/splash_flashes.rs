@@ -253,10 +253,12 @@ fn the_plasmas_remainder_fades_into_the_page() {
 /// going out from it to the last frame that draws any of the logo. At 64
 /// by 20 cells at 1x, 60 frames a second, on the four grounds, the plasma
 /// its filaments and ions alone, no tube in the box
-/// ([`baud_render::effect::Body::Bare`]). Coming in is at least 0.9 of
-/// 10.74, 30.76, 8.95 and 10.05, as measured, and going out at least 0.7
-/// of coming in (1.35 to 1.53 measured): a second plasma at the same pace
-/// and place.
+/// ([`baud_render::effect::Body::Bare`]). Coming in is at least each
+/// ground's floor below, and going out at least 0.7 of coming in: a second
+/// plasma at the same pace and place. The floors are a bound on how much
+/// is seen, not on how it flashes: less light is further from WCAG
+/// 2.3.1's thresholds, which `the_splash_is_below_the_flash_thresholds`
+/// holds the same frames to.
 #[test]
 fn the_plasma_is_seen_carrying_the_logo_in_and_out() {
     use baud_render::{Kind, Pt};
@@ -269,11 +271,11 @@ fn the_plasma_is_seen_carrying_the_logo_in_and_out() {
         .take_while(|&a| a < baud_render::splash::GONE)
         .map(|a| Some(SplashPhase::Plasma(a)))
         .collect();
-    for (name, theme, measured) in [
-        ("dark", Theme::dark(), 10.74),
-        ("light", Theme::light(), 30.76),
-        ("#CD0000", red(0xFFCD_0000), 8.95),
-        ("#1A0000", red(0xFF1A_0000), 10.05),
+    for (name, theme, floor) in [
+        ("dark", Theme::dark(), 9.66),
+        ("light", Theme::light(), 27.68),
+        ("#CD0000", red(0xFFCD_0000), 8.05),
+        ("#1A0000", red(0xFF1A_0000), 9.04),
     ] {
         let page = theme.bg;
         let (regular, bold) = (
@@ -371,13 +373,10 @@ fn the_plasma_is_seen_carrying_the_logo_in_and_out() {
             .take_while(|f| f.2 > 1e-4)
             .map(|f| f.1)
             .sum();
-        eprintln!(
-            "{name}: coming in {coming:.2}, going out {going:.2} (measured: {measured} coming in)"
-        );
+        eprintln!("{name}: coming in {coming:.2}, going out {going:.2} (floor {floor} coming in)");
         assert!(
-            coming >= 0.9 * measured && going >= 0.7 * coming,
-            "{name}: coming in {coming}, at least {}; going out {going}, at least {}",
-            0.9 * measured,
+            coming >= floor && going >= 0.7 * coming,
+            "{name}: coming in {coming}, at least {floor}; going out {going}, at least {}",
             0.7 * coming
         );
     }
