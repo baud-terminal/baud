@@ -364,6 +364,25 @@ fn allocations() -> u64 {
     }
 }
 
+/// **The frame the timer times**: the seal, then the render. Its own
+/// symbol, kept out of line, so the counter gate (`scripts/perf-gate.sh`)
+/// can scope callgrind to exactly this work; `Renderer::render` and
+/// `convert_with` are inlined into the caller and have none.
+///
+/// The seal is the one a driver takes once a frame, after the scan and
+/// before the build: the next frame's scan compares only the rows written
+/// after it.
+#[inline(never)]
+fn timed_frame(
+    r: &mut Renderer,
+    t: &mut Term<'_>,
+    target: &mut Target<'_>,
+    damage: Damage,
+) -> baud_render::Frame {
+    let _ = t.seal_writes();
+    r.render(t, target, damage)
+}
+
 fn main() {
     baud_bench::warm::refuse_while_warm();
     // Every renderer map keyed by one fixed seed, so a run repeats its probes
@@ -797,11 +816,7 @@ fn main() {
                     }
                 }
             }
-            // The seal a driver takes once a frame, after the scan and before
-            // the build: the next frame's scan compares only the rows
-            // written since.
-            let _ = t.seal_writes();
-            let f = r.render(&mut t, &mut target, damage);
+            let f = timed_frame(&mut r, &mut t, &mut target, damage);
             rep.times.push(f0.elapsed());
             rep.allocs.push(allocations() - a0);
             if let Switch::On = hashing {
