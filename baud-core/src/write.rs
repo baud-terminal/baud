@@ -2488,6 +2488,9 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         DomCsi::SetSideMargins { left, right } => p.set_side_margins(left, right),
         DomCsi::SetColumnsPerPage(w) => {
             p.set_columns_per_page(w, node);
+            // The width last asked is DECSCPP's, which `Term::resize_page`
+            // answers by its rules.
+            p.cold.width.by_page = p.cold.width.requests;
             p.hold_for_replies(node);
         }
         DomCsi::SelectStatusType(t) => {

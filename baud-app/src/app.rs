@@ -563,10 +563,11 @@ fn honour(
         return None;
     };
     // A clamp is read back below rather than from the answer: the child is
-    // told the grid the terminal has. The re-cut is told line by line, so
-    // the lines the read's parts filed before it are carried
-    // (`Probes::drain_recut`).
-    let _ = recuts.resize(term, &grid.ws());
+    // told the grid the terminal has. The resize is the one that answers the
+    // request (`Term::resize_page`): DECSCPP's re-cuts nothing, and a `?3`'s
+    // or a `RIS`'s re-cut is told line by line, so the lines the read's
+    // parts filed before it are carried (`Probes::drain_recut`).
+    let _ = recuts.resize_page(term, &grid.ws());
     term.window_live();
     Some(crate::width::Grid::of(term))
 }
@@ -23589,10 +23590,13 @@ mod tests {
         }
     }
 
-    /// **A program's narrowing that reflows starts no slide.** A held
-    /// DECSCPP 80 after a screen of 120-column lines re-cuts them into two
-    /// rows each, retiring rows no output scrolled: `live_moved` reads the
-    /// retire (the control), and `read_moved`, given the resize, reads none.
+    /// **A program's narrowing that reflows starts no slide.** Twenty
+    /// 120-column lines, eleven of them behind the screen, then a held
+    /// `?3 l` under `?40` and `?95`, which keeps the screen and re-cuts
+    /// every line into two rows: the screen's top line keeps its place in
+    /// the window, and the lines above it, two rows each now, retire rows
+    /// no output scrolled. `live_moved` reads the retire (the control), and
+    /// `read_moved`, given the resize, reads none.
     #[test]
     fn a_program_width_change_moves_nothing_for_the_slide() {
         use crate::width::{Grid, Host, Widths};
@@ -23603,17 +23607,24 @@ mod tests {
         let mut s = baud_core::Owned::new(&ws);
         let mut t = Term::new(s.storage(), &ws);
         t.set_width_hold(baud_core::WidthHold::On);
-        let mut read: Vec<u8> = Vec::new();
-        for i in 0..9 {
-            read.extend_from_slice(format!("{i}{}\r\n", "x".repeat(119)).as_bytes());
+        let mut lines: Vec<u8> = Vec::new();
+        for i in 0..20 {
+            lines.extend_from_slice(format!("{i:02}{}\r\n", "x".repeat(118)).as_bytes());
         }
-        read.extend_from_slice(b"\x1b[80$|");
+        crate::reads::feed(
+            &mut t,
+            [lines.as_slice()],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        let read: &[u8] = b"\x1b[?40;95h\x1b[?3l";
         let before = Before::watched(&mut t, None, Scrolled::START);
         let mut widths = Widths::new(&t);
         let mut resized = None;
         crate::reads::feed(
             &mut t,
-            [read.as_slice()],
+            [read],
             |_| {},
             |t| {
                 resized = honour(

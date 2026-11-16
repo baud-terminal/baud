@@ -1006,6 +1006,9 @@ impl CoreLines {
     }
 }
 
+/// What a resize answers, and whether its lines are followed.
+type Answer = (baud_core::Resized, baud_core::Following);
+
 /// **The lines each re-cut of the primary moved, as the core told them**
 /// (`Term::resize_with`, `LineRecut`), kept by a driver and reused: each
 /// resize's map sorted by the lines the text held before, with whether the
@@ -1098,8 +1101,28 @@ impl Recuts {
     /// (`Term::resize_with`), sorted by the lines the text held before, in
     /// a buffer an earlier resize left: the resize's own answer.
     pub fn resize(&mut self, term: &mut Term<'_>, ws: &baud_domain::WinSize) -> baud_core::Resized {
+        self.cut(|told| term.resize_with(ws, told))
+    }
+
+    /// [`Recuts::resize`] for the resize that answers a program's page
+    /// width (`Term::resize_page_with`): DECSCPP's re-cuts nothing and
+    /// tells nothing, a `?3`'s or a `RIS`'s re-cuts as a window's does.
+    #[cfg(target_os = "macos")]
+    pub fn resize_page(
+        &mut self,
+        term: &mut Term<'_>,
+        ws: &baud_domain::WinSize,
+    ) -> baud_core::Resized {
+        self.cut(|told| term.resize_page_with(ws, told))
+    }
+
+    /// One resize, `resize`, with what it told kept.
+    fn cut<F>(&mut self, resize: F) -> baud_core::Resized
+    where
+        F: FnOnce(&mut dyn FnMut(baud_core::LineRecut)) -> Answer,
+    {
         let mut map = self.spare.pop().unwrap_or_default();
-        let (resized, following) = term.resize_with(ws, &mut |r| map.push(r));
+        let (resized, following) = resize(&mut |r| map.push(r));
         // Told in the copy's order, newest first where it narrows.
         map.sort_unstable_by_key(|r| r.old.first());
         self.open.push(Cut { map, following });

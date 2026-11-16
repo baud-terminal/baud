@@ -42,6 +42,19 @@ struct ResizeGeometry {
     cols: Cols,
 }
 
+/// How a resize fits the screen to a new width: the window's, which
+/// re-cuts the primary ([`Term::resize`]), or the answer to DECSCPP's page
+/// width, which re-cuts nothing ([`Term::resize_page`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fit {
+    /// The primary's lines re-cut to the new width ([`Term::primary_cut`]),
+    /// the margins reset.
+    Recut,
+    /// DECSCPP's page: every cell kept at its column, the page's columns
+    /// past a narrower width cleared, the margins kept but past the edge.
+    Page,
+}
+
 /// Which cursor a resize anchors the primary on; see
 /// [`Term::primary_cursor`].
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -838,6 +851,12 @@ impl core::fmt::Debug for Rest {
 pub(crate) struct WidthAsk {
     pub(crate) requests: WidthRequests,
     pub(crate) last: Option<WidthRequest>,
+    /// **The request DECSCPP made last**, by its count: while it equals
+    /// `requests`, the width last asked is DECSCPP's, and
+    /// [`Term::resize_page`] answers it by DECSCPP's rules. A `?3` or a
+    /// `RIS` asking after it moves `requests` on. Four bytes in the
+    /// struct's padding.
+    pub(crate) by_page: WidthRequests,
     pub(crate) hold: WidthHold,
     /// Whether a read stops for its answers to go out (`Term::set_reply_hold`).
     pub(crate) reply_hold: baud_domain::ReplyHold,
@@ -864,6 +883,7 @@ impl WidthAsk {
     pub(crate) const NONE: WidthAsk = WidthAsk {
         requests: WidthRequests::FIRST,
         last: None,
+        by_page: WidthRequests::FIRST,
         hold: WidthHold::Off,
         reply_hold: baud_domain::ReplyHold::Off,
         held: None,
@@ -2885,6 +2905,55 @@ impl<'b> Term<'b> {
         );
     }
 
+    /// **DECSCPP's narrower page clears the columns past its width** on
+    /// each row of the screen that is up: "The information in columns
+    /// 81-132 is cleared" (`[[source: dec-std-070]]` p. 5-73), whose
+    /// algorithm sets every cell from column 81 on to `EMPTY_CHARACTER`
+    /// (p. 5-74). Taken at the old width, before the geometry changes, as
+    /// an erase to the line's end: on the primary what a row holds past
+    /// the old edge first ([`View::clear_past_edge_of`]), then the fill,
+    /// which keeps each row's mark true, so the measure after the
+    /// narrowing finds nothing past the new edge on the page's rows. A
+    /// character the new edge cuts is cleared whole. Once a DECSCPP's
+    /// answer, never per byte.
+    fn clear_page_past(&mut self, g: ResizeGeometry) {
+        let (which, ring, rot) = match self.cold.screen {
+            Screen::Normal => (Which::Primary, self.store.ring_rows(), self.rot),
+            Screen::Alternate => (
+                Which::Alternate,
+                self.store.row_capacity(),
+                self.store.alt.rot,
+            ),
+        };
+        let (from, to) = (
+            Col::at_index(g.cols.index()),
+            Col::at_index(g.old_cols.index()),
+        );
+        let book = &mut self.store.book;
+        let reach = book.reach;
+        let past_edge = which == Which::Primary && reach.index() > g.old_cols.index();
+        // The page is the screen that is up; the status line's plane is
+        // never named here.
+        let surface = match self.cold.screen {
+            Screen::Normal => self.store.surfaces.stamped(Which::Primary),
+            Screen::Alternate => self.store.surfaces.stamped(Which::Alternate),
+        };
+        let mut v = View::new(surface, g.old_cols, g.old_rows, ring, rot);
+        let mut past = PastRows {
+            flags: &mut *book.past,
+            held: &mut book.held,
+        };
+        let mut n = 0;
+        for y in 0..g.old_rows.index() {
+            if past_edge {
+                n +=
+                    v.clear_past_edge_of(rot.advance(y, ring), reach, &mut past, PackedCell::EMPTY);
+            }
+            n += v.fill(Row::from_index(y), from, to, PackedCell::EMPTY);
+        }
+        self.cells_written += n;
+    }
+
     /// Take a new window size.
     ///
     /// **Geometry only: the allocation is the caller's and is untouched.** The
@@ -2952,7 +3021,53 @@ impl<'b> Term<'b> {
     /// kept. **A live window stays live**, whatever the re-cut did, and so
     /// does one whose line a growth or the re-cut put on the live screen.
     pub fn resize(&mut self, ws: &WinSize) -> Resized {
-        self.resized(ws, None).0
+        self.resized(ws, None, Fit::Recut).0
+    }
+
+    /// **The resize that answers the page width last asked**
+    /// ([`Term::requested_width`]), for an embedder that honours one. A
+    /// `?3` or a `RIS` is answered as [`Term::resize`] answers a window.
+    /// DECSCPP's is answered by `[[source: dec-std-070]]` pp. 5-73 and
+    /// 5-74, with no line re-cut:
+    ///
+    /// * "DECSCPP does not cause the Active position to move. However if
+    ///   the active position is beyond the width of the new page ... the
+    ///   active position will be moved to the right edge of the page."
+    /// * "DECSCPP does not cause the Right Margin to move. However if the
+    ///   right margin is beyond the width of the new page ... the right
+    ///   margin will be moved to the right edge of the page." The top,
+    ///   bottom and left margins are not in its "State Affected", and stay.
+    /// * "When changing from a 132 column to a 80 column page, the
+    ///   information in columns 1-80 is preserved. The information in
+    ///   columns 81-132 is cleared." The page is the screen that is up; the
+    ///   lines behind the window, and the primary's screen while the
+    ///   alternate is up, are kept as written.
+    /// * "When changing from an 80 column page to a 132 column page, the
+    ///   information in columns 1-80 is preserved."
+    pub fn resize_page(&mut self, ws: &WinSize) -> Resized {
+        let fit = self.page_fit();
+        self.resized(ws, None, fit).0
+    }
+
+    /// [`Term::resize_page`], telling `told` each line a re-cut moved, as
+    /// [`Term::resize_with`] does: DECSCPP's answer re-cuts none and tells
+    /// nothing.
+    pub fn resize_page_with(
+        &mut self,
+        ws: &WinSize,
+        told: &mut dyn FnMut(crate::record::LineRecut),
+    ) -> (Resized, crate::record::Following) {
+        let fit = self.page_fit();
+        self.resized(ws, Some(told), fit)
+    }
+
+    /// [`Fit::Page`] while the width last asked is DECSCPP's.
+    fn page_fit(&self) -> Fit {
+        let a = &self.cold.width;
+        match a.last.is_some() && a.by_page == a.requests {
+            true => Fit::Page,
+            false => Fit::Recut,
+        }
     }
 
     /// **[`Term::resize`], telling `told` each line of the primary its
@@ -2975,13 +3090,14 @@ impl<'b> Term<'b> {
         ws: &WinSize,
         told: &mut dyn FnMut(crate::record::LineRecut),
     ) -> (Resized, crate::record::Following) {
-        self.resized(ws, Some(told))
+        self.resized(ws, Some(told), Fit::Recut)
     }
 
     fn resized(
         &mut self,
         ws: &WinSize,
         told: Option<&mut dyn FnMut(crate::record::LineRecut)>,
+        fit: Fit,
     ) -> (Resized, crate::record::Following) {
         let (want_cols, want_rows) = ws.geometry();
         let cap = self.store.row_capacity();
@@ -3067,13 +3183,16 @@ impl<'b> Term<'b> {
         if kept == Kept::Flags {
             self.clear_swept();
         }
+        if fit == Fit::Page && cols.index() < old_cols.index() {
+            self.clear_page_past(g);
+        }
         let top_before = self.store.book.top;
         // The width a cut row is read at when a growth asks what it holds.
         // Asked here, before the height step moves the cursor and the
         // rotation that the width step's own asking reads. A cut row lies
         // below the cursor, so at a prompt it is one of the rows the width
         // step keeps whole, read at the new width.
-        let widths = cols.index() != old_cols.index();
+        let widths = cols.index() != old_cols.index() && fit == Fit::Recut;
         let shown = match widths && self.primary_recuts() {
             true => old_cols,
             false => cols,
@@ -3129,7 +3248,7 @@ impl<'b> Term<'b> {
         self.rows = rows;
         self.cols = cols;
         self.resize_measure(old_cols, kept, blanked, whole);
-        self.resize_cursor_and_margins(before, waited);
+        self.resize_cursor_and_margins(before, waited, fit);
         // **An image whose row the resize took away goes with it**: a row
         // past what the primary's ring now retains, or past the bottom of a
         // shorter alternate screen, which keeps nothing below it. The same
@@ -3815,7 +3934,8 @@ impl<'b> Term<'b> {
     }
 
     /// **The cursor is clamped and the margins reset** to the new
-    /// geometry: a step of [`Term::resize`], after the measure.
+    /// geometry, or under [`Fit::Page`] kept ([`Term::keep_page_margins`]):
+    /// a step of [`Term::resize`], after the measure.
     ///
     /// **A wrap pending before the resize is pending after it**, on
     /// `waited`, the column it waited on, clamped to the line's new last
@@ -3830,7 +3950,12 @@ impl<'b> Term<'b> {
     /// where that column is the line's last, a wrap kept waiting elsewhere
     /// ([`CursorCol::waiting`]). Until 2026-11-01 every resize ended it, and
     /// the next character overwrote the last.
-    fn resize_cursor_and_margins(&mut self, before: (Row, CursorCol), waited: Option<Col>) {
+    fn resize_cursor_and_margins(
+        &mut self,
+        before: (Row, CursorCol),
+        waited: Option<Col>,
+        fit: Fit,
+    ) {
         let (rows, cols) = (self.rows, self.cols);
         self.cy = Row::from_index(self.cy.index().min(rows.index() - 1));
         // A clamp is a horizontal move, so it ends the pin as `Paint::set_col`
@@ -3846,18 +3971,24 @@ impl<'b> Term<'b> {
         // **A resize forgets an open SPA**: its start was a line of the old
         // geometry, which a reflow renumbers.
         self.cold.guard_open = None;
-        self.cold.top = Row::ZERO;
-        self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
-        self.cold.left = Col::ZERO;
-        self.cold.right = Col::at_index(cols.index().saturating_sub(1));
-        // The margins at the page's edges: every row's fence is its line's
-        // end, and a region top left marked only sends an arrival there out
-        // of line to read the same.
-        self.cold.fences = Fences::Uniform;
+        match fit {
+            Fit::Recut => {
+                self.cold.top = Row::ZERO;
+                self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
+                self.cold.left = Col::ZERO;
+                self.cold.right = Col::at_index(cols.index().saturating_sub(1));
+                // The margins at the page's edges: every row's fence is its
+                // line's end, and a region top left marked only sends an
+                // arrival there out of line to read the same.
+                self.cold.fences = Fences::Uniform;
+            }
+            Fit::Page => self.keep_page_margins(),
+        }
         // The cursor's line keeps its rendition through the resize, so its
-        // half is taken at the new width and the cursor kept inside it.
+        // half is taken at the new width and the cursor kept inside it: the
+        // right margin's inside the scroll area, the line's end outside it.
         let r = self.row_extent(self.cy).rendition();
-        let own = crate::paint::fence_of(r, self.cold.right, self.cols);
+        let own = crate::paint::row_fence(r, self.cy, &self.cold, self.cols);
         if self.cx.raw() > own && r.is_double() {
             self.cx = CursorCol::moved(own);
             self.cold.pinned = Pinned::Before;
@@ -3873,6 +4004,54 @@ impl<'b> Term<'b> {
             self.cold.pinned = Pinned::Before;
         }
         self.resize_ends_string(before);
+    }
+
+    /// **DECSCPP's margins** ([`Term::resize_page`]): the right margin
+    /// kept unless past the new page's edge, where it moves to the edge --
+    /// `if (right_margin > 80) right_margin = 80;`, on the narrowing alone
+    /// (`[[source: dec-std-070]]` p. 5-74) -- and the top, bottom and left
+    /// margins kept. **With `?69` reset the side margins are the page's
+    /// edges**, as `?69 l` leaves them and as no DECSLRM can move them, so
+    /// the right margin is the new page's last column. A scroll area the
+    /// rows no longer hold, and a left margin the right one no longer
+    /// clears, are no margins to keep: each pair goes to the page's edges.
+    /// The fences are taken again for the margins kept ([`Paint::refence`]).
+    fn keep_page_margins(&mut self) {
+        let (rows, cols) = (self.rows, self.cols);
+        let last = Col::at_index(cols.index() - 1);
+        if self.cold.bot.index() >= rows.index() || self.cold.top >= self.cold.bot {
+            self.cold.top = Row::ZERO;
+            self.cold.bot = Row::from_index(rows.index() - 1);
+        }
+        self.cold.right = match self.cold.modes.is_set(ModeBit::SideMargins) {
+            true => self.cold.right.min(last),
+            false => last,
+        };
+        if self.cold.left >= self.cold.right {
+            self.cold.left = Col::ZERO;
+            self.cold.right = last;
+        }
+        let mut p = crate::paint::Paint::new(
+            &mut self.store,
+            self.cy,
+            self.cx,
+            self.rows,
+            self.cols,
+            self.cell_height,
+            self.cell_width,
+            self.rot,
+            self.style,
+            self.style_raw,
+            self.flags,
+            self.charset,
+            self.cluster,
+            self.last_cp,
+            &mut self.cold,
+            self.title_len,
+            self.icon_len,
+            self.link,
+        );
+        p.refence();
     }
 
     /// **The in-band report, after the resize is complete.** The

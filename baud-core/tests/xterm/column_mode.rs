@@ -103,11 +103,20 @@ fn unheld(program: &[u8], size: usize) -> Seen {
 
 /// **The embedder that honours a request**, as the macOS app does: the
 /// read stops at it, the grid takes the width asked for keeping its rows,
-/// and the rest of the read is fed. Each read is cut at `cuts`.
+/// by the resize that answers it (`Term::resize_page`), and the rest of the
+/// read is fed. Each read is cut at `cuts`.
 fn honoured_at(program: &[u8], cuts: &[usize]) -> Seen {
     let mut s = Owned::new(&ROOM);
     let mut t = Term::new(s.storage(), &SMALL);
+    honour_into(&mut t, program, cuts);
+    seen(&mut t)
+}
+
+/// `program` to `t` as [`honoured_at`]'s embedder feeds it, every byte
+/// counted once.
+fn honour_into(t: &mut Term<'_>, program: &[u8], cuts: &[usize]) {
     t.set_width_hold(WidthHold::On);
+    let (before, _) = t.amplification();
     let mut from = 0;
     for &to in cuts.iter().chain(core::iter::once(&program.len())) {
         let chunk = &program[from..to];
@@ -121,13 +130,12 @@ fn honoured_at(program: &[u8], cuts: &[usize]) -> Seen {
                 ws_row: u16::try_from(rows.index()).expect("rows fit"),
                 ws_col: cols,
             };
-            assert_eq!(t.resize(&ws), Resized::Ok, "the room is provisioned");
+            assert_eq!(t.resize_page(&ws), Resized::Ok, "the room is provisioned");
             t.feed(rest.at, rest.len);
         }
     }
     let (bytes, _) = t.amplification();
-    assert_eq!(bytes, program.len(), "every byte counted once");
-    seen(&mut t)
+    assert_eq!(bytes - before, program.len(), "every byte counted once");
 }
 
 fn honoured(program: &[u8]) -> Seen {
@@ -446,10 +454,10 @@ fn a_held_read_lands_the_rest_at_the_width_asked_for() {
 }
 
 /// **DECSCPP holds too**, and two requests in one read stop it twice. The
-/// text before it stays, at the new width. **The gap**: the narrowing is the
-/// embedder's `Term::resize`, which reflows, so the `X` drawn at column 100
-/// comes back on the next row, where STD 070 (p. 5-73) clears "the
-/// information in columns 81-132".
+/// text before it stays, at the new width, and the `X` drawn at column 100
+/// is gone: "When changing from a 132 column to a 80 column page, the
+/// information in columns 1-80 is preserved. The information in columns
+/// 81-132 is cleared" (`[[source: dec-std-070]]` p. 5-73).
 #[test]
 fn decscpp_holds_and_two_requests_stop_a_read_twice() {
     let program: &[u8] = b"left\x1b[132$|\x1b[1;100HX\x1b[80$|\x1b[3;1Hy";
@@ -461,8 +469,8 @@ fn decscpp_holds_and_two_requests_stop_a_read_twice() {
             s.text[1].as_str(),
             s.text[2].as_str()
         ),
-        (Cols::of_index(80), "left", "                   X", "y"),
-        "back to 80, and the X reflowed"
+        (Cols::of_index(80), "left", "", "y"),
+        "back to 80, and the X cleared, not re-cut onto the next row"
     );
     let mut o = Owned::new(&ROOM);
     let mut t = Term::new(o.storage(), &SMALL);
@@ -472,6 +480,194 @@ fn decscpp_holds_and_two_requests_stop_a_read_twice() {
     assert_eq!(first.at.index(), 11, "after `left` and `CSI 132 $ |`");
     assert_eq!(first.len.index(), program.len() - 11);
     assert_eq!(t.take_held(), None, "taken once");
+}
+
+/// **"DECSCPP does not cause the Active position to move. However if the
+/// active position is beyond the width of the new page when the command
+/// is executed, the active position will be moved to the right edge of the
+/// page"** (`[[source: dec-std-070]]` p. 5-73): kept at column 40 either
+/// way, and moved from column 100 to 80 on its own row, not carried to the
+/// next by a re-cut.
+#[test]
+fn decscpp_moves_the_cursor_only_past_the_new_edge() {
+    for (program, want) in [
+        (&b"\x1b[132$|\x1b[5;40H\x1b[80$|"[..], (4, 39)),
+        (b"\x1b[132$|\x1b[5;100H\x1b[80$|", (4, 79)),
+        (b"\x1b[5;40H\x1b[132$|", (4, 39)),
+    ] {
+        assert_eq!(honoured(program).cursor, want, "{program:?}");
+    }
+}
+
+/// **"DECSCPP does not cause the Right Margin to move. However if the right
+/// margin is beyond the width of the new page when the command is executed,
+/// the right margin will be moved to the right edge of the page"**
+/// (`[[source: dec-std-070]]` p. 5-73), and its "State Affected" names the
+/// right margin and not the others (p. 5-74), so DECSTBM's pair and the
+/// left margin stay; "DECSCPP does not change the setting of DECLRMM"
+/// (note 3). The right margin at 120 goes to 80; one at 60 stays on a
+/// narrowing and on a widening; one at 80 stays at 80 on a widening, as the
+/// algorithm moves it on the narrowing alone.
+#[test]
+fn decscpp_keeps_the_margins_but_a_right_one_past_the_edge() {
+    let margins = |r: &str, s: &str| format!("\x1bP1$r{r}r\x1b\\\x1bP1$r{s}s\x1b\\");
+    for (program, want) in [
+        (
+            &b"\x1b[132$|\x1b[3;20r\x1b[?69h\x1b[5;120s\x1b[80$|"[..],
+            margins("3;20", "5;80"),
+        ),
+        (
+            b"\x1b[132$|\x1b[3;20r\x1b[?69h\x1b[5;60s\x1b[80$|",
+            margins("3;20", "5;60"),
+        ),
+        (
+            b"\x1b[3;20r\x1b[?69h\x1b[5;60s\x1b[132$|",
+            margins("3;20", "5;60"),
+        ),
+        (b"\x1b[?69h\x1b[132$|", margins("1;24", "1;80")),
+    ] {
+        let s = honoured(program);
+        assert_eq!(s.margins, want, "{program:?}");
+        assert!(
+            s.modes.contains("\x1b[?69;1$y"),
+            "{program:?}: {:?}",
+            s.modes
+        );
+    }
+}
+
+/// **A left margin the new right one no longer clears goes, with it, to the
+/// page's edges**: DECSLRM 100;120 on a 132-column page, then DECSCPP 80.
+/// The text moves the right margin to 80 and leaves the left at 100, which
+/// no DECSLRM can set; baud keeps no pair a margin cannot hold.
+#[test]
+fn decscpp_past_both_side_margins_resets_the_pair() {
+    let s = honoured(b"\x1b[132$|\x1b[?69h\x1b[100;120s\x1b[80$|");
+    assert_eq!(s.margins, WHOLE_SCREEN);
+}
+
+/// **The margins kept fence the writes as they did**: inside DECSTBM's
+/// area a line wraps at the right margin kept, 60, and outside it a line
+/// runs to the line's end (`[[source: dec-std-070]]` p. 5-139), each
+/// twelve characters from column 55. A wrap pending at the right margin
+/// stays pending through the narrowing, and the next character goes to the
+/// left margin kept, column 5, on the next line.
+#[test]
+fn decscpp_kept_margins_fence_the_writes_as_before() {
+    let s = honoured(
+        b"\x1b[132$|\x1b[?69h\x1b[1;10r\x1b[5;60s\x1b[80$|\
+          \x1b[5;55Habcdefghijkl\x1b[15;55Habcdefghijkl",
+    );
+    let pad = |n: usize, t: &str| format!("{}{t}", " ".repeat(n));
+    assert_eq!(
+        (s.text[4].as_str(), s.text[5].as_str(), s.text[14].as_str()),
+        (
+            pad(54, "abcdef").as_str(),
+            pad(4, "ghijkl").as_str(),
+            pad(54, "abcdefghijkl").as_str()
+        )
+    );
+    let s = honoured(b"\x1b[132$|\x1b[?69h\x1b[5;60s\x1b[2;50Habcdefghijk\x1b[80$|Z");
+    assert_eq!(
+        (s.text[1].as_str(), s.text[2].as_str()),
+        (pad(49, "abcdefghijk").as_str(), pad(4, "Z").as_str()),
+        "the wrap pending at the margin kept"
+    );
+}
+
+/// **"The information in columns 81-132 is cleared"** and "the information
+/// in columns 1-80 is preserved" (`[[source: dec-std-070]]` p. 5-73): text
+/// at column 1, an `X` at column 100 and `AB` on columns 79 and 80, then
+/// 80 and 132 again. The `X` is not there to come back; `AB` is where it
+/// was.
+#[test]
+fn decscpp_clears_columns_81_to_132_and_keeps_1_to_80() {
+    let s = honoured(b"\x1b[132$|kept\x1b[1;100HX\x1b[2;79HAB\x1b[80$|\x1b[132$|");
+    assert_eq!(
+        (
+            s.cols,
+            s.text[0].as_str(),
+            s.text[1].as_str(),
+            s.text[2].as_str()
+        ),
+        (
+            Cols::of_index(132),
+            "kept",
+            format!("{}AB", " ".repeat(78)).as_str(),
+            ""
+        )
+    );
+}
+
+/// **"When changing from an 80 column page to a 132 column page, the
+/// information in columns 1-80 is preserved"** (`[[source: dec-std-070]]`
+/// p. 5-73): a line wrapped at 80 stays two rows at 132. The control: the
+/// same widening asked by `?3 h` under `?95` is answered as a window's, and
+/// re-cuts the two rows into one.
+#[test]
+fn decscpp_widening_keeps_1_to_80_where_they_are() {
+    let line = [[b'a'; 80].as_slice(), &[b'b'; 10]].concat();
+    let s = honoured(&[line.as_slice(), b"\x1b[132$|"].concat());
+    let a = "a".repeat(80);
+    assert_eq!(
+        (s.cols, s.text[0].as_str(), s.text[1].as_str()),
+        (Cols::of_index(132), a.as_str(), "bbbbbbbbbb")
+    );
+    let c = honoured(&[line.as_slice(), b"\x1b[?40;95h\x1b[?3h"].concat());
+    assert_eq!(
+        (c.cols, c.text[0].as_str(), c.text[1].as_str()),
+        (Cols::of_index(132), format!("{a}bbbbbbbbbb").as_str(), ""),
+        "the control: DECCOLM's answer re-cuts"
+    );
+}
+
+/// **The page is the screen; the history is kept as written**: a line with
+/// an `X` at column 100 scrolled behind the window keeps it through 80 and
+/// back to 132, where the page's rows lose theirs. The page's alternate
+/// screen loses its `X` too.
+#[test]
+fn decscpp_clears_the_page_and_keeps_the_history() {
+    let mut o = Owned::new(&ROOM);
+    let mut t = Term::new(o.storage(), &SMALL);
+    let lines = b"\r\n".repeat(24);
+    let program = [
+        b"\x1b[132$|\x1b[1;100HX".as_slice(),
+        lines.as_slice(),
+        b"\x1b[1;100HX\x1b[80$|\x1b[132$|",
+    ]
+    .concat();
+    honour_into(&mut t, &program, &[]);
+    let kept = t.scrollback().line(Back::of(0)).map(|(c, _)| text_of(c));
+    assert_eq!(kept, Some(format!("{}X", " ".repeat(99))), "the history");
+    assert_eq!(
+        text_of(t.row(Row::ZERO).expect("a row on the grid")),
+        "",
+        "the page"
+    );
+    let alt = honoured(b"\x1b[132$|\x1b[?1049h\x1b[1;100HX\x1b[80$|\x1b[132$|");
+    assert_eq!(alt.text[0], "", "the alternate screen");
+}
+
+/// **DECSCPP's answer re-cuts no line and tells none**
+/// (`Term::resize_page_with`), where `?3`'s is a window's resize.
+#[test]
+fn decscpp_answer_tells_no_line() {
+    let mut o = Owned::new(&ROOM);
+    let mut t = Term::new(o.storage(), &SMALL);
+    t.set_width_hold(WidthHold::On);
+    let program = [[b'a'; 100].as_slice(), b"\x1b[132$|"].concat();
+    feed(&mut t, &program);
+    let rest = t.take_held().expect("the request held the read");
+    let mut told = Vec::new();
+    let ws = WinSize {
+        ws_row: SMALL.ws_row,
+        ws_col: 132,
+    };
+    let answer = t.resize_page_with(&ws, &mut |r| told.push(r));
+    assert_eq!(answer, (Resized::Ok, Following::Followed));
+    assert!(told.is_empty(), "{told:?}");
+    t.feed(rest.at, rest.len);
+    assert_eq!(t.geometry().0, Cols::of_index(132));
 }
 
 /// **A request that is the read's last byte holds an empty rest**, and a
@@ -553,7 +749,7 @@ fn resumed(hold: WidthHold, start: WinSize, program: &[u8], cuts: &[usize]) -> R
                 ws_row: start.ws_row,
                 ws_col: t.requested_width().expect("a held read asked").ws_col(),
             };
-            assert_eq!(t.resize(&ws), Resized::Ok, "the room is provisioned");
+            assert_eq!(t.resize_page(&ws), Resized::Ok, "the room is provisioned");
             holds.push(t.geometry().0);
             t.feed(rest.at, rest.len);
         }
