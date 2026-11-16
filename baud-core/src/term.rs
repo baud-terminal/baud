@@ -3926,12 +3926,15 @@ impl<'b> Term<'b> {
         store.strs.aligned.all_plain();
         let (cols, rows) = ws.geometry();
         // The pitch admits the provisioned width by construction and not
-        // `MAX_COLS`, so the width is bounded by both.
+        // `MAX_COLS`, so the width is bounded by both. **And the rows by the
+        // store's**: a window larger than its provision (a size the budget
+        // clamped) would otherwise be a screen with more rows than the store
+        // holds, which the first walk of every screen row indexes past. Only
+        // the store's, not the budget's: storage lent past the budget is a
+        // screen that refuses what it can't hold, and stays one.
         let stride = store.stride;
-        let (cols, rows) = (
-            cols.clamp(MAX_COLS).clamp(stride.index()),
-            rows.clamp(MAX_ROWS),
-        );
+        let cols = cols.clamp(MAX_COLS).clamp(stride.index());
+        let rows = rows.clamp(MAX_ROWS).clamp(store.row_capacity().index());
         store.book.reach = cols;
         let room = match store.surfaces.cells(Which::Status).is_empty() {
             true => crate::status::Room::Declined,

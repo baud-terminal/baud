@@ -812,14 +812,23 @@ fn a_storage_lent_no_generations_refuses_and_recolours_nothing() {
 /// **A screen past the table's bound refuses what it cannot hold, and no
 /// drawn cell changes.** 400 by 170 at its pitch is more cells than 65,536
 /// slots less the status row and the three reserved, so one screen of
-/// renditions overruns the table even with every line off it frozen.
+/// renditions overruns the table even with every line off it frozen. A
+/// provision never makes such a screen (`Provision` clamps it to 162 rows);
+/// an embedder that lends its own storage can, so the storage is lent here.
 #[test]
 fn a_screen_past_the_bound_refuses_and_recolours_nothing() {
     let ws = WinSize {
         ws_row: 170,
         ws_col: 400,
     };
-    support::with_term(&ws, |t| {
+    let mut lent = Lent::new(&ws, Depth::DEFAULT, NSTYLE_MAX, Pool::Lent);
+    let t = &mut lent.term(&ws);
+    assert_eq!(
+        t.geometry().1.index(),
+        170,
+        "the control: the screen is past the bound"
+    );
+    {
         assert_eq!(t.styles().len(), NSTYLE_MAX);
         let mut first = Vec::new();
         for i in 0..40_000 {
@@ -852,7 +861,7 @@ fn a_screen_past_the_bound_refuses_and_recolours_nothing() {
                 .collect();
             assert_eq!(&now, row, "row {y} changed");
         }
-    });
+    }
 }
 
 /// **`Term::line_styles` reads an absolute line through its table**, the

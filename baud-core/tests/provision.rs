@@ -187,3 +187,22 @@ fn a_band_that_holds_no_row_is_refused() {
     // The control: a default band holds the widest row.
     const { assert!(BAND_SLOTS.0 > MAX_COLS) };
 }
+
+/// **A terminal made larger than its storage takes the storage's rows**:
+/// storage provisioned for 960x254 holds the rows the budget clamps it to,
+/// and `Term::new` asked for 960x254 over it is that many rows, not 254 --
+/// so entering the alternate screen, which walks every screen row, stays
+/// inside the store rather than indexing past it.
+#[test]
+fn a_terminal_larger_than_its_storage_takes_the_storage_rows() {
+    let mut owned = Owned::new(&ws!(960, 254));
+    let held = owned.storage().row_capacity();
+    assert!(
+        held.index() < 254,
+        "the control: the provision clamped ({held:?})"
+    );
+    let mut t = Term::new(owned.storage(), &ws!(960, 254));
+    assert_eq!(t.geometry().1, held);
+    t.write_at(BytePos::ZERO, b"\x1b[?1049h\x1b[254;1Hx\x1b[?1049l");
+    assert_eq!(t.geometry().1, held);
+}
