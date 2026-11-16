@@ -509,41 +509,100 @@ pub struct RegisPen {
     pub blink: RegisBlink,
 }
 
-/// **How many shown pixels a pixel of the page's plane is**, each way:
-/// `S(S<n>)` (070-8 § 8.8.1.4.7), "Taking the model of pixel replication,
-/// the subargument <n> is treated as a multiplicative scale factor for each
-/// pixel in the display", from the screen's upper-left. The plane, the
-/// bitmap, is not changed: "The S(S) option causes the display medium (the
-/// bit map, for example) to become bigger than the display surface".
+/// **How the page shows its plane**: the scale `S(S<n>)` sets (070-8
+/// § 8.8.1.4.7), "Taking the model of pixel replication, the subargument
+/// <n> is treated as a multiplicative scale factor for each pixel in the
+/// display", from the screen's upper-left, and the window the windowing
+/// model `S(D0)` moves over the plane (§ 8.8.1 a), "drawing a picture on
+/// graph paper and viewing it through a rectangular window". The plane,
+/// the bitmap, is not changed: "The S(S) option causes the display medium
+/// (the bit map, for example) to become bigger than the display surface.
+/// S(S) and S[] then combine to move a small window through a large
+/// display space". Where the window passes the plane's edge the view is
+/// truncated, § 8.8.1 a's "either the opposite edge of the graph paper
+/// wraps in, or the view is truncated": the screen shows no pixel there.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct RegisZoom {
     pub x: u8,
     pub y: u8,
+    /// The plane's pixel shown at the screen's upper-left: the origin
+    /// under the scrolling model, where "The display ... and its
+    /// addressing scheme are coupled" (§ 8.8.1 b).
+    pub window: RegisPoint,
 }
 
 impl RegisZoom {
-    /// Unscaled, the default, "restored by the execution of a valid S(A)".
-    pub const ONE: RegisZoom = RegisZoom { x: 1, y: 1 };
+    /// Unscaled and unmoved, the default, "restored by the execution of a
+    /// valid S(A)".
+    pub const ONE: RegisZoom = RegisZoom {
+        x: 1,
+        y: 1,
+        window: RegisPoint { x: 0, y: 0 },
+    };
 
-    /// The plane's pixel shown at page pixel `(x, y)`.
-    pub fn plane_of(self, x: usize, y: usize) -> (usize, usize) {
-        (
-            x / usize::from(self.x.max(1)),
-            y / usize::from(self.y.max(1)),
-        )
+    /// The plane's pixel shown at page pixel `(x, y)`, the plane `w` by
+    /// `h`; `None` where the window shows no pixel of it.
+    pub fn plane_of(self, x: usize, y: usize, w: usize, h: usize) -> Option<(usize, usize)> {
+        let one = |v: usize, z: u8, at: i32, n: usize| -> Option<usize> {
+            let v = i64::try_from(v / usize::from(z.max(1))).ok()?;
+            usize::try_from(v + i64::from(at)).ok().filter(|&p| p < n)
+        };
+        Some((
+            one(x, self.x, self.window.x, w)?,
+            one(y, self.y, self.window.y, h)?,
+        ))
     }
 
     /// The page pixels the plane's rectangle `r` is shown over.
     pub fn shown(self, r: RegisRect) -> RegisRect {
         let (zx, zy) = (i32::from(self.x.max(1)), i32::from(self.y.max(1)));
+        let (wx, wy) = (self.window.x, self.window.y);
         RegisRect {
-            x0: r.x0.saturating_mul(zx),
-            y0: r.y0.saturating_mul(zy),
-            x1: r.x1.saturating_mul(zx),
-            y1: r.y1.saturating_mul(zy),
+            x0: r.x0.saturating_sub(wx).saturating_mul(zx),
+            y0: r.y0.saturating_sub(wy).saturating_mul(zy),
+            x1: r.x1.saturating_sub(wx).saturating_mul(zx),
+            y1: r.y1.saturating_sub(wy).saturating_mul(zy),
+        }
+    }
+
+    /// The plane's pixels shown over the page's rectangle `r`, a whole
+    /// block each, unheld to the plane.
+    pub fn plane_rect(self, r: RegisRect) -> RegisRect {
+        let (zx, zy) = (i32::from(self.x.max(1)), i32::from(self.y.max(1)));
+        let (wx, wy) = (self.window.x, self.window.y);
+        RegisRect {
+            x0: r.x0.div_euclid(zx).saturating_add(wx),
+            y0: r.y0.div_euclid(zy).saturating_add(wy),
+            x1: r
+                .x1
+                .saturating_add(zx - 1)
+                .div_euclid(zx)
+                .saturating_add(wx),
+            y1: r
+                .y1
+                .saturating_add(zy - 1)
+                .div_euclid(zy)
+                .saturating_add(wy),
         }
     }
 }
+
+/// **What `S(E)` erases under the windowing model, `S(D0)`**: "Screen
+/// erase, S(E), always erases the entire display, regardless of the
+/// clipping state" (070-8 § 8.8.1.4.6 f), while data the window has moved
+/// off "are generally recoverable by reversing the direction of the
+/// movement" (§ 8.8.1.1). Under the scrolling model the display is the
+/// plane and `S(E)` erases it whole.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegisWindowErase {
+    /// The whole plane, the graph paper, shown or not.
+    Plane,
+    /// The plane's pixels the window shows; the rest stay to scroll back to.
+    Window,
+}
+
+/// **The one place `S(E)` under `S(D0)` is chosen**: the whole plane.
+pub const REGIS_WINDOW_ERASE: RegisWindowErase = RegisWindowErase::Plane;
 
 /// How far a scroll moves the page's pixels, in page pixels: right and
 /// down for positive values.
@@ -699,8 +758,8 @@ pub trait RegisOut {
     /// `S[]` or `S<pv>`, the scrolling model (§ 8.8.1.1): the page's
     /// pixels moved `by`, what they reveal `bg`.
     fn scroll(&mut self, by: RegisShift, bg: RegisIndex);
-    /// An output map entry changed: every pixel holding it shows the new
-    /// colour.
+    /// An output map entry changed, or how the page shows its plane
+    /// ([`RegisZoom`]): the page shown again whole.
     fn recolor(&mut self);
     /// Bytes for the host, a report whole.
     fn reply(&mut self, bytes: &[u8]);
@@ -1226,9 +1285,10 @@ impl Regis {
         self.sem.space
     }
 
-    /// How the page's plane is shown, `S(S)`.
+    /// How the page's plane is shown: the scale `S(S)` and the window
+    /// `S(D0)` moves.
     pub fn zoom(&self) -> RegisZoom {
-        self.sem.zoom
+        self.sem.view()
     }
 
     /// **The command display's characters, while the page is magnified**:
@@ -1263,6 +1323,12 @@ impl Regis {
         self.sem.scale = match pw * dh <= ph * dw {
             true => (pw, dw),
             false => (ph, dh),
+        };
+        self.sem.screen = RegisRect {
+            x0: 0,
+            y0: 0,
+            x1: w,
+            y1: h,
         };
     }
 

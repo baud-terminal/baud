@@ -840,6 +840,119 @@ fn the_input_position_is_the_bitmap_s() {
     assert_eq!(t.reply(), b"\x1b[241~[100,50]\r");
 }
 
+/// **The pointer names the address the window shows under it**, magnified
+/// or not: under the windowing model "position arguments specify an
+/// address in the display address space where the origin of the viewing
+/// rectangle is to be positioned" (070-8 § 8.8.1.1), so the screen's pixel
+/// at (200, 100) through a window at [100,50] is the drawing's [300,150],
+/// and at twice the scale its [200,100].
+#[test]
+fn the_input_position_is_the_address_through_the_window() {
+    for (setup, want) in [
+        (
+            &b"\x1bPpS(D0)S[+100,+50]R(I1)"[..],
+            &b"\x1b[241~[300,150]\r"[..],
+        ),
+        (
+            &b"\x1bPpS(S2)S(D0)S[+100,+50]R(I1)"[..],
+            &b"\x1b[241~[200,100]\r"[..],
+        ),
+    ] {
+        let ws = support::CORPUS;
+        let mut owned = Owned::new(&ws).with_images(ImageBudget::of(4 << 20));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_regis_hold(RegisHold::On);
+        support::feed(&mut t, setup);
+        t.clear_reply();
+        t.locator(LocatorInput {
+            kind: LocatorKind::Press(LocatorButton::Left),
+            at: Some(LocatorAt {
+                col: Col::ZERO,
+                row: Row::ZERO,
+                px: Some(PointerPx {
+                    x: baud_domain::ImagePx::of(200),
+                    y: baud_domain::ImagePx::of(100),
+                }),
+            }),
+            held: LocatorButtons::NONE.pressed(LocatorButton::Left),
+        });
+        assert_eq!(
+            String::from_utf8_lossy(t.reply()),
+            String::from_utf8_lossy(want),
+            "{:?}",
+            String::from_utf8_lossy(setup)
+        );
+    }
+}
+
+/// **A window moved off the whole drawing keeps it**: the page then shows
+/// nothing lit, and text written over it does not free the bitmap the
+/// window has moved off, "data are generally recoverable by reversing the
+/// direction of the movement" (070-8 § 8.8.1.1).
+#[test]
+fn a_window_moved_off_the_drawing_keeps_it_through_text() {
+    let ws = WinSize {
+        ws_row: 24,
+        ws_col: 80,
+    };
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(8 << 20));
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_cell_size(baud_domain::ImagePx::of(10), baud_domain::ImagePx::of(20));
+    support::feed(&mut t, b"\x1bPpP[0,0]V[9,0]S(D0)S[+0,+100]\x1b\\");
+    support::feed(&mut t, b"\x1b[5;1Hx");
+    support::feed(&mut t, b"\x1bPpS[+0,-100]\x1b\\");
+    let (px, w) = page(&t);
+    assert_eq!(px[..10].to_vec(), vec![GRAY; 10], "the line shown again");
+    assert_eq!(px[10 * w..10 * w + 10].to_vec(), vec![CLEAR; 10]);
+}
+
+/// **A windowed page stays one with its bitmap**: text written over it,
+/// an erase, a character erase and lines deleted and inserted clear and
+/// move the bitmap's pixels the window shows in their cells, so showing
+/// the page again from the bitmap (`S(M3(R))`) changes nothing; and the
+/// window moved back shows the bitmap's corner none of them reached, "data
+/// are generally recoverable by reversing the direction of the movement"
+/// (070-8 § 8.8.1.1).
+#[test]
+fn a_windowed_page_stays_one_with_its_bitmap() {
+    let ws = WinSize {
+        ws_row: 24,
+        ws_col: 80,
+    };
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(8 << 20));
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_cell_size(baud_domain::ImagePx::of(10), baud_domain::ImagePx::of(20));
+    let steps: &[&[u8]] = &[
+        b"\x1bPpF(V[0,0][300,0][300,200][0,200])S(D0)S[+30,+20]\x1b\\",
+        b"\x1b[2;3HHello",
+        b"\x1b[4;1H\x1b[K",
+        b"\x1b[1;5H\x1b[3X",
+        b"\x1b[2;1H\x1b[M",
+        b"\x1b[1;1H\x1b[L",
+    ];
+    let shown = |t: &Term<'_>| -> (Vec<u32>, usize, Option<u32>, usize) {
+        let imgs = t.images();
+        let (_, p) = imgs.placements().last().expect("a page");
+        let v = imgs.image(p.image).expect("its image");
+        let px: Vec<u32> = v.pixels.iter().map(|px| px.bits()).collect();
+        let n = px.iter().filter(|&&c| c != Pixel::CLEAR.bits()).count();
+        (px, n, imgs.lit(p.image), v.width.index())
+    };
+    for (i, step) in steps.iter().enumerate() {
+        support::feed(&mut t, step);
+        let (before, n, kept, _) = shown(&t);
+        assert!(n > 0, "after step {i}: something lit");
+        assert_eq!(kept, u32::try_from(n).ok(), "after step {i}: the lit count");
+        support::feed(&mut t, b"\x1bPpS(M3(R))\x1b\\");
+        let (after, _, _, _) = shown(&t);
+        let differ = before.iter().zip(&after).filter(|(a, b)| a != b).count();
+        assert_eq!(differ, 0, "after step {i}: the page left its bitmap");
+    }
+    support::feed(&mut t, b"\x1bPpS[-30,-20]\x1b\\");
+    let (px, _, _, w) = shown(&t);
+    assert_eq!(px[5 * w + 5], GRAY, "the corner the window had moved off");
+}
+
 /// A stand-in for the embedder's font: every character a box round its
 /// cell's edge, so where and how large it is drawn can be read back.
 fn boxes(_: char, w: ImagePx, h: ImagePx, set: &mut dyn FnMut(ImagePx, ImagePx)) {

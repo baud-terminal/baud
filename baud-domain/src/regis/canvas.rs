@@ -821,7 +821,8 @@ impl<'a> RegisCanvas<'a> {
 
     /// The page pixels of `r` of a `w`-pixel page as colours through `map`
     /// into `out`, each the plane's pixel `zoom` shows there: a pixel never
-    /// written clear, a blinking one as `blink` says.
+    /// written clear, and one the window shows no pixel of, a blinking one
+    /// as `blink` says.
     pub fn show(
         plane: &[u8],
         w: crate::image::ImagePx,
@@ -832,13 +833,17 @@ impl<'a> RegisCanvas<'a> {
         blink: RegisBlinkShow,
     ) {
         let (stride, w) = (RegisCanvas::stride(w), w.index());
+        let rows = plane.len() / stride.max(1);
         // Held to the page's width: a column past it is the next row's.
         let x1 = (r.x1.max(0) as usize).min(w);
         for y in r.y0.max(0) as usize..r.y1.max(0) as usize {
             for x in r.x0.max(0) as usize..x1 {
-                let (px, py) = zoom.plane_of(x, y);
-                let (Some(&b), Some(o)) = (plane.get(py * stride + px), out.get_mut(y * w + x))
-                else {
+                let Some(o) = out.get_mut(y * w + x) else {
+                    continue;
+                };
+                let at = zoom.plane_of(x, y, w, rows);
+                let Some(&b) = at.and_then(|(px, py)| plane.get(py * stride + px)) else {
+                    *o = crate::image::Pixel::CLEAR;
                     continue;
                 };
                 *o = match (b & WRITTEN, b & BLINK, blink) {

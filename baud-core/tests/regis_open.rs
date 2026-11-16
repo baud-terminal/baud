@@ -698,21 +698,150 @@ fn a_resize_while_the_second_is_displayed_keeps_the_first() {
     );
 }
 
+/// **`S(D0)` moves a window over the drawing, and what it leaves comes
+/// back** (070-8 § 8.8.1.1): under the windowing model "position arguments
+/// specify an address in the display address space where the origin of the
+/// viewing rectangle is to be positioned ... data are generally recoverable
+/// by reversing the direction of the movement". Under the scrolling model
+/// the same two scrolls lose the line, "moved off and erased from the
+/// display medium". Past the drawing's edge the view is truncated, § 8.8.1
+/// a's "either the opposite edge of the graph paper wraps in, or the view
+/// is truncated": nothing is shown there, where the scrolling model shows
+/// the background it reveals.
 #[test]
-fn s_d1_names_the_scrolling_model_and_s_d0_is_counted() {
-    // The scrolling model, the VT340's, is the one baud has: `S(D1)` names
-    // it and a scroll still moves the data; `S(D0)` asks for the windowing
-    // model and is counted, not acted on.
-    let bytes = regis(&[b"W(I2)P[100,0]V[109,0]S(D1)S[+100,+0]"]);
+fn s_d0_moves_a_window_and_scrolling_back_shows_the_drawing_again() {
+    let bytes = regis(&[BLUE_LINE, b"S(D0)S[+100,+0]"]);
     run(&bytes, |t| {
-        assert_eq!(t.regis_counts().unbuilt, 0);
-        assert_eq!(row(t, 0, 0, 10), n_of(10, RED), "the data moved left");
+        assert_eq!(t.regis_counts().unbuilt, 0, "S(D0) is built");
+        assert_eq!(
+            row(t, 0, 0, 10),
+            n_of(10, CLEAR),
+            "the line is off the window"
+        );
+        let (_, w) = page(t);
+        assert_eq!(
+            row(t, 0, w - 10, w),
+            n_of(10, CLEAR),
+            "truncated past the edge"
+        );
     });
-    for d in [&b"S(D0)"[..], b"S(D)", b"S(D2)"] {
-        let bytes = regis(&[b"W(I2)P[100,0]V[109,0]", d, b"S[+100,+0]"]);
+    let bytes = regis(&[BLUE_LINE, b"S(D0)S[+100,+0]S[-100,+0]"]);
+    run(&bytes, |t| {
+        assert_eq!(row(t, 0, 0, 10), n_of(10, BLUE), "the line, shown again");
+    });
+    let bytes = regis(&[BLUE_LINE, b"S(D1)S[+100,+0]S[-100,+0]"]);
+    run(&bytes, |t| {
+        assert_eq!(
+            row(t, 0, 0, 10),
+            n_of(10, BLACK),
+            "scrolling: the line is lost"
+        );
+    });
+}
+
+/// **Under the windowing model an address keeps its place on the
+/// drawing** (070-8 § 8.8.1 a): "A displayed entity has a fixed
+/// relationship to the address at which it is written. A line drawn from
+/// location [100,120] to [200,250], for example, will always maintain
+/// those end points, regardless of how the display addresses are moved
+/// about the display." With the window at [100,0], a line drawn at
+/// [100,0] shows at the screen's left edge; under the scrolling model the
+/// addresses stay with the screen and it shows at 100.
+#[test]
+fn under_the_window_an_address_keeps_its_place_on_the_drawing() {
+    let bytes = regis(&[b"S(D0)S[+100,+0]W(I1)P[100,0]V[109,0]"]);
+    run(&bytes, |t| assert_eq!(row(t, 0, 0, 10), n_of(10, BLUE)));
+    let bytes = regis(&[b"S[+100,+0]W(I1)P[100,0]V[109,0]"]);
+    run(&bytes, |t| {
+        assert_eq!(row(t, 0, 0, 10), n_of(10, CLEAR));
+        assert_eq!(row(t, 0, 100, 110), n_of(10, BLUE));
+    });
+}
+
+/// **The clip rectangle moves with the data under the windowing model**
+/// (070-8 § 8.8.1.4.6 e): "The clip rectangle maintains its position in
+/// the coordinate space, even if the display supports scrolling. The effect
+/// is that the clip rectangle moves with the data if the windowing model,
+/// S(D0), is supported".
+#[test]
+fn the_clip_rectangle_moves_with_the_window_s_data() {
+    let bytes = regis(&[b"S(D0)S(R[100,0][109,5]1)S[+100,+0]W(I1)P[95,0]V[115,0]"]);
+    run(&bytes, |t| {
+        assert_eq!(row(t, 0, 0, 10), n_of(10, BLUE), "the clip's inside");
+        assert_eq!(row(t, 0, 10, 16), n_of(6, CLEAR), "past it");
+    });
+}
+
+/// **A valid `S(A)` selects the scrolling model and puts the display back
+/// at its first corner**: "If a device supports both modes, the default
+/// value is 1 (scrolling model); this default is set when a valid S(A) is
+/// executed" (070-8 § 8.8.1.4.3), and "The display offset or scroll state
+/// is set to match the first coordinate of the S(A[][]) to the upper left
+/// hand corner of the display" (§ 8.8.1.4.1 e).
+#[test]
+fn a_valid_s_a_restores_the_scrolling_model_and_the_first_corner() {
+    let bytes = regis(&[BLUE_LINE, b"S(D0)S[+100,+0]S(A[0,0][799,479])"]);
+    run(&bytes, |t| {
+        assert_eq!(row(t, 0, 0, 10), n_of(10, BLUE), "the first corner shown");
+    });
+    let bytes = regis(&[
+        BLUE_LINE,
+        b"S(D0)S[+100,+0]S(A[0,0][799,479])S[+100,+0]S[-100,+0]",
+    ]);
+    run(&bytes, |t| {
+        assert_eq!(row(t, 0, 0, 10), n_of(10, BLACK), "scrolling again");
+    });
+}
+
+/// **`S(D1)` after the window has moved couples the display to its
+/// addresses again**, the window back at `S(A)`'s first corner: "An
+/// <integer> argument of 1 indicates that the scrolling model should be
+/// used, where the address space and the visible display are coupled"
+/// (070-8 § 8.8.1.4.3), and the corner is § 8.8.1.4.1 e's. An omitted
+/// number is 1, "If a device supports both modes, the default value is 1";
+/// a number no model has changes nothing, error 1.
+#[test]
+fn s_d1_after_a_window_move_shows_the_first_corner_and_scrolls() {
+    for d in [&b"S(D1)"[..], b"S(D)"] {
+        let bytes = regis(&[BLUE_LINE, b"S(D0)S[+100,+0]", d]);
         run(&bytes, |t| {
-            assert_eq!(t.regis_counts().unbuilt, 1, "{d:?}");
-            assert_eq!(row(t, 0, 0, 10), n_of(10, RED), "{d:?}: still scrolling");
+            assert_eq!(row(t, 0, 0, 10), n_of(10, BLUE), "{d:?}: the corner");
+        });
+        let bytes = regis(&[BLUE_LINE, b"S(D0)S[+100,+0]", d, b"S[+100,+0]S[-100,+0]"]);
+        run(&bytes, |t| {
+            assert_eq!(row(t, 0, 0, 10), n_of(10, BLACK), "{d:?}: scrolling");
         });
     }
+    let bytes = regis(&[BLUE_LINE, b"S(D0)S(D2)S[+100,+0]S[-100,+0]"]);
+    run(&bytes, |t| {
+        assert_eq!(t.regis_counts().ignored, 1, "error 1");
+        assert_eq!(t.regis_counts().unbuilt, 0);
+        assert_eq!(row(t, 0, 0, 10), n_of(10, BLUE), "still the window");
+    });
+}
+
+/// **`S(E)` under the windowing model erases the whole drawing**, what the
+/// window shows and what it has moved off: "Screen erase, S(E), always
+/// erases the entire display" (070-8 § 8.8.1.4.6 f). Which of the two it
+/// erases is `REGIS_WINDOW_ERASE`'s; under `RegisWindowErase::Window` the
+/// line moved off survives and this assertion reads `BLUE`.
+#[test]
+fn s_e_under_the_window_erases_the_whole_drawing() {
+    let bytes = regis(&[BLUE_LINE, b"S(D0)S[+100,+0]S(E)S[-100,+0]"]);
+    run(&bytes, |t| {
+        assert_eq!(row(t, 0, 0, 10), n_of(10, BLACK), "the whole plane erased");
+    });
+}
+
+/// **`S(S)` and the window together**: "S(S) and S[] then combine to move
+/// a small window through a large display space" (070-8 § 8.8.1.4.7). At
+/// twice the scale with the window at [100,0], the line drawn at [100,0]
+/// after it is the screen's first twenty pixels.
+#[test]
+fn the_window_moves_through_a_magnified_drawing() {
+    let bytes = regis(&[b"S(S2)S(D0)S[+100,+0]W(I1)P[100,0]V[109,0]"]);
+    run(&bytes, |t| {
+        assert_eq!(row(t, 0, 0, 20), n_of(20, BLUE));
+        assert_eq!(row(t, 1, 0, 20), n_of(20, BLUE));
+    });
 }

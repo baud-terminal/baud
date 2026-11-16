@@ -49,8 +49,7 @@ pub struct RegisCounts {
     /// maintained" (§ 8.5.1.4.1).
     pub space_refused: u32,
     /// Open Extensions (§ 8.8) this interpreter parses and does not act
-    /// on: `S(D0)`, the windowing model of data movement, baud having the
-    /// scrolling model alone; and `S(N)`, which no DEC text here defines.
+    /// on: `S(N)`, which no DEC text here defines.
     pub unbuilt: u32,
     /// Characters no grammar position takes, and keyletters no instruction
     /// names (error 1).
@@ -556,6 +555,16 @@ impl Frame {
     }
 }
 
+/// **The data movement model** (070-8 § 8.8.1): the scrolling model, the
+/// display and its addresses coupled and the data moving through them, or
+/// the windowing model, the data fixed at their addresses and the window
+/// moving over them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Movement {
+    Scrolling,
+    Windowing,
+}
+
 /// Which cursor an `S(C ...)` option sets.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum CursorWhich {
@@ -652,8 +661,17 @@ pub(crate) struct Sem {
     /// The pen that drew the last step of the stroke's last line, if that
     /// line drew it ([`LineSpan::Chained`]).
     stroke_end: Option<RegisPen>,
-    /// How the plane is shown, `S(S)`.
+    /// The scale the plane is shown at, `S(S)`; the window it is shown
+    /// through is [`Sem::view`]'s.
     pub(crate) zoom: RegisZoom,
+    /// The data movement model, `S(D)` (§ 8.8.1.4.3).
+    movement: Movement,
+    /// The address shown at the screen's upper-left: `S(A)`'s first corner
+    /// under the scrolling model, where `S[]` under the windowing model
+    /// puts it.
+    window: Pt,
+    /// The page's pixels, the display surface ([`super::Regis::set_page`]).
+    pub(crate) screen: RegisRect,
     /// `S(H(P[x,y]))`'s offset, kept until the next or a valid `S(A)`.
     pub(crate) hard_offset: RegisOffset,
     /// What bounds a flood, `F(B)` (§ 8.8.6.3.1.1).
@@ -737,6 +755,14 @@ impl Sem {
         stroke: None,
         stroke_end: None,
         zoom: RegisZoom::ONE,
+        movement: Movement::Scrolling,
+        window: (RegisNum::ZERO, RegisNum::ZERO),
+        screen: RegisRect {
+            x0: 0,
+            y0: 0,
+            x1: REGIS_WIDTH,
+            y1: REGIS_HEIGHT,
+        },
         hard_offset: RegisOffset::ZERO,
         bound: RegisBound::Seed,
         seed: None,
@@ -1251,9 +1277,49 @@ impl Sem {
 
     /// The display's origin, the address at the screen's upper-left: under
     /// the scrolling model "display addressing and the display" are coupled
-    /// (§ 8.8.1 b), so it is `S(A)`'s first corner whatever has scrolled.
+    /// (§ 8.8.1 b), so it is `S(A)`'s first corner whatever has scrolled;
+    /// under the windowing model it is where the window is, "an address in
+    /// the display address space where the origin of the viewing rectangle
+    /// is to be positioned" (§ 8.8.1.1).
     fn origin(&self) -> Pt {
-        (self.space.x1, self.space.y1)
+        match self.movement {
+            Movement::Scrolling => (self.space.x1, self.space.y1),
+            Movement::Windowing => self.window,
+        }
+    }
+
+    /// **How the page shows the plane**: the scale `S(S)` sets, through
+    /// the window, the plane pixel of the address at the screen's
+    /// upper-left. Under the scrolling model that is `S(A)`'s first
+    /// corner, the plane's upper-left.
+    pub(crate) fn view(&self) -> RegisZoom {
+        match self.movement {
+            Movement::Scrolling => RegisZoom {
+                window: RegisPoint::default(),
+                ..self.zoom
+            },
+            Movement::Windowing => RegisZoom {
+                window: self.device(self.window),
+                ..self.zoom
+            },
+        }
+    }
+
+    /// The window put at `to`.
+    fn window_to(&mut self, to: Pt, out: &mut dyn RegisOut) {
+        let before = self.view();
+        self.window = to;
+        self.view_moved(before, out);
+    }
+
+    /// **What the page shows moved from `before`**: a stroke in progress
+    /// ends, and the page is shown again whole.
+    fn view_moved(&mut self, before: RegisZoom, out: &mut dyn RegisOut) {
+        if self.view() != before {
+            self.end_stroke(out);
+            self.last_end = None;
+            out.recolor();
+        }
     }
 
     /// **`S[]` and `S<pv>`, the scrolling model** (§ 8.8.1.1): "position
@@ -1267,7 +1333,16 @@ impl Sem {
     /// 8.8.1.4.8's multiplier setting "the granularity of the display
     /// motion". The drawing position stays; the line before no longer joins
     /// the next, its end having moved.
+    ///
+    /// **Under the windowing model the window moves instead** (§ 8.8.1.1):
+    /// "position arguments specify an address in the display address space
+    /// where the origin of the viewing rectangle is to be positioned", the
+    /// plane keeping every pixel, so "data are generally recoverable by
+    /// reversing the direction of the movement".
     fn scroll_to(&mut self, to: Pt, out: &mut dyn RegisOut) {
+        if self.movement == Movement::Windowing {
+            return self.window_to(to, out);
+        }
         let (o, t) = (self.device(self.origin()), self.device(to));
         let (dx, dy) = (o.x.saturating_sub(t.x), o.y.saturating_sub(t.y));
         if dx == 0 && dy == 0 {
@@ -1790,7 +1865,7 @@ impl Sem {
         self.display_gen = self.display_gen.wrapping_add(1);
         let (at, unit) = self.display_cell(col);
         let ascii = (Charset::Ascii, Charset::Iso96(Iso96::Latin1));
-        match self.zoom == RegisZoom::ONE {
+        match self.view() == RegisZoom::ONE {
             true => {
                 let pen = self.display_pen(WriteMode::Overlay);
                 self.draw_char(u16::from(b), 0, ascii, (at, unit, unit), (0, 0), &pen, out);
@@ -1852,17 +1927,11 @@ impl Sem {
     }
 
     /// The command display's line erased to the background, "along with
-    /// any graphic image previously drawn there": magnified, the plane's
-    /// pixels shown on the line, a whole block each.
+    /// any graphic image previously drawn there": magnified or windowed,
+    /// the plane's pixels shown on the line, a whole block each.
     fn display_erase(&mut self, out: &mut dyn RegisOut) {
-        let band = self.display_band();
-        let (zx, zy) = (i32::from(self.zoom.x.max(1)), i32::from(self.zoom.y.max(1)));
-        let (x0, y0, x1, y1) = (
-            band.x0.div_euclid(zx),
-            band.y0.div_euclid(zy),
-            band.x1.saturating_add(zx - 1).div_euclid(zx),
-            band.y1.saturating_add(zy - 1).div_euclid(zy),
-        );
+        let r = self.view().plane_rect(self.display_band());
+        let (x0, y0, x1, y1) = (r.x0, r.y0, r.x1, r.y1);
         let points = [
             RegisPoint { x: x0, y: y0 },
             RegisPoint { x: x1, y: y0 },
@@ -1881,7 +1950,7 @@ impl Sem {
     /// the page shown; nothing unmagnified, where the plane holds them.
     /// A character with no font is counted where it was received.
     pub(crate) fn display_glyphs(&mut self, f: &mut dyn FnMut(&RegisGlyph<'_>, &RegisPen)) {
-        if self.zoom == RegisZoom::ONE {
+        if self.view() == RegisZoom::ONE {
             return;
         }
         let pen = self.display_pen(WriteMode::Overlay);
@@ -2284,9 +2353,9 @@ impl Sem {
     fn screen_option(&mut self, f: &Frame, parent: &Frame, r: usize, out: &mut dyn RegisOut) {
         match (r, f.key) {
             (1, b'A') => {
-                let before = self.zoom;
+                let before = self.view();
                 self.address(f);
-                if self.zoom != before {
+                if self.view() != before {
                     out.recolor();
                 }
             }
@@ -2297,7 +2366,7 @@ impl Sem {
                 // Every pixel written, every mark with it, and the command
                 // display's characters drawn over a magnified page.
                 self.stroke = None;
-                out.erase(self.bg);
+                self.screen_erase(out);
                 self.display_line = [0; 80];
                 self.display_gen = self.display_gen.wrapping_add(1);
                 self.last_end = None;
@@ -2370,15 +2439,16 @@ impl Sem {
             }
             // **`S(D)`, data movement** (§ 8.8.1.4.3): "For devices
             // supporting both data movement models, the D option switches
-            // between them". baud has the VT340's one, the scrolling model
-            // ("Neither model is required"): `S(D1)` names it, in force
-            // already, and `S(D0)`, the windowing model, is not acted on
-            // and is counted, as an omitted value is.
-            (1, b'D') => {
-                if f.int() != Some(1) {
-                    self.counts.unbuilt += 1;
-                }
-            }
+            // between them"; "The <integer> argument to D is 0 for systems
+            // which couple data and addresses ... This is the windowing
+            // model", and 1 the scrolling model, "If a device supports both
+            // modes, the default value is 1", an omitted one. A number no
+            // model has changes nothing, error 1.
+            (1, b'D') => match f.int() {
+                Some(0) => self.movement = Movement::Windowing,
+                Some(1) | None => self.scrolling(out),
+                Some(_) => self.error(1, f.key),
+            },
             // `S(N)`: no DEC text here defines it.
             (1, b'N') => self.counts.unbuilt += 1,
             (2, _) if parent.key == b'H' || parent.key == b'C' || parent.key == b'S' => {}
@@ -2504,6 +2574,40 @@ impl Sem {
         self.defaults();
     }
 
+    /// **The scrolling model selected**, the window back at `S(A)`'s
+    /// first corner: under it "the address space and the visible display
+    /// are coupled" (§ 8.8.1.4.3), as "The display offset or scroll state
+    /// is set to match the first coordinate of the S(A[][]) to the upper
+    /// left hand corner of the display" (§ 8.8.1.4.1 e) couples them.
+    /// What the windowing model left on the plane stays where it is.
+    fn scrolling(&mut self, out: &mut dyn RegisOut) {
+        let before = self.view();
+        self.movement = Movement::Scrolling;
+        self.window = (self.space.x1, self.space.y1);
+        self.view_moved(before, out);
+    }
+
+    /// **`S(E)`, screen erase**: the whole plane, but under the windowing
+    /// model as [`REGIS_WINDOW_ERASE`] says, the window's part of it being
+    /// the plane's pixels shown on the page.
+    fn screen_erase(&mut self, out: &mut dyn RegisOut) {
+        let view = self.view();
+        match (self.movement, REGIS_WINDOW_ERASE) {
+            (Movement::Windowing, RegisWindowErase::Window) if view != RegisZoom::ONE => {
+                let r = view.plane_rect(self.screen);
+                let points = [
+                    RegisPoint { x: r.x0, y: r.y0 },
+                    RegisPoint { x: r.x1, y: r.y0 },
+                    RegisPoint { x: r.x1, y: r.y1 },
+                    RegisPoint { x: r.x0, y: r.y1 },
+                ];
+                let pen = self.display_pen(WriteMode::Erase);
+                out.fill(&points, &[4], &pen);
+            }
+            _ => out.erase(self.bg),
+        }
+    }
+
     /// What a valid `S(A)` resets.
     fn defaults(&mut self) {
         self.pos = (RegisNum::ZERO, RegisNum::ZERO);
@@ -2530,6 +2634,11 @@ impl Sem {
         // 1" (h).
         self.clip = Clip::of(self.space);
         self.zoom = RegisZoom::ONE;
+        // "Data movement control is set to its device dependent value ...
+        // S(D1), scrolling (if supported; else S(D0))" (§ 8.8.1.4.1 f),
+        // and the display offset to the first corner (e).
+        self.movement = Movement::Scrolling;
+        self.window = (self.space.x1, self.space.y1);
         // "This default is restored upon execution of a valid S(A)"
         // (§ 8.8.6.3.1.1).
         self.bound = RegisBound::Seed;
@@ -2697,22 +2806,29 @@ impl Sem {
     }
 
     /// Where a position on the device is shown: its page pixel through the
-    /// scale `S(S)` shows the page at. A cursor marks the display, not the
-    /// bitmap, and keeps its size.
+    /// window and the scale `S(S)` shows the page at. A cursor marks the
+    /// display, not the bitmap, and keeps its size.
     fn shown(&self, p: Fine) -> RegisPoint {
-        let q = self.page(p);
+        let (q, v) = (self.page(p), self.view());
         RegisPoint {
-            x: q.x.saturating_mul(i32::from(self.zoom.x)),
-            y: q.y.saturating_mul(i32::from(self.zoom.y)),
+            x: q.x
+                .saturating_sub(v.window.x)
+                .saturating_mul(i32::from(v.x)),
+            y: q.y
+                .saturating_sub(v.window.y)
+                .saturating_mul(i32::from(v.y)),
         }
     }
 
     /// A page pixel as a position on the device, held to the device: the
-    /// plane's pixel the scale shows there.
+    /// plane's pixel the scale and the window show there.
     pub(crate) fn device_of_page(&self, x: i32, y: i32) -> Fine {
+        let v = self.view();
         let (x, y) = (
-            x.div_euclid(i32::from(self.zoom.x.max(1))),
-            y.div_euclid(i32::from(self.zoom.y.max(1))),
+            x.div_euclid(i32::from(v.x.max(1)))
+                .saturating_add(v.window.x),
+            y.div_euclid(i32::from(v.y.max(1)))
+                .saturating_add(v.window.y),
         );
         let (n, d) = (i128::from(self.scale.0.max(1)), i128::from(self.scale.1));
         let f = |v: i32, max: i32| -> i64 {

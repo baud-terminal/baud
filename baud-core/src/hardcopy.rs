@@ -131,7 +131,8 @@ struct Visible<'p, 'a, 'b> {
     /// The ReGIS output map: index 0's colour is what a page left behind
     /// is read by, and a blinking pixel prints its index's colour.
     map: [Pixel; REGIS_COLORS],
-    /// How the page being drawn shows its plane, `S(S)`.
+    /// How the page being drawn shows its plane, `S(S)` and the window
+    /// `S(D0)` moves.
     zoom: RegisZoom,
     /// The page showing the second surface and its plane, under `S(P1)`.
     second: Option<(ImageId, ImageId)>,
@@ -266,14 +267,19 @@ impl Visible<'_, '_, '_> {
         }
         if p.owner == ImageOwner::Regis {
             let at = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
-            let (x, y) = self.zoom.plane_of(at(sx), at(sy));
+            let (w, h) = (view.width.index(), view.height.index());
+            // Where the window shows no pixel of the plane, none is held.
+            let xy = self.zoom.plane_of(at(sx), at(sy), w, h);
             let plane = match self.second {
                 Some((page, plane)) if page == p.image => imgs.regis_bytes(plane),
                 _ => imgs.page_indices(p.image),
             };
-            let index = |plane| RegisCanvas::index_at(plane, view.width, x, y);
+            let index =
+                |plane| xy.and_then(|(x, y)| RegisCanvas::index_at(plane, view.width, x, y));
             // A blinking pixel prints its own colour in either phase.
-            let blinks = plane.is_some_and(|pl| RegisCanvas::blinks_at(pl, view.width, x, y));
+            let blinks = plane
+                .zip(xy)
+                .is_some_and(|(pl, (x, y))| RegisCanvas::blinks_at(pl, view.width, x, y));
             match plane.map(index) {
                 Some(None) => return Hit::Miss,
                 Some(Some(RegisIndex::ZERO)) => return Hit::Clear,
@@ -346,19 +352,21 @@ impl Paint<'_, '_> {
         let (pw, ph) = (i64::from(pw.raw()), i64::from(ph.raw()));
         let (x0, y0, x1, y1) = match area {
             RegisHardCopy::Screen => (0, 0, pw, ph),
-            // The positions name plane pixels; magnified, the visible
-            // image shows each as a block of page pixels.
+            // The positions name plane pixels; magnified or windowed, the
+            // visible image shows each as a block of page pixels where the
+            // window puts it.
             RegisHardCopy::Rect(a, b) => {
-                let z = self.strs.regis.zoom();
-                let (zx, zy) = (i64::from(z.x.max(1)), i64::from(z.y.max(1)));
-                let (ax, bx) = (i64::from(a.x.min(b.x)), i64::from(a.x.max(b.x)) + 1);
-                let (ay, by) = (i64::from(a.y.min(b.y)), i64::from(a.y.max(b.y)) + 1);
-                let (ax, bx, ay, by) = (ax * zx, bx * zx, ay * zy, by * zy);
+                let r = self.strs.regis.zoom().shown(RegisRect {
+                    x0: a.x.min(b.x),
+                    y0: a.y.min(b.y),
+                    x1: a.x.max(b.x).saturating_add(1),
+                    y1: a.y.max(b.y).saturating_add(1),
+                });
                 (
-                    ax.clamp(0, pw),
-                    ay.clamp(0, ph),
-                    bx.clamp(0, pw),
-                    by.clamp(0, ph),
+                    i64::from(r.x0).clamp(0, pw),
+                    i64::from(r.y0).clamp(0, ph),
+                    i64::from(r.x1).clamp(0, pw),
+                    i64::from(r.y1).clamp(0, ph),
                 )
             }
         };

@@ -963,6 +963,50 @@ pub enum KittyFree {
     Data,
 }
 
+/// A rectangle of a page's pixels, `(x0, y0, x1, y1)`.
+type PageSpan = (usize, usize, usize, usize);
+
+/// **The plane's pixels a scaled or windowed ReGIS page shows over its
+/// pixels `(x0, y0, x1, y1)`**, a whole block each, held to the plane, `w`
+/// by `h` as the page is; `None` where the window shows no pixel of the
+/// plane there. With them, the page pixels those blocks are shown over
+/// joined with the rectangle, held to the page.
+fn plane_under(
+    z: crate::regis::RegisZoom,
+    (x0, y0, x1, y1): PageSpan,
+    (w, h): (usize, usize),
+) -> (Option<PageSpan>, PageSpan) {
+    use crate::regis::RegisRect;
+    let i = |v: usize| i32::try_from(v).unwrap_or(i32::MAX);
+    let u = |v: i32| usize::try_from(v).unwrap_or(0);
+    let held = |r: RegisRect| RegisRect {
+        x0: r.x0.clamp(0, i(w)),
+        y0: r.y0.clamp(0, i(h)),
+        x1: r.x1.clamp(0, i(w)),
+        y1: r.y1.clamp(0, i(h)),
+    };
+    let page = RegisRect {
+        x0: i(x0),
+        y0: i(y0),
+        x1: i(x1),
+        y1: i(y1),
+    };
+    let pr = held(z.plane_rect(page));
+    if pr.x0 >= pr.x1 || pr.y0 >= pr.y1 {
+        return (None, (x0, y0, x1, y1));
+    }
+    let sr = held(z.shown(pr));
+    (
+        Some((u(pr.x0), u(pr.y0), u(pr.x1), u(pr.y1))),
+        (
+            u(sr.x0).min(x0),
+            u(sr.y0).min(y0),
+            u(sr.x1).max(x1),
+            u(sr.y1).max(y1),
+        ),
+    )
+}
+
 /// [`ImageStore::shift_rows`] for a plane of byte indices, `stride` bytes
 /// a row.
 fn shift_byte_rows(
@@ -3594,6 +3638,13 @@ impl<'b> ImageStore<'b> {
         if s.is_empty() || s.owner != ImageOwner::Regis || s.lit != Some(0) {
             return false;
         }
+        // The page being drawn through a moved window keeps its plane, which
+        // holds what the window has moved off (070-8 § 8.8.1.1, "data are
+        // generally recoverable by reversing the direction of the movement").
+        let drawn = self.page_plane.is_some_and(|(page, _)| page == id);
+        if drawn && self.page_zoom.window != crate::regis::RegisPoint::default() {
+            return false;
+        }
         if self.page_plane.is_some_and(|(page, _)| page == id) && self.page_shows != PageShows::Own
         {
             self.page_shows = PageShows::OtherCleared;
@@ -3657,15 +3708,18 @@ impl<'b> ImageStore<'b> {
     }
 
     /// **How the page being drawn shows its plane**: the scale `S(S)`
-    /// sets. Unscaled, a page pixel is its plane pixel and what moves or
-    /// clears one moves or clears the other; scaled, a plane pixel is a
-    /// block of page pixels, and what moves or clears one moves or clears
-    /// its whole block.
+    /// sets and the window `S(D0)` moves. Unscaled and unmoved, a page
+    /// pixel is its plane pixel and what moves or clears one moves or
+    /// clears the other; otherwise a plane pixel is a block of page pixels
+    /// at the window's offset, and what moves or clears one moves or clears
+    /// its whole block, and a page pixel the window shows no plane pixel at
+    /// has none to move or clear.
     pub fn set_page_zoom(&mut self, zoom: crate::regis::RegisZoom) {
         self.page_zoom = zoom;
     }
 
-    /// The page being drawn and its plane, if it is `id` and is scaled.
+    /// The page being drawn and its plane, if it is `id` and is scaled or
+    /// windowed.
     fn zoomed(&self, id: ImageId) -> Option<(ImageSlot, ImageSlot)> {
         let (page, plane) = self.page_plane?;
         if page != id || self.page_zoom == crate::regis::RegisZoom::ONE {
@@ -3699,28 +3753,23 @@ impl<'b> ImageStore<'b> {
         if x0 >= x1 || y0 >= y1 {
             return 0;
         }
-        // **Scaled, the plane's pixels shown in the cells are cleared**, and
-        // every page pixel they are shown over: the page stays its plane
-        // shown, a block a plane pixel.
+        // **Scaled or windowed, the plane's pixels shown in the cells are
+        // cleared**, and every page pixel they are shown over: the page
+        // stays its plane shown, a block a plane pixel.
         let scaled = self.zoomed(id);
         let (x0, y0, x1, y1) = match scaled {
             Some((_, pl)) => {
-                let z = self.page_zoom;
-                let (zx, zy) = (usize::from(z.x.max(1)), usize::from(z.y.max(1)));
-                let (px0, py0, px1, py1) = (x0 / zx, y0 / zy, x1.div_ceil(zx), y1.div_ceil(zy));
-                let stride = w.div_ceil(4) * 4;
-                let bytes = self.pixels[pl.start()..pl.end()].as_mut_bytes();
-                for y in py0..py1 {
-                    if let Some(r) = bytes.get_mut(y * stride + px0..y * stride + px1.min(w)) {
-                        r.fill(0);
+                let (under, shown) = plane_under(self.page_zoom, (x0, y0, x1, y1), (w, h));
+                if let Some((px0, py0, px1, py1)) = under {
+                    let stride = w.div_ceil(4) * 4;
+                    let bytes = self.pixels[pl.start()..pl.end()].as_mut_bytes();
+                    for y in py0..py1 {
+                        if let Some(r) = bytes.get_mut(y * stride + px0..y * stride + px1) {
+                            r.fill(0);
+                        }
                     }
                 }
-                (
-                    (px0 * zx).min(w),
-                    (py0 * zy).min(h),
-                    (px1 * zx).min(w),
-                    (py1 * zy).min(h),
-                )
+                shown
             }
             None => (x0, y0, x1, y1),
         };
@@ -4594,24 +4643,16 @@ impl<'b> ImageStore<'b> {
                 continue;
             }
             let k = n.index() * ch;
-            // **Scaled, the plane's rows shown on the lines move**, by the
-            // plane rows nearest the lines' height, and the page's rows they
-            // are shown over with them: a plane pixel is a block of page
-            // pixels and moves whole.
+            // **Scaled or windowed, the plane's rows shown on the lines
+            // move**, by the plane rows nearest the lines' height, and the
+            // page's rows they are shown over with them: a plane pixel is a
+            // block of page pixels and moves whole.
             if self.zoomed(slot.image).is_some() {
-                let z = self.page_zoom;
-                let (zx, zy) = (usize::from(z.x.max(1)), usize::from(z.y.max(1)));
-                let (px0, py0) = (x0 / zx, y0 / zy);
-                let (px1, py1) = (x1.div_ceil(zx), y1.div_ceil(zy));
-                let r = (
-                    (px0 * zx).min(x0),
-                    (py0 * zy).min(y0),
-                    (px1 * zx).min(w),
-                    (py1 * zy).min(h),
-                );
+                let zy = usize::from(self.page_zoom.y.max(1));
+                let (under, r) = plane_under(self.page_zoom, (x0, y0, x1, y1), (w, h));
                 let before = self.lit_in(img, r);
                 let kz = (k + zy / 2) / zy;
-                if let Some((_, plane)) = self.page_plane {
+                if let (Some((px0, py0, px1, py1)), Some((_, plane))) = (under, self.page_plane) {
                     if let Some(pl) = plane.index().and_then(|i| self.slots.get(i)).copied() {
                         let stride = w.div_ceil(4) * 4;
                         let bytes = self.pixels[pl.start()..pl.end()].as_mut_bytes();

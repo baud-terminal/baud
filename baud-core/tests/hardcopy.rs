@@ -499,6 +499,37 @@ fn a_magnified_page_prints_as_it_is_shown() {
     );
 }
 
+/// **A windowed page prints as the screen shows it**: "The hard-copy
+/// option retransmits the visible image on the display surface" (070-8
+/// § 8.8.1.4.4), and under the windowing model the visible image is the
+/// drawing through the window. With the window at [50,20], the vector drawn
+/// at row 100, x 100-200, shows at page row 80, x 50-150, and prints there;
+/// a region's positions name the drawing's pixels, printed where the window
+/// shows them.
+#[test]
+fn a_windowed_page_prints_as_it_is_shown() {
+    run(
+        1 << 20,
+        b"\x1bPpS(E)S(D0)S[+50,+20]P[100,100]V[200,100]S(H)\x1b\\",
+        |t| {
+            let j = jobs(t);
+            let (w, _, px) = decode(&j[0]);
+            assert_eq!(ink_box(w, &px), Some((50, 80, 151, 81)));
+            assert_eq!(lit_count(&px), 101);
+        },
+    );
+    run(
+        1 << 20,
+        b"\x1bPpS(E)S(D0)S[+50,+20]P[100,100]V[200,100]S(H[100,100][200,100])\x1b\\",
+        |t| {
+            let j = jobs(t);
+            let (w, h, px) = decode(&j[0]);
+            assert_eq!((w, h), (101, 1));
+            assert_eq!(lit_count(&px), 101);
+        },
+    );
+}
+
 /// **A page whose width is no multiple of four reads its plane by its
 /// rows' stride**: 81 columns of 10 pixels make an 810 pixel page, whose
 /// plane rows are padded to whole words; after `S(E)` only the vector's
