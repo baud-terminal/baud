@@ -104,9 +104,16 @@ impl Tree {
     /// The passing workspace, its NOTICEs written by the command.
     pub fn base() -> Tree {
         let t = Tree::bare();
-        // The unpublished members are the ones the check names, so a member
-        // added to the list is a member of this tree too.
-        let unpub = publish::UNPUBLISHED;
+        // The unpublished members, written out rather than read from
+        // `UNPUBLISHED`: a name added to or dropped from the list there
+        // fails the base tree here until this list says the same.
+        let unpub = [
+            "baud-bench",
+            "baud-difftest",
+            "baud-present-vulkan",
+            "baud-sfte-difftest",
+            "xtask",
+        ];
         let mut members: Vec<&str> = vec!["baud"];
         members.extend(REACHED);
         members.extend(unpub);

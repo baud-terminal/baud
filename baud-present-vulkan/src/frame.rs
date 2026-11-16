@@ -6,8 +6,6 @@
 //! be. Pixels are premultiplied, as `ARGB8888` is on the wire, the same
 //! encoding the shared-memory path writes.
 
-#![allow(unsafe_code)]
-
 use crate::choose::{Choice, Sync};
 use crate::vk::{REQUIRED, SEMAPHORE_FD, Vulkan};
 use ash::vk;
@@ -107,6 +105,7 @@ impl From<vk::Result> for Failed {
 impl Gpu {
     /// A device on `physical` with the extensions `choice` needs, its first
     /// graphics queue, and a command pool for it.
+    #[allow(unsafe_code)]
     pub fn new(
         vulkan: Vulkan,
         physical: vk::PhysicalDevice,
@@ -161,6 +160,7 @@ impl Gpu {
     /// one allocation the fd names, and its plane's offset and row pitch
     /// are the driver's, read with `vkGetImageDrmFormatModifierPropertiesEXT`'s
     /// sibling, the memory plane's subresource layout.
+    #[allow(unsafe_code)]
     pub fn target(&self, width: Px, height: Px) -> Result<Target, Failed> {
         let format = self.choice.format;
         let modifiers = [format.modifier.0];
@@ -238,6 +238,7 @@ impl Gpu {
     /// `Fallback::Any`, the first it accepts at all: device-local for an
     /// image where there is one (a CPU device has none), and host-visible
     /// for a readback, which has no fallback.
+    #[allow(unsafe_code)]
     fn memory_type(
         &self,
         req: &vk::MemoryRequirements,
@@ -270,6 +271,7 @@ impl Gpu {
     /// its release points" (`[[source: wp-linux-drm-syncobj-v1]]`). Whether
     /// the fd is a syncobj is [`crate::sys::is_syncobj`]'s to say before it
     /// is sent.
+    #[allow(unsafe_code)]
     pub fn timeline(&self) -> Result<Timeline, Failed> {
         let mut export = vk::ExportSemaphoreCreateInfo::default()
             .handle_types(vk::ExternalSemaphoreHandleTypeFlags::OPAQUE_FD);
@@ -296,6 +298,7 @@ impl Gpu {
     }
 
     /// The value `tl` stands at now.
+    #[allow(unsafe_code)]
     pub fn reached(&self, tl: &Timeline) -> Result<Point, Failed> {
         // SAFETY: a semaphore of this device.
         let v = unsafe { self.device.get_semaphore_counter_value(tl.semaphore) }?;
@@ -303,6 +306,7 @@ impl Gpu {
     }
 
     /// Destroy `tl`. Its fd is closed when dropped.
+    #[allow(unsafe_code)]
     pub fn drop_timeline(&self, tl: Timeline) {
         // SAFETY: no submission waits on it: `clear` waits for its own.
         unsafe { self.device.destroy_semaphore(tl.semaphore, None) };
@@ -314,6 +318,7 @@ impl Gpu {
     /// wait is the implicit path's need, a frame finished before it is
     /// shown; the explicit path keeps it in this first frame and loses it
     /// once each buffer has its own command buffer.
+    #[allow(unsafe_code)]
     pub fn clear(
         &self,
         t: &Target,
@@ -417,6 +422,7 @@ impl Gpu {
     /// modifier, and wherever the memory is (a device-local dmabuf on a
     /// discrete GPU is not one the CPU can map), the words come out in
     /// rows, premultiplied `0xAARRGGBB`.
+    #[allow(unsafe_code)]
     pub fn read(&self, t: &Target) -> Result<Vec<u32>, Failed> {
         let d = &self.device;
         let words = usize::try_from(u64::from(t.width.0) * u64::from(t.height.0)).unwrap_or(0);
@@ -531,6 +537,7 @@ impl Gpu {
 
     /// Record with `record` into a fresh command buffer, submit it alone,
     /// and wait for it on the CPU.
+    #[allow(unsafe_code)]
     fn submit_and_wait(&self, record: impl FnOnce(vk::CommandBuffer)) -> Result<(), Failed> {
         let d = &self.device;
         let alloc = vk::CommandBufferAllocateInfo::default()
@@ -565,6 +572,7 @@ impl Gpu {
     }
 
     /// Destroy `t`: its image and memory. Its fd is closed when dropped.
+    #[allow(unsafe_code)]
     pub fn drop_target(&self, t: Target) {
         // SAFETY: no submission still uses the target: `clear` waits.
         unsafe {
@@ -575,6 +583,7 @@ impl Gpu {
 }
 
 impl Drop for Gpu {
+    #[allow(unsafe_code)]
     fn drop(&mut self) {
         // SAFETY: every submission waited; the pool and device are ours.
         unsafe {

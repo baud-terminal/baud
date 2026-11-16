@@ -4,8 +4,6 @@
 //! the one module in the crate that allows what the crate root denies:
 //! every Vulkan call is `unsafe` in `ash`.
 
-#![allow(unsafe_code)]
-
 use crate::choose::{Candidate, Extensions, Kind, Major, Minor, Node, TimelineExport};
 use ash::vk;
 use baud_present_wayland::dmabuf::Modifier;
@@ -45,6 +43,7 @@ pub struct Vulkan {
 
 impl Vulkan {
     /// Open `libvulkan` and make an instance of Vulkan 1.3.
+    #[allow(unsafe_code)]
     pub fn open() -> Result<Vulkan, Unopened> {
         // SAFETY: loading the system's Vulkan loader; `ash` checks the entry
         // point it needs and fails rather than calling a missing one.
@@ -62,6 +61,7 @@ impl Vulkan {
     }
 
     /// Every physical device, in the loader's order, as the choice reads it.
+    #[allow(unsafe_code)]
     pub fn candidates(&self) -> Vec<(vk::PhysicalDevice, Candidate)> {
         // SAFETY: the instance is alive; the call allocates its own result.
         let devices = unsafe { self.instance.enumerate_physical_devices() }.unwrap_or_default();
@@ -71,6 +71,7 @@ impl Vulkan {
             .collect()
     }
 
+    #[allow(unsafe_code)]
     fn has(&self, pd: vk::PhysicalDevice, name: &CStr) -> bool {
         // SAFETY: a physical device of this instance.
         let exts =
@@ -103,6 +104,7 @@ impl Vulkan {
         }
     }
 
+    #[allow(unsafe_code)]
     fn kind(&self, pd: vk::PhysicalDevice) -> Kind {
         let mut drm = vk::PhysicalDeviceDrmPropertiesEXT::default();
         let has_drm = self.has(pd, PHYSICAL_DEVICE_DRM);
@@ -139,6 +141,7 @@ impl Vulkan {
 
     /// The modifiers `B8G8R8A8_UNORM` renders to as a single-plane colour
     /// attachment and exports as a dmabuf.
+    #[allow(unsafe_code)]
     fn modifiers(&self, pd: vk::PhysicalDevice) -> Vec<Modifier> {
         let format = vk::Format::B8G8R8A8_UNORM;
         let mut list = vk::DrmFormatModifierPropertiesListEXT::default();
@@ -171,6 +174,7 @@ impl Vulkan {
 
     /// Whether an image of `format` and `modifier` can be exported as a
     /// dmabuf.
+    #[allow(unsafe_code)]
     fn exports(&self, pd: vk::PhysicalDevice, format: vk::Format, modifier: Modifier) -> bool {
         let mut drm = vk::PhysicalDeviceImageDrmFormatModifierInfoEXT::default()
             .drm_format_modifier(modifier.0)
@@ -199,6 +203,7 @@ impl Vulkan {
     }
 
     /// Whether a timeline semaphore exports as an opaque fd.
+    #[allow(unsafe_code)]
     fn exports_timeline(&self, pd: vk::PhysicalDevice) -> bool {
         let mut ty =
             vk::SemaphoreTypeCreateInfo::default().semaphore_type(vk::SemaphoreType::TIMELINE);
@@ -218,6 +223,7 @@ impl Vulkan {
 }
 
 impl Drop for Vulkan {
+    #[allow(unsafe_code)]
     fn drop(&mut self) {
         // SAFETY: nothing made from the instance outlives it here.
         unsafe { self.instance.destroy_instance(None) };

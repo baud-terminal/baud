@@ -10,12 +10,11 @@
 //! declares `ioctl` as the extern it is, the way the Wayland crates declare
 //! theirs, and is the crate's other place `unsafe` is allowed.
 
-#![allow(unsafe_code)]
-
 use crate::choose::Node;
 use std::fs::File;
 use std::os::fd::{AsRawFd, BorrowedFd};
 
+#[allow(unsafe_code)]
 unsafe extern "C" {
     fn ioctl(fd: i32, request: u64, ...) -> i32;
 }
@@ -50,6 +49,7 @@ const SYNCOBJ_DESTROY: u64 = 0xC008_64C0;
 
 /// **Whether `fd` is a syncobj**, asked on `render`'s node. A node that
 /// cannot be opened answers no, and the path is implicit.
+#[allow(unsafe_code)]
 pub fn is_syncobj(render: Node, fd: BorrowedFd<'_>) -> bool {
     let path = format!("/dev/dri/renderD{}", render.minor.0);
     let Ok(node) = File::options().read(true).write(true).open(path) else {
