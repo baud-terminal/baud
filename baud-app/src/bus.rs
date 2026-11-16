@@ -325,6 +325,11 @@ const LAUNCHER_ENTRY: &str = "com.canonical.Unity.LauncherEntry";
 /// match to an installed desktop file: the Wayland app id's.
 const LAUNCHER_PATH: &str = "/com/canonical/unity/launcherentry/baud";
 const LAUNCHER_URI: &str = "application://org.baud.terminal.desktop";
+/// The name of baud's desktop file without `.desktop`, the `desktop-entry` hint a
+/// notification carries: "the prefix used for the application's .desktop file"
+/// (`[[source: freedesktop-notification-spec]]`), so a server can take baud's
+/// icon and name from it.
+const DESKTOP_ENTRY: &str = "org.baud.terminal";
 const FILE_MANAGER: &str = "org.freedesktop.FileManager1";
 const FILE_MANAGER_PATH: &str = "/org/freedesktop/FileManager1";
 
@@ -1573,6 +1578,7 @@ pub(crate) fn notification(
     if let Some((size, rgba)) = image {
         hints.push(("image-data", Hint::Image(Image { size, rgba })));
     }
+    hints.push(("desktop-entry", Hint::Str(DESKTOP_ENTRY.to_string())));
     let (summary, body) = match (p.title.is_empty(), p.subtitle.is_empty(), p.body.is_empty()) {
         (_, true, _) => (p.title.clone(), p.body.clone()),
         (true, false, _) => (p.subtitle.clone(), p.body.clone()),
@@ -2270,6 +2276,7 @@ mod tests {
                 ("urgency", Hint::Byte(Octet(2))),
                 ("suppress-sound", Hint::Bool(Truth::True)),
                 ("category", Hint::Str("build".into())),
+                ("desktop-entry", Hint::Str(DESKTOP_ENTRY.into())),
             ]
         );
         assert_eq!(
@@ -2279,6 +2286,52 @@ mod tests {
         let plain = notification(&p, Some(NotifyId(Word(9))), ServerCaps::NONE, None);
         assert_eq!(plain.body, "a < b & c");
         assert_eq!(plain.replaces, Some(NotifyId(Word(9))));
+    }
+
+    /// **Every notification names baud's desktop file** in `desktop-entry`, its
+    /// name without `.desktop` -- the file `packaging/linux` installs and the
+    /// launcher's URI names -- whatever application name a program gave, so a
+    /// server shows baud's icon where the program named none. Perturbation:
+    /// leave the hint out -- no hint names the entry.
+    #[test]
+    fn a_notification_names_baud_s_desktop_entry() {
+        use crate::notify::{Icons, Posted, ServerCaps};
+        use baud_domain::{BytePos, ReadLen, WinSize};
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut owned =
+            baud_core::Owned::new(&ws).with_notices(baud_core::NoticeBudget::with_icon(1024));
+        let mut t = baud_core::Term::new(owned.storage(), &ws);
+        t.set_notice_support(crate::notify::support(
+            crate::notify::Setting::On,
+            crate::notify::Platform::Linux(ServerCaps::NONE),
+        ));
+        let b = "\x1b]99;;Done\x1b\\".as_bytes();
+        t.write_at(BytePos::ZERO, b);
+        t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        let p = t
+            .notices()
+            .map(|n| Posted::of(&n, &mut Icons::default()))
+            .next()
+            .expect("posted");
+        let n = notification(&p, None, ServerCaps::NONE, None);
+        assert!(
+            n.hints
+                .contains(&("desktop-entry", Hint::Str(DESKTOP_ENTRY.into()))),
+            "{:?}",
+            n.hints
+        );
+        assert_eq!(
+            LAUNCHER_URI,
+            format!("application://{DESKTOP_ENTRY}.desktop")
+        );
+        let file = format!(
+            "{}/../packaging/linux/{DESKTOP_ENTRY}.desktop",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        assert!(std::path::Path::new(&file).exists(), "{file}");
     }
 
     /// **iTerm2's subtitle opens the body as a paragraph of its own**, a
