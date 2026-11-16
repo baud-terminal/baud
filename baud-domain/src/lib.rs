@@ -198,6 +198,7 @@ mod merged_data {
     //! checks every one of the 1,114,112 codepoints against the two tries.
     include!(concat!(env!("OUT_DIR"), "/merged_data.rs"));
 }
+mod multicell;
 mod nrcs_data;
 mod placeholder;
 mod placeholder_data {
@@ -289,6 +290,7 @@ pub use line::*;
 pub use linebreak::*;
 pub use link_table::*;
 pub use merged::*;
+pub use multicell::*;
 pub use nrcs_data::*;
 #[cfg(feature = "alloc")]
 pub use owned_text::*;

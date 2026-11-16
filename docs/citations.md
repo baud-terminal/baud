@@ -5800,6 +5800,16 @@ kitty v0.49.2, kitty/simd-string.h -- blend\_pixel\_over\_straight and blend\_pi
 - **Copy:** not committed; cited by URL and sha256
 - **Cited in:** `baud-core/tests/kitty_animation.rs`, `baud-domain/src/image/frames.rs`, `docs/vt-coverage.md`
 
+<a id="kitty-text-sizing"></a>
+### kitty-text-sizing
+
+kitty: the text sizing protocol (OSC 66), v0.48.2. Kovid Goyal, 2026, kovidgoyal/kitty at v0.48.2 (GPL-3.0).
+
+- **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.48.2/docs/text-sizing-protocol.rst>
+- **sha256:** `98300c9d1cab5269ded5b378eb0043bbe40f7ea9e0472e1ddc8b8c8e5b2fda27` (25872 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/vt/text_size.rs`, `baud-domain/tests/text_size.rs`
+
 <a id="kitty-themes-rst"></a>
 ### kitty-themes-rst
 

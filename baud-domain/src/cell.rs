@@ -158,11 +158,13 @@ impl Content {
     }
 
     /// Whether this content may take a mark as a placeholder: U+10EEEE, or
-    /// a placeholder word. One compare each, the gate the cold attach path
+    /// a word in the placeholder range, which ends where a multicell
+    /// block's words begin. One compare each, the gate the cold attach path
     /// asks before anything else.
     #[inline(always)]
     pub fn is_placeholder_base(self) -> bool {
-        self.0 == crate::placeholder::PLACEHOLDER || self.0 >= Content::PLACEHOLDERS
+        self.0 == crate::placeholder::PLACEHOLDER
+            || self.0.wrapping_sub(Content::PLACEHOLDERS) < 1 << (3 * Content::FIELD)
     }
 }
 
@@ -896,9 +898,9 @@ impl PackedCell {
 /// change in the last code point never reached the bits that chose the slot.
 /// At 1024 slots that store refused 142 of Genesis 1:1-5's 146 points; this
 /// construction, [`LinkId::bucket`]'s, refuses none.
-const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
-const FIBONACCI: u64 = 0x9E37_79B9_7F4A_7C15;
+pub(crate) const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+pub(crate) const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+pub(crate) const FIBONACCI: u64 = 0x9E37_79B9_7F4A_7C15;
 
 /// Which interned cluster a cell's continuations live in, or none.
 ///
