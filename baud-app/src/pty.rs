@@ -1505,6 +1505,16 @@ impl Exec {
 /// relative one would make a folder's `bin/zsh` the shell of every window
 /// opened there; a bare `zsh` is unset as well. Empty is unset and not said.
 fn login_shell(program: Option<&str>, parent: &[(OsString, OsString)]) -> (String, Option<String>) {
+    login_shell_of(program, parent, passwd_shell)
+}
+
+/// [`login_shell`], with the account's password-database shell read by
+/// `account`, only when no `$SHELL` is taken.
+fn login_shell_of(
+    program: Option<&str>,
+    parent: &[(OsString, OsString)],
+    account: impl FnOnce() -> Option<String>,
+) -> (String, Option<String>) {
     if let Some(p) = program {
         return (p.to_string(), None);
     }
@@ -1513,7 +1523,7 @@ fn login_shell(program: Option<&str>, parent: &[(OsString, OsString)]) -> (Strin
         .find(|(k, _)| k.as_bytes() == b"SHELL")
         .map(|(_, v)| v)
         .filter(|v| !v.is_empty());
-    let system = || system_shell(passwd_shell().as_deref());
+    let system = || system_shell(account().as_deref());
     match set {
         Some(v) if v.as_bytes().first() == Some(&b'/') => match v.to_str() {
             Some(s) => (s.to_string(), None),
@@ -5483,10 +5493,12 @@ mod tests {
     /// **With no `$SHELL`, Linux starts the account's login shell**: the
     /// password database's shell for this user when it is absolute, else
     /// `/bin/sh`. macOS starts its own, `/bin/zsh`, whatever the entry
-    /// says. The control: with no `$SHELL` at all, the shell a window
-    /// starts is the one this reads.
+    /// says. With no `$SHELL` at all, a window given the entry
+    /// `/opt/fish/bin/fish` starts that, and one given none starts
+    /// `/bin/sh`; a `$SHELL` that is taken never reads the entry.
     #[test]
     fn with_no_shell_the_account_s_login_shell_starts() {
+        let fish = || Some("/opt/fish/bin/fish".to_string());
         #[cfg(not(target_os = "macos"))]
         {
             assert_eq!(
@@ -5496,13 +5508,71 @@ mod tests {
             assert_eq!(system_shell(Some("fish")), "/bin/sh", "not absolute");
             assert_eq!(system_shell(Some("")), "/bin/sh", "empty");
             assert_eq!(system_shell(None), "/bin/sh", "no entry");
+            assert_eq!(
+                login_shell_of(None, &env_of(&[]), fish).0,
+                "/opt/fish/bin/fish"
+            );
+            assert_eq!(
+                login_shell_of(None, &env_of(&[("SHELL", "zsh")]), fish),
+                ("/opt/fish/bin/fish".to_string(), Some("zsh".to_string())),
+                "refused, and the entry starts"
+            );
         }
         #[cfg(target_os = "macos")]
-        assert_eq!(system_shell(Some("/opt/fish/bin/fish")), "/bin/zsh");
+        {
+            assert_eq!(system_shell(Some("/opt/fish/bin/fish")), "/bin/zsh");
+            assert_eq!(login_shell_of(None, &env_of(&[]), fish).0, "/bin/zsh");
+        }
+        assert_eq!(login_shell_of(None, &env_of(&[]), || None).0, DEFAULT_SHELL);
         assert_eq!(
-            login_shell(None, &env_of(&[])).0,
-            system_shell(passwd_shell().as_deref())
+            login_shell_of(
+                None,
+                &env_of(&[("SHELL", "/bin/sh")]),
+                || -> Option<String> { panic!("the entry is read though $SHELL was taken") }
+            ),
+            ("/bin/sh".to_string(), None)
         );
+    }
+
+    /// **The account's entry is the password database's**: what
+    /// [`passwd_shell`] reads for this user is the seventh field
+    /// `getent passwd` prints for `id -u`.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_account_s_entry_is_the_password_database_s() {
+        let run = |p: &str, a: &[&str]| {
+            let o = std::process::Command::new(p).args(a).output().expect(p);
+            assert!(o.status.success(), "{p} {a:?}");
+            String::from_utf8(o.stdout)
+                .expect("UTF-8")
+                .trim_end()
+                .to_string()
+        };
+        let uid = run("id", &["-u"]);
+        let entry = run("getent", &["passwd", &uid]);
+        let shell = entry.split(':').nth(6).expect("a seventh field");
+        assert_eq!(passwd_shell().as_deref(), Some(shell));
+    }
+
+    /// The shell a window with no usable `$SHELL` starts on this host,
+    /// read without baud: `getent`'s entry when absolute, else `/bin/sh`;
+    /// on macOS `/bin/zsh`.
+    fn account_shell() -> String {
+        if cfg!(target_os = "macos") {
+            return "/bin/zsh".into();
+        }
+        let run = |p: &str, a: &[&str]| {
+            let o = std::process::Command::new(p).args(a).output().expect(p);
+            String::from_utf8(o.stdout)
+                .expect("UTF-8")
+                .trim_end()
+                .to_string()
+        };
+        let entry = run("getent", &["passwd", &run("id", &["-u"])]);
+        match entry.split(':').nth(6) {
+            Some(s) if s.starts_with('/') => s.into(),
+            _ => "/bin/sh".into(),
+        }
     }
 
     /// **A `$SHELL` that is not absolute is unset**, so the system's shell
@@ -5518,16 +5588,13 @@ mod tests {
         for shell in ["bin/zsh", "./zsh", "zsh"] {
             assert_eq!(
                 login_shell(None, &env_of(&[("SHELL", shell)])),
-                (
-                    system_shell(passwd_shell().as_deref()),
-                    Some(shell.to_string())
-                ),
+                (account_shell(), Some(shell.to_string())),
                 "SHELL={shell}, refused and said"
             );
         }
         assert_eq!(
             login_shell(None, &env_of(&[("SHELL", "")])),
-            (system_shell(passwd_shell().as_deref()), None),
+            (account_shell(), None),
             "empty is unset, and nothing to say"
         );
         assert_eq!(
@@ -5545,7 +5612,7 @@ mod tests {
         .expect("an exec");
         assert_eq!(
             exec.path.as_str(),
-            Some(system_shell(passwd_shell().as_deref()).as_str()),
+            Some(account_shell().as_str()),
             "what the child runs"
         );
     }
@@ -6380,10 +6447,7 @@ mod tests {
             .cloned()
             .collect();
         let e = Exec::of(None, &bare, off, crate::shell::SshEnv::Off, None).expect("an exec");
-        assert_eq!(
-            e.path.as_str(),
-            Some(system_shell(passwd_shell().as_deref()).as_str())
-        );
+        assert_eq!(e.path.as_str(), Some(account_shell().as_str()));
         let c = Exec::of(
             Some("true".into()),
             &parent,

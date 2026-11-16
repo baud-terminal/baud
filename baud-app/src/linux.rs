@@ -129,7 +129,7 @@ const SYNC_MAX: Duration = Duration::from_millis(33);
 
 /// How long the launch waits on the compositor for its globals and its
 /// outputs: two round trips, each well under a millisecond on the same
-/// machine and a network round trip apiece over waypipe, so only a
+/// machine and a network round trip apiece to a remote compositor, so only a
 /// compositor that has stopped answering reaches it.
 const LAUNCH_ANSWER: Duration = Duration::from_secs(10);
 

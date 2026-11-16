@@ -167,8 +167,8 @@ session() {
   # The app binds its wl_pointer when the seat has a pointer, and the seat
   # has one only once the pointer script's virtual pointer exists: the
   # script's first line waits, after that, for the app's
-  # wl_seat.get_pointer in sway's log after the session began (the first
-  # there, as `linux::trace` reads it), so no move or button reaches sway
+  # wl_seat.get_pointer in the compositor's log after the session began (the first
+  # there, as `linux::trace` reads it), so no move or button reaches the compositor
   # before the app can be sent it. libwayland writes an object as wl_seat@N
   # or, from 1.23, wl_seat#N. waitfor gives up after 10 s.
   { printf 'waitfor tail -n +%d sway.log | grep -q "wl_seat[@#][0-9]*[.]get_pointer("\n' $((from + 1)); cat; } |
