@@ -59,110 +59,110 @@ inputs = ["btop 1 full", "btop 1 incremental", "cat 1 full", "cat 1 incremental"
 
 [ingest.cat.x86_64]
 ir = { value = 7893514, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mw = { value = 64873, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mr = { value = 31633, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.llmr = { value = 7242, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mw = { value = 64846, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 64873" }
+d1-64.d1mr = { value = 31554, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 31633" }
+d1-64.llmr = { value = 7243, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-64.llmw = { value = 70, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mw = { value = 30727, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mr = { value = 26007, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.llmr = { value = 3616, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mw = { value = 30753, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mr = { value = 26009, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.llmr = { value = 3611, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 3616" }
 d1-128.llmw = { value = 35, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 
 [ingest.cat-cjk.x86_64]
 ir = { value = 20991199, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mw = { value = 23111, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mr = { value = 18099, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mw = { value = 23008, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 23111" }
+d1-64.d1mr = { value = 18171, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-64.llmr = { value = 5762, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 d1-64.llmw = { value = 70, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mw = { value = 12138, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mr = { value = 14817, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.llmr = { value = 2928, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mw = { value = 12023, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 12138" }
+d1-128.d1mr = { value = 15189, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.llmr = { value = 2927, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 2928" }
 d1-128.llmw = { value = 35, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 
 [ingest.less.x86_64]
-ir = { value = 777659, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mw = { value = 709, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mr = { value = 877, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.llmr = { value = 967, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.llmw = { value = 78, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mw = { value = 588, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mr = { value = 746, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.llmr = { value = 557, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+ir = { value = 777642, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 777659" }
+d1-64.d1mw = { value = 650, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 709" }
+d1-64.d1mr = { value = 850, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 877" }
+d1-64.llmr = { value = 971, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-64.llmw = { value = 79, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mw = { value = 577, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 588" }
+d1-128.d1mr = { value = 764, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.llmr = { value = 556, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 557" }
 d1-128.llmw = { value = 40, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 
 [ingest.git-log.x86_64]
-ir = { value = 7854749, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mw = { value = 67760, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mr = { value = 27602, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+ir = { value = 7854743, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 7854749" }
+d1-64.d1mw = { value = 67716, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 67760" }
+d1-64.d1mr = { value = 28040, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-64.llmr = { value = 8138, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 d1-64.llmw = { value = 70, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mw = { value = 32580, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mr = { value = 22356, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.llmr = { value = 4072, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mw = { value = 32652, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mr = { value = 22818, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.llmr = { value = 4068, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 4072" }
 d1-128.llmw = { value = 35, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 
 [ingest.vim.x86_64]
-ir = { value = 8715619, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mw = { value = 7888, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mr = { value = 7225, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.llmr = { value = 3160, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+ir = { value = 8715618, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 8715619" }
+d1-64.d1mw = { value = 7713, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 7888" }
+d1-64.d1mr = { value = 7099, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 7225" }
+d1-64.llmr = { value = 3154, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 3160" }
 d1-64.llmw = { value = 87, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mw = { value = 4977, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mr = { value = 6120, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.llmr = { value = 1708, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mw = { value = 5111, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mr = { value = 6202, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.llmr = { value = 1711, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-128.llmw = { value = 47, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 
 [ingest.btop.x86_64]
-ir = { value = 18113434, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mw = { value = 10644, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mr = { value = 16405, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.llmr = { value = 7709, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+ir = { value = 18113280, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 18113434" }
+d1-64.d1mw = { value = 10627, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 10644" }
+d1-64.d1mr = { value = 16303, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 16405" }
+d1-64.llmr = { value = 7710, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-64.llmw = { value = 79, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mw = { value = 4582, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mr = { value = 11548, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.llmr = { value = 3898, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mw = { value = 4602, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mr = { value = 11551, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.llmr = { value = 3888, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 3898" }
 d1-128.llmw = { value = 40, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 
 [frame.btop-1-full.x86_64]
-ir = { value = 3563372034, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.d1mw = { value = 10694049, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.d1mr = { value = 2128046, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.llmr = { value = 3248, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.llmw = { value = 101123, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.d1mw = { value = 5371847, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.d1mr = { value = 1441160, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.llmr = { value = 1959, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.llmw = { value = 50614, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+ir = { value = 3563372818, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-64.d1mw = { value = 10693115, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 10694049" }
+d1-64.d1mr = { value = 2126678, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 2128046" }
+d1-64.llmr = { value = 3246, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 3248" }
+d1-64.llmw = { value = 101115, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 101123" }
+d1-128.d1mw = { value = 5373737, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mr = { value = 1446758, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.llmr = { value = 1973, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.llmw = { value = 50611, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 50614" }
 
 [frame.btop-1-incremental.x86_64]
-ir = { value = 733055862, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.d1mw = { value = 2118730, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.d1mr = { value = 718142, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.llmr = { value = 3262, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.llmw = { value = 101117, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.d1mw = { value = 1070389, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.d1mr = { value = 483207, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.llmr = { value = 1968, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.llmw = { value = 50610, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+ir = { value = 733055971, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-64.d1mw = { value = 2119123, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-64.d1mr = { value = 724223, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-64.llmr = { value = 3257, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 3262" }
+d1-64.llmw = { value = 101123, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mw = { value = 1070107, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 1070389" }
+d1-128.d1mr = { value = 489596, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.llmr = { value = 1981, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.llmw = { value = 50605, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 50610" }
 
 [frame.cat-1-full.x86_64]
-ir = { value = 3596429297, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.d1mw = { value = 10875027, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.d1mr = { value = 3797803, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.llmr = { value = 3655, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.llmw = { value = 102330, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.d1mw = { value = 5609970, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.d1mr = { value = 3069611, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.llmr = { value = 2180, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.llmw = { value = 51237, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+ir = { value = 3596430178, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-64.d1mw = { value = 10869173, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 10875027" }
+d1-64.d1mr = { value = 3781815, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 3797803" }
+d1-64.llmr = { value = 3660, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-64.llmw = { value = 102333, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mw = { value = 5611990, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mr = { value = 3108758, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.llmr = { value = 2182, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.llmw = { value = 51239, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 
 [frame.cat-1-incremental.x86_64]
-ir = { value = 3550645427, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.d1mw = { value = 10643108, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.d1mr = { value = 3778923, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.llmr = { value = 3669, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-64.llmw = { value = 102333, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.d1mw = { value = 5491876, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.d1mr = { value = 3078897, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+ir = { value = 3550645927, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-64.d1mw = { value = 10632899, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 10643108" }
+d1-64.d1mr = { value = 3766971, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 3778923" }
+d1-64.llmr = { value = 3671, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-64.llmw = { value = 102335, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mw = { value = 5488157, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 5491876" }
+d1-128.d1mr = { value = 3089032, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-128.llmr = { value = 2188, set_in = "2026-11-15, x86_64", reason = "first baseline" }
-d1-128.llmw = { value = 51241, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.llmw = { value = 51234, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 51241" }

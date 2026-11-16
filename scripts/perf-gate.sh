@@ -162,13 +162,26 @@ fi
 
 # --- the build ---------------------------------------------------------------
 
+# **Every tree builds at one path.** The benches compile in the path of the
+# recordings they read (`CARGO_MANIFEST_DIR`), and a path of another length
+# moves the binary's layout: the simulated miss counts follow it by a few
+# percent on the small entries. So the tree's files (tracked, and new ones
+# git does not ignore) are copied, times kept, to one fixed place, and the
+# benches are built there, with that place's own target directory kept
+# between runs. `PERF_GATE_TREE` names another place.
+tree=${PERF_GATE_TREE:-${XDG_CACHE_HOME:-$HOME/.cache}/baud-perf-gate}
+rm -rf "$tree/src"
+mkdir -p "$tree/src"
+git -C "$root" ls-files -z --cached --others --exclude-standard |
+  tar --null -T - -C "$root" -cf - | tar -C "$tree/src" -xf -
+
 # Each bench a gate names, built once; ingest2 always, which the control
 # runs on.
 declare -A binof
 for b in ingest2 $(for p in $paths; do gate_get "$p" bench; done); do
   [ -z "${binof[$b]:-}" ] || continue
   echo "perf-gate: building the $b bench"
-  build=$(cargo bench -p baud-bench --bench "$b" --no-run 2>&1) || {
+  build=$(cd "$tree/src" && CARGO_TARGET_DIR="$tree/target" cargo bench -p baud-bench --bench "$b" --no-run 2>&1) || {
     printf '%s\n' "$build"
     echo "perf-gate: FAIL: the $b bench did not build"
     exit 1
@@ -176,7 +189,7 @@ for b in ingest2 $(for p in $paths; do gate_get "$p" bench; done); do
   bin=$(printf '%s\n' "$build" | sed -n "s/^ *Executable benches\/$b\.rs (\(.*\))\$/\1/p" | tail -n 1)
   case "$bin" in
   /*) ;;
-  *) bin="$root/$bin" ;;
+  *) bin="$tree/src/$bin" ;;
   esac
   [ -x "$bin" ] || {
     printf '%s\n' "$build"
