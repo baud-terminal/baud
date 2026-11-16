@@ -636,6 +636,63 @@ fn the_vt_coverage_partial_counts_equal_its_partial_rows() {
     );
 }
 
+/// Every row the paragraph after the legend names as carrying `partial` is
+/// at `partial`: a mnemonic in that paragraph's list that begins some row's
+/// name is a mnemonic of a `partial` row's name. A mnemonic that names no
+/// row, a format or a protocol, is not a row's name and is passed over.
+#[test]
+fn every_row_the_partial_paragraph_names_is_partial() {
+    let (name, src) = &coverage_files()[0];
+    assert_eq!(name, "vt-coverage.md");
+    let start = src
+        .find("The rows that carry it are")
+        .expect("the paragraph that names the partial rows");
+    let len = src[start..]
+        .find("each with its gap in its row.")
+        .expect("the end of the paragraph's list");
+    let paragraph = &src[start..start + len];
+
+    let legend = first_table(src);
+    // The first word of each row's name, and the mnemonics of each name
+    // whose next cell is at `partial`.
+    let mut named = BTreeSet::new();
+    let mut partial = BTreeSet::new();
+    for (n, line) in src.lines().enumerate() {
+        let l = line.trim();
+        if !l.starts_with('|') || legend.contains(&n) {
+            continue;
+        }
+        let row = l.replace("\\|", "");
+        let cells: Vec<&str> = row.trim_matches('|').split('|').collect();
+        if cells.len() >= 3 {
+            if let Some(first) = cells[1].split_whitespace().next() {
+                named.insert(first.trim_end_matches(':').to_string());
+            }
+        }
+        for pair in cells.windows(2) {
+            if matches!(unfinished(pair[1]), Some((Unfinished::Partial, _))) {
+                partial.extend(mnemonics(pair[0]));
+            }
+        }
+    }
+    let checked: Vec<String> = mnemonics(paragraph)
+        .into_iter()
+        .filter(|m| named.contains(m))
+        .collect();
+    // The floors guard the reading: rows the paragraph names are found.
+    for floor in ["DECRC", "BDSM"] {
+        assert!(
+            checked.iter().any(|m| m == floor),
+            "{floor} not read from the paragraph: {checked:?}"
+        );
+    }
+    let wrong: Vec<&String> = checked.iter().filter(|m| !partial.contains(*m)).collect();
+    assert!(
+        wrong.is_empty(),
+        "the paragraph names rows that are not at partial: {wrong:?}"
+    );
+}
+
 /// `input-coverage.md` states its count, and it equals its rows.
 #[test]
 fn the_input_coverage_partial_count_equals_its_partial_rows() {

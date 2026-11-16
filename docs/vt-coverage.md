@@ -67,7 +67,7 @@ table in this file and is passed over by its place, not its words; it must
 hold the five statuses and nothing else. The test reads a status in a bold
 cell as it reads a bare one, and reads `input-coverage.md` as it reads this
 file.
-The rows that carry it are DECSC, DECRC and the DEC Special Graphics glyph
+The rows that carry it are DECRC and the DEC Special Graphics glyph
 table, and
 five DEC character set rows: JIS-Roman, DEC
 Technical, the three VT500 supplementals, DEC Cyrillic, and SCS and Russian
