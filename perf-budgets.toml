@@ -1,0 +1,109 @@
+# **The deterministic counter gate's baselines** (`scripts/perf-gate.sh`).
+#
+# Each entry is keyed `[<path>.<input>.<isa>]`: the hot path, the bench
+# input that reaches it, and the ISA whose instruction stream was counted.
+# Its figures are callgrind's counts inside the path's function, one rep of
+# the input: `ir`, instructions, the same at both simulated geometries; and
+# per geometry (`d1-64`, `d1-128`, the simulated line size) `d1mw`, D1 write
+# misses, `d1mr`, D1 read misses, `llmr`, LL read misses (instruction and
+# data), and `llmw`, LL write misses. Each carries its `value`, `set_in` (a
+# dated note) and `reason`.
+#
+# Only `--update` writes a figure. A passing run never moves one. A figure
+# that rose or is new is written with the reason the update was given, and
+# its commit says why and what was measured; a figure that fell is a
+# ratchet and needs only the figure.
+#
+# The simulated caches are the baseline host's, read from
+# /sys/devices/system/cpu/cpu0/cache/index*/: L1d 48 KiB, 12-way, 64 sets
+# of 64 B; L3 32 MiB, 16-way, 32768 sets of 64 B (the last level; the 1 MiB
+# 16-way L2 is not modelled). Both are simulated at a 64-byte line and again
+# at a 128-byte one, the same size and associativity. `d1` and `ll` are
+# `<size>,<associativity>`, and the script adds the line.
+#
+# `rustc` is the compiler the figures were counted from. A different one
+# changes the instruction stream, and the script says so beside its
+# verdicts.
+#
+# **The rendition sweep is not gated.** `sweep_styles_opt` runs when the
+# rendition table passes 7/8 of its load, and no input `ingest2` carries
+# fills it at one rep, with or without `BAUD_FROZEN=1`: callgrind counts no
+# call on any of them. It is gated once a bench feeds a recording that
+# crosses the load.
+d1 = "49152,12"
+ll = "33554432,16"
+rustc = "rustc 1.101.0-nightly (249c1e4e3 2026-11-05)"
+
+# Ingest: `ingest2`'s timed loop, `Term::feed` and everything it calls, a
+# `READ_CHUNK` at a time. `Term::feed` is inlined into it in a release
+# build, so the loop is the function a toggle can name.
+[gate.ingest]
+fn = "ingest2::timed"
+kind = "ingest"
+inputs = "cat cat-cjk less git-log vim btop"
+
+[ingest.cat.x86_64]
+ir = { value = 7893514, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mw = { value = 64873, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mr = { value = 31633, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.llmr = { value = 7242, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.llmw = { value = 70, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mw = { value = 30727, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mr = { value = 26007, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.llmr = { value = 3616, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.llmw = { value = 35, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+
+[ingest.cat-cjk.x86_64]
+ir = { value = 20991199, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mw = { value = 23111, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mr = { value = 18099, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.llmr = { value = 5762, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.llmw = { value = 70, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mw = { value = 12138, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mr = { value = 14817, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.llmr = { value = 2928, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.llmw = { value = 35, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+
+[ingest.less.x86_64]
+ir = { value = 777659, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mw = { value = 709, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mr = { value = 877, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.llmr = { value = 967, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.llmw = { value = 78, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mw = { value = 588, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mr = { value = 746, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.llmr = { value = 557, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.llmw = { value = 40, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+
+[ingest.git-log.x86_64]
+ir = { value = 7854749, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mw = { value = 67760, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mr = { value = 27602, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.llmr = { value = 8138, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.llmw = { value = 70, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mw = { value = 32580, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mr = { value = 22356, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.llmr = { value = 4072, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.llmw = { value = 35, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+
+[ingest.vim.x86_64]
+ir = { value = 8715619, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mw = { value = 7888, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mr = { value = 7225, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.llmr = { value = 3160, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.llmw = { value = 87, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mw = { value = 4977, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mr = { value = 6120, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.llmr = { value = 1708, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.llmw = { value = 47, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+
+[ingest.btop.x86_64]
+ir = { value = 18113434, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mw = { value = 10644, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.d1mr = { value = 16405, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.llmr = { value = 7709, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-64.llmw = { value = 79, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mw = { value = 4582, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.d1mr = { value = 11548, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.llmr = { value = 3898, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+d1-128.llmw = { value = 40, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }

@@ -149,7 +149,11 @@ in
   # shell that opens none before its command
   # (`pty::tests::a_spawned_child_opens_its_controlling_terminal_by_dev_tty`).
   # macOS ships it at /bin/dash; a Linux host may have none.
-  ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dash ];
+  # valgrind, for the deterministic counter gate (`scripts/perf-gate.sh`, run
+  # by `test:perf-gate`), which counts instructions and simulated cache
+  # misses in the benches' timed loops through callgrind; nixpkgs marks it
+  # broken on aarch64-darwin, and the gate runs on x86-64 Linux.
+  ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dash pkgs.valgrind ];
 
   # **The release test build, kept warm while you work.** `warm-run` runs a
   # watcher in the foreground that runs
@@ -588,6 +592,18 @@ in
     "test:feature-suites" = {
       exec = "bash ./scripts/test-features.sh";
       after = [ "test:features" ];
+    };
+
+    # **The deterministic counter gate**: callgrind's instruction and
+    # simulated cache-miss counts in `ingest2`'s timed loop, one rep of each
+    # recording `perf-budgets.toml` names, against the baselines there,
+    # with an A/A per input and a wrong-name control (`scripts/perf-gate.sh`
+    # says what fails and what warns). The baselines are x86_64's, and on
+    # any other ISA it refuses. Run by hand (`devenv tasks run
+    # test:perf-gate`) and not in `enterTest`, as the feature suites are. No
+    # `after` edge: run alone, its failure is hard.
+    "test:perf-gate" = {
+      exec = "bash ./scripts/perf-gate.sh";
     };
 
     # release-plz writes CHANGELOG.md through `release-plz.toml`'s commit
