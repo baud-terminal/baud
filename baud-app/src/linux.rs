@@ -3165,14 +3165,13 @@ impl Driver {
         // again, and is said.
         let overflows = self.term.reply_counts().overflows;
         let drawn = self.term.images().generation();
-        // A record opens for the key as it is sent (`latency.rs`), and
-        // one that sent nothing is closed as such.
-        self.latency.key(|| None, crate::pty::host_now);
-        let outbox = &mut self.outbox;
-        let queued = crate::reads::input(&mut self.term, |t| t.key(k), |b| outbox.push(b));
-        if !queued {
-            self.latency.unsent();
-        }
+        // A record opens for a key typed as it is sent, and one that sent
+        // nothing is closed as such; a release does neither
+        // (`Latency::sent`).
+        let (term, outbox) = (&mut self.term, &mut self.outbox);
+        let queued = self.latency.sent(k.kind, crate::pty::host_now, || {
+            crate::reads::input(term, |t| t.key(k), |b| outbox.push(b))
+        });
         // An arrow key moved a ReGIS input cursor, or a key ended the input
         // and took it away: a frame.
         if self.term.images().generation() != drawn {

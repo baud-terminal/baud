@@ -778,7 +778,7 @@ mod tests {
             "nothing returns ahead of it"
         );
         assert!(
-            rest.contains("crate::reads::input(&mut self.term, |t| t.key(k), |b| outbox.push(b))"),
+            rest.contains("crate::reads::input(term, |t| t.key(k), |b| outbox.push(b))"),
             "it goes on to the core"
         );
     }

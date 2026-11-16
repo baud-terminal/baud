@@ -353,6 +353,34 @@ impl Latency {
         }
     }
 
+    /// **A key sent with its record**: a press or a repeat, a key typed,
+    /// opens a record ([`Latency::key`], handled at `now`) before `send`
+    /// encodes and queues it, and is closed as [`Latency::unsent`] when
+    /// `send` queued nothing. A release is no key typed: it opens no record,
+    /// and though it usually sends nothing it closes none either, where it
+    /// would close its own press's record, still waiting for the write the
+    /// turn makes after both. Returns what `send` returned.
+    ///
+    /// The Linux driver's: the macOS driver opens a record on a key down
+    /// alone, which its releases never reach.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn sent(
+        &mut self,
+        kind: baud_domain::KeyEventKind,
+        now: impl FnOnce() -> HostTime,
+        send: impl FnOnce() -> bool,
+    ) -> bool {
+        let typed = kind != baud_domain::KeyEventKind::Release;
+        if typed {
+            self.key(|| None, now);
+        }
+        let queued = send();
+        if typed && !queued {
+            self.unsent();
+        }
+        queued
+    }
+
     /// The reads a drain found, in order, by the reader's stamp on each:
     /// every written record with no `echo` takes the first read stamped at
     /// or after its `handled` -- a read that was already in the channel
@@ -625,6 +653,27 @@ mod tests {
         ($n:expr) => {
             Duration::from_micros($n)
         };
+    }
+
+    /// **A press and its release are one key, and the release takes
+    /// nothing from it**: the press sends and opens a record, the release
+    /// sends nothing and opens none, and the write the turn makes after
+    /// both stamps the press's record. A press that sends nothing is closed
+    /// as never written. A repeat is a key typed, as the press is.
+    #[test]
+    fn a_release_neither_opens_a_record_nor_closes_its_press() {
+        use baud_domain::KeyEventKind::{Press, Release, Repeat};
+        let mut l = Latency::new(Switch::On);
+        assert!(l.sent(Press, || t(us!(10)), || true));
+        assert!(!l.sent(Release, || t(us!(20)), || false));
+        assert_eq!(l.open(), Tally::of(1), "one key, one record");
+        l.written(|| t(us!(30)));
+        let r = |l: &Latency, i: usize| l.on.as_ref().map(|j| j.records[i].written);
+        assert_eq!(r(&l, 0), Some(Written::At(t(us!(30)))), "the press's write");
+        assert!(!l.sent(Press, || t(us!(40)), || false));
+        assert_eq!(r(&l, 1), Some(Written::Never), "a press that sent nothing");
+        assert!(l.sent(Repeat, || t(us!(50)), || true));
+        assert_eq!(l.open(), Tally::of(3), "a repeat is a key");
     }
 
     #[test]
