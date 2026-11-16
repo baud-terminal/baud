@@ -8803,6 +8803,62 @@ mod tests {
         );
     }
 
+    /// **An erase inside the lines written past the groups kept leaves the
+    /// line its writer named local dark, pinned as it is**: the shell's
+    /// verdict lit rows 0 to 4; writers past the groups kept wrote them
+    /// again, still to be named; row 2 is erased whole, and `ls` prints on
+    /// it; one batch asks for both, and the answer files them in the
+    /// worker's order (`answer`), `ls` named local first and then the lines
+    /// past the groups kept, not known. Before the answer row 2 is not
+    /// known: the erase took the shell's fact with its text, and no other
+    /// group's verdict lights `ls`'s line. After it every row is not known,
+    /// row 2 too: the hull still covers row 2 (`Probes::cut`), `ls`'s
+    /// local verdict holds it under the lines past the groups kept, and
+    /// their answer files it not known. An under-mark, never an over-mark.
+    /// Named breaks: the hull cut to its piece above the erase
+    /// (`outside(..).next()`) -- row 2 reads local after the answer; the
+    /// erase forgetting no fact (`Paths::forget_erased` doing nothing) --
+    /// row 2 reads local before it.
+    #[test]
+    fn an_erase_inside_the_lines_past_the_groups_kept_then_named_local_is_an_under_mark() {
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        let rows = LineSpan::of(line(0), line(4));
+        let row2 = LineSpan::of(line(2), line(2));
+        paths.written_under(crate::paths::Seen::Named(Front::Local), rows);
+        pr.lit.set(Some(1), rows);
+        pr.unnamed = Some(rows);
+        pr.publish(&mut paths);
+        erased_by(&mut pr, &mut paths, b"\x1b[3;1H\x1b[2K");
+        assert_eq!(pr.unnamed, Some(rows), "the hull after the erase");
+        pr.read_taken(&mut paths, Writers::at(Some(2)), row2, Linked::No);
+        assert_eq!(paths.origin(line(2)), Origin::Unknown, "before the answer");
+        let id = Id::default();
+        let seen = core::mem::take(&mut pr.seen);
+        assert_eq!(seen, [(2, row2)], "ls kept with its line");
+        let hull = pr.unnamed.take();
+        let asked = seen.iter().map(|&(g, l)| (Some(g), l));
+        for (g, l) in asked.chain(hull.map(|l| (None, l))) {
+            pr.inflight.push((id, g, l));
+        }
+        pr.publish(&mut paths);
+        pr.file_answered(
+            &mut paths,
+            (id, Kind::Screen),
+            &[
+                (Some(2), crate::paths::Seen::Named(Front::Local)),
+                (None, crate::paths::Seen::NotNamed),
+            ],
+            &[],
+        );
+        assert_eq!(
+            [0, 1, 2, 3, 4].map(|n| paths.origin(line(n))),
+            [Origin::Unknown; 5]
+        );
+    }
+
     /// **A line written while paths were off, floored when they come on and
     /// then erased whole, takes the writer after the erase**: with paths
     /// off, `ls` prints `/etc/passwd` on row 0, a read not kept; paths on
