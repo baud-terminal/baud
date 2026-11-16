@@ -19296,13 +19296,8 @@ impl Driver {
         // link takes its origin from the rows it covers, as the worker named
         // who wrote them; a remote program's `file://` link opens through
         // the ssh session the worker last read in front.
-        let decided = crate::link_layer::decide(
-            link,
-            &self.app.term,
-            &self.app.paths,
-            &self.app.uris,
-            self.app.probes.session(),
-        );
+        let decided =
+            crate::link_layer::decide(link, &self.app.term, &self.app.paths, &self.app.uris);
         let (uri, then) = match decided {
             // Asked again off the frame, and opened or said at a later tick.
             Decision::Path(p) => {

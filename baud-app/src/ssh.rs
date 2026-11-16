@@ -191,7 +191,6 @@ impl Destination {
     }
 
     /// The argument as typed.
-    #[cfg(test)]
     pub fn arg(&self) -> &OsStr {
         &self.arg
     }
@@ -220,7 +219,6 @@ impl SshDest {
     }
 
     /// Where it connects.
-    #[cfg(test)]
     pub fn dest(&self) -> &Destination {
         &self.dest
     }

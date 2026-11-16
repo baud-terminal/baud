@@ -1961,7 +1961,10 @@ pub fn preview_text(
 /// link admitted with the rules `paths` holds -- a link a rule takes
 /// shows its address as any other does -- and as `printed`, with where the
 /// program that printed it ran ([`crate::paths::Paths::printed`]): a
-/// `file://` link a click refuses for it says it won't open.
+/// `file://` link a click refuses for it says it won't open. A remote
+/// program's `file://` link a click opens on the machine of the ssh session
+/// `paths` holds names the window, by the session's destination as typed,
+/// and one it opens nothing for there says why ([`remote`]).
 pub fn preview_text_with(
     link: &Under,
     term: &Term<'_>,
@@ -1987,19 +1990,33 @@ pub fn preview_text_with(
         Under::Path(_) => *rules.path_act() == crate::rules::PathAct::Copy,
         Under::Osc8(_) | Under::Bare(_) => admitted.is_some_and(|t| t.action() == Action::Copy),
     };
-    let label = match (verdict, link) {
-        (Ok(()), _) if copies => "Copies  ".to_string(),
+    // A remote program's link a click opens on the session's machine: the
+    // session's destination as typed, where its window runs.
+    let window_on = match link {
+        Under::Path(_) => None,
+        Under::Osc8(_) | Under::Bare(_) => {
+            remote(uri, host, rules, origin_of(printed), paths.session())
+                .and_then(Result::ok)
+                .and(paths.session())
+                .map(|s| escaped(s.ssh().dest().arg().as_encoded_bytes()))
+        }
+    };
+    // A label too long for the room is cut to its first words.
+    let fitted = |long: String, short: &str| match long.len() + 12 <= room {
+        true => long,
+        false => short.to_string(),
+    };
+    let label = match (verdict, link, window_on) {
+        (Ok(()), _, _) if copies => "Copies  ".to_string(),
         // A path names no machine in its address: the bar says which one it
         // was found on.
-        (Ok(()), Under::Path(_)) => format!("On {}  ", crate::paths::MACHINE),
-        (Ok(()), _) => String::new(),
-        (Err(why), _) => {
-            let long = format!("Won't open, {}  ", refusal_words(why));
-            match long.len() + 12 <= room {
-                true => long,
-                false => "Won't open  ".to_string(),
-            }
-        }
+        (Ok(()), Under::Path(_), _) => format!("On {}  ", crate::paths::MACHINE),
+        (Ok(()), _, Some(on)) => fitted(format!("In a window on {on}  "), "In a window  "),
+        (Ok(()), _, None) => String::new(),
+        (Err(why), _, _) => fitted(
+            format!("Won't open, {}  ", refusal_words(why)),
+            "Won't open  ",
+        ),
     };
     let left = room.saturating_sub(label.len());
     Some(format!(
@@ -2011,7 +2028,8 @@ pub fn preview_text_with(
 /// **The bytes a link shows and whether a click opens it**: an `OSC 8`
 /// link's URI, or the text of a URI read from the cells, and the answer for
 /// it as a click's ([`admit_link`], with where the program that printed it
-/// ran, `printed`), then what `paths` found gone of one it
+/// ran, `printed`, or the window [`remote`] opens through the session
+/// `paths` holds), then what `paths` found gone of one it
 /// admits; none for an `OSC 8` slot whose link is gone. The look under
 /// the pointer, the hand and the preview read this, so none says a click
 /// opens what it refuses.
@@ -2024,7 +2042,11 @@ fn verdict<'a>(
 ) -> Option<(&'a [u8], Result<(), Refused>)> {
     let rules = paths.rules();
     let admitted = |uri: &[u8]| {
-        let t = admit_link(uri, host, rules, origin_of(printed))?;
+        let origin = origin_of(printed);
+        if let Some(window) = remote(uri, host, rules, origin, paths.session()) {
+            return window.map(|_| ());
+        }
+        let t = admit_link(uri, host, rules, origin)?;
         match paths.gone(&t) {
             Some(g) => Err(gone_refusal(&g)),
             None => Ok(()),
@@ -2106,15 +2128,15 @@ pub enum ClickOn<'l, 'a> {
 /// rows it covers ([`PathsAt::printed`]), the answer its look at rest took,
 /// never what is in front at the click. A `file://` link a program inside
 /// an ssh session printed opens on that session's machine instead, where
-/// [`opens_remotely`] says a click takes it there, through `session`, the
-/// ssh session in front.
+/// [`remote`] says a click takes it there, through the ssh session in
+/// front that `paths` holds ([`PathsAt::session`]), the one its look and
+/// its preview read.
 pub fn click_on<'l: 'a, 'a>(
     link: &'l Under,
     term: &'a Term<'_>,
     host: &MachineNames,
     rules: &Rules,
     paths: &dyn PathsAt,
-    session: Option<&crate::ssh::Session>,
 ) -> ClickOn<'l, 'a> {
     let uri = match link {
         Under::Path(p) => return ClickOn::Path(p),
@@ -2128,13 +2150,30 @@ pub fn click_on<'l: 'a, 'a>(
         },
     };
     let origin = origin_of(paths.printed(term, link));
-    if opens_remotely(uri, origin, rules) {
-        return ClickOn::Remote(remote_window(uri, host, rules, session), uri);
+    if let Some(window) = remote(uri, host, rules, origin, paths.session()) {
+        return ClickOn::Remote(window, uri);
     }
     match admit_link(uri, host, rules, origin) {
         Ok(t) => ClickOn::Admitted(t, uri),
         Err(why) => ClickOn::Refused(why, uri),
     }
+}
+
+/// **What a click on a remote program's `file://` link comes to**, where
+/// [`opens_remotely`] says the click takes it to another machine: the window
+/// that opens it on the machine of `session`, the ssh session in front, or
+/// why none opens ([`remote_window`]); none for a link judged as any other
+/// is ([`admit_link`]). The click, the preview, the look under the pointer
+/// and the look at rest all ask this, so none says a window opens where the
+/// click refuses.
+pub fn remote(
+    uri: &[u8],
+    host: &MachineNames,
+    rules: &Rules,
+    origin: crate::paths::LinkOrigin,
+    session: Option<&crate::ssh::Session>,
+) -> Option<Result<crate::rules::Run, Refused>> {
+    opens_remotely(uri, origin, rules).then(|| remote_window(uri, host, rules, session))
 }
 
 /// **Whether a click on `uri` opens it on another machine**: a `file:`
@@ -2209,7 +2248,7 @@ pub fn clicked(
     rules: &Rules,
     paths: &dyn PathsAt,
 ) -> Result<Click, Refused> {
-    match click_on(link, term, host, rules, paths, None) {
+    match click_on(link, term, host, rules, paths) {
         ClickOn::Admitted(t, _) => Ok(click(&t, paths)),
         ClickOn::Remote(Ok(_), _) => Ok(Click::Window),
         ClickOn::Refused(why, _) | ClickOn::Unreadable(why, _) | ClickOn::Remote(Err(why), _) => {

@@ -2257,9 +2257,6 @@ pub struct Probes<T> {
     click: Option<Id>,
     /// The group in front when the worker last named it not local.
     elsewhere: Option<Pid>,
-    /// **The session of the ssh in front**, as the worker's last answer
-    /// read it: none once another program is in front.
-    session: Option<Arc<crate::ssh::Session>>,
     /// The group last seen in front, at a read or a batch, and the group
     /// the program's folder in [`Paths`] was read for: a folder answered
     /// for another group than the one in front is not taken, and one kept
@@ -2378,7 +2375,6 @@ impl<T: Moment> Probes<T> {
             answered: Id::default(),
             click: None,
             elsewhere: None,
-            session: None,
             front_group: None,
             dir_key: None,
             dir_dropped: Owed::No,
@@ -2435,13 +2431,6 @@ impl<T: Moment> Probes<T> {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn started(&self) -> baud_render::Tally {
         self.started
-    }
-
-    /// **The session of the ssh in front**, as the worker last read it:
-    /// none while no ssh leads the group in front, for one that is no
-    /// session a file can be opened in, and once marks close.
-    pub fn session(&self) -> Option<&crate::ssh::Session> {
-        self.session.as_deref()
     }
 
     /// **A drain of reads was taken**, the cursor on `began` before the first
@@ -3517,8 +3506,13 @@ impl<T: Moment> Probes<T> {
                     Front::Elsewhere => self.elsewhere = a.group,
                     Front::Local | Front::Multiplexer => self.elsewhere = None,
                 }
-                // Moved, as the worker read it for the group it named.
-                self.session = a.session;
+                // Moved, as the worker read it for the group it named: what
+                // a remote program's `file://` link opens through, and so
+                // how it looks, read again on every row.
+                if s.paths.set_session(a.session) == Moved::Yes {
+                    s.lines.forget();
+                    turn.frame = Owed::Yes;
+                }
                 #[cfg(feature = "effect-probe")]
                 {
                     self.elsewhere_fronts += u64::from(front == Front::Elsewhere);
@@ -3852,7 +3846,6 @@ impl<T: Moment> Probes<T> {
         }
         self.slot = Slot::Closed;
         self.flight = None;
-        self.session = None;
         // Lines whose writer is still to be named never will be.
         for span in self.pending() {
             paths.written_under(crate::paths::Seen::NotNamed, span);
@@ -4488,8 +4481,11 @@ mod tests {
     }
 
     /// **Main reads no argv and runs no ssh**: `answers` takes the session
-    /// from the worker's answer and calls nothing of its own. Named break:
-    /// read the session in `answers`.
+    /// from the worker's answer and calls nothing of its own, and hands it
+    /// to the paths (`Paths::set_session`), where the click, the preview and
+    /// the look at rest read it, every row read again when it moves. Named
+    /// breaks: read the session in `answers`; keep the lines when it moves
+    /// -- a link lined under the session before stays lined.
     #[test]
     fn main_takes_the_session_with_no_call_of_its_own() {
         let src = include_str!("probe.rs");
@@ -4507,6 +4503,16 @@ mod tests {
         assert!(
             body.contains(concat!("a.", "session")),
             "the positive control: the session is taken"
+        );
+        // It is handed to the paths the click, the preview and the look at
+        // rest all read, and every row is read again when it moves.
+        assert!(
+            body.contains(concat!(
+                "if s.paths.set_session(a.session) == Moved::Yes {\n",
+                "                    s.lines.forget();\n",
+                "                    turn.frame = Owed::Yes;"
+            )),
+            "the session reaches the paths, and a move reads every row"
         );
     }
 

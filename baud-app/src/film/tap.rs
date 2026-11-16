@@ -468,8 +468,7 @@ impl Tap {
         ) else {
             return Opens::Nothing;
         };
-        let session = self.probes.session();
-        match crate::link_layer::decide(&under, term, &self.paths, &self.uris, session) {
+        match crate::link_layer::decide(&under, term, &self.paths, &self.uris) {
             Decision::Path(p) => {
                 let found = match self.paths.result(p.path()) {
                     Some(crate::paths::Probe::Exists) => {

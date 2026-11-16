@@ -2024,7 +2024,6 @@ impl Driver {
             self.uris.names(),
             self.uris.rules(),
             &self.seat.paths,
-            self.probes.session(),
         );
         match decided {
             // Asked again off the frame, and revealed or said on a later turn.

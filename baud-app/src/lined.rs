@@ -388,7 +388,7 @@ impl Reader for Uris {
 
     fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> crate::paths::Looked {
         let local = |_| crate::paths::LinkOrigin::given(crate::paths::Origin::Local);
-        crate::paths::Looked(self.read_marking(text, found, &local, &|_| Some(Mark::Line)))
+        crate::paths::Looked(self.read_marking(text, found, &local, None, &|_| Some(Mark::Line)))
     }
 
     fn marked(&mut self, uri: &[u8], _: At<'_>) -> Option<Mark> {
@@ -412,12 +412,16 @@ impl Uris {
     /// where the program that printed them ran ([`crate::link::admit_link`]),
     /// the most cautious over them, so a `file://` URI
     /// a click refuses is unmarked: a reader that knows which kinds have no
-    /// app, or which rules' commands are missing, strikes those.
+    /// app, or which rules' commands are missing, strikes those. One a
+    /// click opens on the machine of `session`, the ssh session in front,
+    /// is lined, and one it opens nothing for there is not
+    /// ([`crate::link::remote`]).
     pub fn read_marking(
         &mut self,
         text: Text<'_>,
         found: &mut Vec<Run>,
         origin: &dyn Fn((AbsLine, AbsLine)) -> crate::paths::LinkOrigin,
+        session: Option<&crate::ssh::Session>,
         mark: &dyn Fn(&Target<'_>) -> Option<Mark>,
     ) -> usize {
         let Text {
@@ -471,8 +475,15 @@ impl Uris {
                         }));
                     let bytes = core::mem::take(&mut self.bytes);
                     let lines = text.lines_of(&span);
-                    let admitted = admit_link(&bytes, self.names(), &self.rules, origin(lines));
-                    if let Some(m) = admitted.ok().and_then(|t| mark(&t)) {
+                    let by = origin(lines);
+                    let (names, rules) = (self.names(), &self.rules);
+                    let m = match crate::link::remote(&bytes, names, rules, by, session) {
+                        Some(window) => window.ok().map(|_| Mark::Line),
+                        None => admit_link(&bytes, names, rules, by)
+                            .ok()
+                            .and_then(|t| mark(&t)),
+                    };
+                    if let Some(m) = m {
                         found.push(Run {
                             units: span,
                             mark: m,
@@ -2047,11 +2058,11 @@ mod tests {
             crate::no_appkit::fn_body(layer, concat!("pub(crate) fn ", "decide<'l: 'a, 'a>("));
         assert!(
             open.contains(concat!(
-                "crate::link_layer::decide(\n            link,\n            &self.app.term,\n",
-                "            &self.app.paths,\n            &self.app.uris,\n"
+                "crate::link_layer::decide(link, &self.app.term, ",
+                "&self.app.paths, &self.app.uris);"
             )) && decide.contains(concat!(
                 "click_on(link, term, uris.",
-                "names(), uris.rules(), paths, session)"
+                "names(), uris.rules(), paths)"
             )),
             "a click admits against the name the lines do"
         );

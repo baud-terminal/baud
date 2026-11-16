@@ -1897,6 +1897,10 @@ pub struct Paths {
     /// lines: kept until the next, so the driver's spans are carried by the
     /// same lines ([`Paths::recut_span`]), and reused.
     recut: Vec<(LineSpan, LineSpan, Option<Fact>)>,
+    /// **The ssh session in front**, as the worker last read it
+    /// ([`Paths::set_session`]): what a remote program's `file://` link
+    /// opens through, for its click, its preview and its look at rest alike.
+    session: Option<std::sync::Arc<crate::ssh::Session>>,
 }
 
 /// **What was filed over one surface's lines**: each run of lines, sorted,
@@ -2045,8 +2049,9 @@ impl Paths {
     }
 
     /// **The worker stopped answering**: every mark goes, and none comes
-    /// again in this window.
+    /// again in this window, and no session is in front any more.
     pub fn close(&mut self) {
+        self.session = None;
         self.drop_all();
         self.marks = Marks::Closed;
         self.update_reads();
@@ -2100,6 +2105,22 @@ impl Paths {
         if self.reads != Reads::Yes {
             self.unread = Unread::Yes;
         }
+    }
+
+    /// **The ssh session in front, as the worker read it in an answer**:
+    /// none while no ssh leads the group in front, or for one that is no
+    /// session a file can be opened in. A session not equal to the one held
+    /// moves the generation, for a read of the link under the pointer to
+    /// read again, and is [`Moved::Yes`], for the caller to read every row
+    /// again (`Lines::forget`): a remote program's `file://` link opens, and
+    /// so looks, by it.
+    pub fn set_session(&mut self, session: Option<std::sync::Arc<crate::ssh::Session>>) -> Moved {
+        if self.session == session {
+            return Moved::No;
+        }
+        self.session = session;
+        self.generation = self.generation.next();
+        Moved::Yes
     }
 
     /// This machine's names, once read: what an `OSC 7` report must name,
@@ -4043,6 +4064,13 @@ pub trait PathsAt {
     fn strikes(&self) -> bool {
         false
     }
+
+    /// **The ssh session in front**, which a remote program's `file://`
+    /// link opens through (`link::remote`); none with no worker to have
+    /// read one.
+    fn session(&self) -> Option<&crate::ssh::Session> {
+        None
+    }
 }
 
 /// No printed paths: what every read had before them. The drivers read
@@ -4107,6 +4135,10 @@ impl PathsAt for Paths {
 
     fn rules(&self) -> &Rules {
         &self.rules
+    }
+
+    fn session(&self) -> Option<&crate::ssh::Session> {
+        self.session.as_deref()
     }
 
     fn at(
@@ -4232,12 +4264,15 @@ impl Reader for Links<'_> {
             // A plain `file://` URI a program not local, or not known,
             // printed on any of the lines it covers names its machine's
             // file: unmarked, as its click refuses it
-            // ([`crate::link::admit_link`]).
+            // ([`crate::link::admit_link`]), unless the click opens it on
+            // the session's machine ([`crate::link::remote`]).
             let surface = paths.surface(text.screen);
             let origin = |lines| paths.bare_origin(surface, lines);
             n += self
                 .uris
-                .read_marking(text, found, &origin, &|t| Some(paths.target_mark(t)));
+                .read_marking(text, found, &origin, PathsAt::session(paths), &|t| {
+                    Some(paths.target_mark(t))
+                });
         }
         match self.paths.reads {
             Reads::Yes => {
@@ -4259,7 +4294,14 @@ impl Reader for Links<'_> {
         // machine's file: unmarked, as its click refuses it.
         let surface = self.paths.surface(at.screen());
         let origin = self.paths.link_origin(surface, at.id(), uri, at.rows());
-        let Ok(t) = admit_link(uri, self.uris.names(), self.uris.rules(), origin) else {
+        let (names, rules) = (self.uris.names(), self.uris.rules());
+        // One its click opens on the session's machine is lined, and one
+        // that opens nothing there is not.
+        let session = PathsAt::session(&*self.paths);
+        if let Some(window) = crate::link::remote(uri, names, rules, origin, session) {
+            return window.ok().map(|_| Mark::Line);
+        }
+        let Ok(t) = admit_link(uri, names, rules, origin) else {
             // Refused while its rows' writer is still to be named: that
             // naming may admit it, and a `file://` link's file is asked.
             self.paths.refused_link(uri, at);
@@ -7407,11 +7449,10 @@ mod tests {
     }
 
     /// **What the click both drivers make does with the link at `row`'s
-    /// second cell** (`link::click_on`), every row of `bytes` written while
-    /// `front` was in front, `rules` set, this machine named [`HERE`] and
-    /// `session` the ssh session in front: `Ok` with what opening it on the
-    /// session's machine comes to, the window's argv or why none opens;
-    /// `Err` with the refusal of a link judged as any other is.
+    /// second cell** (`link::click_on`), on [`on_remote`]'s screen: `Ok`
+    /// with what opening it on the session's machine comes to, the window's
+    /// argv or why none opens; `Err` with the refusal of a link judged as
+    /// any other is.
     fn remote_click(
         rules: crate::rules::Rules,
         bytes: &[u8],
@@ -7419,12 +7460,104 @@ mod tests {
         session: Option<&crate::ssh::Session>,
         row: baud_domain::Row,
     ) -> Result<Result<Vec<String>, crate::link::Refused>, crate::link::Refused> {
-        use crate::link::{ClickOn, MachineNames, Spot, click_on, hovered};
+        use crate::link::{ClickOn, MachineNames, click_on};
+        let words = |run: crate::rules::Run| {
+            run.argv()
+                .iter()
+                .map(|w| w.to_str().expect("UTF-8").to_owned())
+                .collect()
+        };
+        on_remote(
+            rules,
+            bytes,
+            front,
+            session,
+            row,
+            |t, p, under| match click_on(under, t, &MachineNames::one(HERE), p.rules(), &*p) {
+                ClickOn::Remote(built, _) => Ok(built.map(words)),
+                ClickOn::Refused(why, _) => Err(why),
+                other => panic!("row {row:?}: {other:?}"),
+            },
+        )
+    }
+
+    /// **How the link at `row`'s second cell looks and what its click
+    /// does**, on [`on_remote`]'s screen: the line the scan draws on `row`
+    /// at rest, if any (`Links`, over every row), the preview's bar for a
+    /// wide row (`link::preview_text_with`), and the click (`link::clicked`,
+    /// both drivers' decision).
+    fn remote_look(
+        rules: crate::rules::Rules,
+        bytes: &[u8],
+        session: Option<&crate::ssh::Session>,
+        row: baud_domain::Row,
+    ) -> (
+        Option<crate::lined::Mark>,
+        String,
+        Result<crate::link::Click, crate::link::Refused>,
+    ) {
+        use crate::link::MachineNames;
+        on_remote(
+            rules,
+            bytes,
+            Front::Elsewhere,
+            session,
+            row,
+            |t, p, under| {
+                let mut uris = crate::lined::Uris::default();
+                uris.set_names(MachineNames::one(HERE));
+                uris.set_rules(p.rules().clone());
+                let mut l = Lines::default();
+                let _ = l.scan(
+                    t,
+                    at(),
+                    &mut Links {
+                        uris: &mut uris,
+                        urls: Turned::On,
+                        paths: &mut *p,
+                    },
+                );
+                let lit = l
+                    .lines()
+                    .iter()
+                    .any(|r| r.row == row)
+                    .then_some(crate::lined::Mark::Line);
+                let printed = p.printed(t, under);
+                let preview = crate::link::preview_text_with(
+                    under,
+                    t,
+                    &MachineNames::one(HERE),
+                    baud_domain::Cols::of_index(120),
+                    &*p,
+                    printed,
+                )
+                .expect("a preview");
+                let click =
+                    crate::link::clicked(under, t, &MachineNames::one(HERE), p.rules(), &*p);
+                (lit, preview, click)
+            },
+        )
+    }
+
+    /// **The screen `bytes` leave, every row written while `front` was in
+    /// front**, `rules` set, this machine named [`HERE`] and `session` the
+    /// ssh session in front as the worker read it (`Paths::set_session`),
+    /// handed to `f` with the link at `row`'s second cell.
+    fn on_remote<R>(
+        rules: crate::rules::Rules,
+        bytes: &[u8],
+        front: Front,
+        session: Option<&crate::ssh::Session>,
+        row: baud_domain::Row,
+        f: impl FnOnce(&Term<'_>, &mut Paths, &crate::link::Under) -> R,
+    ) -> R {
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
         let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
         p.set_rules(rules);
-        p.set_names(MachineNames::one(HERE));
+        p.set_names(crate::link::MachineNames::one(HERE));
+        let _ = p.set_session(session.cloned().map(std::sync::Arc::new));
         feed(&mut t, bytes);
         let last = baud_domain::Row::from_index(usize::from(WS.ws_row) - 1);
         p.written_under(
@@ -7434,24 +7567,14 @@ mod tests {
                 at().line(Rows::ZERO, last),
             ),
         );
-        let spot = Spot {
+        let spot = crate::link::Spot {
             scrolled: at(),
             back: Rows::ZERO,
             row,
             col: baud_domain::Col::at_index(1),
         };
-        let under = hovered(&t, spot).expect("a link under the cell");
-        let words = |run: crate::rules::Run| {
-            run.argv()
-                .iter()
-                .map(|w| w.to_str().expect("UTF-8").to_owned())
-                .collect()
-        };
-        match click_on(&under, &t, &MachineNames::one(HERE), p.rules(), &p, session) {
-            ClickOn::Remote(built, _) => Ok(built.map(words)),
-            ClickOn::Refused(why, _) => Err(why),
-            other => panic!("row {row:?}: {other:?}"),
-        }
+        let under = crate::link::hovered(&t, spot).expect("a link under the cell");
+        f(&t, &mut p, &under)
     }
 
     /// **A click on a remote program's `file://` link opens a window
@@ -7601,6 +7724,191 @@ mod tests {
                 "row {row}: [link.file] keeps its answer"
             );
         }
+    }
+
+    /// **A remote program's `file://` link a click opens on the session's
+    /// machine looks as that click acts**: under `[link.path] action =
+    /// "window"`, marked with `OSC 8` or written as plain text and named by
+    /// the destination as typed or as `ssh -G` resolved it, it draws its
+    /// line at rest and its preview names the window, `In a window on demo`,
+    /// not "Won't open". The control: the same link with no window
+    /// configured is refused by its click, draws no line and says it won't
+    /// open. Named breaks: judge the look with `admit_link` alone
+    /// (`link::verdict`, `Links::marked`, `Uris::read_marking`) -- the
+    /// preview says "Won't open" and no line is drawn while the click
+    /// opens; label an opening remote link as any other -- the preview names
+    /// no window.
+    #[test]
+    fn a_remote_link_the_click_opens_looks_and_previews_as_its_window() {
+        use crate::lined::Mark;
+        let session = demo_session();
+        for host in ["demo", "demo.example"] {
+            let uri = format!("file://{host}/srv/notes.md");
+            for (form, bytes) in [
+                ("OSC 8", format!(" {}", marked(&uri, "notes"))),
+                ("plain", format!(" {uri}")),
+            ] {
+                let row = baud_domain::Row::ZERO;
+                let (lit, preview, click) = remote_look(
+                    rules_of!(PATH_WINDOW),
+                    bytes.as_bytes(),
+                    Some(&session),
+                    row,
+                );
+                let what = format!("{host}, {form}: {preview:?}");
+                assert_eq!(click, Ok(crate::link::Click::Window), "{what}");
+                assert_eq!(lit, Some(Mark::Line), "{what}: no line at rest");
+                assert!(
+                    preview.starts_with("In a window on demo  "),
+                    "{what}: the preview names no window"
+                );
+                let (lit, preview, click) =
+                    remote_look(rules_of!(""), bytes.as_bytes(), Some(&session), row);
+                assert_eq!(
+                    (lit, preview.starts_with("Won't open"), click.is_err()),
+                    (None, true, true),
+                    "the control, no window configured: {what}"
+                );
+            }
+        }
+    }
+
+    /// **A remote program's `file://` link the click opens nothing for says
+    /// why, and draws no line**: with no session in front, naming this
+    /// machine (`localhost`, its name, the empty host), and with a path
+    /// that cannot reach the far end whole (a decoded control), the click
+    /// is refused and the preview gives that refusal in words, for either
+    /// form. The control: the destination as typed opens. Named break:
+    /// draw a remote link at rest whatever its window comes to -- a refused
+    /// one is lined.
+    #[test]
+    fn a_remote_link_the_click_refuses_says_why_in_its_preview() {
+        use crate::lined::Mark;
+        use crate::link::{Refused, refusal_words};
+        let session = demo_session();
+        for (uri, session, why) in [
+            ("file://demo/srv/a.md", None, Some(Refused::NoSession)),
+            (
+                "file://localhost/etc/hosts",
+                Some(&session),
+                Some(Refused::Elsewhere),
+            ),
+            (
+                "file://here.example/etc/hosts",
+                Some(&session),
+                Some(Refused::Elsewhere),
+            ),
+            (
+                "file:///etc/hosts",
+                Some(&session),
+                Some(Refused::Elsewhere),
+            ),
+            (
+                "file://demo/srv/a%0Ab.md",
+                Some(&session),
+                Some(Refused::Byte),
+            ),
+            ("file://demo/srv/a.md", Some(&session), None),
+        ] {
+            for (form, bytes) in [
+                ("OSC 8", format!(" {}", marked(uri, "it"))),
+                ("plain", format!(" {uri}")),
+            ] {
+                let row = baud_domain::Row::ZERO;
+                let (lit, preview, click) =
+                    remote_look(rules_of!(PATH_WINDOW), bytes.as_bytes(), session, row);
+                let what = format!("{uri}, {form}: {preview:?}");
+                match why {
+                    Some(why) => {
+                        assert_eq!(click, Err(why), "{what}");
+                        assert_eq!(lit, None, "{what}: a refused link is lined");
+                        assert!(
+                            preview.starts_with(&format!("Won't open, {}  ", refusal_words(why))),
+                            "{what}"
+                        );
+                    }
+                    None => assert_eq!(
+                        (lit, preview.starts_with("In a window on demo")),
+                        (Some(Mark::Line), true),
+                        "the control: {what}"
+                    ),
+                }
+            }
+        }
+    }
+
+    /// **The session moving moves the look**: a session the worker reads
+    /// in front is [`Moved::Yes`] and moves the generation the look under
+    /// the pointer is kept by, the same one again is neither, and a worker
+    /// that stops answering takes it away; once it goes, a scan that reads
+    /// every row again draws no line on the link it lined, and the preview
+    /// says no session is in front. Named breaks: keep the session through
+    /// `Paths::close` -- the preview still names a window; leave the
+    /// generation where it was -- the look under the pointer is not read
+    /// again.
+    #[test]
+    fn the_session_moving_moves_the_look() {
+        use crate::link::{MachineNames, Refused, refusal_words};
+        let session = demo_session();
+        let bytes = format!(" {}", marked("file://demo/srv/a.md", "a"));
+        on_remote(
+            rules_of!(PATH_WINDOW),
+            bytes.as_bytes(),
+            Front::Elsewhere,
+            None,
+            baud_domain::Row::ZERO,
+            |t, p, under| {
+                let mut uris = crate::lined::Uris::default();
+                uris.set_names(MachineNames::one(HERE));
+                uris.set_rules(p.rules().clone());
+                let read = |p: &mut Paths, uris: &mut crate::lined::Uris| {
+                    let mut l = Lines::default();
+                    let _ = l.scan(
+                        t,
+                        at(),
+                        &mut Links {
+                            uris: &mut *uris,
+                            urls: Turned::On,
+                            paths: &mut *p,
+                        },
+                    );
+                    let printed = p.printed(t, under);
+                    let preview = crate::link::preview_text_with(
+                        under,
+                        t,
+                        &MachineNames::one(HERE),
+                        baud_domain::Cols::of_index(120),
+                        &*p,
+                        printed,
+                    )
+                    .expect("a preview");
+                    (!l.lines().is_empty(), preview)
+                };
+                let kept = std::sync::Arc::new(session.clone());
+                let was = p.generation();
+                assert_eq!(p.set_session(Some(kept.clone())), Moved::Yes);
+                assert_ne!(p.generation(), was, "the generation moves");
+                let was = p.generation();
+                assert_eq!(p.set_session(Some(kept)), Moved::No, "the same session");
+                assert_eq!(p.generation(), was, "the same session moves nothing");
+                let (lit, preview) = read(&mut *p, &mut uris);
+                assert!(
+                    lit && preview.starts_with("In a window on demo"),
+                    "{preview:?}"
+                );
+                p.close();
+                assert!(PathsAt::session(&*p).is_none(), "closed with no session");
+                let (lit, preview) = read(&mut *p, &mut uris);
+                assert!(!lit, "lined with no session");
+                assert!(
+                    preview.starts_with(&format!(
+                        "Won't open, {}",
+                        refusal_words(Refused::NoSession)
+                    )),
+                    "{preview:?}"
+                );
+            },
+        );
     }
 
     /// **A row nothing was filed over is not known, everywhere**: with the
