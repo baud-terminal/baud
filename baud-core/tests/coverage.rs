@@ -151,6 +151,54 @@ fn every_done_row_is_mentioned_by_a_test() {
     );
 }
 
+/// The SM row's list names every mode with a `CSI <n> h` row at done or
+/// partial: a mode built and missing from SM's list reads as one SM ignores.
+#[test]
+fn the_sm_row_names_every_mode_set_mode_acts_on() {
+    let doc = fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/vt-coverage.md"
+    ))
+    .expect("docs/vt-coverage.md must be readable from the test");
+    let rows: Vec<Vec<&str>> = doc
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with('|'))
+        .map(|l| {
+            l.trim_matches('|')
+                .split('|')
+                .map(str::trim)
+                .collect::<Vec<_>>()
+        })
+        .filter(|c| c.len() >= 3)
+        .collect();
+    let sm = rows
+        .iter()
+        .find(|c| c[0] == "`CSI h`")
+        .expect("vt-coverage.md has an SM row");
+    // The list is the cell's text before its first bold sentence.
+    let listed = mnemonics(sm[2].split("**").next().unwrap_or(""));
+    let is_mode_row = |first: &str| {
+        first.split('`').any(|code| {
+            code.strip_prefix("CSI ")
+                .and_then(|r| r.strip_suffix(" h"))
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        })
+    };
+    let mut modes = BTreeSet::new();
+    for c in &rows {
+        if is_mode_row(c[0]) && (c[2].starts_with("done") || c[2].starts_with("**partial**")) {
+            modes.extend(mnemonics(c[1]));
+        }
+    }
+    assert!(
+        modes.len() >= 8,
+        "found only {modes:?}: the mode-row match is broken"
+    );
+    let missing: Vec<_> = modes.difference(&listed).collect();
+    assert!(missing.is_empty(), "the SM row does not name {missing:?}");
+}
+
 /// Numbers quoted in prose must match the table they describe.
 ///
 /// **This exists because the numbers went stale twice.** README, CLAUDE.md and
