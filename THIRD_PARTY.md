@@ -441,8 +441,9 @@ Licence:    The Open Group's notice (MIT, Open Group variant) (full text: L,
 ============================================================================
 15. xterm's charsets.h
 ============================================================================
-Used for:   DEC Special Graphics, DEC Supplemental and the National
-            Replacement Character Sets.
+Used for:   DEC Special Graphics, DEC Supplemental, DEC Hebrew Supplemental,
+            DEC Greek Supplemental and the National Replacement Character
+            Sets.
 Copyright:  Copyright 1996-2025,2026 by Thomas E. Dickey
             Copyright 1987, 1988 X Consortium
             Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
@@ -2272,7 +2273,7 @@ they were built from.
 - **From:** https://github.com/tinted-theming/tinted-xresources/blob/b97e7eca0fd20a80110f82d7485114db2387c368/xresources/base16-0x96f.Xresources
 - **Files:** [tests/themes/base16-0x96f.Xresources](tests/themes/base16-0x96f.Xresources), [tests/themes/base16-0x96f.cpp](tests/themes/base16-0x96f.cpp)
 
-### xterm's charsets.h, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file: the macros it compiles DEC Special Graphics, DEC Supplemental and the National Replacement Character Sets from, and checks the JIS sets against
+### xterm's charsets.h, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file: the macros it compiles DEC Special Graphics, DEC Supplemental, DEC Hebrew Supplemental, DEC Greek Supplemental and the National Replacement Character Sets from, and checks the JIS sets against
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11

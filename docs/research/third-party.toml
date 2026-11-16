@@ -2199,18 +2199,18 @@ upstream = "https://github.com/tinted-theming/tinted-xresources/blob/b97e7eca0fd
 status   = "kept"
 
 [[tree]]
-what     = "xterm's charsets.h, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file: the macros it compiles DEC Special Graphics, DEC Supplemental and the National Replacement Character Sets from, and checks the JIS sets against"
+what     = "xterm's charsets.h, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file: the macros it compiles DEC Special Graphics, DEC Supplemental, DEC Hebrew Supplemental, DEC Greek Supplemental and the National Replacement Character Sets from, and checks the JIS sets against"
 paths    = ["baud-domain/data/xterm-charsets.h"]
 licence  = "X11"
 notice   = "LICENSES/xterm-COPYING.txt"
 upstream = "docs/research/sources/xterm-charsets.h"
 status   = "kept"
-public   = "xterm's charsets.h, carried unmodified, which the build compiles into DEC Special Graphics, DEC Supplemental and the National Replacement Character Sets"
+public   = "xterm's charsets.h, carried unmodified, which the build compiles into DEC Special Graphics, DEC Supplemental, DEC Hebrew Supplemental, DEC Greek Supplemental and the National Replacement Character Sets"
 holder   = "Thomas E. Dickey (xterm)"
 
 [tree.credit]
 title     = "xterm's charsets.h"
-used      = "DEC Special Graphics, DEC Supplemental and the National Replacement Character Sets."
+used      = "DEC Special Graphics, DEC Supplemental, DEC Hebrew Supplemental, DEC Greek Supplemental and the National Replacement Character Sets."
 changes   = "Compiled into tables when baud is built; the files themselves are not included."
 
 [[tree.credit.text]]
