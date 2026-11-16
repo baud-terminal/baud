@@ -26,7 +26,10 @@
 //!    of a font package (a directory holding the OFL.txt, LICENSE or LICENCE
 //!    a row names as its notice) has a row or is that notice; a third-party
 //!    font's notice sits in the font's directory; and a notice in prose
-//!    that names a file names one beside its row's files (see `rowed`);
+//!    that names a file names one beside its row's files; every file under
+//!    a directory of `VENDORED` has a row or is a row's notice; and every
+//!    source file whose comments carry a licence notice has a row (see
+//!    `rowed`);
 //! 7. a [[tree]] entry whose notice is "in file", under a licence whose URI
 //!    this module knows, names that URI in each of its files: the URI is
 //!    what a Creative Commons licence asks a copy to carry, and a header
@@ -152,6 +155,41 @@ pub const PACKAGE_NOTICES: [&str; 3] = ["OFL.txt", "LICENSE", "LICENCE"];
 /// no unrowed file and pass.
 pub const FONTS_FLOOR: Count = Count(50);
 pub const PACKAGES_FLOOR: Count = Count(5);
+/// The directories that hold other works' files and where every file needs
+/// a row, baud's own under `own`, or is a row's notice: a file added under
+/// one without a row is one whose licence nothing records. Each holds a
+/// file a row other than `own` names.
+pub const VENDORED: [&str; 7] = [
+    "baud-app/fixtures/bash-preexec",
+    "baud-domain/data",
+    "baud-domain/tests/ijg",
+    "baud-font/data",
+    "baud-font/tests/fonts",
+    "baud-render/data",
+    "baud-wayland/protocols",
+];
+/// The tree holds at least this many source files whose comments carry a
+/// licence notice: the control for a notice pattern that stopped matching.
+pub const NOTICES_FLOOR: Count = Count(12);
+/// The files that record notices rather than carry one: the sidecar and
+/// the manifest quote the notices of the files they describe.
+pub const RECORDS: [&str; 2] = [SIDECAR, MANIFEST];
+
+/// A licence notice in a comment: an SPDX identifier, or a copyright line
+/// spelled with `(c)`, `(C)` or the copyright sign.
+static NOTICE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"SPDX-License-Identifier:|Copyright (?:\([cC]\)|\x{a9})")
+        .expect("the notice pattern")
+});
+
+/// The first comment line of `text`, read as the source `path` is, that
+/// carries a licence notice.
+fn notice_line<'a>(path: &str, text: &'a str) -> Option<&'a str> {
+    text.lines()
+        .filter_map(|l| crate::comments::comment(path, l))
+        .find(|c| NOTICE.is_match(c))
+        .map(str::trim)
+}
 
 /// The URI a Creative Commons or document licence asks a copy to carry.
 pub fn licence_uri(spdx: &str) -> Option<&'static str> {
@@ -453,7 +491,25 @@ pub fn rowed(root: &Path, side: &Side, files: &[String]) -> (Vec<String>, Count)
         }
     }
     let mut fonts = Count(0);
+    let mut noticed = Count(0);
     for f in files {
+        if crate::comments::commented(f) && !RECORDS.contains(&f.as_str()) {
+            let text = fs::read(root.join(f)).unwrap_or_default();
+            if let Some(line) = notice_line(f, &String::from_utf8_lossy(&text)) {
+                noticed.0 += 1;
+                if !named.contains(f) {
+                    errs.push(format!(
+                        "{f} carries a licence notice ({line}) and no row of {SIDECAR} names it"
+                    ));
+                }
+            }
+        }
+        let vendored = VENDORED.iter().find(|d| f.starts_with(&format!("{d}/")));
+        if let Some(dir) = vendored.filter(|_| !named.contains(f) && !notices.contains(f)) {
+            errs.push(format!(
+                "{f} is in {dir}, where every file needs a row, and no row of {SIDECAR} names it"
+            ));
+        }
         if is_font(f) {
             fonts.0 += 1;
             if !named.contains(f) {
@@ -476,6 +532,28 @@ pub fn rowed(root: &Path, side: &Side, files: &[String]) -> (Vec<String>, Count)
             "the tree lists {} fonts, fewer than {}: the listing or the match has stopped working, \
              or the floor is stale",
             fonts.0, FONTS_FLOOR.0
+        ));
+    }
+    for dir in VENDORED {
+        let prefix = format!("{dir}/");
+        let held = side
+            .tree
+            .iter()
+            .filter(|t| t.status != "own")
+            .flat_map(|t| t.paths.iter())
+            .any(|p| p.starts_with(&prefix) && files.iter().any(|f| f == p));
+        if !held {
+            errs.push(format!(
+                "{dir} is in VENDORED and holds no file a row other than `own` names: \
+                 the list is stale"
+            ));
+        }
+    }
+    if noticed.0 < NOTICES_FLOOR.0 {
+        errs.push(format!(
+            "the tree holds {} source files with a licence notice, fewer than {}: the match has \
+             stopped working, or the floor is stale",
+            noticed.0, NOTICES_FLOOR.0
         ));
     }
     if packages.len() < PACKAGES_FLOOR.0 {

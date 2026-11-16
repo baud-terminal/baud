@@ -41,6 +41,10 @@ pub const LICENCE: &str = include_str!("../../../LICENSE");
 /// The fixture's fonts and font packages: the floors of the row checks.
 pub const FONTS: usize = 50;
 pub const PACKAGES: usize = 5;
+/// The fixture's sources carrying a licence notice: the notice floor.
+pub const NOTICED: usize = 12;
+/// What each of them opens with.
+pub const PORTED: &str = "// Copyright (c) 2026 Example Authors\n// SPDX-License-Identifier: MIT\n";
 /// What the READMEs must say, as a reader sees it, line breaks included.
 pub const README: &str = "# baud\n\nFonts and other projects' files keep their own licences,\n\
     which sit next to them or in LICENSES/, and [THIRD_PARTY.md](THIRD_PARTY.md) lists each\n\
@@ -97,7 +101,37 @@ pub fn sidecar() -> String {
          [[tree]]\nwhat     = \"A transcribed font file\"\nlicence  = \"MIT\"\nnotice   = \"LICENSES/MIT.txt\"\n\
          upstream = \"https://example.org/font\"\nstatus   = \"kept\"\npaths    = [\"baud-font/src/f00.rs\"]\n{}",
         sha256::hex(MIT.as_bytes()),
-        font_rows()
+        font_rows() + &other_rows()
+    )
+}
+
+/// The file the fixture holds in each directory of other works' files.
+pub fn vendored(dir: &str) -> String {
+    format!("{dir}/data.bin")
+}
+
+/// The fixture's source carrying a licence notice, number `n`.
+pub fn ported(n: usize) -> String {
+    format!("ports/p{n:02}.rs")
+}
+
+fn quoted(paths: impl Iterator<Item = String>) -> String {
+    paths
+        .map(|p| format!("\"{p}\""))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The rows of the fixture's other works' files and of its sources
+/// carrying a licence notice.
+fn other_rows() -> String {
+    format!(
+        "\n[[tree]]\nwhat     = \"Other works' data\"\nlicence  = \"MIT\"\nnotice   = \"LICENSES/MIT.txt\"\n\
+         upstream = \"https://example.org/data\"\nstatus   = \"kept\"\npaths    = [{}]\n\
+         \n[[tree]]\nwhat     = \"Ported sources\"\nlicence  = \"MIT\"\nnotice   = \"LICENSES/MIT.txt\"\n\
+         upstream = \"https://example.org/ports\"\nstatus   = \"kept\"\npaths    = [{}]\n",
+        quoted(third_party::VENDORED.iter().map(|d| vendored(d))),
+        quoted((0..NOTICED).map(ported)),
     )
 }
 
@@ -249,6 +283,12 @@ pub fn base() -> Tree {
         "assets/pic.txt",
         &format!("A picture. Licensed under {CC_BY}.\n"),
     );
+    for dir in third_party::VENDORED {
+        t.put(&vendored(dir), "data\n");
+    }
+    for n in 0..NOTICED {
+        t.put(&ported(n), PORTED);
+    }
     t.put("baud-font/PROVENANCE.md", &provenance());
     for n in 0..32 {
         t.put(&format!("baud-font/src/f{n:02}.rs"), "// a font file\n");
@@ -756,6 +796,58 @@ pub fn third_party_cases() -> Vec<Case> {
             gate: Gate::ThirdParty,
             apply: |t| t.put("baud-app/README.md", "# baud\n"),
             expect: "  FAIL baud-app/README.md does not say 'This software is based in part on the work of the Independent JPEG Group'",
+        },
+        Case {
+            name: "a file with no row among other works' files",
+            gate: Gate::ThirdParty,
+            apply: |t| t.put("baud-domain/tests/ijg/new.jpg", "an image\n"),
+            expect: "  FAIL baud-domain/tests/ijg/new.jpg is in baud-domain/tests/ijg, where every file needs a row, and no row of docs/research/third-party.toml names it",
+        },
+        Case {
+            name: "a file with no row deeper among other works' files",
+            gate: Gate::ThirdParty,
+            apply: |t| t.put("baud-wayland/protocols/staging/new.xml", "<protocol/>\n"),
+            expect: "  FAIL baud-wayland/protocols/staging/new.xml is in baud-wayland/protocols, where every file needs a row, and no row",
+        },
+        Case {
+            name: "a source with a copyright line and no row",
+            gate: Gate::ThirdParty,
+            apply: |t| {
+                t.put(
+                    "tools/new.rs",
+                    "//! A port.\n//! Copyright (c) 2031 Someone\npub fn f() {}\n",
+                )
+            },
+            expect: "  FAIL tools/new.rs carries a licence notice (Copyright (c) 2031 Someone) and no row of docs/research/third-party.toml names it",
+        },
+        Case {
+            name: "a source with the copyright sign and no row",
+            gate: Gate::ThirdParty,
+            apply: |t| t.put("tools/sign.rs", "// Copyright \u{a9} 2031 Someone\n"),
+            expect: "  FAIL tools/sign.rs carries a licence notice (Copyright \u{a9} 2031 Someone) and no row",
+        },
+        Case {
+            name: "a script with an SPDX line and no row",
+            gate: Gate::ThirdParty,
+            apply: |t| {
+                t.put(
+                    "scripts/new.sh",
+                    "#!/bin/sh\n# SPDX-License-Identifier: MIT\n",
+                )
+            },
+            expect: "  FAIL scripts/new.sh carries a licence notice (SPDX-License-Identifier: MIT) and no row",
+        },
+        Case {
+            name: "fewer sources with a notice than the floor",
+            gate: Gate::ThirdParty,
+            apply: |t| t.put(&ported(0), "// a port\n"),
+            expect: "  FAIL the tree holds 11 source files with a licence notice, fewer than 12",
+        },
+        Case {
+            name: "a directory of other works' files that no row names a file in",
+            gate: Gate::ThirdParty,
+            apply: |t| t.remove(&vendored("baud-render/data")),
+            expect: "  FAIL baud-render/data is in VENDORED and holds no file a row other than `own` names",
         },
         Case {
             name: "a font with no row",

@@ -217,6 +217,11 @@ fn marker(path: &str) -> Option<Marker> {
     }
 }
 
+/// Whether `path` is a source whose whole-line comments `comment` reads.
+pub fn commented(path: &str) -> bool {
+    marker(path).is_some()
+}
+
 /// The text of a whole-line comment in `path`, its marker taken off, or
 /// `None` when the line is not one.
 pub fn comment<'a>(path: &str, line: &'a str) -> Option<&'a str> {

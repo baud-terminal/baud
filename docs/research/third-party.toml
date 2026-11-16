@@ -14,6 +14,10 @@
 #   - a font in the tree has no row (baud's own go under `own`), a file of a
 #     font package has none and is not its notice, or a third-party font's
 #     notice is not in its directory;
+#   - a file under a directory where every file needs a row
+#     (third_party::VENDORED) has no row and is no row's notice, or a source whose comments carry a
+#     licence notice (an SPDX-License-Identifier line, or Copyright (c) or
+#     Copyright with the copyright sign) has no row;
 #   - THIRD_PARTY.md is not what this file and the manifest generate.
 #
 # So a source added to the manifest needs its row here in the same commit.

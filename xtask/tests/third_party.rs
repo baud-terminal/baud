@@ -42,8 +42,35 @@ fn the_base_tree_passes() {
     assert_eq!(o, Outcome::Passed, "{out}");
     assert_eq!(
         out,
-        "  ok   1 sources and 8 other entries indexed, 1 licence texts, 55 fonts\n"
+        "  ok   1 sources and 10 other entries indexed, 1 licence texts, 55 fonts\n"
     );
+}
+
+/// A notice that is not in a source's comment is no file's notice: a
+/// string holding one, and a document quoting one, need no row.
+#[test]
+fn a_notice_outside_a_source_comment_needs_no_row() {
+    let t = base();
+    t.put(
+        "tools/quotes.rs",
+        "fn f(s: &str) -> bool {\n    s.contains(\"Copyright (c) 2031 Someone\")\n}\n",
+    );
+    t.put("docs/quotes.md", "Copyright (c) 2031 Someone\n");
+    let (o, out) = t.third_party();
+    assert_eq!(o, Outcome::Passed, "{out}");
+}
+
+/// The repository's own sources and directories of other works' files
+/// meet the row checks: what `rowed` finds wrong in the tracked tree,
+/// with the fonts and the notices at or above their floors.
+#[test]
+fn the_repository_rows_its_notices_and_other_works_files() {
+    let root = credits::root_of(env!("CARGO_MANIFEST_DIR"));
+    let table = third_party::load(&root, third_party::SIDECAR).expect("the sidecar reads");
+    let side = Side::of(&table).expect("the sidecar parses");
+    let files = xtask::no_python::tracked(&root).expect("git ls-files");
+    let (errs, _) = third_party::rowed(&root, &side, &files);
+    assert!(errs.is_empty(), "{errs:#?}");
 }
 
 #[test]
