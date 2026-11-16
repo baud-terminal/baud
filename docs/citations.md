@@ -1326,6 +1326,17 @@ UIDesignRequiresCompatibility -- the compatibility mode shows an app as built ag
 - **Copy:** not committed; cited by URL and sha256
 - **Cited in:** `baud-app/src/sdk_gates.rs`
 
+<a id="apple-unerror-code"></a>
+### apple-unerror-code
+
+UNError.Code -- the notification errors. Apple Inc., 2026, developer.apple.com documentation (JSON endpoint).
+
+- **URL:** <https://developer.apple.com/tutorials/data/documentation/usernotifications/unerror/code.json>
+- **sha256:** `b7b61a3655f1220359936f2bea4c7c6fe99f7aebb8b70da4a828f588fcd7b231` (29688 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Read:** 2026-10-21
+- **Cited in:** `baud-present-macos/src/notify.rs`
+
 <a id="apple-unnotificationattachment"></a>
 ### apple-unnotificationattachment
 
@@ -5528,7 +5539,7 @@ Terminal graphics protocol. Kovid Goyal, 2025, kitty documentation.
 - **URL:** <https://sw.kovidgoyal.net/kitty/graphics-protocol/>
 - **sha256:** `1e7c751498e93ea358d8d611aa3da824b9c91afc815447fca343a9b2146a4a32` (300190 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/examples/demo/session.rs`, `baud-app/src/film/mpv.rs`, `baud-app/src/film/mpv/capture.rs`, `baud-app/src/host.rs`, `baud-app/src/kitty_files.rs`, `baud-core/src/graph.rs`, `baud-core/src/hardcopy.rs`, `baud-core/src/kitty.rs`, `baud-core/src/osc.rs`, `baud-core/src/storage.rs`, `baud-core/src/term.rs`, `baud-core/tests/hardcopy.rs`, `baud-core/tests/kitty_animation.rs`, `baud-core/tests/kitty_cursor.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/kitty_per_cell.rs`, `baud-core/tests/kitty_placeholder.rs`, `baud-core/tests/kitty_records.rs`, `baud-core/tests/kitty_refused.rs`, `baud-core/tests/kitty_relative.rs`, `baud-core/tests/line_rendition.rs`, `baud-domain/build/placeholder.rs`, `baud-domain/src/image.rs`, `baud-domain/src/image/frames.rs`, `baud-domain/src/kitty.rs`, `baud-domain/src/placeholder.rs`, `baud-domain/src/zlib.rs`, `baud-domain/tests/image_store.rs`, `baud-domain/tests/kitty_graphics.rs`, `baud-domain/tests/placeholder.rs`, `baud-present-macos/tests/cells.rs`, `baud-render/src/cellmap.rs`, `baud-render/src/color.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/kitty_draw.rs`, `baud-render/tests/kitty_placeholder.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-app/examples/demo/session.rs`, `baud-app/src/film/mpv.rs`, `baud-app/src/film/mpv/capture.rs`, `baud-app/src/host.rs`, `baud-app/src/kitty_files.rs`, `baud-app/src/reads.rs`, `baud-core/src/graph.rs`, `baud-core/src/hardcopy.rs`, `baud-core/src/kitty.rs`, `baud-core/src/osc.rs`, `baud-core/src/storage.rs`, `baud-core/src/term.rs`, `baud-core/tests/hardcopy.rs`, `baud-core/tests/kitty_animation.rs`, `baud-core/tests/kitty_cursor.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/kitty_per_cell.rs`, `baud-core/tests/kitty_placeholder.rs`, `baud-core/tests/kitty_records.rs`, `baud-core/tests/kitty_refused.rs`, `baud-core/tests/kitty_relative.rs`, `baud-core/tests/line_rendition.rs`, `baud-domain/build/placeholder.rs`, `baud-domain/src/image.rs`, `baud-domain/src/image/frames.rs`, `baud-domain/src/kitty.rs`, `baud-domain/src/placeholder.rs`, `baud-domain/src/zlib.rs`, `baud-domain/tests/image_store.rs`, `baud-domain/tests/kitty_graphics.rs`, `baud-domain/tests/placeholder.rs`, `baud-present-macos/tests/cells.rs`, `baud-render/src/cellmap.rs`, `baud-render/src/color.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/kitty_draw.rs`, `baud-render/tests/kitty_placeholder.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-graphics-c"></a>
 ### kitty-graphics-c
@@ -6974,7 +6985,7 @@ UNUserNotificationCenter.h -- currentNotificationCenter, requestAuthorizationWit
 - **sha256:** `7e79a7672061ab07511f71aa9cd5b7883dc83107cfabfb100d32d758bae3d281` (8450 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-present-macos/src/notify.rs`
+- **Cited in:** `baud-app/src/notify.rs`, `baud-present-macos/src/notify.rs`
 
 <a id="macos-srgb-icc"></a>
 ### macos-srgb-icc

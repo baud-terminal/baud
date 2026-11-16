@@ -5447,7 +5447,6 @@ mod notice_no_center_tests {
                 Instant::now(),
                 "baud-1",
                 &mut crate::kitty_files::Pictures::new(None),
-                |_| {},
             );
             ExpiryWake::new().schedule(d.shown.next_due())
         };
@@ -5552,10 +5551,10 @@ fn closed(
     if let Some(a) = attention {
         baud_present_macos::notify::cancel_attention(t, a);
     }
-    // Its refused posts, which only it would have read, forgotten.
+    // Its posts' news, which only it would have read, forgotten.
     if let Ok(c) = baud_present_macos::notify::Center::shared(t.main_thread()) {
         let base = notice_base();
-        c.forget_refused(|rid| crate::windows::notice_poster(rid, &base) == Some(id));
+        c.forget_news(|rid| crate::windows::notice_poster(rid, &base) == Some(id));
     }
     let Some((open, left)) = OPEN.with_borrow_mut(|o| o.close(id)) else {
         return;
@@ -17851,7 +17850,6 @@ impl Driver {
             }
         };
         let prefix = self.notice_prefix.as_str();
-        let outbox = &mut self.app.outbox;
         // The pictures the checker sent back since the last turn, their
         // notifications posted first: they came before this read's.
         let mut calls = Vec::new();
@@ -17861,7 +17859,6 @@ impl Driver {
                 checked,
                 Instant::now(),
                 prefix,
-                |b| outbox.push(b),
             ));
         }
         calls.extend(self.app.notes.mac(
@@ -17871,7 +17868,6 @@ impl Driver {
             Instant::now(),
             prefix,
             &mut self.app.pictures,
-            |b| outbox.push(b),
         ));
         self.notice_calls(calls);
     }
@@ -17887,13 +17883,11 @@ impl Driver {
     /// touches the view.
     fn notices_at_close(&mut self) {
         let prefix = self.notice_prefix.as_str();
-        let outbox = &mut self.app.outbox;
         let calls = self.app.notes.mac_closing(
             &mut self.app.term,
             self.app.checker.finished(),
             Instant::now(),
             prefix,
-            |b| outbox.push(b),
         );
         self.notice_calls(calls);
     }
@@ -17952,10 +17946,12 @@ impl Driver {
 
     /// **What the notification center said, on the turn its news woke**:
     /// the answer to the permission, once to this window, the posts of this
-    /// window's it refused, the clicks -- reported to the program where it
-    /// asked, and the window brought forward where `a` says focus -- the
-    /// delivered list a held `p=alive` asked for, and a `w` passed. What the
-    /// answer allowed was sent on the answer's own turn. **Nothing is done
+    /// window's it scheduled -- a program that asked told their close is
+    /// untracked -- and the ones it refused, the clicks -- reported to the
+    /// program where it asked, and the window brought forward where `a`
+    /// says focus -- the delivered list a held `p=alive` asked for, and a
+    /// `w` passed. What the answer allowed was sent on the answer's own
+    /// turn. **Nothing is done
     /// on a turn no news is owed**: each producer marks it owed before its
     /// wake (`notify::listen`, `Listening::owe`), and a key's or a read's
     /// turn reads that one flag and returns, before any lock or allocation.
@@ -18016,6 +18012,15 @@ impl Driver {
         self.app
             .notes
             .mac_refused(&mut self.app.term, &news.refused);
+        self.app.notes.mac_unattached(&news.unattached);
+        // **Scheduled: the program told now**, on this turn, never at the
+        // post (`Delivery::mac_scheduled`).
+        let outbox = &mut self.app.outbox;
+        self.app
+            .notes
+            .mac_scheduled(&mut self.app.term, &news.scheduled, Instant::now(), |b| {
+                outbox.push(b)
+            });
         // A `w` that has passed; and the list Notification Center holds,
         // asked for a held `p=alive` (`notices_alive_check`): nothing on
         // macOS says one closed, so the ones it no longer holds are

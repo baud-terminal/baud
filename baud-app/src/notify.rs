@@ -461,11 +461,39 @@ struct Alive<T, P> {
     id: P,
     /// When it closes, where its expiry gave a deadline not yet spent.
     due: Option<T>,
-    /// When it was shown.
+    /// When it was shown, or, posted pending, when it was scheduled.
     at: T,
     /// The buttons it showed, each numbered by its place in the program's
     /// list.
     buttons: Vec<NoticeButton>,
+    /// Whether the platform has said it scheduled it.
+    held: Held,
+}
+
+/// **A notification the platform said it scheduled**, made only by
+/// [`Shown::scheduled`]: on macOS the core is told one is shown only
+/// through it ([`Scheduled::tell`]).
+#[derive(Debug)]
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+pub struct Scheduled(NoticeToken);
+
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+impl Scheduled {
+    /// **The core told it is shown**, and a program that asked told its
+    /// close is untracked (`Term::notice_shown`), the reply to `reply`.
+    fn tell(self, term: &mut Term<'_>, reply: &mut impl FnMut(&[u8])) {
+        crate::reads::input(term, |t| t.notice_shown(self.0), reply);
+    }
+}
+
+/// **Whether the platform holds a notification yet**: on macOS one is
+/// posted pending and held once the system schedules it
+/// ([`Shown::scheduled`]); on Linux the server's answer comes before it is
+/// recorded at all.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Held {
+    Pending,
+    Scheduled,
 }
 
 impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
@@ -475,6 +503,7 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
 
     /// `token` shown as the platform's `id` with `buttons`, closing at
     /// `now` plus its expiry where it has one.
+    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     pub fn shown(
         &mut self,
         token: NoticeToken,
@@ -482,6 +511,47 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
         expiry: Expiry,
         now: T,
         buttons: Vec<NoticeButton>,
+    ) {
+        self.record(token, id, expiry, now, buttons, Held::Scheduled);
+    }
+
+    /// `token` posted as the platform's `id`, as [`Shown::shown`], and not
+    /// yet scheduled: alive, so `p=alive` names it, and not yet looked for
+    /// in the platform's list ([`Shown::absent`]).
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    pub fn pending(
+        &mut self,
+        token: NoticeToken,
+        id: P,
+        expiry: Expiry,
+        now: T,
+        buttons: Vec<NoticeButton>,
+    ) {
+        self.record(token, id, expiry, now, buttons, Held::Pending);
+    }
+
+    /// **The pending one the platform's `id` names, scheduled** at `now`;
+    /// `None` for an id none pending has.
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    pub fn scheduled(&mut self, id: &P, now: T) -> Option<Scheduled> {
+        let a = self
+            .alive
+            .iter_mut()
+            .find(|a| a.id == *id && a.held == Held::Pending)?;
+        a.held = Held::Scheduled;
+        a.at = now;
+        Some(Scheduled(a.token))
+    }
+
+    /// [`Shown::shown`]'s and [`Shown::pending`]'s body.
+    fn record(
+        &mut self,
+        token: NoticeToken,
+        id: P,
+        expiry: Expiry,
+        now: T,
+        buttons: Vec<NoticeButton>,
+        held: Held,
     ) {
         let due = match expiry {
             Expiry::After(d) => Some(now.after(d)),
@@ -494,6 +564,7 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
             due,
             at: now,
             buttons,
+            held,
         });
         // On macOS nothing says one closed, so the oldest are forgotten
         // past the core's own live table.
@@ -530,17 +601,16 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
         self.alive.retain(|a| a.token != token);
     }
 
-    /// **The ones the platform no longer has**, taken out: each shown at
-    /// least [`SETTLED`] before `asked`, the moment the platform's list was
-    /// asked for, and missing from `present`, the list -- a post is added
-    /// to the list asynchronously, so one shown just before the ask may
-    /// not be in it yet.
+    /// **The ones the platform no longer has**, taken out: each scheduled
+    /// at least [`SETTLED`] before `asked`, the moment the platform's list
+    /// was asked for, and missing from `present`, the list -- a post is
+    /// added to the list asynchronously, so one scheduled just before the
+    /// ask may not be in it yet, and one still pending is in no list.
     #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
     pub fn absent(&mut self, present: &[P], asked: T) -> Vec<NoticeToken> {
-        let (gone, kept): (Vec<_>, Vec<_>) = self
-            .alive
-            .drain(..)
-            .partition(|a| a.at.after(SETTLED) <= asked && !present.contains(&a.id));
+        let (gone, kept): (Vec<_>, Vec<_>) = self.alive.drain(..).partition(|a| {
+            a.held == Held::Scheduled && a.at.after(SETTLED) <= asked && !present.contains(&a.id)
+        });
         self.alive = kept;
         gone.into_iter().map(|a| a.token).collect()
     }
@@ -1144,8 +1214,9 @@ pub fn image_kind(b: &[u8]) -> Option<&'static str> {
 #[cfg(any(target_os = "macos", test))]
 impl<T: Moment> Delivery<T, String> {
     /// **What the macOS driver does with a read's notices**, and the
-    /// core told what became of each: shown (and a program that asked
-    /// told its close is untracked), dropped, or closed. A new one's
+    /// core told what became of each: dropped or closed; one posted is
+    /// told shown only once the system schedules it
+    /// ([`Delivery::mac_scheduled`]), never here. A new one's
     /// identifier is `prefix` and its token, so a later update by the same
     /// kitty id, which keeps the token, replaces it. `files` reads iTerm2's
     /// picture for a post it makes, and a picture that has to be decoded
@@ -1170,17 +1241,16 @@ impl<T: Moment> Delivery<T, String> {
         now: T,
         prefix: &str,
         files: &mut dyn PictureReader,
-        mut reply: impl FnMut(&[u8]),
     ) -> Vec<MacCall> {
         let mut calls = Vec::new();
-        self.mac_reads(term, now, prefix, &mut calls, &mut reply);
+        self.mac_reads(term, now, prefix, &mut calls);
         let mut state = None;
         for p in posted {
             let (focus, visible) = *state.get_or_insert_with(&mut window);
             match plan(&p, self.setting, focus, visible, &mut self.bucket, now) {
                 Plan::Show => {
                     self.park(p, files, now);
-                    self.mac_reads(term, now, prefix, &mut calls, &mut reply);
+                    self.mac_reads(term, now, prefix, &mut calls);
                 }
                 // Closed by baud, so the core forgets it at once: on macOS
                 // nothing else would say so (`p=alive`).
@@ -1212,14 +1282,7 @@ impl<T: Moment> Delivery<T, String> {
     /// [`Checker`] (`MacCall::Check`) and stays parked; one whose bytes do
     /// not is left out, counted; then every notification at the front that
     /// is ready posts, in order (`Delivery::mac_ready`).
-    fn mac_reads(
-        &mut self,
-        term: &mut Term<'_>,
-        now: T,
-        prefix: &str,
-        calls: &mut Vec<MacCall>,
-        reply: &mut impl FnMut(&[u8]),
-    ) {
+    fn mac_reads(&mut self, term: &mut Term<'_>, now: T, prefix: &str, calls: &mut Vec<MacCall>) {
         self.take_reads(now);
         for k in self.parked.iter_mut() {
             let Stage::Ready(Image::Read(b)) = &mut k.at else {
@@ -1241,20 +1304,13 @@ impl<T: Moment> Delivery<T, String> {
                 }
             };
         }
-        self.mac_ready(term, now, prefix, calls, reply);
+        self.mac_ready(term, now, prefix, calls);
     }
 
     /// **Every notification at the front that is ready, posted in order**:
     /// a kitty icon attached by its signature, iTerm2's picture as its
     /// check left it, and the text alone where nothing was read.
-    fn mac_ready(
-        &mut self,
-        term: &mut Term<'_>,
-        now: T,
-        prefix: &str,
-        calls: &mut Vec<MacCall>,
-        reply: &mut impl FnMut(&[u8]),
-    ) {
+    fn mac_ready(&mut self, term: &mut Term<'_>, now: T, prefix: &str, calls: &mut Vec<MacCall>) {
         for (p, image) in self.ready() {
             let image = match image {
                 Image::Icon => p
@@ -1264,7 +1320,7 @@ impl<T: Moment> Delivery<T, String> {
                 Image::Attached(a) => a,
                 Image::Text | Image::Read(_) => None,
             };
-            self.post_mac(term, p, image, now, prefix, calls, reply);
+            self.post_mac(term, p, image, now, prefix, calls);
         }
     }
 
@@ -1285,7 +1341,6 @@ impl<T: Moment> Delivery<T, String> {
         checked: Checked,
         now: T,
         prefix: &str,
-        mut reply: impl FnMut(&[u8]),
     ) -> Vec<MacCall> {
         let mut calls = Vec::new();
         let Some(k) = self
@@ -1300,7 +1355,7 @@ impl<T: Moment> Delivery<T, String> {
             self.unshown.0 += 1;
         }
         k.at = Stage::Ready(Image::Attached(image));
-        self.mac_ready(term, now, prefix, &mut calls, &mut reply);
+        self.mac_ready(term, now, prefix, &mut calls);
         calls
     }
 
@@ -1320,11 +1375,10 @@ impl<T: Moment> Delivery<T, String> {
         finished: Vec<Checked>,
         now: T,
         prefix: &str,
-        mut reply: impl FnMut(&[u8]),
     ) -> Vec<MacCall> {
         let mut calls = Vec::new();
         for checked in finished {
-            calls.extend(self.mac_checked(term, checked, now, prefix, &mut reply));
+            calls.extend(self.mac_checked(term, checked, now, prefix));
         }
         for k in self.parked.iter_mut() {
             if !matches!(k.at, Stage::Ready(_)) {
@@ -1332,7 +1386,7 @@ impl<T: Moment> Delivery<T, String> {
                 k.at = Stage::Ready(Image::Attached(None));
             }
         }
-        self.mac_ready(term, now, prefix, &mut calls, &mut reply);
+        self.mac_ready(term, now, prefix, &mut calls);
         calls
     }
 
@@ -1347,7 +1401,6 @@ impl<T: Moment> Delivery<T, String> {
         now: T,
         prefix: &str,
         calls: &mut Vec<MacCall>,
-        reply: &mut impl FnMut(&[u8]),
     ) {
         // iTerm2's picture alone, unread or not decoded: nothing to show.
         if untitled(&p) && p.body.is_empty() && image.is_none() {
@@ -1379,8 +1432,7 @@ impl<T: Moment> Delivery<T, String> {
             calls.push(MacCall::Expire(id.clone(), d));
         }
         let buttons = p.buttons.iter().map(|(n, _)| *n).collect();
-        self.shown.shown(p.token, id, p.expiry, now, buttons);
-        crate::reads::input(term, |t| t.notice_shown(p.token), reply);
+        self.shown.pending(p.token, id, p.expiry, now, buttons);
     }
 }
 
@@ -1432,12 +1484,44 @@ impl<T: Moment> Delivery<T, String> {
         }
     }
 
-    /// Forget the posts the user did not allow, whose ids are `ids`.
+    /// **The posts the system did not show, forgotten**, whose ids are
+    /// `ids`: refused while they waited for permission or while it was no,
+    /// or failed when added. Nothing is said, as for any notice not shown.
     pub fn mac_refused(&mut self, term: &mut Term<'_>, ids: &[String]) {
         for id in ids {
             if let Some(token) = self.shown.token(id) {
                 self.shown.gone(token);
                 term.notice_dropped(token);
+            }
+        }
+    }
+
+    /// **The posts the system scheduled, told shown**, whose ids are `ids`:
+    /// a program that asked is told now that their close is untracked
+    /// (`Term::notice_shown`), the only place the macOS driver tells it.
+    /// An id this window no longer holds -- closed, expired or replaced
+    /// meanwhile -- is passed over and nothing is said.
+    pub fn mac_scheduled(
+        &mut self,
+        term: &mut Term<'_>,
+        ids: &[String],
+        now: T,
+        mut reply: impl FnMut(&[u8]),
+    ) {
+        for id in ids {
+            if let Some(s) = self.shown.scheduled(id, now) {
+                s.tell(term, &mut reply);
+            }
+        }
+    }
+
+    /// **The posts sent again without their pictures**, whose ids are
+    /// `ids`: each one this window still holds counted as a picture not
+    /// shown.
+    pub fn mac_unattached(&mut self, ids: &[String]) {
+        for id in ids {
+            if self.shown.token(id).is_some() {
+                self.unshown.0 += 1;
             }
         }
     }
@@ -2148,7 +2232,6 @@ mod tests {
             now,
             "baud-1",
             files,
-            |_| {},
         );
         checked_now(d, t, calls, now)
     }
@@ -2189,7 +2272,7 @@ mod tests {
                         bytes: c.bytes,
                         kind,
                     };
-                    out.extend(d.mac_checked(t, back, now, "baud-1", |_| {}));
+                    out.extend(d.mac_checked(t, back, now, "baud-1"));
                 }
                 c => out.push(c),
             }
@@ -2388,10 +2471,6 @@ mod tests {
         assert_eq!(s.id(p[1].token), None);
     }
 
-    /// **The macOS driver's calls, recorded**: a notification posted with
-    /// its buttons, sound, level and image, a program that asked told its
-    /// close is untracked, an expiry scheduled, an update by id posted
-    /// under the same identifier, a close removed, a focused window's
     /// The labels a click test sends: ordinary, control-only, empty.
     const LABELS: [&str; 3] = ["Go", "\u{85}", ""];
 
@@ -2520,9 +2599,15 @@ mod tests {
         assert_eq!(linux("5"), None, "Linux: a button it did not show");
     }
 
-    /// `OSC 9` dropped and the core told, the Dock's bar and an attention
-    /// request. Nothing reaches the notification center or the Dock: the
-    /// calls are only read.
+    /// **The macOS driver's calls, recorded**: a notification posted with
+    /// its buttons, sound, level and image, a program that asked told its
+    /// close is untracked once the system schedules it and not at the
+    /// post, an expiry scheduled, an update by id posted under the same
+    /// identifier, a close removed, a focused window's `OSC 9` dropped and
+    /// the core told, the Dock's bar and an attention request. Nothing
+    /// reaches the notification center or the Dock: the calls are only
+    /// read. Break: the post told shown when it is made (a reply in the
+    /// posting turn).
     #[test]
     fn the_macos_driver_makes_the_calls_the_plan_says() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
@@ -2536,7 +2621,7 @@ mod tests {
         let posted: Vec<Posted> = t.notices().map(|n| Posted::of(&n, &mut icons)).collect();
         let token = posted[0].token;
         t.clear_notices();
-        let mut replies = Vec::new();
+        t.clear_reply();
         let calls = d.mac(
             &mut t,
             posted,
@@ -2544,7 +2629,6 @@ mod tests {
             at(Secs(0)),
             "baud-1",
             &mut NoFiles,
-            |b| replies.extend_from_slice(b),
         );
         let id = match &calls[0] {
             MacCall::Post(p) => {
@@ -2570,6 +2654,11 @@ mod tests {
             }))
         );
         assert_eq!(calls[3], MacCall::Attention(AttentionCall::Informational));
+        assert!(t.reply().is_empty(), "nothing said at the post");
+        let mut replies = Vec::new();
+        d.mac_scheduled(&mut t, std::slice::from_ref(&id), at(Secs(0)), |b| {
+            replies.extend_from_slice(b);
+        });
         assert_eq!(replies, b"\x1b]99;i=j:p=close;untracked\x1b\\");
         // A click read back against the buttons it showed.
         let click = |action: &str| {
@@ -2596,7 +2685,6 @@ mod tests {
             at(Secs(1)),
             "baud-1",
             &mut NoFiles,
-            |_| {},
         );
         assert!(
             matches!(&calls[0], MacCall::Post(p) if p.id == id && p.title == "Again"),
@@ -2629,7 +2717,7 @@ mod tests {
             feed(t, seq.as_bytes());
             let posted: Vec<Posted> = t.notices().map(|n| Posted::of(&n, &mut icons)).collect();
             t.clear_notices();
-            d.mac(t, posted, window, at(Secs(0)), "p", &mut NoFiles, |_| {})
+            d.mac(t, posted, window, at(Secs(0)), "p", &mut NoFiles)
         };
         let calls = deliver(&mut t, &mut d, "\x1b]9;4;1;40\x07");
         assert_eq!(
@@ -2814,8 +2902,10 @@ mod tests {
 
     /// **`p=alive` stays true on macOS**: a notification baud closed, one
     /// whose `w` passed and one Notification Center no longer holds are
-    /// each forgotten by the core; one shown after the list was asked for
-    /// is not; a refused post is forgotten.
+    /// each forgotten by the core; one scheduled after the list was asked
+    /// for is not, nor is one still pending, which is in no list; a refused
+    /// post is forgotten. Break: a pending post looked for in the list,
+    /// and forgotten.
     #[test]
     fn the_macos_driver_keeps_alive_true() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
@@ -2836,7 +2926,6 @@ mod tests {
                 at(Secs(s)),
                 "p",
                 &mut NoFiles,
-                |_| {},
             )
         };
         let alive = |t: &mut Term<'_>| {
@@ -2844,31 +2933,244 @@ mod tests {
             feed(t, b"\x1b]99;i=q:p=alive;\x1b\\");
             String::from_utf8_lossy(t.reply()).into_owned()
         };
-        post(
+        let ids = |calls: &[MacCall]| -> Vec<String> {
+            calls
+                .iter()
+                .filter_map(|c| match c {
+                    MacCall::Post(p) => Some(p.id.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let calls = post(
             &mut t,
             &mut d,
             b"\x1b]99;i=a;1\x1b\\\x1b]99;i=b:w=1000;2\x1b\\\x1b]99;i=c;3\x1b\\",
             0,
         );
+        d.mac_scheduled(&mut t, &ids(&calls), at(Secs(0)), |_| {});
         assert_eq!(alive(&mut t), "\x1b]99;i=q:p=alive;a,b,c\x1b\\");
         post(&mut t, &mut d, b"\x1b]99;i=a:p=close;\x1b\\", 1);
         d.mac_expired(&mut t, at(Secs(2)));
         assert_eq!(alive(&mut t), "\x1b]99;i=q:p=alive;c\x1b\\");
-        let calls = post(&mut t, &mut d, b"\x1b]99;i=e;5\x1b\\", 4);
-        let ids: Vec<String> = Vec::new();
-        d.mac_absent(&mut t, &ids, at(Secs(4)));
+        let calls = post(&mut t, &mut d, b"\x1b]99;i=e;5\x1b\\\x1b]99;i=f;6\x1b\\", 4);
+        let sent = ids(&calls);
+        d.mac_scheduled(&mut t, &sent[..1], at(Secs(4)), |_| {});
+        d.mac_absent(&mut t, &[], at(Secs(4)));
         assert_eq!(
             alive(&mut t),
-            "\x1b]99;i=q:p=alive;e\x1b\\",
-            "e was shown too lately before the ask to be taken as gone"
+            "\x1b]99;i=q:p=alive;e,f\x1b\\",
+            "c gone; e was scheduled too lately before the ask to be taken as gone"
         );
-        let Some(MacCall::Post(e)) = calls.first() else {
-            panic!("{calls:?}");
-        };
+        d.mac_absent(&mut t, &sent[..1], at(Secs(9)));
+        assert_eq!(
+            alive(&mut t),
+            "\x1b]99;i=q:p=alive;e,f\x1b\\",
+            "f is pending, in no list"
+        );
         assert!(d.shown.any());
-        d.mac_refused(&mut t, std::slice::from_ref(&e.id));
+        d.mac_refused(&mut t, &sent);
         assert_eq!(alive(&mut t), "\x1b]99;i=q:p=alive;\x1b\\");
         assert!(!d.shown.any());
+    }
+
+    /// **`bytes` fed to a macOS window and delivered** at `now`, the
+    /// window's identifiers starting `prefix`, the ones posted returned.
+    fn mac_posts(
+        t: &mut Term<'_>,
+        d: &mut Delivery<HostTime, String>,
+        bytes: &[u8],
+        now: HostTime,
+        prefix: &str,
+    ) -> Vec<String> {
+        feed(t, bytes);
+        let posted: Vec<Posted> = t
+            .notices()
+            .map(|n| Posted::of(&n, &mut Icons::default()))
+            .collect();
+        t.clear_notices();
+        d.mac(
+            t,
+            posted,
+            || (Focus::Unfocused, Visible::Covered),
+            now,
+            prefix,
+            &mut NoFiles,
+        )
+        .into_iter()
+        .filter_map(|c| match c {
+            MacCall::Post(p) => Some(p.id),
+            _ => None,
+        })
+        .collect()
+    }
+
+    /// The answer to a `p=alive` asked now, the reply buffer left empty.
+    fn alive_now(t: &mut Term<'_>) -> String {
+        t.clear_reply();
+        feed(t, b"\x1b]99;i=q:p=alive;\x1b\\");
+        let said = String::from_utf8_lossy(t.reply()).into_owned();
+        t.clear_reply();
+        said
+    }
+
+    /// **A pending post is not reported closed**: posted, a program that
+    /// asked `c=1` hears nothing, and `p=alive` names it, as nothing has
+    /// closed it; once the system schedules it, it is told its close is
+    /// untracked, once, and a second answer for it says nothing. Break:
+    /// the post told shown when it is made (`p=close;untracked` in the
+    /// posting turn).
+    #[test]
+    fn a_pending_post_is_not_reported_closed() {
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let ids = mac_posts(&mut t, &mut d, b"\x1b]99;i=a:c=1;A\x1b\\", at(Secs(0)), "p");
+        assert_eq!(ids.len(), 1, "the premise: posted");
+        assert!(t.reply().is_empty(), "pending: nothing said");
+        assert_eq!(
+            alive_now(&mut t),
+            "\x1b]99;i=q:p=alive;a\x1b\\",
+            "pending is alive"
+        );
+        let mut said = Vec::new();
+        d.mac_scheduled(&mut t, &ids, at(Secs(1)), |b| said.extend_from_slice(b));
+        assert_eq!(said, b"\x1b]99;i=a:p=close;untracked\x1b\\");
+        said.clear();
+        d.mac_scheduled(&mut t, &ids, at(Secs(2)), |b| said.extend_from_slice(b));
+        assert!(said.is_empty(), "told once");
+        assert_eq!(alive_now(&mut t), "\x1b]99;i=q:p=alive;a\x1b\\");
+    }
+
+    /// **A post the system does not show gets no reply**: refused while it
+    /// waited for permission, refused while the answer was no, or its add
+    /// failed after a grant -- permission revoked -- each reaches its
+    /// window as a refused identifier: the program that asked `c=1` hears
+    /// nothing, `p=alive` stops naming it, and a late answer for it says
+    /// nothing. Break: a refused post told its close is untracked.
+    #[test]
+    fn a_refused_post_gets_no_reply() {
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let ids = mac_posts(&mut t, &mut d, b"\x1b]99;i=a:c=1;A\x1b\\", at(Secs(0)), "p");
+        assert_eq!(
+            alive_now(&mut t),
+            "\x1b]99;i=q:p=alive;a\x1b\\",
+            "the control"
+        );
+        d.mac_refused(&mut t, &ids);
+        assert!(t.reply().is_empty(), "nothing said");
+        assert_eq!(alive_now(&mut t), "\x1b]99;i=q:p=alive;\x1b\\", "forgotten");
+        let mut said = Vec::new();
+        d.mac_scheduled(&mut t, &ids, at(Secs(1)), |b| said.extend_from_slice(b));
+        assert!(said.is_empty(), "a late answer says nothing");
+    }
+
+    /// **An answer for a post this window no longer holds says nothing**:
+    /// one the program closed before the system answered, and one another
+    /// window posted, leave this window's term as it was, and its own
+    /// pending post is still told when its answer comes. Break: an answer
+    /// told to whichever window takes it.
+    #[test]
+    fn an_answer_for_a_post_not_held_says_nothing() {
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut other = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t2 = Term::new(other.storage(), &WS);
+        t2.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d2: Delivery<HostTime, String> = Delivery::new(Setting::On, &t2, PIXELS);
+        let ids = mac_posts(
+            &mut t,
+            &mut d,
+            b"\x1b]99;i=a:c=1;A\x1b\\\x1b]99;i=b:c=1;B\x1b\\",
+            at(Secs(0)),
+            "p",
+        );
+        let elsewhere = mac_posts(
+            &mut t2,
+            &mut d2,
+            b"\x1b]99;i=z:c=1;Z\x1b\\",
+            at(Secs(0)),
+            "w2",
+        );
+        assert!(
+            d.shown.token(&elsewhere[0]).is_none(),
+            "the premise: not this window's"
+        );
+        let closed = mac_posts(
+            &mut t,
+            &mut d,
+            b"\x1b]99;i=a:p=close;\x1b\\",
+            at(Secs(1)),
+            "p",
+        );
+        assert!(closed.is_empty(), "the premise: a close posts nothing");
+        let mut said = Vec::new();
+        d.mac_scheduled(&mut t, &ids[..1], at(Secs(2)), |b| {
+            said.extend_from_slice(b)
+        });
+        d.mac_scheduled(&mut t, &elsewhere, at(Secs(2)), |b| {
+            said.extend_from_slice(b)
+        });
+        assert!(said.is_empty(), "nothing said: {}", said.escape_ascii());
+        assert_eq!(
+            alive_now(&mut t),
+            "\x1b]99;i=q:p=alive;b\x1b\\",
+            "b untouched"
+        );
+        d.mac_scheduled(&mut t, &ids[1..], at(Secs(2)), |b| {
+            said.extend_from_slice(b)
+        });
+        assert_eq!(said, b"\x1b]99;i=b:p=close;untracked\x1b\\", "the control");
+    }
+
+    /// **A post sent again without its picture counts the picture as not
+    /// shown**, this window's alone, and is told shown when the second send
+    /// is scheduled. Break: the count taken for another window's post.
+    #[test]
+    fn a_post_sent_again_without_its_picture_counts_it() {
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let ids = mac_posts(&mut t, &mut d, b"\x1b]99;i=a:c=1;A\x1b\\", at(Secs(0)), "p");
+        let before = d.unshown.0;
+        d.mac_unattached(&[String::from("p-elsewhere")]);
+        assert_eq!(d.unshown.0, before, "not this window's");
+        d.mac_unattached(&ids);
+        assert_eq!(d.unshown.0, before + 1);
+        let mut said = Vec::new();
+        d.mac_scheduled(&mut t, &ids, at(Secs(1)), |b| said.extend_from_slice(b));
+        assert_eq!(said, b"\x1b]99;i=a:p=close;untracked\x1b\\");
+    }
+
+    /// **On macOS the core is told a notification is shown in one place**,
+    /// `Scheduled::tell`, and a `Scheduled` is made only by
+    /// `Shown::scheduled`, from the system's answer. Read from the source:
+    /// `Term::notice_shown` is the core's public method, so no type keeps
+    /// another call out. Break: the post told shown when it is made.
+    #[test]
+    fn macos_tells_shown_only_from_the_systems_answer() {
+        let src = include_str!("notify.rs");
+        let code = src.split_once("\nmod tests {").map_or(src, |(c, _)| c);
+        let call = concat!("t.notice_", "shown(");
+        assert_eq!(code.matches(call).count(), 1, "one call");
+        let tell = code
+            .split_once(concat!("fn tell(self, ", "term"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("Scheduled::tell");
+        assert!(tell.contains(call), "the call is tell's");
+        assert_eq!(
+            code.matches(concat!("Scheduled", "(a.token)")).count(),
+            1,
+            "made by Shown::scheduled alone"
+        );
     }
 
     /// **A held `p=alive` is answered after Notification Center's list**,
@@ -2897,7 +3199,6 @@ mod tests {
                 at(Secs(0)),
                 "p",
                 &mut NoFiles,
-                |_| {},
             );
             let ids: Vec<String> = calls
                 .iter()
@@ -2907,6 +3208,7 @@ mod tests {
                 })
                 .collect();
             assert_eq!(ids.len(), 2, "{calls:?}");
+            d.mac_scheduled(&mut t, &ids, at(Secs(0)), |_| {});
             t.set_notice_hold(hold);
             t.clear_reply();
             feed(&mut t, b"\x1b]99;i=q:p=alive;\x1b\\\x1b[c");
@@ -3229,7 +3531,6 @@ mod tests {
                 now,
                 "baud-1",
                 files,
-                |_| {},
             );
             let mut calls = checked_now(d, t, calls, now);
             // The read runs off this thread; each turn its wake brings
@@ -3244,7 +3545,6 @@ mod tests {
                     now,
                     "baud-1",
                     files,
-                    |_| {},
                 );
                 calls.extend(checked_now(d, t, more, now));
             }
@@ -3366,7 +3666,6 @@ mod tests {
                     now,
                     "baud-1",
                     &mut files,
-                    |_| {},
                 );
                 let p = checked_now(d, t, calls, now)
                     .into_iter()
@@ -3466,7 +3765,6 @@ mod tests {
             at(Secs(0)),
             "baud-1",
             &mut files,
-            |_| {},
         );
         let checks: Vec<Check> = calls
             .iter()
@@ -3496,7 +3794,7 @@ mod tests {
             bytes: PNG_2X1.to_vec(),
             kind: attaches(&PNG_2X1, PIXELS),
         };
-        let calls = d.mac_checked(&mut t, back.clone(), at(Secs(1)), "baud-1", |_| {});
+        let calls = d.mac_checked(&mut t, back.clone(), at(Secs(1)), "baud-1");
         let [MacCall::Post(p), MacCall::Post(later)] = &calls[..] else {
             panic!("two posts: {calls:?}");
         };
@@ -3506,7 +3804,7 @@ mod tests {
         assert_eq!((later.title.as_str(), &later.image), ("Later", &None));
         assert_eq!(d.checks(), Checks::Done);
         assert!(
-            d.mac_checked(&mut t, back, at(Secs(1)), "baud-1", |_| {})
+            d.mac_checked(&mut t, back, at(Secs(1)), "baud-1")
                 .is_empty(),
             "posted once"
         );
@@ -3527,7 +3825,6 @@ mod tests {
             at(Secs(2)),
             "baud-1",
             &mut files,
-            |_| {},
         );
         let [MacCall::Check(c)] = &calls[..] else {
             panic!("one check: {calls:?}");
@@ -3537,7 +3834,7 @@ mod tests {
             bytes: c.bytes.clone(),
             kind: None,
         };
-        let calls = d.mac_checked(&mut t, back, at(Secs(3)), "baud-1", |_| {});
+        let calls = d.mac_checked(&mut t, back, at(Secs(3)), "baud-1");
         let [MacCall::Post(p)] = &calls[..] else {
             panic!("one post: {calls:?}");
         };
@@ -3582,7 +3879,6 @@ mod tests {
             at(Secs(0)),
             "baud-1",
             &mut files,
-            |_| {},
         );
         let checks: Vec<Check> = calls
             .iter()
@@ -3599,13 +3895,7 @@ mod tests {
             kind: attaches(&c.bytes, c.pixels),
         };
         // The first answer came back; its wake had not.
-        let calls = d.mac_closing(
-            &mut t,
-            vec![back(&checks[0])],
-            at(Secs(1)),
-            "baud-1",
-            |_| {},
-        );
+        let calls = d.mac_closing(&mut t, vec![back(&checks[0])], at(Secs(1)), "baud-1");
         let posts: Vec<&MacPost> = calls
             .iter()
             .filter_map(|c| match c {
@@ -3632,12 +3922,12 @@ mod tests {
         );
         assert!(d.bare_line().is_some());
         assert!(
-            d.mac_closing(&mut t, Vec::new(), at(Secs(2)), "baud-1", |_| {})
+            d.mac_closing(&mut t, Vec::new(), at(Secs(2)), "baud-1")
                 .is_empty(),
             "a second close"
         );
         assert!(
-            d.mac_checked(&mut t, back(&checks[1]), at(Secs(2)), "baud-1", |_| {})
+            d.mac_checked(&mut t, back(&checks[1]), at(Secs(2)), "baud-1")
                 .is_empty(),
             "posted once"
         );

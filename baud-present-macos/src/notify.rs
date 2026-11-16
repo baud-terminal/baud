@@ -71,7 +71,12 @@ use macos_liquid_glass::objc2_foundation::{NSBundle, NSSet};
 use crate::turn::Turn;
 
 #[link(name = "UserNotifications", kind = "framework")]
-unsafe extern "C" {}
+unsafe extern "C" {
+    /// The domain of the framework's own errors (`UNError.h`).
+    #[cfg(not(feature = "effect-probe"))]
+    #[link_name = "UNErrorDomain"]
+    static UN_ERROR_DOMAIN: &'static NSString;
+}
 
 extern_protocol!(
     /// The center's delegate (`UNUserNotificationCenter.h`).
@@ -252,18 +257,116 @@ pub enum Unavailable {
 }
 
 /// **A window's news from the center since it last asked**: the answer,
-/// the first time this window hears it; and the posts this window made
-/// that waited for it and were refused, by identifier. What it allowed was
-/// sent on the answer's own turn ([`Center::flush`]), never here.
+/// the first time this window hears it; and, by identifier, the posts this
+/// window made that the system scheduled, the ones it did not -- refused
+/// while they waited for the answer or while it was no, or failed when
+/// added -- and the ones posted again without the picture the system did
+/// not take. What it allowed was sent on the answer's own turn
+/// ([`Center::flush`]), never here.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct News {
     pub answer: Option<Permission>,
+    pub scheduled: Vec<String>,
     pub refused: Vec<String>,
+    pub unattached: Vec<String>,
 }
 
 /// The guard's name for the turn the permission's answer schedules.
 const ANSWER: crate::unwind::SiteName =
     crate::unwind::SiteName("the notification permission's answer");
+
+/// The guard's name for the turn a post's outcome schedules.
+const ADDED: crate::unwind::SiteName = crate::unwind::SiteName("a notification's outcome");
+
+/// **What `-addNotificationRequest:withCompletionHandler:` said of one
+/// post**: its handler is given a nil error or one
+/// (`[[source: macos-sdk-unusernotificationcenter-h]]` 63), and baud takes
+/// only a nil error as the post scheduled.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Added {
+    /// A nil error: scheduled.
+    Scheduled,
+    /// One of the `attachment*` errors: its picture was not taken.
+    Attachment,
+    /// Any other error, `notificationsNotAllowed` among them.
+    Failed,
+}
+
+/// **The error add's handler was given**, read apart from the object: none,
+/// a code in `UNErrorDomain`, or another domain's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AddError {
+    None,
+    Un(UnCode),
+    Other,
+}
+
+/// A code in `UNErrorDomain`, `UNError.h`'s `UNErrorCode`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct UnCode(pub isize);
+
+/// `UNErrorCodeAttachmentInvalidURL` to `UNErrorCodeAttachmentCorrupt`, the
+/// codes an attachment fails with (`[[source: apple-unerror-code]]`;
+/// `UNError.h` numbers them 100 to 105).
+const ATTACHMENT: core::ops::RangeInclusive<isize> = 100..=105;
+
+impl Added {
+    /// What the error add's handler was given says.
+    pub fn of(e: AddError) -> Added {
+        match e {
+            AddError::None => Added::Scheduled,
+            AddError::Un(UnCode(c)) if ATTACHMENT.contains(&c) => Added::Attachment,
+            AddError::Un(_) | AddError::Other => Added::Failed,
+        }
+    }
+}
+
+/// Whether a post carries a picture.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Picture {
+    With,
+    Without,
+}
+
+/// **What the center does with a post once add has answered**
+/// ([`after_add`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Next {
+    /// Scheduled: its window tells the program.
+    Shown,
+    /// Posted again under its identifier, its text alone.
+    Again,
+    /// Not shown: its window forgets it and says nothing.
+    Refused,
+}
+
+/// **What add's answer makes of a post**: scheduled, shown; an attachment's
+/// error on a post with a picture, posted again without it, so the text
+/// still shows; any other error, and an attachment's on a post with none --
+/// the second try -- refused.
+pub fn after_add(added: Added, picture: Picture) -> Next {
+    match (added, picture) {
+        (Added::Scheduled, _) => Next::Shown,
+        (Added::Attachment, Picture::With) => Next::Again,
+        (Added::Attachment, Picture::Without) | (Added::Failed, _) => Next::Refused,
+    }
+}
+
+/// **Which send an outcome answers**, numbered in the order they were made:
+/// a later send under the same identifier replaces the earlier one in the
+/// center's sends, so the earlier one's outcome finds nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SendNo(u64);
+
+/// What add's handlers answered, each with the send it answers.
+type Answers = Vec<(SendNo, Added)>;
+
+impl SendNo {
+    /// The send after this one.
+    fn after(self) -> SendNo {
+        SendNo(self.0.wrapping_add(1))
+    }
+}
 
 /// Where permission stands.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -329,9 +432,24 @@ pub struct Center {
     permission: Arc<Mutex<Permission>>,
     asked: Cell<Permission>,
     waiting: RefCell<Vec<Post>>,
-    /// The identifiers of posts that waited and were refused, until the
-    /// window that posted each takes it ([`Center::news`]) or closes.
+    /// The identifiers of posts not shown -- refused while they waited or
+    /// while the answer was no, or failed when added -- until the window
+    /// that posted each takes it ([`Center::news`]) or closes.
     refused: RefCell<Vec<String>>,
+    /// The identifiers of posts the system scheduled, until the window
+    /// that posted each takes it or closes.
+    scheduled: RefCell<Vec<String>>,
+    /// The identifiers of posts sent again without their pictures, until
+    /// the window that posted each takes it or closes.
+    unattached: RefCell<Vec<String>>,
+    /// The posts sent and not yet answered, each with its number, the one
+    /// its answer carries ([`Center::settle`]).
+    sent: RefCell<Vec<(SendNo, Post)>>,
+    /// The next send's number.
+    sends: Cell<SendNo>,
+    /// What add's handlers answered, written on the framework's queue and
+    /// taken on the turn each schedules.
+    added: Arc<Mutex<Answers>>,
     /// Every category registered: `setNotificationCategories:` replaces
     /// the app's whole set, so the one set holds every window's. Read only
     /// by what the probe configures out.
@@ -471,6 +589,49 @@ fn wake_listeners() {
     }
 }
 
+/// **The identifiers in `list` that `whose` says are this window's**,
+/// taken in order; another open window's left for it, a closed window's
+/// dropped: a post of its that was scheduled stays on screen, and no
+/// program is left to tell.
+fn mine(list: &RefCell<Vec<String>>, whose: &mut impl FnMut(&str) -> Whose) -> Vec<String> {
+    let mut taken = Vec::new();
+    list.borrow_mut().retain(|id| match whose(id) {
+        Whose::This => {
+            taken.push(id.clone());
+            false
+        }
+        Whose::Another => true,
+        Whose::Closed => false,
+    });
+    taken
+}
+
+/// **Send `n`'s answer written**, as add's handler writes it on the
+/// framework's queue, and a main-queue turn of its own scheduled to act on
+/// it ([`Center::settle`]), never inside the call that sent it.
+fn answered(added: &Mutex<Answers>, n: SendNo, a: Added) {
+    if let Ok(mut v) = added.lock() {
+        v.push((n, a));
+    }
+    crate::turn::later(ADDED, |t| with_shared(|c| c.settle(t)));
+}
+
+/// **The error add's handler was given**, read apart from the object.
+#[cfg(not(feature = "effect-probe"))]
+fn error_of(e: *mut NSError) -> AddError {
+    // SAFETY: the handler's `NSError *`, null or an error that lives for
+    // the call.
+    let Some(e) = (unsafe { e.as_ref() }) else {
+        return AddError::None;
+    };
+    // SAFETY: `UNErrorDomain`, the framework's constant `NSString *`.
+    let domain: &NSString = unsafe { UN_ERROR_DOMAIN };
+    match e.domain().isEqualToString(domain) {
+        true => AddError::Un(UnCode(e.code())),
+        false => AddError::Other,
+    }
+}
+
 /// **What a window was last told of permission**, so each window hears
 /// the answer once ([`Center::news`]): a window's core is told none is
 /// delivered when it is refused, whichever window asked.
@@ -552,6 +713,11 @@ impl Center {
             asked: Cell::new(Permission::NotAsked),
             waiting: RefCell::new(Vec::new()),
             refused: RefCell::new(Vec::new()),
+            scheduled: RefCell::new(Vec::new()),
+            unattached: RefCell::new(Vec::new()),
+            sent: RefCell::new(Vec::new()),
+            sends: Cell::new(SendNo(0)),
+            added: Arc::new(Mutex::new(Vec::new())),
             categories: RefCell::new(Vec::new()),
             #[cfg(feature = "effect-probe")]
             held: RefCell::new(Vec::new()),
@@ -584,9 +750,19 @@ impl Center {
         if let Ok(mut last) = POSTED_LAST.lock() {
             *last = Some(p.id.clone());
         }
+        // An update replaces what an earlier post under its identifier
+        // left for its window: only the latest post's outcome is told.
+        for list in [&self.refused, &self.scheduled] {
+            list.borrow_mut().retain(|id| *id != p.id);
+        }
         match self.permission() {
             Permission::Granted => self.send(&p),
-            Permission::Denied => {}
+            // Not shown: kept for the window that posted it, as a refused
+            // waiting post is, and every window woken to take its own.
+            Permission::Denied => {
+                self.refused.borrow_mut().push(p.id);
+                wake_listeners();
+            }
             Permission::NotAsked | Permission::Asked => {
                 self.waiting.borrow_mut().push(p);
                 self.ask();
@@ -685,9 +861,10 @@ impl Center {
     }
 
     /// **A window's news since it last asked**: the answer, once to each
-    /// window ([`Told`]); and the refused posts that window made, taken,
-    /// `whose` reading each one's identifier: another open window's left
-    /// for it, a closed window's dropped. Nothing is sent here.
+    /// window ([`Told`]); and the scheduled, refused and unattached posts
+    /// that window made, taken, `whose` reading each one's identifier:
+    /// another open window's left for it, a closed window's dropped.
+    /// Nothing is sent here.
     pub fn news(&self, told: &mut Told, mut whose: impl FnMut(&str) -> Whose) -> News {
         let p = self.permission();
         let answer = match p {
@@ -697,22 +874,76 @@ impl Center {
             }
             _ => None,
         };
-        let mut refused = Vec::new();
-        self.refused.borrow_mut().retain(|id| match whose(id) {
-            Whose::This => {
-                refused.push(id.clone());
-                false
-            }
-            Whose::Another => true,
-            Whose::Closed => false,
-        });
-        News { answer, refused }
+        News {
+            answer,
+            scheduled: mine(&self.scheduled, &mut whose),
+            refused: mine(&self.refused, &mut whose),
+            unattached: mine(&self.unattached, &mut whose),
+        }
     }
 
-    /// **A closed window's refusals forgotten**, on its close's turn, so
-    /// the process's list never keeps one no window will read.
-    pub fn forget_refused(&self, mut gone: impl FnMut(&str) -> bool) {
-        self.refused.borrow_mut().retain(|id| !gone(id));
+    /// **A closed window's news forgotten** -- its refusals, its scheduled
+    /// and its unattached posts -- on its close's turn, so the process's
+    /// lists never keep one no window will read.
+    pub fn forget_news(&self, mut gone: impl FnMut(&str) -> bool) {
+        for list in [&self.refused, &self.scheduled, &self.unattached] {
+            list.borrow_mut().retain(|id| !gone(id));
+        }
+    }
+
+    /// **Each send's answer, on the turn its handler scheduled**
+    /// ([`after_add`]): one a later send under its identifier replaced, or
+    /// that was closed meanwhile, finds nothing and is dropped; the rest
+    /// are kept for the windows that posted them, and a post whose picture
+    /// was not taken is sent again with its text alone. Every window is
+    /// then woken to take its own ([`Center::news`]).
+    pub fn settle(&self, t: &Turn<'_>) {
+        let _ = t;
+        self.settle_now();
+    }
+
+    /// The probe's tests' answers acted on, off the main thread, as the
+    /// turn each schedules acts on them.
+    #[cfg(feature = "effect-probe")]
+    pub fn settled_off_turn(&self) {
+        self.settle_now();
+    }
+
+    /// [`Center::settle`]'s body, which a test off the main thread can ask.
+    fn settle_now(&self) {
+        let answers = self
+            .added
+            .lock()
+            .map(|mut a| core::mem::take(&mut *a))
+            .unwrap_or_default();
+        if answers.is_empty() {
+            return;
+        }
+        for (n, added) in answers {
+            let post = {
+                let mut sent = self.sent.borrow_mut();
+                let Some(i) = sent.iter().position(|(m, _)| *m == n) else {
+                    continue;
+                };
+                sent.swap_remove(i).1
+            };
+            let picture = match post.image {
+                Some(_) => Picture::With,
+                None => Picture::Without,
+            };
+            match after_add(added, picture) {
+                Next::Shown => self.scheduled.borrow_mut().push(post.id),
+                Next::Again => {
+                    self.unattached.borrow_mut().push(post.id.clone());
+                    self.send(&Post {
+                        image: None,
+                        ..post
+                    });
+                }
+                Next::Refused => self.refused.borrow_mut().push(post.id),
+            }
+        }
+        wake_listeners();
     }
 
     /// The permission the system last gave.
@@ -796,6 +1027,9 @@ impl Center {
     /// [`Center::remove`]'s body, which a test off the main thread can ask.
     fn remove_now(&self, id: &str) {
         self.waiting.borrow_mut().retain(|p| p.id != id);
+        // Its answer, still to come, finds nothing: nothing said, nothing
+        // sent again.
+        self.sent.borrow_mut().retain(|(_, p)| p.id != id);
         #[cfg(feature = "effect-probe")]
         {
             self.held.borrow_mut().retain(|h| h != id);
@@ -805,27 +1039,47 @@ impl Center {
         remove(&self.center, id);
     }
 
+    /// **One post added**, numbered and kept until add's handler answers
+    /// for it ([`Center::settle`]); one sent before under its identifier
+    /// is replaced, so that one's answer finds nothing.
     fn send(&self, p: &Post) {
+        let n = self.sends.get();
+        self.sends.set(n.after());
+        {
+            let mut sent = self.sent.borrow_mut();
+            sent.retain(|(_, q)| q.id != p.id);
+            sent.push((n, p.clone()));
+        }
+        // Under the probe: answered as the handler answers, with what the
+        // probe is set to, on a turn of its own.
         #[cfg(feature = "effect-probe")]
         {
-            let mut held = self.held.borrow_mut();
-            held.retain(|h| *h != p.id);
-            held.push(p.id.clone());
+            {
+                let mut held = self.held.borrow_mut();
+                held.retain(|h| *h != p.id);
+                held.push(p.id.clone());
+            }
             crate::probe::record(crate::probe::EffectKind::Notice);
+            answered(&self.added, n, crate::probe::notice_added());
         }
         #[cfg(not(feature = "effect-probe"))]
         {
             let category = self.category(&p.buttons);
             let Some(req) = request_of(p, category.as_deref()) else {
+                answered(&self.added, n, Added::Failed);
                 return;
             };
-            // SAFETY: `-addNotificationRequest:withCompletionHandler:` with a
-            // nil handler, which the header allows.
+            let added = Arc::clone(&self.added);
+            let done = RcBlock::new(move |e: *mut NSError| {
+                crate::unwind::guard(ADDED, (), || answered(&added, n, Added::of(error_of(e))));
+            });
+            // SAFETY: `-addNotificationRequest:withCompletionHandler:`, the
+            // handler `void (^)(NSError *)`, its error nullable.
             unsafe {
                 let _: () = msg_send![
                     &self.center,
                     addNotificationRequest: &*req,
-                    withCompletionHandler: Option::<&Block<dyn Fn(*mut NSError)>>::None
+                    withCompletionHandler: &*done
                 ];
             }
         }
@@ -1530,7 +1784,7 @@ mod tests {
                 _ => Whose::Another,
             }
         };
-        c.forget_refused(|id| id.starts_with("w4-"));
+        c.forget_news(|id| id.starts_with("w4-"));
         let (mut one, mut two) = (Told::NOTHING, Told::NOTHING);
         let first = c.news(&mut one, of("w1"));
         assert_eq!(first.answer, Some(Permission::Denied));
@@ -1546,5 +1800,254 @@ mod tests {
         assert_eq!((again.answer, again.refused.len()), (None, 0), "once each");
         assert!(c.refused.borrow().is_empty(), "none kept");
         assert!(kinds().is_empty(), "nothing sent");
+    }
+
+    /// **Only a nil error says a post was scheduled**, read with no
+    /// framework: no error is scheduled; `UNErrorDomain`'s 100 to 105 are
+    /// the attachment's; `notificationsNotAllowed` (1), the codes either
+    /// side of the attachment's and another domain's error are failures.
+    /// What follows: scheduled is shown whatever it carried; an
+    /// attachment's error on a post with a picture posts it again; on one
+    /// with none, and any other error, refused. Breaks: an error read as
+    /// scheduled, and the retry taken for a post with no picture (the loop
+    /// that never ends).
+    #[test]
+    fn only_a_nil_error_says_a_post_was_scheduled() {
+        let un = |c| Added::of(AddError::Un(UnCode(c)));
+        assert_eq!(Added::of(AddError::None), Added::Scheduled);
+        for c in 100..=105 {
+            assert_eq!(un(c), Added::Attachment, "code {c}");
+        }
+        for c in [1, 99, 106, 1400, 1401, 1500, 1600] {
+            assert_eq!(un(c), Added::Failed, "code {c}");
+        }
+        assert_eq!(Added::of(AddError::Other), Added::Failed);
+        assert_eq!(after_add(Added::Scheduled, Picture::With), Next::Shown);
+        assert_eq!(after_add(Added::Scheduled, Picture::Without), Next::Shown);
+        assert_eq!(after_add(Added::Attachment, Picture::With), Next::Again);
+        assert_eq!(
+            after_add(Added::Attachment, Picture::Without),
+            Next::Refused
+        );
+        assert_eq!(after_add(Added::Failed, Picture::With), Next::Refused);
+        assert_eq!(after_add(Added::Failed, Picture::Without), Next::Refused);
+    }
+
+    /// A center under the probe, granted, its handler answering `added`.
+    #[cfg(feature = "effect-probe")]
+    fn granted(added: Added) -> Center {
+        let _ = kinds();
+        crate::probe::set_notice_added(added);
+        let c = Center::opened().expect("a center under the probe");
+        c.answered_off_turn(Permission::Granted);
+        let _ = kinds();
+        c
+    }
+
+    /// This window's news, every post its own.
+    #[cfg(feature = "effect-probe")]
+    fn mine_all(c: &Center) -> News {
+        c.news(&mut Told(Permission::Granted), |_| Whose::This)
+    }
+
+    /// **A post is reported scheduled only on its answer's turn**: sent,
+    /// nothing is scheduled until the answer is acted on, then it is,
+    /// once. Break: the post reported scheduled when it is sent.
+    #[cfg(feature = "effect-probe")]
+    #[test]
+    fn a_post_is_reported_scheduled_only_once_its_add_answers() {
+        use crate::probe::EffectKind;
+        let c = granted(Added::Scheduled);
+        c.post_now(post("a"));
+        assert_eq!(kinds(), [EffectKind::Notice]);
+        assert_eq!(mine_all(&c).scheduled.len(), 0, "pending: nothing yet");
+        c.settled_off_turn();
+        let news = mine_all(&c);
+        assert_eq!(
+            (news.scheduled, news.refused.len()),
+            (vec![String::from("a")], 0)
+        );
+        c.settled_off_turn();
+        assert_eq!(mine_all(&c).scheduled.len(), 0, "once");
+        crate::probe::set_notice_added(Added::Scheduled);
+    }
+
+    /// **A post the system does not schedule is refused**: an add that
+    /// fails after the grant -- permission revoked in System Settings,
+    /// `notificationsNotAllowed` -- and a post made while the answer is
+    /// no are each reported refused and never scheduled. Breaks: add's
+    /// error left unread (scheduled), and the post made under a refusal
+    /// dropped with no word to its window.
+    #[cfg(feature = "effect-probe")]
+    #[test]
+    fn a_post_the_system_does_not_schedule_is_refused() {
+        let c = granted(Added::Failed);
+        c.post_now(post("a"));
+        c.settled_off_turn();
+        let news = mine_all(&c);
+        assert_eq!(
+            (news.scheduled.len(), news.refused),
+            (0, vec![String::from("a")])
+        );
+        let refused = Center::opened().expect("a center under the probe");
+        refused.answered_off_turn(Permission::Denied);
+        let _ = kinds();
+        refused.post_now(post("b"));
+        assert!(kinds().is_empty(), "nothing sent");
+        let news = refused.news(&mut Told(Permission::Denied), |_| Whose::This);
+        assert_eq!(
+            (news.scheduled.len(), news.refused),
+            (0, vec![String::from("b")])
+        );
+        crate::probe::set_notice_added(Added::Scheduled);
+    }
+
+    /// **A post whose picture the system does not take is sent again with
+    /// its text alone**, once: the retry's answer decides, scheduled here,
+    /// and the post is reported unattached. Break: the attachment's error
+    /// refusing the post, text and all.
+    #[cfg(feature = "effect-probe")]
+    #[test]
+    fn a_post_whose_picture_fails_is_sent_again_with_its_text() {
+        use crate::probe::EffectKind;
+        let c = granted(Added::Attachment);
+        let mut p = post("a");
+        p.image = Some(std::path::PathBuf::from("/nonexistent/a.png"));
+        c.post_now(p);
+        assert_eq!(kinds(), [EffectKind::Notice]);
+        crate::probe::set_notice_added(Added::Scheduled);
+        c.settled_off_turn();
+        assert_eq!(kinds(), [EffectKind::Notice], "sent again");
+        assert!(
+            c.sent.borrow().iter().all(|(_, q)| q.image.is_none()),
+            "without its picture"
+        );
+        let news = mine_all(&c);
+        assert_eq!(news.unattached, ["a"]);
+        assert_eq!(
+            (news.scheduled.len(), news.refused.len()),
+            (0, 0),
+            "not yet"
+        );
+        c.settled_off_turn();
+        let news = mine_all(&c);
+        assert_eq!(
+            (news.scheduled, news.refused.len()),
+            (vec![String::from("a")], 0)
+        );
+    }
+
+    /// **A second attachment failure is refused**, and nothing is sent a
+    /// third time. Break: the retry keeping its picture, sent again and
+    /// again.
+    #[cfg(feature = "effect-probe")]
+    #[test]
+    fn a_second_picture_failure_is_refused() {
+        use crate::probe::EffectKind;
+        let c = granted(Added::Attachment);
+        let mut p = post("a");
+        p.image = Some(std::path::PathBuf::from("/nonexistent/a.png"));
+        c.post_now(p);
+        c.settled_off_turn();
+        assert_eq!(kinds(), [EffectKind::Notice, EffectKind::Notice]);
+        c.settled_off_turn();
+        assert!(kinds().is_empty(), "no third send");
+        let news = mine_all(&c);
+        assert_eq!(
+            (news.scheduled.len(), news.refused, news.unattached),
+            (0, vec![String::from("a")], vec![String::from("a")])
+        );
+        crate::probe::set_notice_added(Added::Scheduled);
+    }
+
+    /// **Only the latest send under an identifier is answered for**: an
+    /// update sent before the first's answer replaces it, so the first's
+    /// error drops nothing; a post closed before its answer is reported
+    /// nothing and not sent again. Breaks: every answer acted on (the
+    /// update refused by the first's error), and the close leaving the
+    /// post's send kept.
+    #[cfg(feature = "effect-probe")]
+    #[test]
+    fn only_the_latest_send_is_answered_for() {
+        let c = granted(Added::Failed);
+        c.post_now(post("a"));
+        crate::probe::set_notice_added(Added::Scheduled);
+        c.post_now(post("a"));
+        c.settled_off_turn();
+        let news = mine_all(&c);
+        assert_eq!(
+            (news.scheduled, news.refused.len()),
+            (vec![String::from("a")], 0)
+        );
+        crate::probe::set_notice_added(Added::Attachment);
+        let mut p = post("b");
+        p.image = Some(std::path::PathBuf::from("/nonexistent/b.png"));
+        c.post_now(p);
+        c.remove_now("b");
+        let _ = kinds();
+        c.settled_off_turn();
+        assert!(kinds().is_empty(), "closed: not sent again");
+        let news = mine_all(&c);
+        assert_eq!(
+            (
+                news.scheduled.len(),
+                news.refused.len(),
+                news.unattached.len()
+            ),
+            (0, 0, 0)
+        );
+        crate::probe::set_notice_added(Added::Scheduled);
+    }
+
+    /// **An update replaces the outcome an earlier post left**: the first
+    /// post's add fails and is acted on before its window takes it, the
+    /// update under its identifier is scheduled, and the window takes the
+    /// update's outcome alone. Break: the earlier refusal left beside the
+    /// update's schedule, so the window forgets the update on screen.
+    #[cfg(feature = "effect-probe")]
+    #[test]
+    fn an_update_replaces_the_outcome_an_earlier_post_left() {
+        let c = granted(Added::Failed);
+        c.post_now(post("a"));
+        c.settled_off_turn();
+        assert_eq!(
+            *c.refused.borrow(),
+            ["a"],
+            "the premise: refused, not taken"
+        );
+        crate::probe::set_notice_added(Added::Scheduled);
+        c.post_now(post("a"));
+        c.settled_off_turn();
+        let news = mine_all(&c);
+        assert_eq!(
+            (news.scheduled, news.refused.len()),
+            (vec![String::from("a")], 0)
+        );
+    }
+
+    /// **An answer for a closed window's post is dropped, and another
+    /// open window's left for it**: each window takes only its own, and a
+    /// window's close forgets its news. Break: every window taking every
+    /// answer.
+    #[cfg(feature = "effect-probe")]
+    #[test]
+    fn a_closed_windows_answers_are_dropped() {
+        let c = granted(Added::Scheduled);
+        for id in ["w1-a", "w2-b", "w3-c", "w4-d"] {
+            c.post_now(post(id));
+        }
+        c.settled_off_turn();
+        c.forget_news(|id| id.starts_with("w4-"));
+        let of = |w: &'static str| {
+            move |id: &str| match id.split('-').next() {
+                Some(x) if x == w => Whose::This,
+                Some("w3") => Whose::Closed,
+                _ => Whose::Another,
+            }
+        };
+        let mut told = Told(Permission::Granted);
+        assert_eq!(c.news(&mut told, of("w1")).scheduled, ["w1-a"]);
+        assert_eq!(c.news(&mut told, of("w2")).scheduled, ["w2-b"]);
+        assert!(c.scheduled.borrow().is_empty(), "none kept");
     }
 }

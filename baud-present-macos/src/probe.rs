@@ -1025,6 +1025,22 @@ pub fn notice_list() -> NoticeList {
     NOTICE_LIST.with(Cell::get)
 }
 
+thread_local! {
+    static NOTICE_ADDED: Cell<crate::notify::Added> =
+        const { Cell::new(crate::notify::Added::Scheduled) };
+}
+
+/// **Set what add's handler answers each post with, in a probe build**:
+/// scheduled, or the error a test asks for.
+pub fn set_notice_added(a: crate::notify::Added) {
+    NOTICE_ADDED.with(|c| c.set(a));
+}
+
+/// What add's handler answers each post with.
+pub fn notice_added() -> crate::notify::Added {
+    NOTICE_ADDED.with(Cell::get)
+}
+
 /// **What `link::host_name` answers in a probe build**: the system's
 /// `NSProcessInfo.hostName`, or the frame rig's stalled reverse lookup,
 /// which holds the window's read of every name (baud-app's `Hosts`) until
