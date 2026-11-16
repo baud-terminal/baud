@@ -63,6 +63,15 @@
 //! timed on. `FRAME_SIZE=COLSxROWS` sets the screen drawn, 200x50 by
 //! default.
 //!
+//! `FRAME_TRAIL=n` prices each cursor trail's frame on the waited arm:
+//! after its replay, its idle frames and `FRAME_HASH`'s frame, n frames of
+//! the final screen with no trail and then n with each effect in
+//! `Effect::ALL` over `baud_bench::trail`'s fixed jump, each drawn whole and
+//! waited for, and a line per effect, named as the config file names it, of
+//! its GPU start-to-end a frame and that less the frames with no trail. Each
+//! effect's last frame is read back, outside the timing, and the bench exits
+//! non-zero if one is the frame with no trail.
+//!
 //! Usage: `frame_gpu <recording> [rounds] [full|incremental]`. macOS only.
 
 #[cfg(target_os = "macos")]
@@ -93,6 +102,7 @@ fn main() {
             panic!("{e}");
         }
     }
+    use baud_render::effect::Effect;
     use baud_render::{
         Blend, Candidate, CopyOrder, CursorPhase, Damage, GlyphMap, Instance, Leaving, Lend, Lent,
         LinkLine, Overlay, PxSize, Redraw, Renderer, Scene, Stack, StyleStamp, Tally, Target,
@@ -435,6 +445,19 @@ fn main() {
     // screen is up drew a blank one.
     let hash = std::env::var("FRAME_HASH").is_ok_and(|v| v == "check");
     let mut mismatched = false;
+    // FNV-1a over a frame's words.
+    let fnv = |pixels: &[u32]| {
+        pixels.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &p| {
+            (h ^ u64::from(p)).wrapping_mul(0x0100_0000_01b3)
+        })
+    };
+    // `FRAME_TRAIL=n`: n frames with no trail and n with each effect, on the
+    // waited arm after everything else it draws; see the header.
+    let trail_n: usize = std::env::var("FRAME_TRAIL")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let mut trail_blank = false;
     let first_n: usize = std::env::var("FRAME_FIRST")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -1038,18 +1061,45 @@ the first cpu {:.1}, copy {:.2}",
             };
             let mut shown = false;
             let mut hash_left = hash && cell_arm;
+            // `FRAME_TRAIL`'s frames, in the order drawn: the trail each
+            // draws, none first, and over them each one's frames, GPU time
+            // and last frame's hash.
+            let trail_plan: Vec<Option<Effect>> = match arm == Arm::Cells {
+                true => std::iter::once(None)
+                    .chain(Effect::ALL.map(Some))
+                    .flat_map(|e| std::iter::repeat_n(e, trail_n))
+                    .collect(),
+                false => Vec::new(),
+            };
+            let mut trail_at = 0usize;
+            let mut trail_sums: Vec<(Option<Effect>, Tally, Duration, u64)> = Vec::new();
             let mut total = None;
-            while at < data.len() || idle_left > 0 || hash_left {
+            while at < data.len() || idle_left > 0 || hash_left || trail_at < trail_plan.len() {
                 let idle = at >= data.len();
                 // `FRAME_HASH`'s frame: the replay and its idle frames done,
                 // so the arm's time is taken here, before it.
-                let fin = idle && idle_left == 0;
+                let fin = idle && idle_left == 0 && hash_left;
                 if fin {
                     hash_left = false;
                     went_idle(gpu.idle_within(Deadline::WAIT));
                     total = Some(t0.elapsed());
                 }
-                if idle && !fin {
+                // A `FRAME_TRAIL` frame: the trail it draws, set before the
+                // frame is built, and the arm's time taken before the first.
+                let lit = (idle && idle_left == 0 && !fin).then(|| trail_plan[trail_at]);
+                if let Some(effect) = lit {
+                    if total.is_none() {
+                        went_idle(gpu.idle_within(Deadline::WAIT));
+                        total = Some(t0.elapsed());
+                    }
+                    let jump = baud_bench::trail::jump(
+                        Cols::of_index(usize::from(ws.ws_col)),
+                        Rows::of_index(usize::from(ws.ws_row)),
+                    );
+                    let look = effect.map(|e| baud_bench::trail::look(&r, e, jump));
+                    r.set_trail(look);
+                }
+                if idle && !fin && lit.is_none() {
                     idle_left -= 1;
                     if let Some(pair) = caret {
                         if !shown {
@@ -1063,7 +1113,7 @@ the first cpu {:.1}, copy {:.2}",
                         r.set_cursor_blink(pair[idle_left % 2]);
                     }
                 }
-                let part = match fin {
+                let part = match fin || lit.is_some() {
                     true => 2,
                     false => usize::from(idle),
                 };
@@ -1072,7 +1122,9 @@ the first cpu {:.1}, copy {:.2}",
                     // feed while the GPU reads the grid.
                     let tw = Instant::now();
                     went_idle(gpu.idle_within(Deadline::WAIT));
-                    s.wait += tw.elapsed();
+                    if lit.is_none() {
+                        s.wait += tw.elapsed();
+                    }
                 }
                 if !idle {
                     let n = 4096.min(data.len() - at);
@@ -1188,6 +1240,11 @@ the first cpu {:.1}, copy {:.2}",
                         );
                     }
                     let moving_from = records.len();
+                    if lit.is_some() {
+                        // The trail's records before the glow, as `present`
+                        // appends them.
+                        records.extend_from_slice(r.trail());
+                    }
                     if caret.is_some() {
                         // The glow over the cursor's cell, after the walk's
                         // records, as `present` appends it.
@@ -1196,12 +1253,15 @@ the first cpu {:.1}, copy {:.2}",
                     }
                     let moving = (moving_from, records.len());
                     s.parts[part].overlay += to.elapsed();
-                    s.cand.add(Tally::of(candidates.len()));
-                    s.win.add(exceptions.stats().windows);
-                    s.wcells.add(exceptions.stats().window_cells);
-                    s.wmiss.add(exceptions.stats().window_misses);
-                    s.rec.add(exceptions.stats().records);
-                    s.pict.add(exceptions.stats().pictured);
+                    // A trail frame is in none of the arm's columns.
+                    if lit.is_none() {
+                        s.cand.add(Tally::of(candidates.len()));
+                        s.win.add(exceptions.stats().windows);
+                        s.wcells.add(exceptions.stats().window_cells);
+                        s.wmiss.add(exceptions.stats().window_misses);
+                        s.rec.add(exceptions.stats().records);
+                        s.pict.add(exceptions.stats().pictured);
+                    }
                     let tp = Instant::now();
                     if arm == Arm::Copied {
                         let vp = t.viewport();
@@ -1216,7 +1276,7 @@ the first cpu {:.1}, copy {:.2}",
                     if !idle {
                         s.convert += dt;
                     }
-                    if s.frames < first_n && !fin {
+                    if s.frames < first_n && !fin && lit.is_none() {
                         s.first_frames.bump();
                         s.first_convert += dt;
                         s.first_miss = map.stats().misses;
@@ -1282,7 +1342,7 @@ the first cpu {:.1}, copy {:.2}",
                         }
                         _ => Done::Within(Deadline::WAIT),
                     };
-                    let missing = match (idle && whole) || fin {
+                    let missing = match (idle && whole) || fin || lit.is_some() {
                         true => Redraw::Whole,
                         false => ages.missing(surface),
                     };
@@ -1301,11 +1361,33 @@ the first cpu {:.1}, copy {:.2}",
                         gpu.read(&target, drew, &mut pixels).expect("read back");
                         // FNV-1a over the words, and the pixels that are
                         // not the first's: a blank screen is its cursor.
-                        let h = pixels.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &p| {
-                            (h ^ u64::from(p)).wrapping_mul(0x0100_0000_01b3)
-                        });
+                        let h = fnv(&pixels[..]);
                         let inked = pixels.iter().filter(|&&p| p != pixels[0]).count();
                         hashes.push((arm, h, inked));
+                        continue;
+                    }
+                    if let Some(effect) = lit {
+                        trail_at += 1;
+                        let took = g.gpu.unwrap_or_default();
+                        match trail_sums.last_mut() {
+                            Some(e) if e.0 == effect => {
+                                e.1.bump();
+                                e.2 += took;
+                            }
+                            _ => trail_sums.push((effect, Tally::of(1), took, 0)),
+                        }
+                        // The trail's last frame, read back outside the
+                        // timing: what says the effect drew.
+                        if trail_plan.get(trail_at) != Some(&effect) {
+                            let drew = g
+                                .waited
+                                .landed()
+                                .unwrap_or_else(|w| panic!("a trail frame: {w}"));
+                            gpu.read(&target, drew, &mut pixels).expect("read back");
+                            if let Some(e) = trail_sums.last_mut() {
+                                e.3 = fnv(&pixels[..]);
+                            }
+                        }
                         continue;
                     }
                     if let Redraw::Rows(set) = g.drawn {
@@ -1522,6 +1604,25 @@ the other {}: {:.1} us/frame, {} misses ({:.2} a frame)",
                     per(rest_miss, rest),
                 );
             }
+            // Each trail's GPU time a frame, and that less the frames with no
+            // trail; an effect whose last frame is theirs drew nothing.
+            let us_of = |frames: Tally, d: Duration| {
+                let n = u32::try_from(frames.value()).unwrap_or(u32::MAX).max(1);
+                (d / n).as_secs_f64() * 1e6
+            };
+            let off = trail_sums.first().copied().filter(|e| e.0.is_none());
+            for &(effect, frames, took, h) in &trail_sums {
+                let us = us_of(frames, took);
+                let over = off.map_or(0.0, |(_, f, d, _)| us - us_of(f, d));
+                let blank = effect.is_some() && off.is_some_and(|o| o.3 == h);
+                trail_blank |= blank;
+                println!(
+                    "      trail: round {round} {:<9} {} frames, gpu {us:.1} us/frame, {over:+.1} over off, {h:016x}{}",
+                    baud_bench::trail::name(effect),
+                    frames.value(),
+                    if blank { "  BLANK" } else { "" },
+                );
+            }
         }
         // Every cell arm's final frame against the copy's, which is the
         // screen by construction; else against the first arm's.
@@ -1542,6 +1643,10 @@ the other {}: {:.1} us/frame, {} misses ({:.2} a frame)",
     }
     if mismatched {
         eprintln!("frame_gpu: a cell arm's final frame is not the copy's");
+        std::process::exit(1);
+    }
+    if trail_blank {
+        eprintln!("frame_gpu: a trail's frame is the frame with no trail");
         std::process::exit(1);
     }
 }

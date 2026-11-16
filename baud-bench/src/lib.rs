@@ -14,6 +14,7 @@ pub mod flash;
 pub mod host;
 pub mod key_latency;
 pub mod linux;
+pub mod trail;
 pub mod warm;
 
 /// The scan this crate's own features name, by the three `cfg`s that pick
