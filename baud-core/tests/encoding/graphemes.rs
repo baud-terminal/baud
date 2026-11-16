@@ -1757,11 +1757,11 @@ fn every_character_set_writes_printable_ascii_as_class_other() {
         }
     }
     assert_eq!(seen_open.len(), open.len(), "each of the three is written");
-    // 132 before DEC Supplemental, JIS-Katakana and JIS-Roman were
-    // translated; they add 103 more, counted from the generated tables too.
+    // Every codepoint any designated set writes for a printable ASCII byte
+    // in place of that byte, counted from the generated tables.
     assert_eq!(
         substituted.len(),
-        235,
+        269,
         "the sets substitute a different set of codepoints now"
     );
 }

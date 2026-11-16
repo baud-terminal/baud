@@ -796,19 +796,27 @@ fn rep_after_a_set_change_copies_the_character_and_its_code() {
 /// **Every set that replaces a code counts the code received**, the rule
 /// the national sets follow: DEC Supplemental's `@` drawn `À` counts 0x40
 /// and its `W` drawn `Œ` 0x57, JIS-Katakana's `1` drawn U+FF71 0x31,
-/// JIS-Roman's `\` drawn `¥` 0x5C. A reserved position holds DEC's error
-/// character, U+2426, and counts it as itself, 0x1B. A set that draws its
-/// byte counts the byte: DEC Technical's `a`, and Greek's 7/9 and 7/10,
-/// which it leaves unreplaced.
+/// JIS-Roman's `\` drawn `¥` 0x5C, DEC Hebrew Supplemental's `` ` `` drawn
+/// alef and `!` drawn `¡` 0x60 and 0x21, DEC Greek Supplemental's `A`
+/// drawn Alpha 0x41 and `}` drawn the tonos 0x7D. A reserved position
+/// holds DEC's error character, U+2426, and counts it as itself, 0x1B. A
+/// set that draws its byte counts the byte: DEC Technical's `a`, and the
+/// Greek NRCS's 7/9 and 7/10, which it leaves unreplaced.
 #[test]
 fn decrqcra_counts_the_code_received_under_every_set() {
-    let cases: [(&str, &str, u32); 9] = [
+    let cases: [(&str, &str, u32); 15] = [
         ("DEC Supplemental @", "\x1b(<@", 0x40),
         ("DEC Supplemental W", "\x1b(<W", 0x57),
         ("DEC Supplemental Graphics @", "\x1b(%5@", 0x40),
         ("DEC Supplemental reserved $", "\x1b(<$", 0x1B),
         ("JIS-Katakana 1", "\x1b(I1", 0x31),
         ("JIS-Roman backslash", "\x1b(J\\", 0x5C),
+        ("DEC Hebrew Supplemental `", "\x1b(\"4`", 0x60),
+        ("DEC Hebrew Supplemental !", "\x1b(\"4!", 0x21),
+        ("DEC Hebrew Supplemental reserved @", "\x1b(\"4@", 0x1B),
+        ("DEC Greek Supplemental A", "\x1b(\"?A", 0x41),
+        ("DEC Greek Supplemental }", "\x1b(\"?}", 0x7D),
+        ("DEC Greek Supplemental reserved P", "\x1b(\"?P", 0x1B),
         ("DEC Technical a", "\x1b(>a", 0x61),
         ("Greek y", "\x1b(\">y", 0x79),
         ("Greek z", "\x1b(\">z", 0x7A),

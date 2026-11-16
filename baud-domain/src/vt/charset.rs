@@ -181,6 +181,10 @@ pub enum Received {
     JisKatakana,
     /// JIS-Roman, `J`.
     JisRoman,
+    /// DEC Hebrew Supplemental, `" 4`.
+    DecHebrew,
+    /// DEC Greek Supplemental, `" ?`.
+    DecGreek,
     /// A 96-character set: every one replaces each code it is sent, SP's
     /// and DEL's among them.
     Iso96(Iso96),
@@ -197,12 +201,14 @@ impl Received {
             }
             Charset::Dec(DecSet::JisKatakana) => Some(Received::JisKatakana),
             Charset::Dec(DecSet::JisRoman) => Some(Received::JisRoman),
+            Charset::Dec(DecSet::Hebrew) => Some(Received::DecHebrew),
+            Charset::Dec(DecSet::Greek) => Some(Received::DecGreek),
             Charset::Iso96(i) => Some(Received::Iso96(i)),
             _ => None,
         }
     }
 
-    /// A dense index, 1-24, for the cell's five tag bits; 0 is none.
+    /// A dense index, 1-26, for the cell's five tag bits; 0 is none.
     pub const fn tag(self) -> u8 {
         match self {
             Received::National(n) => n.to_u8() + 1,
@@ -211,6 +217,8 @@ impl Received {
             Received::JisKatakana => 17,
             Received::JisRoman => 18,
             Received::Iso96(i) => 19 + i.to_u8(),
+            Received::DecHebrew => 25,
+            Received::DecGreek => 26,
         }
     }
 
@@ -221,6 +229,8 @@ impl Received {
             16 => Some(Received::DecSupplemental),
             17 => Some(Received::JisKatakana),
             18 => Some(Received::JisRoman),
+            25 => Some(Received::DecHebrew),
+            26 => Some(Received::DecGreek),
             19..=24 => match Iso96::from_u8(t - 19) {
                 Some(i) => Some(Received::Iso96(i)),
                 None => None,
@@ -238,8 +248,9 @@ impl Received {
 
 /// DEC-defined sets other than the line-drawing one.
 ///
-/// **DEC Supplemental, JIS-Katakana and JIS-Roman are translated**, through
-/// the tables [`DecSet::table`] returns, compiled by `build/dec_sets.rs` from
+/// **DEC Supplemental, DEC Hebrew Supplemental, DEC Greek Supplemental,
+/// JIS-Katakana and JIS-Roman are translated**, through the tables
+/// [`DecSet::table`] returns, compiled by `build/dec_sets.rs` from
 /// `[[source: xterm-charsets]]`'s macros and `[[source: unicode-jis0201]]`,
 /// with the constants typed from DEC's texts naming each cell where xterm
 /// departs from them, and every cell held to DEC's own tables by the
@@ -265,17 +276,21 @@ pub enum DecSet {
     /// `J` — JIS-Roman, VT382. Translated but for 7/14, which draws `~` until
     /// it is settled whether it is U+203E or U+00AF.
     JisRoman,
-    /// `" 4` — DEC Hebrew Supplemental, VT500. Not translated: DEC charts it
-    /// only in `[[source: dec-pplv2-pm]]` Figure A-22, which is `external`,
-    /// and its glyphs have not been read from the figure cell by cell against
-    /// xterm's `map_DEC_Hebrew_Supp`.
+    /// `" 4` — DEC Hebrew Supplemental, VT500. Translated, as
+    /// `[[source: dec-pplv2-pm]]` Figure A-22 charts it: columns 2 and 3 are
+    /// DEC Supplemental's, 6/0-7/10 the 27 Hebrew letters, final forms
+    /// among them, and the shaded cells draw the error character (§A.8).
     Hebrew,
-    /// `" ?` — DEC Greek Supplemental, VT500. Not translated, for Hebrew's
-    /// reason, Figure A-24.
+    /// `" ?` — DEC Greek Supplemental, VT500. Translated, as
+    /// `[[source: dec-pplv2-pm]]` Figure A-24 charts it: columns 2 and 3 are
+    /// DEC Supplemental's, columns 4-7 the Greek letters, and the shaded
+    /// cells draw the error character (§A.9).
     Greek,
-    /// `% 0` — DEC Turkish Supplemental, VT500. Not translated, for Hebrew's
-    /// reason, Figure A-27; and its seven hatched cells have no
-    /// error-character sentence in §A.10.
+    /// `% 0` — DEC Turkish Supplemental, VT500. Not translated: DEC charts
+    /// it only in `[[source: dec-pplv2-pm]]` Figure A-27, which is
+    /// `external`, its glyphs have not been read from the figure cell by
+    /// cell, and its seven hatched cells have no error-character sentence in
+    /// §A.10.
     Turkish,
     /// `% 5` — DEC Supplemental Graphics, VT300: DEC Supplemental, under the
     /// final `[[source: dec-std-070]]` gives it (`DEC_SUPPLEMENTAL_G %5`, p.
@@ -316,12 +331,9 @@ impl DecSet {
             }
             DecSet::JisKatakana => Some(&crate::dec_sets_data::JIS_KATAKANA),
             DecSet::JisRoman => Some(&crate::dec_sets_data::JIS_ROMAN),
-            DecSet::Technical
-            | DecSet::Hebrew
-            | DecSet::Greek
-            | DecSet::Turkish
-            | DecSet::Cyrillic
-            | DecSet::Undocumented => None,
+            DecSet::Hebrew => Some(&crate::dec_sets_data::DEC_HEBREW_SUPPLEMENTAL),
+            DecSet::Greek => Some(&crate::dec_sets_data::DEC_GREEK_SUPPLEMENTAL),
+            DecSet::Technical | DecSet::Turkish | DecSet::Cyrillic | DecSet::Undocumented => None,
         }
     }
 }
@@ -500,8 +512,9 @@ impl Charset {
     ///
     /// The line-drawing set has a flag of its own, and every set that
     /// replaces a code a tag ([`CellFlags::received`], for DECRQCRA), so
-    /// this answers `DecGraphics`, `National`, DEC Supplemental, JIS-Katakana,
-    /// JIS-Roman, a 96-character set or `Ascii`; `% 5` reads as `<`, whose
+    /// this answers `DecGraphics`, `National`, DEC Supplemental, DEC Hebrew
+    /// Supplemental, DEC Greek Supplemental, JIS-Katakana, JIS-Roman, a
+    /// 96-character set or `Ascii`; `% 5` reads as `<`, whose
     /// table it shares. The
     /// UK set and the sets that draw their byte are not recorded and read as
     /// `Ascii`.
@@ -516,6 +529,8 @@ impl Charset {
             (Some(Received::DecSupplemental), _) => Charset::Dec(DecSet::Supplemental),
             (Some(Received::JisKatakana), _) => Charset::Dec(DecSet::JisKatakana),
             (Some(Received::JisRoman), _) => Charset::Dec(DecSet::JisRoman),
+            (Some(Received::DecHebrew), _) => Charset::Dec(DecSet::Hebrew),
+            (Some(Received::DecGreek), _) => Charset::Dec(DecSet::Greek),
             (Some(Received::Iso96(i)), _) => Charset::Iso96(i),
             (None, false) => Charset::Ascii,
         }

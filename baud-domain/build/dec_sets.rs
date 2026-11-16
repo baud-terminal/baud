@@ -22,6 +22,16 @@
 //!   cells `[[source: dec-pplv2-pm]]` Figure A-2 hatches.
 //!   Where the macro departs from DEC's text, DEC's text is the standard
 //!   and the cell is DEC's, listed in [`CONFORM`]: one cell, 5/15.
+//! * **DEC Hebrew Supplemental** (`ESC ( " 4`): `[[source: xterm-charsets]]`'
+//!   `map_DEC_Hebrew_Supp`, its 49 glyphs and its 45 `UNDEF` cells, which
+//!   must be [`FIGURE_A22_RESERVED`], the cells `[[source: dec-pplv2-pm]]`
+//!   Figure A-22 shades. The figure keeps DEC Supplemental's ¤, ª and º at
+//!   2/8, 2/10 and 3/10, where the macro has ¨, × and ÷: three cells in
+//!   [`CONFORM`].
+//! * **DEC Greek Supplemental** (`ESC ( " ?`): `[[source: xterm-charsets]]`'
+//!   `map_DEC_Greek_Supp`, its 81 glyphs and its 13 `UNDEF` cells, which
+//!   must be [`FIGURE_A24_RESERVED`], the cells `[[source: dec-pplv2-pm]]`
+//!   Figure A-24 shades. The macro and the figure agree at every cell.
 //! * **JIS-Katakana** (`ESC ( I`): `[[source: dec-pplv2-pm]]` §A.12,
 //!   "specified by JIS X 0201-1976. There are 63 characters defined",
 //!   2/1-5/15, the rest reserved; the characters from
@@ -33,7 +43,7 @@
 //!
 //! A reserved position draws `DEC_ERROR_CHARACTER`: "The error character
 //! is printed when one of these reserved characters is received by the
-//! device" (`[[source: dec-pplv2-pm]]` §A.2, §A.12), and on a video
+//! device" (`[[source: dec-pplv2-pm]]` §A.2, §A.8, §A.9, §A.12), and on a video
 //! terminal `[[source: dec-std-070]]` 070-3 §3.4.3 says "The character
 //! code 10/0 in 8-bit environments is treated as an unassigned graphic
 //! character code, and will cause the error character (usually imaged as
@@ -71,6 +81,8 @@ pub enum Set {
     Supplemental,
     JisKatakana,
     JisRoman,
+    Hebrew,
+    Greek,
 }
 
 /// A position a DEC text defines and no answer has given a codepoint yet:
@@ -111,6 +123,21 @@ pub const FIGURE_A2_RESERVED: [u8; 13] = [
     0x24, 0x26, 0x2C, 0x2D, 0x2E, 0x2F, 0x34, 0x38, 0x3E, 0x50, 0x5E, 0x70, 0x7E,
 ];
 
+/// `[[source: dec-pplv2-pm]]` Figure A-22, "DEC Hebrew Supplemental
+/// Character Set", its shaded cells, which §A.8 says print the error
+/// character: Figure A-2's in columns 2 and 3, all of columns 4 and 5, and
+/// 7/11-7/14.
+pub const FIGURE_A22_RESERVED: [u8; 45] = [
+    0x24, 0x26, 0x2C, 0x2D, 0x2E, 0x2F, 0x34, 0x38, 0x3E, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46,
+    0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56,
+    0x57, 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F, 0x7B, 0x7C, 0x7D, 0x7E,
+];
+
+/// `[[source: dec-pplv2-pm]]` Figure A-24, "DEC Greek Supplemental
+/// Character Set", its shaded cells, which §A.9 says print the error
+/// character: the cells Figure A-2 hatches.
+pub const FIGURE_A24_RESERVED: [u8; 13] = FIGURE_A2_RESERVED;
+
 /// `[[source: dec-pplv2-pm]]` §A.12: 63 defined, 2/1-5/15; 6/0-7/14
 /// reserved, as `[[source: vt382-rm]]` Figure 2-10 draws them in GR (note
 /// AF §3.4).
@@ -122,9 +149,49 @@ pub const KATAKANA_DEFINED: std::ops::RangeInclusive<u8> = 0x21..=0x5F;
 /// the tilde (˜) in column 7, row 14 (7/14)."
 pub const JIS_ROMAN_YEN: (u8, u32) = (0x5C, 0x00A5);
 
-/// How many positions of DEC Supplemental and JIS-Katakana are defined.
+/// How many positions of DEC Supplemental, DEC Hebrew Supplemental, DEC
+/// Greek Supplemental and JIS-Katakana are defined.
 pub const SUPPLEMENTAL_DEFINED: usize = 81;
+pub const HEBREW_DEFINED: usize = 49;
+pub const GREEK_DEFINED: usize = 81;
 pub const KATAKANA_COUNT: usize = 63;
+
+/// A set read from its macro and held to a DEC figure: the macro's `UNDEF`
+/// cells must be the figure's shaded ones, its defined positions number
+/// `defined`, and a cell [`CONFORM`] names for the set takes DEC's
+/// codepoint.
+pub struct Charted {
+    pub set: Set,
+    pub name: &'static str,
+    pub figure: &'static str,
+    pub reserved: &'static [u8],
+    pub defined: usize,
+}
+
+/// The sets [`Charted`] describes.
+pub const CHARTED: [Charted; 3] = [
+    Charted {
+        set: Set::Supplemental,
+        name: "DEC Supplemental",
+        figure: "Figure A-2",
+        reserved: &FIGURE_A2_RESERVED,
+        defined: SUPPLEMENTAL_DEFINED,
+    },
+    Charted {
+        set: Set::Hebrew,
+        name: "DEC Hebrew Supplemental",
+        figure: "Figure A-22",
+        reserved: &FIGURE_A22_RESERVED,
+        defined: HEBREW_DEFINED,
+    },
+    Charted {
+        set: Set::Greek,
+        name: "DEC Greek Supplemental",
+        figure: "Figure A-24",
+        reserved: &FIGURE_A24_RESERVED,
+        defined: GREEK_DEFINED,
+    },
+];
 
 /// The positions open until their question is answered.
 pub const OPEN: [Open; 2] = [
@@ -151,16 +218,45 @@ pub const OPEN: [Open; 2] = [
 /// The cells taken from xterm's macro where the macro departs from DEC's
 /// text. `named_exactly` fails unless these and [`XTERM_DEPARTS`] are
 /// exactly the cells where the macro and DEC's text differ.
-pub const CONFORM: [Conform; 1] = [Conform {
-    set: Set::Supplemental,
-    byte: 0x5F,
-    dec: 0x00DF,
-    why: &[
-        "xterm's `UNI(0x5F, 0x005F)` draws `_`; DEC's Table 2-3,",
-        "`[[source: vt320-uu-appe]]` and `[[source: dec-pplv2-pm]]` Figure A-2",
-        "all have ß, so the table has ß (note AF §3.1)",
-    ],
-}];
+pub const CONFORM: [Conform; 4] = [
+    Conform {
+        set: Set::Supplemental,
+        byte: 0x5F,
+        dec: 0x00DF,
+        why: &[
+            "xterm's `UNI(0x5F, 0x005F)` draws `_`; DEC's Table 2-3,",
+            "`[[source: vt320-uu-appe]]` and `[[source: dec-pplv2-pm]]` Figure A-2",
+            "all have ß, so the table has ß (note AF §3.1)",
+        ],
+    },
+    Conform {
+        set: Set::Hebrew,
+        byte: 0x28,
+        dec: 0x00A4,
+        why: &[
+            "xterm's `UNI(0x28, 0x00A8)` draws ¨; `[[source: dec-pplv2-pm]]`",
+            "Figure A-22 has ¤, as DEC Supplemental does, so the table has ¤",
+        ],
+    },
+    Conform {
+        set: Set::Hebrew,
+        byte: 0x2A,
+        dec: 0x00AA,
+        why: &[
+            "xterm's `UNI(0x2A, 0x00D7)` draws ×; `[[source: dec-pplv2-pm]]`",
+            "Figure A-22 has ª, as DEC Supplemental does, so the table has ª",
+        ],
+    },
+    Conform {
+        set: Set::Hebrew,
+        byte: 0x3A,
+        dec: 0x00BA,
+        why: &[
+            "xterm's `UNI(0x3A, 0x00F7)` draws ÷; `[[source: dec-pplv2-pm]]`",
+            "Figure A-22 has º, as DEC Supplemental does, so the table has º",
+        ],
+    },
+];
 
 /// Where xterm's macro differs from a table built from DEC's text.
 pub const XTERM_DEPARTS: [Departs; 3] = [
@@ -328,10 +424,12 @@ pub fn named_exactly(
 }
 
 /// The macro each set is read from.
-const MACROS: [(Set, &str); 3] = [
+const MACROS: [(Set, &str); 5] = [
     (Set::Supplemental, "map_DEC_Supp_Graphic"),
     (Set::JisKatakana, "map_JIS_Katakana"),
     (Set::JisRoman, "map_JIS_Roman"),
+    (Set::Hebrew, "map_DEC_Hebrew_Supp"),
+    (Set::Greek, "map_DEC_Greek_Supp"),
 ];
 
 /// JIS0201.TXT's mappings, byte to codepoint: every data line is
@@ -431,43 +529,61 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
     }
     let of = |set: Set| xterm.iter().find(|(s, ..)| *s == set).expect("a macro");
 
-    // DEC Supplemental: xterm's macro, where DEC's text is the standard
+    // The charted sets: each set's macro, where DEC's text is the standard
     // and the macro departs from it.
-    let (_, supp_x, supp_page) = of(Set::Supplemental);
-    let mut undef: Vec<u8> = supp_page
-        .entries
-        .iter()
-        .filter(|(_, cp)| **cp == ERROR)
-        .map(|(b, _)| *b)
-        .collect();
-    undef.sort_unstable();
-    errs.require(Check::from(undef == FIGURE_A2_RESERVED), || {
-        charsets.error(
-            Kind::Control,
-            format!(
-                "map_DEC_Supp_Graphic's UNDEF cells {undef:02X?} are not Figure A-2's reserved ones {FIGURE_A2_RESERVED:02X?}"
-            ),
-        )
-    });
-    let supplemental: [u32; 94] = std::array::from_fn(|i| {
-        let byte = u8::try_from(0x21 + i).expect("a byte");
-        CONFORM
+    let mut charted: Vec<(Set, [u32; 94])> = Vec::new();
+    for c in &CHARTED {
+        let (_, x, page) = of(c.set);
+        let macro_name = MACROS
             .iter()
-            .find(|c| c.set == Set::Supplemental && c.byte == byte)
-            .map_or(supp_x[i], |c| c.dec)
-    });
-    let defined = supplemental.iter().filter(|&&v| v != ERROR).count();
-    errs.count(
-        charsets.path(),
-        "DEC Supplemental positions defined",
-        defined,
-        SUPPLEMENTAL_DEFINED,
-    );
+            .find(|(s, _)| *s == c.set)
+            .map_or("", |(_, n)| *n);
+        let mut undef: Vec<u8> = page
+            .entries
+            .iter()
+            .filter(|(_, cp)| **cp == ERROR)
+            .map(|(b, _)| *b)
+            .collect();
+        undef.sort_unstable();
+        errs.require(Check::from(undef == c.reserved), || {
+            charsets.error(
+                Kind::Control,
+                format!(
+                    "{macro_name}'s UNDEF cells {undef:02X?} are not {}'s reserved ones {:02X?}",
+                    c.figure, c.reserved
+                ),
+            )
+        });
+        let table: [u32; 94] = std::array::from_fn(|i| {
+            let byte = u8::try_from(0x21 + i).expect("a byte");
+            CONFORM
+                .iter()
+                .find(|k| k.set == c.set && k.byte == byte)
+                .map_or(x[i], |k| k.dec)
+        });
+        let defined = table.iter().filter(|&&v| v != ERROR).count();
+        errs.count(
+            charsets.path(),
+            &format!("{} positions defined", c.name),
+            defined,
+            c.defined,
+        );
+        charted.push((c.set, table));
+    }
+    let table_of = |set: Set| {
+        charted
+            .iter()
+            .find(|(s, _)| *s == set)
+            .map(|(_, t)| *t)
+            .expect("a charted set")
+    };
 
     let tables = [
-        (Set::Supplemental, supplemental),
+        (Set::Supplemental, table_of(Set::Supplemental)),
         (Set::JisKatakana, katakana),
         (Set::JisRoman, roman),
+        (Set::Hebrew, table_of(Set::Hebrew)),
+        (Set::Greek, table_of(Set::Greek)),
     ];
     for (set, table) in &tables {
         let (_, x, _) = of(*set);
@@ -523,6 +639,24 @@ fn doc(set: Set) -> (&'static str, &'static [&'static str]) {
             &[
                 "JIS-Roman, `ESC ( J`: ASCII with 5/12 the Yen sign (`[[source: vt382-rm]]`",
                 "§2.4.5; `[[source: unicode-jis0201]]`).",
+            ],
+        ),
+        Set::Hebrew => (
+            "DEC_HEBREW_SUPPLEMENTAL",
+            &[
+                "DEC Hebrew Supplemental, `ESC ( \" 4`: `[[source: dec-pplv2-pm]]` Figure A-22,",
+                "through `[[source: xterm-charsets]]`' `map_DEC_Hebrew_Supp`: columns 2 and 3",
+                "DEC Supplemental's, 6/0-7/10 the 27 letters U+05D0-U+05EA, and in the 45",
+                "cells the figure shades the error character, as §A.8 says.",
+            ],
+        ),
+        Set::Greek => (
+            "DEC_GREEK_SUPPLEMENTAL",
+            &[
+                "DEC Greek Supplemental, `ESC ( \" ?`: `[[source: dec-pplv2-pm]]` Figure A-24,",
+                "through `[[source: xterm-charsets]]`' `map_DEC_Greek_Supp`: columns 2 and 3",
+                "DEC Supplemental's, columns 4-7 the Greek letters, and in the 13 cells the",
+                "figure shades the error character, as §A.9 says.",
             ],
         ),
         Set::Graphics => ("DEC_GRAPHICS", &[]),

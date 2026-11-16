@@ -95,8 +95,8 @@ resolve
   From:    https://gitlab.freedesktop.org/xorg/app/rgb/-/raw/0d2caecebf0e2a10994c22960921f366dd98d19a/rgb.txt
 
 xterm's charsets.h, carried unmodified, which the build compiles into DEC
-Special Graphics, DEC Supplemental and the National Replacement Character
-Sets
+Special Graphics, DEC Supplemental, DEC Hebrew Supplemental, DEC Greek
+Supplemental and the National Replacement Character Sets
   Files:   data/xterm-charsets.h
   Holder:  Thomas E. Dickey (xterm)
   Licence: X11

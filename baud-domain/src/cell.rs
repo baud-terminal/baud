@@ -703,9 +703,9 @@ impl PackedCell {
             Charset::National(n) => self.with_nrcs(b, crate::nrcs_table(n)),
             Charset::Dec(d) => match d.table() {
                 Some(t) => self.with_dec_set(b, t),
-                // DEC Technical, the three VT500 supplementals, Cyrillic and
-                // the two undocumented sets: each draws its byte, for the
-                // reason on its `DecSet` variant.
+                // DEC Technical, DEC Turkish Supplemental, Cyrillic and the
+                // two undocumented sets: each draws its byte, for the reason
+                // on its `DecSet` variant.
                 None => self.with_ascii(b),
             },
             Charset::Iso96(i) => self.with_iso96(b, i.table()),

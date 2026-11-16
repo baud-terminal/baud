@@ -546,8 +546,10 @@ impl Checksum {
     ///
     /// **Every set that replaces a code is read back through the cell's
     /// tag** ([`CellFlags::received`]): line drawing, the national sets,
-    /// DEC Supplemental, JIS-Katakana and JIS-Roman, so Supplemental's `W`
-    /// drawn `Œ` counts 0x57 and JIS-Katakana's `1` drawn U+FF71 0x31.
+    /// DEC Supplemental, DEC Hebrew and Greek Supplemental, JIS-Katakana and
+    /// JIS-Roman, so Supplemental's `W` drawn `Œ` counts 0x57, Hebrew
+    /// Supplemental's `` ` `` drawn alef 0x60 and JIS-Katakana's `1` drawn
+    /// U+FF71 0x31.
     /// **Open**: a reserved DEC Supplemental position counts DEC's error
     /// character, 0x1B, as xterm's `unmap_DEC_Supp_Graphic` does, where
     /// CODE_RECEIVED would count the code sent; the cell does not keep it.
@@ -735,6 +737,8 @@ fn code_received(r: Received, cp: Codepoint) -> Option<u8> {
         Received::DecSupplemental => dec_set_byte(DEC_SETS_SUPPLEMENTAL, cp),
         Received::JisKatakana => dec_set_byte(DEC_SETS_KATAKANA, cp),
         Received::JisRoman => dec_set_byte(DEC_SETS_ROMAN, cp),
+        Received::DecHebrew => dec_set_byte(DEC_SETS_HEBREW, cp),
+        Received::DecGreek => dec_set_byte(DEC_SETS_GREEK, cp),
         Received::Iso96(i) => iso96_byte(i, cp),
     }
 }
@@ -832,7 +836,7 @@ fn iso96_byte(s: Iso96, cp: Codepoint) -> Option<u8> {
     (u32::from(c) == cp.0 && b != 0).then_some(b)
 }
 
-/// The three translated DEC 94-character sets backwards, codepoint to
+/// The five translated DEC 94-character sets backwards, codepoint to
 /// code, each in a slice of its own keyed on the codepoint modulo the
 /// smallest number that gives each of its characters a slot, chosen at
 /// compile time as [`NrcsIndex`]'s are. **A reserved position holds DEC's
@@ -841,20 +845,25 @@ fn iso96_byte(s: Iso96, cp: Codepoint) -> Option<u8> {
 /// whose character is its own code (JIS-Roman's letters), which counts the
 /// same either way.
 struct DecSetIndex {
-    modulus: [u16; 3],
-    start: [u16; 3],
+    modulus: [u16; DEC_SETS],
+    start: [u16; DEC_SETS],
     slots: [(u16, u8); DEC_SET_SLOTS],
 }
 
 const DEC_SETS_SUPPLEMENTAL: usize = 0;
 const DEC_SETS_KATAKANA: usize = 1;
 const DEC_SETS_ROMAN: usize = 2;
+const DEC_SETS_HEBREW: usize = 3;
+const DEC_SETS_GREEK: usize = 4;
+const DEC_SETS: usize = 5;
 
 const fn dec_set_table(i: usize) -> &'static [Codepoint; 94] {
     match i {
         DEC_SETS_SUPPLEMENTAL => &crate::dec_sets_data::DEC_SUPPLEMENTAL,
         DEC_SETS_KATAKANA => &crate::dec_sets_data::JIS_KATAKANA,
-        _ => &crate::dec_sets_data::JIS_ROMAN,
+        DEC_SETS_ROMAN => &crate::dec_sets_data::JIS_ROMAN,
+        DEC_SETS_HEBREW => &crate::dec_sets_data::DEC_HEBREW_SUPPLEMENTAL,
+        _ => &crate::dec_sets_data::DEC_GREEK_SUPPLEMENTAL,
     }
 }
 
@@ -891,17 +900,19 @@ const fn dec_set_modulus(t: &[Codepoint; 94]) -> usize {
 
 const DEC_SET_SLOTS: usize = dec_set_modulus(dec_set_table(0))
     + dec_set_modulus(dec_set_table(1))
-    + dec_set_modulus(dec_set_table(2));
+    + dec_set_modulus(dec_set_table(2))
+    + dec_set_modulus(dec_set_table(3))
+    + dec_set_modulus(dec_set_table(4));
 
 const fn dec_set_index() -> DecSetIndex {
     let mut ix = DecSetIndex {
-        modulus: [0; 3],
-        start: [0; 3],
+        modulus: [0; DEC_SETS],
+        start: [0; DEC_SETS],
         slots: [(0, 0); DEC_SET_SLOTS],
     };
     let mut at = 0;
     let mut i = 0;
-    while i < 3 {
+    while i < DEC_SETS {
         let t = dec_set_table(i);
         let m = dec_set_modulus(t);
         ix.modulus[i] = m as u16;
@@ -965,6 +976,21 @@ mod tests {
             for (j, &cp) in set.table().iter().enumerate() {
                 let want = (cp != crate::DEC_ERROR_CHARACTER).then_some(0x20 + j as u8);
                 assert_eq!(iso96_byte(set, cp), want, "{set:?} {:#x}", cp.0);
+            }
+        }
+    }
+
+    /// The DEC set index names every replacing position's code under its
+    /// own set, and nothing for the error character or a position that
+    /// holds its own code.
+    #[test]
+    fn every_dec_set_character_reverses_to_its_code() {
+        for i in 0..DEC_SETS {
+            for (j, &cp) in dec_set_table(i).iter().enumerate() {
+                let code = u8::try_from(0x21 + j).ok();
+                let want = code
+                    .filter(|&c| cp != crate::DEC_ERROR_CHARACTER && cp != Codepoint(u32::from(c)));
+                assert_eq!(dec_set_byte(i, cp), want, "set {i} {:#x}", cp.0);
             }
         }
     }

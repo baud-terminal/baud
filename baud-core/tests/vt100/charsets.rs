@@ -843,13 +843,17 @@ fn after_an_intermediate_the_introducer_bytes_are_finals_at_every_read_size() {
 /// directly, and G1 through `SO`. `<` and `% 5` both name DEC Supplemental:
 /// `<` in `[[source: vt220-rm-ch4]]` Table 4-4, `% 5` in
 /// `[[source: dec-std-070]]` p. 5-117.
-const DEC_DESIGNATIONS: [(&[u8], DecSet); 6] = [
+const DEC_DESIGNATIONS: [(&[u8], DecSet); 10] = [
     (b"\x1b(<", DecSet::Supplemental),
     (b"\x1b(%5", DecSet::SupplementalGraphics),
     (b"\x1b)%5\x0e", DecSet::SupplementalGraphics),
     (b"\x1b(I", DecSet::JisKatakana),
     (b"\x1b)I\x0e", DecSet::JisKatakana),
     (b"\x1b(J", DecSet::JisRoman),
+    (b"\x1b(\"4", DecSet::Hebrew),
+    (b"\x1b)\"4\x0e", DecSet::Hebrew),
+    (b"\x1b(\"?", DecSet::Greek),
+    (b"\x1b)\"?\x0e", DecSet::Greek),
 ];
 
 fn cp(c: PackedCell) -> u32 {
@@ -890,7 +894,7 @@ fn every_dec_set_position_renders_as_its_table_says_on_both_paths() {
             checked += 1;
         }
     }
-    assert_eq!(checked, 6 * 94);
+    assert_eq!(checked, 10 * 94);
 }
 
 /// **What each set draws, spelled out**, so the write path is held to the
@@ -923,6 +927,127 @@ fn each_dec_set_draws_what_its_dec_text_says() {
     assert_eq!(first(b"\x1b(Ja"), u32::from(b'a'), "JIS-Roman 6/1 is ASCII");
     // Positive control: under ASCII the same bytes draw themselves.
     assert_eq!(first(b"_"), u32::from(b'_'));
+}
+
+/// DEC Hebrew Supplemental, `ESC ( " 4`, in GL: through G0 directly, and
+/// through G1 and `SO`.
+const HEBREW: [&[u8]; 2] = [b"\x1b(\"4", b"\x1b)\"4\x0e"];
+/// DEC Greek Supplemental, `ESC ( " ?`, in GL the same two ways.
+const GREEK: [&[u8]; 2] = [b"\x1b(\"?", b"\x1b)\"?\x0e"];
+
+/// Each `(byte, codepoint, cell)` drawn under each designation, alone (a
+/// character at a time) and as a run of eight (in bulk).
+fn draws_as_charted(set: &str, designations: [&[u8]; 2], cells: &[(u8, u32, &str)]) {
+    for designate in designations {
+        for &(byte, want, cell) in cells {
+            let one = run(&[designate, &[byte]].concat()).0;
+            assert_eq!(
+                cp(one[0]),
+                want,
+                "{set} {cell} via {}: alone",
+                designate.escape_ascii()
+            );
+            let eight = run(&[designate, &[byte; 8]].concat()).0;
+            for (i, c) in eight[..8].iter().enumerate() {
+                assert_eq!(
+                    cp(*c),
+                    want,
+                    "{set} {cell} via {}: cell {i} of a run",
+                    designate.escape_ascii()
+                );
+            }
+        }
+    }
+}
+
+/// **DEC Hebrew Supplemental draws what `[[source: dec-pplv2-pm]]` Figure
+/// A-22, "DEC Hebrew Supplemental Character Set", charts.** §A.8: "some
+/// character positions are considered 'reserved for future use.' These
+/// positions are indicated by shaded boxes in the figure. The error character
+/// is printed when one of these reserved characters is received by the
+/// device."
+///
+/// * 2/1 is ¡, as in DEC Supplemental.
+/// * 6/0 is alef U+05D0, 6/10 final kaf U+05DA, 7/10 tav U+05EA: the figure's
+///   6/0-7/10 are the 27 letters in order, each final form before its base.
+/// * 4/0, 5/15 and 7/11 are shaded: the error character U+2426.
+///
+/// Positive control: under ASCII the same bytes draw themselves.
+#[test]
+fn dec_hebrew_supplemental_draws_figure_a_22() {
+    draws_as_charted(
+        "Hebrew Supplemental",
+        HEBREW,
+        &[
+            (0x21, 0x00a1, "2/1 ¡"),
+            (0x40, 0x2426, "4/0 shaded"),
+            (0x5f, 0x2426, "5/15 shaded"),
+            (0x60, 0x05d0, "6/0 alef"),
+            (0x6a, 0x05da, "6/10 final kaf"),
+            (0x7a, 0x05ea, "7/10 tav"),
+            (0x7b, 0x2426, "7/11 shaded"),
+        ],
+    );
+    for byte in [0x21u8, 0x60, 0x7a] {
+        assert_eq!(cp(run(&[byte]).0[0]), u32::from(byte), "ASCII 0x{byte:02x}");
+    }
+}
+
+/// **DEC Hebrew Supplemental's 2/8, 2/10 and 3/10 are ¤, ª and º**, the
+/// figure's: `[[source: dec-pplv2-pm]]` Figure A-22, "DEC Hebrew Supplemental
+/// Character Set", charts CURRENCY SIGN U+00A4 at 2/8, FEMININE ORDINAL
+/// INDICATOR U+00AA at 2/10 and MASCULINE ORDINAL INDICATOR U+00BA at 3/10,
+/// the cells DEC Supplemental holds there.
+#[test]
+fn dec_hebrew_supplemental_2_8_2_10_and_3_10_are_the_figures() {
+    draws_as_charted(
+        "Hebrew Supplemental",
+        HEBREW,
+        &[
+            (0x28, 0x00a4, "2/8 ¤"),
+            (0x2a, 0x00aa, "2/10 ª"),
+            (0x3a, 0x00ba, "3/10 º"),
+        ],
+    );
+}
+
+/// **DEC Greek Supplemental draws what `[[source: dec-pplv2-pm]]` Figure
+/// A-24, "DEC Greek Supplemental Character Set", charts.** §A.9: "some
+/// character positions are considered 'reserved for future use.' These
+/// positions are indicated by shaded boxes in the figure. The error character
+/// is printed when one of these reserved characters is received by the
+/// device."
+///
+/// * 2/8 is ¤, as in DEC Supplemental.
+/// * 4/0 is ϊ U+03CA; 4/1 Α U+0391; 4/4 Δ U+0394 and 5/9 Ω U+03A9, the Greek
+///   block's capitals and not U+2206 or U+2126; 5/10 ά U+03AC; 6/12 μ U+03BC,
+///   not MICRO SIGN U+00B5, which is 3/5; 7/10 ς U+03C2; 7/13 the tonos
+///   alone, U+0384.
+/// * 5/0 and 7/14 are shaded: the error character U+2426.
+///
+/// Positive control: under ASCII the same bytes draw themselves.
+#[test]
+fn dec_greek_supplemental_draws_figure_a_24() {
+    draws_as_charted(
+        "Greek Supplemental",
+        GREEK,
+        &[
+            (0x28, 0x00a4, "2/8 ¤"),
+            (0x40, 0x03ca, "4/0 ϊ"),
+            (0x41, 0x0391, "4/1 Α"),
+            (0x44, 0x0394, "4/4 Δ"),
+            (0x50, 0x2426, "5/0 shaded"),
+            (0x59, 0x03a9, "5/9 Ω"),
+            (0x5a, 0x03ac, "5/10 ά"),
+            (0x6c, 0x03bc, "6/12 μ"),
+            (0x7a, 0x03c2, "7/10 ς"),
+            (0x7d, 0x0384, "7/13 tonos"),
+            (0x7e, 0x2426, "7/14 shaded"),
+        ],
+    );
+    for byte in [0x28u8, 0x41, 0x7a] {
+        assert_eq!(cp(run(&[byte]).0[0]), u32::from(byte), "ASCII 0x{byte:02x}");
+    }
 }
 
 /// **SP is a space under every DEC set.** It is not one of a 94-character

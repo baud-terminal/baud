@@ -36,6 +36,20 @@ const FIGURE_A2_RESERVED: [u8; 13] = [
     0x24, 0x26, 0x2c, 0x2d, 0x2e, 0x2f, 0x34, 0x38, 0x3e, 0x50, 0x5e, 0x70, 0x7e,
 ];
 
+/// `[[source: dec-pplv2-pm]]` Figure A-24, "DEC Greek Supplemental Character
+/// Set", columns 4-7, 4/0 through 7/14: each cell's codepoint as read from
+/// the figure, U+2426 where it shades the cell, typed here by hand and not
+/// taken from the generator, sixteen cells to a column. Every letter is the
+/// Greek block's.
+const FIGURE_A24_COLUMNS_4_TO_7: [u32; 63] = [
+    0x03ca, 0x0391, 0x0392, 0x0393, 0x0394, 0x0395, 0x0396, 0x0397, 0x0398, 0x0399, 0x039a, 0x039b,
+    0x039c, 0x039d, 0x039e, 0x039f, 0x2426, 0x03a0, 0x03a1, 0x03a3, 0x03a4, 0x03a5, 0x03a6, 0x03a7,
+    0x03a8, 0x03a9, 0x03ac, 0x03ad, 0x03ae, 0x03af, 0x2426, 0x03cc, 0x03cb, 0x03b1, 0x03b2, 0x03b3,
+    0x03b4, 0x03b5, 0x03b6, 0x03b7, 0x03b8, 0x03b9, 0x03ba, 0x03bb, 0x03bc, 0x03bd, 0x03be, 0x03bf,
+    0x2426, 0x03c0, 0x03c1, 0x03c3, 0x03c4, 0x03c5, 0x03c6, 0x03c7, 0x03c8, 0x03c9, 0x03c2, 0x03cd,
+    0x03ce, 0x0384, 0x2426,
+];
+
 fn table(set: DecSet) -> &'static [Codepoint; 94] {
     set.table()
         .unwrap_or_else(|| panic!("{set:?} has no table"))
@@ -159,13 +173,86 @@ fn jis_roman_is_ascii_with_the_yen_sign() {
     }
 }
 
+/// **DEC Hebrew Supplemental is `[[source: dec-pplv2-pm]]` Figure A-22**,
+/// "DEC Hebrew Supplemental Character Set": columns 2 and 3 are
+/// `[[source: dec-special-graphics]]` Table 2-3's right half, as DEC
+/// Supplemental's are, with the error character in each cell the table
+/// leaves empty; 4/0-5/15 and 7/11-7/14 are shaded; 6/0-7/10 are the 27
+/// letters U+05D0-U+05EA in order, each final form before its base. §A.8:
+/// "The error character is printed when one of these reserved characters
+/// is received by the device."
+///
+/// Positive control: columns 2 and 3 hold 31 cells, and the set 49
+/// characters, 22 signs and 27 letters.
+#[test]
+fn dec_hebrew_supplemental_is_figure_a_22() {
+    let dec = table_2_3_right();
+    let e = DEC_ERROR_CHARACTER.value();
+    let low: Vec<(u8, u32)> = dec
+        .range(0x21u8..=0x3f)
+        .map(|(code, glyph)| (*code, glyph.map_or(e, u32::from)))
+        .collect();
+    assert_eq!(low.len(), 31, "columns 2 and 3 of Table 2-3");
+    for (code, want) in low {
+        assert_eq!(at(DecSet::Hebrew, code), want, "Hebrew 0x{code:02x}");
+    }
+    for code in (0x40u8..=0x5f).chain(0x7b..=0x7e) {
+        assert_eq!(at(DecSet::Hebrew, code), e, "Hebrew 0x{code:02x} is shaded");
+    }
+    for (code, letter) in (0x60u8..=0x7a).zip(0x05d0u32..=0x05ea) {
+        assert_eq!(at(DecSet::Hebrew, code), letter, "Hebrew 0x{code:02x}");
+    }
+    let defined = table(DecSet::Hebrew)
+        .iter()
+        .filter(|c| **c != DEC_ERROR_CHARACTER)
+        .count();
+    assert_eq!(defined, 49, "22 signs and 27 letters");
+}
+
+/// **DEC Greek Supplemental is `[[source: dec-pplv2-pm]]` Figure A-24**,
+/// "DEC Greek Supplemental Character Set": columns 2 and 3 are
+/// `[[source: dec-special-graphics]]` Table 2-3's right half, as DEC
+/// Supplemental's are, and columns 4-7 are [`FIGURE_A24_COLUMNS_4_TO_7`].
+/// The figure shades the 13 cells Figure A-2 hatches, and §A.9 says they
+/// print the error character.
+///
+/// Positive control: columns 2 and 3 hold 31 cells, and 4/1 is Alpha
+/// U+0391, not the Latin `A` the byte is.
+#[test]
+fn dec_greek_supplemental_is_figure_a_24() {
+    let dec = table_2_3_right();
+    let e = DEC_ERROR_CHARACTER.value();
+    let low: Vec<(u8, u32)> = dec
+        .range(0x21u8..=0x3f)
+        .map(|(code, glyph)| (*code, glyph.map_or(e, u32::from)))
+        .collect();
+    assert_eq!(low.len(), 31, "columns 2 and 3 of Table 2-3");
+    for (code, want) in low {
+        assert_eq!(at(DecSet::Greek, code), want, "Greek 0x{code:02x}");
+    }
+    for (code, want) in (0x40u8..=0x7e).zip(FIGURE_A24_COLUMNS_4_TO_7) {
+        assert_eq!(at(DecSet::Greek, code), want, "Greek 0x{code:02x}");
+    }
+    assert_eq!(at(DecSet::Greek, 0x41), 0x0391, "4/1 is Alpha");
+    let shaded: Vec<u8> = (0x21u8..=0x7e)
+        .filter(|code| at(DecSet::Greek, *code) == e)
+        .collect();
+    assert_eq!(shaded, FIGURE_A2_RESERVED, "Figure A-2's cells, shaded");
+}
+
 /// **Every position a set translates to is one narrow cell**, by baud's own
 /// width table: the bulk path writes every translated byte as
 /// `Width::NARROW`, so a wide or zero-width codepoint here would desynchronise
 /// the cursor from the cells.
 #[test]
 fn every_translated_position_is_one_narrow_cell() {
-    for set in [DecSet::Supplemental, DecSet::JisKatakana, DecSet::JisRoman] {
+    for set in [
+        DecSet::Supplemental,
+        DecSet::JisKatakana,
+        DecSet::JisRoman,
+        DecSet::Hebrew,
+        DecSet::Greek,
+    ] {
         for (i, cp) in table(set).iter().enumerate() {
             assert!(
                 Width::of(*cp, AmbiguousWidth::Narrow) == Width::NARROW,
@@ -182,8 +269,6 @@ fn every_translated_position_is_one_narrow_cell() {
 fn the_sets_baud_does_not_translate_have_no_table() {
     for set in [
         DecSet::Technical,
-        DecSet::Hebrew,
-        DecSet::Greek,
         DecSet::Turkish,
         DecSet::Cyrillic,
         DecSet::Undocumented,
