@@ -4110,8 +4110,7 @@ impl<'b> Term<'b> {
         // Written and logged once, when the table is new: a storage lent again
         // has slot 0 already, and its log already holds the write.
         if store.style_log.book.writes == StyleWrites::NEVER {
-            store.tmpl[StyleId::DEFAULT.index()] = Some(StyleWord::DEFAULT);
-            store.style_log.note(StyleId::DEFAULT);
+            crate::bands::seed_default(&mut store.tmpl, &mut store.style_log);
         }
         // The dynamic colours restart with `Cold`, and the palette does not:
         // what a rendition resolves through may have changed.
@@ -4743,9 +4742,9 @@ impl<'b> Term<'b> {
         let ring = m.ring;
         let n = m.hist.index() + m.rows.index() + m.hidden.index();
         let base = m.rot.retreat(m.hist.index(), ring);
-        let slots = self.store.tmpl.len();
+        let slots = self.store.tmpl.as_slice().len();
         let mut prim = self.store.surfaces.stamped(Which::Primary);
-        let live = &*self.store.tmpl;
+        let live = self.store.tmpl.as_slice();
         let Some(f) = self.store.style_log.frozen.as_mut() else {
             return;
         };
@@ -5833,14 +5832,14 @@ impl<'b> Term<'b> {
     /// slot no cell names, so an id kept from an earlier read can name a
     /// slot that holds another rendition now.
     pub fn style_of(&self, cell: PackedCell) -> StyleWord {
-        self.store.tmpl[cell.style.index()].unwrap_or(StyleWord::DEFAULT)
+        self.store.tmpl.as_slice()[cell.style.index()].unwrap_or(StyleWord::DEFAULT)
     }
 
     /// The rendition a cell of a row that resolves through `styles` stands
     /// for: the rendition table's slot on a live row, its generation's word
     /// on a frozen one.
     pub fn style_in(&self, styles: RowStyles<'_>, cell: PackedCell) -> StyleWord {
-        styles.word(self.store.tmpl, cell.style)
+        styles.word(self.store.tmpl.as_slice(), cell.style)
     }
 
     /// The whole rendition table, indexed by [`StyleId`]: what a renderer
@@ -5849,7 +5848,7 @@ impl<'b> Term<'b> {
     /// in, and reads as [`StyleWord::DEFAULT`], which is what `style_of`
     /// answers for it.
     pub fn styles(&self) -> &[Option<StyleWord>] {
-        self.store.tmpl
+        self.store.tmpl.as_slice()
     }
 
     /// Which rendition table this terminal writes: a renderer that caches
@@ -6650,7 +6649,12 @@ impl<'b> Term<'b> {
         styles: RowStyles<'r>,
     ) -> PlaceholderRuns<impl Iterator<Item = PlaceholderCell> + 'r> {
         PlaceholderRuns::new(row.iter().map(move |c| {
-            crate::kitty::placeholder_cell(&self.store.clusters, self.store.tmpl, styles, *c)
+            crate::kitty::placeholder_cell(
+                &self.store.clusters,
+                self.store.tmpl.as_slice(),
+                styles,
+                *c,
+            )
         }))
     }
 

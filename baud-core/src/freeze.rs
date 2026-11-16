@@ -236,7 +236,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             false => (false, self.cold.screen),
         };
         let frz = self.style_log.frozen.as_mut()?;
-        let tmpl: &[Option<StyleWord>] = &*self.tmpl;
+        let tmpl: &[Option<StyleWord>] = self.tmpl.as_slice();
         let (prim, alt): (&mut Stamped<'a>, &mut Stamped<'a>) = match screen {
             (false, Screen::Normal) => (self.view.store_mut(), self.other.store_mut()),
             (false, Screen::Alternate) => (self.other.store_mut(), self.view.store_mut()),
@@ -530,7 +530,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         if cells == 0 {
             return;
         }
-        let len = self.tmpl.len();
+        let len = self.tmpl.as_slice().len();
         let filled = self.style_log.book.sweep.filled;
         if (filled + cells.min(len)) * SweepBook::LOAD.1 > len * SweepBook::LOAD.0 {
             let _ = self.freeze_off_screen();

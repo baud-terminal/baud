@@ -2647,7 +2647,7 @@ impl Paint<'_, '_> {
         // construction the mapping is exact, which is why a text-drawn image
         // preview (one distinct rendition per cell) no longer scrambles: a
         // screenful of them all fit.
-        let len = self.tmpl.len();
+        let len = self.tmpl.as_slice().len();
         #[cfg(feature = "probe-double-intern")]
         core::hint::black_box(StyleId::bucket(raw, len));
         #[cfg(feature = "probe-double-intern-full")]
@@ -2664,7 +2664,7 @@ impl Paint<'_, '_> {
         // `INLINE` is below `NSTYLE`, so the loop never wraps the table.
         let mut k = base;
         for _ in 0..SweepBook::INLINE {
-            match self.tmpl[k] {
+            match self.tmpl.as_slice()[k] {
                 Some(w) if w == raw => return StyleId::from_index(k),
                 None => return self.intern_new(StyleId::from_index(k), raw),
                 Some(_) => k = (k + 1) & (len - 1),
@@ -2686,11 +2686,11 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     fn intern_far(&mut self, base: StyleId, raw: StyleWord) -> StyleId {
-        let len = self.tmpl.len();
+        let len = self.tmpl.as_slice().len();
         let far = self.style_log.reach[base.index()].slots();
         let mut k = (base.index() + SweepBook::INLINE) & (len - 1);
         for n in SweepBook::INLINE..far {
-            match self.tmpl[k] {
+            match self.tmpl.as_slice()[k] {
                 Some(w) if w == raw => {
                     self.style_log.book.sweep.probed(n + 1);
                     return StyleId::from_index(k);
@@ -2716,13 +2716,13 @@ impl Paint<'_, '_> {
     /// none, which [`SweepBook::filled`] says without a walk: it counts
     /// every filled slot but slot 0, which is never empty.
     fn first_empty(&mut self, from: StyleId) -> Option<StyleId> {
-        let len = self.tmpl.len();
+        let len = self.tmpl.as_slice().len();
         if self.style_log.book.sweep.filled + 1 >= len {
             return None;
         }
         let mut j = from.index();
         for n in 0..len {
-            if self.tmpl[j].is_none() {
+            if self.tmpl.as_slice()[j].is_none() {
                 self.style_log.book.sweep.probed(n + 1);
                 return Some(StyleId::from_index(j));
             }
@@ -2740,7 +2740,7 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     fn intern_new(&mut self, k: StyleId, raw: StyleWord) -> StyleId {
-        let len = self.tmpl.len();
+        let len = self.tmpl.as_slice().len();
         // A rendition with SAPV's variants or a string on its own key's
         // path, which the inline probe left unwalked: a hit there is its
         // slot, and the first empty slot there its place.
@@ -2759,7 +2759,7 @@ impl Paint<'_, '_> {
             let mut n = 0;
             while j != k.index() {
                 n += 1;
-                if self.tmpl[j] == Some(StyleWord::TOMBSTONE) {
+                if self.tmpl.as_slice()[j] == Some(StyleWord::TOMBSTONE) {
                     self.style_log.book.sweep.probed(n);
                     self.style_log.book.sweep.tomb_taken();
                     return self.write_slot(StyleId::from_index(j), Some(raw));
@@ -2788,7 +2788,7 @@ impl Paint<'_, '_> {
             }
         }
         // `probe-double-intern-full` writes here over a filled slot.
-        if self.tmpl[k.index()].is_none() {
+        if self.tmpl.as_slice()[k.index()].is_none() {
             self.style_log.book.sweep.filled_one();
         }
         self.write_slot(k, Some(raw))
@@ -2798,12 +2798,12 @@ impl Paint<'_, '_> {
     /// its slot, the first empty one, or neither.
     /// Bounded as the inline probe is, by its bucket's [`Reach`].
     fn variants_probe(&mut self, raw: StyleWord) -> Probed {
-        let len = self.tmpl.len();
+        let len = self.tmpl.as_slice().len();
         let home = StyleId::bucket(raw, len);
         let far = self.style_log.reach[home].slots();
         let mut k = home;
         for n in 0..far {
-            match self.tmpl[k] {
+            match self.tmpl.as_slice()[k] {
                 Some(w) if w == raw => {
                     self.style_log.book.sweep.probed(n + 1);
                     return Probed::Hit(StyleId::from_index(k));
@@ -2838,7 +2838,7 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     fn full_table(&mut self, base: StyleId, raw: StyleWord) -> StyleId {
-        let len = self.tmpl.len();
+        let len = self.tmpl.as_slice().len();
         let base = match raw.is_plain() {
             true => base,
             false => StyleId::from_index(StyleId::bucket(raw, len)),
@@ -2846,7 +2846,7 @@ impl Paint<'_, '_> {
         if self.style_log.book.sweep.tombs > 0 {
             let mut k = base.index();
             for n in 0..len {
-                if self.tmpl[k] == Some(StyleWord::TOMBSTONE) {
+                if self.tmpl.as_slice()[k] == Some(StyleWord::TOMBSTONE) {
                     self.style_log.book.sweep.probed(n + 1);
                     self.style_log.book.sweep.tomb_taken();
                     return self.write_slot(StyleId::from_index(k), Some(raw));
@@ -2908,7 +2908,7 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn sweep_styles_opt(&mut self, raw: Option<StyleWord>) -> Option<StyleId> {
-        let len = self.tmpl.len();
+        let len = self.tmpl.as_slice().len();
         let mut live = SlotSet::new();
         live.insert(StyleId::DEFAULT);
         live.insert(self.style);
@@ -2923,7 +2923,7 @@ impl Paint<'_, '_> {
         self.style_log.reach.fill(Reach::ZERO);
         for step in 0..2 * len {
             let k = (len - 1) - (step & (len - 1));
-            let was = self.tmpl[k];
+            let was = self.tmpl.as_slice()[k];
             let named = live.has(k) && was.is_some();
             if step >= len && k != 0 {
                 let now = match was {
@@ -2961,7 +2961,7 @@ impl Paint<'_, '_> {
         let raw = raw?;
         let mut k = StyleId::bucket(raw, len);
         for _ in 0..len {
-            match self.tmpl[k] {
+            match self.tmpl.as_slice()[k] {
                 Some(w) if w == StyleWord::TOMBSTONE => {
                     self.style_log.book.sweep.tomb_taken();
                     return Some(self.write_slot(StyleId::from_index(k), Some(raw)));
@@ -2983,17 +2983,7 @@ impl Paint<'_, '_> {
     /// bucket reaches it ([`Reach`]).
     #[inline(always)]
     fn write_slot(&mut self, id: StyleId, w: Option<StyleWord>) -> StyleId {
-        self.tmpl[id.index()] = w;
-        // A rendition written past its bucket raises the bucket's reach, so
-        // a probe from there reads as far as it.
-        if let Some(r) = w.filter(|r| *r != StyleWord::TOMBSTONE) {
-            let len = self.tmpl.len();
-            let home = StyleId::bucket(r, len);
-            let at = &mut self.style_log.reach[home];
-            *at = (*at).max(Reach::of(id.index().wrapping_sub(home) & (len - 1)));
-        }
-        self.style_log.note(id);
-        id
+        crate::bands::write_slot(&mut self.tmpl, self.style_log, id, w)
     }
 
     /// SGR. **The single-parameter form first**, because that is what a

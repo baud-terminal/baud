@@ -480,6 +480,7 @@ impl Paint<'_, '_> {
         }
         let word = self
             .tmpl
+            .as_slice()
             .get(cell.style.index())
             .copied()
             .flatten()

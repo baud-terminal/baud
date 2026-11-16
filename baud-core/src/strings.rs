@@ -223,7 +223,7 @@ impl Paint<'_, '_> {
                 s = e.parent;
             }
         };
-        let tmpl = &*self.tmpl;
+        let tmpl = self.tmpl.as_slice();
         let of = |id: StyleId| {
             tmpl.get(id.index())
                 .copied()
@@ -262,6 +262,7 @@ impl Paint<'_, '_> {
     /// The string the rendition `id` names.
     pub(crate) fn string_of(&self, id: StyleId) -> StringId {
         self.tmpl
+            .as_slice()
             .get(id.index())
             .copied()
             .flatten()
@@ -279,6 +280,7 @@ impl Paint<'_, '_> {
     ) {
         let word = self
             .tmpl
+            .as_slice()
             .get(blank.style.index())
             .copied()
             .flatten()

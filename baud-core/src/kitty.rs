@@ -93,7 +93,7 @@ impl Paint<'_, '_> {
                 true => 2,
                 false => 1,
             };
-            let (view, clusters, tmpl) = (&self.view, &*self.clusters, &*self.tmpl);
+            let (view, clusters, tmpl) = (&self.view, &*self.clusters, self.tmpl.as_slice());
             let cells = (0..self.cols.index()).map(|c| {
                 placeholder_cell(
                     clusters,

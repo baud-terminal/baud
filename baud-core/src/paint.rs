@@ -111,7 +111,7 @@ pub(crate) struct Paint<'a, 'b> {
     #[cfg(feature = "cell-table")]
     pub(crate) cells3: &'a [PackedCell],
     /// The rendition table, written by SGR and read by a renderer.
-    pub(crate) tmpl: &'a mut [Option<StyleWord>],
+    pub(crate) tmpl: crate::bands::Table<'a>,
     /// Tab stops.
     pub(crate) tabs: &'a mut [bool],
     pub(crate) view: View<'a>,
@@ -486,7 +486,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             arena,
             #[cfg(feature = "cell-table")]
             cells3,
-            tmpl,
+            tmpl: tmpl.reborrow(),
             tabs,
             reply,
             title_len,

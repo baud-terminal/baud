@@ -140,7 +140,7 @@ pub struct Storage<'b> {
     /// `Option` rather than a parallel validity array: absent and occupied are
     /// two states of one thing, and a `bool` beside it is the missing enum the
     /// audit exists to catch.
-    pub(crate) tmpl: &'b mut [Option<StyleWord>],
+    pub(crate) tmpl: crate::bands::Table<'b>,
     /// Which slot each write to `tmpl` touched, and how many there have been:
     /// what a renderer that caches the resolved table replays instead of
     /// resolving every slot a frame. See [`StyleTable`].
@@ -1797,7 +1797,7 @@ impl<'b> Storage<'b> {
             false => Some(FrozenStore::new(
                 buf,
                 self.surfaces.rows(Which::Primary),
-                self.tmpl.len(),
+                self.tmpl.as_slice().len(),
             )),
         };
         self
@@ -1946,7 +1946,7 @@ impl<'b> Storage<'b> {
             depth,
             surfaces: SurfaceStore::new(stride, (vp, used), (alt, alt_used)),
             cells3,
-            tmpl: styles.slots,
+            tmpl: crate::bands::Table::new(styles.slots),
             style_log: StyleLog {
                 order: styles.order,
                 book: styles.book,

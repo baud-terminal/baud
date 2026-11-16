@@ -73,6 +73,7 @@ impl Paint<'_, '_> {
     /// The rendition a cell names.
     pub(crate) fn word_of(&self, id: StyleId) -> StyleWord {
         self.tmpl
+            .as_slice()
             .get(id.index())
             .copied()
             .flatten()
