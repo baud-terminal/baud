@@ -429,6 +429,8 @@ impl Term<'_> {
             }
             self.scroll_rot += p.scroll_rot;
             self.scroll_copy += p.scroll_copy;
+            self.repair_cells = self.repair_cells.plus(p.repair_cells.index());
+            self.repair_rows = Rows::of_count(self.repair_rows.index() + p.repair_rows.index());
             self.fast_try += p.fast_try;
             self.fast_hit += p.fast_hit;
             #[cfg(feature = "sgr-table")]

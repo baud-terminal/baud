@@ -373,6 +373,12 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) scroll_rot: usize,
     #[cfg(feature = "diag")]
     pub(crate) scroll_copy: usize,
+    /// The cells the top region's repair copied, and the rows under the
+    /// region its scrolls put back (`Paint::rotate_top_region`).
+    #[cfg(feature = "diag")]
+    pub(crate) repair_cells: Cells,
+    #[cfg(feature = "diag")]
+    pub(crate) repair_rows: Rows,
     /// Accelerated `CSI` attempts, and the ones that committed. **A bulk path
     /// that declines still pays its scan**, which is a rule this repo already
     /// records; the only way to know which is happening is to count entries.
@@ -556,6 +562,10 @@ impl<'a, 'b> Paint<'a, 'b> {
             scroll_rot: 0,
             #[cfg(feature = "diag")]
             scroll_copy: 0,
+            #[cfg(feature = "diag")]
+            repair_cells: Cells::ZERO,
+            #[cfg(feature = "diag")]
+            repair_rows: Rows::ZERO,
             #[cfg(feature = "diag")]
             fast_try: 0,
             #[cfg(feature = "diag")]

@@ -471,6 +471,12 @@ fn main() {
             100.0 * t.scroll_copy as f64 / (t.scroll_rot + t.scroll_copy).max(1) as f64,
         );
         println!(
+            "  region repair: {} rows under a top region, {} cells copied back, {:?}",
+            t.repair_rows.index(),
+            t.repair_cells.index(),
+            t.region_scrolls(),
+        );
+        println!(
             "  accelerated CSI: {} tried, {} committed ({:.0}% declined)",
             t.fast_try,
             t.fast_hit,

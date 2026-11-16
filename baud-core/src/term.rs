@@ -2563,6 +2563,14 @@ pub struct Term<'b> {
     pub scroll_rot: usize,
     #[cfg(feature = "diag")]
     pub scroll_copy: usize,
+    /// The cells a top region's repair copied back under the region, and the
+    /// rows under the region its scrolls put back. Under
+    /// `ceiling-no-region-repair` the rows are the ones skipped and the cells
+    /// stay zero.
+    #[cfg(feature = "diag")]
+    pub repair_cells: Cells,
+    #[cfg(feature = "diag")]
+    pub repair_rows: Rows,
     /// How much of the title and icon buffers is live, and the open link.
     pub(crate) title_len: ByteLen,
     pub(crate) icon_len: ByteLen,
@@ -4189,6 +4197,10 @@ impl<'b> Term<'b> {
             scroll_rot: 0,
             #[cfg(feature = "diag")]
             scroll_copy: 0,
+            #[cfg(feature = "diag")]
+            repair_cells: Cells::ZERO,
+            #[cfg(feature = "diag")]
+            repair_rows: Rows::ZERO,
             title_len: ByteLen::ZERO,
             icon_len: ByteLen::ZERO,
             link: LinkId::NONE,

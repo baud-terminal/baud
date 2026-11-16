@@ -1335,11 +1335,28 @@ impl Paint<'_, '_> {
             self.view.advance_rot(1, &mut OneTable);
             #[cfg(feature = "probe-warm-scroll")]
             self.warm_incoming();
-            // **Descending, so a row is read before it is overwritten.**
-            for y in (bot.index() + 1..=last).rev() {
-                moved +=
-                    self.view
-                        .copy_row(Row::from_index(y - 1), Row::from_index(y), &mut OneTable);
+            // **Ceiling arm: the repair, priced.** Incorrect by construction
+            // -- the rows under the region scroll with it -- and only this
+            // loop is skipped: the retire, the rotation, the blank, the
+            // passes past the edge and the put-backs all run, so the arms
+            // differ by the copies and by what the rows under the region
+            // then hold. `diag` counts the cells the copies wrote.
+            #[cfg(not(feature = "ceiling-no-region-repair"))]
+            {
+                #[cfg(feature = "diag")]
+                let before = moved;
+                // **Descending, so a row is read before it is overwritten.**
+                for y in (bot.index() + 1..=last).rev() {
+                    moved += self.view.copy_row(
+                        Row::from_index(y - 1),
+                        Row::from_index(y),
+                        &mut OneTable,
+                    );
+                }
+                #[cfg(feature = "diag")]
+                {
+                    self.repair_cells = self.repair_cells.plus(moved - before);
+                }
             }
             // Past the live edge, before the blank below can write past
             // it on the row the first copy read.
@@ -1394,6 +1411,13 @@ impl Paint<'_, '_> {
                     BandMove::Down,
                 );
             }
+        }
+        // The rows under the region each scroll puts back, the same on both
+        // arms: on `ceiling-no-region-repair` the rows it skipped.
+        #[cfg(feature = "diag")]
+        {
+            let under = (last - bot.index()) * n.index();
+            self.repair_rows = Rows::of_count(self.repair_rows.index() + under);
         }
         self.cells = self.cells.plus(moved);
     }

@@ -66,7 +66,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 MANIFEST=baud-core/Cargo.toml
-FLOOR=51
+FLOOR=53
 
 BUILDS="
 two-pass-csi,probe-double-final-scan
@@ -91,6 +91,7 @@ DEFAULT_OFF="read-record"
 EXCLUDED="
 alloc                    on in every test build: the dev-dependency on baud-core itself enables it
 record-test              on in every test build: the dev-dependency on baud-core itself enables it
+write-gen-probe          on in every test build: the dev-dependency on baud-core itself enables it
 neon-scan                the default feature, so test:unit runs it
 avx2-scan                inert off x86-64; test:x86-avx2 runs the workspace suite with it and +avx2
 ceiling-no-write         wrong by construction: the_cell_table_is_what_the_write_path_writes
@@ -105,6 +106,7 @@ ceiling-no-text          wrong by construction: every_recording_renders_to_its_p
 ceiling-implicit-tail    wrong by construction: a_control_function_ends_the_cluster_before_it
 ceiling-free-sgr         wrong by construction: every_recording_renders_to_its_pinned_digest
 ceiling-no-region-copy   wrong by construction: a_copying_region_scroll_carries_a_hidden_tail
+ceiling-no-region-repair wrong by construction: a_top_anchored_region_retires_its_line_whatever_its_height
 ceiling-segment-cache    wrong by construction: a_copy_is_the_same_at_every_read_size
 probe-free-width         wrong by construction: a_leading_mark_has_no_base_and_is_counted
 probe-pinned-node        wrong by construction: a_copy_is_the_same_at_every_read_size

@@ -218,6 +218,10 @@ route-stride = []
 probe-double-final-scan = ["two-pass-csi"]
 ceiling-free-sgr = []
 ceiling-no-region-copy = []
+# The copies that put the rows under a top region back after each scroll,
+# skipped; the retire, the rotation, the blank and the put-backs still run.
+# With `diag`, `Term::repair_rows` counts the rows skipped.
+ceiling-no-region-repair = []
 ceiling-segment-cache = []
 # **The byte-keyed `SGR` table, off.** A plain `SGR` is a pure function of
 # its bytes and its result is a masked replace of the rendition word, so a
