@@ -24,7 +24,9 @@
 //! **The public rules**, [`Rule`], are searched with the text between
 //! straight or curly double quotes also taken out, because a quotation from
 //! a specification says what the specification says. Each rule is written
-//! where it is defined, with the forms it passes.
+//! where it is defined, with the forms it passes. They are not searched in
+//! [`SOURCES_MANIFEST`], whose comments record when and where each source
+//! was fetched; the private terms still are.
 //!
 //! **The private terms** are read from the file the environment variable
 //! [`TERMS_VAR`] names, which the repository never holds. Each line is
@@ -58,6 +60,11 @@ use crate::forbidden::Pattern;
 
 /// The environment variable naming the private term file.
 pub const TERMS_VAR: &str = "BAUD_COMMENT_TERMS";
+
+/// The sources manifest, by its path from the repository root: a record of
+/// each source's fetch, whose comments the public rules pass and the
+/// private terms still read.
+pub const SOURCES_MANIFEST: &str = "docs/research/sources/MANIFEST.toml";
 
 /// A line number in a file as the change leaves it, from 1.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -355,8 +362,10 @@ pub fn check(diff: &str, terms: &Terms) -> Vec<Hit> {
         let cited = CITATION.replace_all(text, " ");
         let unquoted = QUOTED.replace_all(&cited, " ");
         // A Markdown blockquote (`> `) quotes a source as quotation marks
-        // do: the public rules pass it, the private terms still read it.
+        // do, and the sources manifest's comments record each fetch: the
+        // public rules pass both, the private terms still read both.
         let blockquote = text.trim_start().starts_with('>');
+        let public = !blockquote && a.path != SOURCES_MANIFEST;
         let mut hit = |found| {
             hits.push(Hit {
                 path: a.path.clone(),
@@ -365,7 +374,7 @@ pub fn check(diff: &str, terms: &Terms) -> Vec<Hit> {
             })
         };
         for r in RULES {
-            if !blockquote && r.finds(&unquoted) {
+            if public && r.finds(&unquoted) {
                 hit(Found::Public(r));
             }
         }

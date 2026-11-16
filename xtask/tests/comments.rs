@@ -285,6 +285,44 @@ fn files_with_no_comment_syntax_here_are_not_read() {
 }
 
 #[test]
+fn the_public_rules_pass_the_sources_manifest() {
+    assert_eq!(
+        found(
+            "docs/research/sources/MANIFEST.toml",
+            &["# Fetched 2026-11-15."]
+        ),
+        NONE
+    );
+}
+
+#[test]
+fn a_private_term_in_the_sources_manifest_is_still_found() {
+    assert_eq!(
+        found(
+            "docs/research/sources/MANIFEST.toml",
+            &["# Fetched 2026-11-15 from quillterm."]
+        ),
+        [Found::Term(TermLine(2))]
+    );
+}
+
+#[test]
+fn a_dated_comment_outside_the_sources_manifest_is_found() {
+    assert_eq!(
+        found("src/a.rs", &["// Fetched 2026-11-15."]),
+        [Found::Public(Rule::Date)]
+    );
+    assert_eq!(
+        found("docs/research/third-party.toml", &["# Fetched 2026-11-15."]),
+        [Found::Public(Rule::Date)]
+    );
+    assert_eq!(
+        found("MANIFEST.toml", &["# Fetched 2026-11-15."]),
+        [Found::Public(Rule::Date)]
+    );
+}
+
+#[test]
 fn a_hit_names_neither_the_term_nor_the_comment() {
     let hits = comments::check(&diff("a.rs", &["// what quillterm does"]), &terms());
     let printed = hits[0].to_string();
