@@ -8058,6 +8058,23 @@ group  = "J"
 # composes a base and its marks the way HarfBuzz's normaliser does before
 # it looks glyphs up.
 
+[sources.unicode-normalizationtest]
+key    = "unicode-normalizationtest"
+title  = "NormalizationTest.txt, Unicode Character Database 17.0.0 -- UAX #15's conformance file: parts 0 to 5 and the canonical invariants"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/NormalizationTest.txt"
+file   = "unicode-normalizationtest.txt"
+sha256 = "5019ffd530751a741900c849c0e010332f142a3612234639bd200b82138a87db"
+bytes  = 2827429
+status = "retrieved"
+group  = "J"
+# Fetched 2026-11-16 from the versioned path above. baud-font/tests/normalization.rs
+# checks every line of its six parts against NFD and NFC built from
+# baud-font's decompose, compose and combining_class, and the part 1 rule
+# that no unlisted code point decomposes.
+
 [sources.unicode-arabicshaping]
 key    = "unicode-arabicshaping"
 title  = "ArabicShaping.txt, Unicode Character Database 17.0.0 -- Joining_Type and Joining_Group"

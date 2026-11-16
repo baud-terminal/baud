@@ -1958,9 +1958,9 @@ THIS SOFTWARE.
 | status | research sources | other entries | meaning |
 |---|---|---|---|
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 343 | 69 | redistributable, and its notice is satisfied |
+| kept | 344 | 69 | redistributable, and its notice is satisfied |
 | own | 10 | 11 | the work of baud's author |
-| total | 354 | 80 | |
+| total | 355 | 80 | |
 
 ## Licence texts in LICENSES/
 
@@ -3548,7 +3548,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** Unicode-3.0
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
-- **Files:** 38
+- **Files:** 39
 
 | file | copied from |
 |---|---|
@@ -3585,6 +3585,7 @@ notice is, and the URL each file was copied from.
 | [unicode-indicsyllabiccategory.txt](docs/research/sources/unicode-indicsyllabiccategory.txt) | https://www.unicode.org/Public/17.0.0/ucd/IndicSyllabicCategory.txt |
 | [unicode-linebreak.txt](docs/research/sources/unicode-linebreak.txt) | https://www.unicode.org/Public/17.0.0/ucd/LineBreak.txt |
 | [unicode-linebreaktest.txt](docs/research/sources/unicode-linebreaktest.txt) | https://www.unicode.org/Public/17.0.0/ucd/auxiliary/LineBreakTest.txt |
+| [unicode-normalizationtest.txt](docs/research/sources/unicode-normalizationtest.txt) | https://www.unicode.org/Public/17.0.0/ucd/NormalizationTest.txt |
 | [unicode-propertyvaluealiases.txt](docs/research/sources/unicode-propertyvaluealiases.txt) | https://www.unicode.org/Public/17.0.0/ucd/PropertyValueAliases.txt |
 | [unicode-proplist.txt](docs/research/sources/unicode-proplist.txt) | https://www.unicode.org/Public/17.0.0/ucd/PropList.txt |
 | [unicode-scriptextensions.txt](docs/research/sources/unicode-scriptextensions.txt) | https://www.unicode.org/Public/17.0.0/ucd/ScriptExtensions.txt |

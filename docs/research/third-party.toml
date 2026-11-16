@@ -1139,6 +1139,7 @@ files   = [
   "unicode-indicsyllabiccategory.txt",
   "unicode-linebreak.txt",
   "unicode-linebreaktest.txt",
+  "unicode-normalizationtest.txt",
   "unicode-proplist.txt",
   "unicode-propertyvaluealiases.txt",
   "unicode-scriptextensions.txt",

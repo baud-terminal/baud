@@ -9381,7 +9381,7 @@ The Unicode Standard, Version 17.0 — Chapter 3, Conformance. The Unicode Conso
 - **URL:** <https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/>
 - **sha256:** `69fef5215c021368a1880d91bc59d7935d13a5455f1373eda17b8818d41b7b41` (404354 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/graph.rs`, `baud-core/src/write.rs`, `baud-core/tests/encoding/maximal_subparts.rs`, `baud-core/tests/encoding/replacement_clusters.rs`, `baud-core/tests/encoding/utf8.rs`, `baud-core/tests/substitute_mark.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-domain/src/cell.rs`, `baud-domain/src/decode.rs`, `baud-domain/src/scan.rs`, `baud-domain/tests/table_3_7.rs`, `baud-font/src/shape.rs`, `baud-font/tests/mark_order.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-core/src/graph.rs`, `baud-core/src/write.rs`, `baud-core/tests/encoding/maximal_subparts.rs`, `baud-core/tests/encoding/replacement_clusters.rs`, `baud-core/tests/encoding/utf8.rs`, `baud-core/tests/substitute_mark.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-domain/src/cell.rs`, `baud-domain/src/decode.rs`, `baud-domain/src/scan.rs`, `baud-domain/tests/table_3_7.rs`, `baud-font/src/shape.rs`, `baud-font/tests/mark_order.rs`, `baud-font/tests/normalization.rs`, `docs/vt-coverage.md`
 
 <a id="unicode-ch9"></a>
 ### unicode-ch9
@@ -9401,7 +9401,7 @@ UnicodeData.txt, Unicode Character Database 17.0.0 -- canonical decomposition ma
 - **URL:** <https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt>
 - **sha256:** `2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c` (2198209 bytes)
 - **Copy:** [docs/research/sources/unicode-unicodedata.txt](research/sources/unicode-unicodedata.txt)
-- **Cited in:** `baud-app/src/embedded.rs`, `baud-domain/build/bidi.rs`, `baud-domain/build/search.rs`, `baud-domain/src/lib.rs`, `baud-domain/tests/bidi_tables.rs`, `baud-domain/tests/nrcs_dec.rs`, `baud-domain/tests/search_key.rs`, `baud-font/build/compose.rs`, `baud-font/build/presentation.rs`, `baud-font/build/script.rs`, `baud-font/src/forms.rs`, `baud-font/src/lib.rs`, `baud-font/src/shape.rs`, `baud-font/tests/hebrew_presentation.rs`, `baud-font/tests/mark_order.rs`, `baud-font/tests/presentation.rs`, `baud-render/build/stress.rs`, `baud-render/src/cellmap.rs`, `baud-render/src/lib.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-app/src/embedded.rs`, `baud-domain/build/bidi.rs`, `baud-domain/build/search.rs`, `baud-domain/src/lib.rs`, `baud-domain/tests/bidi_tables.rs`, `baud-domain/tests/nrcs_dec.rs`, `baud-domain/tests/search_key.rs`, `baud-font/build/compose.rs`, `baud-font/build/presentation.rs`, `baud-font/build/script.rs`, `baud-font/src/forms.rs`, `baud-font/src/lib.rs`, `baud-font/src/shape.rs`, `baud-font/tests/hebrew_presentation.rs`, `baud-font/tests/mark_order.rs`, `baud-font/tests/normalization.rs`, `baud-font/tests/presentation.rs`, `baud-render/build/stress.rs`, `baud-render/src/cellmap.rs`, `baud-render/src/lib.rs`, `docs/vt-coverage.md`
 
 <a id="unicode-derivedbidiclass"></a>
 ### unicode-derivedbidiclass
@@ -9494,6 +9494,17 @@ LineBreakTest.txt, Unicode Character Database 17.0.0. The Unicode Consortium, 20
 - **sha256:** `e69884e0dde6a8724873f885d68c52dc14518abf9ae4ca9e2283b8773db3b752` (3166819 bytes)
 - **Copy:** [docs/research/sources/unicode-linebreaktest.txt](research/sources/unicode-linebreaktest.txt)
 - **Cited in:** `baud-domain/tests/linebreak.rs`
+
+<a id="unicode-normalizationtest"></a>
+### unicode-normalizationtest
+
+NormalizationTest.txt, Unicode Character Database 17.0.0 -- UAX #15's conformance file: parts 0 to 5 and the canonical invariants. The Unicode Consortium, 2025, Unicode Character Database.
+
+- **URL:** <https://www.unicode.org/Public/17.0.0/ucd/NormalizationTest.txt>
+- **sha256:** `5019ffd530751a741900c849c0e010332f142a3612234639bd200b82138a87db` (2827429 bytes)
+- **Copy:** [docs/research/sources/unicode-normalizationtest.txt](research/sources/unicode-normalizationtest.txt)
+- **Read:** 2026-11-16
+- **Cited in:** `baud-font/tests/normalization.rs`
 
 <a id="unicode-propertyvaluealiases"></a>
 ### unicode-propertyvaluealiases

@@ -153,7 +153,7 @@ pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasteriz
 pub use script::{Bracket, Direction, Pair, PerScript, RunText, Script, Unresolved, resolve};
 pub use shape::{
     CombiningClass, Engine, Kept, MarkPlacement, Normalised, Shaped, Shaper, Substitution,
-    combining_class, decompose, each_decomposable, joined_reach, keeps_its_cells,
+    combining_class, compose, decompose, each_decomposable, joined_reach, keeps_its_cells,
 };
 pub use stroke::{Edges, MITER_LIMIT, Reach, Stroker};
 pub use syllabic::{Category, Formed, Masks, Position, Syllabic, Syllable};
