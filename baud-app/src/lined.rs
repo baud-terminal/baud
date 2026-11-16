@@ -388,7 +388,9 @@ impl Reader for Uris {
 
     fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> crate::paths::Looked {
         let local = |_| crate::paths::LinkOrigin::given(crate::paths::Origin::Local);
-        crate::paths::Looked(self.read_marking(text, found, &local, None, &|_| Some(Mark::Line)))
+        crate::paths::Looked(
+            self.read_marking(text, found, &local, &|_| None, &|_| Some(Mark::Line)),
+        )
     }
 
     fn marked(&mut self, uri: &[u8], _: At<'_>) -> Option<Mark> {
@@ -413,15 +415,15 @@ impl Uris {
     /// the most cautious over them, so a `file://` URI
     /// a click refuses is unmarked: a reader that knows which kinds have no
     /// app, or which rules' commands are missing, strikes those. One a
-    /// click opens on the machine of `session`, the ssh session in front,
-    /// is lined, and one it opens nothing for there is not
-    /// ([`crate::link::remote`]).
-    pub fn read_marking(
+    /// click opens on the machine of the ssh session that printed it,
+    /// which `session` finds for its origin, is lined, and one it opens
+    /// nothing for there is not ([`crate::link::remote`]).
+    pub fn read_marking<'s>(
         &mut self,
         text: Text<'_>,
         found: &mut Vec<Run>,
         origin: &dyn Fn((AbsLine, AbsLine)) -> crate::paths::LinkOrigin,
-        session: Option<&crate::ssh::Session>,
+        session: &dyn Fn(crate::paths::LinkOrigin) -> Option<&'s crate::ssh::Session>,
         mark: &dyn Fn(&Target<'_>) -> Option<Mark>,
     ) -> usize {
         let Text {
@@ -477,7 +479,7 @@ impl Uris {
                     let lines = text.lines_of(&span);
                     let by = origin(lines);
                     let (names, rules) = (self.names(), &self.rules);
-                    let m = match crate::link::remote(&bytes, names, rules, by, session) {
+                    let m = match crate::link::remote(&bytes, names, rules, by, session(by)) {
                         Some(window) => window.ok().map(|_| Mark::Line),
                         None => admit_link(&bytes, names, rules, by)
                             .ok()

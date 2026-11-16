@@ -177,8 +177,9 @@ pub(crate) enum Then<'a> {
 /// the programs that printed the rows it covers (`link::click_on`, the
 /// Linux driver's decision too), then what the click comes to
 /// (`link::click`) and what its rule builds. A remote program's `file://`
-/// link that a click opens on the machine of the ssh session in front,
-/// which `paths` holds, comes to that window or its refusal.
+/// link that a click opens on the machine of the ssh session that printed
+/// it, which `paths` filed over its rows, comes to that window or its
+/// refusal.
 pub(crate) fn decide<'l: 'a, 'a>(
     link: &'l Under,
     term: &'a Term<'_>,

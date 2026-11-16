@@ -2017,7 +2017,7 @@ impl Driver {
         // take. The one decision both drivers make (`link::click_on`): the
         // link takes its origin from the rows it covers, as the worker named
         // who wrote them; a remote program's `file://` link opens through
-        // the ssh session the worker last read in front.
+        // the ssh session the worker read for the group that printed it.
         let decided = crate::link::click_on(
             link,
             &self.term,

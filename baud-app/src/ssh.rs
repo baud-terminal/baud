@@ -1,11 +1,12 @@
-//! **The ssh in front, read from its own argv, and the window that opens a
-//! file on its host.** A file link a program printed inside an ssh
-//! session names that session's machine, and the one way to reach it is
-//! the connection itself, never the link's bytes: so the argv of the ssh
-//! the kernel reports in front is read by ssh's own option grammar
-//! ([`read`]), and the window that opens the file runs a second `ssh` with
-//! that one's identity options to its destination ([`window_argv`]). Pure
-//! over the argv and the link, so its tests run on every platform.
+//! **The ssh that printed a link, read from its own argv, and the window
+//! that opens a file on its host.** A file link a program printed inside
+//! an ssh session names that session's machine, and the one way to reach
+//! it is the connection itself, never the link's bytes: so the argv of the
+//! ssh the kernel reports in front as it prints is read by ssh's own
+//! option grammar ([`read`]), and the window that opens the file runs a
+//! second `ssh` with that one's identity options to its destination
+//! ([`window_argv`]). Pure over the argv and the link, so its tests run on
+//! every platform.
 //!
 //! **The grammar is ssh's own**: BSD `getopt` over
 //! `1246ab:c:e:fgi:kl:m:no:p:qstvxAB:CD:E:F:GI:J:KL:MNO:P:Q:R:S:TVw:W:XYy`,
@@ -397,9 +398,10 @@ pub fn resolved(printout: &[u8]) -> Result<Resolved, NotSession> {
     }
 }
 
-/// **The ssh in front, as a file link of its session opens through it**:
+/// **An ssh session, as a file link printed inside it opens through it**:
 /// its argv read by ssh's grammar and what `ssh -G` resolved for it. Read
-/// once per process, on the paths worker (`probe.rs`).
+/// once per process, on the paths worker, as the group it leads is named
+/// (`probe.rs`).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Session {
     ssh: SshDest,

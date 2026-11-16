@@ -1402,8 +1402,10 @@ impl Origin {
 /// hand pointer, the preview and its click all take this one value
 /// ([`crate::link::admit_link`]). Made only by [`Paths::link_origin`] and
 /// [`Paths::bare_origin`], so no caller hands a link an origin of its own.
+/// With it, the ssh session that printed the link's rows, which a remote
+/// program's `file://` link opens through ([`PathsAt::session`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct LinkOrigin(Origin);
+pub struct LinkOrigin(Origin, Printer);
 
 impl LinkOrigin {
     /// The origin judged.
@@ -1414,13 +1416,60 @@ impl LinkOrigin {
     /// **Not known**: what a link no row vouches for, or a gesture over
     /// something no longer a link, is taken as.
     pub fn unknown() -> LinkOrigin {
-        LinkOrigin(Origin::Unknown)
+        LinkOrigin(Origin::Unknown, Printer::None)
     }
 
-    /// An origin a test hands a link.
+    /// An origin a test hands a link, printed under no session.
     #[cfg(test)]
     pub fn given(o: Origin) -> LinkOrigin {
-        LinkOrigin(o)
+        LinkOrigin(o, Printer::None)
+    }
+}
+
+/// **The most ssh sessions [`Paths`] tells apart** in one window: past
+/// them, rows a new one prints are filed as printed by several, and a
+/// `file://` link there opens through none.
+const SESSIONS: usize = 16;
+
+/// **A session's place in [`Paths`]'s table of the ssh sessions that
+/// printed rows**: given once, never to another session.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct SessionAt(u8);
+
+/// **Which ssh session printed a run of rows**, as the worker read it for
+/// the group that wrote them ([`Paths::written_by`]): the session a remote
+/// program's `file://` link on them opens through ([`PathsAt::session`]),
+/// whatever ssh is in front at the click.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Printer {
+    /// No session was filed over them.
+    #[default]
+    None,
+    /// One session.
+    One(SessionAt),
+    /// More than one, or one past [`SESSIONS`]: none to open through.
+    Several,
+}
+
+impl Printer {
+    /// **`other` filed over rows that hold `self`**: a first session
+    /// taken, the same one kept, another making several.
+    fn with(self, other: Printer) -> Printer {
+        match (self, other) {
+            (Printer::None, p) | (p, Printer::None) => p,
+            (a, b) if a == b => a,
+            _ => Printer::Several,
+        }
+    }
+
+    /// **What two runs of rows read as printed by, together**: one session
+    /// only where both hold that one; none where either holds none.
+    fn both(self, other: Printer) -> Printer {
+        match (self, other) {
+            (a, b) if a == b => a,
+            (Printer::None, _) | (_, Printer::None) => Printer::None,
+            _ => Printer::Several,
+        }
     }
 }
 
@@ -1611,6 +1660,7 @@ struct Facts {
     nameless: Nameless,
     here: Here,
     carried: Carried,
+    printer: Printer,
 }
 
 /// One fact filed over a span of rows ([`Paths::file`]).
@@ -1628,6 +1678,8 @@ enum Fact {
     Here,
     /// A read moved text onto the rows from a line no fact vouched for.
     Unvouched,
+    /// The ssh session the rows' writer runs in.
+    Printer(Printer),
 }
 
 impl Fact {
@@ -1661,6 +1713,10 @@ impl Fact {
             },
             Fact::Unvouched => Facts {
                 carried: Carried::Unvouched,
+                ..facts
+            },
+            Fact::Printer(p) => Facts {
+                printer: facts.printer.with(p),
                 ..facts
             },
         }
@@ -1898,9 +1954,15 @@ pub struct Paths {
     /// same lines ([`Paths::recut_span`]), and reused.
     recut: Vec<(LineSpan, LineSpan, Option<Fact>)>,
     /// **The ssh session in front**, as the worker last read it
-    /// ([`Paths::set_session`]): what a remote program's `file://` link
-    /// opens through, for its click, its preview and its look at rest alike.
+    /// ([`Paths::set_session`]): what the rows its group writes while it
+    /// stays in front are filed as printed by, when no batch names them
+    /// (`probe::Probes`).
     session: Option<std::sync::Arc<crate::ssh::Session>>,
+    /// **Each ssh session that printed rows**, at most [`SESSIONS`], by the
+    /// place a [`Printer`] names: a remote program's `file://` link opens
+    /// through the one its rows were printed under, for its click, its
+    /// preview and its look at rest alike.
+    sessions: Vec<std::sync::Arc<crate::ssh::Session>>,
 }
 
 /// **What was filed over one surface's lines**: each run of lines, sorted,
@@ -2109,18 +2171,17 @@ impl Paths {
 
     /// **The ssh session in front, as the worker read it in an answer**:
     /// none while no ssh leads the group in front, or for one that is no
-    /// session a file can be opened in. A session not equal to the one held
-    /// moves the generation, for a read of the link under the pointer to
-    /// read again, and is [`Moved::Yes`], for the caller to read every row
-    /// again (`Lines::forget`): a remote program's `file://` link opens, and
-    /// so looks, by it.
-    pub fn set_session(&mut self, session: Option<std::sync::Arc<crate::ssh::Session>>) -> Moved {
-        if self.session == session {
-            return Moved::No;
-        }
+    /// session a file can be opened in. No link opens by it: each opens by
+    /// the session filed over its own rows ([`Paths::written_by`]), and this
+    /// is the one rows its group writes are filed under while it stays in
+    /// front ([`Paths::front_session`]).
+    pub fn set_session(&mut self, session: Option<std::sync::Arc<crate::ssh::Session>>) {
         self.session = session;
-        self.generation = self.generation.next();
-        Moved::Yes
+    }
+
+    /// The ssh session in front ([`Paths::set_session`]).
+    pub fn front_session(&self) -> Option<std::sync::Arc<crate::ssh::Session>> {
+        self.session.clone()
     }
 
     /// This machine's names, once read: what an `OSC 7` report must name,
@@ -2526,6 +2587,70 @@ impl Paths {
         self.file_since(Fact::of(seen), span);
     }
 
+    /// **Rows `span` were written by `seen`, inside the ssh session
+    /// `session`** where the worker read one for the group
+    /// ([`Paths::written_under`], then the session filed over them): a
+    /// remote program's `file://` link on them opens through that session
+    /// ([`PathsAt::session`]), and rows two sessions printed open through
+    /// neither.
+    pub fn written_by(
+        &mut self,
+        seen: Seen,
+        session: Option<&std::sync::Arc<crate::ssh::Session>>,
+        span: LineSpan,
+    ) {
+        self.written_under(seen, span);
+        if let Some(s) = session {
+            let printer = self.printer_of(s);
+            self.file_since(Fact::Printer(printer), span);
+        }
+    }
+
+    /// **`session`'s place in the table**, given it the first time, the
+    /// same session found again by its value; several once the table is
+    /// full, which opens nothing.
+    fn printer_of(&mut self, session: &std::sync::Arc<crate::ssh::Session>) -> Printer {
+        let at = match self.sessions.iter().position(|s| **s == **session) {
+            Some(at) => at,
+            None if self.sessions.len() < SESSIONS => {
+                self.sessions.push(session.clone());
+                self.sessions.len() - 1
+            }
+            None => return Printer::Several,
+        };
+        u8::try_from(at).map_or(Printer::Several, |at| Printer::One(SessionAt(at)))
+    }
+
+    /// **Which session printed every line `first` to `last` of
+    /// `surface`**: one only where each line has a run that holds that
+    /// one; none for a line nothing was filed over.
+    fn printer_over(&self, surface: Surface, (first, last): (AbsLine, AbsLine)) -> Printer {
+        let Some(store) = self.store(surface) else {
+            return Printer::None;
+        };
+        let runs = &store.runs;
+        let from = runs.partition_point(|(r, _)| r.last < first);
+        let mut got: Option<Printer> = None;
+        let mut next = Some(first);
+        for (r, facts) in &runs[from..] {
+            let Some(want) = next else {
+                break;
+            };
+            if r.first > last {
+                break;
+            }
+            if r.first > want {
+                return Printer::None;
+            }
+            got = Some(got.map_or(facts.printer, |p| p.both(facts.printer)));
+            next = (r.last < last).then(|| r.last.below());
+        }
+        match next {
+            Some(_) => Printer::None,
+            None => got.unwrap_or_default(),
+        }
+    }
+
     /// **A read nothing names wrote `span`**: no group sampled for it and
     /// no marks of the shell's (`probe::Probes::read_taken`). Its rows are
     /// not known, as a group gone before it was named leaves them, and only
@@ -2850,16 +2975,18 @@ impl Paths {
         recut.clear();
         let mut held = Vec::new();
         let mut by = Vec::new();
+        let mut printers = Vec::new();
         for r in map {
             // A line before the session's first is no line here.
             let Some(new) = place(r.new) else {
                 continue;
             };
             by.clear();
-            let (old, worst) = match place(r.old) {
+            let (old, worst, printer) = match place(r.old) {
                 Some(old) => (
                     old,
                     self.worst_over(surface, (old.first, old.last), &mut by),
+                    self.printer_over(surface, (old.first, old.last)),
                 ),
                 // Before the session's first, as only the oldest can be: on
                 // its first line, so the lines before stay in order.
@@ -2868,11 +2995,17 @@ impl Paths {
                     (
                         LineSpan::on(surface, first, first),
                         Some(Provenance::NotNamed),
+                        Printer::None,
                     )
                 }
             };
             held.extend(by.iter().map(|&p| (new, p)));
             recut.push((old, new, worst.map(Fact::carried)));
+            // The session the old lines were all printed under goes with
+            // their text.
+            if printer != Printer::None {
+                printers.push((new, printer));
+            }
         }
         // The new lines in order, as the old are: the re-cut keeps the
         // order of the text.
@@ -2901,6 +3034,9 @@ impl Paths {
             if let Some(fact) = fact {
                 self.file(fact, new);
             }
+        }
+        for (new, printer) in printers {
+            self.file(Fact::Printer(printer), new);
         }
         for span in uncovered {
             self.file(Fact::Unvouched, span);
@@ -3091,13 +3227,35 @@ impl Paths {
                         o.or(self.origin_over(s.surface, (s.first, s.last)))
                     })
             });
-        LinkOrigin(shown.or(opened))
+        // The session that printed it: the one every row in view and every
+        // read that opened it or wrote under it were printed under.
+        let record = self
+            .slots
+            .get(id.index())
+            .copied()
+            .flatten()
+            .filter(|r| r.uri == UriHash::of(uri));
+        let opened_by = record
+            .into_iter()
+            .flat_map(|r| [r.primary, r.alternate])
+            .flatten()
+            .map(|s| self.printer_over(s.surface, (s.first, s.last)));
+        let printer = rows
+            .iter()
+            .map(|&line| self.printer_over(surface, (line, line)))
+            .chain(opened_by)
+            .reduce(Printer::both)
+            .unwrap_or_default();
+        LinkOrigin(shown.or(opened), printer)
     }
 
     /// **Where the program that printed a URI read from the text on the
     /// lines `first` to `last` of `surface` ran** ([`Paths::origin_over`]).
     pub fn bare_origin(&self, surface: Surface, lines: (AbsLine, AbsLine)) -> LinkOrigin {
-        LinkOrigin(self.origin_over(surface, lines))
+        LinkOrigin(
+            self.origin_over(surface, lines),
+            self.printer_over(surface, lines),
+        )
     }
 
     /// **A part of a read was fed under the link `pen`, writing `span`**:
@@ -3334,6 +3492,25 @@ impl Paths {
                     continue;
                 };
                 found.push((here, Fact::carried(worst)));
+                // The session every source was printed under goes with the
+                // text; text no one session printed, moved onto a line one
+                // did, leaves it printed by several.
+                let printer = sources
+                    .iter()
+                    .map(
+                        |s| match (lines.line(screen, s.first()), lines.line(screen, s.last())) {
+                            (Some(a), Some(b)) => self.printer_over(surface, (a, b)),
+                            _ => Printer::None,
+                        },
+                    )
+                    .reduce(Printer::both)
+                    .unwrap_or_default();
+                let printed_here = self.printer_over(surface, (here.first, here.last));
+                match (printer, printed_here) {
+                    (Printer::One(_), _) => found.push((here, Fact::Printer(printer))),
+                    (_, Printer::None) => {}
+                    (_, _) => found.push((here, Fact::Printer(Printer::Several))),
+                }
             }
         }
         for (span, fact) in found {
@@ -4065,10 +4242,11 @@ pub trait PathsAt {
         false
     }
 
-    /// **The ssh session in front**, which a remote program's `file://`
-    /// link opens through (`link::remote`); none with no worker to have
-    /// read one.
-    fn session(&self) -> Option<&crate::ssh::Session> {
+    /// **The ssh session that printed a link judged `origin`**, which a
+    /// remote program's `file://` link opens through (`link::remote`):
+    /// the one session filed over every row the link was printed on, never
+    /// the one in front at the click; none with no worker to have read one.
+    fn session(&self, _origin: LinkOrigin) -> Option<&crate::ssh::Session> {
         None
     }
 }
@@ -4091,7 +4269,7 @@ impl PathsAt for NoPaths {
         match link {
             Under::Path(_) => Printed::Path,
             Under::Osc8(_) | Under::Bare(_) => Printed::Link {
-                origin: LinkOrigin(Origin::Local),
+                origin: LinkOrigin(Origin::Local, Printer::None),
             },
         }
     }
@@ -4137,8 +4315,14 @@ impl PathsAt for Paths {
         &self.rules
     }
 
-    fn session(&self) -> Option<&crate::ssh::Session> {
-        self.session.as_deref()
+    fn session(&self, origin: LinkOrigin) -> Option<&crate::ssh::Session> {
+        if self.marks == Marks::Closed {
+            return None;
+        }
+        match origin.1 {
+            Printer::One(at) => self.sessions.get(usize::from(at.0)).map(|s| &**s),
+            Printer::None | Printer::Several => None,
+        }
     }
 
     fn at(
@@ -4265,12 +4449,14 @@ impl Reader for Links<'_> {
             // printed on any of the lines it covers names its machine's
             // file: unmarked, as its click refuses it
             // ([`crate::link::admit_link`]), unless the click opens it on
-            // the session's machine ([`crate::link::remote`]).
+            // the machine of the session that printed it
+            // ([`crate::link::remote`]).
             let surface = paths.surface(text.screen);
             let origin = |lines| paths.bare_origin(surface, lines);
+            let session = |o| PathsAt::session(paths, o);
             n += self
                 .uris
-                .read_marking(text, found, &origin, PathsAt::session(paths), &|t| {
+                .read_marking(text, found, &origin, &session, &|t| {
                     Some(paths.target_mark(t))
                 });
         }
@@ -4295,9 +4481,9 @@ impl Reader for Links<'_> {
         let surface = self.paths.surface(at.screen());
         let origin = self.paths.link_origin(surface, at.id(), uri, at.rows());
         let (names, rules) = (self.uris.names(), self.uris.rules());
-        // One its click opens on the session's machine is lined, and one
-        // that opens nothing there is not.
-        let session = PathsAt::session(&*self.paths);
+        // One its click opens on the machine of the session that printed
+        // it is lined, and one that opens nothing there is not.
+        let session = PathsAt::session(&*self.paths, origin);
         if let Some(window) = crate::link::remote(uri, names, rules, origin, session) {
             return window.ok().map(|_| Mark::Line);
         }
@@ -7541,13 +7727,27 @@ mod tests {
 
     /// **The screen `bytes` leave, every row written while `front` was in
     /// front**, `rules` set, this machine named [`HERE`] and `session` the
-    /// ssh session in front as the worker read it (`Paths::set_session`),
-    /// handed to `f` with the link at `row`'s second cell.
+    /// ssh session the rows were printed under, still in front, as the
+    /// worker read it (`Paths::written_by`, `Paths::set_session`), handed to
+    /// `f` with the link at `row`'s second cell.
     fn on_remote<R>(
         rules: crate::rules::Rules,
         bytes: &[u8],
         front: Front,
         session: Option<&crate::ssh::Session>,
+        row: baud_domain::Row,
+        f: impl FnOnce(&Term<'_>, &mut Paths, &crate::link::Under) -> R,
+    ) -> R {
+        on_printed(rules, bytes, front, (session, session), row, f)
+    }
+
+    /// [`on_remote`], the rows printed under the first session and the
+    /// second in front at the click.
+    fn on_printed<R>(
+        rules: crate::rules::Rules,
+        bytes: &[u8],
+        front: Front,
+        (printed, in_front): (Option<&crate::ssh::Session>, Option<&crate::ssh::Session>),
         row: baud_domain::Row,
         f: impl FnOnce(&Term<'_>, &mut Paths, &crate::link::Under) -> R,
     ) -> R {
@@ -7557,16 +7757,17 @@ mod tests {
         p.set(Turned::On);
         p.set_rules(rules);
         p.set_names(crate::link::MachineNames::one(HERE));
-        let _ = p.set_session(session.cloned().map(std::sync::Arc::new));
         feed(&mut t, bytes);
         let last = baud_domain::Row::from_index(usize::from(WS.ws_row) - 1);
-        p.written_under(
+        p.written_by(
             Seen::Named(front),
+            printed.cloned().map(std::sync::Arc::new).as_ref(),
             LineSpan::of(
                 at().line(Rows::ZERO, baud_domain::Row::ZERO),
                 at().line(Rows::ZERO, last),
             ),
         );
+        p.set_session(in_front.cloned().map(std::sync::Arc::new));
         let spot = crate::link::Spot {
             scrolled: at(),
             back: Rows::ZERO,
@@ -7640,8 +7841,9 @@ mod tests {
     /// **A remote program's `file://` link that names no machine of the
     /// session's opens nothing, and says why**: `localhost`, this machine's
     /// name and the empty host, in either spelling, name this machine, which the session's ssh
-    /// does not reach, and with no session in front there is nothing to
-    /// open it through; the bar says each in words. The control: the
+    /// does not reach, and with no session printing it there is nothing to
+    /// open it through; the bar says each in words, by the session that
+    /// printed it. The control: the
     /// destination as typed opens. Named breaks: skip `ssh::names` --
     /// `localhost` opens on the far end; open with no session -- there is
     /// no argv to build, and a click must not fall back to this machine.
@@ -7673,7 +7875,7 @@ mod tests {
         assert_eq!(
             click("file://demo/etc/hosts", None),
             Ok(Err(Refused::NoSession)),
-            "no session in front"
+            "no session printed it"
         );
         assert!(
             matches!(click("file://demo/etc/hosts", Some(&session)), Ok(Ok(_))),
@@ -7681,7 +7883,8 @@ mod tests {
         );
         for why in [Refused::Elsewhere, Refused::NoSession] {
             assert!(
-                refusal_words(why).contains("ssh session in front"),
+                refusal_words(why).contains("ssh session")
+                    && refusal_words(why).contains("printed it"),
                 "{why:?}: {}",
                 refusal_words(why)
             );
@@ -7871,19 +8074,20 @@ mod tests {
         }
     }
 
-    /// **The session moving moves the look**: a session the worker reads
-    /// in front is [`Moved::Yes`] and moves the generation the look under
-    /// the pointer is kept by, the same one again is neither, and a worker
-    /// that stops answering takes it away; once it goes, a scan that reads
-    /// every row again draws no line on the link it lined, and the preview
-    /// says no session is in front. Named breaks: keep the session through
-    /// `Paths::close` -- the preview still names a window; leave the
-    /// generation where it was -- the look under the pointer is not read
-    /// again.
+    /// **The session filed over a link's rows moves its look**: rows a
+    /// remote program wrote with no session filed draw no line under its
+    /// link, and its preview says no one session printed it; the session
+    /// filed over them moves the generation the look under the pointer is
+    /// kept by, the same one again moves nothing, and the link is lined
+    /// and its preview names the window; a worker that stops answering
+    /// takes it away. Named breaks: leave the generation where it was when
+    /// a session is filed (`file` in place of `file_since`) -- the look
+    /// under the pointer is not read again; open through a session after
+    /// `Paths::close` -- the preview still names a window.
     #[test]
-    fn the_session_moving_moves_the_look() {
+    fn the_session_filed_over_a_links_rows_moves_its_look() {
         use crate::link::{MachineNames, Refused, refusal_words};
-        let session = demo_session();
+        let kept = std::sync::Arc::new(demo_session());
         let bytes = format!(" {}", marked("file://demo/srv/a.md", "a"));
         on_remote(
             rules_of!(PATH_WINDOW),
@@ -7918,12 +8122,21 @@ mod tests {
                     .expect("a preview");
                     (!l.lines().is_empty(), preview)
                 };
-                let kept = std::sync::Arc::new(session.clone());
+                let no_session = format!("Won't open, {}", refusal_words(Refused::NoSession));
+                let (lit, preview) = read(&mut *p, &mut uris);
+                assert!(!lit, "lined with no session filed");
+                assert!(preview.starts_with(&no_session), "{preview:?}");
+                let last = baud_domain::Row::from_index(usize::from(WS.ws_row) - 1);
+                let rows = LineSpan::of(
+                    at().line(Rows::ZERO, baud_domain::Row::ZERO),
+                    at().line(Rows::ZERO, last),
+                );
+                let elsewhere = Seen::Named(Front::Elsewhere);
                 let was = p.generation();
-                assert_eq!(p.set_session(Some(kept.clone())), Moved::Yes);
+                p.written_by(elsewhere, Some(&kept), rows);
                 assert_ne!(p.generation(), was, "the generation moves");
                 let was = p.generation();
-                assert_eq!(p.set_session(Some(kept)), Moved::No, "the same session");
+                p.written_by(elsewhere, Some(&kept), rows);
                 assert_eq!(p.generation(), was, "the same session moves nothing");
                 let (lit, preview) = read(&mut *p, &mut uris);
                 assert!(
@@ -7931,17 +8144,157 @@ mod tests {
                     "{preview:?}"
                 );
                 p.close();
-                assert!(PathsAt::session(&*p).is_none(), "closed with no session");
                 let (lit, preview) = read(&mut *p, &mut uris);
-                assert!(!lit, "lined with no session");
-                assert!(
-                    preview.starts_with(&format!(
-                        "Won't open, {}",
-                        refusal_words(Refused::NoSession)
-                    )),
-                    "{preview:?}"
-                );
+                assert!(!lit, "lined after the worker stopped");
+                assert!(preview.starts_with(&no_session), "{preview:?}");
             },
+        );
+    }
+
+    /// **A link opens through the ssh session that printed it, not the one
+    /// in front at the click**: rows printed under `ssh demo`, clicked
+    /// while `ssh other` is in front, open a window running `ssh` to
+    /// `demo`, which the preview names, and nothing names `other`. The
+    /// control: printed under `other` too, the window is `other`'s. Named
+    /// break: read the session in front (`Paths::front_session`) in
+    /// `PathsAt::session` -- the window runs `ssh` to `other`, whose far
+    /// end refuses a host not its own only after the window opened.
+    #[test]
+    fn a_link_opens_through_the_session_that_printed_it() {
+        use crate::link::MachineNames;
+        let demo = demo_session();
+        let argv: Vec<std::ffi::OsString> = ["ssh", "other"].iter().map(Into::into).collect();
+        let other = crate::ssh::session(&argv, |_| Some(b"hostname other.example\n".to_vec()))
+            .expect("a session");
+        let bytes = format!(" {}", marked("file://demo/srv/a.md", "a"));
+        let open = |printed: &crate::ssh::Session| {
+            on_printed(
+                rules_of!(PATH_WINDOW),
+                bytes.as_bytes(),
+                Front::Elsewhere,
+                (Some(printed), Some(&other)),
+                baud_domain::Row::ZERO,
+                |t, p, under| {
+                    let click =
+                        crate::link::click_on(under, t, &MachineNames::one(HERE), p.rules(), &*p);
+                    let argv: Vec<String> = match click {
+                        crate::link::ClickOn::Remote(Ok(run), _) => run
+                            .argv()
+                            .iter()
+                            .map(|w| w.to_str().expect("UTF-8").to_owned())
+                            .collect(),
+                        got => panic!("{got:?}"),
+                    };
+                    let printed = p.printed(t, under);
+                    let preview = crate::link::preview_text_with(
+                        under,
+                        t,
+                        &MachineNames::one(HERE),
+                        baud_domain::Cols::of_index(120),
+                        &*p,
+                        printed,
+                    )
+                    .expect("a preview");
+                    (argv, preview)
+                },
+            )
+        };
+        let (argv, preview) = open(&demo);
+        assert!(argv.iter().any(|w| w == "demo"), "{argv:?}");
+        assert!(!argv.iter().any(|w| w == "other"), "{argv:?}");
+        assert!(preview.starts_with("In a window on demo"), "{preview:?}");
+        // The control: printed under the session in front.
+        let (argv, preview) = open(&other);
+        assert!(argv.iter().any(|w| w == "other"), "{argv:?}");
+        assert!(!argv.iter().any(|w| w == "demo"), "{argv:?}");
+        assert!(preview.starts_with("In a window on other"), "{preview:?}");
+    }
+
+    /// **A link on rows no one ssh session printed opens nothing remotely,
+    /// whatever ssh is in front**: rows a remote program wrote with no
+    /// session filed, and rows two sessions printed, refuse the click with
+    /// [`crate::link::Refused::NoSession`] while `ssh demo` is in front,
+    /// draw no line and preview "Won't open". The control: the same rows
+    /// printed under `ssh demo` alone open. Named breaks: fall back to the
+    /// session in front for rows with none -- the first clicks open; keep
+    /// the first session filed over a row -- the second opens.
+    #[test]
+    fn a_link_no_one_ssh_session_printed_opens_nothing_remotely() {
+        use crate::link::{ClickOn, MachineNames, Refused, click_on, refusal_words};
+        let demo = demo_session();
+        let argv: Vec<std::ffi::OsString> = ["ssh", "other"].iter().map(Into::into).collect();
+        let other = std::sync::Arc::new(
+            crate::ssh::session(&argv, |_| Some(b"hostname other.example\n".to_vec()))
+                .expect("a session"),
+        );
+        let bytes = format!(" {}", marked("file://demo/srv/a.md", "a"));
+        let no_session = format!("Won't open, {}", refusal_words(Refused::NoSession));
+        // Rows `printed` under no session, and with `also` filed over them
+        // after: the click, whether the rest look draws a line, and the
+        // preview, with `ssh demo` in front.
+        let judged = |printed: Option<&crate::ssh::Session>, also: bool| {
+            on_printed(
+                rules_of!(PATH_WINDOW),
+                bytes.as_bytes(),
+                Front::Elsewhere,
+                (printed, Some(&demo)),
+                baud_domain::Row::ZERO,
+                |t, p, under| {
+                    if also {
+                        let last = baud_domain::Row::from_index(usize::from(WS.ws_row) - 1);
+                        let rows = LineSpan::of(
+                            at().line(Rows::ZERO, baud_domain::Row::ZERO),
+                            at().line(Rows::ZERO, last),
+                        );
+                        p.written_by(Seen::Named(Front::Elsewhere), Some(&other), rows);
+                    }
+                    let opens = match click_on(under, t, &MachineNames::one(HERE), p.rules(), &*p) {
+                        ClickOn::Remote(Ok(_), _) => Ok(()),
+                        ClickOn::Remote(Err(why), _) => Err(why),
+                        got => panic!("{got:?}"),
+                    };
+                    let mut uris = crate::lined::Uris::default();
+                    uris.set_names(MachineNames::one(HERE));
+                    uris.set_rules(p.rules().clone());
+                    let mut l = Lines::default();
+                    let _ = l.scan(
+                        t,
+                        at(),
+                        &mut Links {
+                            uris: &mut uris,
+                            urls: Turned::On,
+                            paths: &mut *p,
+                        },
+                    );
+                    let printed = p.printed(t, under);
+                    let preview = crate::link::preview_text_with(
+                        under,
+                        t,
+                        &MachineNames::one(HERE),
+                        baud_domain::Cols::of_index(120),
+                        &*p,
+                        printed,
+                    )
+                    .expect("a preview");
+                    (opens, !l.lines().is_empty(), preview)
+                },
+            )
+        };
+        for (printed, also, what) in [
+            (None, false, "no session"),
+            (Some(&demo), true, "two sessions"),
+        ] {
+            let (opens, lit, preview) = judged(printed, also);
+            assert_eq!(opens, Err(Refused::NoSession), "{what}");
+            assert!(!lit, "{what}: lined");
+            assert!(preview.starts_with(&no_session), "{what}: {preview:?}");
+        }
+        // The control: printed under the session in front alone.
+        let (opens, lit, preview) = judged(Some(&demo), false);
+        assert_eq!(opens, Ok(()));
+        assert!(
+            lit && preview.starts_with("In a window on demo"),
+            "{preview:?}"
         );
     }
 

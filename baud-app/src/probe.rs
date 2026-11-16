@@ -199,8 +199,16 @@ const NAMED: usize = 64;
 pub const LINKS: usize = 32;
 
 /// What the worker named a group as when it first saw it: when its leader
-/// started, and its names.
-type Named = std::collections::HashMap<Pid, (Option<StartTime>, Vec<String>)>;
+/// started, its names, and the session of the ssh leading it, read then
+/// ([`ssh_session`]), which the rows it writes are filed as printed by.
+type Named = std::collections::HashMap<
+    Pid,
+    (
+        Option<StartTime>,
+        Vec<String>,
+        Option<Arc<crate::ssh::Session>>,
+    ),
+>;
 
 /// **The ssh session the worker last read in front**, by its leader's pid
 /// and start: read once while that process leads the group in front, its
@@ -261,6 +269,46 @@ impl Sessions {
     /// Another program in front, or none: the session read goes.
     fn drop_kept(&mut self) {
         self.0 = None;
+    }
+}
+
+/// **`group` named as soon as it is seen**, while it may still run: its
+/// leader's start, its names and, for an ssh, its session, kept for the
+/// batch that names the rows it wrote ([`answer`]).
+fn name_group(
+    fs: &mut dyn Fs,
+    named: &mut Named,
+    sessions: &mut Sessions,
+    group: Pid,
+    calls: &mut u64,
+    beat: &dyn Fn(),
+) {
+    if named.len() >= NAMED {
+        named.clear();
+    }
+    let t = fs.started(group);
+    let n = fs.program(group);
+    *calls += 2;
+    beat();
+    let s = ssh_session(fs, sessions, group, &n, calls, beat);
+    named.insert(group, (t, n, s));
+}
+
+/// **The session of the ssh leading `group`, named `names`**, read through
+/// `sessions` ([`Sessions::of`]) while it leads the group: none for a
+/// program that is not ssh, or is named on this machine.
+fn ssh_session(
+    fs: &mut dyn Fs,
+    sessions: &mut Sessions,
+    group: Pid,
+    names: &[String],
+    calls: &mut u64,
+    beat: &dyn Fn(),
+) -> Option<Arc<crate::ssh::Session>> {
+    let ssh = names.iter().any(|n| spelled(n) == "ssh");
+    match ssh && front_of(names) == Front::Elsewhere {
+        true => sessions.of(fs, group, calls, beat),
+        false => None,
     }
 }
 
@@ -1350,6 +1398,10 @@ pub struct Answer {
     /// worker read it ([`Sessions`]): none when no ssh leads it, or one
     /// that is no session a file can be opened in.
     pub session: Option<Arc<crate::ssh::Session>>,
+    /// **The session of each group in `seen` an ssh leads**, as the worker
+    /// read it when it named the group, gone since or not: what the rows
+    /// the group wrote are filed as printed by (`Paths::written_by`).
+    pub sessions: Vec<(Pid, Arc<crate::ssh::Session>)>,
     pub calls: u64,
 }
 
@@ -1369,6 +1421,7 @@ fn left(ask: &Ask) -> Answer {
         folder: None,
         started: None,
         session: None,
+        sessions: Vec::new(),
         calls: 0,
     }
 }
@@ -1535,14 +1588,7 @@ fn run(
         // A group is named as soon as it is seen: one that exits before the
         // batch could not be named then.
         while let Some(g) = groups.pop_front() {
-            if named.len() >= NAMED {
-                named.clear();
-            }
-            let t = fs.started(g);
-            let n = fs.program(g);
-            naming += 2;
-            beat();
-            named.insert(g, (t, n));
+            name_group(&mut *fs, &mut named, &mut sessions, g, &mut naming, &beat);
         }
         let Some(ask) = clicks
             .pop_front()
@@ -1593,33 +1639,37 @@ fn answer(
         };
     }
     // A group the worker named when it was seen, else named now: its names,
-    // none for one gone by then. A name kept for a leader that started at
-    // another time than the group's leader now is another process's, the
-    // group number reused, and the group is named again; a leader gone,
-    // whose start no longer reads, keeps the name it was seen with.
-    let mut names_of_group = |g: Pid, calls: &mut u64| -> Vec<String> {
+    // none for one gone by then, and the session of the ssh leading it. A
+    // name kept for a leader that started at another time than the group's
+    // leader now is another process's, the group number reused, and the
+    // group is named again; a leader gone, whose start no longer reads,
+    // keeps the name and the session it was seen with.
+    let mut names_of_group = |g: Pid, calls: &mut u64| {
         let now = fs.started(g);
         *calls += 1;
-        if let Some((then, n)) = named.get(&g) {
+        if let Some((then, n, s)) = named.get(&g) {
             let reused = matches!((then, now), (Some(a), Some(b)) if *a != b);
             if !reused {
-                return n.clone();
+                return (n.clone(), s.clone());
             }
         }
         let n = fs.program(g);
         *calls += 1;
         beat();
-        n
+        let s = ssh_session(&mut *fs, &mut *sessions, g, &n, calls, beat);
+        (n, s)
     };
     // A group seen at a read and gone before it was named is not known,
     // and so are the lines written past the groups kept: their rows fail
     // closed and touch no other row (`Paths::written_under`). The group in
     // front with no name is not known to be local, as `front_of` says.
+    let mut printed_by = Vec::new();
     let mut seen: Vec<(Option<Pid>, crate::paths::Seen, LineSpan)> = ask
         .seen
         .iter()
         .map(|&(g, l)| {
-            let n = names_of_group(g, &mut calls);
+            let (n, s) = names_of_group(g, &mut calls);
+            printed_by.extend(s.map(|s| (g, s)));
             let wrote = match n.is_empty() {
                 true => crate::paths::Seen::NotNamed,
                 false => crate::paths::Seen::Named(front_of(&n)),
@@ -1628,7 +1678,7 @@ fn answer(
         })
         .collect();
     seen.extend(ask.unnamed.map(|l| (None, crate::paths::Seen::NotNamed, l)));
-    let front_names = ask.group.map(|g| names_of_group(g, &mut calls));
+    let front_names = ask.group.map(|g| names_of_group(g, &mut calls).0);
     let front = match &front_names {
         Some(n) => front_of(n),
         None => Front::Elsewhere,
@@ -1718,6 +1768,7 @@ fn answer(
         folder,
         started,
         session,
+        sessions: printed_by,
         calls,
     }
 }
@@ -3151,12 +3202,18 @@ impl<T: Moment> Probes<T> {
         paths: &mut Paths,
         (id, kind): (Id, Kind),
         seen: &[(Option<Pid>, crate::paths::Seen)],
+        sessions: &[(Pid, Arc<crate::ssh::Session>)],
     ) {
         use crate::paths::Seen;
         if kind != Kind::Screen {
             return;
         }
         for &(g, f) in seen {
+            // The ssh session the worker read for this group, filed with its
+            // verdict as what its rows were printed under.
+            let by = g
+                .and_then(|g| sessions.iter().find(|e| e.0 == g))
+                .map(|e| &e.1);
             #[cfg(feature = "effect-probe")]
             {
                 self.not_named += u64::from(f == Seen::NotNamed);
@@ -3165,7 +3222,7 @@ impl<T: Moment> Probes<T> {
             let lit = &mut self.lit;
             self.held.retain(|&(h, span)| {
                 if h == g {
-                    paths.written_under(f, span);
+                    paths.written_by(f, by, span);
                     lit.set(g, span);
                 }
                 h != g
@@ -3190,7 +3247,7 @@ impl<T: Moment> Probes<T> {
             let lit = &mut self.lit;
             self.inflight.retain(|e| {
                 if mine(e) {
-                    paths.written_under(f, e.2);
+                    paths.written_by(f, by, e.2);
                     lit.set(g, e.2);
                 }
                 !mine(e)
@@ -3506,19 +3563,16 @@ impl<T: Moment> Probes<T> {
                     Front::Elsewhere => self.elsewhere = a.group,
                     Front::Local | Front::Multiplexer => self.elsewhere = None,
                 }
-                // Moved, as the worker read it for the group it named: what
-                // a remote program's `file://` link opens through, and so
-                // how it looks, read again on every row.
-                if s.paths.set_session(a.session) == Moved::Yes {
-                    s.lines.forget();
-                    turn.frame = Owed::Yes;
-                }
+                // The session of the ssh in front, as the worker read it:
+                // what the rows its group writes while it stays in front
+                // are filed as printed by, with no batch to name them.
+                s.paths.set_session(a.session);
                 #[cfg(feature = "effect-probe")]
                 {
                     self.elsewhere_fronts += u64::from(front == Front::Elsewhere);
                 }
                 let (before, origins) = (s.paths.generation(), s.paths.origins());
-                self.file_answered(s.paths, (a.id, a.kind), &a.seen);
+                self.file_answered(s.paths, (a.id, a.kind), &a.seen, &a.sessions);
                 // A span gone from the surface up is dropped as the next
                 // arrives: the primary's history, and on the alternate
                 // screen, which keeps none, what scrolled off its top.
@@ -3676,9 +3730,12 @@ impl<T: Moment> Probes<T> {
             s.paths.settled();
             // Every row to the cursor is now this group's: what was seen
             // before it is covered, and was written while it was in front.
-            for (_, span) in self.seen.drain(..) {
+            // Its own rows were printed under the session in front.
+            let front = s.paths.front_session();
+            for (h, span) in self.seen.drain(..) {
+                let by = front.as_ref().filter(|_| Some(h) == g);
                 s.paths
-                    .written_under(crate::paths::Seen::Named(Front::Elsewhere), span);
+                    .written_by(crate::paths::Seen::Named(Front::Elsewhere), by, span);
             }
             if let Some(span) = self.unnamed.take() {
                 s.paths
@@ -4480,12 +4537,76 @@ mod tests {
         assert!(resolves(&f).is_empty(), "nothing asked");
     }
 
-    /// **Main reads no argv and runs no ssh**: `answers` takes the session
-    /// from the worker's answer and calls nothing of its own, and hands it
-    /// to the paths (`Paths::set_session`), where the click, the preview and
-    /// the look at rest read it, every row read again when it moves. Named
-    /// breaks: read the session in `answers`; keep the lines when it moves
-    /// -- a link lined under the session before stays lined.
+    /// **A group keeps the session it was named with, gone or not**: an
+    /// ssh named while it led the group in front, gone by the batch that
+    /// names its rows with a shell in front, answers its session with the
+    /// group's verdict, and `ssh -G` ran once, at the naming. The control:
+    /// the same group gone before anything named it answers no session,
+    /// and its rows are not named. Named break: keep no session in the
+    /// naming (`name_group`) -- the gone group's rows answer none.
+    #[test]
+    fn a_group_keeps_the_session_it_was_named_with() {
+        let mut f = ssh_in_front();
+        f.groups.insert(9, vec!["zsh".into()]);
+        let top = AbsLine::at(Rows::ZERO);
+        let span = LineSpan::on(crate::paths::Surface::Primary, top, top);
+        // A batch with the shell in front and the ssh's rows seen.
+        let batch = |f: &mut Fake, named: &mut Named, sessions: &mut Sessions| {
+            answer(
+                f,
+                Ask {
+                    id: Id::default(),
+                    kind: Kind::Screen,
+                    group: Some(9),
+                    cursor: LineOn {
+                        surface: crate::paths::Surface::Primary,
+                        line: top,
+                    },
+                    paths: Vec::new(),
+                    seen: vec![(7, span)],
+                    unnamed: None,
+                    programs: Vec::new(),
+                },
+                named,
+                sessions,
+                &|| {},
+                &mut || false,
+            )
+        };
+        let gone = |f: &Fake| {
+            f.live.lock().unwrap().insert(7, (Vec::new(), None));
+        };
+        let (mut named, mut sessions) = (Named::new(), Sessions::default());
+        name_group(&mut f, &mut named, &mut sessions, 7, &mut 0, &|| {});
+        gone(&f);
+        let a = batch(&mut f, &mut named, &mut sessions);
+        assert_eq!(
+            a.seen,
+            [(Some(7), crate::paths::Seen::Named(Front::Elsewhere))]
+        );
+        let [(g, s)] = &a.sessions[..] else {
+            panic!("one session: {:?}", a.sessions);
+        };
+        assert_eq!(*g, 7);
+        assert_eq!(s.ssh().dest().arg(), "demo");
+        assert_eq!(resolves(&f).len(), 1, "ssh -G at the naming only");
+        // The control: gone before it was named.
+        let mut f = ssh_in_front();
+        f.groups.insert(9, vec!["zsh".into()]);
+        gone(&f);
+        let a = batch(&mut f, &mut Named::new(), &mut Sessions::default());
+        assert_eq!(a.seen, [(Some(7), crate::paths::Seen::NotNamed)]);
+        assert!(a.sessions.is_empty(), "{:?}", a.sessions);
+    }
+
+    /// **Main reads no argv and runs no ssh**: `answers` takes the sessions
+    /// from the worker's answer and calls nothing of its own: the one in
+    /// front goes to the paths (`Paths::set_session`), what its group's rows
+    /// are filed as printed by while it stays in front, and each seen
+    /// group's is filed with its verdict (`Probes::file_answered`), what a
+    /// remote program's `file://` link on those rows opens through. Named
+    /// breaks: read the session in `answers`; file the verdicts without the
+    /// groups' sessions.
     #[test]
     fn main_takes_the_session_with_no_call_of_its_own() {
         let src = include_str!("probe.rs");
@@ -4504,15 +4625,13 @@ mod tests {
             body.contains(concat!("a.", "session")),
             "the positive control: the session is taken"
         );
-        // It is handed to the paths the click, the preview and the look at
-        // rest all read, and every row is read again when it moves.
         assert!(
-            body.contains(concat!(
-                "if s.paths.set_session(a.session) == Moved::Yes {\n",
-                "                    s.lines.forget();\n",
-                "                    turn.frame = Owed::Yes;"
-            )),
-            "the session reaches the paths, and a move reads every row"
+            body.contains("s.paths.set_session(a.session);"),
+            "the session in front reaches the paths"
+        );
+        assert!(
+            body.contains("(a.id, a.kind), &a.seen, &a.sessions);"),
+            "each seen group's session is filed with its verdict"
         );
     }
 
@@ -8565,6 +8684,7 @@ mod tests {
                 (Some(2), crate::paths::Seen::Named(Front::Local)),
                 (Some(7), crate::paths::Seen::NotNamed),
             ],
+            &[],
         );
         assert_eq!(
             [0, 1].map(|n| paths.origin(line(n))),
@@ -11725,7 +11845,7 @@ mod tests {
             pr.held.push((Some(9), LineSpan::of(line(3), line(3))));
             pr.publish(&mut paths);
             assert_eq!(paths.origin(line(3)), Origin::Unknown, "held");
-            pr.file_answered(&mut paths, (id, Kind::Screen), &[(Some(9), verdict)]);
+            pr.file_answered(&mut paths, (id, Kind::Screen), &[(Some(9), verdict)], &[]);
             assert_eq!((paths.origin(line(3)), pr.held.len()), (origin, 0));
             let three = vec![LineSpan::of(line(3), line(3))];
             assert!(pr.lit.not_of(Some(9), three).is_empty(), "lit by its group");
@@ -11842,6 +11962,7 @@ mod tests {
             &mut paths,
             (id, Kind::Screen),
             &[(Some(2), local), (Some(2), local)],
+            &[],
         );
         let origins = [1, 2, 4, 5].map(|n| paths.origin(line(n)));
         assert_eq!(
@@ -11880,6 +12001,7 @@ mod tests {
             &mut paths,
             (Id::default(), Kind::Click),
             &[(Some(2), crate::paths::Seen::Named(Front::Local))],
+            &[],
         );
         let origins = [1, 2].map(|n| paths.origin(line(n)));
         assert_eq!(origins, [Origin::Unknown, Origin::Unknown]);
