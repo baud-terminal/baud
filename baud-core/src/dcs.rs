@@ -6,11 +6,13 @@
 //! SGR, `r` for DECSTBM, `"q"` for DECSCA. The reply is the *tail of the CSI
 //! that would set it*, so an application can echo it straight back.
 //!
-//! Every other DCS -- DECUDK, DECAUPSS (`DCS Ps ! u ... ST`, the one that
-//! assigns the user-preference supplemental set; DECRQUPSS, its query, is
-//! `CSI & u` and not a DCS) -- is consumed to its terminator and ignored, which
-//! is the half that matters: a DCS body reaching the screen would render an
-//! application's private protocol as glyphs.
+//! DECAUPSS, `DCS Ps ! u Dscs ST`, assigns the user-preference supplemental
+//! set: the one assignment baud's repertory holds, DEC Supplemental, is
+//! accepted and every other is ignored and counted (`upss_start`).
+//!
+//! Every other DCS -- DECUDK among them -- is consumed to its terminator and
+//! ignored, which is the half that matters: a DCS body reaching the screen
+//! would render an application's private protocol as glyphs.
 
 use crate::osc::StrKind;
 use crate::paint::Paint;
@@ -166,7 +168,42 @@ pub(crate) fn tcap_start(csi: &Csi) -> StrKind {
     }
 }
 
+/// A `DCS Ps !`: DECAUPSS, `DCS Ps ! u Dscs ST` (`[[source: dec-std-070]]`
+/// p. 5-123), which assigns the User-Preference Supplemental Set. "Ps
+/// selects between 94 and 96 character sets (Ps = 0 selects a 94 character
+/// set). Dscs is the intermediate and final characters of the SCS escape
+/// sequence", and "Attempts to assign an invalid supplemental set will be
+/// ignored." The UPSS is DEC Supplemental, the set `G2` and `G3` take at a
+/// reset, and its assignment, `0 ; % 5`, is the one baud's repertory holds:
+/// a 94-character `Ps`, 0 or omitted, is read to its terminator
+/// (`Paint::upss_end`). The other assignment the text allows, `1 ; A`,
+/// ISO Latin-1 supplemental, waits on which set `ESC ( <` designates, DEC
+/// Supplemental or the UPSS (070-3 p. 3-63): it and any other `Ps` are
+/// consumed and counted as any DCS no handler reads.
+pub(crate) fn upss_start(csi: &Csi) -> StrKind {
+    match csi.params().raw(ParamIdx::FIRST, 0) {
+        0 => StrKind::Upss,
+        _ => StrKind::Other,
+    }
+}
+
 impl Paint<'_, '_> {
+    /// A DECAUPSS's terminator, its body the final `u` and the `Dscs`, every
+    /// C0 dropped and a GR byte read as its 7-bit byte under ISO 8859-1
+    /// (`Paint::str_put`). `u % 5` assigns DEC Supplemental, which the UPSS
+    /// is, so the set `G2` and `G3` take at a reset and the set DECRQUPSS
+    /// reports stay what they are, and the In-Use table with them (note 2:
+    /// "Assigning a new UPSS will immediately update the In-Use table if
+    /// the UPSS is currently designated and invoked"). Any other body is no
+    /// assignment baud holds, ignored and counted.
+    pub(crate) fn upss_end(&mut self) {
+        let n = self.cold.str_len.index().min(self.strs.pending.len());
+        if self.strs.pending[..n] != *b"u%5" {
+            self.strings_ignored += 1;
+            self.unsupported_total += 1;
+        }
+    }
+
     /// A `DCS +` string's terminator: `q` is XTGETTCAP, `p` XTSETTCAP and
     /// `Q` XTGETXRES (`[[source: ctlseqs]]` 510-582); any other byte is a
     /// DCS no handler reads, counted as one.

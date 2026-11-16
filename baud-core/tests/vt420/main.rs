@@ -22,6 +22,7 @@ mod side_margins;
 mod state_reports;
 mod status_line;
 mod tab_backspace;
+mod upss;
 
 /// **No gaps, and the gate stays so that a new one has to say so.**
 ///
@@ -50,6 +51,7 @@ fn the_known_vt420_gaps() {
             "side_margins.rs",
             "status_line.rs",
             "tab_backspace.rs",
+            "upss.rs",
         ],
         &[],
     );

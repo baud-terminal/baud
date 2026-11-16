@@ -202,6 +202,7 @@ impl Paint<'_, '_> {
                 | StrKind::TcapCut
                 | StrKind::RestoreTerminal
                 | StrKind::RestoreColors
+                | StrKind::Upss
         ) {
             return self.status_data_put(b);
         }
@@ -562,6 +563,7 @@ impl Paint<'_, '_> {
             }
             StrKind::LocatorKeys => self.locator_keys_end(),
             StrKind::Tcap => self.tcap_end(crate::dcs::TcapBody::Whole),
+            StrKind::Upss => self.upss_end(),
             StrKind::TcapCut => self.tcap_end(crate::dcs::TcapBody::Cut),
             StrKind::Other | StrKind::Apc => {
                 self.strings_ignored += 1;
@@ -1363,6 +1365,10 @@ pub(crate) enum StrKind {
     /// image data, decoded into the PNG scratch as it arrives (`file.rs`).
     /// Reached through the body's own bytes, as `Clipboard` is.
     ItermFile,
+    /// A `DCS 0 !` or `DCS !`, DECAUPSS with a 94-character `Ps`: its
+    /// body, the final `u` and the `Dscs`, kept as a DECRQSS body is and
+    /// read at the terminator (`Paint::upss_end`).
+    Upss,
 }
 
 /// **Whether a control string is known to write no cell** of the row the
@@ -1386,7 +1392,8 @@ fn str_writes_no_cell(kind: StrKind) -> bool {
         | StrKind::Notice
         | StrKind::RestoreTerminal
         | StrKind::RestoreColors
-        | StrKind::ColorControl => true,
+        | StrKind::ColorControl
+        | StrKind::Upss => true,
         StrKind::Sixel | StrKind::Kitty | StrKind::Regis | StrKind::ItermFile => false,
     }
 }

@@ -147,21 +147,22 @@ pub(crate) struct Want {
 impl Paint<'_, '_> {
     /// The string a `DcsQuery` byte other than DECRQSS's `q` begins:
     /// DECRSPS's `t`, DECLKD's `w` and DECRSTS's `p` after `$`, ReGIS's bare
-    /// `p`, or the
-    /// `+` of XTGETTCAP and XTSETTCAP. Out of line, so the
-    /// per-byte loop's arm is DECRQSS's test and one call, the shape it had
-    /// with DECRSPS's alone.
+    /// `p`, the `+` of XTGETTCAP and XTSETTCAP, or DECAUPSS's `!`. Out of
+    /// line, so the per-byte loop's arm is DECRQSS's test and one call, the
+    /// shape it had with DECRSPS's alone.
     #[cold]
     #[inline(never)]
     pub(crate) fn dcs_start(&mut self, b: StreamByte, csi: &Csi) -> crate::osc::StrKind {
         let key = (b.raw_byte(), csi.intermediate().map(StreamByte::raw_byte));
         // **DECRSTS and DECRSPS are Level 2's** (Terminal State
         // Interrogation, "Levels: 2x (TSI), 3-4", `[[source: dec-std-070]]`
-        // pp. 5-205 and 5-208): below it the body is consumed and dropped,
-        // and the string counted.
+        // pp. 5-205 and 5-208), and **so is DECAUPSS** ("Levels: 2x (8-bit
+        // Interface Architecture), 3-4", p. 5-123): below it the body is
+        // consumed and dropped, and the string counted.
         let f = match key {
             (b'p', Some(b'$')) => Some(Function::Decrsts),
             (b't', Some(b'$')) => Some(Function::Decrsps),
+            (b'!', None) => Some(Function::Decaupss),
             _ => None,
         };
         if !introduced_by(f).admits(self.cold.level) {
@@ -173,6 +174,7 @@ impl Paint<'_, '_> {
             (b'p', _) => self.regis_start(csi),
             (b'w', _) => self.locator_keys_start(csi),
             (b'+', _) => crate::dcs::tcap_start(csi),
+            (b'!', None) => crate::dcs::upss_start(csi),
             _ => self.restore_start(csi),
         }
     }

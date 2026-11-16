@@ -96,7 +96,6 @@ const NOT_DISPATCHED: &[(&str, &str)] = &[
         "DECCTR",
         "DECRSTS 2's and DECRQTSR 2's body, gated with them",
     ),
-    ("DECAUPSS", "consumed and not acted on (its row)"),
     (
         "DECNRCM (keyboard)",
         "unbuilt: the keyboard's 7-bit NRC codes, with no keyboard dialect",
@@ -232,7 +231,7 @@ fn csi(marker: Marker, inter: Option<u8>, ps: &[u16], f: u8) -> Csi {
 const CORE_DISPATCHED: &[&str] = &[
     "CR", "LF", "VT", "FF", "BS", "HT", "BEL", "SUB", "LS0", "LS1", "HVP", "S7C1T", "S8C1T", "ACS",
     "DECSWL", "DECDWL", "DECDHL", "DECALN", "SCS", "DECRQSS", "DECRSPS", "DECRSTS", "DECLKD",
-    "ReGIS", "Sixel", "DECSLRM",
+    "ReGIS", "Sixel", "DECSLRM", "DECAUPSS",
 ];
 
 /// **Each row is reached by the forms that perform it**: a control sequence,

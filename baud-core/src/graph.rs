@@ -228,9 +228,9 @@ pub enum Node {
     /// to its final byte: `[[source: williams]]`' `dcs intermediate`, and
     /// its `dcs ignore` for an introducer that broke the grammar. The byte
     /// that leads here from `Dcs` or `DcsDollar` is consumed, or read by
-    /// `DcsQuery` for a `+`, as it was when it led to `DcsStr`. The `20-3F`
-    /// bytes after it, and the final, are put to the body the way `DcsStr`
-    /// puts them; a C0 is executed and the introducer goes on, `[[source:
+    /// `DcsQuery` for a `+` or a `!`, as it was when it led to `DcsStr`.
+    /// The `20-3F` bytes after it, and the final, are put to the body the
+    /// way `DcsStr` puts them; a C0 is executed and the introducer goes on, `[[source:
     /// dec-std-070]]` 3.5.5 ("All other C0 controls are immediately
     /// recognized within escape, control, or control string introducer
     /// sequences"), where `DcsStr` would put it. Last, so no other node's
@@ -1467,6 +1467,13 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 // After a parameter it is no XTGETTCAP, as xterm's `do_dcs`
                 // switches on the first byte (`[[source: xterm-misc]]`).
                 b'+' => edge(Act::DcsQuery, Node::DcsIntro),
+                // **`!` is DECAUPSS's**, `DCS Ps ! u Dscs ST`
+                // (`[[source: dec-std-070]]` p. 5-123), its `Ps` collected
+                // by the digit edges below. The edge is `+`'s, so `21` takes
+                // `2B`'s edge out of every node and is one byte class with
+                // it; the `u` and the `Dscs` after it are the body, read at
+                // the terminator (`Paint::upss_end`).
+                b'!' => edge(Act::DcsQuery, Node::DcsIntro),
                 // **A Sixel is `DCS Pa;Pb;Ph q` -- a `q` after *numeric
                 // parameters* and no intermediate.** So the parameters `30-3F`
                 // (`0-9 : ; < = > ?`) collect and stay in `Node::Dcs`, and a
@@ -3096,6 +3103,25 @@ mod classes {
             count, CLASSES,
             "byte equivalence classes changed; a k-stride table is CLASSES^k entries"
         );
+    }
+
+    /// **DECAUPSS's `!` and XTGETTCAP's `+` take one edge out of every
+    /// node**, under both encodings, and so do their GR spellings `A1` and
+    /// `AB`: both read their byte through `DcsQuery` after a `DCS`, and the
+    /// handler tells them apart (`Paint::dcs_start`). The positive control:
+    /// `!` leaves `Dcs` as `DcsQuery`, where every other intermediate but
+    /// `$` and `+` is consumed.
+    #[test]
+    fn the_bang_and_the_plus_of_a_dcs_are_one_byte_class() {
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            let at = |n: Node, v: u8| Edge::of(enc, n, StreamByte::from_stream(v));
+            assert_eq!(at(Node::Dcs, b'!'), edge(Act::DcsQuery, Node::DcsIntro));
+            assert_eq!(at(Node::Dcs, b'"'), edge(Act::Consume, Node::DcsIntro));
+            for node in Node::FROM_INDEX {
+                assert_eq!(at(node, b'!'), at(node, b'+'), "{enc:?} {node:?}");
+                assert_eq!(at(node, 0xa1), at(node, 0xab), "{enc:?} {node:?}");
+            }
+        }
     }
 
     /// **Every row of the table must be the row its node names**, and nothing

@@ -193,6 +193,7 @@ functions! {
     Decdhl "DECDHL" Since(One), Field(354);
     Sgr "SGR" Since(One), Field(358);
     Scs "SCS" Since(One), Field(372);
+    Decaupss "DECAUPSS" Since(Two), Field(378);
     Decrqupss "DECRQUPSS" Since(Two), Field(380);
     Decnrcm "DECNRCM" Since(One), Field(381);
     Srm "SRM" Since(One), Field(390);

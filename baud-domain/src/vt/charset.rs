@@ -251,8 +251,9 @@ pub enum DecSet {
     /// `<` — DEC Supplemental (VT200), and the User Preference Supplemental
     /// Set (UPSS, VT300; `[[source: dec-std-070]]` 070-3 p. 3-63), which share
     /// a final byte. Which of the two `<` should designate is open; both
-    /// readings draw DEC Supplemental while baud has no DECAUPSS, the
-    /// UPSS's "Default: DEC Supplemental Graphic" (`[[source: vt510-decaupss]]`).
+    /// readings draw DEC Supplemental while the UPSS is DEC Supplemental,
+    /// its "Default: DEC Supplemental Graphic" (`[[source: vt510-decaupss]]`)
+    /// and the one set DECAUPSS assigns here.
     Supplemental,
     /// `>` — DEC Technical, VT300. Not translated: which DEC layout (VT420
     /// Figure 2-10 against three other DEC texts at five cells), which hooks
