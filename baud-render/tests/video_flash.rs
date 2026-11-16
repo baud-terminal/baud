@@ -168,7 +168,7 @@ fn the_resolved_table_follows_the_flash() {
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, bytes);
         r.set_flash(flash);
-        let mut out = vec![Resolved::default(); t.styles().len()];
+        let mut out = vec![Resolved::default(); t.styles().one().len()];
         r.resolve_styles_into(&t, &mut out);
         out
     };

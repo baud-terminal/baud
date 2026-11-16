@@ -206,7 +206,7 @@ impl<'m> Cells<'m> {
             exceptions: Overlay::new(),
             screens: Screens::new(),
             copies_mem: core::array::from_fn(|_| vec![PackedCell::EMPTY; (rows + 2) * stride]),
-            styles_mem: core::array::from_fn(|_| vec![Resolved::default(); t.styles().len()]),
+            styles_mem: core::array::from_fn(|_| vec![Resolved::default(); t.styles().one().len()]),
             overlay_mem: core::array::from_fn(|_| vec![0u8; COLS * (rows + 1)]),
             style_stamps: [StyleStamp::default(); SETS],
             lent: core::array::from_fn(|_| Lent::default()),

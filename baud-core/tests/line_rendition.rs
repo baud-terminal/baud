@@ -847,7 +847,7 @@ fn grown(t: &mut Term<'_>) -> usize {
 
 fn attrs_at(t: &Term<'_>, y: usize, x: usize) -> Attrs {
     let cell = t.row(Row::from_index(y)).expect("a row")[x];
-    t.style_of(cell).attrs()
+    t.styles().one().word_of(cell).attrs()
 }
 
 /// DECFRA fills a double line's forty positions and not the forty past.

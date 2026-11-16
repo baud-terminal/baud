@@ -1,5 +1,6 @@
 //! The terminal's state, and the one borrow the parser holds.
 
+use crate::bands::BandsView;
 use crate::cwd::{DirectoriesRefused, WorkingDirectory};
 use crate::font::{FontChange, FontsRefused};
 use crate::graph::Node;
@@ -4228,7 +4229,17 @@ impl<'b> Term<'b> {
     /// and takes [`Viewport::parts`] otherwise.
     pub fn viewport(&self) -> Viewport<'_> {
         let (cells, used, ring, rot) = self.surface();
-        let v = Viewport::stored(cells, used, self.stride, self.cols, self.rows, ring, rot);
+        let live = self.store.tmpl.live();
+        let v = Viewport::stored(
+            cells,
+            used,
+            self.stride,
+            self.cols,
+            self.rows,
+            ring,
+            rot,
+            live,
+        );
         // **A view of the primary reads its rows through the generations**
         // (`crate::freeze`): a row behind the window that was frozen names
         // ids in its generation's words, which `Viewport::styles` gives a
@@ -4270,7 +4281,17 @@ impl<'b> Term<'b> {
                 Rows::ZERO,
             ),
         };
-        let v = Viewport::stored(cells, used, self.stride, self.cols, self.rows, ring, rot);
+        let live = self.store.tmpl.live();
+        let v = Viewport::stored(
+            cells,
+            used,
+            self.stride,
+            self.cols,
+            self.rows,
+            ring,
+            rot,
+            live,
+        );
         (v, top, hist)
     }
 
@@ -4640,6 +4661,7 @@ impl<'b> Term<'b> {
             self.store.ring_rows(),
             self.rot,
             self.store.book.hist,
+            self.store.tmpl.live(),
         );
         // A retained line that was frozen names ids in its generation's
         // words (`Scrollback::styles`), whichever screen is up.
@@ -4667,13 +4689,16 @@ impl<'b> Term<'b> {
     /// view asks before it resolves the line's cells; a line the ring no
     /// longer holds reads live.
     pub fn line_styles(&self, line: LineIdx) -> RowStyles<'_> {
+        let live = self.store.tmpl.live();
         let Some(f) = self.store.style_log.frozen.as_ref().filter(|f| f.any()) else {
-            return RowStyles::Live;
+            return RowStyles::Live(live);
         };
         let m = self.frozen_main(self.rows);
         match m.line_of(m.phys(line)) == Some(line) {
-            true => f.rows(m.top, m.rows, m.screen()).styles(m.phys(line), line),
-            false => RowStyles::Live,
+            true => f
+                .rows(m.top, m.rows, m.screen())
+                .styles(m.phys(line), line, live),
+            false => RowStyles::Live(live),
         }
     }
 
@@ -4948,6 +4973,7 @@ impl<'b> Term<'b> {
                 Rows::of_count(1),
                 Rows::of_count(1),
                 RowRot::NONE,
+                self.store.tmpl.live(),
             )
         })
     }
@@ -5803,6 +5829,7 @@ impl<'b> Term<'b> {
             self.rows,
             self.store.ring_rows(),
             self.rot,
+            self.store.tmpl.live(),
         )
         .past_edge_check(
             self.store.book.reach,
@@ -5821,34 +5848,34 @@ impl<'b> Term<'b> {
         self.stride
     }
 
-    /// The rendition a cell's [`StyleId`] stands for **in the rendition
-    /// table**: a cell of the active screen's, or of a row a reader knows is
-    /// live. A cell of a row frozen off the screen names an id in its
-    /// generation's words instead (`crate::freeze`); read one of those with
-    /// [`Term::style_in`] and its row's table ([`Viewport::styles`],
+    /// The rendition a cell of a row that resolves through `styles` stands
+    /// for: its band's live table's slot on a live row, its generation's
+    /// word on a frozen one. A cell has no table of its own, so a reader
+    /// asks its row's ([`Term::row_styles`], [`Viewport::styles`],
     /// [`Scrollback::styles`], [`Term::line_styles`]).
     ///
     /// **Read the slot back rather than trusting the id.** A sweep frees a
     /// slot no cell names, so an id kept from an earlier read can name a
     /// slot that holds another rendition now.
-    pub fn style_of(&self, cell: PackedCell) -> StyleWord {
-        self.store.tmpl.as_slice()[cell.style.index()].unwrap_or(StyleWord::DEFAULT)
-    }
-
-    /// The rendition a cell of a row that resolves through `styles` stands
-    /// for: the rendition table's slot on a live row, its generation's word
-    /// on a frozen one.
     pub fn style_in(&self, styles: RowStyles<'_>, cell: PackedCell) -> StyleWord {
-        styles.word(self.store.tmpl.as_slice(), cell.style)
+        styles.word(cell.style)
     }
 
-    /// The whole rendition table, indexed by [`StyleId`]: what a renderer
-    /// that resolves every slot once a frame reads, rather than asking
-    /// [`Term::style_of`] once a cell. `None` is a slot nothing was minted
-    /// in, and reads as [`StyleWord::DEFAULT`], which is what `style_of`
-    /// answers for it.
-    pub fn styles(&self) -> &[Option<StyleWord>] {
-        self.store.tmpl.as_slice()
+    /// **Which table screen row `row`'s cells name rendition ids in**, on
+    /// the screen up: its band's live table, or the words of the generation
+    /// the row was frozen into, as [`Term::viewport`]'s row `row` does.
+    /// It builds that view each call: ask it once a row, never per cell,
+    /// and a reader of many rows asks the view.
+    pub fn row_styles(&self, row: Row) -> RowStyles<'_> {
+        self.viewport().styles(row)
+    }
+
+    /// **Every band's live rendition table**, read-only, each indexed by
+    /// [`StyleId`]: what a renderer that resolves every slot once a frame
+    /// reads. `None` is a slot nothing was minted in, and reads as
+    /// [`StyleWord::DEFAULT`].
+    pub fn styles(&self) -> BandsView<'_> {
+        BandsView::of(self.store.tmpl.live())
     }
 
     /// Which rendition table this terminal writes: a renderer that caches
@@ -6648,14 +6675,10 @@ impl<'b> Term<'b> {
         row: &'r [PackedCell],
         styles: RowStyles<'r>,
     ) -> PlaceholderRuns<impl Iterator<Item = PlaceholderCell> + 'r> {
-        PlaceholderRuns::new(row.iter().map(move |c| {
-            crate::kitty::placeholder_cell(
-                &self.store.clusters,
-                self.store.tmpl.as_slice(),
-                styles,
-                *c,
-            )
-        }))
+        PlaceholderRuns::new(
+            row.iter()
+                .map(move |c| crate::kitty::placeholder_cell(&self.store.clusters, styles, *c)),
+        )
     }
 
     /// **The virtual placement a placeholder run shows** (`a=p,U=1`): the

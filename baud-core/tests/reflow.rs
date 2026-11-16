@@ -234,17 +234,23 @@ fn the_tail_fill_survives_a_rewrap() {
     support::with_corpus(|t| {
         support::feed(t, b"ab\x1b[41m\x1b[K\x1b[0m");
         let red = t
-            .style_of(t.row(Row::from_index(0)).expect("a row on the grid")[50])
+            .styles()
+            .one()
+            .word_of(t.row(Row::from_index(0)).expect("a row on the grid")[50])
             .bg();
         resize(t, 100, 50);
         assert_eq!(row_text(t, 0), "ab");
         assert_eq!(
-            t.style_of(t.row(Row::from_index(0)).expect("a row on the grid")[50])
+            t.styles()
+                .one()
+                .word_of(t.row(Row::from_index(0)).expect("a row on the grid")[50])
                 .bg(),
             red
         );
         assert_eq!(
-            t.style_of(t.row(Row::from_index(0)).expect("a row on the grid")[99])
+            t.styles()
+                .one()
+                .word_of(t.row(Row::from_index(0)).expect("a row on the grid")[99])
                 .bg(),
             red
         );

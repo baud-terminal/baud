@@ -114,10 +114,10 @@ fn main() {
                     x += 1;
                     continue;
                 }
-                let (link, word, from) = (c.flags.link(), t.style_of(c), x);
+                let (link, word, from) = (c.flags.link(), t.styles().one().word_of(c), x);
                 while x + 1 < n
                     && cells[x + 1].flags.link() == link
-                    && t.style_of(cells[x + 1]) == word
+                    && t.styles().one().word_of(cells[x + 1]) == word
                 {
                     x += 1;
                 }
@@ -795,6 +795,7 @@ fn main() {
                                 view.rows(),
                                 view.rows(),
                                 RowRot::NONE,
+                                t.styles().one(),
                             )
                         }
                     };
@@ -1107,6 +1108,7 @@ the first cpu {:.1}, copy {:.2}",
                             Rows::of_count(1),
                             Rows::of_count(1),
                             RowRot::NONE,
+                            t.styles().one(),
                         );
                         exceptions.ensure_leaving(&mut map, &t, leaving, styles_mem, &mut r);
                     }

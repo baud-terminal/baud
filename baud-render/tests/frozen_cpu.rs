@@ -108,7 +108,7 @@ fn history_drawn_on_the_cpu_path_keeps_its_colours_past_seven_eighths() {
     let faces = [Face::parse(&data).unwrap()];
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
-    assert_eq!(t.styles().len(), 1024);
+    assert_eq!(t.styles().one().len(), 1024);
     feed(&mut t, &flood(0, 20));
     let before = backgrounds(&mut t, &faces, 10);
     feed(&mut t, &flood(800, 3));
@@ -142,8 +142,8 @@ fn a_window_over_frozen_history_draws_as_a_table_that_never_fills_does() {
     let mut small = Term::new(small_owned.storage(), &WS);
     let mut big_owned = Owned::new(&BIG);
     let mut big = Term::new(big_owned.storage(), &WS);
-    assert_eq!(small.styles().len(), 1024);
-    assert_eq!(big.styles().len(), 65_536);
+    assert_eq!(small.styles().one().len(), 1024);
+    assert_eq!(big.styles().one().len(), 65_536);
     let (mut r, mut rr) = (renderer(&faces), renderer(&faces));
     let (mut c, mut rc) = (Canvas::for_renderer(&r), Canvas::for_renderer(&rr));
     let bytes = flood_both(0, 30);

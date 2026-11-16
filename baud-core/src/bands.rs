@@ -9,7 +9,9 @@
 //! of rows, behind the same calls.
 
 use crate::storage::StyleLog;
-use baud_domain::{Reach, StyleId, StyleWord};
+#[cfg(doc)]
+use baud_domain::RowStyles;
+use baud_domain::{LiveTable, Reach, StyleId, StyleWord};
 
 /// **The rendition table, readable by id and written only by
 /// [`write_slot`]**: a slot is `None` where nothing was minted, which reads
@@ -64,4 +66,44 @@ pub(crate) fn write_slot(
 pub(crate) fn seed_default(table: &mut Table<'_>, log: &mut StyleLog<'_>) {
     table.0[StyleId::DEFAULT.index()] = Some(StyleWord::DEFAULT);
     log.note(StyleId::DEFAULT);
+}
+
+impl Table<'_> {
+    /// This table as a live row's reader holds it ([`RowStyles::Live`]).
+    #[inline(always)]
+    pub(crate) fn live(&self) -> LiveTable<'_> {
+        LiveTable::of(self.0)
+    }
+}
+
+/// **Every band's live rendition table, read-only**: what [`Term::styles`]
+/// gives a renderer that resolves each band's slots once a frame. A reader
+/// resolving one row's cells takes that row's table from its
+/// [`RowStyles`] instead ([`Term::row_styles`], [`Viewport::styles`]).
+///
+/// [`Term::styles`]: crate::Term::styles
+/// [`Term::row_styles`]: crate::Term::row_styles
+/// [`Viewport::styles`]: baud_domain::Viewport::styles
+#[derive(Clone, Copy, Debug)]
+pub struct BandsView<'a> {
+    one: LiveTable<'a>,
+}
+
+impl<'a> BandsView<'a> {
+    pub(crate) fn of(one: LiveTable<'a>) -> BandsView<'a> {
+        BandsView { one }
+    }
+
+    /// Every band's table, in band order; every band has as many slots.
+    pub fn bands(&self) -> impl ExactSizeIterator<Item = LiveTable<'a>> {
+        core::iter::once(self.one)
+    }
+
+    /// **The table of a terminal that keeps one band**, which every live
+    /// row is in: what a reader that resolves live ids without their row's
+    /// [`RowStyles`] reads. Panics on a terminal of more bands than one.
+    pub fn one(&self) -> LiveTable<'a> {
+        assert_eq!(self.bands().len(), 1, "a terminal of one band");
+        self.one
+    }
 }

@@ -301,7 +301,11 @@ fn selective_erase_saved_lines_leaves_spaces_in_their_rendition() {
         let after = line(t);
         for (a, b) in after[..3].iter().zip(&before[..3]) {
             assert_eq!(a.content.as_codepoint().map(|c| c.value()), Some(0x20));
-            assert_eq!(t.style_of(*a), t.style_of(*b), "the rendition stays");
+            assert_eq!(
+                t.styles().one().word_of(*a),
+                t.styles().one().word_of(*b),
+                "the rendition stays"
+            );
         }
         assert_eq!(after[3], before[3], "an empty position is not affected");
         assert!(after[3].content.is_empty());

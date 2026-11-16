@@ -561,8 +561,8 @@ pub struct Display {
 impl Display {
     /// The window's display lines, in their logical order, as a view: its
     /// rows above the window read by [`Viewport::back`], those below past
-    /// its last row.
-    pub fn window(&self) -> Viewport<'_> {
+    /// its last row, its live rows in `live`.
+    pub fn window<'s>(&'s self, live: baud_domain::LiveTable<'s>) -> Viewport<'s> {
         let total = self.used.len();
         Viewport::new(
             &self.cells,
@@ -572,6 +572,7 @@ impl Display {
             self.rows,
             Rows::of_index(total),
             RowRot::NONE.advance(self.above.index(), Rows::of_index(total)),
+            live,
         )
     }
 
@@ -764,17 +765,17 @@ pub(crate) fn line_styles<'t>(
         let want = Rows::of_index(back.index() + k.index());
         return match term.looking_back(want) == want {
             true => term.view(want).styles(Row::ZERO),
-            false => RowStyles::Live,
+            false => crate::frozen::live(term),
         };
     }
     let Some(last) = rows.index().checked_sub(1).map(Row::from_index) else {
-        return RowStyles::Live;
+        return crate::frozen::live(term);
     };
     match l.since(WindowLine::of(last)) {
         Some(k) if k.index() <= back.index() => term
             .view(Rows::of_count(back.index() - k.index()))
             .styles(last),
-        _ => RowStyles::Live,
+        _ => crate::frozen::live(term),
     }
 }
 
@@ -1000,7 +1001,7 @@ pub(crate) fn paragraph_display(
                 used,
                 past,
                 window: Some(Row::from_index(p)),
-                styles: RowStyles::Live,
+                styles: crate::frozen::live(term),
             })
             .collect(),
         lines: Vec::new(),

@@ -307,7 +307,7 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 /// The cell path's walk of the sized lines over `t`'s window, as a frame
 /// makes it: the rows it keeps records for.
 fn sized_walk(r: &mut Renderer<'_, '_>, t: &Term<'_>) -> Vec<Row> {
-    let mut table = vec![Resolved::default(); t.styles().len()];
+    let mut table = vec![Resolved::default(); t.styles().one().len()];
     r.sync_styles(t, &mut table, &mut StyleStamp::default());
     let mut rows = Vec::new();
     r.sized_lines(t, (&t.viewport(), &table), None, None, &mut rows);
@@ -394,7 +394,7 @@ fn a_row_the_cell_path_wrote_is_taken_again_by_the_next_cpu_frame() {
     feed(&mut t, b"\x1b[3;1H\x1b#6WIDE TEXT\x1b[1;1H");
     let mut c = Canvas::for_renderer(&r);
     paint(&mut r, &mut t, &mut c, Damage::Full);
-    let mut table = vec![Resolved::default(); t.styles().len()];
+    let mut table = vec![Resolved::default(); t.styles().one().len()];
     r.sync_styles(&t, &mut table, &mut StyleStamp::default());
     let composition = Composition {
         row: Row::from_index(2),

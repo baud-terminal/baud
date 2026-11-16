@@ -293,12 +293,12 @@ fn an_extension_acts_at_level_one() {
 /// and leaves bold on. At Level 2 both act.
 #[test]
 fn level_one_sgr_keeps_bold_and_drops_colour() {
-    let first = |t: &Term<'_>| t.style_of(t.row(Row::ZERO).expect("row")[0]);
+    let first = |t: &Term<'_>| t.styles().one().word_of(t.row(Row::ZERO).expect("row")[0]);
     every_read_size(b"\x1b[61\"p\x1b[1;31mA\x1b[22mB", |t, n| {
         let a = first(t);
         assert!(a.attrs().has(Attrs::BOLD), "read size {n}");
         assert_eq!(a.fg(), ColorWord::DEFAULT, "read size {n}: no colour");
-        let b = t.style_of(t.row(Row::ZERO).expect("row")[1]);
+        let b = t.styles().one().word_of(t.row(Row::ZERO).expect("row")[1]);
         assert!(b.attrs().has(Attrs::BOLD), "read size {n}: 22 ignored");
         assert_eq!(t.unsupported_param, 2, "read size {n}: 31 and 22");
     });
@@ -324,7 +324,7 @@ fn level_one_drops_colour_from_a_repeated_sgr() {
         bytes.extend_from_slice(b);
     }
     every_read_size(&bytes, |t, n| {
-        let a = t.style_of(t.row(Row::ZERO).expect("row")[2]);
+        let a = t.styles().one().word_of(t.row(Row::ZERO).expect("row")[2]);
         assert!(a.attrs().has(Attrs::BOLD), "read size {n}: bold");
         assert_eq!(a.fg(), ColorWord::DEFAULT, "read size {n}: no colour");
     });

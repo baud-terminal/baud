@@ -46,7 +46,7 @@ fn sgr_fg((r, g, b): (u8, u8, u8)) -> Vec<u8> {
 fn default_cells_stay_default(ws: &WinSize, len: usize) {
     support::with_term(ws, |t| {
         assert_eq!(
-            t.styles().len(),
+            t.styles().one().len(),
             len,
             "the table is the size this case is about"
         );
@@ -59,21 +59,24 @@ fn default_cells_stay_default(ws: &WinSize, len: usize) {
         // it was written in really does carry it -- so the probe reached the
         // slot this test is about.
         let x = t.row(Row::from_index(1)).expect("a row on the grid")[0];
-        assert_eq!(t.style_of(x).fg().as_rgb(), Some(fg));
-        assert_eq!(StyleId::bucket(t.style_of(x), len), 0);
+        assert_eq!(t.styles().one().word_of(x).fg().as_rgb(), Some(fg));
+        assert_eq!(StyleId::bucket(t.styles().one().word_of(x), len), 0);
         for (i, c) in t.row(Row::from_index(0)).expect("a row on the grid")[..5]
             .iter()
             .enumerate()
         {
             assert_eq!(
-                t.style_of(*c),
+                t.styles().one().word_of(*c),
                 StyleWord::DEFAULT,
                 "`hello`'s column {i} took the colour of a rendition interned after it"
             );
         }
         let untouched = t.row(Row::from_index(5)).expect("a row on the grid")[0];
-        assert_eq!(t.style_of(untouched), StyleWord::DEFAULT);
-        assert_eq!(t.style_of(PackedCell::EMPTY), StyleWord::DEFAULT);
+        assert_eq!(t.styles().one().word_of(untouched), StyleWord::DEFAULT);
+        assert_eq!(
+            t.styles().one().word_of(PackedCell::EMPTY),
+            StyleWord::DEFAULT
+        );
     });
 }
 
@@ -120,20 +123,20 @@ fn a_prompt_in_a_256_colour_does_not_recolour_the_banner_above_it() {
         b"\x1b[1;38;5;170m~ \x1b[0m$ ",
     ] {
         support::with_term(&ws, |t| {
-            assert_eq!(t.styles().len(), 1_024);
+            assert_eq!(t.styles().one().len(), 1_024);
             let mut bytes = b"Last login: Thu Sep 25\r\n".to_vec();
             bytes.extend(prompt);
             support::feed(t, &bytes);
             // The control: the prompt's rendition buckets to 0.
             let tilde = t.row(Row::from_index(1)).expect("a row on the grid")[0];
-            assert_ne!(t.style_of(tilde), StyleWord::DEFAULT);
-            assert_eq!(StyleId::bucket(t.style_of(tilde), 1_024), 0);
+            assert_ne!(t.styles().one().word_of(tilde), StyleWord::DEFAULT);
+            assert_eq!(StyleId::bucket(t.styles().one().word_of(tilde), 1_024), 0);
             for (i, c) in t.row(Row::from_index(0)).expect("a row on the grid")[..10]
                 .iter()
                 .enumerate()
             {
                 assert_eq!(
-                    t.style_of(*c),
+                    t.styles().one().word_of(*c),
                     StyleWord::DEFAULT,
                     "the banner's column {i} took the prompt's colour"
                 );
@@ -182,7 +185,7 @@ fn a_full_table_refuses_rather_than_give_a_named_slot_away() {
         ws_col: 40,
     };
     support::with_term_unfrozen(&ws, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         assert_eq!(len, 1_024);
         let zero = fg_at_bucket_zero(len);
         support::feed(t, b"hello\r\n");
@@ -193,32 +196,39 @@ fn a_full_table_refuses_rather_than_give_a_named_slot_away() {
         // The control: the table is full before the last rendition arrives,
         // and nothing was refused on the way, so the one after it has to be.
         assert!(
-            t.styles().iter().all(Option::is_some),
+            t.styles().one().slots().iter().all(Option::is_some),
             "the table is not full, so nothing below refuses"
         );
-        let table = t.styles().to_vec();
+        let table = t.styles().one().slots().to_vec();
         assert_eq!(t.style_reclaims().refusals, 0);
         let mut last = b"\r\n".to_vec();
         last.extend(sgr_fg(zero));
         last.extend(b"Y");
         support::feed(t, &last);
         assert_eq!(t.style_reclaims().refusals, 1, "the control: it refused");
-        assert_eq!(t.styles(), &table[..], "a slot was written");
+        assert_eq!(t.styles().one().slots(), &table[..], "a slot was written");
         let (_, rows) = t.geometry();
         let y = t
             .row(Row::from_index(rows.index() - 1))
             .expect("a row on the grid")[0];
-        assert_eq!(t.style_of(y), StyleWord::DEFAULT, "the refused rendition");
+        assert_eq!(
+            t.styles().one().word_of(y),
+            StyleWord::DEFAULT,
+            "the refused rendition"
+        );
         let hello = oldest_line(t);
         assert_eq!(hello[0].content.as_codepoint(), Codepoint::new(0x68));
         for (i, c) in hello[..5].iter().enumerate() {
             assert_eq!(
-                t.style_of(*c),
+                t.styles().one().word_of(*c),
                 StyleWord::DEFAULT,
                 "`hello`'s column {i} changed colour"
             );
         }
-        assert_eq!(t.style_of(PackedCell::EMPTY), StyleWord::DEFAULT);
+        assert_eq!(
+            t.styles().one().word_of(PackedCell::EMPTY),
+            StyleWord::DEFAULT
+        );
     });
 }
 
@@ -233,7 +243,7 @@ fn a_table_filled_by_the_history_freezes_it_and_places_the_rendition() {
         ws_col: 40,
     };
     support::with_term(&ws, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         let zero = fg_at_bucket_zero(len);
         support::feed(t, b"hello\r\n");
         let plane = (0u8..=255)
@@ -252,7 +262,7 @@ fn a_table_filled_by_the_history_freezes_it_and_places_the_rendition() {
         let y = t
             .row(Row::from_index(rows.index() - 1))
             .expect("a row on the grid")[0];
-        assert_eq!(t.style_of(y).fg().as_rgb(), Some(zero));
+        assert_eq!(t.styles().one().word_of(y).fg().as_rgb(), Some(zero));
         // Every cell of the history and the screen in the colour it was
         // written in, read through its row's table.
         let sb = t.scrollback();
@@ -264,7 +274,7 @@ fn a_table_filled_by_the_history_freezes_it_and_places_the_rendition() {
                 cells
                     .iter()
                     .filter(|c| c.content.as_codepoint() == Codepoint::new(0x58))
-                    .map(|c| table.word(t.styles(), c.style)),
+                    .map(|c| table.word(c.style)),
             );
         }
         let view = t.viewport();
@@ -275,7 +285,7 @@ fn a_table_filled_by_the_history_freezes_it_and_places_the_rendition() {
                 view.row(r)
                     .iter()
                     .filter(|c| c.content.as_codepoint() == Codepoint::new(0x58))
-                    .map(|c| table.word(t.styles(), c.style)),
+                    .map(|c| table.word(c.style)),
             );
         }
         assert_eq!(read.len(), colours.len(), "every X read back");
@@ -302,7 +312,7 @@ fn save_over_a_dead_cell(t: &mut Term<'_>, saved: (u8, u8, u8)) -> StyleId {
 fn restored(t: &mut Term<'_>) -> StyleWord {
     support::feed(t, b"\x1b8Z");
     let z = t.row(Row::from_index(0)).expect("a row on the grid")[0];
-    t.style_of(z)
+    t.styles().one().word_of(z)
 }
 
 /// **A restored cursor takes its rendition again, not the slot it had.**
@@ -317,14 +327,16 @@ fn a_restored_cursor_takes_its_rendition_not_its_old_slot() {
         ws_col: 40,
     };
     support::with_term(&ws, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         let saved = (200u8, 10u8, 10u8);
         let k = save_over_a_dead_cell(t, saved);
         // Renditions over one cell on another row until the saved slot holds
         // another: the sweeps free it and the probes reach it.
         let mut plane = (0u8..=255).flat_map(|g| (1u8..=255).map(move |b| (0u8, g, b)));
         let mut n = 0;
-        while t.styles()[k.index()].is_some_and(|w| w.fg().as_rgb() == Some(saved)) || n < len {
+        while t.styles().one().slots()[k.index()].is_some_and(|w| w.fg().as_rgb() == Some(saved))
+            || n < len
+        {
             let mut one = b"\x1b[5;1H".to_vec();
             one.extend(sgr_fg(plane.next().expect("the plane has room")));
             one.extend(b"X");
@@ -336,6 +348,8 @@ fn a_restored_cursor_takes_its_rendition_not_its_old_slot() {
         assert!(t.style_reclaims().sweeps > 0);
         assert!(
             !t.styles()
+                .one()
+                .slots()
                 .iter()
                 .flatten()
                 .any(|w| w.fg().as_rgb() == Some(saved)),
@@ -356,7 +370,7 @@ fn a_cursor_restored_into_a_full_table_takes_its_rendition() {
         ws_col: 40,
     };
     support::with_term(&ws, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         let saved = (200u8, 10u8, 10u8);
         save_over_a_dead_cell(t, saved);
         support::feed(t, b"\x1b[2;1H");
@@ -367,6 +381,8 @@ fn a_cursor_restored_into_a_full_table_takes_its_rendition() {
         assert!(t.style_reclaims().rewrites > 0);
         assert!(
             !t.styles()
+                .one()
+                .slots()
                 .iter()
                 .flatten()
                 .any(|w| w.fg().as_rgb() == Some(saved)),

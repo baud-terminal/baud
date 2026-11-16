@@ -581,7 +581,7 @@ fn both_paths(faces: &[Face<'_>], text: &str) -> (Vec<Instance>, Vec<Instance>) 
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     let mut backing = GlyphMap::backing();
     let mut map = GlyphMap::over(&mut backing);
-    let mut styles = vec![Resolved::default(); t.styles().len()];
+    let mut styles = vec![Resolved::default(); t.styles().one().len()];
     let mut stamp = StyleStamp::default();
     let mut candidates = Vec::new();
     let mut o = Overlay::new();
@@ -675,7 +675,7 @@ fn overlay_unmapped(faces: &[Face<'_>], text: &str) -> u64 {
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     let mut backing = GlyphMap::backing();
     let mut map = GlyphMap::over(&mut backing);
-    let mut styles = vec![Resolved::default(); t.styles().len()];
+    let mut styles = vec![Resolved::default(); t.styles().one().len()];
     let mut stamp = StyleStamp::default();
     let mut candidates = Vec::new();
     let mut o = Overlay::new();

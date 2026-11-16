@@ -69,7 +69,7 @@ fn cells(theme: Theme, sgrs: &[String]) -> Vec<(String, StyleWord, (Argb, Argb),
     assert!(sgrs.len() < usize::from(WS.ws_col) * usize::from(WS.ws_row));
     t.write_at(BytePos::ZERO, &bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
-    let mut table = vec![Resolved::default(); t.styles().len()];
+    let mut table = vec![Resolved::default(); t.styles().one().len()];
     r.resolve_styles_into(&t, &mut table);
     let mut out = Vec::new();
     'rows: for y in 0..usize::from(WS.ws_row) {
@@ -77,7 +77,7 @@ fn cells(theme: Theme, sgrs: &[String]) -> Vec<(String, StyleWord, (Argb, Argb),
             if out.len() == sgrs.len() {
                 break 'rows;
             }
-            let style = t.style_of(*cell);
+            let style = t.styles().one().word_of(*cell);
             let raw = theme.resolve(style, Video::Normal, |_| None, |_| None);
             let slot = table[cell.style.index()];
             out.push((sgrs[out.len()].clone(), style, raw, slot));
@@ -302,7 +302,7 @@ fn replayed(theme: Theme, bytes: &[u8]) -> Vec<((Argb, Argb), Resolved)> {
     let mut t = Term::new(s.storage(), &WS);
     t.write_at(BytePos::ZERO, bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
-    let mut table = vec![Resolved::default(); t.styles().len()];
+    let mut table = vec![Resolved::default(); t.styles().one().len()];
     r.resolve_styles_into(&t, &mut table);
     let mut out = Vec::new();
     for y in 0..usize::from(WS.ws_row) {
@@ -310,7 +310,7 @@ fn replayed(theme: Theme, bytes: &[u8]) -> Vec<((Argb, Argb), Resolved)> {
             if cell.content.is_empty() {
                 continue;
             }
-            let style = t.style_of(*cell);
+            let style = t.styles().one().word_of(*cell);
             let raw = theme.resolve(style, Video::Normal, |_| None, |_| None);
             out.push((raw, table[cell.style.index()]));
         }
@@ -366,7 +366,7 @@ fn black_text_on_a_black_page_set_by_osc_11_is_lifted() {
     let bytes = b"\x1b]11;rgb:00/00/00\x07\x1b[30mX";
     t.write_at(BytePos::ZERO, bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
-    let mut table = vec![Resolved::default(); t.styles().len()];
+    let mut table = vec![Resolved::default(); t.styles().one().len()];
     r.resolve_styles_into(&t, &mut table);
     let slot = table[t.row(Row::from_index(0)).expect("a row on the grid")[0]
         .style
@@ -528,7 +528,7 @@ fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
     for chunk in bytes.chunks(4096) {
         t.write_at(BytePos::ZERO, chunk);
         t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
-        let mut table = vec![Resolved::default(); t.styles().len()];
+        let mut table = vec![Resolved::default(); t.styles().one().len()];
         r.resolve_styles_into(&t, &mut table);
         for y in 0..usize::from(WS.ws_row) {
             for cell in t.row(Row::from_index(y)).expect("a row on the grid") {
@@ -540,7 +540,7 @@ fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
                 if Line::of(cell.content) == Line::Yes {
                     continue;
                 }
-                let style = t.style_of(*cell);
+                let style = t.styles().one().word_of(*cell);
                 if words(style).1.is_default() {
                     continue;
                 }
@@ -1240,7 +1240,7 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
         for chunk in bytes.chunks(support::CHUNK) {
             t.write_at(BytePos::ZERO, chunk);
             t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
-            let mut table = vec![Resolved::default(); t.styles().len()];
+            let mut table = vec![Resolved::default(); t.styles().one().len()];
             r.resolve_styles_into(&t, &mut table);
             let mut pictures = Pictures::new();
             pictures.find(&t, &t.view(Rows::ZERO), Video::Normal);
@@ -1256,7 +1256,7 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
                     let pictured = pictures.at(Row::from_index(y), Col::at_index(x));
                     let line = Line::of(cell.content);
                     let (text, _) = drawn_as(slot, pictured, line);
-                    let style = t.style_of(*cell);
+                    let style = t.styles().one().word_of(*cell);
                     if line == Line::Yes {
                         let (asked, _) = theme.resolve(
                             style,

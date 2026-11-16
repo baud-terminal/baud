@@ -245,7 +245,7 @@ fn no_recording_or_panel_draws_a_picture_at_any_read_boundary() {
         let view = t.view(Rows::ZERO);
         for y in 0..usize::from(CORPUS.ws_row) {
             for &c in view.row(Row::from_index(y)) {
-                let s = t.style_of(c);
+                let s = t.styles().one().word_of(c);
                 if !s.bg().is_default() {
                     set_bg_seen += 1;
                 }
@@ -321,7 +321,7 @@ fn under_reverse_video_only_btop_and_cava_draw_a_picture() {
                 let view = t.view(Rows::ZERO);
                 for y in 0..usize::from(CORPUS.ws_row) {
                     for &c in view.row(Row::from_index(y)) {
-                        let s = t.style_of(c);
+                        let s = t.styles().one().word_of(c);
                         let (_, page) = Video::Reverse.drawn(s.attrs(), s.fg(), s.bg());
                         quiet_set_bg += usize::from(!page.is_default());
                     }

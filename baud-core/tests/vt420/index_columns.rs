@@ -61,7 +61,7 @@ fn decfi_at_the_right_margin_moves_the_rectangle_left() {
         assert_eq!(t.cursor(), (Row::from_index(2), Col::at_index(9)));
         let blank = t.row(Row::from_index(2)).expect("a row")[9];
         assert_eq!(
-            t.style_of(blank),
+            t.styles().one().word_of(blank),
             StyleWord::DEFAULT,
             "all attributes turned off"
         );
@@ -80,7 +80,7 @@ fn decbi_at_the_left_margin_moves_the_rectangle_right() {
         assert_eq!(t.cursor(), (Row::from_index(2), Col::at_index(4)));
         let blank = t.row(Row::from_index(2)).expect("a row")[4];
         assert_eq!(
-            t.style_of(blank),
+            t.styles().one().word_of(blank),
             StyleWord::DEFAULT,
             "not the current rendition"
         );

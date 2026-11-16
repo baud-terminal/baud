@@ -239,7 +239,7 @@ fn every_recording_renders_to_its_pinned_digest() {
                 digest ^= u64::from(v);
                 digest = digest.wrapping_mul(0x100000001b3);
                 // The resolved rendition, not the slot: what a renderer draws.
-                digest ^= t.style_of(c).key();
+                digest ^= t.styles().one().word_of(c).key();
                 digest = digest.wrapping_mul(0x100000001b3);
                 if v != u32::MAX {
                     got += 1;

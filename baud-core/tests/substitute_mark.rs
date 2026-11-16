@@ -133,8 +133,8 @@ fn the_mark_takes_the_rendition_protection_insert_and_wrap_of_a_character() {
             "the mark's rendition is x's, at {size}"
         );
         assert_ne!(
-            t.style_of(row[0]),
-            t.style_of(row[2]),
+            t.styles().one().word_of(row[0]),
+            t.styles().one().word_of(row[2]),
             "and not the default, at {size}"
         );
     });

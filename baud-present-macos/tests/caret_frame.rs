@@ -530,10 +530,10 @@ mod checks {
                     x += 1;
                     continue;
                 }
-                let (link, word, from) = (c.flags.link(), t.style_of(c), x);
+                let (link, word, from) = (c.flags.link(), t.styles().one().word_of(c), x);
                 while x + 1 < n
                     && cells[x + 1].flags.link() == link
-                    && t.style_of(cells[x + 1]) == word
+                    && t.styles().one().word_of(cells[x + 1]) == word
                 {
                     x += 1;
                 }
@@ -784,7 +784,9 @@ mod checks {
                 exceptions: Overlay::new(),
                 screens: Screens::new(),
                 copies_mem: core::array::from_fn(|_| vec![PackedCell::EMPTY; (rows + 2) * stride]),
-                styles_mem: core::array::from_fn(|_| vec![Resolved::default(); t.styles().len()]),
+                styles_mem: core::array::from_fn(|_| {
+                    vec![Resolved::default(); t.styles().one().len()]
+                }),
                 overlay_mem: core::array::from_fn(|_| vec![0u8; cols * (rows + 1)]),
                 style_stamps: [StyleStamp::default(); Wheel::SETS],
                 lent: core::array::from_fn(|_| Lent::default()),

@@ -76,7 +76,7 @@ fn a_swept_slot_reused_in_place_is_repainted() {
     let mut b = Canvas::for_renderer(&full);
     let mut owned = Owned::new(&SMALL);
     let mut t = Term::new(owned.storage(), &SMALL);
-    let len = t.styles().len();
+    let len = t.styles().one().len();
     assert_eq!(len, 1024);
     feed(&mut t, b"\x1b[H\x1b[0;38;2;200;10;10mX");
     let k = t.row(Row::from_index(0)).expect("a row")[0].style;
@@ -92,7 +92,11 @@ fn a_swept_slot_reused_in_place_is_repainted() {
     let r = t.style_reclaims();
     assert!(r.sweeps >= 1, "positive control: the churn swept: {r:?}");
     assert_eq!(r.refusals, 0);
-    assert_eq!(t.styles()[k.index()], None, "the sweep freed k");
+    assert_eq!(
+        t.styles().one().slots()[k.index()],
+        None,
+        "the sweep freed k"
+    );
     let (g, b2) = (0..=255u8)
         .flat_map(|g| (0..=255u8).map(move |b| (g, b)))
         .find(|&(g, b)| StyleId::bucket(fg(10, g, b), len) == k.index())
@@ -126,7 +130,7 @@ fn a_mint_past_the_length_without_a_reclaim_dirties_one_row() {
     let mut c = Canvas::for_renderer(&r);
     let mut owned = Owned::new(&SMALL);
     let mut t = Term::new(owned.storage(), &SMALL);
-    let len = t.styles().len();
+    let len = t.styles().one().len();
     feed(&mut t, &churn(len + 200, 2));
     assert!(
         t.style_writes().past(len),

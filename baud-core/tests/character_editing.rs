@@ -44,7 +44,7 @@ fn drawn(t: &Term<'_>, n: usize) -> String {
     let ids: Vec<StringId> = t.viewport().row(Row::ZERO)[..n]
         .iter()
         .map(|c| {
-            t.styles()[c.style.index()]
+            t.styles().one().slots()[c.style.index()]
                 .map(|w| w.string())
                 .unwrap_or(StringId::NONE)
         })

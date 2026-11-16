@@ -343,7 +343,7 @@ fn il_and_dl_bring_in_lines_decrlm_never_wrote() {
 /// The SAPV form cell `(r, c)` was written under.
 fn form(t: &Term<'_>, r: usize, c: usize) -> Option<baud_domain::Form> {
     let cell = t.viewport().row(Row::from_index(r))[c];
-    t.styles()[cell.style.index()]
+    t.styles().one().slots()[cell.style.index()]
         .expect("a live rendition")
         .variants()
         .form()

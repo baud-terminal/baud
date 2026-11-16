@@ -546,12 +546,12 @@ fn a_hard_reset_on_the_alternate_screen_leaves_the_power_on_state() {
                 Some(u32::from('x'))
             );
             assert_eq!(
-                t.style_of(s[0]),
+                t.styles().one().word_of(s[0]),
                 StyleWord::DEFAULT,
                 "{arm}: the next character is in the default rendition"
             );
             assert_eq!(
-                t.style_of(s[1]),
+                t.styles().one().word_of(s[1]),
                 StyleWord::DEFAULT,
                 "{arm}: the reset cleared the screen in the default rendition"
             );

@@ -51,7 +51,7 @@ fn word(i: usize, tag: u8) -> StyleWord {
 /// table is full and stays full. The
 /// line feed is in the default rendition, so a scroll interns nothing.
 fn fill(t: &mut Term<'_>, tag: u8) -> Vec<u8> {
-    let len = t.styles().len();
+    let len = t.styles().one().len();
     let mut out = Vec::new();
     for i in 0..len - 1 {
         out.extend(format!("{}X", rendition(i, tag)).as_bytes());
@@ -72,10 +72,13 @@ fn fill(t: &mut Term<'_>, tag: u8) -> Vec<u8> {
 #[test]
 fn a_miss_on_a_full_table_reads_to_its_buckets_reach() {
     support::with_term_unfrozen(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         assert_eq!(len, 1024, "the test is sized to the floor");
         fill(t, 21);
-        assert!(t.styles().iter().all(Option::is_some), "the control: full");
+        assert!(
+            t.styles().one().slots().iter().all(Option::is_some),
+            "the control: full"
+        );
         let before = (t.style_reclaims(), t.style_probes());
         let mut out = Vec::new();
         for i in 0..512 {
@@ -122,7 +125,7 @@ fn a_full_tables_renditions_are_found_however_far_they_lie() {
 #[test]
 fn a_sweep_keeps_every_kept_rendition_findable() {
     support::with_term_unfrozen(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         fill(t, 25);
         let at_full = t.style_reclaims();
         // Minted over one cell at the bottom right: each new one is a miss,
@@ -138,7 +141,7 @@ fn a_sweep_keeps_every_kept_rendition_findable() {
         // Every rendition the table still holds, written again in the
         // default's place at the bottom right.
         let held: Vec<usize> = (0..i)
-            .filter(|&n| t.styles().contains(&Some(word(n, 25))))
+            .filter(|&n| t.styles().one().slots().contains(&Some(word(n, 25))))
             .collect();
         assert!(held.len() > len / 2, "the control: the table holds them");
         for &n in &held {

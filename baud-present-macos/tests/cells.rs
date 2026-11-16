@@ -343,6 +343,7 @@ impl Arms<'_, '_> {
             rows,
             rows,
             RowRot::NONE,
+            t.styles().one(),
         );
         self.renderer.set_trail(None);
         self.renderer.set_cursor_glow_at(None);
@@ -531,6 +532,7 @@ impl Arms<'_, '_> {
                 Rows::of_count(1),
                 Rows::of_count(1),
                 RowRot::NONE,
+                t.styles().one(),
             );
             self.exceptions.ensure_leaving(
                 &mut self.map,
@@ -15845,7 +15847,7 @@ fn the_lines_and_the_looks_are_one_picture_on_every_arm() {
     let bare = three_arms(&mut arms, &mut t, "no lines");
     let word = |x: usize| {
         let c = t.view(Rows::ZERO).row(Row::ZERO)[x];
-        t.style_in(baud_domain::RowStyles::Live, c)
+        t.styles().one().word_of(c)
     };
     arms.lines = vec![
         LinkLine {
@@ -15933,7 +15935,7 @@ fn an_unhovered_line_is_amber_and_a_hovered_one_unchanged_on_every_arm() {
     let plain = three_arms(&mut arms, &mut t, "no lines");
     let word = |x: usize| {
         let c = t.view(Rows::ZERO).row(Row::ZERO)[x];
-        t.style_in(baud_domain::RowStyles::Live, c)
+        t.styles().one().word_of(c)
     };
     let (first, second) = ((4, 24), (30, 46));
     arms.lines = [first, second]

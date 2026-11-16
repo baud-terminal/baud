@@ -979,7 +979,7 @@ impl Drawn {
                 Some((from, from + used))
             })
             .collect();
-        let n = d.window().rows().index();
+        let n = d.window(crate::frozen::live_table(term)).rows().index();
         // A block's lines are those it selects a cell of, a newline between
         // each two.
         let mut lines = 0;
@@ -1119,14 +1119,14 @@ pub fn row_styles_of<'t>(
 ) -> baud_domain::RowStyles<'t> {
     if line.0 >= scrolled.0 {
         let Ok(y) = usize::try_from(line.0 - scrolled.0) else {
-            return baud_domain::RowStyles::Live;
+            return crate::frozen::live(term);
         };
         return term.viewport().styles(Row::from_index(y));
     }
     let back = Rows::of_count(usize::try_from(scrolled.0 - line.0).unwrap_or(0));
     match term.looking_back(back) == back {
         true => term.view(back).styles(Row::ZERO),
-        false => baud_domain::RowStyles::Live,
+        false => crate::frozen::live(term),
     }
 }
 

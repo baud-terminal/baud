@@ -37,9 +37,9 @@ fn renderer<'f>(faces: &'f [Face<'f>], ws: &WinSize) -> Renderer<'f, 'f> {
 
 /// Every live slot of `copy` against a full resolve now.
 fn agrees(r: &mut Renderer<'_, '_>, t: &Term<'_>, copy: &[Resolved], what: &str) {
-    let mut full = vec![Resolved::default(); t.styles().len()];
+    let mut full = vec![Resolved::default(); t.styles().one().len()];
     r.resolve_styles_into(t, &mut full);
-    for (k, slot) in t.styles().iter().enumerate() {
+    for (k, slot) in t.styles().one().slots().iter().enumerate() {
         if slot.is_some() {
             assert_eq!(copy[k], full[k], "{what}: slot {k} is stale");
         }
@@ -100,7 +100,7 @@ fn the_cache_equals_a_full_resolve_at_every_read_boundary() {
         let mut r = renderer(&faces, &ws);
         let mut owned = Owned::new(&ws);
         let mut t = Term::new(owned.storage(), &ws);
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         let mut copies = [
             vec![Resolved::default(); len],
             vec![Resolved::default(); len],
@@ -152,7 +152,7 @@ fn a_steady_frame_resolves_nothing() {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, b"\x1b[31mred \x1b[1;32mgreen\x1b[0m plain");
-    let mut copy = vec![Resolved::default(); t.styles().len()];
+    let mut copy = vec![Resolved::default(); t.styles().one().len()];
     let mut stamp = StyleStamp::default();
     let first = r.sync_styles(&t, &mut copy, &mut stamp);
     assert!(
@@ -185,12 +185,18 @@ fn an_input_change_resolves_only_live_slots() {
     let mut r = renderer(&faces, &WS);
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
-    assert_eq!(t.styles().len(), 16_384);
+    assert_eq!(t.styles().one().len(), 16_384);
     for c in 31..=37 {
         feed(&mut t, format!("\x1b[{c}mx\x1b[1mx\x1b[0m").as_bytes());
     }
-    let live = t.styles().iter().filter(|s| s.is_some()).count();
-    let mut copy = vec![Resolved::default(); t.styles().len()];
+    let live = t
+        .styles()
+        .one()
+        .slots()
+        .iter()
+        .filter(|s| s.is_some())
+        .count();
+    let mut copy = vec![Resolved::default(); t.styles().one().len()];
     let mut stamp = StyleStamp::default();
     r.sync_styles(&t, &mut copy, &mut stamp);
     for step in 0..3 {
@@ -305,13 +311,13 @@ fn a_freed_slot_retaken_under_the_same_cells_repaints() {
         let mut t = Term::new(owned.storage(), &small);
         feed(&mut t, &before);
         assert!(
-            t.styles().iter().all(Option::is_some),
+            t.styles().one().slots().iter().all(Option::is_some),
             "the table is not full"
         );
         let row = t
             .row(baud_domain::Row::from_index(0))
             .expect("a row on the grid");
-        (row[0].style, t.styles().len())
+        (row[0].style, t.styles().one().len())
     };
     let thief = plane
         .find(|&(r, g, b)| {
@@ -345,7 +351,7 @@ fn a_freed_slot_retaken_under_the_same_cells_repaints() {
             "the control: the same cells"
         );
         assert_eq!(
-            t.style_of(row[0]).fg().as_rgb(),
+            t.styles().one().word_of(row[0]).fg().as_rgb(),
             Some(thief),
             "the control: the text's slot is the new rendition's"
         );

@@ -174,8 +174,13 @@ fn a_reset_drops_a_save_a_47_exit_left_pending() {
             let mut fresh = Term::new(plain.storage(), &support::CORPUS);
             support::feed(&mut fresh, b"x");
             assert_eq!(
-                t.style_of(t.row(Row::ZERO).expect("a row on the grid")[0]),
-                fresh.style_of(fresh.row(Row::ZERO).expect("a row on the grid")[0]),
+                t.styles()
+                    .one()
+                    .word_of(t.row(Row::ZERO).expect("a row on the grid")[0]),
+                fresh
+                    .styles()
+                    .one()
+                    .word_of(fresh.row(Row::ZERO).expect("a row on the grid")[0]),
                 "and nothing restored the red"
             );
         },

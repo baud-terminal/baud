@@ -238,10 +238,10 @@ fn the_style_table_is_what_style_of_reads() {
     let mut t = Term::new(st.storage(), &ws);
     feed(&mut t, "\x1b[31;1mred\x1b[0m plain \x1b[44mblue");
     let cells: Vec<_> = t.viewport()[..14].to_vec();
-    let table = t.styles();
+    let table = t.styles().one().slots();
     for cell in cells {
         let slot = table[cell.style.index()].unwrap_or(baud_domain::StyleWord::DEFAULT);
-        assert_eq!(slot, t.style_of(cell));
+        assert_eq!(slot, t.styles().one().word_of(cell));
     }
     // The three renditions the bytes minted are distinct slots.
     let ids: std::collections::BTreeSet<_> =
@@ -320,7 +320,10 @@ fn a_colliding_rendition_does_not_evict_a_live_one() {
     }
     // What each of those cells resolves to, before any colliding style exists.
     let cells0: Vec<_> = t.viewport()[..16].to_vec();
-    let before: Vec<_> = cells0.iter().map(|c| t.style_of(*c)).collect();
+    let before: Vec<_> = cells0
+        .iter()
+        .map(|c| t.styles().one().word_of(*c))
+        .collect();
     // The 256-colour cube: 216 distinct background renditions, which under
     // eviction reuse some of row 0's buckets.
     feed(&mut t, "\r\n");
@@ -329,7 +332,10 @@ fn a_colliding_rendition_does_not_evict_a_live_one() {
     }
     // Row 0's cells must resolve to exactly what they did before.
     let cells1: Vec<_> = t.viewport()[..16].to_vec();
-    let after: Vec<_> = cells1.iter().map(|c| t.style_of(*c)).collect();
+    let after: Vec<_> = cells1
+        .iter()
+        .map(|c| t.styles().one().word_of(*c))
+        .collect();
     let wrong: Vec<_> = (0..16).filter(|&i| before[i] != after[i]).collect();
     assert!(
         wrong.is_empty(),
@@ -394,7 +400,7 @@ fn the_style_table_is_exact_below_capacity() {
             baud_domain::Chan::from_offset(g, 0),
             baud_domain::Chan::from_offset(b, 0),
         );
-        if t.style_of(*c).fg() != want {
+        if t.styles().one().word_of(*c).fg() != want {
             wrong += 1;
         }
     }

@@ -357,6 +357,9 @@ pub struct Viewport<'a> {
     rows: Rows,
     ring: Rows,
     rot: RowRot,
+    /// The live table of the band this view's rows are in: what a row
+    /// that is not frozen resolves through ([`Viewport::styles`]).
+    live: crate::LiveTable<'a>,
     /// The primary's generations and the line row 0 holds, on a view of the
     /// primary with any row frozen (`crate::frozen`); `None` reads every row
     /// through the live table.
@@ -390,6 +393,9 @@ impl core::ops::Index<usize> for Extents<'_> {
 
 impl<'a> Viewport<'a> {
     /// A view over a reader's own cells and marks: a copy of the screen.
+    /// Each argument is a part the caller holds apart; grouping them would
+    /// only move the list.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cells: &'a [PackedCell],
         used: &'a [RowExtent],
@@ -398,13 +404,26 @@ impl<'a> Viewport<'a> {
         rows: Rows,
         ring: Rows,
         rot: RowRot,
+        live: crate::LiveTable<'a>,
     ) -> Viewport<'a> {
-        Viewport::over(cells, Extents::Lent(used), stride, cols, rows, ring, rot)
+        Viewport::over(
+            cells,
+            Extents::Lent(used),
+            stride,
+            cols,
+            rows,
+            ring,
+            rot,
+            live,
+        )
     }
 
     /// **A view over a surface where it is stored**: its cells, and its
     /// marks read out of the entries that hold each row's generation too.
     /// What `Term` builds its views on.
+    /// Each argument is a part the caller holds apart; grouping them would
+    /// only move the list.
+    #[allow(clippy::too_many_arguments)]
     pub fn stored(
         cells: &'a [PackedCell],
         used: RowMarks<'a>,
@@ -413,12 +432,25 @@ impl<'a> Viewport<'a> {
         rows: Rows,
         ring: Rows,
         rot: RowRot,
+        live: crate::LiveTable<'a>,
     ) -> Viewport<'a> {
-        Viewport::over(cells, Extents::Stored(used), stride, cols, rows, ring, rot)
+        Viewport::over(
+            cells,
+            Extents::Stored(used),
+            stride,
+            cols,
+            rows,
+            ring,
+            rot,
+            live,
+        )
     }
 
     /// The view both constructors build, on either source of marks: no row
     /// frozen, and every row looked up by this view's own rotation.
+    /// Each argument is a part the caller holds apart; grouping them would
+    /// only move the list.
+    #[allow(clippy::too_many_arguments)]
     fn over(
         cells: &'a [PackedCell],
         used: Extents<'a>,
@@ -427,6 +459,7 @@ impl<'a> Viewport<'a> {
         rows: Rows,
         ring: Rows,
         rot: RowRot,
+        live: crate::LiveTable<'a>,
     ) -> Viewport<'a> {
         Viewport {
             cells,
@@ -436,6 +469,7 @@ impl<'a> Viewport<'a> {
             rows,
             ring,
             rot,
+            live,
             frozen: None,
             looked_up: None,
         }
@@ -446,6 +480,7 @@ impl<'a> Viewport<'a> {
     /// within the row, so its ids name what `src`'s row `y` names.
     pub fn styled_from(self, src: &Viewport<'a>) -> Viewport<'a> {
         Viewport {
+            live: src.live,
             frozen: src.frozen,
             looked_up: src.frozen.map(|_| (src.rot, src.ring)),
             ..self
@@ -473,8 +508,8 @@ impl<'a> Viewport<'a> {
             None => RowRot(self.phys(y.index())),
         };
         match self.frozen {
-            Some((f, line0)) => f.styles(p, line0.plus(Rows::of_count(y.index()))),
-            None => crate::RowStyles::Live,
+            Some((f, line0)) => f.styles(p, line0.plus(Rows::of_count(y.index())), self.live),
+            None => crate::RowStyles::Live(self.live),
         }
     }
 

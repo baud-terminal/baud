@@ -67,7 +67,7 @@ fn cell(t: &Term<'_>, row: usize, col: usize) -> PackedCell {
 }
 
 fn attrs(t: &Term<'_>, row: usize, col: usize) -> Attrs {
-    t.style_of(cell(t, row, col)).attrs()
+    t.styles().one().word_of(cell(t, row, col)).attrs()
 }
 
 /// Feed `bytes` to a fresh 20 by 8 terminal and read it with `f`.
@@ -208,7 +208,7 @@ fn decfra_fills_with_the_character_in_the_current_rendition() {
         let s = rows_of(t);
         assert_eq!(s[1], "bb****bbbbbbbbbbbbbb");
         assert_eq!(s[2], "cc****cccccccccccccc");
-        let w = t.style_of(cell(t, 2, 3));
+        let w = t.styles().one().word_of(cell(t, 2, 3));
         assert!(w.attrs().has(Attrs::BOLD));
         assert_eq!(w.fg(), ColorWord::indexed(Chan::from_u8(1)));
         assert_eq!(t.cursor(), (Row::from_index(7), Col::at_index(19)));
@@ -278,7 +278,7 @@ fn decera_spaces_what_is_written_and_leaves_the_unoccupied_unoccupied() {
         for c in 1..=5 {
             let x = cell(t, 1, c);
             assert_eq!(
-                t.style_of(x),
+                t.styles().one().word_of(x),
                 StyleWord::DEFAULT,
                 "column {c}: the default rendition"
             );
@@ -341,7 +341,7 @@ fn deccara_changes_the_four_aspects_and_nothing_else() {
         fill()
     );
     after(&bytes, |t| {
-        let w = t.style_of(cell(t, 2, 2));
+        let w = t.styles().one().word_of(cell(t, 2, 2));
         let a = w.attrs();
         assert!(a.has(Attrs::BOLD) && a.has(Attrs::UNDERLINE) && a.has(Attrs::REVERSE));
         assert!(a.has(Attrs::ITALIC), "italic is not one of the four");
@@ -449,7 +449,7 @@ fn decsace_chooses_the_stream_or_the_rectangle() {
             cell(t, 1, 15).content.is_empty(),
             "an unoccupied position is not affected"
         );
-        assert_eq!(t.style_of(cell(t, 1, 15)), StyleWord::DEFAULT);
+        assert_eq!(t.styles().one().word_of(cell(t, 1, 15)), StyleWord::DEFAULT);
     });
     let rect = format!("{bytes}\x1b[2*x\x1b[1;3;3;12;7$r");
     after(&rect, |t| {

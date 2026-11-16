@@ -123,7 +123,7 @@ fn drawn(theme: Theme, video: &[u8], colours: MessageColours) -> (Drawn, Drawn) 
     let bare = frame(&mut r, &mut t);
     let word = |x: usize| {
         let c = t.view(Rows::ZERO).row(Row::ZERO)[x];
-        t.style_in(baud_domain::RowStyles::Live, c)
+        t.styles().one().word_of(c)
     };
     let lines = [URL, PATH].map(|(from, to)| LinkLine {
         row: Row::ZERO,

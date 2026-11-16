@@ -68,6 +68,9 @@ pub struct Scrollback<'a> {
     ring: Rows,
     rot: RowRot,
     len: Rows,
+    /// The live table of the band the retained lines are in: what a line
+    /// that is not frozen resolves through ([`Scrollback::styles`]).
+    live: crate::LiveTable<'a>,
     /// The primary's generations and the window's top line, when any line
     /// may be frozen (`crate::frozen`).
     frozen: Option<(crate::FrozenRows<'a>, crate::LineIdx)>,
@@ -88,6 +91,9 @@ pub(crate) fn blank_past_mark(row: &[PackedCell], mark: usize, width: usize) -> 
 }
 
 impl<'a> Scrollback<'a> {
+    /// Each argument is a part the caller holds apart; grouping them would
+    /// only move the list.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cells: &'a [PackedCell],
         used: crate::RowMarks<'a>,
@@ -96,6 +102,7 @@ impl<'a> Scrollback<'a> {
         ring: Rows,
         rot: RowRot,
         len: Rows,
+        live: crate::LiveTable<'a>,
     ) -> Scrollback<'a> {
         Scrollback {
             cells,
@@ -105,6 +112,7 @@ impl<'a> Scrollback<'a> {
             ring,
             rot,
             len,
+            live,
             frozen: None,
         }
     }
@@ -127,11 +135,11 @@ impl<'a> Scrollback<'a> {
             Some((f, top)) if back.0 < self.len.index() => {
                 let p = self.rot.retreat(back.0 + 1, self.ring);
                 match top.minus(Rows::of_count(back.0 + 1)) {
-                    Some(l) => f.styles(p, l),
-                    None => crate::RowStyles::Live,
+                    Some(l) => f.styles(p, l, self.live),
+                    None => crate::RowStyles::Live(self.live),
                 }
             }
-            _ => crate::RowStyles::Live,
+            _ => crate::RowStyles::Live(self.live),
         }
     }
 

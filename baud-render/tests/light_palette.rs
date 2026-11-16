@@ -117,7 +117,7 @@ fn captured_listings_read_at_six_to_one_under_the_light_theme() {
                 .row(Row::from_index(usize::from(y)))
                 .expect("a row on the grid")
             {
-                let style = t.style_of(*cell);
+                let style = t.styles().one().word_of(*cell);
                 if cell.content.is_empty() || style.fg().is_default() {
                     continue;
                 }

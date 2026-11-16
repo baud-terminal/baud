@@ -112,8 +112,8 @@ impl<'m> Cells<'m> {
         t: &Term<'_>,
         (highlight, composition): (Option<Highlight>, Option<&Composition>),
     ) -> (Drawn, OverlayStats) {
-        if self.styles.len() != t.styles().len() {
-            self.styles = vec![Resolved::default(); t.styles().len()];
+        if self.styles.len() != t.styles().one().len() {
+            self.styles = vec![Resolved::default(); t.styles().one().len()];
             self.stamp = StyleStamp::default();
         }
         r.sync_styles(t, &mut self.styles, &mut self.stamp);
@@ -529,12 +529,12 @@ fn evicted_lays_again(text: &str, at: usize, tail: &str) {
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, &before);
     assert!(
-        t.styles().iter().all(Option::is_some),
+        t.styles().one().slots().iter().all(Option::is_some),
         "the premise: the table is full"
     );
     // Where the tail starts: the first cell naming the tail's slot.
     let row = |t: &Term<'_>| t.row(Row::from_index(1)).expect("a row").to_vec();
-    let (slot, len) = (row(&t)[at].style, t.styles().len());
+    let (slot, len) = (row(&t)[at].style, t.styles().one().len());
     let thief = plane
         .find(|&c| {
             let w = baud_domain::StyleWord::DEFAULT
@@ -576,7 +576,9 @@ fn evicted_lays_again(text: &str, at: usize, tail: &str) {
         "the premise: the word's cells are the same"
     );
     assert!(
-        t.style_of(row(&t)[at])
+        t.styles()
+            .one()
+            .word_of(row(&t)[at])
             .attrs()
             .has(baud_domain::Attrs::BOLD),
         "the premise: {tail}'s slot is bold now"

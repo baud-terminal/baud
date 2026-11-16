@@ -57,7 +57,9 @@ fn an_esc_in_the_parameters_starts_a_new_sequence() {
         assert_eq!(ch(t, 0, 0), 'X', "the text after the new sequence");
         assert_eq!(ch(t, 0, 1), ' ', "`2m` is a sequence, not text");
         let x = t
-            .style_of(t.row(Row::from_index(0)).expect("a row on the grid")[0])
+            .styles()
+            .one()
+            .word_of(t.row(Row::from_index(0)).expect("a row on the grid")[0])
             .attrs();
         assert!(x.has(Attrs::DIM), "`ESC [ 2 m` ran");
         assert!(!x.has(Attrs::BOLD), "the abandoned `CSI 1` applied nothing");

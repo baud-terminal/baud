@@ -46,7 +46,7 @@ fn key(w: ColorWord) -> Option<u32> {
 /// The background a cell draws with when the application set it -- the
 /// foreground under `SGR 7` -- as `baud_render`'s finder reads it.
 fn drawn(t: &Term<'_>, c: PackedCell) -> Option<u32> {
-    let s = t.style_of(c);
+    let s = t.styles().one().word_of(c);
     let w = if s.attrs().has(Attrs::REVERSE) {
         s.fg()
     } else {

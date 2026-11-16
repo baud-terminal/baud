@@ -48,7 +48,7 @@ fn a_copy_counts_the_decorated_slots_it_holds() {
     .unwrap();
     let mut owned_a = Owned::new(&WS);
     let mut a = Term::new(owned_a.storage(), &WS);
-    let mut out = vec![Resolved::default(); a.styles().len()];
+    let mut out = vec![Resolved::default(); a.styles().one().len()];
     let mut stamp = StyleStamp::default();
     assert_eq!(
         stamp.decorations(),
@@ -89,7 +89,11 @@ fn a_copy_counts_the_decorated_slots_it_holds() {
     // The second table, through the same copy.
     let mut owned_b = Owned::new(&WS);
     let mut b = Term::new(owned_b.storage(), &WS);
-    assert_eq!(b.styles().len(), out.len(), "the premise: one table size");
+    assert_eq!(
+        b.styles().one().len(),
+        out.len(),
+        "the premise: one table size"
+    );
     feed(&mut b, b"\x1b[4;32mown\x1b[0m");
     let own = slot_at(&b, 0, 0);
     assert_ne!(own, underlined, "the premise: two slots");

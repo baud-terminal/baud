@@ -172,8 +172,16 @@ fn sgr_and_xtmodkeys_keep_their_sub_parameters() {
     fed(b"\x1b[38:2::255:0:0mX\x1b[4:3mY", &[], |t| {
         assert_eq!(t.unsupported, 0);
         let row = t.row(Row::from_index(0)).expect("a row");
-        assert_ne!(t.style_of(row[0]), StyleWord::DEFAULT, "38:2 applied");
-        assert_ne!(t.style_of(row[1]), t.style_of(row[0]), "4:3 applied");
+        assert_ne!(
+            t.styles().one().word_of(row[0]),
+            StyleWord::DEFAULT,
+            "38:2 applied"
+        );
+        assert_ne!(
+            t.styles().one().word_of(row[1]),
+            t.styles().one().word_of(row[0]),
+            "4:3 applied"
+        );
     });
     let plain = fed(b"\x1b[>4;2m", &[], |t| t.unsupported);
     let masked = fed(b"\x1b[>4;2:1m", &[], |t| t.unsupported);

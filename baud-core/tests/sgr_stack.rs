@@ -143,8 +143,8 @@ fn text_after_a_pop_takes_the_restored_rendition() {
     support::with_term(&WS, |t| {
         support::feed(t, b"\x1b[1m\x1b[#{\x1b[0mA\x1b[#}B");
         let cells = support::screen(t);
-        assert!(!t.style_of(cells[0]).attrs().has(Attrs::BOLD));
-        assert!(t.style_of(cells[1]).attrs().has(Attrs::BOLD));
+        assert!(!t.styles().one().word_of(cells[0]).attrs().has(Attrs::BOLD));
+        assert!(t.styles().one().word_of(cells[1]).attrs().has(Attrs::BOLD));
     });
 }
 

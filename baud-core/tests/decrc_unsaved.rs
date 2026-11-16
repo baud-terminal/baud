@@ -91,14 +91,14 @@ fn decrc_with_nothing_saved_resets_origin_mode() {
 fn decrc_with_nothing_saved_turns_the_attributes_off() {
     at_every_read_size(b"\x1b[1;31;44m\x1b8X", true, |t| {
         let c = t.row(Row::ZERO).expect("a row on the grid")[0];
-        t.style_of(c) == StyleWord::DEFAULT
+        t.styles().one().word_of(c) == StyleWord::DEFAULT
     });
     // And an `SGR` after it builds on the default, not on what was set
     // before: underline alone, neither bold nor red.
     at_every_read_size(b"\x1b[1;31m\x1b8\x1b[4mX\x1b[0;4mY", true, |t| {
         let r = t.row(Row::ZERO).expect("a row on the grid");
         let (x, y) = (r[0], r[1]);
-        t.style_of(x) == t.style_of(y)
+        t.styles().one().word_of(x) == t.styles().one().word_of(y)
     });
 }
 

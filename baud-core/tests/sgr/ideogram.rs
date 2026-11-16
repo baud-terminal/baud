@@ -27,7 +27,7 @@ fn attrs_at(bytes: &[u8]) -> Attrs {
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, bytes);
     let cell = t.viewport()[0];
-    t.style_of(cell).attrs()
+    t.styles().one().word_of(cell).attrs()
 }
 
 /// Each of 60-64 sets its own aspect and only its own.

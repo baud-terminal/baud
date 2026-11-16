@@ -250,7 +250,7 @@ fn a_sized_line_kept_by_its_cells_is_compared_at_the_sized_lines() {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, format!("{HIDE}\x1b[2;1H\x1b#6wide line").as_bytes());
-    let mut table = vec![Resolved::default(); t.styles().len()];
+    let mut table = vec![Resolved::default(); t.styles().one().len()];
     r.sync_styles(&t, &mut table, &mut StyleStamp::default());
     let cols = u64::try_from(COLS).unwrap();
     let mut rows = Vec::new();

@@ -34,7 +34,7 @@ fn run(t: &Term<'_>, from: usize, to: usize) -> LinkLine {
         row: Row::ZERO,
         from: Col::at_index(from),
         to: Col::at_index(to),
-        word: t.style_in(baud_domain::RowStyles::Live, cell),
+        word: t.styles().one().word_of(cell),
     }
 }
 

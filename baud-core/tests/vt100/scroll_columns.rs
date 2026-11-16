@@ -108,20 +108,26 @@ fn the_columns_brought_in_take_the_scroll_fill() {
     let bytes = format!("{}\x1b[44m\x1b[2 @", fill());
     support::render(&WS, bytes.as_bytes(), |t| {
         let r = t.row(Row::from_index(0)).expect("a row");
-        let opened = t.style_of(r[19]);
-        let kept = t.style_of(r[0]);
+        let opened = t.styles().one().word_of(r[19]);
+        let kept = t.styles().one().word_of(r[0]);
         assert_eq!(kept, StyleWord::DEFAULT, "moved text keeps its rendition");
         assert_ne!(opened, StyleWord::DEFAULT, "the current background");
         let su = format!("{}\x1b[44m\x1b[S", fill());
         let su_fill = support::render(&WS, su.as_bytes(), |u| {
-            u.style_of(u.row(Row::from_index(7)).expect("a row")[19])
+            u.styles()
+                .one()
+                .word_of(u.row(Row::from_index(7)).expect("a row")[19])
         });
         assert_eq!(opened, su_fill, "the fill SU gives a line");
     });
     let bytes = format!("{}\x1b[?117h\x1b[44m\x1b[2 A", fill());
     support::render(&WS, bytes.as_bytes(), |t| {
         let r = t.row(Row::from_index(0)).expect("a row");
-        assert_eq!(t.style_of(r[0]), StyleWord::DEFAULT, "DECECM set");
+        assert_eq!(
+            t.styles().one().word_of(r[0]),
+            StyleWord::DEFAULT,
+            "DECECM set"
+        );
     });
 }
 

@@ -114,7 +114,7 @@ fn ours(bytes: &[u8]) -> Vec<Cell> {
                 .as_codepoint()
                 .and_then(|p| char::from_u32(p.value()))
                 .unwrap_or(if c.content.is_wide_tail() { '\0' } else { ' ' });
-            let bg = if t.style_of(*c).bg().is_default() {
+            let bg = if t.styles().one().word_of(*c).bg().is_default() {
                 Bg::Default
             } else {
                 Bg::Set

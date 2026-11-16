@@ -13,9 +13,7 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{
-    BytePos, Codepoint, Col, Cols, PackedCell, ReadLen, Row, RowStyles, Rows, WinSize,
-};
+use baud_domain::{BytePos, Codepoint, Col, Cols, PackedCell, ReadLen, Row, Rows, WinSize};
 use baud_font::Face;
 use baud_render::screens::{Built, SETS, Screens, SetIx, Taking};
 use baud_render::{
@@ -515,7 +513,7 @@ fn set_over(r: &mut Renderer<'_, '_>, t: &Term<'_>, over: Over, on: bool) {
                 row: Row::ZERO,
                 from: Col::at_index(4),
                 to: Col::at_index(10),
-                word: t.style_in(RowStyles::Live, cell),
+                word: t.styles().one().word_of(cell),
             }];
             let lines = if on { &lines[..] } else { &[] };
             r.set_link_lines(lines, LineStyle::Solid);

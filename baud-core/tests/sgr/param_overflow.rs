@@ -33,7 +33,7 @@ fn feed_in_chunks(bytes: &[u8], chunk: usize) -> Attrs {
         i += n;
     }
     let cell = t.viewport()[0];
-    t.style_of(cell).attrs()
+    t.styles().one().word_of(cell).attrs()
 }
 
 /// The capacity is derived from what DECRQSS has to be able to re-read.

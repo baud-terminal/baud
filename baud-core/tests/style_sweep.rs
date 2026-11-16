@@ -74,7 +74,7 @@ fn screen(t: &Term<'_>) -> Vec<StyleWord> {
     let mut v = Vec::new();
     for r in 0..rows.index() {
         for c in t.row(Row::from_index(r)).expect("a row on the grid") {
-            v.push(t.style_of(*c));
+            v.push(t.styles().one().word_of(*c));
         }
     }
     v
@@ -95,7 +95,7 @@ fn history_cells(t: &Term<'_>, pushed: usize) -> Vec<StyleWord> {
         let table = sb.styles(back);
         for cell in cells.iter().take(40) {
             if v.len() < 300 {
-                v.push(table.word(t.styles(), cell.style));
+                v.push(table.word(cell.style));
             }
         }
     }
@@ -110,7 +110,7 @@ fn history_cells(t: &Term<'_>, pushed: usize) -> Vec<StyleWord> {
 #[test]
 fn live_cells_keep_their_renditions_through_five_tables_of_churn() {
     support::with_term(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         assert_eq!(len, 1024, "the test is sized to the floor");
         feed(t, &owned_cells(300, 1, 'L'));
         let before = screen(t);
@@ -132,7 +132,7 @@ fn live_cells_keep_their_renditions_through_five_tables_of_churn() {
 #[test]
 fn the_other_screens_cells_are_marked() {
     support::with_term(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         feed(t, &owned_cells(300, 3, 'P'));
         let before = screen(t);
         feed(t, b"\x1b[?1049h");
@@ -152,7 +152,7 @@ fn the_other_screens_cells_are_marked() {
 #[test]
 fn the_historys_cells_are_marked() {
     support::with_term(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         feed(t, &owned_cells(300, 5, 'H'));
         let before = screen(t);
         // Twenty newlines from the bottom row push the screen into the
@@ -176,7 +176,7 @@ fn the_historys_cells_are_marked() {
 #[test]
 fn the_primarys_history_is_marked_from_the_alternate_screen() {
     support::with_term(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         feed(t, &owned_cells(300, 7, 'A'));
         let before = screen(t);
         feed(t, b"\x1b[0m\x1b[10;1H");
@@ -200,12 +200,12 @@ fn the_primarys_history_is_marked_from_the_alternate_screen() {
 #[test]
 fn an_erased_rows_rendition_is_marked() {
     support::with_term(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         feed(t, b"\x1b[3;1H\x1b[0;48;2;1;2;3m\x1b[2K\x1b[0m");
         let row = |t: &Term<'_>| {
             t.row(Row::from_index(2)).expect("a row on the grid")[..40]
                 .iter()
-                .map(|c| t.style_of(*c))
+                .map(|c| t.styles().one().word_of(*c))
                 .collect::<Vec<_>>()
         };
         let before = row(t);
@@ -262,7 +262,7 @@ fn sgr(c: Rgb) -> String {
 #[test]
 fn a_tombstone_keeps_a_live_rendition_findable() {
     support::with_term(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         let (c1, c2) = colliding(len);
         feed(
             t,
@@ -270,8 +270,8 @@ fn a_tombstone_keeps_a_live_rendition_findable() {
         );
         let cell = |t: &Term<'_>, r: usize| t.row(Row::from_index(r)).expect("a row")[0];
         let (id1, id2) = (cell(t, 0).style, cell(t, 1).style);
-        assert_eq!(t.styles()[id1.index()], Some(fg(c1)));
-        assert_eq!(t.styles()[id2.index()], Some(fg(c2)));
+        assert_eq!(t.styles().one().slots()[id1.index()], Some(fg(c1)));
+        assert_eq!(t.styles().one().slots()[id2.index()], Some(fg(c2)));
         assert_eq!(id2.index(), (id1.index() + 1) & (len - 1), "W2 one past W1");
         feed(t, b"\x1b[1;1H\x1b[0mA");
         feed(t, &churn(9, len, 7));
@@ -279,10 +279,16 @@ fn a_tombstone_keeps_a_live_rendition_findable() {
         // W2 named again, on row 3: the same slot.
         feed(t, format!("\x1b[3;1H{}C", sgr(c2)).as_bytes());
         assert_eq!(cell(t, 2).style, id2);
-        let copies = t.styles().iter().filter(|s| **s == Some(fg(c2))).count();
+        let copies = t
+            .styles()
+            .one()
+            .slots()
+            .iter()
+            .filter(|s| **s == Some(fg(c2)))
+            .count();
         assert_eq!(copies, 1, "W2 interned twice");
         assert_eq!(
-            t.styles()[id1.index()],
+            t.styles().one().slots()[id1.index()],
             Some(StyleWord::TOMBSTONE),
             "W1's slot"
         );
@@ -296,7 +302,7 @@ fn a_tombstone_keeps_a_live_rendition_findable() {
 #[test]
 fn a_new_rendition_takes_a_tombstone_on_its_path() {
     support::with_term(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         let (c1, c2) = colliding(len);
         feed(
             t,
@@ -306,7 +312,10 @@ fn a_new_rendition_takes_a_tombstone_on_its_path() {
         let (id1, id2) = (cell(t, 0).style, cell(t, 1).style);
         feed(t, b"\x1b[1;1H\x1b[0mA");
         feed(t, &churn(9, len, 7));
-        assert_eq!(t.styles()[id1.index()], Some(StyleWord::TOMBSTONE));
+        assert_eq!(
+            t.styles().one().slots()[id1.index()],
+            Some(StyleWord::TOMBSTONE)
+        );
         // A third colour in the same bucket.
         let c3 = (0..=255u8)
             .flat_map(|g| (0..=255u8).map(move |b| (11u8, g, b)))
@@ -327,11 +336,18 @@ fn a_new_rendition_takes_a_tombstone_on_its_path() {
 #[test]
 fn a_churned_table_sweeps_before_it_fills() {
     support::with_term(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         let mut most = 0;
         for i in 0..5 * len {
             feed(t, format!("\x1b[9;1H{}C", rendition(i, 14)).as_bytes());
-            most = most.max(t.styles().iter().filter(|s| s.is_some()).count());
+            most = most.max(
+                t.styles()
+                    .one()
+                    .slots()
+                    .iter()
+                    .filter(|s| s.is_some())
+                    .count(),
+            );
         }
         assert!(t.style_reclaims().sweeps >= 4, "the control: it swept");
         assert!(
@@ -351,7 +367,7 @@ fn a_churned_table_sweeps_before_it_fills() {
 #[test]
 fn a_full_table_sweeps_before_it_refuses() {
     support::with_term_unfrozen(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         let mut out = Vec::new();
         for i in 0..len - 1 {
             out.extend(format!("{}X", rendition(i, 13)).as_bytes());
@@ -363,7 +379,10 @@ fn a_full_table_sweeps_before_it_refuses() {
             }
         }
         feed(t, &out);
-        assert!(t.styles().iter().all(Option::is_some), "the control: full");
+        assert!(
+            t.styles().one().slots().iter().all(Option::is_some),
+            "the control: full"
+        );
         let at_full = t.style_reclaims();
         assert_eq!(at_full.refusals, 0);
         // Row 5 is 40 named cells, each its own rendition: overwritten.
@@ -397,7 +416,7 @@ fn a_full_table_sweeps_before_it_refuses() {
 #[test]
 fn a_full_table_refuses_until_its_next_sweep_is_due() {
     support::with_term_unfrozen(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         let mut out = Vec::new();
         for i in 0..len - 1 {
             out.extend(format!("{}X", rendition(i, 15)).as_bytes());
@@ -409,7 +428,10 @@ fn a_full_table_refuses_until_its_next_sweep_is_due() {
             }
         }
         feed(t, &out);
-        assert!(t.styles().iter().all(Option::is_some), "the control: full");
+        assert!(
+            t.styles().one().slots().iter().all(Option::is_some),
+            "the control: full"
+        );
         let before = t.style_reclaims();
         let mut i = len;
         while t.style_reclaims().sweeps == before.sweeps {
@@ -423,12 +445,16 @@ fn a_full_table_refuses_until_its_next_sweep_is_due() {
         feed(t, b"\x1b[0m\x1b[5;1H");
         feed(t, &[b'k'; 40]);
         feed(t, b"\x1b[10;1H\r\n");
-        let table = t.styles().to_vec();
+        let table = t.styles().one().slots().to_vec();
         feed(t, format!("{}M", rendition(i, 15)).as_bytes());
         let after = t.style_reclaims();
         assert_eq!(after.sweeps, swept.sweeps, "{after:?}");
         assert_eq!(after.refusals, swept.refusals + 1, "{after:?}");
-        assert_eq!(t.styles(), &table[..], "a named slot was written");
+        assert_eq!(
+            t.styles().one().slots(),
+            &table[..],
+            "a named slot was written"
+        );
         let mut j = i + 1;
         while t.style_reclaims().sweeps == after.sweeps {
             assert!(j < i + len / 16 + 2, "no sweep within a sixteenth");
@@ -478,7 +504,7 @@ fn state(t: &Term<'_>) -> State {
     let mut cells = Vec::new();
     for r in 0..rows.index() {
         for c in t.row(Row::from_index(r)).expect("a row on the grid") {
-            cells.push((c.content, c.flags, t.style_of(*c)));
+            cells.push((c.content, c.flags, t.styles().one().word_of(*c)));
         }
     }
     // The live cells, `L`, oldest first: the history, then the screen.
@@ -495,14 +521,14 @@ fn state(t: &Term<'_>) -> State {
         live.extend(
             line.iter()
                 .filter(|c| is_l(c.content))
-                .map(|c| t.style_of(*c)),
+                .map(|c| t.styles().one().word_of(*c)),
         );
     }
     live.extend(cells.iter().filter(|c| is_l(c.0)).map(|c| c.2));
     State {
         cells,
         live,
-        table: t.styles().to_vec(),
+        table: t.styles().one().slots().to_vec(),
         writes: t.style_writes(),
         reclaims: t.style_reclaims(),
     }

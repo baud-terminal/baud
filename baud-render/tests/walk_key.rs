@@ -45,7 +45,7 @@ fn a_walk_over_the_last_walked_screen_changes_nothing() {
     );
     let mut backing = GlyphMap::backing();
     let mut map = GlyphMap::over(&mut backing);
-    let mut styles = vec![Resolved::default(); t.styles().len()];
+    let mut styles = vec![Resolved::default(); t.styles().one().len()];
     let mut stamp = StyleStamp::default();
     let mut candidates = Vec::new();
     let key = |map: &GlyphMap<'_>, r: &Renderer<'_, '_>, t: &Term<'_>, stamp| WalkKey {

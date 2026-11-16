@@ -122,7 +122,7 @@ fn a_prediction_in_concealed_text_draws_nothing() {
     let typed = b"pw: \x1b[8mx";
     t.write_at(BytePos::ZERO, typed);
     t.feed(BytePos::ZERO, ReadLen::from_index(typed.len()));
-    let mut st = vec![Resolved::default(); t.styles().len()];
+    let mut st = vec![Resolved::default(); t.styles().one().len()];
     r.resolve_styles_into(&t, &mut st);
     let cols = Cols::of_index(usize::from(support::WS.ws_col));
     let row = t.view(Rows::ZERO).row(Row::from_index(0)).to_vec();

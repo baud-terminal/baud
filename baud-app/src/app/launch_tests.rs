@@ -837,7 +837,7 @@ impl Session {
     /// where it drew every row as the terminal cut it.
     pub(super) fn drawn_lines(&self) -> Option<Vec<String>> {
         let orders = self.renderer.bidi();
-        let vp = orders.display()?.window();
+        let vp = orders.display()?.window(self.term.styles().one());
         Some(
             (0..vp.rows().index())
                 .map(|y| {

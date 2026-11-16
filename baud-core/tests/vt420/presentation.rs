@@ -182,7 +182,10 @@ fn decrsps_restores_the_four_renditions_and_keeps_the_rest() {
     b.truncate(b.len() - 5);
     b.push(b'x');
     after(&b, |t| {
-        let s = t.style_of(t.row(Row::ZERO).expect("row 0")[0]);
+        let s = t
+            .styles()
+            .one()
+            .word_of(t.row(Row::ZERO).expect("row 0")[0]);
         assert!(s.attrs().has(baud_domain::Attrs::BOLD));
         assert_ne!(
             s.fg(),
@@ -240,7 +243,9 @@ fn decrsps_stops_at_an_invalid_value() {
     after(&b, |t| {
         assert_eq!(ch(t, 4, 6), 'x', "row and column restored");
         assert!(
-            !t.style_of(t.row(Row::from_index(4)).expect("row")[6])
+            !t.styles()
+                .one()
+                .word_of(t.row(Row::from_index(4)).expect("row")[6])
                 .attrs()
                 .has(baud_domain::Attrs::BOLD)
         );

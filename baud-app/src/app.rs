@@ -2368,6 +2368,7 @@ impl App {
                         b.rows,
                         b.rows,
                         RowRot::NONE,
+                        self.term.styles().one(),
                     );
                     self.renderer.set_trail(None);
                     self.renderer.set_cursor_glow_at(None);

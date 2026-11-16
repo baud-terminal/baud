@@ -66,10 +66,10 @@ fn a_window_over_frozen_history_draws_each_cell_in_its_rendition() {
     let mut r = renderer(&faces);
     let mut owned = Owned::new(&SMALL);
     let mut t = Term::new(owned.storage(), &SMALL);
-    assert_eq!(t.styles().len(), 1024);
+    assert_eq!(t.styles().one().len(), 1024);
     feed(&mut t, &flood(300));
     assert!(t.frozen().counts.freezes > 0, "the control: it froze");
-    let mut table = vec![Resolved::default(); t.styles().len()];
+    let mut table = vec![Resolved::default(); t.styles().one().len()];
     let mut stamp = StyleStamp::default();
     r.sync_styles(&t, &mut table, &mut stamp);
     let synced = table.clone();
@@ -208,7 +208,7 @@ fn a_frozen_sized_line_converts_from_the_lent_copy_as_the_reference_does() {
     );
     // The reference: the plain view through its own table.
     let mut rr = renderer(&faces);
-    let mut bt = vec![Resolved::default(); b.styles().len()];
+    let mut bt = vec![Resolved::default(); b.styles().one().len()];
     rr.sync_styles(&b, &mut bt, &mut StyleStamp::default());
     let mut rows = Vec::new();
     rr.sized_lines(&b, (&b.view(back), &bt), None, None, &mut rows);
@@ -219,7 +219,7 @@ fn a_frozen_sized_line_converts_from_the_lent_copy_as_the_reference_does() {
     assert!(!want.is_empty(), "the control: the line converted");
     // The frame's lent copy, as the app builds and lends it.
     let mut r = renderer(&faces);
-    let mut table = vec![Resolved::default(); s.styles().len()];
+    let mut table = vec![Resolved::default(); s.styles().one().len()];
     let mut stamp = StyleStamp::default();
     r.sync_styles(&s, &mut table, &mut stamp);
     let mut lent = Lent::default();
@@ -233,6 +233,7 @@ fn a_frozen_sized_line_converts_from_the_lent_copy_as_the_reference_does() {
         view.rows(),
         view.rows(),
         baud_domain::RowRot::NONE,
+        s.styles().one(),
     );
     r.set_frame_lent(&lent);
     r.sized_lines(&s, (&lent_view, &table), None, None, &mut rows);
@@ -243,7 +244,7 @@ fn a_frozen_sized_line_converts_from_the_lent_copy_as_the_reference_does() {
     assert_eq!(got, want, "the frozen line converted otherwise");
     // The control: the core's ids read through the live table.
     let mut rc = renderer(&faces);
-    let mut plain = vec![Resolved::default(); s.styles().len()];
+    let mut plain = vec![Resolved::default(); s.styles().one().len()];
     rc.sync_styles(&s, &mut plain, &mut StyleStamp::default());
     rc.sized_lines(&s, (&s.view(back), &plain), None, None, &mut rows);
     let live: Vec<_> = rows

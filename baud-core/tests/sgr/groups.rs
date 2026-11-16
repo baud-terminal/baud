@@ -21,7 +21,7 @@ fn style(sgr: &str) -> StyleWord {
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, format!("\x1b[{sgr}mx").as_bytes());
-    t.style_of(support::screen(&t)[0])
+    t.styles().one().word_of(support::screen(&t)[0])
 }
 
 fn colon(v: &[u16]) -> String {

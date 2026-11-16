@@ -22,7 +22,7 @@ const BEH: &str = "\u{0628}";
 /// The variants cell `(r, c)` was written under.
 fn variants(t: &Term<'_>, r: usize, c: usize) -> Variants {
     let cell = t.row(Row::from_index(r)).expect("a row")[c];
-    t.styles()[cell.style.index()]
+    t.styles().one().slots()[cell.style.index()]
         .expect("a live rendition")
         .variants()
 }
@@ -236,7 +236,7 @@ fn decaln_keeps_the_variants() {
         assert_eq!(variants(t, 0, 0).digits(), Digits::ArabicIndic);
         assert_eq!(variants(t, 0, 1), Variants::DEFAULT, "the pattern");
         let cell = t.row(Row::ZERO).expect("a row")[0];
-        let w = t.styles()[cell.style.index()].expect("a live rendition");
+        let w = t.styles().one().slots()[cell.style.index()].expect("a live rendition");
         assert!(!w.attrs().has(Attrs::BOLD), "the rendition normal");
     });
     support::with_term(&WS, |t| {
@@ -407,7 +407,7 @@ fn a_rendition_with_variants_keeps_one_slot_through_sweeps() {
     support::with_term(&WS, |t| {
         support::feed(t, format!("{}\x1b[31ma", sapv("2")).as_bytes());
         let first = t.row(Row::ZERO).expect("a row")[0].style;
-        let word = t.styles()[first.index()].expect("a live rendition");
+        let word = t.styles().one().slots()[first.index()].expect("a live rendition");
         for round in 0..8usize {
             let mut churn = Vec::new();
             for i in 0..1000usize {
@@ -426,13 +426,22 @@ fn a_rendition_with_variants_keeps_one_slot_through_sweeps() {
             support::feed(t, b"\x1b[1;2H\x1b[0;31mb");
             let again = t.row(Row::ZERO).expect("a row")[1].style;
             assert_eq!(again, first, "round {round}");
-            let held = t.styles().iter().filter(|w| **w == Some(word)).count();
+            let held = t
+                .styles()
+                .one()
+                .slots()
+                .iter()
+                .filter(|w| **w == Some(word))
+                .count();
             assert_eq!(held, 1, "round {round}");
             // On its own key's path: no empty slot from its bucket to it.
-            let len = t.styles().len();
+            let len = t.styles().one().len();
             let mut k = StyleId::bucket(word, len);
             while k != first.index() {
-                assert!(t.styles()[k].is_some(), "round {round}: slot {k} empty");
+                assert!(
+                    t.styles().one().slots()[k].is_some(),
+                    "round {round}: slot {k} empty"
+                );
                 k = (k + 1) & (len - 1);
             }
         }

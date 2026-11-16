@@ -53,8 +53,10 @@ use std::rc::Rc;
 /// or the words a frame's lent slots were given.
 #[derive(Clone, Copy, Debug)]
 pub enum Words<'a> {
-    /// Every cell of the row in one table: the live one, or the generation
-    /// its row was frozen into.
+    /// Every cell of the row in the terminal's live table ([`live`]).
+    Live,
+    /// Every cell of the row in one table: its band's live one, or the
+    /// generation its row was frozen into.
     Row(RowStyles<'a>),
     /// Runs of columns, each in its own stored row's table: a display line
     /// that joins rows ([`crate::rebreak`]). A column in no run is live.
@@ -70,16 +72,20 @@ pub enum Words<'a> {
 
 impl<'a> Words<'a> {
     /// Every id in the live table.
-    pub const LIVE: Words<'static> = Words::Row(RowStyles::Live);
+    pub const LIVE: Words<'static> = Words::Live;
 
     /// The rendition cell `cell`, at column `col` of its row, stands for.
     pub fn word(self, term: &Term<'_>, col: Col, cell: PackedCell) -> StyleWord {
         match self {
+            Words::Live => live(term).word(cell.style),
             Words::Row(s) => term.style_in(s, cell),
-            Words::Runs(runs) => term.style_in(run_at(runs, col), cell),
+            Words::Runs(runs) => match run_at(runs, col) {
+                Some(s) => term.style_in(s, cell),
+                None => live(term).word(cell.style),
+            },
             Words::Lent(l) => match l.get(cell.style.index()) {
                 Some(Some(w)) => *w,
-                _ => term.style_of(cell),
+                _ => live(term).word(cell.style),
             },
             Words::Word(w) => w,
         }
@@ -89,6 +95,7 @@ impl<'a> Words<'a> {
     /// reads by the slot: a lent copy is, where it lent nothing.
     pub fn is_live(self) -> bool {
         match self {
+            Words::Live => true,
             Words::Row(s) => s.is_live(),
             Words::Runs(runs) => runs.iter().all(|(_, s)| s.is_live()),
             Words::Lent(l) => l.is_empty(),
@@ -96,15 +103,31 @@ impl<'a> Words<'a> {
         }
     }
 
-    /// The table column `col`'s id names, for a stored row or a display
-    /// line; a lent copy's names the live table.
-    fn styles_at(self, col: Col) -> RowStyles<'a> {
-        match self {
-            Words::Row(s) => s,
+    /// The generation column `col`'s id names its word in, for a stored row
+    /// or a display line; `None` where it names the live table, as a lent
+    /// copy's does.
+    fn frozen_at(self, col: Col) -> Option<baud_domain::FrozenTable<'a>> {
+        let s = match self {
+            Words::Row(s) => Some(s),
             Words::Runs(runs) => run_at(runs, col),
-            Words::Lent(_) | Words::Word(_) => RowStyles::Live,
+            Words::Live | Words::Lent(_) | Words::Word(_) => None,
+        };
+        match s {
+            Some(RowStyles::Frozen(t)) => Some(t),
+            _ => None,
         }
     }
+}
+
+/// **The table a renderer's live ids name**: the terminal's one band's,
+/// which every live row is in while the terminal keeps one band.
+pub fn live<'t>(term: &'t Term<'_>) -> RowStyles<'t> {
+    RowStyles::Live(live_table(term))
+}
+
+/// That table, as a view of copied rows carries it ([`baud_domain::Viewport::new`]).
+pub fn live_table<'t>(term: &'t Term<'_>) -> baud_domain::LiveTable<'t> {
+    term.styles().one()
 }
 
 /// **Where a row's cells name their ids, kept with the row**: one table,
@@ -125,10 +148,12 @@ impl RowSource<'_> {
     }
 }
 
-fn run_at<'a>(runs: &[(Range<usize>, RowStyles<'a>)], col: Col) -> RowStyles<'a> {
+/// The table the run holding column `col` names; `None` in no run, which
+/// is live.
+fn run_at<'a>(runs: &[(Range<usize>, RowStyles<'a>)], col: Col) -> Option<RowStyles<'a>> {
     runs.iter()
         .find(|(r, _)| r.contains(&col.index()))
-        .map_or(RowStyles::Live, |(_, s)| *s)
+        .map(|(_, s)| *s)
 }
 
 /// **Which lending a resolved table holds**: none, or one the renderer has
@@ -739,10 +764,7 @@ impl Renderer<'_, '_> {
                 rows.with_row(orders, term, *row, |cells, w| {
                     for x in cols.clone() {
                         let Some(c) = cells.get(x) else { continue };
-                        let source = match w.styles_at(Col::at_index(x)) {
-                            RowStyles::Frozen(table) => (Some(table.serial()), c.style),
-                            _ => (None, c.style),
-                        };
+                        let source = (w.frozen_at(Col::at_index(x)).map(|t| t.serial()), c.style);
                         let ix = match sources.get(hit) {
                             Some(e) if e.0 == source => hit,
                             _ => match sources.iter().position(|e| e.0 == source) {
@@ -771,11 +793,12 @@ impl Renderer<'_, '_> {
         let count = rows.rows().index();
         for y in (0..count).filter(|_| frozen) {
             rows.with_row(orders, term, Row::from_index(y), |cells, w| match w {
+                Words::Live => named.mark(cells),
                 Words::Row(s) if s.is_live() => named.mark(cells),
                 Words::Row(_) => {}
                 _ => {
                     for (x, c) in cells.iter().enumerate() {
-                        if w.styles_at(Col::at_index(x)).is_live() {
+                        if w.frozen_at(Col::at_index(x)).is_none() {
                             named.insert(c.style);
                         }
                     }
@@ -793,7 +816,7 @@ impl Renderer<'_, '_> {
                     return;
                 }
                 for (x, c) in cells.iter_mut().enumerate() {
-                    let RowStyles::Frozen(table) = w.styles_at(Col::at_index(x)) else {
+                    let Some(table) = w.frozen_at(Col::at_index(x)) else {
                         continue;
                     };
                     if c.style == StyleId::DEFAULT {
@@ -859,7 +882,15 @@ impl Renderer<'_, '_> {
                 scratch.slots.push(None);
                 continue;
             }
-            let held = |k: usize| named.has(k) || term.styles().get(k).is_some_and(Option::is_some);
+            let held = |k: usize| {
+                named.has(k)
+                    || term
+                        .styles()
+                        .one()
+                        .slots()
+                        .get(k)
+                        .is_some_and(Option::is_some)
+            };
             while top > next && held(top - 1) {
                 top -= 1;
             }

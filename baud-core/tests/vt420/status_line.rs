@@ -270,7 +270,7 @@ fn the_line_keeps_its_own_rendition_charsets_and_saved_cursor() {
             line[0].content.as_codepoint().map(|c| c.value()),
             Some(u32::from(b'q'))
         );
-        assert!(!t.style_of(line[0]).attrs().has(Attrs::BOLD));
+        assert!(!t.styles().one().word_of(line[0]).attrs().has(Attrs::BOLD));
         support::feed(t, &[OFF, b"q\x1b8y"].concat());
         // Line drawing's `q` on the main display, bold, and its own save.
         let main = t.row(Row::from_index(2)).expect("row");
@@ -278,7 +278,7 @@ fn the_line_keeps_its_own_rendition_charsets_and_saved_cursor() {
             main[0].content.as_codepoint().map(|c| c.value()),
             Some(0x2500)
         );
-        assert!(t.style_of(main[0]).attrs().has(Attrs::BOLD));
+        assert!(t.styles().one().word_of(main[0]).attrs().has(Attrs::BOLD));
         assert_eq!(t.cursor(), (Row::from_index(2), Col::at_index(3)));
         // The line's save is its own.
         support::feed(t, &[ON, b"\x1b8z"].concat());
@@ -442,7 +442,7 @@ fn indicator(t: &Term<'_>) -> String {
     let line = t.status_line().expect("an indicator");
     for c in line.cells {
         assert!(
-            t.style_of(*c).attrs().has(Attrs::REVERSE),
+            t.styles().one().word_of(*c).attrs().has(Attrs::REVERSE),
             "the indicator is in reverse video"
         );
     }
@@ -1070,16 +1070,23 @@ fn a_sweep_keeps_the_lines_renditions() {
             &[HOST, ON, b"\x1b[38;2;1;2;3mS\x1b[38;2;4;5;6mU"].concat(),
         );
         let cells = t.status_line().expect("shown").cells;
-        let (cell, left) = (t.style_of(cells[0]), t.style_of(cells[1]));
+        let (cell, left) = (
+            t.styles().one().word_of(cells[0]),
+            t.styles().one().word_of(cells[1]),
+        );
         support::feed(t, &[b"\x1b[D\x1b[X".as_slice(), OFF].concat());
         let sweeps = t.style_reclaims().sweeps;
         support::feed(t, &churn());
         assert!(t.style_reclaims().sweeps > sweeps, "the premise: it swept");
         let line = t.status_line().expect("shown").cells[0];
-        assert_eq!(t.style_of(line), cell, "the line's cell");
+        assert_eq!(t.styles().one().word_of(line), cell, "the line's cell");
         support::feed(t, &[ON, b"T", OFF].concat());
         let next = t.status_line().expect("shown").cells[1];
-        assert_eq!(t.style_of(next), left, "the rendition the line was left in");
+        assert_eq!(
+            t.styles().one().word_of(next),
+            left,
+            "the rendition the line was left in"
+        );
     });
 }
 
@@ -1335,7 +1342,7 @@ fn decstr_resets_the_lines_own_state() {
         );
         let cells = t.status_line().expect("shown").cells;
         assert_eq!(text(cells), "xq");
-        assert!(!t.style_of(cells[1]).attrs().has(Attrs::BOLD));
+        assert!(!t.styles().one().word_of(cells[1]).attrs().has(Attrs::BOLD));
     });
 }
 

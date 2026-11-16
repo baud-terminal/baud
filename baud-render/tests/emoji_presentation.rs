@@ -235,7 +235,7 @@ fn the_cell_paths_map_follows_a_change_of_default() {
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     let mut backing = GlyphMap::backing();
     let mut map = GlyphMap::over(&mut backing);
-    let mut styles = vec![Resolved::default(); t.styles().len()];
+    let mut styles = vec![Resolved::default(); t.styles().one().len()];
     let mut stamp = StyleStamp::default();
     let mut candidates = Vec::new();
     let mut face_of_bolt = |r: &mut Renderer<'_, '_>, t: &Term<'_>| {

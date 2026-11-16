@@ -766,7 +766,7 @@ fn decrqcra_answers_the_same_with_a_line_up() {
     let (w, h) = r.pixel_size();
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     let cell = t.view(Rows::ZERO).row(Row::ZERO)[4];
-    let word = t.style_in(baud_domain::RowStyles::Live, cell);
+    let word = t.styles().one().word_of(cell);
     let line = LinkLine {
         row: Row::ZERO,
         from: Col::at_index(4),
@@ -829,7 +829,7 @@ fn a_line_at_rest_on(t: &mut Term<'_>, theme: Theme, faces: &[Face<'_>]) {
     let mut plain = vec![0u32; n];
     paint(&mut r, t, &mut plain, Damage::Full);
     let cell = t.view(Rows::ZERO).row(Row::ZERO)[4];
-    let word = t.style_in(baud_domain::RowStyles::Live, cell);
+    let word = t.styles().one().word_of(cell);
     r.set_link_lines(
         &[LinkLine {
             row: Row::ZERO,

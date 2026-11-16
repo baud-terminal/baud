@@ -175,7 +175,7 @@ fn protection_survives_style_eviction() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
-    let cap = t.styles().len();
+    let cap = t.styles().one().len();
     support::feed(&mut t, b"\x1b[1\"qAB\x1b[0\"q");
     for i in 0..(cap + cap / 2) {
         // A distinct 24-bit colour per `i`, so the count of distinct renditions
@@ -291,7 +291,7 @@ fn cells(bytes: &[u8], y: usize, n: usize) -> Vec<Seen> {
     support::render(&SMALL, bytes, |t| {
         t.row(Row::from_index(y)).expect("a row")[..n]
             .iter()
-            .map(|c| (c.content, t.style_of(*c), c.flags))
+            .map(|c| (c.content, t.styles().one().word_of(*c), c.flags))
             .collect()
     })
 }

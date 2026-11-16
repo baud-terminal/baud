@@ -957,11 +957,54 @@ impl<'a> FrozenTable<'a> {
     }
 }
 
-/// **Which table a row's cells name ids in**: the live rendition table, or
-/// a generation's words.
+/// **One band's live rendition table, as a reader sees it**: its slots,
+/// indexed by [`StyleId`], `None` a slot nothing was minted in, which reads
+/// as [`StyleWord::DEFAULT`]. A live row's [`RowStyles`] carries its band's,
+/// so a reader resolves the row's ids through the table they name and no
+/// other.
+#[derive(Clone, Copy, Debug)]
+pub struct LiveTable<'a> {
+    slots: &'a [Option<StyleWord>],
+}
+
+impl<'a> LiveTable<'a> {
+    pub fn of(slots: &'a [Option<StyleWord>]) -> LiveTable<'a> {
+        LiveTable { slots }
+    }
+
+    /// The rendition slot `id` holds; the default where it holds none.
+    pub fn word(&self, id: StyleId) -> StyleWord {
+        self.slots
+            .get(id.index())
+            .copied()
+            .flatten()
+            .unwrap_or(StyleWord::DEFAULT)
+    }
+
+    /// The rendition a live cell of this band stands for.
+    pub fn word_of(&self, cell: crate::PackedCell) -> StyleWord {
+        self.word(cell.style)
+    }
+
+    /// The slots, for a reader that resolves every one once.
+    pub fn slots(&self) -> &'a [Option<StyleWord>] {
+        self.slots
+    }
+
+    pub fn len(&self) -> usize {
+        self.slots.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.slots.is_empty()
+    }
+}
+
+/// **Which table a row's cells name ids in**: its band's live rendition
+/// table, or a generation's words.
 #[derive(Clone, Copy, Debug)]
 pub enum RowStyles<'a> {
-    Live,
+    Live(LiveTable<'a>),
     Frozen(FrozenTable<'a>),
 }
 
@@ -973,7 +1016,7 @@ impl RowStyles<'_> {
     /// one add a row.
     pub fn base(&self, live: usize) -> usize {
         match self {
-            RowStyles::Live => 0,
+            RowStyles::Live(_) => 0,
             RowStyles::Frozen(t) => live + t.start,
         }
     }
@@ -981,25 +1024,21 @@ impl RowStyles<'_> {
     /// The generation's serial, or `None` on a live row.
     pub fn serial(&self) -> Option<FrozenSerial> {
         match self {
-            RowStyles::Live => None,
+            RowStyles::Live(_) => None,
             RowStyles::Frozen(t) => Some(t.serial),
         }
     }
 
-    /// The rendition id `id` names in this row, the live table being `live`.
-    pub fn word(&self, live: &[Option<StyleWord>], id: StyleId) -> StyleWord {
+    /// The rendition id `id` names in this row.
+    pub fn word(&self, id: StyleId) -> StyleWord {
         match self {
-            RowStyles::Live => live
-                .get(id.index())
-                .copied()
-                .flatten()
-                .unwrap_or(StyleWord::DEFAULT),
+            RowStyles::Live(t) => t.word(id),
             RowStyles::Frozen(t) => t.word(id),
         }
     }
 
     pub fn is_live(&self) -> bool {
-        matches!(self, RowStyles::Live)
+        matches!(self, RowStyles::Live(_))
     }
 }
 
@@ -1024,14 +1063,16 @@ pub struct FrozenRows<'a> {
 }
 
 impl<'a> FrozenRows<'a> {
-    pub fn styles(&self, p: RowRot, l: LineIdx) -> RowStyles<'a> {
+    /// The table physical row `p`, holding line `l`, resolves through:
+    /// its generation's words, or `live` where it is not frozen.
+    pub fn styles(&self, p: RowRot, l: LineIdx, live: LiveTable<'a>) -> RowStyles<'a> {
         let at = FrozenAt::of(l, self.top, self.rows);
         if at == FrozenAt::Screen && self.screen == PrimaryScreen::Up {
-            return RowStyles::Live;
+            return RowStyles::Live(live);
         }
         match valid_in(self.tags, self.gens, p, l, at) {
             Some(g) => RowStyles::Frozen(table_of(self.gens, self.words, g)),
-            None => RowStyles::Live,
+            None => RowStyles::Live(live),
         }
     }
 

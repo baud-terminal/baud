@@ -86,7 +86,7 @@ fn a_photo_half_block_preview_does_not_scramble_its_colours() {
         let row = t
             .row(Row::from_index(idx / cols))
             .expect("a row on the grid");
-        let sw = t.style_of(row[idx % cols]);
+        let sw = t.styles().one().word_of(row[idx % cols]);
         if sw.fg().as_rgb() != Some(fg) || sw.bg().as_rgb() != Some(bg) {
             wrong += 1;
             first_wrong_row.get_or_insert(idx / cols);
@@ -270,7 +270,7 @@ fn preview_lands_cell_for_cell(file: &str) {
         for (j, w) in line.iter().enumerate() {
             let cell = row[col0 + j];
             let got = cell.content.as_codepoint().map(|p| p.value());
-            let sw = t.style_of(cell);
+            let sw = t.styles().one().word_of(cell);
             let (gfg, gbg) = (resolved(sw.fg()), resolved(sw.bg()));
             let grev = if sw.attrs().has(Attrs::REVERSE) {
                 Rev::On

@@ -85,7 +85,7 @@ struct Reader {
 impl Reader {
     fn new(t: &Term<'_>) -> Reader {
         Reader {
-            copy: vec![None; t.styles().len()],
+            copy: vec![None; t.styles().one().len()],
             at: StyleWrites::NEVER,
             lapped: Lapped::Never,
         }
@@ -95,12 +95,12 @@ impl Reader {
         match t.styles_written(self.at) {
             Written::Slots(parts) => {
                 for &k in parts.iter().flat_map(|p| p.iter()) {
-                    self.copy[k.index()] = t.styles()[k.index()];
+                    self.copy[k.index()] = t.styles().one().slots()[k.index()];
                 }
             }
             Written::Every => {
                 self.lapped = Lapped::Yes;
-                self.copy.copy_from_slice(t.styles());
+                self.copy.copy_from_slice(t.styles().one().slots());
             }
         }
         self.at = t.style_writes();
@@ -124,7 +124,7 @@ fn every_write_to_the_rendition_table_is_logged() {
         let bytes = program(Count::of(3_500), cells);
         for chunk in [1usize, 3, 4096] {
             support::with_term(&SMALL, |t| {
-                let len = t.styles().len();
+                let len = t.styles().one().len();
                 assert_eq!(len, 1_024);
                 let mut close = Reader::new(t);
                 let mut far = Reader::new(t);
@@ -134,7 +134,7 @@ fn every_write_to_the_rendition_table_is_logged() {
                     t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
                     close.catch_up(t);
                     assert!(
-                        close.copy == t.styles(),
+                        close.copy == t.styles().one().slots(),
                         "{cells:?}, chunk {chunk}, read {i}: the replayed copy is not the table"
                     );
                     let before = fed;
@@ -142,13 +142,13 @@ fn every_write_to_the_rendition_table_is_logged() {
                     if fed / 40_000 != before / 40_000 {
                         far.catch_up(t);
                         assert!(
-                            far.copy == t.styles(),
+                            far.copy == t.styles().one().slots(),
                             "{cells:?}, chunk {chunk}, read {i}: far"
                         );
                     }
                 }
                 far.catch_up(t);
-                assert!(far.copy == t.styles());
+                assert!(far.copy == t.styles().one().slots());
                 // The controls: the program reached the reclaim it is for,
                 // the log lapped a reader that was a table behind, and the
                 // close reader at the small reads never lapped.
@@ -184,11 +184,11 @@ fn the_log_lists_every_live_slot_once_until_full() {
         let Written::Slots(parts) = t.styles_written(StyleWrites::NEVER) else {
             panic!("500 renditions in 1,024 slots lapped the log");
         };
-        let mut seen = vec![0u32; t.styles().len()];
+        let mut seen = vec![0u32; t.styles().one().len()];
         for &k in parts.iter().flat_map(|p| p.iter()) {
             seen[k.index()] += 1;
         }
-        for (k, slot) in t.styles().iter().enumerate() {
+        for (k, slot) in t.styles().one().slots().iter().enumerate() {
             let want = u32::from(slot.is_some());
             assert_eq!(seen[k], want, "slot {k} is listed {} times", seen[k]);
         }
@@ -204,7 +204,7 @@ fn a_lapped_reader_is_told_every() {
     // Lent no generations, so the table fills with named slots and no freeze
     // or sweep after it frees one.
     support::with_term_unfrozen(&SMALL, |t| {
-        let len = t.styles().len();
+        let len = t.styles().one().len();
         // Fill the table: slot 0 and 1,023 distinct renditions, each on a
         // cell of its own and kept in the history, so a sweep frees nothing
         // and logs nothing, and each rendition is one write.
@@ -330,10 +330,13 @@ fn the_colour_epoch_moves_exactly_when_a_resolve_input_moves() {
 fn resets_leave_the_rendition_table_and_its_log() {
     support::with_corpus(|t| {
         support::feed(t, b"\x1b[31mred\x1b[1;32mbold green\x1b[0m");
-        let (styles, at) = (t.styles().to_vec(), t.style_writes());
+        let (styles, at) = (t.styles().one().slots().to_vec(), t.style_writes());
         support::feed(t, b"\x1bc");
         support::feed(t, b"\x1b[!p");
-        assert!(t.styles() == styles.as_slice(), "a reset wrote the table");
+        assert!(
+            t.styles().one().slots() == styles.as_slice(),
+            "a reset wrote the table"
+        );
         assert_eq!(t.style_writes(), at, "a reset moved the count");
     });
 }
@@ -352,14 +355,14 @@ fn a_relent_storage_keeps_its_book() {
             t.style_table(),
             t.style_writes(),
             t.color_epoch(),
-            t.styles().to_vec(),
+            t.styles().one().slots().to_vec(),
         )
     };
     let t = Term::new(owned.storage(), &support::CORPUS);
     assert_eq!(t.style_table(), serial, "the same table has another serial");
     assert_eq!(t.style_writes(), at, "the count restarted");
     assert!(
-        t.styles() == styles.as_slice(),
+        t.styles().one().slots() == styles.as_slice(),
         "the table changed on a new lend"
     );
     assert_ne!(

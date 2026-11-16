@@ -5670,7 +5670,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let above = Rows::of_index(back.index() + 1);
         match self.beside.as_deref().and_then(|b| b.leaving.as_ref()) {
             Some(l) => l.orders().row_source(term, above, Row::ZERO),
-            None => crate::frozen::RowSource::One(baud_domain::RowStyles::Live),
+            None => crate::frozen::RowSource::One(crate::frozen::live(term)),
         }
     }
 
@@ -7197,7 +7197,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // cell under the pass is the one drawn there.
         let held = self.bidi.orders().display_held();
         let view = match &held {
-            Some(d) => d.window(),
+            Some(d) => d.window(crate::frozen::live_table(term)),
             None => term.view(term.window_back()),
         };
         let (cols, rows) = (view.cols().index(), view.rows().index());
@@ -10413,8 +10413,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.fit(term);
         self.give_back_cpu();
         let mut styles = core::mem::take(&mut self.styles);
-        if styles.len() != term.styles().len() {
-            styles = vec![Resolved::default(); term.styles().len()];
+        if styles.len() != term.styles().one().len() {
+            styles = vec![Resolved::default(); term.styles().one().len()];
             self.styles_stamp = StyleStamp::default();
         }
         let mut stamp = self.styles_stamp;
@@ -10661,8 +10661,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.cur.unlend(self.cols, &mut self.lent_rows);
         self.give_back_cpu();
         let mut styles = core::mem::take(&mut self.styles);
-        if styles.len() != term.styles().len() {
-            styles = vec![Resolved::default(); term.styles().len()];
+        if styles.len() != term.styles().one().len() {
+            styles = vec![Resolved::default(); term.styles().one().len()];
             self.styles_stamp = StyleStamp::default();
         }
         let mut stamp = self.styles_stamp;
@@ -10702,7 +10702,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // core's own rows.
         let held = self.bidi.orders().display_held();
         let vp = match &held {
-            Some(d) => d.window(),
+            Some(d) => d.window(crate::frozen::live_table(term)),
             None => term.view(back),
         };
         // **The status line's row, below the main display's**, whatever the
@@ -10922,6 +10922,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         main,
                         main,
                         baud_domain::RowRot::NONE,
+                        crate::frozen::live_table(term),
                     );
                     self.pictures
                         .find_in(term, &drawn, |_| lent.words(), self.video);
@@ -13654,7 +13655,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// sweeps. It counts the blinking slots, and the overlay's walk answers.
     pub fn resolve_styles_into(&mut self, term: &Term<'_>, out: &mut [Resolved]) -> Tally {
         self.refresh_screen(term);
-        let table = term.styles();
+        let table = term.styles().one().slots();
         let mut n = Tally::default();
         let mut blinking = Tally::default();
         for (slot, dst) in table.iter().zip(out.iter_mut()) {
@@ -13696,7 +13697,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         };
         let table = term.style_table();
         let now = term.style_writes();
-        let slots = term.styles();
+        let slots = term.styles().one().slots();
         // A copy of this table under these inputs replays; a reader ahead
         // of the log, which only a copy of another table can be, is told
         // every slot by `styles_written` itself.
@@ -14942,12 +14943,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // keeps its word, and a live one whose slot the frame lent a
             // frozen row reads the live table (`crate::frozen`); either is
             // resolved from its word rather than read from `styles`.
-            let lent =
-                !frame.is_live() && frame.word(term, Col::ZERO, w.cell) != term.style_of(w.cell);
+            let lent = !frame.is_live()
+                && frame.word(term, Col::ZERO, w.cell)
+                    != crate::frozen::live(term).word(w.cell.style);
             let style = match (w.word, lent) {
                 (Some(word), _) => self.resolve_slot(term, word).shapes.text_face(),
                 (None, true) => self
-                    .resolve_slot(term, term.style_of(w.cell))
+                    .resolve_slot(term, crate::frozen::live(term).word(w.cell.style))
                     .shapes
                     .text_face(),
                 (None, false) => crate::cellmap::face_of(styles, w.cell),

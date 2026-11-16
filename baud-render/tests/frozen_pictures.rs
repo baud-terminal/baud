@@ -85,7 +85,7 @@ fn the_cell_paths_lent_copy_finds_the_history_picture() {
     feed(&mut t, &flood(0, 20));
     feed(&mut t, &flood(800, 3));
     assert!(t.style_reclaims().rewrites > 0, "the control: it froze");
-    let mut table = vec![Resolved::default(); t.styles().len()];
+    let mut table = vec![Resolved::default(); t.styles().one().len()];
     let mut stamp = StyleStamp::default();
     r.sync_styles(&t, &mut table, &mut stamp);
     let view = t.view(Rows::of_count(13));
@@ -114,6 +114,7 @@ fn the_cell_paths_lent_copy_finds_the_history_picture() {
         view.rows(),
         view.rows(),
         RowRot::NONE,
+        t.styles().one(),
     );
     let pairs: Vec<_> = (0..rows)
         .flat_map(|y| {
@@ -128,7 +129,7 @@ fn the_cell_paths_lent_copy_finds_the_history_picture() {
         .collect();
     let live_wrong = pairs
         .iter()
-        .filter(|(s, o, l)| t.style_of(*l) != t.style_in(*s, *o))
+        .filter(|(s, o, l)| t.styles().one().word_of(*l) != t.style_in(*s, *o))
         .count();
     assert_eq!(live_wrong, 400, "the control: the live table names others");
     let wrong = pairs

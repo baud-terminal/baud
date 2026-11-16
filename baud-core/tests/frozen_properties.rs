@@ -174,7 +174,7 @@ fn run(prog: &[Atom]) -> Result<baud_domain::FreezeCounts, TestCaseError> {
     let mut s = Term::new(small_owned.storage(), &WS);
     let mut big_owned = Owned::new(&BIG);
     let mut b = Term::new(big_owned.storage(), &WS);
-    prop_assert_eq!(s.styles().len(), 1024);
+    prop_assert_eq!(s.styles().one().len(), 1024);
     let mut next = 1usize;
     for (k, &a) in prog.iter().enumerate() {
         match a {

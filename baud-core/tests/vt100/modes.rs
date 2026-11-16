@@ -185,7 +185,7 @@ fn a_full_style_table_makes_cells_report_the_wrong_colour() {
         // `Chan::from_offset(v, 0)` is the public way in; `Param` is private.
         let chan = |v: usize| Chan::from_offset(v as u16, 0);
         let want = ColorWord::rgb(chan(r), chan(g), chan(bl));
-        if t.style_of(*cell).fg() != want {
+        if t.styles().one().word_of(*cell).fg() != want {
             wrong += 1;
         }
     }
@@ -312,7 +312,7 @@ fn renditions_that_differ_still_differ_after_a_write() {
     let mut seen: Vec<(ColorWord, ColorWord, bool)> = Vec::new();
     // `row[..n]` for the reason above: the bound stays a panic.
     for cell in &row[..n] {
-        let w = t.style_of(*cell);
+        let w = t.styles().one().word_of(*cell);
         let k = (w.fg(), w.bg(), w.attrs().has(Attrs::BOLD));
         if !seen.contains(&k) {
             seen.push(k);

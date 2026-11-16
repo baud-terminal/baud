@@ -366,6 +366,7 @@ where
             Rows::of_count(1),
             Rows::of_count(1),
             RowRot::NONE,
+            crate::frozen::live_table(term),
         );
         cell.exceptions.ensure_leaving(
             cell.map,
@@ -404,6 +405,7 @@ where
                 view.rows(),
                 view.rows(),
                 RowRot::NONE,
+                crate::frozen::live_table(term),
             )
         }
     };

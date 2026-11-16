@@ -1734,7 +1734,7 @@ impl Gpu {
     /// Memory for the rendition table resolved, one entry a slot of
     /// `term`'s table, for `Renderer::resolve_styles_into` to write.
     pub fn styles(&self, term: &Term<'_>) -> Option<(StylesBuffer, &'static mut [Resolved])> {
-        let n = term.styles().len();
+        let n = term.styles().one().len();
         let buffer = self.shared(Span(n.saturating_mul(Resolved::BYTES)))?;
         // SAFETY: `Resolved` is `repr(C)` over nine `u32` newtypes, valid
         // for every bit pattern, and written before it is read.

@@ -60,7 +60,7 @@ fn the_rendition_table_is_sized_to_the_screen() {
     let slots = |ws_col: u16, ws_row: u16| {
         let ws = baud_domain::WinSize { ws_col, ws_row };
         let mut s = Owned::new(&ws);
-        Term::new(s.storage(), &ws).styles().len()
+        Term::new(s.storage(), &ws).styles().one().len()
     };
     // A 1x1 screen takes the floor; a 200x50 (10_000 cells over a ~208 pitch)
     // rounds up to 16_384; the largest window the app provisions, 400x150,

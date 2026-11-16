@@ -26,9 +26,7 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{
-    BytePos, Col, Cols, PackedCell, ReadLen, Row, RowExtent, RowStyles, Rows, WinSize,
-};
+use baud_domain::{BytePos, Col, Cols, PackedCell, ReadLen, Row, RowExtent, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::cell_frame::{CellInputs, CellParts, build};
 use baud_render::counters::{self, Counter, Site};
@@ -91,7 +89,7 @@ fn link(t: &Term<'_>) -> LinkLine {
         row: row(),
         from: Col::at_index(LINK.0),
         to: Col::at_index(LINK.1),
-        word: t.style_in(RowStyles::Live, cell),
+        word: t.styles().one().word_of(cell),
     }
 }
 
@@ -527,7 +525,7 @@ fn line_at(t: &Term<'_>, back: Rows, at: At) -> LinkLine {
         row,
         from: run.from,
         to: run.to,
-        word: t.style_in(RowStyles::Live, cell),
+        word: t.styles().one().word_of(cell),
     }
 }
 
@@ -711,10 +709,13 @@ fn kept(case: &Case) -> Option<String> {
                 host = *h;
             }
             Step::TakeTheStrikesSlot => {
-                let n = t.styles().len();
-                let top = (1..n).rev().find(|&s| t.styles()[s].is_none()).unwrap();
+                let n = t.styles().one().len();
+                let top = (1..n)
+                    .rev()
+                    .find(|&s| t.styles().one().slots()[s].is_none())
+                    .unwrap();
                 for i in 0..n * 7 / 8 - 16 {
-                    if t.styles()[top].is_some() {
+                    if t.styles().one().slots()[top].is_some() {
                         break;
                     }
                     let (red, green, blue) =
@@ -722,7 +723,7 @@ fn kept(case: &Case) -> Option<String> {
                     let cell = format!("\x1b[{ROWS};1H\x1b[38;2;{red};{green};{blue}mq\x1b[m");
                     feed(&mut t, cell.as_bytes());
                 }
-                if t.styles()[top].is_none() {
+                if t.styles().one().slots()[top].is_none() {
                     return Some(format!("{}: the control, the slot is taken", case.what));
                 }
             }
@@ -1396,7 +1397,7 @@ impl<'m> Cells<'m> {
             exceptions: Overlay::new(),
             screens: Screens::new(),
             copies_mem: core::array::from_fn(|_| vec![PackedCell::EMPTY; (ROWS + 2) * stride]),
-            styles_mem: core::array::from_fn(|_| vec![Resolved::default(); t.styles().len()]),
+            styles_mem: core::array::from_fn(|_| vec![Resolved::default(); t.styles().one().len()]),
             overlay_mem: core::array::from_fn(|_| vec![0u8; COLS * (ROWS + 1)]),
             style_stamps: [StyleStamp::default(); SETS],
             lent: core::array::from_fn(|_| Lent::default()),

@@ -161,7 +161,7 @@ fn frame(r: &mut Renderer<'_, '_>, t: &mut Term<'_>) -> Frame {
     }
     let rows = match r.bidi().display() {
         Some(d) => {
-            let vp = d.window();
+            let vp = d.window(t.styles().one());
             (0..vp.rows().index())
                 .map(|y| {
                     let row = Row::from_index(y);

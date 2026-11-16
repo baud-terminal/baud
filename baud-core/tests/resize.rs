@@ -216,7 +216,7 @@ fn a_line_cleared_while_narrow_comes_back_clean() {
         assert!(
             row0[..200]
                 .iter()
-                .all(|c| t.style_of(*c) == StyleWord::DEFAULT),
+                .all(|c| t.styles().one().word_of(*c) == StyleWord::DEFAULT),
             "row 0: no red blank survives a default erase"
         );
     });
@@ -442,7 +442,7 @@ fn a_blank_left_past_the_old_edge_is_not_mistaken_for_the_blank_beyond_it() {
         assert!(
             row[..250]
                 .iter()
-                .all(|c| t.style_of(*c) == StyleWord::DEFAULT),
+                .all(|c| t.styles().one().word_of(*c) == StyleWord::DEFAULT),
             "no red survives a default erase over the whole row"
         );
     }
@@ -476,7 +476,7 @@ fn a_wider_screen_raises_the_marks_so_a_band_to_the_old_edge_is_erased() {
         assert!(
             row[..200]
                 .iter()
-                .all(|c| t.style_of(*c) == StyleWord::DEFAULT),
+                .all(|c| t.styles().one().word_of(*c) == StyleWord::DEFAULT),
             "the red band to the old edge is erased"
         );
     });
@@ -588,7 +588,7 @@ fn at_a_prompt_a_wider_screen_still_erases_a_band_to_the_old_edge() {
             let row = t.row(Row::from_index(2)).expect("a row on the grid");
             let red = row[..200]
                 .iter()
-                .filter(|c| t.style_of(**c) != StyleWord::DEFAULT)
+                .filter(|c| t.styles().one().word_of(**c) != StyleWord::DEFAULT)
                 .count();
             assert_eq!(red, 0, "{arm}: the red band to the old edge is erased");
         });
@@ -616,7 +616,7 @@ fn the_alternate_screen_grows_whatever_the_shells_zone() {
                 .map(|y| {
                     t.row(Row::from_index(y)).expect("a row on the grid")[..200]
                         .iter()
-                        .filter(|c| t.style_of(**c) != StyleWord::DEFAULT)
+                        .filter(|c| t.styles().one().word_of(**c) != StyleWord::DEFAULT)
                         .count()
                 })
                 .sum();

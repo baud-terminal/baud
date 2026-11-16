@@ -361,7 +361,7 @@ fn main() {
                     let hi = n.saturating_sub(1 + d);
                     [0, hi / 2, hi]
                 };
-                let mut styles = vec![Resolved::default(); term.styles().len()];
+                let mut styles = vec![Resolved::default(); term.styles().one().len()];
                 for motion in motions {
                     for rate in [60u32, 120] {
                         for (oi, (r0, c0)) in spots(gr, dr)

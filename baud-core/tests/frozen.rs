@@ -247,7 +247,7 @@ fn read(t: &Term<'_>) -> Vec<Vec<(Content, StyleWord)>> {
         out.push(
             cells
                 .iter()
-                .map(|c| (c.content, table.word(t.styles(), c.style)))
+                .map(|c| (c.content, table.word(c.style)))
                 .collect(),
         );
     }
@@ -258,7 +258,7 @@ fn read(t: &Term<'_>) -> Vec<Vec<(Content, StyleWord)>> {
         out.push(
             view.row(r)
                 .iter()
-                .map(|c| (c.content, table.word(t.styles(), c.style)))
+                .map(|c| (c.content, table.word(c.style)))
                 .collect(),
         );
     }
@@ -829,7 +829,7 @@ fn a_screen_past_the_bound_refuses_and_recolours_nothing() {
         "the control: the screen is past the bound"
     );
     {
-        assert_eq!(t.styles().len(), NSTYLE_MAX);
+        assert_eq!(t.styles().one().len(), NSTYLE_MAX);
         let mut first = Vec::new();
         for i in 0..40_000 {
             first.extend(rendition(i).as_bytes());
@@ -841,7 +841,7 @@ fn a_screen_past_the_bound_refuses_and_recolours_nothing() {
                 t.row(Row::from_index(y))
                     .expect("a row")
                     .iter()
-                    .map(|c| t.style_of(*c))
+                    .map(|c| t.styles().one().word_of(*c))
                     .collect::<Vec<_>>()
             })
             .collect();
@@ -857,7 +857,7 @@ fn a_screen_past_the_bound_refuses_and_recolours_nothing() {
                 .row(Row::from_index(y))
                 .expect("a row")
                 .iter()
-                .map(|c| t.style_of(*c))
+                .map(|c| t.styles().one().word_of(*c))
                 .collect();
             assert_eq!(&now, row, "row {y} changed");
         }
@@ -992,7 +992,7 @@ fn a_frozen_rows_string_survives_the_string_tables_sweep() {
     let string_of = |t: &Term<'_>| -> StringId {
         let sb = t.scrollback();
         let (cells, _) = sb.line(oldest).expect("the first line");
-        sb.styles(oldest).word(t.styles(), cells[0].style).string()
+        sb.styles(oldest).word(cells[0].style).string()
     };
     let _ = (cells, styles);
     let s = string_of(&t);
@@ -1046,7 +1046,7 @@ fn a_placeholder_in_a_frozen_row_reads_its_ids_through_its_generation() {
     assert_eq!(through.len(), 1, "one run");
     assert_ne!(
         through,
-        ids(baud_domain::RowStyles::Live),
+        ids(baud_domain::RowStyles::Live(t.styles().one())),
         "the control: the live table reads another image"
     );
     let w = t.style_in(styles, cells[0]);

@@ -49,7 +49,7 @@ fn first_cell(bytes: &[u8]) -> Resolved {
     let mut t = Term::new(s.storage(), &WS);
     t.write_at(BytePos::ZERO, bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
-    let mut table = vec![Resolved::default(); t.styles().len()];
+    let mut table = vec![Resolved::default(); t.styles().one().len()];
     r.resolve_styles_into(&t, &mut table);
     let cell = t.row(Row::from_index(0)).expect("a row")[0];
     table[cell.style.index()]

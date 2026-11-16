@@ -286,7 +286,7 @@ fn a_blinking_slot_off_screen_is_not_seen() {
     let mut t = Term::new(owned.storage(), &WS);
     let mut backing = GlyphMap::backing();
     let mut map = GlyphMap::over(&mut backing);
-    let mut styles = vec![Resolved::default(); t.styles().len()];
+    let mut styles = vec![Resolved::default(); t.styles().one().len()];
     let mut overlay = Overlay::new();
     let mut mask = vec![0u8; usize::from(WS.ws_col) * usize::from(WS.ws_row)];
     let mut records = Vec::new();
@@ -353,7 +353,7 @@ fn a_rapid_slot_alone_is_seen_on_the_cell_path() {
     let mut t = Term::new(owned.storage(), &WS);
     let mut backing = GlyphMap::backing();
     let mut map = GlyphMap::over(&mut backing);
-    let mut styles = vec![Resolved::default(); t.styles().len()];
+    let mut styles = vec![Resolved::default(); t.styles().one().len()];
     let mut overlay = Overlay::new();
     let mut mask = vec![0u8; usize::from(WS.ws_col) * usize::from(WS.ws_row)];
     let mut records = Vec::new();
@@ -397,7 +397,7 @@ fn a_hidden_cells_records_are_not_drawn() {
     let mut t = Term::new(owned.storage(), &WS);
     let mut backing = GlyphMap::backing();
     let mut map = GlyphMap::over(&mut backing);
-    let mut styles = vec![Resolved::default(); t.styles().len()];
+    let mut styles = vec![Resolved::default(); t.styles().one().len()];
     let mut overlay = Overlay::new();
     let mut mask = vec![0u8; usize::from(WS.ws_col) * usize::from(WS.ws_row)];
     let mut records = Vec::new();
@@ -473,7 +473,7 @@ fn a_faint_cells_records_are_drawn_faint() {
     let mut t = Term::new(owned.storage(), &WS);
     let mut backing = GlyphMap::backing();
     let mut map = GlyphMap::over(&mut backing);
-    let mut styles = vec![Resolved::default(); t.styles().len()];
+    let mut styles = vec![Resolved::default(); t.styles().one().len()];
     let mut overlay = Overlay::new();
     let mut mask = vec![0u8; usize::from(WS.ws_col) * usize::from(WS.ws_row)];
     let mut candidates = Vec::new();

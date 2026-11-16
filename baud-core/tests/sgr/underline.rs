@@ -17,7 +17,7 @@ fn style_at(bytes: &[u8], col: usize) -> StyleWord {
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, bytes);
     let cell = t.viewport()[col];
-    t.style_of(cell)
+    t.styles().one().word_of(cell)
 }
 
 #[test]

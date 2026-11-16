@@ -81,7 +81,7 @@ fn flood(first: usize, lines: usize) -> Vec<u8> {
 fn a_coloured_paragraph_in_history_wraps_at_its_words_after_seven_eighths() {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
-    assert_eq!(t.styles().len(), 1024);
+    assert_eq!(t.styles().one().len(), 1024);
     let mut bytes = Vec::new();
     for i in 0..6 {
         bytes.extend(format!("h{i}\r\n").as_bytes());

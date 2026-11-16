@@ -69,10 +69,10 @@ fn seen_in(pieces: &[&[u8]]) -> Seen {
                     .collect()
             })
             .collect(),
-        rendition: match rows
-            .iter()
-            .all(|r| r.iter().all(|c| t.style_of(*c) == StyleWord::DEFAULT))
-        {
+        rendition: match rows.iter().all(|r| {
+            r.iter()
+                .all(|c| t.styles().one().word_of(*c) == StyleWord::DEFAULT)
+        }) {
             true => Rendition::Default,
             false => Rendition::Mixed,
         },
@@ -172,7 +172,7 @@ fn an_sgr_after_it_starts_from_the_reset_rendition() {
         t.write_at(BytePos::ZERO, bytes);
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
         let x = t.row(Row::from_index(0)).expect("a row on the grid")[0];
-        t.style_of(x)
+        t.styles().one().word_of(x)
     };
     let bold_red = drawn(b"\x1b[1;31mX");
     let red = drawn(b"\x1b[31mX");
