@@ -6350,7 +6350,7 @@ mod reader {
     #[test]
     fn link_path_remote_reads_from_the_file() {
         use crate::rules::PathAct;
-        let window = "[link.path]\naction = \"window\"\ncommand = [\"/bin/cat\", \"{path}\"]\n";
+        let window = "[link.path]\naction = \"window\"\ncommand = [\"/bin/sh\", \"{path}\"]\n";
         let mut c = Config::defaults();
         let said = c.apply(&format!("{window}remote = [\"vi\", \"{{path}}\"]\n"));
         assert_eq!(said, Vec::<String>::new());
@@ -6362,7 +6362,7 @@ mod reader {
         let here = c.link.rules.path_window(b"/srv/a", "", "");
         assert_eq!(
             here.expect("a window").expect("built").argv(),
-            ["/bin/cat", "/srv/a"]
+            ["/bin/sh", "/srv/a"]
         );
         let mut c = Config::defaults();
         let said = c.apply(&format!("{window}remote = [\"vi\"]\n"));

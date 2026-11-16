@@ -835,11 +835,14 @@ mod tests {
         );
     }
 
-    /// A scratch folder for one shell test: a fake `uname` that prints
-    /// `name`, and `show`, which writes each argument it was given, NUL
-    /// after each, so the bytes the script's `exec "$@"` handed on are read
-    /// back exactly. Written by `/bin/sh`, so no descriptor of either file
-    /// stays open here for a child another test forks to inherit.
+    /// A scratch folder for one shell test, its `bin` the whole `PATH` the
+    /// login shell is given: a fake `uname` that prints `name`; `show`,
+    /// which writes each argument it was given, NUL after each, so the
+    /// bytes the script's `exec "$@"` handed on are read back exactly; and
+    /// [`TOOLS`], each a link named for this system's own program, found on
+    /// the test's `PATH`, one missing failing the test. Written by
+    /// `/bin/sh`, so no descriptor of any file stays open here for a child
+    /// another test forks to inherit.
     fn scratch(tag: &str, name: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("baud-ssh-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
@@ -858,8 +861,22 @@ mod tests {
         };
         write("uname", format!("#!/bin/sh\necho {name}\n"));
         write("show", "#!/bin/sh\nprintf '%s\\0' \"$@\"\n".to_string());
+        for tool in TOOLS {
+            let linked = std::process::Command::new("/bin/sh")
+                .args(["-c", "t=$(command -v \"$1\") && ln -s \"$t\" \"$2\"", "sh"])
+                .arg(tool)
+                .arg(d.join("bin").join(tool))
+                .status()
+                .expect("sh");
+            assert!(linked.success(), "{tool} is not on this PATH");
+        }
         d
     }
+
+    /// The programs the login shell runs from `PATH` besides the fake
+    /// `uname` and `show`: [`SCRIPT`]'s `tr`, and the `touch` a test runs as
+    /// the program.
+    const TOOLS: [&str; 2] = ["tr", "touch"];
 
     /// The remote command as sshd hands it to the login shell: the words
     /// after `--`, joined by spaces, as ssh joins them.
@@ -876,8 +893,8 @@ mod tests {
     }
 
     /// `command` run as `shell -c` runs it, as sshd does, with `dir`'s
-    /// `bin` first on `PATH` and nothing of the user's: what it printed, and
-    /// how it ended.
+    /// `bin` the whole `PATH` and nothing of the user's: what it printed,
+    /// and how it ended.
     fn login_shell(shell: &[&str], command: &OsStr, dir: &std::path::Path) -> (Vec<u8>, bool) {
         let out = std::process::Command::new(shell[0])
             .args(&shell[1..])
@@ -887,10 +904,7 @@ mod tests {
             .env("HOME", dir)
             .env("ZDOTDIR", dir)
             .env("HISTFILE", "/dev/null")
-            .env(
-                "PATH",
-                format!("{}:/usr/bin:/bin", dir.join("bin").display()),
-            )
+            .env("PATH", dir.join("bin"))
             .output()
             .expect("the shell");
         (out.stdout, out.status.success())

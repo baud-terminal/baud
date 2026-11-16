@@ -2959,7 +2959,7 @@ mod tests {
     #[test]
     fn remote_replaces_the_command_on_the_other_machine() {
         let (r, said) = window_path(&[
-            ("command", "[\"/bin/cat\", \"{path}\"]"),
+            ("command", "[\"/bin/sh\", \"{path}\"]"),
             ("remote", "[\"far-only-vi\", \"+{line}\", \"{path}\"]"),
         ]);
         assert_eq!(said, Vec::<String>::new());
@@ -2968,11 +2968,11 @@ mod tests {
             Some(vec!["far-only-vi".into(), "+1".into(), "/srv/a".into()])
         );
         let here = r.path_window(b"/srv/a", "", "").expect("a window");
-        assert_eq!(here.expect("built").argv(), ["/bin/cat", "/srv/a"]);
+        assert_eq!(here.expect("built").argv(), ["/bin/sh", "/srv/a"]);
         let (r, said) = rules(&[section(
             PATH_RULE,
             &[
-                ("command", "[\"/bin/cat\", \"{path}\"]"),
+                ("command", "[\"/bin/sh\", \"{path}\"]"),
                 ("remote", "[\"vi\", \"{path}\"]"),
             ],
         )]);
@@ -2995,7 +2995,7 @@ mod tests {
             "[\"bin/vi\", \"{path}\"]",
         ] {
             let (r, said) =
-                window_path(&[("command", "[\"/bin/cat\", \"{path}\"]"), ("remote", junk)]);
+                window_path(&[("command", "[\"/bin/sh\", \"{path}\"]"), ("remote", junk)]);
             assert_eq!(r.path_act(), &PathAct::Reveal, "{junk}");
             assert_eq!(far(&r), None, "{junk}");
             assert_eq!(said.len(), 1, "{junk}: {said:?}");
