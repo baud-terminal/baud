@@ -3053,3 +3053,569 @@ proptest! {
         }
     }
 }
+
+// Programs the properties above once shrank to, each pinned as a test and
+// spelled by atom name, so an atom added to the alphabet never moves it.
+
+/// Wide text, a combining mark, box drawing and ASCII up to the margin,
+/// `DECAWM` reset, then a flag and ASCII that pin at the last column: fed
+/// whole and atom by atom the screen agrees, and every cell that claims
+/// marks resolves to some.
+#[test]
+fn a_mark_and_a_flag_pinned_at_the_margin_agree_atom_by_atom_and_resolve() {
+    let prog = [
+        atom("wide-three"),
+        atom("wide-three"),
+        atom("combining"),
+        atom("narrow-quad"),
+        atom("ascii-short"),
+        atom("ascii"),
+        atom("combining"),
+        atom("ascii"),
+        atom("decawm-reset"),
+        atom("flag"),
+        atom("ascii"),
+    ];
+    let b = bytes_of(&prog);
+    let a = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 4096, a), drive_atomwise(&prog, a));
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    t.write_at(BytePos::ZERO, &b);
+    t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+    let stride = t.stride().index();
+    let cells = support::screen(&t);
+    for y in 0..ROWS {
+        for x in 0..COLS {
+            if cells[y * stride + x].flags.is_marked() {
+                let n = t.marks(Row::from_index(y), Col::at_index(x)).count();
+                assert!(n > 0, "cell ({y},{x}) claims marks and resolves to none");
+            }
+        }
+    }
+}
+
+/// Latin-1 strings ended by NEL and CSI, marks after wide and zero-width
+/// text, renditions, a hidden cursor, `CUU` and `DECAWM` reset: read a byte
+/// at a time it is the screen read whole.
+#[test]
+fn latin1_strings_marks_and_renditions_read_a_byte_at_a_time_agree() {
+    let prog = [
+        atom("latin1-osc-nel"),
+        atom("wide-quad"),
+        atom("latin1-osc-nel"),
+        atom("combining"),
+        atom("cursor-hide"),
+        atom("ascii-short"),
+        atom("latin1x3"),
+        atom("sgr"),
+        atom("zero-in-three"),
+        atom("cursor-hide"),
+        atom("cuu"),
+        atom("latin1-csi-osc"),
+        atom("combining"),
+        atom("sgr"),
+        atom("cursor-hide"),
+        atom("sgr"),
+        atom("sgr"),
+        atom("ascii-short"),
+        atom("sgr"),
+        atom("sgr"),
+        atom("decawm-reset"),
+        atom("sgr"),
+        atom("cursor-hide"),
+        atom("ascii-short"),
+        atom("zero-in-three"),
+        atom("combining"),
+        atom("sgr"),
+        atom("combining"),
+        atom("latin1-dcs-osc"),
+        atom("flag"),
+        atom("latin1-osc-csi"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 1, w), drive_at(&b, 4096, w));
+}
+
+/// `DECAWM` reset, nineteen letters and `e U+0301` on twenty columns: the
+/// `e` lands in the last column and the mark joins it, fed whole and atom by
+/// atom alike, and every cell that claims marks resolves to some.
+#[test]
+fn a_mark_after_a_letter_in_the_last_column_agrees_atom_by_atom_and_resolves() {
+    let prog = [atom("decawm-reset"), atom("ascii"), atom("combining")];
+    let b = bytes_of(&prog);
+    let a = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 4096, a), drive_atomwise(&prog, a));
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    t.write_at(BytePos::ZERO, &b);
+    t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+    let stride = t.stride().index();
+    let cells = support::screen(&t);
+    for y in 0..ROWS {
+        for x in 0..COLS {
+            if cells[y * stride + x].flags.is_marked() {
+                let n = t.marks(Row::from_index(y), Col::at_index(x)).count();
+                assert!(n > 0, "cell ({y},{x}) claims marks and resolves to none");
+            }
+        }
+    }
+}
+
+/// Latin-1 escapes and strings, wide text with marks around `DECAWM` reset,
+/// C1-ended strings under UTF-8, box drawing, homes and a hidden cursor:
+/// read a byte at a time it is the screen read whole.
+#[test]
+fn wide_marks_past_decawm_reset_and_c1_strings_read_a_byte_at_a_time_agree() {
+    let prog = [
+        atom("latin1-esc-inter-csi"),
+        atom("latin1-osc-nel"),
+        atom("latin1-osc-csi"),
+        atom("wide-three"),
+        atom("combining"),
+        atom("decawm-reset"),
+        atom("wide-three"),
+        atom("combining"),
+        atom("wide-quad"),
+        atom("latin1x3"),
+        atom("zero-in-three"),
+        atom("osc-c1-utf8"),
+        atom("narrow-quad"),
+        atom("narrow-quad"),
+        atom("osc-c1-utf8"),
+        atom("cup-home"),
+        atom("cursor-hide"),
+        atom("cup-home"),
+        atom("ascii"),
+        atom("combining"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 1, w), drive_at(&b, 4096, w));
+}
+
+/// An emoji pair, Latin-1 letters and `DECSACE` 0: read a byte at a time it
+/// is the screen read whole.
+#[test]
+fn an_emoji_pair_latin1_and_decsace_read_a_byte_at_a_time_agree() {
+    let prog = [atom("emoji-pair"), atom("latin1x3"), atom("decsace-stream")];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 1, w), drive_at(&b, 4096, w));
+}
+
+/// Box drawing, wide text and `DECSACE` 0: fed whole and atom by atom the
+/// screen agrees.
+#[test]
+fn box_drawing_wide_text_and_decsace_agree_atom_by_atom() {
+    let prog = [
+        atom("narrow-quad"),
+        atom("wide-quad"),
+        atom("decsace-stream"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 4096, w), drive_atomwise(&prog, w));
+}
+
+/// `REP` after a zero-width character, then cancelled and ignored control
+/// sequences, a Latin-1 string, `DECSACE` 0, `DECRQCRA` and a mode list,
+/// under wide ambiguous width: fed whole and atom by atom the screen agrees.
+#[test]
+fn rep_after_a_zero_width_character_and_cancelled_sequences_agree_atom_by_atom() {
+    let prog = [
+        atom("zero-in-three"),
+        atom("rep"),
+        atom("decsel-list"),
+        atom("csi-cancelled"),
+        atom("csi-cancelled"),
+        atom("latin1-osc-csi"),
+        atom("csi-entry-lead"),
+        atom("decsace-stream"),
+        atom("csi-ignore-cont"),
+        atom("decrqcra"),
+        atom("sm-list"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Wide;
+    assert_eq!(drive_at(&b, 4096, w), drive_atomwise(&prog, w));
+}
+
+/// `SAPV`'s form selection, Latin-1 letters, an indicator status line and
+/// `DECRARA`, under wide ambiguous width: fed whole and atom by atom the
+/// screen agrees.
+#[test]
+fn sapv_latin1_and_a_status_line_with_decrara_agree_atom_by_atom() {
+    let prog = [
+        atom("sapv-form"),
+        atom("latin1x3"),
+        atom("status-indicator"),
+        atom("decrara"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Wide;
+    assert_eq!(drive_at(&b, 4096, w), drive_atomwise(&prog, w));
+}
+
+/// Latin-1 strings, a mark, `DECSACE` 2, `SAPV`'s form selection, `DECBI`,
+/// line ends, ASCII and `REP`: read a byte at a time it is the screen read
+/// whole.
+#[test]
+fn sapv_decbi_and_rep_read_a_byte_at_a_time_agree() {
+    let prog = [
+        atom("latin1-osc-csi"),
+        atom("latin1-osc-nel"),
+        atom("ascii-short"),
+        atom("combining"),
+        atom("decsace-rectangle"),
+        atom("ascii-short"),
+        atom("sapv-form"),
+        atom("decbi"),
+        atom("crlf"),
+        atom("crlf"),
+        atom("ascii"),
+        atom("rep"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 1, w), drive_at(&b, 4096, w));
+}
+
+/// A font selected by its digits, an indicator status line, Latin-1
+/// letters, ReGIS drawing, ASCII and `DECRARA`: read a byte at a time it is
+/// the screen read whole.
+#[test]
+fn a_font_a_status_line_and_regis_read_a_byte_at_a_time_agree() {
+    let prog = [
+        atom("sgr-font-digits"),
+        atom("status-indicator"),
+        atom("latin1x3"),
+        atom("regis-draw"),
+        atom("ascii"),
+        atom("ascii"),
+        atom("decrara"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 1, w), drive_at(&b, 4096, w));
+}
+
+/// A font selected by its digits, an indicator status line, a control
+/// sequence with a three-byte character inside it and `DECRARA`: fed whole
+/// and atom by atom the screen agrees.
+#[test]
+fn a_font_a_status_line_and_decrara_agree_atom_by_atom() {
+    let prog = [
+        atom("sgr-font-digits"),
+        atom("status-indicator"),
+        atom("csi-entry-lead"),
+        atom("decrara"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 4096, w), drive_atomwise(&prog, w));
+}
+
+/// A right-to-left `SDS` string, `SAPV`'s held selections, an alternative
+/// font, an indicator status line and an underlined `SDS`: fed whole and
+/// atom by atom the screen agrees.
+#[test]
+fn sds_sapv_and_a_status_line_agree_atom_by_atom() {
+    let prog = [
+        atom("sds-rtl"),
+        atom("sapv-held"),
+        atom("sgr-font"),
+        atom("status-indicator"),
+        atom("sgr-underline-sds"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 4096, w), drive_atomwise(&prog, w));
+}
+
+/// `SAPV`'s held selections, an indicator status line, a right-to-left
+/// `SDS` string, an alternative font, ReGIS drawing and an underlined
+/// `SDS`: read a byte at a time it is the screen read whole.
+#[test]
+fn sapv_a_status_line_sds_and_regis_read_a_byte_at_a_time_agree() {
+    let prog = [
+        atom("sapv-held"),
+        atom("status-indicator"),
+        atom("sds-rtl"),
+        atom("sgr-font"),
+        atom("regis-draw"),
+        atom("sgr-underline-sds"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 1, w), drive_at(&b, 4096, w));
+}
+
+/// A status line the host writes, `DECRLM` set, a double-width line, an
+/// incomplete character after a prepend, `DECCIR` asked for and a Latin-1
+/// string ended by `CSI`: read a byte at a time it is the screen read whole.
+#[test]
+fn a_status_line_under_decrlm_on_a_double_width_line_read_a_byte_at_a_time_agree() {
+    let prog = [
+        atom("status-host-on"),
+        atom("decrlm-on"),
+        atom("decdwl"),
+        atom("fffd-cut-after-prepend"),
+        atom("deccir"),
+        atom("latin1-osc-csi"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 1, w), drive_at(&b, 4096, w));
+}
+
+/// `DECAWM` reset, a status line the host writes, a double-width line,
+/// `DECRLM` set, a control sequence with a three-byte character inside it
+/// and a Latin-1 escape with an intermediate: fed whole and atom by atom the
+/// screen agrees.
+#[test]
+fn a_status_line_under_decrlm_on_a_double_width_line_agrees_atom_by_atom() {
+    let prog = [
+        atom("decawm-reset"),
+        atom("status-host-on"),
+        atom("decdwl"),
+        atom("decrlm-on"),
+        atom("csi-entry-lead"),
+        atom("latin1-esc-inter-csi"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 4096, w), drive_atomwise(&prog, w));
+}
+
+/// Wide text on a double-width line, `CUU`, wide and narrow text with
+/// zero-width characters inside it, line ends, a rendition, `DECCRA`, then
+/// `IRM` set and Latin-1 letters inserted: read a byte at a time it is the
+/// screen read whole.
+#[test]
+fn a_double_width_line_deccra_and_irm_read_a_byte_at_a_time_agree() {
+    let prog = [
+        atom("wide-quad"),
+        atom("decdwl"),
+        atom("cuu"),
+        atom("ascii-short"),
+        atom("wide-quad"),
+        atom("wide-quad"),
+        atom("narrow-quad"),
+        atom("zero-in-quad"),
+        atom("crlf"),
+        atom("zero-in-quad"),
+        atom("sgr"),
+        atom("deccra"),
+        atom("ascii-short"),
+        atom("irm-on"),
+        atom("latin1x3"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 1, w), drive_at(&b, 4096, w));
+}
+
+/// `IRM` set, two letters, `HPA` back to the second column, then wide and
+/// private-use runs inserted before them: fed whole and atom by atom the
+/// screen agrees.
+#[test]
+fn runs_inserted_under_irm_after_hpa_agree_atom_by_atom() {
+    let prog = [
+        atom("irm-on"),
+        atom("ascii-short"),
+        atom("hpa"),
+        atom("wide-quad"),
+        atom("pua-quad"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 4096, w), drive_atomwise(&prog, w));
+}
+
+/// `OSC 52` writes, marks, `DECSACE` 2, a status line, a right-to-left
+/// `SCP`, ReGIS, `EL` with a list, `DECBI`, `DCSM` at DATA with `BDSM`
+/// reset, `REP`, a double-width line, `DECRSPS`, `DECFRA`, `SS2`, a flag and
+/// `SLL` near the edge, then Latin-1 and ASCII: read 26 bytes at a time it
+/// is the screen read whole.
+#[test]
+fn a_line_limit_on_a_double_width_line_read_26_bytes_at_a_time_agree() {
+    let prog = [
+        atom("latin1x3"),
+        atom("latin1-osc-nel"),
+        atom("ascii-short"),
+        atom("ascii-short"),
+        atom("osc52-unpadded"),
+        atom("combining"),
+        atom("decsace-rectangle"),
+        atom("status-host-on"),
+        atom("scp-rtl"),
+        atom("osc52-write"),
+        atom("regis-resync-display"),
+        atom("el-list"),
+        atom("decbi"),
+        atom("combining"),
+        atom("dcsm-data"),
+        atom("bdsm-explicit"),
+        atom("ascii-short"),
+        atom("ascii-short"),
+        atom("rep"),
+        atom("rep"),
+        atom("rep"),
+        atom("combining"),
+        atom("decdwl"),
+        atom("decrsps-cir"),
+        atom("decfra"),
+        atom("ss2"),
+        atom("decbi"),
+        atom("flag"),
+        atom("decsace-rectangle"),
+        atom("sll-near"),
+        atom("latin1-enter"),
+        atom("ascii"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 26, w), drive_at(&b, 4096, w));
+}
+
+/// A status line the host writes, private-use runs either side of a
+/// double-width line, `SLL` near the edge and ISO 8859-1 selected: fed
+/// whole and atom by atom the screen agrees.
+#[test]
+fn a_line_limit_on_a_double_width_status_line_agrees_atom_by_atom() {
+    let prog = [
+        atom("status-host-on"),
+        atom("pua-quad"),
+        atom("decdwl"),
+        atom("pua-quad"),
+        atom("sll-near"),
+        atom("latin1-enter"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 4096, w), drive_atomwise(&prog, w));
+}
+
+/// `every_linked_cell_is_on_a_row_a_sweep_reads` on one program and one
+/// cut: the atoms before `cut`, a narrowing to 47x13, the rest, a growth
+/// back and the whole program again leave no linked cell a sweep does not
+/// read.
+fn every_linked_cell_is_read_after(prog: &[usize], cut: usize) {
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    let cut = cut.min(prog.len());
+    let feed = |t: &mut Term<'_>, p: &[usize]| {
+        let b = bytes_of(p);
+        t.write_at(BytePos::ZERO, &b);
+        t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+    };
+    feed(&mut t, &prog[..cut]);
+    assert_eq!(
+        t.links_unread(),
+        baud_domain::Cells::of(0),
+        "after {cut} atoms"
+    );
+    let narrow = WinSize {
+        ws_row: 47,
+        ws_col: 13,
+    };
+    assert_eq!(t.resize(&narrow), Resized::Ok);
+    feed(&mut t, &prog[cut..]);
+    assert_eq!(t.links_unread(), baud_domain::Cells::of(0), "narrowed");
+    assert_eq!(t.resize(&w), Resized::Ok);
+    assert_eq!(t.links_unread(), baud_domain::Cells::of(0), "grown back");
+    feed(&mut t, prog);
+    assert_eq!(
+        t.links_unread(),
+        baud_domain::Cells::of(0),
+        "after all again"
+    );
+}
+
+/// Linked ASCII copied by `DECCRA`, the whole program before the narrowing:
+/// every linked cell is on a row a sweep reads.
+#[test]
+fn a_link_deccra_copies_is_on_a_row_a_sweep_reads() {
+    let prog = [
+        atom("osc8-open"),
+        atom("ascii"),
+        atom("osc8-close"),
+        atom("deccra"),
+    ];
+    every_linked_cell_is_read_after(&prog, 4);
+}
+
+/// A link opened, `DECRSPS` restoring the cursor, GR bytes, margins on both
+/// axes and `SD` scrolling inside them, the whole program before the
+/// narrowing: every linked cell is on a row a sweep reads.
+#[test]
+fn a_link_sd_scrolls_inside_margins_is_on_a_row_a_sweep_reads() {
+    let prog = [
+        atom("osc8-open"),
+        atom("decrsps-cir"),
+        atom("gr-bytes"),
+        atom("decstbm-decslrm"),
+        atom("sd"),
+    ];
+    every_linked_cell_is_read_after(&prog, 5);
+}
+
+/// A status line the host writes, margins on both axes, `DECCOLM` received
+/// on the status line and `HPR`: read a byte at a time it is the screen
+/// read whole.
+#[test]
+fn deccolm_on_the_status_line_under_margins_read_a_byte_at_a_time_agree() {
+    let prog = [
+        atom("status-host-on"),
+        atom("decstbm-decslrm"),
+        atom("deccolm"),
+        atom("hpr"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 1, w), drive_at(&b, 4096, w));
+}
+
+/// `BDSM` reset, a right-to-left `SDS` string, ASCII, margins on both axes,
+/// `IRM` set, Latin-1, private-use and zero-width text inserted, `CBT` and
+/// an escape with an intermediate: read a byte at a time it is the screen
+/// read whole.
+#[test]
+fn text_inserted_under_irm_past_the_margins_right_to_left_read_a_byte_at_a_time_agree() {
+    let prog = [
+        atom("bdsm-explicit"),
+        atom("sds-rtl"),
+        atom("ascii"),
+        atom("decstbm-decslrm"),
+        atom("irm-on"),
+        atom("latin1x3"),
+        atom("pua-quad"),
+        atom("zero-in-three"),
+        atom("cbt"),
+        atom("esc-inter-introducer"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 1, w), drive_at(&b, 4096, w));
+}
+
+/// `SLL` 12, margins on both axes, then the status line selected and `BDSM`
+/// reset on it, the read ending there: read a byte at a time it is the
+/// screen read whole.
+#[test]
+fn bdsm_reset_on_the_status_line_under_margins_and_a_limit_read_a_byte_at_a_time_agree() {
+    let prog = [
+        atom("sll"),
+        atom("decstbm-decslrm"),
+        atom("status-host-on"),
+        atom("bdsm-explicit"),
+    ];
+    let b = bytes_of(&prog);
+    let w = AmbiguousWidth::Narrow;
+    assert_eq!(drive_at(&b, 1, w), drive_at(&b, 4096, w));
+}

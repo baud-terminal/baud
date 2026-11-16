@@ -4,29 +4,3 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-cc f0311b4ca1d9d75c39b0b5a7b0a1269dbca9e7ed2fb879dabb19c60c21ff9cf4 # shrinks to prog = [4, 4, 11, 5, 1, 0, 11, 0, 19, 9, 0]
-cc 4468b158bec85cd8bec3479f5ae750d61fecd243aaeb31b371a03da561a34f26 # shrinks to prog = [27, 3, 27, 11, 15, 1, 2, 13, 7, 15, 24, 33, 11, 13, 15, 13, 13, 1, 13, 13, 19, 13, 15, 1, 7, 11, 13, 11, 29, 9, 28], a = 1
-cc cfa20f0f1ba89f5cadb32b6edbc74f879699fb30923776dfebf1b6f9f60eb432 # shrinks to prog = [19, 0, 11]
-cc 971817fff40aa2f1a8b963fa955a60e2f2091f23b91f8a5191ae90d5ddf35ee3 # shrinks to prog = [32, 27, 28, 4, 11, 19, 4, 11, 3, 2, 7, 30, 5, 5, 30, 23, 15, 23, 0, 11], a = 1
-cc 38d84f6afd72b860e5baeca53b09abcd361554a2bef04868498aa52eb41ea7d1 # shrinks to prog = [9, 2, 64], a = 1, w = Narrow
-cc 855639deb2b40fe3fdf925dd14d958d3269da9debeb4542c840303d3c57f6ee2 # shrinks to prog = [5, 3, 64], w = Narrow
-cc cc42b02fb8256c2e25a7f5b053176ce72bd290f8d9911b035222187cd22d681e # shrinks to prog = [8, 66, 44, 15, 15, 29, 46, 64, 49, 65, 42], w = Wide
-cc c3107e364ccbd1ab99fe259203bda69ad6a9c792f1214bb3e619fa121ab8a5f8 # shrinks to prog = [109, 2, 102, 62], w = Wide
-cc 2b2655061ba938d48674762c78c23548857e2ed46e6bc8a3769b0533827d7e81 # shrinks to prog = [29, 28, 1, 12, 63, 1, 109, 67, 13, 13, 0, 66], a = 1, w = Narrow
-cc 6d45a14b5407a39ad3c93b2ab108f58e0240469e51997de08a5fe1456b2b0ca7 # shrinks to prog = [113, 102, 2, 95, 0, 0, 62], a = 1, w = Narrow
-cc ed5c626f16cd0cbe1d4ac5ed7c85fe80612ca34ae8838aa910c09c7505daeeb3 # shrinks to prog = [113, 102, 46, 62], w = Narrow
-cc 9e94cf0a8066166ad99b41a2750b0dc36c0c169fead2f1622b8919550ff33798 # shrinks to prog = [114, 110, 112, 102, 118], w = Narrow
-cc f178cee324d914b35b19d505aa158e000aada04394293b556e85f37b0ad82c61 # shrinks to prog = [110, 102, 114, 112, 95, 118], a = 1, w = Narrow
-cc 22d77cdf1bd1113fbb1325f22a6843d03d634e579c7ebd45a69fe472629d2a9f # shrinks to prog = [99, 119, 69, 51, 91, 29], a = 1, w = Narrow
-cc c7cd5e5ae7f40d7635ad60c1da6463089eaa5ae1594fd1f98535b6a9302f5bed # shrinks to prog = [20, 99, 69, 119, 46, 33], w = Narrow
-cc 42a792500080870f41b50b4d2c6e9a3b50226b1ee2bb058eeeb04f679ed9acee # shrinks to prog = [3, 69, 25, 1, 3, 3, 5, 7, 13, 7, 14, 57, 1, 134, 2], a = 1, w = Narrow
-cc e88bc2d4080e23e3bb41a007f123ae3852e35421ea224f96a8466c53dbceb240 # shrinks to prog = [134, 1, 125, 3, 6], w = Narrow
-cc 618cfec1ce083fa4899df6d41c1ad1f3d1f66c8b31f2fe96bc96a376ed9a44ab # shrinks to prog = [2, 28, 1, 1, 53, 12, 63, 99, 104, 52, 98, 43, 67, 12, 122, 121, 1, 1, 66, 66, 66, 12, 69, 93, 58, 77, 67, 10, 63, 154, 26, 0], a = 26, w = Narrow
-cc d7aae52f2dde5eda74ead35593b863927d67c4466fe46b13acd51f3be8e5a7e7 # shrinks to prog = [99, 6, 69, 6, 154, 26], w = Narrow
-cc 4298e042f788cc852a1312932557c8c7b6260c82c29035d3318f85cba3e2d2c7 # shrinks to prog = [164, 0, 166, 57], cut = 4
-cc 6f6363c29d8787ce88272b6235a2fa8c4c4589f216cf0cff7f90b86344cf57be # shrinks to prog = [164, 93, 89, 170, 74], cut = 5
-cc 643bcec05a0f29fca6a03e9aeef798fea71c24608e422b4885da7139ca4fef6e # shrinks to prog = [145, 170, 99, 121], a = 1, w = Narrow
-cc dc7b58bc79d12bcf2b671c1a87e4a8733ae36e7589fe391ae924ff736a507323 # shrinks to prog = [99, 119, 69, 170, 140, 30], w = Narrow, found with 174 atoms in the alphabet
-cc e5b2c8bd4ea43fa6acf488af24d9cf45b94b9985e78469c2c33e70ee704e3815 # shrinks to prog = [99, 170, 180, 68], w = Narrow, found with 181 atoms in the alphabet
-cc a7494e41d4509d01de7a0c83862fce03a8c9c300b5675982d0467bd96172113d # shrinks to prog = [99, 170, 180, 155], a = 1, w = Narrow, found with 181 atoms in the alphabet
-cc 04388ce5cefed56de7cd232328cbea7bd311f53317e348aae4c1e32f5a3d42e8 # shrinks to prog = [121, 114, 0, 170, 134, 2, 6, 8, 131, 38], a = 1, w = Narrow
