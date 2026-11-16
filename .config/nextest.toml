@@ -8,6 +8,11 @@
 # slow does not move.
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 20 }
+# **The window tests run only when they are named**: `titlebar_mark` and
+# `about_window` build AppKit windows, so no run leaves them in unasked.
+# `cargo nextest run --ignore-default-filter -p baud --test titlebar_mark`, or
+# `cargo test -p baud --test titlebar_mark`, runs one.
+default-filter = "not (package(baud) & (binary(titlebar_mark) | binary(about_window)))"
 
 # `xtask/tests/bounded.rs`'s hogs touch more than 1 GiB each: one at a time,
 # and each is capped at 3 GiB.
