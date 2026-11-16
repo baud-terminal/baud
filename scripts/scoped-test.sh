@@ -51,7 +51,7 @@ step() {
 step fmt treefmt --fail-on-change
 step sources bash ./scripts/check-sources.sh
 step no-python cargo xtask no-python
-step paths bash ./scripts/check-paths.sh
+step paths cargo xtask paths
 step changelog bash ./scripts/check-changelog.sh
 
 if [ "$tried_only" -gt 0 ]; then

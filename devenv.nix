@@ -620,12 +620,12 @@ in
     # were green -- one by never being built, one by not being a workspace
     # member -- so this is the gate that says which machine a tree can be
     # built on rather than leaving it to a failure somewhere else.
-    # It needs no build, so it runs right after formatting, as sources and
+    # It builds only xtask, so it runs right after formatting, as sources and
     # changelog do, and a path that leaves the repository is reported in the
     # first minutes of a run rather than at the end of the chain (note V,
     # V21 add-on 1). A plain edge: a formatting failure skips it.
     "test:paths" = {
-      exec = "bash ./scripts/check-paths.sh";
+      exec = "cargo xtask paths";
       after = [ "test:fmt" ];
     };
 

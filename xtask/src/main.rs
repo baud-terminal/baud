@@ -18,7 +18,7 @@ use xtask::sources;
 use xtask::third_party::{self, Mode, Outcome};
 use xtask::{
     changelog, citations, credits, features, features_since, fnv, forbidden, loop_head, no_python,
-    pdf_search, pmc, test_scope, text, vt_table,
+    paths, pdf_search, pmc, test_scope, text, vt_table,
 };
 
 fn main() -> ExitCode {
@@ -115,6 +115,10 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
                 _ => return Err(format!("not an option: {}", rest.join(" "))),
             }
             .map_err(|e| e.to_string())?;
+            Ok(outcome(o))
+        }
+        ["paths"] => {
+            let o = paths::run(root, &mut stdout).map_err(|e| e.to_string())?;
             Ok(outcome(o))
         }
         ["no-python"] => {

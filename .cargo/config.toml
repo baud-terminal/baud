@@ -17,8 +17,8 @@ MACOSX_DEPLOYMENT_TARGET = { value = "26.0", force = true }
 
 # **The repository's gates are a crate, run as `cargo xtask <command>`**
 # (`xtask/`): `audit`, `scan-audit`, `changelog`, `features`,
-# `features-since`, `fnv1a`, `sources`, `third-party`, `no-python`, `publish`,
-# `page-text` and `pdf-search`, each run from the repository's root,
+# `features-since`, `fnv1a`, `sources`, `third-party`, `no-python`, `paths`,
+# `publish`, `page-text` and `pdf-search`, each run from the repository's root,
 # and `loop-head`, `vt-table`, `pmc` and `forbidden`, which read the paths they
 # are given;
 # `scripts/check-sources.sh` execs `sources`.

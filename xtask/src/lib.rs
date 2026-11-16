@@ -29,6 +29,8 @@
 //!   and the row it falls under, or the register of the linked crates
 //!   (docs/research/crates.toml) written from the cargo registry.
 //! - `no-python`: no tracked file is Python or runs it.
+//! - `paths`: every `path` a `Cargo.toml` names stays inside the
+//!   repository.
 //! - `publish [--size|--verify|--release|--write-notices|--write-licences]`:
 //!   what crates.io would receive, checked before anything is sent.
 //! - `page-text [--key K] [--from DIR] [--save DIR] [--print] [--self-test]`:
@@ -68,6 +70,7 @@ pub mod loop_head;
 pub mod md5;
 pub mod no_python;
 pub mod page_text;
+pub mod paths;
 pub mod pdf;
 pub mod pdf_search;
 pub mod pmc;
