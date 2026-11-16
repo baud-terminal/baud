@@ -2845,6 +2845,22 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     .unwrap();
     arms!(renderer => arms, t);
     scene(&mut t);
+    // **The CPU arm, which the Linux driver draws with, draws each scene
+    // too**: every pixel the instance arm's, the scene named on a
+    // difference.
+    fn cpu_agrees(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, a: &[u32], scene: &str) {
+        let cpu = cpu_frame(arms, t);
+        assert_eq!(
+            cpu.len(),
+            a.len(),
+            "{scene}: the CPU frame is the instance arm's size"
+        );
+        let (n, most) = channel_diff(&cpu, a, |_| true);
+        assert_eq!(
+            n, 0,
+            "{scene}: the CPU arm differs from the instance arm on {n} pixels, by up to {most}"
+        );
+    }
     // Every cursor shape, block first.
     for (shape, name) in [
         (b"\x1b[2 q", "block"),
@@ -2928,6 +2944,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             diff, 0,
             "{diff} pixels differ between the live grid and its copy, {name} cursor"
         );
+        cpu_agrees(&mut arms, &mut t, &a, &format!("{name} cursor"));
     }
     // **`OSC 12`: an application-set cursor colour.** Two things are gated.
     // The block fills with it and the bar and underline cursors take it, and
@@ -2951,6 +2968,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         0,
         "the arms disagree on an OSC 12 block cursor"
     );
+    cpu_agrees(&mut arms, &mut t, &block_a, "osc12 block cursor");
     for (shape, name) in [
         (b"\x1b[4 q".as_slice(), "osc12 underline"),
         (b"\x1b[6 q".as_slice(), "osc12 bar"),
@@ -2962,6 +2980,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             0,
             "the arms disagree on an {name} cursor"
         );
+        cpu_agrees(&mut arms, &mut t, &a, &format!("{name} cursor"));
     }
     // Reset, so the rotation and selection cases below draw the default cursor.
     feed(&mut t, b"\x1b]112\x07");
