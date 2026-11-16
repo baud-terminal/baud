@@ -45,12 +45,16 @@
 //! - `forbidden PATTERNS CONTROLS FILE...`: files searched for a list kept
 //!   outside the repository, each pattern found in its control first; the
 //!   README session's `demo` runs the same module over its bytes.
+//! - `comments --check BASE [-- PATHSPEC...]`: the comment lines a change
+//!   adds, searched for the public rules and for the terms of a file kept
+//!   outside the repository, named by `BAUD_COMMENT_TERMS`.
 
 #![forbid(unsafe_code)]
 
 pub mod audit;
 pub mod changelog;
 pub mod citations;
+pub mod comments;
 pub mod crates;
 pub mod credits;
 pub mod difflib;

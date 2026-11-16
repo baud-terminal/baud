@@ -9,6 +9,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use xtask::audit::{self, Audit, Failed};
+use xtask::comments;
 use xtask::impl_audit::Counts;
 use xtask::page_text::{self, Options};
 use xtask::publish::{self, Flags};
@@ -202,6 +203,18 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
                 .map_err(|e| e.to_string())?;
             Ok(ExitCode::from(exit.0))
         }
+        ["comments", rest @ ..] => {
+            let terms = env::var_os(comments::TERMS_VAR);
+            let exit = comments::run(
+                rest,
+                root,
+                terms.as_deref(),
+                &mut stdout,
+                &mut io::stderr().lock(),
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(exit.0))
+        }
         _ => {
             eprintln!(
                 "usage: cargo xtask audit | impl-audit <file> | scan-audit [limit] \
@@ -212,7 +225,8 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
                  |--write-notices|--write-licences] | page-text [--key K] [--from DIR] [--save DIR] \
                  [--print] [--self-test] | pdf-search <key> [<term>...] \
                  | loop-head [--fn NAME] [--no-pageoff] A [B] | vt-table <results> [<baseline>] \
-                 | pmc <export.xml> | forbidden <patterns> <controls> <file>..."
+                 | pmc <export.xml> | forbidden <patterns> <controls> <file>... \
+                 | comments --check <base> [-- <pathspec>...]"
             );
             Ok(ExitCode::from(2))
         }
