@@ -1,8 +1,8 @@
 //! **The program a test runs, by name, wherever this system keeps it.** A
 //! test that runs `stty`, `pwd` or `mkfifo` names the file at `/bin` or
 //! `/usr/bin` where it is there, and otherwise the one the test process's own
-//! `PATH` finds: a system with no programs at those two places (NixOS keeps
-//! only `/bin/sh` and `/usr/bin/env` there) runs the same tests. The file at
+//! `PATH` finds: a system that keeps no programs at those two places, or
+//! only `/bin/sh` and `/usr/bin/env`, runs the same tests. The file at
 //! the usual place is taken first, so a system that has one runs exactly
 //! that file. A child's own `PATH` is left as the test sets it: the path
 //! returned is absolute, so the child needs no search to find it.

@@ -32,7 +32,7 @@ pub fn script(path: &Path, body: &str) {
 
 /// `from` copied to `to` by `cp`, which keeps a runnable file runnable:
 /// `/bin/cp` where there is one, else the `cp` this process's `PATH`
-/// finds (NixOS keeps no `/bin/cp`).
+/// finds, on a system that keeps no `/bin/cp`.
 pub fn copy(from: &Path, to: &Path) {
     let cp = if Path::new("/bin/cp").is_file() {
         "/bin/cp"

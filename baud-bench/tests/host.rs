@@ -27,7 +27,7 @@ const DATA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/host");
 /// The `PATH` a stand-in runs under: the system's four directories, then
 /// this process's own `PATH`, so the stand-in's `cat`, `grep` and `awk` are
 /// the system's where it has them and are found on a system that keeps them
-/// elsewhere (NixOS keeps none in `/usr/bin` or `/bin`).
+/// elsewhere, none of them in `/usr/bin` or `/bin`.
 fn stand_in_path() -> OsString {
     let mut path = OsString::from("/usr/bin:/bin:/usr/sbin:/sbin");
     if let Some(own) = std::env::var_os("PATH").filter(|p| !p.is_empty()) {
