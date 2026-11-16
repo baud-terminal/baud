@@ -115,10 +115,7 @@ impl Repo {
             fs::write(&list, format!("{t} lane 0000 2026-11-15\n")).expect("the list");
             c.env("BAUD_TRIED_TREES", &list);
         }
-        let out = c
-            .stderr(Stdio::null())
-            .output()
-            .expect("xtask");
+        let out = c.stderr(Stdio::null()).output().expect("xtask");
         assert_eq!(out.status.code(), Some(0), "{out:?}");
         String::from_utf8_lossy(&out.stdout)
             .lines()

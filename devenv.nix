@@ -82,11 +82,13 @@ let
     if pkgs.stdenv.hostPlatform.isLinux
     then "${pkgs.binutils-unwrapped}/bin/objdump"
     else "objdump";
-  # **nextest 0.9.152, over the pinned nixpkgs' 0.9.146**, on every host: it
+  # **nextest 0.9.152, over the pinned nixpkgs' 0.9.146**, on Linux: it
   # starts a test waiting for slots in its test group, as `pty`'s two wide
-  # tests do, when a test outside the group frees them. Drop it once the
-  # pinned nixpkgs carries 0.9.151 or later.
-  nextest = pkgs.cargo-nextest.overrideAttrs (finalAttrs: _: {
+  # tests do, when a test outside the group frees them. macOS keeps the
+  # pinned 0.9.146, whose Darwin patch does not apply to 0.9.152's source.
+  # Drop it once the pinned nixpkgs carries 0.9.151 or later.
+  nextest = if !pkgs.stdenv.hostPlatform.isLinux then pkgs.cargo-nextest else
+  pkgs.cargo-nextest.overrideAttrs (finalAttrs: _: {
     version = "0.9.152";
     src = pkgs.fetchzip {
       url = "https://github.com/nextest-rs/nextest/archive/refs/tags/cargo-nextest-${finalAttrs.version}.tar.gz";
