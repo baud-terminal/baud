@@ -947,7 +947,10 @@ fn every_seam_counts_its_send() {
 /// **The window crate's names in [`WRAPPERS`] and [`GENERIC`] are its own
 /// methods** at the version the lockfile pins, read from cargo's copy of
 /// its source: a name it does not have is a send the grammar would never
-/// see.
+/// see. macOS only: the crate is a dependency there alone, so only there
+/// does cargo hold its source
+/// ([`the_window_crate_is_a_dependency_on_macos_alone`] holds that).
+#[cfg(target_os = "macos")]
 #[test]
 fn the_window_crate_s_senders_are_its_own() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -970,20 +973,8 @@ fn the_window_crate_s_senders_are_its_own() {
                 .path()
                 .join(format!("macos-liquid-glass-{version}/src"))
         })
-        .find(|p| p.is_dir());
-    // On macOS the crate is a dependency and cargo has its source. Elsewhere
-    // cargo fetches it only for a build for macOS, so a registry without it
-    // has nothing to read, and the check is made where it is.
-    let Some(crate_dir) = crate_dir else {
-        if cfg!(target_os = "macos") {
-            panic!("the window crate's source is not in {}", home.display());
-        }
-        eprintln!(
-            "skipped: macos-liquid-glass {version}'s source is not in {}",
-            home.display()
-        );
-        return;
-    };
+        .find(|p| p.is_dir())
+        .expect("the window crate's source");
     let mut source = String::new();
     for entry in read_dir(&crate_dir).expect("its sources") {
         let path = entry.expect("an entry").path();
@@ -997,4 +988,30 @@ fn the_window_crate_s_senders_are_its_own() {
             "macos-liquid-glass {version} has `{name}`"
         );
     }
+}
+
+/// **The window crate is a dependency on macOS alone**: `Cargo.toml` names
+/// `macos-liquid-glass` in its `cfg(target_os = "macos")` dependencies and
+/// nowhere else, so [`the_window_crate_s_senders_are_its_own`] runs where
+/// cargo holds the crate's source and another system builds nothing that
+/// reaches the window. Named break: move it to `[dependencies]`.
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn the_window_crate_is_a_dependency_on_macos_alone() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest = read_to_string(root.join("Cargo.toml")).expect("Cargo.toml");
+    let tables: Vec<(&str, &str)> = manifest
+        .split("\n[")
+        .skip(1)
+        .filter_map(|t| t.split_once(']'))
+        .collect();
+    let naming: Vec<&str> = tables
+        .iter()
+        .filter(|(_, body)| {
+            body.lines()
+                .any(|l| l.trim_start().starts_with("macos-liquid-glass "))
+        })
+        .map(|(head, _)| *head)
+        .collect();
+    assert_eq!(naming, ["target.'cfg(target_os = \"macos\")'.dependencies"]);
 }
