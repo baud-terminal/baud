@@ -35,13 +35,10 @@ so this list cannot quietly fall out of date.
 """
 
 legend = """
-Lines with no mark work in the macOS app and in the shared terminal core,
-which the Linux version also runs; the Linux version runs on headless Wayland
-compositors (weston and sway) in its tests, [Status](status.md) says what it
-has done on a desktop, and a line says where its Linux side has not run.
-*macOS* marks what only the macOS app does, and *Linux* what only the Linux
-version does, each line saying how far it has run. **Partly** says what part
-is missing.
+Lines with no mark work in baud on macOS and in baud on Linux under Wayland,
+which share the terminal core and the renderer. *macOS* marks what only the
+macOS app does, and *Linux* what only the Linux version does. **Partly** says
+what part is missing.
 """
 
 protocols_intro = """
@@ -632,7 +629,7 @@ area = "text"
 name = "Hindi and Devanagari shaped"
 does = "Hindi and the other languages written in Devanagari draw from the built-in font, with nothing to install, bold text in bold, as the script is written: the vowel sign ि before the consonant it follows in the text, conjuncts such as क्ष, त्र and ज्ञ as one shape, half forms, reph over the consonant after it, and the nukta letters, glyph for glyph as HarfBuzz shapes them, in the built-in font, which carries Noto Sans Devanagari, and in the Mac's Kohinoor Devanagari, ITF Devanagari, Shree Devanagari 714 and Arial Unicode MS."
 status = "partial"
-gap = "a syllable a line wraps inside is drawn as two halves, the half on the next line on a dotted circle, and on a line a program has set to run right to left its letters are drawn each alone; on a double-width or double-height line a syllable is centred but not shrunk, and one an input method is composing there is drawn in pieces; Devanagari MT and Devanagari Sangam MN, which HarfBuzz shapes through their morx tables, do not draw glyph for glyph as it does; a language's own forms, such as Marathi's or Nepali's, are not chosen; italic text draws Devanagari upright; the comparison with HarfBuzz runs on every system for the built-in font and on macOS for the Mac's faces; Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada and Malayalam stay together in their cells but are not shaped; on Linux it has been seen on one desktop and is tested on no compositor."
+gap = "a syllable a line wraps inside is drawn as two halves, the half on the next line on a dotted circle, and on a line a program has set to run right to left its letters are drawn each alone; on a double-width or double-height line a syllable is centred but not shrunk, and one an input method is composing there is drawn in pieces; Devanagari MT and Devanagari Sangam MN, which HarfBuzz shapes through their morx tables, do not draw glyph for glyph as it does; a language's own forms, such as Marathi's or Nepali's, are not chosen; italic text draws Devanagari upright; the comparison with HarfBuzz runs on every system for the built-in font and on macOS for the Mac's faces; Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada and Malayalam stay together in their cells but are not shaped."
 platform = "both"
 tests = ["baud-font/tests/devanagari.rs::every_devanagari_fixture_shapes_as_harfbuzz_does", "baud-font/tests/devanagari.rs::the_built_regular_shapes_devanagari_as_noto_does", "baud-app/src/embedded.rs::every_style_maps_the_devanagari_it_ships", "baud-app/src/config.rs::the_default_stack_draws_devanagari_from_the_embedded_regular", "baud-render/tests/devanagari_runs.rs::the_readme_line_draws_the_same_pixels_on_every_system"]
 
@@ -651,7 +648,7 @@ area = "text"
 name = "Any script, from the system's fonts"
 does = "A character the first font lacks comes from the next font that has it, one character at a time, and one that neither your fonts nor baud's have comes from the font your system picks for it, so Arabic, Syriac, Thaana and N'Ko draw with no font of your own, Arabic and Syriac joined: CoreText's choice on macOS, fontconfig's match on Linux, found the first time such a character appears and kept. A letter of Arabic, Syriac or another joining script that a proportional font draws more than 1.1 cells wide is drawn smaller to fit its cell, unless the cells it reaches are empty or hold a space."
 status = "partial"
-gap = "a letter narrower than its cell leaves a gap where it joins its neighbours; a presentation form, a lam-alef, a letter SAPV 17 slants, a letter of a script that does not join (Thaana), and a symbol still overlap the next cell when wider than their own; on Linux fontconfig's language and alias preferences are not followed, and the fallback is tested only on a headless compositor with one system font (DejaVu Sans Mono, in the test container)."
+gap = "a letter narrower than its cell leaves a gap where it joins its neighbours; a presentation form, a lam-alef, a letter SAPV 17 slants, a letter of a script that does not join (Thaana), and a symbol still overlap the next cell when wider than their own; on Linux fontconfig's language and alias preferences are not followed."
 platform = "both"
 tests = ["baud-render/tests/refused_glyph.rs::a_refused_glyph_falls_back_to_the_next_face_that_carries_it", "baud-app/src/host.rs::the_system_draws_arabic_and_syriac_no_listed_face_has", "baud-app/src/discover.rs::the_charset_match_picks_a_face_per_character", "baud-render/tests/overwide_letters.rs::an_over_wide_letter_beside_a_letter_is_fitted_to_its_cell"]
 
@@ -764,8 +761,7 @@ id = "zoom-linux"
 area = "text"
 name = "Zoom on Linux"
 does = "Ctrl +, Ctrl - and Ctrl 0 zoom one step of the font size at a time, as Cmd does on a Mac, and the window keeps its size."
-status = "partial"
-gap = "it has not run, even on a headless compositor."
+status = "built"
 platform = "linux"
 tests = ["baud-present-wayland/tests/handshake.rs::the_zoom_keys_are_kept_from_the_program", "baud-app/src/fonts.rs::a_zoom_step_is_a_point_within_the_sizes"]
 
@@ -1049,8 +1045,7 @@ id = "blinking-text-linux"
 area = "text"
 name = "Blinking text on Linux"
 does = "Slow and fast blinking text, each at its own rate, held steady when the desktop asks for reduced motion, and an idle window with nothing blinking never wakes for it. The desktop's motion setting arrives just after launch, so text can blink in the frames before it does, where a Mac reads the setting before its first frame."
-status = "partial"
-gap = "it has not been checked on a compositor, even a headless one."
+status = "built"
 platform = "linux"
 tests = ["baud-app/src/timed.rs::blinking_text_wakes_at_its_own_flips_and_repaints_whole", "baud-app/src/timed.rs::an_idle_screen_waits_for_nothing", "baud-app/src/timed.rs::reduced_motion_holds_text_shown_and_turns_the_default_trail_off"]
 
@@ -1127,7 +1122,7 @@ chips = ["modified-key reporting"]
 id = "kitty-keyboard"
 area = "input"
 name = "Full keyboard reporting"
-does = "Every key and modifier unambiguous on macOS, and on Linux every key but a Shift the keymap consumed, which is named open in the input coverage; repeats reported, alternate keys and the text a key types, for editors such as Neovim and helix. On Linux it has not run, even on a headless compositor."
+does = "Every key and modifier unambiguous on macOS, and on Linux every key but a Shift the keymap consumed, which is named open in the input coverage; repeats reported, alternate keys and the text a key types, for editors such as Neovim and helix."
 status = "built"
 platform = "both"
 tests = ["baud-core/tests/kitty_encode.rs::every_row_of_the_table_is_gated", "baud-core/tests/kitty_encode.rs::alternate_keys_attach_to_the_number"]
@@ -1176,8 +1171,7 @@ id = "input-methods-linux"
 area = "input"
 name = "Input methods on Linux"
 does = "On Linux, text you compose with an input method such as IBus or Fcitx is drawn at the cursor, styled as GTK styles it, with the cursor where the input method puts it inside the text, or the part it marks highlighted, and the list of suggestions opens beside that cursor or that part."
-status = "partial"
-gap = "it has not run, even on a headless compositor, and no input method has been run with it."
+status = "built"
 platform = "linux"
 tests = ["baud-present-wayland/tests/handshake.rs::an_input_method_composes_at_the_cursor_and_commits_text", "baud-render/tests/composition.rs::the_input_methods_cursor_is_drawn_where_it_puts_it", "baud-render/tests/composition.rs::the_input_methods_cursor_follows_the_clusters", "baud-app/src/marked.rs::the_input_methods_cursor_lands_on_codepoints", "baud-app/src/marked.rs::the_candidate_window_opens_at_the_input_methods_cursor"]
 
@@ -1194,7 +1188,7 @@ tests = ["baud-app/src/pty.rs::backspace_after_a_hebrew_letter_erases_the_whole_
 id = "mouse"
 area = "input"
 name = "The mouse in programs"
-does = "Clicks, drags, scrolls and hovers reach programs such as vim, htop and tmux, with Shift, Ctrl and Option (Alt on Linux), in every report format including pixel-precise. On Linux, tested on a headless compositor, not on a desktop."
+does = "Clicks, drags, scrolls and hovers reach programs such as vim, htop and tmux, with Shift, Ctrl and Option (Alt on Linux), in every report format including pixel-precise."
 status = "built"
 platform = "both"
 tests = ["baud-core/tests/xterm/mouse.rs::decrqm_answers_every_mouse_mode", "baud-core/tests/xterm/mouse.rs::x10_encodes_up_to_223_inclusive", "baud-app/src/seat.rs::alt_is_meta_in_a_report_and_drags_a_block"]
@@ -1244,7 +1238,7 @@ rows = ["vt:`CSI > 1 s`"]
 id = "copy-paste"
 area = "input"
 name = "Copy and paste"
-does = "Cmd-C copies the selection and Cmd-V pastes, also on a Hebrew, Russian or Greek layout, by the letter the key types with Cmd held, and letting go of a selection copies it too unless you turn that off. On Linux, Ctrl+Shift+C and Ctrl+Shift+V use the desktop's clipboard, also on a Cyrillic, Greek or Hebrew layout when the first layout listed is a Latin one, the text you select is the primary selection, and a middle click or Shift+Insert pastes it. On Linux, tested on a headless compositor, not on a desktop; the Cyrillic, Greek and Hebrew layouts have not run there."
+does = "Cmd-C copies the selection and Cmd-V pastes, also on a Hebrew, Russian or Greek layout, by the letter the key types with Cmd held, and letting go of a selection copies it too unless you turn that off. On Linux, Ctrl+Shift+C and Ctrl+Shift+V use the desktop's clipboard, also on a Cyrillic, Greek or Hebrew layout when the first layout listed is a Latin one, the text you select is the primary selection, and a middle click or Shift+Insert pastes it."
 status = "built"
 platform = "both"
 tests = ["baud-render/tests/select.rs::a_wrapped_row_joins_the_next_and_a_newline_ends_a_row", "baud-present-wayland/tests/handshake.rs::a_copy_offers_text_and_answers_send_through_the_pipe", "baud-present-wayland/tests/handshake.rs::a_paste_reads_the_offer_to_its_end", "baud-present-wayland/tests/handshake.rs::the_primary_copies_and_pastes_on_its_own_protocol", "baud-present-wayland/tests/handshake.rs::the_clipboard_keys_are_kept_from_the_program", "baud-app/src/seat.rs::the_middle_button_pastes_on_its_release", "baud-present-wayland/tests/handshake.rs::the_clipboard_keys_are_found_on_a_cyrillic_layout", "baud-app/src/app.rs::a_command_key_the_menu_missed_still_copies_and_pastes", "baud-app/src/clip.rs::a_finished_selection_goes_to_the_pasteboard_unless_the_key_is_off", "baud-app/src/config.rs::copy_on_select_is_on_unless_it_says_off"]
@@ -1323,7 +1317,7 @@ chips = ["hyperlinks (OSC 8)"]
 id = "links-at-rest"
 area = "input"
 name = "Links underlined as they appear"
-does = "A web, mail or file link shows with a line under it the moment it is on screen, whether a program marks it or prints the address as plain text, even one that wraps onto the next line, in baud's amber or the colour you give the message box, and a program's own underline stays as it drew it. The link under the pointer lights up in an amber box, or a line or its text if you prefer; a plain click still selects, and Cmd-click (Ctrl-click on Linux) opens it. An address that may have been cut, or that a click would refuse, gets no line, and no program can read any of this back. One known limit: a program that wraps its own text short of the last column, such as a pane in a terminal multiplexer, can leave part of a cut address underlined as if it were all of it. `[link]` sets it or turns it off. On Linux the underline has not run, even on a headless compositor."
+does = "A web, mail or file link shows with a line under it the moment it is on screen, whether a program marks it or prints the address as plain text, even one that wraps onto the next line, in baud's amber or the colour you give the message box, and a program's own underline stays as it drew it. The link under the pointer lights up in an amber box, or a line or its text if you prefer; a plain click still selects, and Cmd-click (Ctrl-click on Linux) opens it. An address that may have been cut, or that a click would refuse, gets no line, and no program can read any of this back. One known limit: a program that wraps its own text short of the last column, such as a pane in a terminal multiplexer, can leave part of a cut address underlined as if it were all of it. `[link]` sets it or turns it off."
 status = "built"
 platform = "both"
 tests = ["baud-app/src/lined.rs::near_misses_get_no_line", "baud-app/src/lined.rs::a_soft_wrap_joins_across_a_changed_neighbour", "baud-app/src/lined.rs::a_cursor_only_frame_scans_nothing", "baud-app/src/lined.rs::urls_off_scans_nothing", "baud-app/src/lined.rs::a_flood_costs_a_bounded_read", "baud-app/src/lined.rs::a_uri_a_program_cut_is_not_drawn_whole", "baud-app/src/lined.rs::the_look_and_the_hand_are_told_apart", "baud-render/tests/message_pair.rs::decrqcra_answers_the_same_with_a_line_up", "baud-render/tests/message_pair.rs::the_address_and_the_notice_take_no_colour_from_a_program", "baud-render/tests/message_pair.rs::a_visible_cursor_cannot_cover_a_message", "baud-app/src/lined.rs::a_wrap_that_ends_reads_the_row_below", "baud-app/src/lined.rs::the_scan_is_given_the_host_and_an_unknown_one_opens_nothing", "baud-app/src/lined.rs::a_marked_link_gets_a_line_where_it_opens", "baud-app/src/lined.rs::a_programs_own_underline_wins", "baud-app/src/lined.rs::a_line_is_what_a_click_opens", "baud-app/src/lined.rs::a_window_looking_back_reads_the_rows_it_shows", "baud-app/src/lined.rs::one_list_of_schemes", "baud-app/src/lined.rs::both_drivers_draw_the_links", "baud-app/src/link.rs::the_policy_and_the_paths_take_the_same_names", "baud-app/src/config.rs::the_link_section_reads_as_it_documents", "baud-render/src/overlay.rs::printable_ascii_covers_what_its_clusters_cover", "baud-render/tests/message_pair.rs::a_line_at_rest_is_amber_and_leaves_no_trace", "baud-present-macos/tests/cells.rs::an_unhovered_line_is_amber_and_a_hovered_one_unchanged_on_every_arm", "baud-render/tests/link_amber.rs::the_line_at_rest_is_the_brand_amber_on_every_page", "baud-render/tests/link_amber.rs::a_box_color_of_the_users_moves_the_line", "baud-present-macos/tests/cells.rs::the_address_and_the_notice_take_no_colour_from_a_program", "baud-present-macos/tests/cells.rs::no_cursor_covers_an_address_on_any_arm", "baud-present-macos/tests/cells.rs::the_lines_and_the_looks_are_one_picture_on_every_arm"]
@@ -1334,7 +1328,7 @@ chips = ["hyperlinks (OSC 8)"]
 id = "printed-paths"
 area = "input"
 name = "File paths underlined if they exist"
-does = "A file path a program prints, starting with `/`, `~/`, `./` or `../`, or with no prefix and a `/` inside such as `src/app.rs`, is underlined once baud has checked that the file is on this computer, by a thread of its own that drawing never waits for. So is a file name on its own, such as `README.md` or `.zshrc` in a listing, once baud has found a file of exactly that name in your shell's folder, so a version number or a word in a sentence gets no line; `[link.path] names = \"hover\"` lights them only under the pointer. Cmd-click (Ctrl-click on Linux) checks again and shows the file in Finder or your file manager, never opens or runs it, and says so when it's gone. Paths on network or automounted disks, and anything ssh prints, get no line; `./`, `../`, a path with no prefix and a name on its own need your shell to report its folder and get none inside a terminal multiplexer. No program can read any of this back. `[link] paths` turns it off, and `[link.path]` reads more kinds. On Linux it has not run, even on a headless compositor."
+does = "A file path a program prints, starting with `/`, `~/`, `./` or `../`, or with no prefix and a `/` inside such as `src/app.rs`, is underlined once baud has checked that the file is on this computer, by a thread of its own that drawing never waits for. So is a file name on its own, such as `README.md` or `.zshrc` in a listing, once baud has found a file of exactly that name in your shell's folder, so a version number or a word in a sentence gets no line; `[link.path] names = \"hover\"` lights them only under the pointer. Cmd-click (Ctrl-click on Linux) checks again and shows the file in Finder or your file manager, never opens or runs it, and says so when it's gone. Paths on network or automounted disks, and anything ssh prints, get no line; `./`, `../`, a path with no prefix and a name on its own need your shell to report its folder and get none inside a terminal multiplexer. No program can read any of this back. `[link] paths` turns it off, and `[link.path]` reads more kinds."
 status = "built"
 platform = "both"
 tests = ["baud-app/src/paths.rs::the_default_forms_are_the_prefixes_and_relative_paths", "baud-app/src/paths.rs::a_relative_path_ends_before_an_equals_and_at_a_lists_colon", "baud-app/src/paths.rs::a_path_holding_a_control_or_a_mark_is_refused_whole", "baud-app/src/paths.rs::the_tail_test_admits_every_start", "baud-app/src/paths.rs::a_paths_uri_is_percent_encoded_utf8", "baud-app/src/paths.rs::a_path_gets_a_line_only_if_it_exists", "baud-app/src/paths.rs::a_new_screen_replaces_the_queue", "baud-app/src/paths.rs::a_batch_moves_the_generation_once", "baud-app/src/paths.rs::dot_needs_a_report_naming_this_machine", "baud-app/src/paths.rs::rows_from_ssh_keep_no_mark_after_it_ends", "baud-app/src/paths.rs::paths_off_reads_nothing_and_closed_stays_closed", "baud-app/src/paths.rs::a_click_reads_the_path_the_line_drew", "baud-app/src/paths.rs::a_path_line_is_what_a_click_admits", "baud-app/src/paths.rs::a_found_path_opens_and_its_bar_names_this_machine", "baud-app/src/paths.rs::urls_off_reads_paths_only", "baud-app/src/paths.rs::decrqcra_answers_the_same_with_a_path_marked", "baud-app/src/probe.rs::a_link_into_an_automount_is_refused_before_any_lookup_under_it", "baud-app/src/probe.rs::net_never_reaches_a_lookup", "baud-app/src/probe.rs::a_walk_says_gone_only_where_the_file_system_did", "baud-app/src/probe.rs::mountinfo_refuses_every_type_not_known_local", "baud-app/src/probe.rs::ssh_in_front_looks_nothing_up", "baud-app/src/probe.rs::a_repaint_loop_still_gets_a_batch_a_second", "baud-app/src/probe.rs::a_stuck_lookup_closes_marks_and_starts_no_second_thread", "baud-app/src/probe.rs::a_click_asks_again_off_the_frame", "baud-app/src/probe.rs::paths_off_starts_no_thread", "baud-app/src/probe.rs::an_answer_redraws_the_lines_once", "baud-app/src/probe.rs::no_path_is_logged", "baud-app/src/probe.rs::a_one_shot_ssh_keeps_its_rows_unmarked", "baud-app/src/paths.rs::a_frame_reads_paths_only_once_one_is_drawn", "baud-app/src/probe.rs::the_first_owed_batch_bounds_the_wait", "baud-app/src/paths.rs::opening_is_what_admit_answers", "baud-app/src/paths.rs::a_name_holds_a_dot_and_a_word_is_read_only_when_asked", "baud-app/src/paths.rs::the_tail_test_admits_names_and_words", "baud-app/src/paths.rs::a_name_lights_only_where_the_worker_found_it", "baud-app/src/paths.rs::a_name_is_read_in_its_folder_and_refused_where_baud_cannot_tell", "baud-app/src/paths.rs::names_hover_lights_only_under_the_pointer", "baud-app/src/paths.rs::a_batch_asks_paths_first_and_at_most_256_names", "baud-app/src/paths.rs::no_name_is_looked_up_in_a_frame", "baud-app/src/rules.rs::the_path_rule_sets_the_names", "baud-app/src/config.rs::the_guide_and_example_name_every_form_and_name_look", "baud-app/src/config.rs::the_link_section_reads_as_it_documents", "baud-app/src/report.rs::the_paths_line_is_counts_only", "baud-app/src/copied.rs::a_path_click_that_opens_nothing_says_why", "baud-app/src/sys.rs::the_layouts_are_the_platform_headers_own", "baud-app/src/sys.rs::the_constants_are_the_platform_headers_own"]
@@ -1343,7 +1337,7 @@ tests = ["baud-app/src/paths.rs::the_default_forms_are_the_prefixes_and_relative
 id = "link-rules"
 area = "input"
 name = "Your own link types"
-does = "Add a kind of link baud doesn't open on its own, such as `tel:` or `ssh://`, with a `[link.NAME]` rule in your config, and send it to the app your system has for it or to a program you name; change what a click on a web, mail or file link runs, turn one off, or have a click copy it; or have a clicked file path open in your editor at its line, and read paths with no prefix, `:line:col` and paths with spaces in quotes. Nothing a program prints can add a rule. Whatever a rule says, the address shows under Cmd (Ctrl on Linux), a command runs with no shell and never gets the link inside a script, a link with a part that starts with `-` is refused, and a rule baud doesn't fully understand is ignored whole, with a warning. On Linux they have not run, even on a headless compositor."
+does = "Add a kind of link baud doesn't open on its own, such as `tel:` or `ssh://`, with a `[link.NAME]` rule in your config, and send it to the app your system has for it or to a program you name; change what a click on a web, mail or file link runs, turn one off, or have a click copy it; or have a clicked file path open in your editor at its line, and read paths with no prefix, `:line:col` and paths with spaces in quotes. Nothing a program prints can add a rule. Whatever a rule says, the address shows under Cmd (Ctrl on Linux), a command runs with no shell and never gets the link inside a script, a link with a part that starts with `-` is refused, and a rule baud doesn't fully understand is ignored whole, with a warning."
 status = "built"
 platform = "both"
 tests = ["baud-app/src/rules.rs::an_unknown_key_refuses_the_rule_whole_and_runs_nothing", "baud-app/src/rules.rs::an_unknown_value_refuses_the_rule_whole", "baud-app/src/rules.rs::each_key_alone_is_a_whole_rule", "baud-app/src/rules.rs::no_part_of_a_link_starts_with_a_dash", "baud-app/src/rules.rs::a_substituted_value_never_starts_with_a_dash", "baud-app/src/rules.rs::a_command_is_an_argv_with_no_shell", "baud-app/src/rules.rs::a_command_has_null_streams", "baud-app/src/rules.rs::a_placeholder_in_a_script_is_refused_at_read", "baud-app/src/rules.rs::off_on_a_default_scheme_admits_nothing", "baud-app/src/rules.rs::copy_puts_the_exact_text_and_starts_no_process", "baud-app/src/probe.rs::off_on_the_path_rule_starts_no_worker", "baud-app/src/lined.rs::off_takes_a_defaults_line_away_marked_or_printed", "baud-app/src/rules.rs::a_versioned_interpreter_is_refused_as_its_name", "baud-app/src/rules.rs::bun_deno_rscript_and_tclsh_take_no_placeholder_as_code", "baud-app/src/rules.rs::awk_and_sed_take_no_placeholder_as_their_program", "baud-app/src/rules.rs::remote_shells_take_no_placeholder_after_the_destination", "baud-app/src/rules.rs::bytes_stay_checked_after_substitution", "baud-app/src/rules.rs::schemes_with_code_or_wildcards_are_refused", "baud-app/src/rules.rs::the_defaults_own_rules_hold_under_a_rule", "baud-app/src/rules.rs::a_bracket_in_a_string_cuts_a_list_across_lines_and_is_refused", "baud-app/src/rules.rs::a_program_not_on_path_is_said_at_read", "baud-app/src/rules.rs::rules_go_in_file_order_before_the_defaults", "baud-app/src/rules.rs::the_path_rule_sets_the_forms", "baud-app/src/rules.rs::the_prefilter_takes_every_added_scheme", "baud-app/src/rules.rs::rules_are_read_only_from_the_config_file", "baud-app/src/link.rs::a_scheme_a_rule_adds_is_read_in_the_text", "baud-app/src/link.rs::an_osc8_link_comes_first_and_a_cell_belongs_to_one_link", "baud-app/src/link.rs::every_rules_link_shows_its_address_in_the_bar", "baud-app/src/lined.rs::a_scheme_a_rule_adds_gets_a_line_at_rest", "baud-app/src/lined.rs::decrqcra_answers_the_same_with_a_rules_line_up", "baud-app/src/lined.rs::both_drivers_hand_both_copies_of_the_rules", "baud-app/src/config.rs::link_rules_read_whole_from_the_config", "baud-app/src/config.rs::the_examples_link_rules_read_uncommented", "baud-app/src/config.rs::the_guide_lists_a_link_rules_keys", "baud-app/src/opener.rs::an_ended_opener_is_reaped_and_a_running_one_kept"]
@@ -1364,8 +1358,7 @@ id = "links-linux"
 area = "input"
 name = "Links open safely on Linux"
 does = "Ctrl-click opens web and mail links in your browser and mail app, whether a program marks them as links or prints the address as plain text; a link to a file is shown in your file manager, never launched unless a rule of yours runs a command for it, and any other kind is refused unless you add it. Hold Ctrl over a link to see its address first."
-status = "partial"
-gap = "on a headless compositor a Ctrl-click handed each address to a stand-in for your browser, and Ctrl showed it; showing a file in the file manager has not run, even there, and none of it on a desktop."
+status = "built"
 platform = "linux"
 tests = ["baud-app/src/seat.rs::a_ctrl_click_on_a_link_opens_it", "baud-app/src/seat.rs::ctrl_held_over_a_link_previews_it", "baud-app/src/opener.rs::a_link_is_one_argument_to_xdg_open", "baud-app/src/bus.rs::a_reveal_asks_the_file_manager"]
 rows = ["vt:`OSC 8`"]
@@ -1395,7 +1388,7 @@ tests = ["baud-app/src/wheel.rs::whole_lines_land_at_once", "baud-app/src/wheel.
 id = "history-keys"
 area = "scroll"
 name = "Page through the history from the keyboard"
-does = "Shift+Page Up and Shift+Page Down page the history a window at a time; on a Mac laptop the chord is fn+Shift+Up and fn+Shift+Down. Plain Page Up and Page Down stay the program's, and on the alternate screen, where full-screen programs run, the chord is the program's too, judged against the screen in force as each key arrives. A program on the main screen never receives Shift+Page Up or Shift+Page Down. On Linux the keys have not run, even on a headless compositor."
+does = "Shift+Page Up and Shift+Page Down page the history a window at a time; on a Mac laptop the chord is fn+Shift+Up and fn+Shift+Down. Plain Page Up and Page Down stay the program's, and on the alternate screen, where full-screen programs run, the chord is the program's too, judged against the screen in force as each key arrives. A program on the main screen never receives Shift+Page Up or Shift+Page Down."
 status = "built"
 platform = "both"
 tests = ["baud-app/src/history_keys.rs::shift_page_pages_the_main_screens_history_against_the_screen_in_force", "baud-app/src/history_keys.rs::a_page_is_the_windows_rows_held_to_the_history", "baud-app/src/app.rs::the_macs_shift_page_keys_page_the_main_screens_history", "baud-app/src/app.rs::the_macs_key_path_pages_the_history_before_the_snap"]
@@ -1404,7 +1397,7 @@ tests = ["baud-app/src/history_keys.rs::shift_page_pages_the_main_screens_histor
 id = "find"
 area = "scroll"
 name = "Find in the scrollback"
-does = "Command-F (Ctrl+Shift+F on Linux) opens a find field: every match in the history and on the screen is marked as you type, the newest is selected so a copy takes it, and Command-G or Enter steps to older ones, the window following. On macOS the field opens on your last search, made in baud or any other app, selected so that typing replaces it, and after you close it Command-G finds that search again, on from where you left it, and Command-F reopens on it. A word you compose with an input method is composed in the field. Upper and lower case match, and a letter typed with a separate accent mark matches the same letter written as one character, as the Mac's own find does. On Linux the find field has not run, even on a headless compositor."
+does = "Command-F (Ctrl+Shift+F on Linux) opens a find field: every match in the history and on the screen is marked as you type, the newest is selected so a copy takes it, and Command-G or Enter steps to older ones, the window following. On macOS the field opens on your last search, made in baud or any other app, selected so that typing replaces it, and after you close it Command-G finds that search again, on from where you left it, and Command-F reopens on it. A word you compose with an input method is composed in the field. Upper and lower case match, and a letter typed with a separate accent mark matches the same letter written as one character, as the Mac's own find does."
 status = "built"
 platform = "both"
 tests = ["baud-core/tests/search.rs::canonical_equivalents_match_each_other", "baud-core/tests/search.rs::a_wrapped_line_matches_across_the_wrap_and_a_newline_does_not", "baud-render/tests/find.rs::the_list_kept_across_reads_is_the_list_read_afresh", "baud-render/tests/find.rs::every_mark_and_the_field_are_drawn_and_leave_nothing_when_they_go", "baud-app/src/find.rs::typing_selects_the_newest_match_and_copying_takes_it", "baud-app/src/find.rs::command_g_after_escape_steps_on_from_where_the_field_closed", "baud-app/src/find.rs::a_composition_is_drawn_in_the_field_at_its_caret"]
@@ -1433,8 +1426,7 @@ id = "scrollbar-linux"
 area = "scroll"
 name = "The scrollbar on Linux"
 does = "The same thumb as on a Mac: it appears while you scroll and fades away, widens when you point at it while looking back, and can be dragged or clicked, and a program can hide it."
-status = "partial"
-gap = "dragging the thumb has run only on a headless compositor; its fading and widening have not been checked on a compositor, and none of it on a desktop."
+status = "built"
 platform = "linux"
 tests = ["baud-app/src/bar.rs::a_drag_on_the_knob_moves_the_window_and_keeps_the_gesture", "baud-app/src/bar.rs::a_jump_needs_a_drawn_thumb_and_a_shown_scrollbar", "baud-app/src/seat.rs::the_locator_sees_a_move_before_the_scrollbar_takes_it"]
 rows = ["vt:`?30`"]
@@ -1454,7 +1446,7 @@ measured = ["Smooth scroll's per-frame cost (measured, under the floor)"]
 id = "selection"
 area = "scroll"
 name = "Select anything, history included"
-does = "Drag to select, double-click for a word, triple-click for a line, Shift-click to extend and Option-drag (Alt-drag on Linux) for a rectangle, reaching back into the scrollback. On Linux, tested on a headless compositor, not on a desktop."
+does = "Drag to select, double-click for a word, triple-click for a line, Shift-click to extend and Option-drag (Alt-drag on Linux) for a rectangle, reaching back into the scrollback."
 status = "built"
 platform = "both"
 tests = ["baud-render/src/select.rs::a_word_stops_at_delimiters_blanks_and_empty_cells", "baud-render/tests/select.rs::a_range_over_the_history_reads_the_lines_the_ring_kept", "baud-app/src/app.rs::option_starts_a_block_and_wins_over_shift", "baud-app/src/seat.rs::alt_is_meta_in_a_report_and_drags_a_block"]
@@ -1600,7 +1592,7 @@ rows = ["vt:`OSC 133`"]
 id = "launch-splash"
 area = "window"
 name = "A launch splash"
-does = "every window opens with baud's colour logo in the middle of it once the window is on screen: a burst of plasma draws it from left to right and a second carries it straight back out from left to right, in one movement, gone about half a second after it starts. The plasma takes the colour of each glyph it passes over: the word's own white (dark on a light page) over \"baud\", the amber over the prompt and the block. Your keys go to the shell the whole time, and the shell's output and prompt show the moment they arrive, in front of the logo, which plays around them. With reduced motion on -- macOS's Reduce Motion, or the Linux desktop's setting once the desktop has reported it -- the logo shows whole and fades instead. The Linux setting arrives just after launch: if it comes while the plasma draws the logo in, the logo shows whole at once, and once the plasma carrying it out has lit, the logo goes. It stays under the flash limits of the web accessibility guidelines (WCAG 2.3.1), follows light and dark, and one setting turns it off. Every window you open after the first plays its own, from the moment it is on screen, and nothing waits for it: the window's shell starts before the window is drawn. On Linux it has run on headless compositors and on one desktop, where its plasma shows a hard-edged grey band, and not with reduced motion on."
+does = "every window opens with baud's colour logo in the middle of it once the window is on screen: a burst of plasma draws it from left to right and a second carries it straight back out from left to right, in one movement, gone about half a second after it starts. The plasma takes the colour of each glyph it passes over: the word's own white (dark on a light page) over \"baud\", the amber over the prompt and the block. Your keys go to the shell the whole time, and the shell's output and prompt show the moment they arrive, in front of the logo, which plays around them. With reduced motion on -- macOS's Reduce Motion, or the Linux desktop's setting once the desktop has reported it -- the logo shows whole and fades instead. The Linux setting arrives just after launch: if it comes while the plasma draws the logo in, the logo shows whole at once, and once the plasma carrying it out has lit, the logo goes. It stays under the flash limits of the web accessibility guidelines (WCAG 2.3.1), follows light and dark, and one setting turns it off. Every window you open after the first plays its own, from the moment it is on screen, and nothing waits for it: the window's shell starts before the window is drawn. On Linux its plasma shows a hard-edged grey band."
 status = "built"
 platform = "both"
 tests = ["baud-present-macos/tests/cells.rs::the_splash_draws_alike_on_every_arm", "baud-render/tests/splash.rs::the_plasma_holds_the_effects_slot", "baud-render/tests/splash.rs::the_plasma_is_the_colour_of_the_glyph_it_is_over", "baud-render/src/splash.rs::the_logo_leaves_as_it_is_drawn", "baud-render/tests/splash.rs::the_first_frame_shows_the_logo_faintly_in_the_plasma", "baud-render/tests/splash.rs::the_held_logo_stays_over_output_and_goes_whole", "baud-bench/tests/splash_flashes.rs::the_splash_is_below_the_flash_thresholds", "baud-app/src/splash.rs::it_plays_on_the_clock_and_is_gone_at_its_end", "baud-app/src/splash.rs::the_plasma_waits_for_the_window_to_be_shown", "baud-app/src/splash.rs::under_reduced_motion_it_holds_until_the_shell_draws_then_fades", "baud-app/src/timed.rs::the_splash_waits_for_the_first_frame_then_plays_and_goes", "baud-render/tests/splash.rs::the_plasma_is_full_strength_and_its_remainder_fades_out", "baud-bench/tests/splash_flashes.rs::the_plasmas_remainder_fades_into_the_page", "baud-app/src/splash.rs::every_frame_the_splash_owes_moves", "baud-app/src/splash.rs::no_splash_frame_waits_on_a_cap_scan", "baud-app/src/splash.rs::the_splash_is_gone_at_its_end", "baud-app/src/config.rs::the_launch_splash_is_on_unless_turned_off", "baud-app/src/app.rs::every_window_plays_the_logo_as_the_launchs_does", "baud-app/src/app.rs::no_key_or_read_waits_on_the_splash", "baud-app/src/splash.rs::every_linux_window_plays_the_logo_as_the_launchs_does", "baud-app/src/splash.rs::each_window_plays_its_own_splash_on_its_own_clock", "baud-app/src/timed.rs::a_windows_splash_waits_on_nothing_and_changes_only_the_logo"]
@@ -1611,7 +1603,7 @@ area = "window"
 name = "Activity lights"
 does = "Nine small lights, named and ordered as in the table of front-panel lights in a 1988 U.S. Robotics Courier manual, with FAX in ARQ's place as on the V.34 Courier, each lit only by something baud measured: HS (High Speed) while the program's output floods in, AA (Auto Answer) when baud answers the program on its own, CD (Carrier Detect) while the program in front is ssh with its connection up, OH (Off Hook) while a program other than the shell is in front, RD (Receive Data) and SD (Send Data) for data baud receives and sends, CS (Clear to Send) while the program takes what baud sends, out while it is not taking it, FAX while a picture is shown, and SYN while the program holds the screen to draw it at once. On macOS they make a modem's panel at the right of the title bar, baud's logo and all nine lights on one plate, each lamp over its letters, and stay in it in full screen, hidden with it where macOS hides it until you move the pointer to the top of the screen; in a narrow window the leftmost lights go first and the plate shrinks with them, the logo staying whole. Or, on either system, on a thin line of their own above the program's first line -- Linux's place, whose window has no title bar -- or under its last, only as tall as the lights (15 points), less than a text row at the 13 point default. The program is never told about that line: its rows and its text area leave it out, and smooth scrolling slides the text past it while the line holds still. The plate is your theme's background, on the line a small rounded one beside each light's letters, in the title bar one with a bevel and a socket behind each lamp, both made from your theme's background so they hold on any page, and every lamp is one of your theme's sixteen colours exactly: lit, a dot with a soft glow of its colour, whose strength one setting sets; unlit, a dot half the size, so the state reads by size as well as colour; a light baud may not read, a ring. Which colour each light takes is one setting: baud's own set, one colour a kind and CS green for a clear line, the default; the colours the IEC 60073 standard gives an indicator's meaning; or every lamp red, as the modems' front panels were. An unlit light is colour 8 in every set. Each light has its own hover text. They never flash more than three times a second, hold steady under Reduce Motion, lose their glow under Dim Flashing Lights on macOS, follow your theme, and one setting moves them or turns them all off. On Linux, CD is not built: it is always dark there, even with ssh in front, rather than the ring a light baud may not read is drawn as, and with no desktop setting for Dim Flashing Lights a lit light always glows, the three-a-second limit still holding."
 status = "partial"
-gap = "On Linux no test checks the line; it has been seen drawn on one desktop."
+gap = "on Linux the CD light is not built."
 platform = "both"
 tests = ["baud-render/tests/activity_lights.rs::each_light_is_drawn_in_its_state_with_its_letters_to_the_left", "baud-render/tests/activity_lights.rs::the_strip_is_its_lights_side_by_side", "baud-render/tests/activity_lights.rs::the_lights_flash_at_most_three_times_a_second_and_show_everything", "baud-render/tests/activity_lights.rs::cs_is_lit_while_the_line_is_clear", "baud-render/tests/activity_lights.rs::a_state_that_toggles_fast_is_one_steady_light", "baud-render/tests/activity_lights.rs::reduce_motion_holds_a_light_steady_while_the_activity_lasts", "baud-render/tests/activity_lights.rs::a_refused_read_shows_a_ring_and_keeps_the_clock", "baud-render/tests/activity_lights.rs::every_light_changing_at_once_flashes_under_the_area_clause", "baud-render/tests/activity_lights.rs::every_panel_lamp_changing_at_once_flashes_under_the_area_clause", "baud-render/tests/activity_lights.rs::every_lamp_pixel_on_the_panel_is_its_palette_entry", "baud-render/tests/activity_lights.rs::the_socket_and_the_bevel_hold_on_any_page", "baud-app/src/lights.rs::a_narrow_window_drops_the_leftmost_and_the_plate_shrinks", "baud-app/src/palette.rs::a_theme_files_socket_and_bevel_come_from_its_page", "baud-app/src/lights.rs::each_lights_rectangle_maps_to_its_own_hover_text", "baud-app/src/lights.rs::the_lights_sit_at_the_strips_right_and_a_narrow_window_drops_the_leftmost", "baud-app/src/lights.rs::the_driver_ticks_feeds_and_places_the_lights", "baud-app/src/lights.rs::dim_flashing_lights_draws_the_lights_without_their_glow", "baud-app/src/front.rs::off_hook_is_a_job_other_than_the_shell_in_front", "baud-app/src/front.rs::carrier_detect_is_an_ssh_in_front_with_its_connection_up", "baud-app/src/front.rs::a_refused_read_is_neither_lit_nor_dark", "baud-app/src/front.rs::the_lights_off_read_no_process", "baud-app/src/access.rs::reduce_motion_holds_the_activity_lights_steady", "baud-app/src/config.rs::the_activity_lights_go_where_the_setting_says", "baud-app/src/config.rs::each_system_has_its_place_for_the_lights_and_says_when_it_cannot", "baud-render/tests/lights_line.rs::the_line_is_the_lights_picture_and_its_margins_and_no_row", "baud-render/tests/lights_line.rs::the_lines_lights_are_the_title_strips_pictures", "baud-render/tests/lights_line.rs::the_status_line_sits_between_the_grid_and_the_line_and_programs_leave_it", "baud-render/tests/lights_line.rs::a_light_that_changes_names_another_picture_and_draws_nothing", "baud-render/tests/lights_line.rs::a_top_line_moves_the_grid_down_by_its_height", "baud-render/tests/lights_line.rs::a_narrow_line_drops_the_leftmost_lights_first", "baud-render/tests/lights_line.rs::every_lamp_pixel_on_the_line_is_its_palette_entry_on_the_background", "baud-present-macos/tests/cells.rs::a_light_change_on_its_line_draws_the_frame_whole_on_both_paths", "baud-app/src/winops.rs::a_cell_resize_keeps_the_lights_line", "baud-app/src/width.rs::the_lights_line_is_taken_off_in_pixels", "baud-app/src/own_line.rs::each_stamp_lights_its_light_and_the_wait_ends_its_hold", "baud-app/src/own_line.rs::a_group_other_than_the_shells_is_a_job_in_front", "baud-app/src/app.rs::the_grid_begins_below_the_lights_line_at_the_top", "baud-app/src/line_tip.rs::the_lines_lights_are_where_the_frame_puts_them", "baud-app/src/own_line.rs::the_linux_driver_feeds_schedules_and_lays_out_the_line", "baud-app/src/own_line.rs::the_states_are_sampled_once_a_frame_not_once_a_read", "baud-app/src/width.rs::the_size_reports_leave_the_line_out_of_the_text_area", "baud-app/src/line_tip.rs::each_light_on_its_line_shows_its_own_tip", "baud-app/src/line_tip.rs::a_lights_tip_is_hoverable_dismissible_and_persistent", "baud-app/src/seat.rs::the_pointer_for_the_lights_tips_is_the_frames_pixel", "baud-render/tests/hover_tip.rs::a_lights_tip_is_drawn_by_its_line_and_leaves_the_line_as_it_was", "baud-render/tests/hover_tip.rs::a_tip_over_a_top_line_opens_down", "baud-render/tests/activity_lights.rs::every_lamp_pixel_on_the_title_strip_is_its_palette_entry", "baud-render/tests/activity_lights.rs::the_sets_are_their_tables_and_meaning_is_the_default", "baud-render/tests/activity_lights.rs::the_unlit_lamp_is_entry_eight_in_every_set", "baud-render/tests/activity_lights.rs::the_unlit_lamp_is_half_the_lit_ones_diameter", "baud-render/tests/activity_lights.rs::the_plate_is_the_background_and_the_lamps_read_on_it", "baud-render/tests/activity_lights.rs::the_glow_is_held_to_its_range_and_starts_off_the_dot", "baud-render/tests/activity_lights.rs::dim_flashing_lights_draws_no_glow_and_the_dot_unchanged", "baud-render/tests/lights_line.rs::the_lines_drawn_lamps_read_at_three_to_one_and_letters_at_four_and_a_half", "baud-render/tests/lights_line.rs::decs_status_line_is_as_it_was", "baud-app/src/lights.rs::the_module_has_its_numbers_on_the_plate", "baud-app/src/config.rs::the_lights_colours_are_meaning_unless_another_set_is_named", "baud-app/src/config.rs::the_lights_glow_is_held_to_zero_to_one", "baud-app/src/line_tip.rs::a_title_strip_lights_tip_shows_on_entry_and_holds_to_its_box", "baud-present-macos/tests/crossings.rs::a_watched_view_queues_each_crossing_at_its_point", "baud-present-macos/tests/on_screen.rs::a_light_in_the_full_screen_title_bar_lands_where_its_window_puts_it", "baud-present-macos/tests/on_screen.rs::a_light_in_the_terminal_window_lands_where_it_did"]
 
@@ -1619,7 +1611,7 @@ tests = ["baud-render/tests/activity_lights.rs::each_light_is_drawn_in_its_state
 id = "status-line-lights"
 area = "window"
 name = "Activity lights on DEC's status line"
-does = "When a program shows DEC's indicator status line, one setting also puts five of the activity lights on it as words after the printer: CD, OH, CS, FAX and SYN, each there while what it shows holds and following it within the 80 milliseconds DEC's standard gives the line. CD or OH reads CD? or OH? when baud cannot tell. The lights keep all nine wherever they are drawn. Past 37 points of the default font the words are left out, so they never flash past the web accessibility guidelines' limit. Hold the pointer over a word to see what it means, the light's own hover text, in a box baud draws itself, which stays while the pointer is on the word or the box and goes with a key. Off by default. On Linux it has not run, even on a headless compositor."
+does = "When a program shows DEC's indicator status line, one setting also puts five of the activity lights on it as words after the printer: CD, OH, CS, FAX and SYN, each there while what it shows holds and following it within the 80 milliseconds DEC's standard gives the line. CD or OH reads CD? or OH? when baud cannot tell. The lights keep all nine wherever they are drawn. Past 37 points of the default font the words are left out, so they never flash past the web accessibility guidelines' limit. Hold the pointer over a word to see what it means, the light's own hover text, in a box baud draws itself, which stays while the pointer is on the word or the box and goes with a key. Off by default."
 status = "built"
 platform = "both"
 tests = ["baud-render/tests/hover_tip.rs::a_tip_is_wrapped_right_aligned_and_above_the_line", "baud-render/tests/hover_tip.rs::the_tip_is_drawn_moved_and_cleared_without_a_trace", "baud-app/src/line_tip.rs::the_cell_under_a_point_counts_the_lines_row", "baud-app/src/line_tip.rs::a_words_tip_is_the_strips_text_over_the_word", "baud-app/src/line_tip.rs::the_tip_is_hoverable_persistent_and_dismissible", "baud-app/src/line_tip.rs::both_drivers_drive_the_tip", "baud-app/src/line_tip.rs::a_word_that_comes_and_goes_under_a_still_pointer_shows_once", "baud-app/src/seat.rs::the_pointer_for_the_lines_tip_counts_the_lines_row", "baud-present-macos/tests/cells.rs::the_cell_arm_draws_what_the_instance_arm_draws", "baud-core/tests/vt420/status_line.rs::the_state_lamps_are_words_in_their_columns_after_the_printer", "baud-core/tests/vt420/status_line.rs::the_lamps_are_drawn_at_once_and_kept_across_reads", "baud-core/tests/vt420/status_line.rs::the_lamps_show_only_with_the_indicator_and_outlive_ris", "baud-core/tests/vt420/status_line.rs::each_lamp_is_whole_or_not_at_all_and_within_the_first_80", "baud-core/tests/vt420/status_line.rs::the_lamp_at_a_column_is_the_word_drawn_there", "baud-render/tests/line_words.rs::the_words_meet_the_area_clause_at_ordinary_sizes_and_the_count_above", "baud-render/tests/line_words.rs::the_line_is_given_the_lamps_as_they_are_or_none", "baud-app/src/line_lamps.rs::each_step_gives_the_line_the_lamps_as_they_are", "baud-app/src/line_lamps.rs::both_drivers_give_the_line_its_words_at_each_step", "baud-app/src/line_lamps.rs::the_clause_is_read_at_the_cell_in_points", "baud-app/src/front.rs::the_lines_words_draw_a_missed_ssh_within_80_ms", "baud-app/src/front.rs::the_lights_off_read_no_process", "baud-app/src/config.rs::the_status_line_carries_the_state_lights_only_when_asked", "baud-app/src/own_line.rs::dec_lines_oh_is_who_is_in_front_read_once_a_frame", "baud-app/src/own_line.rs::a_silent_jobs_oh_is_drawn_within_80_ms"]
@@ -1649,7 +1641,7 @@ area = "window"
 name = "See-through on Linux"
 does = "The background's see-through level and the panel and picture rules carry over to Linux, with the same shades as on macOS."
 status = "partial"
-gap = "tested only in a headless session over a black background; dim text a program draws, such as btop's, is lifted brighter on Linux, which cannot know what is behind the window."
+gap = "dim text a program draws, such as btop's, is lifted brighter on Linux, which cannot know what is behind the window."
 platform = "linux"
 paths = ["baud-app/src/linux.rs"]
 
@@ -1694,8 +1686,7 @@ id = "window-frame-linux"
 area = "window"
 name = "A margin around the text on Linux"
 does = "8 points around the text by default, at the desktop's size of a point, or none; what the window has beyond whole cells is split between its sides, and a program asking for a size in cells gets a window that keeps the margin."
-status = "partial"
-gap = "tested on a headless compositor, and seen drawn on one desktop."
+status = "built"
 platform = "linux"
 tests = ["baud-app/src/origin.rs::the_frame_sits_inside_the_gutter_with_the_leftover_split", "baud-app/src/origin.rs::the_frames_target_is_the_frames_pixels_in_the_surface", "baud-app/src/origin.rs::the_driver_maps_through_the_origin_alone", "baud-app/src/winops.rs::a_wayland_resize_in_cells_keeps_the_padding"]
 paths = ["baud-app/src/origin.rs", "scripts/linux-padding.sh"]
@@ -1716,7 +1707,7 @@ area = "window"
 name = "The folder and the program in the title"
 does = "When a program sets no title, the window's title is the folder you are in and the program running there, such as ~/src/baud — vim. A folder a shell reports is shown only when it is on this machine."
 status = "partial"
-gap = "the macOS window does not draw the title in its title bar, and it has not run on Linux."
+gap = "the macOS window does not draw the title in its title bar."
 platform = "both"
 tests = ["baud-app/src/title.rs::a_local_osc_7_names_the_folder_and_a_remote_one_does_not", "baud-app/src/pty.rs::the_foreground_reads_name_the_program_and_its_folder", "baud-core/tests/working_directory.rs::apples_report_keeps_its_host_and_decodes_its_path"]
 rows = ["vt:`OSC 7 ; Pt`"]
@@ -1725,7 +1716,7 @@ rows = ["vt:`OSC 7 ; Pt`"]
 id = "new-window"
 area = "window"
 name = "More than one window"
-does = "Cmd-N or File > New Window opens another window with its own shell, in the folder the window you opened it from is in, a step down and to the right of it. Cmd-W or the close button closes one window and ends its shell, the others carry on, and a shell that exits closes only its own window; Cmd-Q quits them all. On a Mac, closing the last window leaves baud running, as Mac apps do, and File > New Window or a click on its Dock icon opens another. On Linux, Ctrl+Shift+N opens a new baud in the same folder, though it has not run, even on a headless compositor."
+does = "Cmd-N or File > New Window opens another window with its own shell, in the folder the window you opened it from is in, a step down and to the right of it. Cmd-W or the close button closes one window and ends its shell, the others carry on, and a shell that exits closes only its own window; Cmd-Q quits them all. On a Mac, closing the last window leaves baud running, as Mac apps do, and File > New Window or a click on its Dock icon opens another. On Linux, Ctrl+Shift+N opens a new baud in the same folder."
 status = "built"
 platform = "both"
 tests = ["baud-app/src/windows.rs::closing_one_of_three_windows_leaves_the_other_two_their_own_terminals", "baud-app/src/windows.rs::closing_the_last_window_or_one_of_two_leaves_the_app_running", "baud-app/src/windows.rs::command_n_alone_opens_a_window", "baud-app/src/windows.rs::a_new_window_asked_of_one_window_is_opened_by_it_once", "baud-app/src/app.rs::the_file_menus_new_window_opens_from_the_window_asked", "baud-app/src/pty.rs::a_new_windows_shell_starts_in_the_directory_it_inherits", "baud-app/src/pty.rs::a_closed_windows_pty_hangs_up_its_shell", "baud-app/src/app.rs::a_window_closes_alone_and_its_shells_exit_closes_only_it", "baud-present-wayland/tests/handshake.rs::ctrl_shift_n_asks_for_a_new_window"]
@@ -1756,7 +1747,7 @@ area = "window"
 name = "Programs can move and resize the window"
 does = "A program can move, resize, minimise, raise, lower, maximise or full-screen the window. `[window] operations = \"off\"` stops every one, so nothing printed to the terminal can move or hide it."
 status = "partial"
-gap = "On Linux a program cannot move, raise, lower or un-minimise the window, or maximise it one way only: Wayland has no request for them. Nobody has watched any of it on a screen, and on Linux it has not run, even on a headless compositor."
+gap = "On Linux a program cannot move, raise, lower or un-minimise the window, or maximise it one way only: Wayland has no request for them. Nobody has watched any of it on a screen."
 platform = "both"
 tests = ["baud-core/tests/window_ops.rs::each_window_operation_is_queued_for_the_embedder", "baud-core/tests/window_ops.rs::with_the_operations_off_nothing_is_queued_and_each_is_counted", "baud-app/src/winops.rs::a_cell_resize_gives_the_grid_asked_for", "baud-app/src/winops.rs::wayland_does_what_xdg_shell_has"]
 rows = ["vt:`CSI 1 t` to `CSI 10 t`", "vt:`CSI Ps t` with `Ps` 24 and up"]
@@ -1796,8 +1787,7 @@ id = "linux-theme"
 area = "window"
 name = "Light and dark on Linux"
 does = "The Linux version follows the desktop's light or dark setting and switches the moment you do, or you can pin one; a desktop with no preference gets the light colours."
-status = "partial"
-gap = "no headless compositor tests it."
+status = "built"
 platform = "linux"
 tests = ["baud-app/src/appearance.rs::auto_follows_the_portal_and_a_pinned_theme_stays", "baud-app/src/bus.rs::the_portals_scheme_is_read_and_followed"]
 
@@ -1806,8 +1796,7 @@ id = "linux-accessibility"
 area = "window"
 name = "Reduced motion and higher contrast on Linux"
 does = "With the desktop's reduced-motion setting on, or its animations turned off, there is no default cursor trail, a plain blink and still blinking text; with its high-contrast setting on, text too close to its background is lifted further, as on a Mac. Both follow the setting the moment you change it. The motion setting arrives just after launch, so a trail can light and text can blink in the frames before it does, where a Mac reads it before its first frame."
-status = "partial"
-gap = "it has not run, even on a headless compositor."
+status = "built"
 platform = "linux"
 tests = ["baud-app/src/bus.rs::the_portals_contrast_and_motion_are_read_and_followed", "baud-app/src/bus.rs::the_desktops_animations_setting_is_read_and_followed", "baud-app/src/appearance.rs::higher_contrast_draws_the_stricter_floor_on_either_half", "baud-app/src/appearance.rs::the_desktops_motion_is_reduce_motion_unless_fixed", "baud-app/src/timed.rs::reduced_motion_holds_text_shown_and_turns_the_default_trail_off"]
 
@@ -1890,7 +1879,7 @@ tests = ["baud-app/src/bell.rs::bells_within_one_frame_ring_once", "baud-app/src
 id = "bell-attention"
 area = "window"
 name = "A bell can ask for attention"
-does = "A program can ask for the Dock icon to bounce, or for the window to come forward without taking the keyboard; on Linux either asks the desktop to bring the window to you, and the desktop decides whether it comes forward or is marked as wanting attention. On Linux this has not run, even on a headless compositor."
+does = "A program can ask for the Dock icon to bounce, or for the window to come forward without taking the keyboard; on Linux either asks the desktop to bring the window to you, and the desktop decides whether it comes forward or is marked as wanting attention."
 status = "built"
 platform = "both"
 tests = ["baud-core/tests/xterm/bell_modes.rs::the_bell_modes_land_the_same_at_every_read_split", "baud-present-wayland/tests/handshake.rs::the_window_is_activated_with_a_token_it_asks_for_or_is_given"]
@@ -1901,8 +1890,7 @@ id = "linux-bell"
 area = "window"
 name = "The bell on Linux"
 does = "A bell rings the desktop's system bell while the window has the keyboard, where the desktop offers one, or shows a short flash, as the config's bell says; a burst rings once. In the background, a program that asked for it gets the window brought to your attention."
-status = "partial"
-gap = "it has not run, even on a headless compositor."
+status = "built"
 platform = "linux"
 tests = ["baud-present-wayland/tests/handshake.rs::the_system_bell_rings_where_the_compositor_offers_it", "baud-app/src/bell.rs::the_linux_driver_rings_as_ring_decides", "baud-present-wayland/tests/handshake.rs::the_window_is_activated_with_a_token_it_asks_for_or_is_given"]
 rows = ["vt:`0x07` BEL"]
@@ -2010,8 +1998,7 @@ id = "trails-linux"
 area = "cursor"
 name = "Trails and slides on Linux"
 does = "The cursor trails when it jumps -- every trail a Mac draws, the fire, the plasma and the rest, with the pixels a Mac's CPU path draws -- and the full-screen slide plays when a program switches screens, as on a Mac."
-status = "partial"
-gap = "the trails have been seen on one desktop, and no compositor tests the trails or the slides."
+status = "built"
 platform = "linux"
 tests = ["baud-app/src/timed.rs::reduced_motion_holds_text_shown_and_turns_the_default_trail_off", "baud-app/src/timed.rs::a_long_move_trails_as_the_effect_and_lands", "baud-render/tests/cpu_overlays.rs::every_trail_draws_the_same_pixels_on_every_os", "baud-app/src/timed.rs::a_switch_slides_in_only_when_the_transition_is_on", "baud-app/src/timed.rs::the_ghost_sweeps_on_a_move_and_lands"]
 
@@ -2144,7 +2131,7 @@ area = "images"
 name = "Pictures from files, safely"
 does = "Pictures can be read from a file, a temporary file or shared memory, and a program can't use this to read system files or to probe yours."
 status = "partial"
-gap = "a relative path is accepted, and the Linux side has not run."
+gap = "a relative path is accepted."
 platform = "macos"
 tests = ["baud-app/src/kitty_files.rs::proc_sys_and_dev_are_refused_by_component", "baud-core/tests/kitty_graphics.rs::every_file_failure_answers_one_identical_reply"]
 rows = ["vt:`APC G t=f` / `t=t` / `t=s`"]
@@ -2185,7 +2172,7 @@ area = "platforms"
 name = "Linux"
 does = "The same terminal core on Wayland, drawn on the CPU, with the keyboard, the mouse and its pointer shapes, copy and paste, and window titles."
 status = "partial"
-gap = "input methods, the bell and zoom have not yet run on a screen, and it draws on the CPU; a GPU renderer, through Vulkan, is in progress."
+gap = "it draws on the CPU; a GPU renderer, through Vulkan, is in progress."
 platform = "linux"
 tests = ["baud-present-wayland/tests/handshake.rs::a_window_opens_shows_a_frame_and_types", "baud-present-wayland/tests/handshake.rs::the_pointer_reports_by_frame_and_takes_its_shape", "baud-present-wayland/tests/handshake.rs::a_pointer_event_carries_the_modifiers_of_its_moment", "baud-app/src/seat.rs::a_tracking_child_gets_the_buttons_and_the_wheel"]
 

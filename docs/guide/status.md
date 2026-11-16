@@ -37,10 +37,6 @@ In progress on Linux:
 
 - **Drawing on the GPU.** baud draws on the CPU; a renderer on the GPU,
   through Vulkan, is being built.
-- **Input methods, the bell, zoom, and paging the history with Shift+Page
-  Up and Shift+Page Down** are built and have not yet run on a screen.
-  [Features](features.md) marks each Linux feature that has not run on a
-  compositor.
 
 Open on Linux:
 

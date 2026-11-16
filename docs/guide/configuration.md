@@ -3,9 +3,6 @@
 baud needs no configuration. With none it uses JetBrains Mono at 13 points,
 follows your Mac's light or dark appearance, and draws its window in the
 Mac's standard see-through material. A config file changes only what you put in it.
-What this page says a setting does on Linux has run at most on a headless
-Wayland compositor, not yet on a desktop; [Features](features.md) says which
-parts have run there.
 
 ## Where the file goes
 

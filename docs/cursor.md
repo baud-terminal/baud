@@ -130,8 +130,7 @@ Each animation looks the same on every path: the GPU, and the CPU path --
 holds to the GPU's pixel for pixel on every animation that draws: the plasma
 glow, the fade, the fire and the ufo. The hard switch draws nothing while the
 cursor is hidden. Linux draws each animation with the pixels a Mac draws: its
-math, like the trails', gives the same bits on macOS and on Linux. The Linux
-app has not yet been checked drawing one on a compositor, even a headless one.
+math, like the trails', gives the same bits on macOS and on Linux.
 
 Each still below is the frame of its clip with the most trail on screen, on the
 fifth move: the diagonal from the top-left `+` to the bottom-right one, where
@@ -409,8 +408,6 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
   one step of 255, so a GPU frame and a CPU frame of it can differ by that
   step on some pixels. The trails' math gives the same bits on macOS and on
   Linux, so Linux draws each trail with the pixels a Mac's CPU path draws.
-  The Linux app has not yet been checked drawing one on a compositor, even a
-  headless one.
 - Under macOS's Reduce Motion (System Settings, Accessibility, Display), or
   the Linux desktop's reduced-motion setting once the desktop has reported
   it, the default trail is off. A

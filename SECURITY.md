@@ -1,9 +1,9 @@
 # Security Policy
 
-baud is a terminal emulator that runs on macOS, with a Linux port that has run
-only headless. Its core parses **wholly untrusted input**: the byte stream from
-a pty is whatever the program on the far end sent, and over an ssh session
-that program may be hostile. Everything below follows from that.
+baud is a terminal emulator for macOS and Linux (Wayland). Its core parses
+**wholly untrusted input**: the byte stream from a pty is whatever the program
+on the far end sent, and over an ssh session that program may be hostile.
+Everything below follows from that.
 
 ## What baud does on your machine
 
