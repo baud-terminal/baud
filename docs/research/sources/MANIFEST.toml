@@ -3038,6 +3038,53 @@ group  = "B"
 # automaton cannot tell apart. Both are directly available to baud: its states
 # are pre-multipliable, and its 256 bytes fall into far fewer classes than 256.
 
+[sources.becchi-crowley-2008]
+key    = "becchi-crowley-2008"
+title  = "Efficient Regular Expression Evaluation: Theory to Practice"
+author = "Michela Becchi and Patrick Crowley"
+year   = 2008
+venue  = "ANCS '08, pp. 50-59, doi:10.1145/1477942.1477950"
+url    = "https://doi.org/10.1145/1477942.1477950"
+file   = ""
+sha256 = ""
+bytes  = 0
+status = "gated"
+access = "published by ACM under its copyright licence; no copy on either author's pages was found, and the publisher's PDF was not fetched"
+# Never obtained; no note may cite it (check-sources.sh check 4). The
+# reduced-alphabet multi-stride construction: stride doubling alternated with
+# alphabet reduction, the construction baud-core's stride ladder test measures.
+group  = "B"
+
+[sources.strifa]
+key    = "strifa"
+title  = "StriFA: Stride Finite Automata for High-Speed Regular Expression Matching in Network Intrusion Detection Systems"
+author = "Xiaofei Wang, Yang Xu, Junchen Jiang, Olga Ormond, Bin Liu, Xiaojun Wang"
+year   = 2013
+venue  = "IEEE Systems Journal 7(3), pp. 374-384, doi:10.1109/JSYST.2013.2244791"
+url    = "https://doi.org/10.1109/JSYST.2013.2244791"
+file   = ""
+sha256 = ""
+bytes  = 0
+status = "gated"
+access = "published by IEEE under its licence; no open copy of the article was found, and the publisher's PDF was not fetched"
+# Never obtained; no note may cite it (check-sources.sh check 4).
+group  = "B"
+
+[sources.a-dfa]
+key    = "a-dfa"
+title  = "A-DFA: A Time- and Space-Efficient DFA Compression Algorithm for Fast Regular Expression Evaluation"
+author = "Michela Becchi and Patrick Crowley"
+year   = 2013
+venue  = "ACM Transactions on Architecture and Code Optimization 10(1), article 4, doi:10.1145/2445572.2445576"
+url    = "https://doi.org/10.1145/2445572.2445576"
+file   = ""
+sha256 = ""
+bytes  = 0
+status = "gated"
+access = "published by ACM under its copyright licence; no copy on either author's pages was found, and the publisher's PDF was not fetched"
+# Never obtained; no note may cite it (check-sources.sh check 4).
+group  = "B"
+
 # --- J: rendering -- font formats, shaping, rasterisation, compositing, memory placement, presentation ---
 
 [sources.ms-opentype-otff]
