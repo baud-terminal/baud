@@ -3447,15 +3447,16 @@ fn convert(
 }
 
 /// **A placement's geometry**: the source rectangle, the cell offset, and
-/// the cells it covers -- `c` and `r` as given, and a count not given the
-/// cells the drawn image reaches ([`KittyPlace::draw`]), so the cursor
-/// moves "by the number of cols in the image placement rectangle and ...
-/// rows" it is drawn in (`[[source: kitty-graphics]]`, "Controlling
-/// displayed image layout"). Kitty derives a count from the box plus the
-/// offset (`[[source: kitty-graphics-c]]` `update_dest_rect`), one row
-/// more than the drawn image reaches when `X` widens it, its practice and
-/// not followed. With the cell size unknown, an absent count is zero and
-/// moves nothing.
+/// the cells it covers, counted as `update_dest_rect` counts them
+/// (`[[source: kitty-graphics-c]]`), which the cursor moves by and a
+/// scroll, a delete and the history read: `c` and `r` as given; neither,
+/// the source plus the offset on each axis, rounded up to whole cells;
+/// `c` alone, the rows the columns' pixels plus `X` make at the source's
+/// aspect, rounded up, `Y` not counted; `r` alone the same way round. The
+/// image is drawn by [`KittyPlace::draw`], which these counts do not
+/// change. With the cell size unknown, an absent count is zero and moves
+/// nothing; a count from an empty source is the cells the drawn box
+/// reaches.
 fn geometry(cmd: &KittyCommand, iw: ImagePx, ih: ImagePx, at: &KittyAt) -> KittyPlace {
     let px = |n: u32| ImagePx::of(u16::try_from(n).unwrap_or(u16::MAX));
     let cx = cmd.cell_x.min(u32::from(at.cell_w.raw().saturating_sub(1)));
@@ -3503,14 +3504,40 @@ fn geometry(cmd: &KittyCommand, iw: ImagePx, ih: ImagePx, at: &KittyAt) -> Kitty
                 .unwrap_or(u32::MAX),
         ),
     };
+    // The count across from `n` given cells of `along` pixels and `off`
+    // offset pixels on that axis: `(n * along + off) * num / den` pixels at
+    // the source's aspect, in whole cells of `across`, rounded up; exact in
+    // integers. None for an unknown cell or an empty source.
+    let scaled = |n: u32, along: ImagePx, off: u32, (num, den): (u32, u32), across: ImagePx| {
+        let (along, across) = (u128::from(along.raw()), u128::from(across.raw()));
+        if along == 0 || across == 0 || den == 0 {
+            return None;
+        }
+        let px = (u128::from(n) * along + u128::from(off)) * u128::from(num);
+        Some(count(
+            px.div_ceil(u128::from(den) * across)
+                .try_into()
+                .unwrap_or(u32::MAX),
+        ))
+    };
     let (d, s) = (drawn.dest, drawn.src);
     match fit {
         KittyFit::Natural => {
             place.cols = Cols(reach(cx, s.w, at.cell_w));
             place.rows = Rows::of_count(reach(cy, s.h, at.cell_h));
         }
-        KittyFit::Cols => place.rows = Rows::of_count(reach(d.y, d.h, at.cell_h)),
-        KittyFit::Rows => place.cols = Cols(reach(d.x, d.w, at.cell_w)),
+        KittyFit::Cols => {
+            place.rows = Rows::of_count(
+                scaled(cmd.cols, at.cell_w, cx, (s.h, s.w), at.cell_h)
+                    .unwrap_or_else(|| reach(d.y, d.h, at.cell_h)),
+            );
+        }
+        KittyFit::Rows => {
+            place.cols = Cols(
+                scaled(cmd.rows, at.cell_h, cy, (s.w, s.h), at.cell_w)
+                    .unwrap_or_else(|| reach(d.x, d.w, at.cell_w)),
+            );
+        }
         KittyFit::Box => {}
     }
     place

@@ -158,3 +158,120 @@ proptest::proptest! {
         );
     }
 }
+
+/// **kitty's cursor after an `a=T` of `w` by `h` pixels at `(row, col)`
+/// with one count given**, `c` (and `r` 0) or `r` (and `c` 0), and the
+/// cell offset `X`, `Y`, written out from its source: `handle_put_command`
+/// clamps each offset to the cell less one, and `update_dest_rect` takes
+/// the given count's pixels plus that axis's offset, scales them by the
+/// source's aspect in doubles and rounds up to whole cells, the other
+/// axis's offset not counted; then the move of [`kitty`].
+fn kitty_one_count(
+    (row, col): (usize, usize),
+    (cw, ch): (usize, usize),
+    (w, h): (usize, usize),
+    (c, r): (usize, usize),
+    (x_off, y_off): (usize, usize),
+) -> (usize, usize) {
+    let (x_off, y_off) = (x_off.min(cw - 1), y_off.min(ch - 1));
+    let (cols, rows) = match (c, r) {
+        // The count is the box's size over the cell's, rounded up: exact
+        // here, since every value is far below 2^53.
+        (c, 0) => (c, ((cw * c + x_off) * h).div_ceil(w * ch)),
+        (0, r) => (((ch * r + y_off) * w).div_ceil(h * cw), r),
+        _ => unreachable!("one count"),
+    };
+    let (mut y, mut x) = (row + rows - 1, col + cols);
+    if x >= 80 {
+        x = 0;
+        y += 1;
+    }
+    (y.min(23), x)
+}
+
+/// An `a=T` of a `w` by `h` raw image with `keys` at the origin of an
+/// 80x24 screen with `cell`-pixel cells: the cursor and the placements.
+fn one_count(cell: (u16, u16), (w, h): (usize, usize), keys: &str) -> ((usize, usize), usize) {
+    let mut s = format!("\x1b_Ga=T,f=24,s={w},v={h},{keys};").into_bytes();
+    s.extend(b64(&vec![7u8; w * h * 3]));
+    s.extend_from_slice(b"\x1b\\");
+    fed((80, 24), cell, &s, ReadLen::of(&s))
+}
+
+/// **L4: `c` alone counts its rows as kitty does**, in 10x20 cells: the
+/// columns' pixels plus `X` at the source's aspect, rounded up, `Y` not
+/// counted. A 4x40 image at `c=1,X=9` is (10 + 9) * 10 = 190 pixels tall
+/// to kitty, ten rows, where the 1-pixel box less `X` draws one row; a
+/// 10x10 image at `c=1,Y=15` is one row, where the image drawn 15 pixels
+/// down reaches a second; a 25x17 image at `c=3` is 20.4 pixels, two rows,
+/// where the drawn height rounds to 20.
+#[test]
+fn c_alone_counts_its_rows_from_the_columns_and_x_as_kitty_does() {
+    assert_eq!(one_count((10, 20), (4, 40), "c=1,X=9"), ((9, 1), 1), "X");
+    assert_eq!(one_count((10, 20), (10, 10), "c=1,Y=15"), ((0, 1), 1), "Y");
+    assert_eq!(
+        one_count((10, 20), (25, 17), "c=3"),
+        ((1, 3), 1),
+        "rounded up"
+    );
+}
+
+/// **L5: `r` alone counts its columns as kitty does**, in 10x20 cells: the
+/// rows' pixels plus `Y` at the source's aspect, rounded up, `X` not
+/// counted. A 10x10 image at `r=1,Y=19` is 39 pixels wide to kitty, four
+/// columns, where the 1-pixel box less `Y` draws one; at `r=1,X=9` it is
+/// two, where the image drawn 9 pixels right reaches a third.
+#[test]
+fn r_alone_counts_its_columns_from_the_rows_and_y_as_kitty_does() {
+    assert_eq!(one_count((10, 20), (10, 10), "r=1,Y=19"), ((0, 4), 1), "Y");
+    assert_eq!(one_count((10, 20), (10, 10), "r=1,X=9"), ((0, 2), 1), "X");
+}
+
+proptest::proptest! {
+    /// **L6: any raw `a=T` with one count**, any cell size, any offset
+    /// (past the cell included, which kitty clamps), anywhere on an 80x24
+    /// screen, leaves the cursor where kitty's source puts it
+    /// ([`kitty_one_count`]).
+    #[test]
+    fn a_placement_with_one_count_leaves_the_cursor_where_kittys_source_puts_it(
+        cw in 1u16..=20,
+        ch in 1u16..=40,
+        w in 1usize..=100,
+        h in 1usize..=100,
+        n in 1usize..=12,
+        by_cols in proptest::bool::ANY,
+        x_off in 0usize..=24,
+        y_off in 0usize..=44,
+        row in 0usize..24,
+        col in 0usize..80,
+    ) {
+        let (c, r) = match by_cols {
+            true => (n, 0),
+            false => (0, n),
+        };
+        let key = match by_cols {
+            true => format!("c={n}"),
+            false => format!("r={n}"),
+        };
+        let mut s = format!(
+            "\x1b[{};{}H\x1b_Ga=T,f=24,s={w},v={h},{key},X={x_off},Y={y_off};",
+            row + 1,
+            col + 1
+        )
+        .into_bytes();
+        s.extend(b64(&vec![7u8; w * h * 3]));
+        s.extend_from_slice(b"\x1b\\");
+        let (at, placed) = fed((80, 24), (cw, ch), &s, ReadLen::of(&s));
+        proptest::prop_assert_eq!(placed, 1);
+        proptest::prop_assert_eq!(
+            at,
+            kitty_one_count(
+                (row, col),
+                (usize::from(cw), usize::from(ch)),
+                (w, h),
+                (c, r),
+                (x_off, y_off),
+            )
+        );
+    }
+}
