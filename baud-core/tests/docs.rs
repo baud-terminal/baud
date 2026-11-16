@@ -29,58 +29,76 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn root() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
 }
 
-/// Markdown **and Rust**, because a test can be cited from either.
+/// **The repository's files whose extension is one of `exts`, as git tracks
+/// them**: the paths `git ls-files` lists under `repo`, sorted.
 ///
-/// It was markdown only, and a doc comment in `vt_properties.rs` claimed
-/// a test covered the charset rows while no such function existed. That is the same defect as a `done` row with no test, one
-/// file type over, and the scanner could not see it.
+/// Markdown **and Rust**, because a test can be cited from either, and a
+/// name cited in an ordinary `//` comment is as wrong as one in a table.
 ///
-/// Rust files are read whole rather than only their `///` lines: a name cited
-/// in an ordinary `//` comment is just as wrong, and the multi-underscore rule
-/// below already keeps this from firing on identifiers.
-fn walk(dir: &Path, out: &mut Vec<PathBuf>, want_rust: bool) {
-    let Ok(rd) = fs::read_dir(dir) else { return };
-    for e in rd.flatten() {
-        let p = e.path();
-        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if p.is_dir() {
-            // `.claude` is Claude Code's own directory, untracked: workflows,
-            // settings and research copies whose plans name files and tests
-            // that later commits create. It is not this repository's docs.
-            if matches!(
-                name,
-                "target" | ".git" | "node_modules" | ".devenv" | ".claude"
-            ) {
-                continue;
-            }
-            // Pinned copies of other projects' files, hash-locked by
-            // `MANIFEST.toml`. Their links point into repositories that are not
-            // this one and their identifiers are theirs; a gate over them would
-            // demand edits that break the hash. Group J is what made this bite:
-            // msdfgen's README links its own `CMakeLists.txt`, and vello's
-            // `strip.rs` names its own multi-underscore identifiers, which this
-            // file's test-name rule would read as baud tests.
-            if p.ends_with("docs/research/sources") {
-                continue;
-            }
-            walk(&p, out, want_rust);
-        } else if name.ends_with(".md") || (want_rust && name.ends_with(".rs")) {
-            out.push(p);
-        }
-    }
+/// Only tracked files are read: a file the checkout carries and git does not
+/// (a local note, an excluded draft, build output) is not one of this
+/// repository's documents, and a gate over it would fail on one machine and
+/// pass on a clean checkout. Without git the checks cannot know which files
+/// are the repository's, so this panics rather than read nothing.
+fn tracked_files(repo: &Path, exts: &[&str]) -> Vec<PathBuf> {
+    let out = git(repo)
+        .args(["ls-files", "-z"])
+        .output()
+        .unwrap_or_else(|err| {
+            panic!(
+                "git could not run ({err}): the docs checks read the files git \
+                 tracks, and need git on PATH"
+            )
+        });
+    assert!(
+        out.status.success(),
+        "git ls-files failed in {}: {}",
+        repo.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let mut files: Vec<PathBuf> = out
+        .stdout
+        .split(|b| *b == 0)
+        .filter_map(|p| std::str::from_utf8(p).ok())
+        .filter(|p| !p.is_empty())
+        // Pinned copies of other projects' files, hash-locked by
+        // `MANIFEST.toml`. Their links point into repositories that are not
+        // this one and their identifiers are theirs; a gate over them would
+        // demand edits that break the hash.
+        .filter(|p| !p.starts_with("docs/research/sources/"))
+        .filter(|p| {
+            Path::new(p)
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| exts.contains(&e))
+        })
+        .map(|p| repo.join(p))
+        .collect();
+    files.sort();
+    files
 }
 
-/// Every `.md` in the repository, excluding build output.
+/// `git -C repo`, with the variables that would point it at another
+/// repository taken out.
+fn git(repo: &Path) -> Command {
+    let mut c = Command::new("git");
+    c.arg("-C")
+        .arg(repo)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE");
+    c
+}
+
+/// Every tracked `.md` in the repository.
 fn markdown_files() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    walk(&root(), &mut out, false);
-    out.sort();
-    out
+    tracked_files(&root(), &["md"])
 }
 
 /// Markdown **and Rust**, for the test-name check and the stranded-attribute
@@ -91,10 +109,7 @@ fn markdown_files() -> Vec<PathBuf> {
 /// A cited *test* is different: it is just as wrong in a `///` comment as in a
 /// table, and the scanner could not see it.
 fn doc_and_code_files() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    walk(&root(), &mut out, true);
-    out.sort();
-    out
+    tracked_files(&root(), &["md", "rs"])
 }
 
 /// **`line` with its code spans taken out**: each run of text between a
@@ -285,6 +300,29 @@ const MOVED: &[(&str, &str)] = &[("baud-core/tests/readme.rs", "baud-core/tests/
 /// invents none.
 #[test]
 fn every_repository_path_named_in_the_docs_exists() {
+    for (old, new) in MOVED {
+        assert!(
+            !root().join(old).exists() && root().join(new).exists(),
+            "MOVED names {old} -> {new}, but the old path is still there or the new one is not"
+        );
+    }
+    let (checked, missing) = named_paths(&root());
+    assert!(
+        checked.len() > 15,
+        "only {} paths checked -- the path scanner stopped matching",
+        checked.len()
+    );
+    assert!(
+        missing.is_empty(),
+        "{} path(s) named in docs that do not exist:\n  {}",
+        missing.len(),
+        missing.into_iter().collect::<Vec<_>>().join("\n  ")
+    );
+}
+
+/// **The repository paths `repo`'s tracked documents name, and those of
+/// them that do not exist**, each missing one as `<document>: <path>`.
+fn named_paths(repo: &Path) -> (Vec<String>, BTreeSet<String>) {
     const ROOTS: &[&str] = &[
         "baud-core/",
         "baud-domain/",
@@ -322,19 +360,13 @@ fn every_repository_path_named_in_the_docs_exists() {
         "assets/",
     ];
     const EXTS: &[&str] = &[".rs", ".md", ".sh", ".toml", ".nix", ".py", ".yml", ".yaml"];
-    for (old, new) in MOVED {
-        assert!(
-            !root().join(old).exists() && root().join(new).exists(),
-            "MOVED names {old} -> {new}, but the old path is still there or the new one is not"
-        );
-    }
     let mut missing = BTreeSet::new();
-    let mut checked = 0usize;
-    for f in markdown_files() {
+    let mut checked = Vec::new();
+    for f in tracked_files(repo, &["md"]) {
         let Ok(src) = fs::read_to_string(&f) else {
             continue;
         };
-        let name = rel(&f);
+        let name = f.strip_prefix(repo).unwrap_or(&f).display().to_string();
         let history = name.starts_with("docs/research/");
         for tok in src.split('`').skip(1).step_by(2) {
             let tok = tok.trim();
@@ -348,23 +380,59 @@ fn every_repository_path_named_in_the_docs_exists() {
                 continue;
             }
             for path in expand_braces(tok) {
-                checked += 1;
                 let moved = history && MOVED.iter().any(|(old, _)| *old == path);
-                if !moved && !root().join(&path).exists() {
+                if !moved && !repo.join(&path).exists() {
                     missing.insert(format!("{name}: {path}"));
                 }
+                checked.push(format!("{name}: {path}"));
             }
         }
     }
+    (checked, missing)
+}
+
+/// **The docs checks read the files git tracks and no other.** A scratch
+/// repository holds two documents naming a path that does not exist, one
+/// added to the index and one only on disk: the tracked one is reported and
+/// the untracked one is not read at all.
+#[test]
+fn the_docs_checks_read_only_tracked_files() {
+    let repo = Path::new(env!("CARGO_TARGET_TMPDIR")).join("docs-tracked-files");
+    if repo.exists() {
+        fs::remove_dir_all(&repo).expect("clear the scratch repository");
+    }
+    fs::create_dir_all(&repo).expect("scratch repository");
+    let run = |args: &[&str]| {
+        let out = git(&repo).args(args).output().expect("git on PATH");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    run(&["init", "-q"]);
+    fs::write(repo.join("tracked.md"), "See `docs/tracked-gone.md`.\n").expect("tracked.md");
+    fs::write(repo.join("untracked.md"), "See `docs/untracked-gone.md`.\n").expect("untracked.md");
+    run(&["add", "tracked.md"]);
     assert!(
-        checked > 15,
-        "only {checked} paths checked -- the path scanner stopped matching"
+        repo.join("untracked.md").is_file(),
+        "the untracked document is on disk"
     );
-    assert!(
-        missing.is_empty(),
-        "{} path(s) named in docs that do not exist:\n  {}",
-        missing.len(),
-        missing.into_iter().collect::<Vec<_>>().join("\n  ")
+
+    assert_eq!(
+        tracked_files(&repo, &["md"]),
+        vec![repo.join("tracked.md")],
+        "only the tracked document is listed"
+    );
+    let (checked, missing) = named_paths(&repo);
+    assert_eq!(
+        checked,
+        vec!["tracked.md: docs/tracked-gone.md".to_string()]
+    );
+    assert_eq!(
+        missing.into_iter().collect::<Vec<_>>(),
+        vec!["tracked.md: docs/tracked-gone.md".to_string()],
+        "the tracked document's missing path is reported"
     );
 }
 
@@ -392,34 +460,27 @@ fn expand_braces(tok: &str) -> Vec<String> {
 /// it reads exactly like a citation to something.
 #[test]
 fn every_test_named_in_the_docs_exists() {
-    // Gather every `fn <name>` in the test tree and the source.
+    // Gather every `fn <name>` in the tracked test tree and source, the
+    // same files the citations are read from.
     let mut have = BTreeSet::new();
-    fn collect(dir: &Path, have: &mut BTreeSet<String>) {
-        let Ok(rd) = fs::read_dir(dir) else { return };
-        for e in rd.flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                if p.file_name().and_then(|n| n.to_str()) == Some("target") {
-                    continue;
-                }
-                collect(&p, have);
-            } else if p.extension().is_some_and(|x| x == "rs") {
-                if let Ok(src) = fs::read_to_string(&p) {
-                    let mut rest = src.as_str();
-                    while let Some(i) = rest.find("fn ") {
-                        rest = &rest[i + 3..];
-                        let name: String = rest
-                            .chars()
-                            .take_while(|c| c.is_alphanumeric() || *c == '_')
-                            .collect();
-                        if !name.is_empty() {
-                            have.insert(name);
-                        }
+    let rust = tracked_files(&root(), &["rs"]);
+    let mut collect = |dir: &Path| {
+        for p in rust.iter().filter(|p| p.starts_with(dir)) {
+            if let Ok(src) = fs::read_to_string(p) {
+                let mut rest = src.as_str();
+                while let Some(i) = rest.find("fn ") {
+                    rest = &rest[i + 3..];
+                    let name: String = rest
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_')
+                        .collect();
+                    if !name.is_empty() {
+                        have.insert(name);
                     }
                 }
             }
         }
-    }
+    };
     // **`baud-core` is in this list because the gate must follow the code.**
     // The new core carries its own tests and the docs cite them; a
     // collector that walked only core2 would report every one of them as a
@@ -473,7 +534,7 @@ fn every_test_named_in_the_docs_exists() {
             "{d} is in the collector's list and does not exist -- the gate \
              would walk nothing for it and report no error"
         );
-        collect(&dir, &mut have);
+        collect(&dir);
     }
 
     // snake_case identifiers in these docs that are deliberately *not* baud

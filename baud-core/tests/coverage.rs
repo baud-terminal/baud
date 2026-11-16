@@ -29,6 +29,7 @@
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::process::Command;
 
 /// Mnemonics that are deliberately not test-visible, with the reason.
 ///
@@ -457,6 +458,42 @@ fn statuses(name: &str, src: &str) -> Statuses {
     Statuses { partial, wrong }
 }
 
+/// **The `.md` files git tracks under `docs/protocols`**, by their path
+/// under `docs/`, sorted. A file the checkout carries and git does not is
+/// not one of the coverage files; without git this panics rather than read
+/// nothing.
+fn tracked_protocol_docs() -> Vec<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
+        .args(["ls-files", "-z", "--", "docs/protocols"])
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .output()
+        .unwrap_or_else(|err| {
+            panic!(
+                "git could not run ({err}): the coverage checks read the files \
+                 git tracks, and need git on PATH"
+            )
+        });
+    assert!(
+        out.status.success(),
+        "git ls-files failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let mut found: Vec<String> = out
+        .stdout
+        .split(|b| *b == 0)
+        .filter_map(|p| std::str::from_utf8(p).ok())
+        .filter_map(|p| p.strip_prefix("docs/"))
+        .filter(|p| p.ends_with(".md"))
+        .map(str::to_string)
+        .collect();
+    found.sort();
+    found
+}
+
 /// The coverage files, by their path under `docs/`: `vt-coverage.md`,
 /// `input-coverage.md`, and every `.md` under `docs/protocols`, its
 /// profiles included. A file that cannot be read fails the test rather
@@ -467,21 +504,7 @@ fn coverage_files() -> Vec<(String, String)> {
         "vt-coverage.md".to_string(),
         "input-coverage.md".to_string(),
     ];
-    let mut found = Vec::new();
-    let mut stack = vec![std::path::PathBuf::from(format!("{root}/protocols"))];
-    while let Some(d) = stack.pop() {
-        for e in fs::read_dir(&d).unwrap_or_else(|err| panic!("{}: {err}", d.display())) {
-            let p = e.expect("dir entry").path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.extension().is_some_and(|x| x == "md") {
-                let rel = p.strip_prefix(root).expect("a file under docs");
-                found.push(rel.display().to_string());
-            }
-        }
-    }
-    found.sort();
-    names.extend(found);
+    names.extend(tracked_protocol_docs());
     names
         .into_iter()
         .map(|n| {
@@ -737,14 +760,12 @@ fn every_out_row_states_a_reason() {
     let mut checked = 0usize;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs");
     let mut files = vec![format!("{root}/vt-coverage.md")];
-    if let Ok(rd) = fs::read_dir(format!("{root}/protocols")) {
-        for e in rd.flatten() {
-            let p = e.path();
-            if p.extension().is_some_and(|x| x == "md") {
-                files.push(p.display().to_string());
-            }
-        }
-    }
+    files.extend(
+        tracked_protocol_docs()
+            .into_iter()
+            .filter(|n| n.matches('/').count() == 1)
+            .map(|n| format!("{root}/{n}")),
+    );
     for f in &files {
         let Ok(src) = fs::read_to_string(f) else {
             continue;
