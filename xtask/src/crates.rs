@@ -109,7 +109,8 @@ pub struct Row {
     pub notice_source: String,
     /// The notice file's copyright lines, word for word.
     pub copyright: Vec<String>,
-    /// The authors its manifest names, word for word.
+    /// The authors its manifest names, by name: an address the manifest
+    /// gives beside a name (`Name <address>`) is left out.
     pub authors: Vec<String>,
     pub repository: String,
     /// For a crate credited under Apache-2.0 whose source ships a NOTICE
@@ -552,6 +553,16 @@ fn is_copyright(line: &str) -> bool {
     l.starts_with("copyright") || l.starts_with("(c)") || line.starts_with('\u{a9}')
 }
 
+/// A manifest author by name: `Name <address>` gives `Name`, and an entry
+/// that is only an address gives nothing.
+pub fn author_name(author: &str) -> String {
+    match author.split_once('<') {
+        Some((name, _)) => name.trim().to_owned(),
+        None if author.contains('@') => String::new(),
+        None => author.trim().to_owned(),
+    }
+}
+
 /// A crate's row, read from its source `dir`; `root` holds the licence
 /// texts a notice is checked against.
 pub fn read_row(root: &Path, id: &Id, targets: &[String], dir: &Path) -> Result<Row, String> {
@@ -600,7 +611,8 @@ pub fn read_row(root: &Path, id: &Id, targets: &[String], dir: &Path) -> Result<
             .map(|a| {
                 a.iter()
                     .filter_map(Value::as_str)
-                    .map(str::to_owned)
+                    .map(author_name)
+                    .filter(|n| !n.is_empty())
                     .collect()
             })
             .unwrap_or_default(),

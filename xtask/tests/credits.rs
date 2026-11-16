@@ -962,7 +962,8 @@ fn a_changed_notice_file_fails_and_an_absent_source_is_skipped() {
     assert_eq!(r.licence, "MIT");
     assert_eq!(r.notice, "LICENSE-MIT");
     assert_eq!(r.copyright, ["Copyright 2023 The Example Authors"]);
-    assert_eq!(r.authors, ["A Person <a@example.org>"]);
+    // The manifest gives a name and an address; the row keeps the name.
+    assert_eq!(r.authors, ["A Person"]);
     assert_eq!(r.repository, "https://example.org/zerocopy");
     assert_eq!(r.sha256, xtask::sha256::hex(notice.as_bytes()));
     let rows = [r];
@@ -1016,6 +1017,13 @@ fn the_register_is_what_the_program_links_and_every_row_is_credited() {
         "objc2 takes its copyright line from its committed upstream licence file"
     );
     assert!(n.errors.is_empty(), "{}", n.errors.join("\n"));
+    // An author is credited by name: a manifest's e-mail address is the
+    // author's to give out, and no licence asks for it.
+    for r in &rows {
+        for a in &r.authors {
+            assert!(!a.contains('@'), "{} credits an address: {a}", r.name);
+        }
+    }
     let text = fs::read_to_string(root().join(crates::REGISTER)).expect("the register");
     assert_eq!(text, crates::render(&rows));
     let made = committed();

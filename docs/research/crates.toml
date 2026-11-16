@@ -48,7 +48,7 @@ sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
 notice_source = "objc2-license-mit"
 targets = ["aarch64-apple-darwin"]
 copyright = ["Copyright 2026 Mads Marquart"]
-authors = ["Mads Marquart <mads@marquart.dk>"]
+authors = ["Mads Marquart"]
 repository = "https://github.com/madsmtm/objc2"
 
 [[crate]]
@@ -62,8 +62,8 @@ notice_source = "objc2-license-mit"
 targets = ["aarch64-apple-darwin"]
 copyright = ["Copyright 2026 Mads Marquart"]
 authors = [
-  "Mads Marquart <mads@marquart.dk>",
-  "Mary <mary@mary.zone>",
+  "Mads Marquart",
+  "Mary",
 ]
 repository = "https://github.com/madsmtm/objc2"
 
@@ -103,7 +103,7 @@ sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
 notice_source = "objc2-license-mit"
 targets = ["aarch64-apple-darwin"]
 copyright = ["Copyright 2026 Mads Marquart"]
-authors = ["Mads Marquart <mads@marquart.dk>"]
+authors = ["Mads Marquart"]
 repository = "https://github.com/madsmtm/objc2"
 
 [[crate]]
@@ -220,7 +220,7 @@ sha256 = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
 notice_source = "objc2-license-mit"
 targets = ["aarch64-apple-darwin"]
 copyright = ["Copyright 2026 Mads Marquart"]
-authors = ["Mads Marquart <mads@marquart.dk>"]
+authors = ["Mads Marquart"]
 repository = "https://github.com/madsmtm/objc2"
 
 [[crate]]
