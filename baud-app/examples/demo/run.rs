@@ -2270,13 +2270,16 @@ fn check_config(at: &Layout) -> Result<(), String> {
 /// but the line naming the file it read, `want`, and the lines its link
 /// rules report for a `[link.*]` table that sets an action -- `config:
 /// [link.NAME] ` and then `opens`, `sends`, `turns` or `copies`, the words
-/// `rules.rs` begins each report with.
+/// `rules.rs` begins each report with. A line of that shape that ends in
+/// `ignored`, the word `rules.rs` ends each refusal of a rule with, is a
+/// complaint.
 fn complaints<'a>(log: &'a str, want: &str) -> Vec<&'a str> {
     let reported = |l: &str| {
         l.strip_prefix("config: [link.")
             .and_then(|r| r.split_once("] "))
             .is_some_and(|(name, said)| {
                 !name.contains(' ')
+                    && !said.ends_with("ignored")
                     && ["opens ", "sends ", "turns ", "copies "]
                         .iter()
                         .any(|w| said.starts_with(w))
@@ -2384,8 +2387,9 @@ mod tests {
     /// lines baud prints for the tour's `[link.https]` and `[link.path]`
     /// windows pass, with the line naming the file it read; anything else
     /// under `config:` is a complaint, a `[link.*]` line that reports no
-    /// action among them. Perturbation: count every `config:` line but the
-    /// file's, and the two reports are complaints.
+    /// action among them, and a report's shape that ends in `ignored`.
+    /// Perturbation: count every `config:` line but the file's, and the two
+    /// reports are complaints; drop the `ignored` test, and the last is not.
     #[test]
     fn a_link_rules_report_is_not_a_complaint() {
         let want = "config: /t/home/.config/baud/config.toml";
@@ -2403,7 +2407,8 @@ mod tests {
             "{want}\n\
              config: [link.https] action: unknown value \"tab\"\n\
              config: font_size: not a number\n\
-             config: [link.x y] opens z\n"
+             config: [link.x y] opens z\n\
+             config: [link.https] opens https: links in a new window; the rule is ignored\n"
         );
         assert_eq!(
             super::complaints(&bad, want),
@@ -2411,6 +2416,7 @@ mod tests {
                 "config: [link.https] action: unknown value \"tab\"",
                 "config: font_size: not a number",
                 "config: [link.x y] opens z",
+                "config: [link.https] opens https: links in a new window; the rule is ignored",
             ]
         );
     }
