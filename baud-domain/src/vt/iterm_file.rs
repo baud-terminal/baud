@@ -15,8 +15,8 @@ use crate::gif::{Gif, GifWait};
 use crate::jpeg::Jpeg;
 use crate::png::Png;
 use crate::{
-    Base64, Base64Step, Chan, Col, Cols, FrameWait, ImageAlpha, ImageId, ImagePx, ImageStore,
-    Pixel, Rows,
+    Base64, Base64Step, CellFont, Chan, Col, Cols, FrameWait, ImageAlpha, ImageId, ImagePx,
+    ImageStore, Pixel, Rows,
 };
 
 /// iTerm2's `boolValue`, which its source reads `inline` and
@@ -413,7 +413,8 @@ pub struct Picture {
     pub id: ImageId,
     pub width: u32,
     pub height: u32,
-    /// Parts of the file not drawn: a GIF's Plain Text Extensions.
+    /// Parts of the file not drawn: a GIF's Plain Text Extensions, with no
+    /// font lent or no global table ([`Gif::texts_not_drawn`]).
     pub parts_not_drawn: u32,
 }
 
@@ -426,7 +427,8 @@ pub struct Picture {
 /// by its signature, its RGBA8 rows turned into straight ARGB words where
 /// they lie, as kitty's decode turns them. `None`, the image freed, for
 /// bytes that are neither, one that does not decode, or one the store
-/// refuses.
+/// refuses. A GIF's Plain Text Extensions are drawn with `font`
+/// ([`Gif::with_font`]), and with `None` are not.
 ///
 /// The second result is how much of the scratch the decode wrote, the file
 /// and its work, which go back once it is done.
@@ -434,12 +436,13 @@ pub fn decode_picture(
     store: &mut ImageStore,
     scratch: &mut [u8],
     len: FileLen,
+    font: Option<CellFont>,
 ) -> (Option<Picture>, FileLen) {
     let at = len.0.min(scratch.len());
     if Gif::sniff(&scratch[..at]) {
         let work = Gif::parse(&scratch[..at]).map_or(0, |g| g.scratch_len());
         let used = FileLen(at.saturating_add(work).min(scratch.len()));
-        return (gif_of(store, scratch, at), used);
+        return (gif_of(store, scratch, at, font), used);
     }
     if Jpeg::sniff(&scratch[..at]) {
         let work = Jpeg::parse(&scratch[..at])
@@ -488,10 +491,16 @@ fn jpeg_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Pict
 /// which it differs from the one before ([`ImageStore::begin_rects`]), in
 /// the largest gap the image memory has, so an animation whose rectangles
 /// that gap cannot hold is refused whole; an animation set playing as many
-/// times as its loop count says.
-fn gif_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Picture> {
+/// times as its loop count says. Its Plain Text Extensions are drawn with
+/// `font`.
+fn gif_of(
+    store: &mut ImageStore,
+    scratch: &mut [u8],
+    at: usize,
+    font: Option<CellFont>,
+) -> Option<Picture> {
     let (data, rest) = scratch.split_at_mut(at);
-    let gif = Gif::parse(data).ok()?;
+    let gif = Gif::parse(data).ok()?.with_font(font);
     let size = gif.size();
     let (w, h) = (
         u16::try_from(size.width).ok()?,

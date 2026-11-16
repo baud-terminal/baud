@@ -27,7 +27,7 @@ fn face() -> Option<&'static Face<'static>> {
         .as_ref()
 }
 
-/// Draw `c` in a `w` by `h` cell: [`baud_domain::RegisFont`].
+/// Draw `c` in a `w` by `h` cell: [`baud_domain::CellFont`].
 pub fn glyph(c: char, w: ImagePx, h: ImagePx, set: &mut dyn FnMut(ImagePx, ImagePx)) {
     let Some(face) = face() else {
         return;

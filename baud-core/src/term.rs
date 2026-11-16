@@ -6455,11 +6455,14 @@ impl<'b> Term<'b> {
         self.store.strs.regis.counts()
     }
 
-    /// **The font ReGIS draws its built-in alphabet with**: the embedder's
-    /// own face, drawn by its own rasteriser at each character's unit cell
-    /// ([`baud_domain::RegisFont`]). With none set a built-in character is
-    /// not drawn, and counted in `regis_counts().unfonted`.
-    pub fn set_regis_font(&mut self, f: baud_domain::RegisFont) {
+    /// **The font characters are drawn in a cell with**, ReGIS's built-in
+    /// alphabet at each character's unit cell and an inline GIF's Plain Text
+    /// Extensions at their grid's cell: the embedder's own face, drawn by its
+    /// own rasteriser ([`baud_domain::CellFont`]). With none set a built-in
+    /// character is not drawn, and counted in `regis_counts().unfonted`, and
+    /// a GIF's text is not drawn, and counted in
+    /// `iterm_counts().picture_parts_skipped`.
+    pub fn set_regis_font(&mut self, f: baud_domain::CellFont) {
         self.store.strs.regis.set_font(f);
     }
 

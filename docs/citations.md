@@ -3494,7 +3494,7 @@ Graphics Interchange Format, Version 89a -- 8 the decoder, 9 compliance, 18 the 
 - **sha256:** `c0e48c12e3e91b1e78090caffb1d1ffe8e7d0face4350da675044a9a4be02aa3` (83003 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-23
-- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/iterm_file.rs`, `baud-core/tests/kitten_icat.rs`, `baud-core/tests/kitten_icat/gif.rs`, `baud-domain/src/gif.rs`, `baud-domain/src/image/frames.rs`, `baud-domain/tests/gif.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`, `tools/baud-pictures/src/gif.rs`
+- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/iterm_file.rs`, `baud-core/tests/kitten_icat.rs`, `baud-core/tests/kitten_icat/gif.rs`, `baud-domain/src/gif.rs`, `baud-domain/src/image/frames.rs`, `baud-domain/src/regis/mod.rs`, `baud-domain/tests/gif.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`, `tools/baud-pictures/src/gif.rs`
 
 <a id="github-docs-profile-picture"></a>
 ### github-docs-profile-picture

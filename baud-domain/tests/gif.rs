@@ -10,7 +10,8 @@
 //! own, independent of the decoder, so each block's meaning can be set
 //! case by case: the background colour, the disposals, transparency,
 //! local tables, interlace, zero delays, the loop count, the User Input
-//! Flag, a Plain Text Extension, a stream cut short.
+//! Flag, a Plain Text Extension drawn through a stub font, a stream cut
+//! short.
 //!
 //! **Malformed input never panics.** The property harms valid streams by
 //! named classes -- a minimum code size outside 2 to 8, a table filled
@@ -20,10 +21,11 @@
 
 use baud_domain::gif::{Gif, GifError, GifWait};
 use baud_domain::{
-    Animated, FileLen, FrameNo, HostTime, ImageId, ImageMotion, ImageSlot, ImageStore, Pixel,
-    PlacementId, PlacementSlot, decode_picture,
+    Animated, CellFont, FileLen, FrameNo, HostTime, ImageId, ImageMotion, ImagePx, ImageSlot,
+    ImageStore, Pixel, PlacementId, PlacementSlot, decode_picture,
 };
 use proptest::prelude::*;
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 /// How an encoder meets a full table.
@@ -173,7 +175,12 @@ fn gif(w: u16, h: u16, gct: &[[u8; 3]], bg: u8, loops: Option<u16>, images: &[Im
 
 /// Every frame `g` decodes to: its RGBA bytes, gap and wait.
 fn frames(g: &[u8]) -> Result<Vec<(Vec<u8>, u32, GifWait)>, GifError> {
-    let gif = Gif::parse(g)?;
+    frames_with(g, None)
+}
+
+/// [`frames`], its Plain Text Extensions drawn with `font`.
+fn frames_with(g: &[u8], font: Option<CellFont>) -> Result<Vec<(Vec<u8>, u32, GifWait)>, GifError> {
+    let gif = Gif::parse(g)?.with_font(font);
     let mut scratch = vec![0x5au8; gif.scratch_len()];
     let mut out = Vec::new();
     gif.decode(&mut scratch, |f| {
@@ -200,7 +207,7 @@ fn with_stored<R>(g: &[u8], f: impl FnOnce(&mut ImageStore<'_>, ImageId) -> R) -
     let mut store = ImageStore::new(&mut px, &mut slots, &mut places, &mut index);
     let mut scratch = g.to_vec();
     scratch.resize(g.len() + gif.scratch_len(), 0);
-    let (picture, _) = decode_picture(&mut store, &mut scratch, FileLen::of(g.len()));
+    let (picture, _) = decode_picture(&mut store, &mut scratch, FileLen::of(g.len()), None);
     let id = picture.expect("stored").id;
     f(&mut store, id)
 }
@@ -619,22 +626,243 @@ fn a_frame_with_the_user_input_flag_waits() {
     assert_eq!((f[1].1, f[1].2), (300, GifWait::Delay));
 }
 
-/// **A Plain Text Extension is not drawn, and is counted**; its Graphic
-/// Control Extension still delays it, so the image after it is a frame
-/// of its own.
-#[test]
-fn a_plain_text_extension_is_counted_not_drawn() {
-    let mut g = gif(2, 1, &[K, W], 0, None, &[]);
+/// **A Plain Text Extension** (25): its grid `[left, top, width, height]`,
+/// its character cell `[width, height]`, its foreground and background
+/// indices, and its text in sub-blocks.
+fn text(grid: [u16; 4], cell: [u8; 2], fg: u8, bg: u8, data: &[u8]) -> Vec<u8> {
+    let mut out = vec![0x21, 0x01, 12];
+    for v in grid {
+        out.extend(v.to_le_bytes());
+    }
+    out.extend([cell[0], cell[1], fg, bg]);
+    out.extend(blocks(data));
+    out
+}
+
+/// A Graphic Control Extension: its disposal, delay and transparency index.
+fn control(disposal: u8, delay: u16, t: Option<u8>) -> Vec<u8> {
+    let mut out = vec![0x21, 0xf9, 4, disposal << 2 | u8::from(t.is_some())];
+    out.extend(delay.to_le_bytes());
+    out.extend([t.unwrap_or(0), 0]);
+    out
+}
+
+/// `g` with `more` written before its trailer.
+fn and_then(mut g: Vec<u8>, more: &[Vec<u8>]) -> Vec<u8> {
     g.pop();
-    g.extend([0x21, 0xf9, 4, 4, 20, 0, 0, 0]);
-    g.extend([0x21, 0x01, 12, 0, 0, 0, 0, 2, 0, 1, 0, 8, 8, 1, 0]);
-    g.extend(blocks(b"hi"));
-    g.extend(b"\x2c\x01\x00\x00\x00\x01\x00\x01\x00\x00\x02");
-    g.extend(blocks(&lzw(&[1], 2, Full::Clear)));
+    for b in more {
+        g.extend(b);
+    }
     g.push(0x3b);
-    let gif = Gif::parse(&g).unwrap();
-    assert_eq!(gif.texts_not_drawn(), 1);
-    let f = frames(&g).unwrap();
+    g
+}
+
+/// The bytes of `im` as [`gif`] writes it over `gct`: its control and its
+/// image, no header and no trailer.
+fn image_bytes(gct: &[[u8; 3]], im: Img) -> Vec<u8> {
+    let g = gif(1, 1, gct, 0, None, &[im]);
+    g[13 + palette(gct).0.len()..g.len() - 1].to_vec()
+}
+
+/// **The stub font**: the cell's left column for every character but the
+/// space, and nothing for the space. Never the real face.
+fn stub(c: char, _: ImagePx, h: ImagePx, set: &mut dyn FnMut(ImagePx, ImagePx)) {
+    if c != ' ' {
+        for y in 0..h.raw() {
+            set(ImagePx::of(0), ImagePx::of(y));
+        }
+    }
+}
+
+thread_local! {
+    static ASKED: RefCell<Vec<char>> = const { RefCell::new(Vec::new()) };
+}
+
+/// [`stub`], keeping each character it is asked to draw.
+fn keeping(c: char, w: ImagePx, h: ImagePx, set: &mut dyn FnMut(ImagePx, ImagePx)) {
+    ASKED.with(|a| a.borrow_mut().push(c));
+    stub(c, w, h, set);
+}
+
+/// The characters [`keeping`] was asked to draw since the last call.
+fn asked() -> Vec<char> {
+    ASKED.with(RefCell::take)
+}
+
+/// **A Plain Text Extension is drawn through the lent font** (25): each
+/// whole cell of its grid in the background index, the pixels the font
+/// sets in the foreground index, both of the global table, the text from
+/// the upper left cell, left to right, and nothing counted. Fails if no
+/// text is drawn, or if the block is counted.
+#[test]
+fn a_plain_text_extension_is_drawn_through_the_lent_font() {
+    // Foreground W, background R: two 4 by 2 cells across an 8 by 2 screen.
+    let g = and_then(
+        gif(8, 2, &[K, W, R, G], 0, None, &[]),
+        &[text([0, 0, 8, 2], [4, 2], 1, 2, b"AB")],
+    );
+    let f = frames_with(&g, Some(stub)).unwrap();
+    assert_eq!(f.len(), 1);
+    let row = [W, R, R, R, W, R, R, R];
+    assert_eq!(f[0].0, rgba(&[row, row].concat()));
+    let parsed = Gif::parse(&g).unwrap().with_font(Some(stub));
+    assert_eq!(parsed.texts_not_drawn(), 0);
+}
+
+/// **A byte below 0x20 or above 0xF7 is drawn as a space** (25 e), and so
+/// are DEL and the C1 controls, 0x7F to 0x9F; 0xA0 to 0xF7 are ISO
+/// 8859-1's characters. The cells of 0x1F and 0xF8 are the cell of 0x20.
+/// Fails if a byte out of range reaches the font as anything but a space.
+#[test]
+fn a_byte_out_of_range_is_drawn_as_a_space() {
+    let data = [0x1f, 0x20, 0xf8, b'A', 0x7f, 0x9f, 0xa0, 0xe9, 0xf7];
+    let g = and_then(
+        gif(9, 1, &[K, W, R, G], 0, None, &[]),
+        &[text([0, 0, 9, 1], [1, 1], 1, 2, &data)],
+    );
+    asked();
+    let f = frames_with(&g, Some(keeping)).unwrap();
+    assert_eq!(
+        asked(),
+        [' ', ' ', ' ', 'A', ' ', ' ', '\u{a0}', '\u{e9}', '\u{f7}']
+    );
+    assert_eq!(f[0].0, rgba(&[R, R, R, W, R, R, W, W, W]));
+}
+
+/// **"fractional cells must be discarded"**: a grid 20 wide of cells 8
+/// wide is two cells, and columns 16 to 19 keep the canvas. Fails if a
+/// third cell is drawn there, whole or cut.
+#[test]
+fn a_fractional_cell_is_not_drawn() {
+    let g = and_then(
+        gif(24, 1, &[K, W, R, G], 0, None, &[]),
+        &[text([0, 0, 20, 1], [8, 1], 1, 2, b"ABC")],
+    );
+    let f = frames_with(&g, Some(stub)).unwrap();
+    let mut want = [K; 24];
+    want[..16].fill(R);
+    want[0] = W;
+    want[8] = W;
+    assert_eq!(f[0].0, rgba(&want));
+}
+
+/// **The text ends where "the character grid is filled"**: a grid of two
+/// rows of two cells takes four bytes of five, and the row below the grid
+/// keeps the canvas. Fails if a byte past the full grid is drawn.
+#[test]
+fn text_past_the_full_grid_is_not_drawn() {
+    let g = and_then(
+        gif(8, 3, &[K, W, R, G], 0, None, &[]),
+        &[text([0, 0, 8, 2], [4, 1], 1, 2, b"ABCDE")],
+    );
+    asked();
+    let f = frames_with(&g, Some(keeping)).unwrap();
+    assert_eq!(asked(), ['A', 'B', 'C', 'D']);
+    let row = [W, R, R, R, W, R, R, R];
+    assert_eq!(f[0].0, rgba(&[row, row, [K; 8]].concat()));
+}
+
+/// **What the font sets outside its cell is dropped**: the font is the
+/// embedder's, and may set a pixel past the cell it was given.
+#[test]
+fn a_font_drawing_past_its_cell_is_clipped() {
+    fn spill(_: char, w: ImagePx, h: ImagePx, set: &mut dyn FnMut(ImagePx, ImagePx)) {
+        set(w, ImagePx::of(0));
+        set(ImagePx::of(0), h);
+        set(ImagePx::of(u16::MAX), ImagePx::of(u16::MAX));
+    }
+    let g = and_then(
+        gif(4, 2, &[K, W, R, G], 0, None, &[]),
+        &[text([0, 0, 2, 1], [2, 1], 1, 2, b"A")],
+    );
+    let f = frames_with(&g, Some(spill)).unwrap();
+    assert_eq!(f[0].0, rgba(&[R, R, K, K, K, K, K, K]));
+}
+
+/// **The transparency index acts on the text** (23 d, viii), as it does
+/// on an image: as the background index, the image under the grid shows
+/// between the glyph's pixels, and as the foreground index, under the
+/// glyph. Fails if the text is drawn over the canvas whatever the index.
+#[test]
+fn a_transparent_index_keeps_the_image_under_the_text() {
+    let under = Img {
+        rect: [0, 0, 4, 2],
+        px: vec![3; 8],
+        ..Img::default()
+    };
+    for (t, row) in [(2, [W, G, G, G]), (1, [G, R, R, R])] {
+        let g = and_then(
+            gif(4, 2, &[K, W, R, G], 0, None, std::slice::from_ref(&under)),
+            &[
+                control(0, 0, Some(t)),
+                text([0, 0, 4, 2], [4, 2], 1, 2, b"A"),
+            ],
+        );
+        let f = frames_with(&g, Some(stub)).unwrap();
+        assert_eq!(f.len(), 1, "both composited");
+        assert_eq!(f[0].0, rgba(&[row, row].concat()), "transparency index {t}");
+    }
+}
+
+/// **The text's Graphic Control Extension delays and disposes it**: it is
+/// a frame of its own, and disposal 2 restores the background under its
+/// grid before the image after it. Fails if the text stays on the canvas,
+/// or is composited into the next frame.
+#[test]
+fn a_texts_disposal_restores_the_background() {
+    let corner = Img {
+        rect: [3, 1, 1, 1],
+        px: vec![3],
+        ..Img::default()
+    };
+    let gct = [K, W, R, G];
+    let g = and_then(
+        gif(4, 2, &gct, 0, None, &[]),
+        &[
+            control(2, 10, None),
+            text([0, 0, 4, 2], [4, 2], 1, 2, b"A"),
+            image_bytes(&gct, corner),
+        ],
+    );
+    let f = frames_with(&g, Some(stub)).unwrap();
+    assert_eq!(f.len(), 2, "the text's frame and the image's");
+    assert_eq!(f[0].0, rgba(&[W, R, R, R, W, R, R, R]));
+    assert_eq!(f[0].1, 100);
+    assert_eq!(f[1].0, rgba(&[K, K, K, K, K, K, K, G]));
+}
+
+/// **A Plain Text Extension not drawn is counted**: with no font lent, with
+/// no global table, which "This block requires" (25), and with a header
+/// short of its twelve bytes, whose Graphic Control Extension is still
+/// taken, so the image after it is a frame of its own. Fails if a block
+/// not drawn goes uncounted, or one is drawn with no font.
+#[test]
+fn a_plain_text_extension_not_drawn_is_counted() {
+    let g = and_then(
+        gif(8, 2, &[K, W, R, G], 0, None, &[]),
+        &[text([0, 0, 8, 2], [4, 2], 1, 2, b"AB")],
+    );
+    assert_eq!(Gif::parse(&g).unwrap().texts_not_drawn(), 1, "no font");
+    assert_eq!(frames(&g).unwrap()[0].0, rgba(&[K; 16]), "no font, no text");
+
+    let mut bare = b"GIF89a\x08\x00\x02\x00\x00\x00\x00".to_vec();
+    bare.extend(text([0, 0, 8, 2], [4, 2], 1, 2, b"AB"));
+    bare.push(0x3b);
+    let parsed = Gif::parse(&bare).unwrap().with_font(Some(stub));
+    assert_eq!(parsed.texts_not_drawn(), 1, "no global table");
+    assert_eq!(frames_with(&bare, Some(stub)).unwrap()[0].0, vec![0; 64]);
+
+    let mut short = gif(2, 1, &[K, W], 0, None, &[]);
+    short.pop();
+    short.extend([0x21, 0xf9, 4, 4, 20, 0, 0, 0]);
+    short.extend([0x21, 0x01, 8, 0, 0, 0, 0, 2, 0, 1, 0]);
+    short.extend(blocks(b"hi"));
+    short.extend(b"\x2c\x01\x00\x00\x00\x01\x00\x01\x00\x00\x02");
+    short.extend(blocks(&lzw(&[1], 2, Full::Clear)));
+    short.push(0x3b);
+    let parsed = Gif::parse(&short).unwrap().with_font(Some(stub));
+    assert_eq!(parsed.texts_not_drawn(), 1, "a short header");
+    let f = frames_with(&short, Some(stub)).unwrap();
     assert_eq!(f.len(), 2, "the text's frame and the image's");
     assert_eq!(f[0].0, rgba(&[K, K]), "no text drawn");
     assert_eq!(f[1].0, rgba(&[K, W]));
@@ -829,6 +1057,12 @@ fn survives(g: &[u8]) {
     let Ok(gif) = Gif::parse(g) else {
         return;
     };
+    let unfonted = gif.texts_not_drawn();
+    let gif = gif.with_font(Some(stub));
+    assert!(
+        gif.texts_not_drawn() <= unfonted,
+        "a font draws, never counts more"
+    );
     let need = gif.scratch_len();
     if need > 1 << 26 {
         return;
@@ -867,13 +1101,27 @@ fn seeds() -> Vec<Vec<u8>> {
                 one(2, 3, (1, 20, Some(3), false)),
             ],
         ),
+        and_then(
+            gif(
+                8,
+                2,
+                &[K, W, R, G],
+                0,
+                None,
+                &[one(0, 1, (1, 10, None, false))],
+            ),
+            &[
+                control(2, 10, Some(2)),
+                text([1, 0, 7, 2], [3, 2], 1, 2, b"hello"),
+            ],
+        ),
     ]
 }
 
 proptest! {
     #[test]
     fn a_malformed_stream_never_panics(
-        seed in 0..3usize,
+        seed in 0..4usize,
         harms in proptest::collection::vec((0..HARMS.len(), any::<usize>(), any::<u8>()), 1..4),
     ) {
         let mut g = seeds()[seed].clone();

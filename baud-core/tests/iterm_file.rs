@@ -923,21 +923,57 @@ fn a_margin_scroll_moves_a_gif_with_no_room_beside_it() {
     a_margin_scroll_moves_every_frame(1 << 11);
 }
 
-/// **A Plain Text Extension is not drawn, and is counted** in
-/// `picture_parts_skipped`; the picture round it draws.
-#[test]
-fn a_gif_plain_text_extension_is_counted() {
+/// A 4 by 4 GIF of index 1 with a Plain Text Extension after it: one
+/// 4 by 4 cell, foreground index 2, background index 0, its text "hi".
+fn gif_with_text() -> Vec<u8> {
     let mut g = gif(4, 4, None, &[flat(4, 4, 1, 0)]);
     let at = g.len() - 1;
     let text = [
-        0x21, 0x01, 12, 0, 0, 0, 0, 4, 0, 4, 0, 4, 4, 1, 0, 2, b'h', b'i', 0,
+        0x21, 0x01, 12, 0, 0, 0, 0, 4, 0, 4, 0, 4, 4, 2, 0, 2, b'h', b'i', 0,
     ];
     g.splice(at..at, text);
+    g
+}
+
+/// A font that sets every pixel of its cell.
+fn solid(_: char, w: ImagePx, h: ImagePx, set: &mut dyn FnMut(ImagePx, ImagePx)) {
+    for y in 0..h.raw() {
+        for x in 0..w.raw() {
+            set(ImagePx::of(x), ImagePx::of(y));
+        }
+    }
+}
+
+/// **A Plain Text Extension is drawn with the font `set_regis_font`
+/// lends**, over the image before it, and nothing is counted. Fails if the
+/// stored frame shows the image where the text is.
+#[test]
+fn a_gif_plain_text_extension_is_drawn_with_the_lent_font() {
+    let g = gif_with_text();
+    with(1 << 16, |t| {
+        t.set_regis_font(solid);
+        feed(t, &file("inline=1", &g), 4097);
+        let (_, w, h, got) = placed(t);
+        assert_eq!((w, h), (4, 4));
+        assert!(
+            got.iter().all(|&p| p == GIF_COLOURS[2]),
+            "the text's foreground over the image"
+        );
+        assert_eq!(t.iterm_counts().picture_parts_skipped, Messages::NONE);
+        assert_eq!(t.iterm_counts().of(ItermKey::File), Messages::NONE);
+    });
+}
+
+/// **With no font lent a Plain Text Extension is not drawn, and is
+/// counted** in `picture_parts_skipped`; the picture round it draws.
+#[test]
+fn a_gif_plain_text_extension_with_no_font_is_counted() {
+    let g = gif_with_text();
     with(1 << 16, |t| {
         feed(t, &file("inline=1", &g), 4097);
         let (_, w, h, got) = placed(t);
         assert_eq!((w, h), (4, 4));
-        assert_eq!(got[0], GIF_COLOURS[1]);
+        assert!(got.iter().all(|&p| p == GIF_COLOURS[1]), "the image alone");
         assert_eq!(t.iterm_counts().picture_parts_skipped, ONE);
         assert_eq!(t.iterm_counts().of(ItermKey::File), Messages::NONE);
     });

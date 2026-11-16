@@ -618,7 +618,7 @@ pub struct RegisGlyph<'a> {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GlyphSource<'a> {
     /// A character of the built-in alphabet 0, by Unicode scalar, drawn by
-    /// the embedder's font at the unit cell ([`RegisFont`]); `None` with no
+    /// the embedder's font at the unit cell ([`CellFont`]); `None` with no
     /// font set.
     Builtin {
         ch: char,
@@ -651,12 +651,15 @@ impl GlyphBits<'_> {
     }
 }
 
-/// **The embedder's font, for the built-in alphabet**: draw character `c`
-/// in a `w` by `h` cell, calling `set(x, y)` for each pixel it covers. Each
-/// ReGIS device "must have a built in character definition and writing
-/// capability" (070-8 § 8.5.6); baud's is the embedder's own face, drawn by
-/// its own rasteriser at the size the character is shown.
-pub type RegisFont = fn(
+/// **The embedder's font, drawn in a cell**: draw character `c` in a `w` by
+/// `h` cell, calling `set(x, y)` for each pixel it covers. ReGIS draws its
+/// built-in alphabet with it -- each ReGIS device "must have a built in
+/// character definition and writing capability" (070-8 § 8.5.6) -- and a
+/// GIF its Plain Text Extensions' text, whose "selection of font and size
+/// is left to the discretion of the decoder" (`[[source: gif89a]]` 25 e).
+/// baud's is the embedder's own face, drawn by its own rasteriser at the
+/// size the character is shown.
+pub type CellFont = fn(
     c: char,
     w: crate::image::ImagePx,
     h: crate::image::ImagePx,
@@ -1198,12 +1201,12 @@ impl Regis {
     }
 
     /// The embedder's font, which draws the built-in alphabet.
-    pub fn set_font(&mut self, f: RegisFont) {
+    pub fn set_font(&mut self, f: CellFont) {
         self.sem.font = Some(f);
     }
 
     /// The embedder's font, if it gave one.
-    pub fn font(&self) -> Option<RegisFont> {
+    pub fn font(&self) -> Option<CellFont> {
         self.sem.font
     }
 

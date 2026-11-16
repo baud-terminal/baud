@@ -191,7 +191,8 @@ impl Paint<'_, '_> {
         let s = &mut *self.strs;
         let picture = match len {
             Some(n) => {
-                let (picture, used) = decode_picture(self.images, s.kitty_scratch, n);
+                let font = s.regis.font();
+                let (picture, used) = decode_picture(self.images, s.kitty_scratch, n, font);
                 self.give_back(used);
                 picture
             }

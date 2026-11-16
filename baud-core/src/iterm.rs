@@ -34,7 +34,8 @@ pub struct ItermCounts {
     /// alone and a fault where an operator is given it.
     pub badge_unevaluated: Messages,
     /// Parts of an inline picture drawn as nothing: a GIF's Plain Text
-    /// Extensions, whose text baud does not render.
+    /// Extensions while no font is lent (`Term::set_regis_font`), or in a
+    /// GIF with no global table for their colours to index.
     pub picture_parts_skipped: Messages,
 }
 

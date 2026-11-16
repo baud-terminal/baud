@@ -26,9 +26,14 @@
 //! "the Background Color" of the global table, opaque, clear only with no
 //! global table (18 vii, 23 iv).
 //!
-//! **What is not drawn.** A Plain Text Extension's text (25) is not
-//! rendered -- its Graphic Control Extension is still taken, so its delay
-//! and disposal apply -- and is counted by the caller.
+//! **A Plain Text Extension's text is drawn on the canvas** (25), in the
+//! stream's order like any graphic, through the font the embedder lends
+//! ([`Gif::with_font`]), so a later image covers it and its Graphic
+//! Control Extension's delay, disposal and transparency index act on it.
+//! With no font lent, with no global table for its colours to index, or
+//! with a header short of its twelve bytes, its text is not drawn -- its
+//! Graphic Control Extension is still taken, so its delay and disposal
+//! apply -- and it is counted ([`Gif::texts_not_drawn`]).
 //!
 //! **Malformed input never panics**, and the work is bounded: every read
 //! is checked against the file, an LZW code past the table ends its
@@ -41,6 +46,7 @@
 //! only there.
 
 use crate::png::Size;
+use crate::{CellFont, ImagePx};
 
 /// Why a GIF could not be decoded.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -160,6 +166,17 @@ enum Rows {
     Interlaced,
 }
 
+/// **Whether a Plain Text Extension's header is whole**: its Block Size
+/// "contains the fixed value 12" (25 c iii), the character cell's width
+/// and height and the foreground and background indices its last four
+/// bytes. A shorter one still places its grid, as a graphic its Graphic
+/// Control Extension applies to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TextHead {
+    Whole,
+    Short,
+}
+
 /// A block of the data stream, as [`next_block`] reads it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Block {
@@ -167,8 +184,9 @@ enum Block {
     /// An image: its rectangle, its table, its rows, and where its LZW
     /// minimum code size is.
     Image(Rect, Option<Table>, Rows, usize),
-    /// A Plain Text Extension, its text grid's rectangle.
-    Text(Rect),
+    /// A Plain Text Extension: its text grid's rectangle, and whether its
+    /// header holds the cells' size and colours.
+    Text(Rect, TextHead),
     /// An application extension's NETSCAPE2.0 loop count, or ANIMEXTS1.0's,
     /// which Firefox reads as the same block
     /// (`[[source: firefox-774fa0c-gif-decoder]]`).
@@ -242,12 +260,18 @@ fn next_block(d: &[u8], pos: usize) -> Option<(Block, usize)> {
                         transparent,
                     })
                 }
-                (0x01, Some(t)) if t.len() >= 8 => Block::Text(Rect {
-                    x: usize::from(u16::from_le_bytes([t[0], t[1]])),
-                    y: usize::from(u16::from_le_bytes([t[2], t[3]])),
-                    w: usize::from(u16::from_le_bytes([t[4], t[5]])),
-                    h: usize::from(u16::from_le_bytes([t[6], t[7]])),
-                }),
+                (0x01, Some(t)) if t.len() >= 8 => Block::Text(
+                    Rect {
+                        x: usize::from(u16::from_le_bytes([t[0], t[1]])),
+                        y: usize::from(u16::from_le_bytes([t[2], t[3]])),
+                        w: usize::from(u16::from_le_bytes([t[4], t[5]])),
+                        h: usize::from(u16::from_le_bytes([t[6], t[7]])),
+                    },
+                    match t.len() {
+                        12.. => TextHead::Whole,
+                        _ => TextHead::Short,
+                    },
+                ),
                 (0xFF, Some(id)) if id == b"NETSCAPE2.0" || id == b"ANIMEXTS1.0" => {
                     let sub = body + 1 + 11;
                     match d.get(sub..sub + 4) {
@@ -296,6 +320,7 @@ pub struct Gif<'a> {
     graphics: u32,
     loops: Option<u16>,
     texts: u32,
+    font: Option<CellFont>,
 }
 
 impl<'a> Gif<'a> {
@@ -333,6 +358,7 @@ impl<'a> Gif<'a> {
             graphics: 0,
             loops: None,
             texts: 0,
+            font: None,
         };
         // Each graphic's delay and wait, in order: the frames come from
         // them.
@@ -349,8 +375,8 @@ impl<'a> Gif<'a> {
                 Block::Image(.., at) if !code_size_ok(data, at) => {
                     return Err(GifError::Malformed);
                 }
-                Block::Image(..) | Block::Text(_) => {
-                    if matches!(block, Block::Text(_)) {
+                Block::Image(..) | Block::Text(..) => {
+                    if matches!(block, Block::Text(..)) {
                         g.texts += 1;
                     }
                     graphics += 1;
@@ -399,9 +425,30 @@ impl<'a> Gif<'a> {
         }
     }
 
-    /// How many Plain Text Extensions it carries, which are not drawn.
+    /// **The font its Plain Text Extensions are drawn with**: "The
+    /// selection of font and size is left to the discretion of the decoder"
+    /// (25 e), and baud's is the embedder's own face. With `None` their
+    /// text is not drawn.
+    pub fn with_font(mut self, font: Option<CellFont>) -> Gif<'a> {
+        self.font = font;
+        self
+    }
+
+    /// **How many Plain Text Extensions it carries that are not drawn**:
+    /// every one with no font lent ([`Gif::with_font`]) or no global table,
+    /// which "This block requires" (25), else those whose header is short of
+    /// its twelve bytes.
     pub fn texts_not_drawn(&self) -> u32 {
-        self.texts
+        if self.font.is_none() || self.gct.is_none() {
+            return self.texts;
+        }
+        let mut short = 0;
+        let mut pos = self.first;
+        while let Some((block, next)) = next_block(self.data, pos) {
+            pos = next;
+            short += u32::from(matches!(block, Block::Text(_, TextHead::Short)));
+        }
+        short
     }
 
     /// The bytes of work [`Gif::decode`] needs: the canvas and the copy
@@ -459,13 +506,14 @@ impl<'a> Gif<'a> {
         let mut changed = GifRect::NONE.with(0, 0, w, h);
         let mut pos = self.first;
         while let Some((block, next)) = next_block(self.data, pos) {
+            let at = pos;
             pos = next;
             let rect = match block {
                 Block::Control(c) => {
                     control = c;
                     continue;
                 }
-                Block::Image(r, ..) | Block::Text(r) => r,
+                Block::Image(r, ..) | Block::Text(r, _) => r,
                 _ => continue,
             };
             let c = core::mem::replace(&mut control, Control::NONE);
@@ -493,6 +541,22 @@ impl<'a> Gif<'a> {
                     at: 0,
                 };
                 lzw.decode(self.data, data, &mut put);
+            }
+            if let (Block::Text(r, TextHead::Whole), Some(font), Some(_)) =
+                (block, self.font, self.gct)
+            {
+                let mut put = Put {
+                    gif: self,
+                    canvas,
+                    w,
+                    h,
+                    rect: r,
+                    rows: Rows::InOrder,
+                    table: self.gct,
+                    transparent: c.transparent,
+                    at: 0,
+                };
+                put.text(self.data.get(at + 2..next).unwrap_or(&[]), font);
             }
             graphic += 1;
             let shows = c.delay != 0 || c.wait == GifWait::Input;
@@ -591,6 +655,79 @@ impl Put<'_, '_> {
         }
         let at = (y * self.w + x) * 4;
         self.canvas[at..at + 4].copy_from_slice(&self.gif.colour(self.table, i));
+    }
+
+    /// **A Plain Text Extension's text, drawn** (25), from `body`, its
+    /// sub-blocks: the grid's whole cells -- "fractional cells must be
+    /// discarded" -- each given the data's next character, "starting with
+    /// the upper left cell in the grid and proceeding from left to right and
+    /// from top to bottom ... until the end of data is reached or the
+    /// character grid is filled". `font` draws the character at the cell's
+    /// size; the pixels it sets take the foreground index and the rest of
+    /// the cell the background index, both of the global table, and a
+    /// pixel whose index is the transparency index keeps the canvas. What
+    /// the font sets outside the cell is dropped.
+    ///
+    /// The text is "7-bit printable ASCII", and a byte "less than 0x20 or
+    /// greater than 0xf7" is drawn as "a Space character (0x20)", as the
+    /// text recommends. 0x7F to 0x9F, DEL and the C1 controls, are drawn as
+    /// a space too, and 0xA0 to 0xF7 as ISO 8859-1's characters, U+00A0 to
+    /// U+00F7.
+    fn text(&mut self, body: &[u8], font: CellFont) {
+        let head = body.first().map_or(0, |&n| usize::from(n));
+        let Some(&[cw, ch, fg, bg]) = body.get(9..13) else {
+            return;
+        };
+        let (cell_w, cell_h) = (ImagePx::of(u16::from(cw)), ImagePx::of(u16::from(ch)));
+        let (cw, ch) = (usize::from(cw), usize::from(ch));
+        let cols = self.rect.w.checked_div(cw).unwrap_or(0);
+        let cells = cols * self.rect.h.checked_div(ch).unwrap_or(0);
+        // The pixels the font sets in a cell, a bit each: a cell is at most
+        // 255 by 255.
+        let mut bits = [0u64; 1024];
+        let words = (cw * ch).div_ceil(64);
+        let mut cell = 0;
+        let mut pos = 1 + head;
+        while cell < cells {
+            let n = body.get(pos).map_or(0, |&n| usize::from(n));
+            let Some(data) = body.get(pos + 1..pos + 1 + n).filter(|d| !d.is_empty()) else {
+                return;
+            };
+            pos += 1 + n;
+            for &b in data.iter().take(cells - cell) {
+                let c = match b {
+                    0x20..=0x7e | 0xa0..=0xf7 => char::from(b),
+                    _ => ' ',
+                };
+                bits[..words].fill(0);
+                font(c, cell_w, cell_h, &mut |x, y| {
+                    let (x, y) = (x.index(), y.index());
+                    if x < cw && y < ch {
+                        let i = y * cw + x;
+                        bits[i / 64] |= 1 << (i % 64);
+                    }
+                });
+                let x0 = self.rect.x + (cell % cols) * cw;
+                let y0 = self.rect.y + (cell / cols) * ch;
+                for y in 0..ch {
+                    for x in 0..cw {
+                        let i = y * cw + x;
+                        let index = match (bits[i / 64] >> (i % 64)) & 1 {
+                            0 => bg,
+                            _ => fg,
+                        };
+                        let (px, py) = (x0 + x, y0 + y);
+                        if Some(index) == self.transparent || px >= self.w || py >= self.h {
+                            continue;
+                        }
+                        let at = (py * self.w + px) * 4;
+                        self.canvas[at..at + 4]
+                            .copy_from_slice(&self.gif.colour(self.table, index));
+                    }
+                }
+                cell += 1;
+            }
+        }
     }
 }
 

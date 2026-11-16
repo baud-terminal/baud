@@ -616,7 +616,7 @@ pub(crate) struct Sem {
     /// below sets it before each character it hands the lexer.
     pub(crate) macro_free: usize,
     /// The embedder's font, which draws the built-in alphabet.
-    pub(crate) font: Option<RegisFont>,
+    pub(crate) font: Option<CellFont>,
     /// Whether a delay stops the interpreter ([`Regis::set_hold`]).
     pub(crate) hold: RegisHold,
     /// The ticks of the delays met since the caller last took them, under
