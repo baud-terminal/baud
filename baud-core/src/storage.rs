@@ -1364,7 +1364,7 @@ pub enum Banding {
 /// rows.** Single is every provision [`Provision::of`] admits; banded is
 /// the 8K grid's (design-grid-8k), and until its storage is built a banded
 /// provision is stored as single with its rows clamped, one band of all of
-/// them ([`Owned::band_rows`]).
+/// them (`Owned::band_rows`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Single,
@@ -1439,7 +1439,7 @@ impl Provision {
     /// **`ws` banded, `band` rows a band**: the oracle's and the forced-band
     /// measurement's entry. Admits any size from 1x1 to `MAX_COLS` x
     /// `MAX_ROWS`; storage clamps `band` to what a band's table holds at its
-    /// pitch and says what it gave ([`Owned::band_rows`]).
+    /// pitch and says what it gave (`Owned::band_rows`).
     pub fn banded(ws: &WinSize, band: BandRows) -> Result<Provision, OverBudget> {
         Provision::banded_in(ws, band, BAND_SLOTS)
     }
