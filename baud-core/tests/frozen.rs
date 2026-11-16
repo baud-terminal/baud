@@ -79,6 +79,8 @@ struct Lent {
 enum Pool {
     Lent,
     None,
+    /// Lent, with room for only this many generations.
+    Gens(usize),
 }
 
 impl Lent {
@@ -91,6 +93,10 @@ impl Lent {
         let budget = match pool {
             Pool::Lent => FrozenBudget::of(ring_rows, stride, slots),
             Pool::None => FrozenBudget::NONE,
+            Pool::Gens(gens) => FrozenBudget {
+                gens,
+                ..FrozenBudget::of(ring_rows, stride, slots)
+            },
         };
         Lent {
             arena: vec![0; ARENA],
@@ -377,6 +383,148 @@ fn every_history_cell_keeps_its_rendition_past_many_tables() {
     let c =
         differential(&SMALL, Depth::of(400), &[Step::Bytes(flood(0, 400, 40))]).past_the_table();
     assert!(c.freezes > 3 && c.rows_frozen > 300, "the control: {c:?}");
+}
+
+/// `lines` lines each erased whole (`EL 2`) under a background of its own
+/// from `first` on, and nothing written: every cell a blank in the line's
+/// rendition, and the row's mark at zero, because the erase writes no glyph.
+fn erased_lines(first: usize, lines: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    for l in 0..lines {
+        let b = (first + l).to_le_bytes();
+        out.extend(format!("\x1b[0;48;2;{};{};7m\x1b[2K\x1b[0m\r\n", b[0], b[1]).as_bytes());
+    }
+    out
+}
+
+/// **Blanks erased in a rendition keep it in the history, though the row's
+/// mark says nothing is written** ([`RowMeta`]'s extent stops at the last
+/// glyph, and an erase under a background writes blanks, no glyph). A
+/// freeze that looked only as far as the mark would leave every such row
+/// naming slots of the live table, which a sweep then gives to other
+/// renditions. Eleven hundred lines, each blank in a background of its own,
+/// past the 1,024-slot table.
+#[test]
+fn blanks_erased_in_a_rendition_keep_it_past_the_mark() {
+    let c = differential(
+        &SMALL,
+        Depth::of(1_100),
+        &[Step::Bytes(erased_lines(0, 1_100))],
+    )
+    .past_the_table();
+    assert!(
+        c.rows_frozen > 550,
+        "the control: most of the lines froze: {c:?}"
+    );
+}
+
+/// `lines` lines each written to the last of 40 columns, then erased from
+/// column 11 to the end (`EL 0`) under a background of its own from
+/// `first` on: glyphs in the default, then blanks in the line's rendition
+/// to the edge.
+fn cut_lines(first: usize, lines: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    for l in 0..lines {
+        let b = (first + l).to_le_bytes();
+        out.extend(b"\x1b[0m");
+        out.extend(core::iter::repeat_n(
+            b'a' + u8::try_from(l % 26).unwrap_or(0),
+            40,
+        ));
+        out.extend(format!("\r\x1b[10C\x1b[48;2;{};{};9m\x1b[K\x1b[0m\r\n", b[0], b[1]).as_bytes());
+    }
+    out
+}
+
+/// **A line's glyphs and the blanks erased after them in a rendition keep
+/// their renditions alike**: the last cell that names a rendition is the
+/// last of the row, not the last glyph. Eleven hundred such lines, each
+/// erased in a background of its own.
+#[test]
+fn blanks_erased_after_a_lines_glyphs_keep_their_rendition() {
+    let c = differential(
+        &SMALL,
+        Depth::of(1_100),
+        &[Step::Bytes(cut_lines(0, 1_100))],
+    )
+    .past_the_table();
+    assert!(
+        c.rows_frozen > 550,
+        "the control: most of the lines froze: {c:?}"
+    );
+}
+
+/// **A pool with no room left refuses renditions and recolours nothing.**
+/// Lent two generations, a flood of a hundred lines uses them up; then one
+/// read's worth of short lines (one `feed`, at most [`READ_CHUNK`] bytes)
+/// fills the table again with nowhere to freeze to. Every cell in the flood
+/// and the read is a rendition of its own, so each refusal leaves exactly
+/// one cell in the default: the cells that read otherwise than the
+/// reference are exactly the refusals, each in the default, and every
+/// other cell -- the rows that found no room among them -- reads the
+/// rendition it was written in.
+#[test]
+fn a_full_pool_refuses_and_recolours_nothing() {
+    let mut small = Lent::new(&SMALL, Depth::of(200), NSTYLE, Pool::Gens(2));
+    let mut big = Lent::new(&SMALL, Depth::of(200), NSTYLE_MAX, Pool::None);
+    let mut s = small.term(&SMALL);
+    let mut b = big.term(&SMALL);
+    let read_bytes = flood(4_000, 29, 4);
+    assert!(read_bytes.len() <= READ_CHUNK, "{} bytes", read_bytes.len());
+    for t in [&mut s, &mut b] {
+        feed(t, &flood(0, 100, 40));
+        t.write_at(BytePos::ZERO, &read_bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(read_bytes.len()));
+        t.clear_reply();
+    }
+    let (rs, rb) = (read(&s), read(&b));
+    assert_eq!(rs.len(), rb.len(), "lines retained");
+    let (mut defaulted, mut recoloured) = (0u64, 0u64);
+    for (ls, lb) in rs.iter().zip(&rb) {
+        for (cs, cb) in ls.iter().zip(lb) {
+            assert_eq!(cs.0, cb.0, "content");
+            match (cs.1 == cb.1, cs.1 == StyleWord::DEFAULT) {
+                (true, _) => {}
+                (false, true) => defaulted += 1,
+                (false, false) => recoloured += 1,
+            }
+        }
+    }
+    let refusals = s.style_reclaims().refusals;
+    let counts = s.frozen().counts;
+    assert_eq!(recoloured, 0, "cells in another rendition: {counts:?}");
+    assert_eq!(defaulted, refusals, "each refusal is one cell: {counts:?}");
+    assert!(
+        counts.freezes > 0 && refusals > 0,
+        "the control: generations were used, then the pool ran out: {counts:?}"
+    );
+}
+
+/// **A thaw between two freezes reads none of a freeze's map, and the
+/// freeze after it none of the thaw's.** One map serves both: a freeze keys
+/// it by live slot, a thaw by frozen id. The history frozen; the alternate
+/// screen entered (the primary's screen frozen) and flooded; left (the
+/// primary's screen thawed into the live table); then a flood on the
+/// primary again, frozen as it scrolls off. Each step is a feed of its own,
+/// so an entry kept from one would be read by the next.
+#[test]
+fn a_thaw_between_two_freezes_shares_no_map_entry() {
+    let c = differential(
+        &SMALL,
+        Depth::of(300),
+        &[
+            Step::Bytes(flood(0, 120, 40)),
+            Step::Bytes(b"\x1b[?1049h".to_vec()),
+            Step::Bytes(flood(6_000, 20, 40)),
+            Step::Bytes(b"\x1b[?1049l".to_vec()),
+            Step::Bytes(flood(12_000, 120, 40)),
+        ],
+    )
+    .past_the_table();
+    assert!(
+        c.rows_thawed >= 10 && c.freezes > 3,
+        "the control: a thaw between freezes: {c:?}"
+    );
 }
 
 /// **S2: the primary's history, then the alternate screen flooded, and
