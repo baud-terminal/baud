@@ -12199,6 +12199,29 @@ group  = "V"
 # helix's own file, removed from the repository on 2026-11-03 (the copyleft
 # research files were removed from the tree); this URL serves these bytes.
 
+[sources.crossterm-terminal-unix-0-28-1]
+key    = "crossterm-terminal-unix-0-28-1"
+title  = "crossterm 0.28.1, src/terminal/sys/unix.rs -- the keyboard enhancement query: CSI ? u then DA, and the wait for the replies"
+author = "the crossterm contributors"
+year   = 2024
+venue  = "crossterm, the commit crossterm 0.28.1 was published from"
+url    = "https://raw.githubusercontent.com/crossterm-rs/crossterm/492b764f9f132d302903ff6f2f55e96c1b8cd0ec/src/terminal/sys/unix.rs"
+file   = ""
+sha256 = "a96da6325edc3a8f0136e25184d464aaba10f850c591a6eb37281a4c28716c1b"
+bytes  = 9767
+status = "external"
+group  = "V"
+# Fetched 2026-11-15. The repository has no 0.28.1 tag: the commit is the one the
+# published crate names in its .cargo_vcs_info.json (crossterm-0.28.1.crate from
+# static.crates.io, sha256
+# 829d955a0bb380ef178a640b91779e3987da38c9aea133b20614cfed8cdea9c6). The crate's
+# copy of this file is the same text with CRLF line ends, so it hashes otherwise.
+# `read_supports_keyboard_enhancement_raw` (line 203) writes `QUERY`,
+# b"\x1B[?u\x1B[c" (line 220), to /dev/tty, or to stdout when /dev/tty will not
+# open, then polls up to 2000 ms for a reply, a timeout being an error. A flags
+# reply answers true, after it reads the DA reply out of its queue; any other
+# reply the poll takes answers false. MIT; read, not committed.
+
 # Group Y -- note Y, palettes (V16). Retrieved where the licence is permissive or the
 # document public; external (hashed, not committed) for GPL/LGPL code and text and
 # for the ghostty themes tarball, whose themes are each their author's.
@@ -17588,6 +17611,27 @@ group  = "C"
 # version of ISO 646", origin "Japanese Industrial standard JIS C 6220 1969". 4/10 is
 # `J`, the final wf-untranslated gives for DEC's JIS-Roman. Its chart page has not been
 # read.
+# Not committed: the ISO-IR registration document's redistribution terms were not
+# read, so it is pinned by hash and fetched to read. Re-fetch at the url and compare.
+
+[sources.iso-ir-196]
+key    = "iso-ir-196"
+title  = "ISO-IR 196 -- UCS Transformation Format (UTF-8) with standard return, ESC 02/05 04/07"
+author = "ECMA (sponsor); ISO International Register of Coded Character Sets"
+year   = 1996
+venue  = "itscj.ipsj.or.jp, the ISO-IR register"
+url    = "https://itscj.ipsj.or.jp/ir/196.pdf"
+file   = ""
+sha256 = "cec9ddc085315b2825349ef1bef189e4f6d3752b53a5e7be4953fa1b91fe8a86"
+bytes  = 56514
+status = "external"
+group  = "G"
+# Fetched 2026-11-15. A scan of one page, the registration form, read off its image
+# [img]: registration number 196, date of registration 96-04-22, type "Coding system
+# different from that of ISO 2022", escape sequence "02/05 04/07" (`ESC % G`), name
+# "UCS Transformation Format (UTF-8) with standard return", description "The above
+# escape sequence identifies the UCS transformation format UTF-8. The Implementation
+# level is not identified.", sponsor ECMA, origin ISO/IEC JTC1/SC2.
 # Not committed: the ISO-IR registration document's redistribution terms were not
 # read, so it is pinned by hash and fetched to read. Re-fetch at the url and compare.
 
