@@ -1345,7 +1345,7 @@ fn each_file_and_directory_that_reaches_everything_does() {
         "devenv.yaml",
         "flake.nix",
         "flake.lock",
-        "scripts/check-features.sh",
+        "xtask/src/feature_arms.rs",
         ".cargo/config.toml",
         "nix/any.nix",
         "xtask/src/features_since.rs",

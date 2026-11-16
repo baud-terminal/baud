@@ -2,7 +2,7 @@
 //! part a read made is `Renumbered::Unrecorded` and `ReadEncoding::Other`,
 //! with nothing off its path and no move, so an embedder that files lines
 //! by the record files none of them as the read's own. Runs only in the
-//! build without the defaults (`scripts/test-features.sh`); every other
+//! build without the defaults (`cargo xtask feature-suites`); every other
 //! build of the suite has the record on.
 #![cfg(not(feature = "read-record"))]
 mod support;

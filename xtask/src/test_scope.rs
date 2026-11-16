@@ -1,5 +1,5 @@
 //! `cargo xtask test-scope`: the tests and gates a change needs, for the
-//! push gate (`scripts/scoped-test.sh`).
+//! push gate (`cargo xtask scoped-test`).
 //!
 //! ```text
 //! cargo xtask test-scope <from> <to>
@@ -59,7 +59,7 @@ const FULL_PREFIXES: [&str; 5] = [
     ".config/",
     ".pre-commit-config.yaml",
     "scripts/pre-push.sh",
-    "scripts/scoped-test.sh",
+    "xtask/src/scoped_test.rs",
     "xtask/src/test_scope.rs",
 ];
 

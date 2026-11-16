@@ -128,7 +128,7 @@ in
     # with `cargo test --doc`.
     nextest
     # `test:changelog` reads the history through git-cliff
-    # (`scripts/check-changelog.sh`).
+    # (`cargo xtask changelog`).
     pkgs.git-cliff
     # Releases run on a developer's machine, from `release-plz.toml`.
     pkgs.release-plz
@@ -270,7 +270,7 @@ in
     # --all-targets, because a plain check builds neither benches nor
     # examples and `cargo test` does not build a bench target either. Three
     # commits landed green over a `baud-bench` bench that did not compile
-    # before this was noticed; `scripts/check-features.sh` had already been
+    # before this was noticed; the feature-arm gate had already been
     # caught by the same gap and fixed only for itself.
     cargo check --quiet --all-targets ${scope} || { echo "FAILED: check"; exit 1; }
     echo "=== test ==="
@@ -442,7 +442,7 @@ in
     # Every check is local: no hosted service runs any of them.
     #
     # `scripts/pre-push.sh` runs what `cargo xtask test-scope` names for the
-    # pushed range (`scripts/scoped-test.sh`): the gates that build nothing,
+    # pushed range (`cargo xtask scoped-test`): the gates that build nothing,
     # then clippy, tests, the rig and the other builds only for the crates
     # and test binaries the change reaches. A change it cannot scope, a new
     # branch, or `BAUD_PUSH_FULL=1` runs every gate, `devenv test`.
@@ -569,7 +569,7 @@ in
     # individually, the way the arms are actually used for measurement. It
     # checks; `test:feature-suites` runs the tests.
     "test:features" = {
-      exec = "bash ./scripts/check-features.sh";
+      exec = "cargo xtask feature-arms";
       after = [ "test:audit@completed" ];
     };
 
@@ -581,7 +581,7 @@ in
     # sixth. A compiled arm can still be wrong: 08bc0f9 fixed `two-pass-csi`,
     # under which a test already in the suite was red on c6a5494 while no
     # gate ran the suite under it. Every baud-core feature is in one of the
-    # script's classes -- run, run by host, or excluded with the test it
+    # command's classes -- run, run by host, or excluded with the test it
     # turns red -- so a new arm cannot go unclassified. `cell-table` is
     # excluded as wrong, not by construction: its read writes a cell for a
     # character the computing path attaches, such as a mark or ZWJ, and
@@ -590,7 +590,7 @@ in
     # `enterTest`: in `devenv test` it would add those five builds to every
     # push.
     "test:feature-suites" = {
-      exec = "bash ./scripts/test-features.sh";
+      exec = "cargo xtask feature-suites";
       after = [ "test:features" ];
     };
 
@@ -611,7 +611,7 @@ in
     # This fails on any such commit in the history, and on a non-conventional
     # subject, before it reaches master.
     "test:changelog" = {
-      exec = "bash ./scripts/check-changelog.sh";
+      exec = "cargo xtask changelog";
       after = [ "test:fmt" ];
     };
 

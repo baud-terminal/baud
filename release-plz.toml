@@ -105,7 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 # commits -- is skipped by the trailing catch-all. Group names match the
 # Keep a Changelog headings the header promises. These replace git-cliff's
 # defaults rather than adding to them, so feat and fix have to be listed for
-# them to appear at all. `scripts/check-changelog.sh` holds every commit to a
+# them to appear at all. `cargo xtask changelog` holds every commit to a
 # Conventional Commit of a listed type, so none is skipped by mistake.
 commit_parsers = [
   { message = "^feat", group = "Added" },

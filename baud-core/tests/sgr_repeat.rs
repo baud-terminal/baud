@@ -19,7 +19,7 @@
 //!
 //! **These cases test the `sgr-table` arm only when it is built**:
 //! `cargo nextest run -p baud-core --features sgr-table --test sgr_repeat`,
-//! which `scripts/test-features.sh` runs with the rest of the suite. Under
+//! which `cargo xtask feature-suites` runs with the rest of the suite. Under
 //! default features they hold the parse every `SGR` takes.
 mod support;
 use baud_core::*;

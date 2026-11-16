@@ -46,7 +46,7 @@ include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
 # libraries without theirs; the app and the bench's default name this
 # crate's `default`, and the two libraries make `neon-scan` their own.
 # `ingest2` does not compile when the arm it is built as is not
-# `RUN_SCAN`, and `scripts/check-features.sh` builds it so. By
+# `RUN_SCAN`, and `cargo xtask feature-arms` builds it so. By
 # disassembly, baud's own functions in `ingest2` carry 12 `shrn.8b` and 7
 # `addv.8h` with the scan, and none and 19 without.
 default = ["neon-scan", "read-record"]
@@ -282,7 +282,7 @@ proptest = "1"
 # whatever the command line says, as it always had, and `read-record` only
 # when the command line asks, so the build without the defaults runs the
 # suite with the record off (`tests/read_record_off.rs`,
-# `scripts/test-features.sh`).
+# `cargo xtask feature-suites`).
 baud-core = { path = ".", default-features = false, features = [
   "alloc",
   "neon-scan",

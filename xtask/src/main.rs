@@ -3,10 +3,12 @@
 //! call it set to the repository's root.
 
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Read};
 use std::path::Path;
 use std::process::ExitCode;
+use std::time::Instant;
 
 use xtask::audit::{self, Audit, Failed};
 use xtask::comments;
@@ -17,8 +19,9 @@ use xtask::scan_audit::{self, Limit};
 use xtask::sources;
 use xtask::third_party::{self, Mode, Outcome};
 use xtask::{
-    changelog, citations, credits, features, features_since, fnv, forbidden, loop_head, no_python,
-    paths, pdf_search, pmc, test_scope, text, vt_table,
+    changelog, citations, credits, feature_arms, feature_suites, features, features_since, fnv,
+    forbidden, loop_head, no_python, paths, pdf_search, pmc, scoped_test, test_scope, text,
+    vt_table,
 };
 
 fn main() -> ExitCode {
@@ -77,6 +80,15 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
             print!("{report}");
             Ok(ExitCode::from(u8::from(!ok)))
         }
+        ["changelog"] => {
+            let o = changelog::run(
+                root,
+                OsStr::new("git-cliff"),
+                &mut stdout,
+                &mut io::stderr().lock(),
+            )?;
+            Ok(outcome(o))
+        }
         ["changelog", context] => {
             let mut log = String::new();
             io::stdin()
@@ -134,6 +146,38 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
             let o =
                 features::run(root, mode, &mut io::stderr().lock()).map_err(|e| e.to_string())?;
             Ok(outcome(o))
+        }
+        ["feature-arms", rest @ ..] => {
+            let root = fs::canonicalize(root).map_err(|e| format!("the repository: {e}"))?;
+            let settings = feature_arms::Settings::from_env();
+            let cargo = feature_arms::Cargo { root: root.clone() };
+            let gate = feature_arms::Gate {
+                root: &root,
+                crates: &feature_arms::CRATES,
+                settings: &settings,
+                check: &cargo,
+                since: &feature_arms::since,
+            };
+            let exit = feature_arms::run(&gate, rest, &mut stdout).map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(exit.0))
+        }
+        ["feature-suites", rest @ ..] => {
+            let root = fs::canonicalize(root).map_err(|e| format!("the repository: {e}"))?;
+            let cargo = feature_suites::Cargo { root: root.clone() };
+            let exit =
+                feature_suites::run(&root, rest, &cargo, &mut stdout).map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(exit.0))
+        }
+        ["scoped-test", rest @ ..] => {
+            let root = fs::canonicalize(root).map_err(|e| format!("the repository: {e}"))?;
+            let shell = scoped_test::Shell {
+                root: root.clone(),
+                start: Instant::now(),
+            };
+            let os = scoped_test::Os::this();
+            let exit = scoped_test::run(rest, &root, os, &shell, &mut stdout)
+                .map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(exit.0))
         }
         ["features-since", rest @ ..] => {
             let exit = features_since::run(rest, &mut stdout).map_err(|e| e.to_string())?;
@@ -222,7 +266,8 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
         _ => {
             eprintln!(
                 "usage: cargo xtask audit | impl-audit <file> | scan-audit [limit] \
-                 | changelog <context> | features [--check] | features-since <rev>|--explain \
+                 | changelog [<context>] | features [--check] | features-since <rev>|--explain \
+                 | feature-arms [--since <rev>] | feature-suites | scoped-test <from> <to> \
                  | fnv1a <src> <lib> <sdig> <ldig> \
                  | sources | no-python | citations [--check|--merge <tsv>...] \
                  | third-party [--check] | credits [--check|--list|--crates] | publish [--size|--verify|--release\

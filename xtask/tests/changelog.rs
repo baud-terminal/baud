@@ -1,7 +1,16 @@
 //! Each leg of `cargo xtask changelog` loses the commit it is for, and a
 //! history with no commits fails.
 
-use xtask::changelog::{Commits, Why, check};
+use std::ffi::OsStr;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use xtask::changelog::{Commits, Why, check, run};
+use xtask::third_party::Outcome;
+
+mod exec;
 
 const PLZ: &str = r#"
 [changelog]
@@ -174,4 +183,183 @@ fn the_three_crate_scope_is_kept_as_written() {
     .expect("parses");
     let (out, ok) = v.report();
     assert!(ok, "{out}");
+}
+
+static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+/// A scratch directory holding `repo/`, a git repository with
+/// `release-plz.toml` and git-cliff's configuration, and `bin/` for a
+/// git-cliff that a test writes; removed on drop.
+struct Repo(PathBuf);
+
+impl Drop for Repo {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A git-cliff that requires the command line `run` gives it and lists
+/// every commit of the history as conventional.
+const LISTS_ALL: &str = "#!/bin/sh\n\
+    [ \"$1 $2 $3\" = '--config scripts/changelog/cliff.toml --context' ] || exit 9\n\
+    [ -f \"$2\" ] || exit 8\n\
+    printf '[{\"commits\": ['\n\
+    git log --format='{\"id\": \"%H\", \"conventional\": true, \"group\": \"Added\"}' | paste -sd, -\n\
+    printf ']}]\\n'\n";
+
+impl Repo {
+    fn new() -> Repo {
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let d = std::env::temp_dir().join(format!("xtask-changelog-{}-{n}", std::process::id()));
+        let r = Repo(d);
+        fs::create_dir_all(r.repo().join("scripts/changelog")).expect("the repository");
+        fs::create_dir_all(r.0.join("bin")).expect("bin");
+        fs::write(r.repo().join("release-plz.toml"), PLZ).expect("release-plz.toml");
+        fs::write(r.repo().join("scripts/changelog/cliff.toml"), "").expect("cliff.toml");
+        r.git(&r.repo(), &["init", "-q", "-b", "main"]);
+        r
+    }
+
+    fn repo(&self) -> PathBuf {
+        self.0.join("repo")
+    }
+
+    fn git(&self, dir: &Path, args: &[&str]) -> String {
+        let mut c = Command::new("git");
+        c.args(["-c", "user.name=x", "-c", "user.email=x@example.org"])
+            .args(["-c", "gc.auto=0", "-c", "maintenance.auto=false"])
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1");
+        for v in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX"] {
+            c.env_remove(v);
+        }
+        let out = c.output().expect("git");
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// An empty commit with `subject`; its full hash.
+    fn commit(&self, subject: &str) -> String {
+        self.git(
+            &self.repo(),
+            &["commit", "-q", "--allow-empty", "-m", subject],
+        );
+        self.git(&self.repo(), &["rev-parse", "HEAD"])
+    }
+
+    fn cliff(&self, body: &str) -> PathBuf {
+        let p = self.0.join("bin/git-cliff");
+        exec::script(&p, body);
+        p
+    }
+
+    /// `run` against `dir` with `cliff`: the outcome, stdout and stderr.
+    fn run_in(&self, dir: &Path, cliff: &Path) -> (Outcome, String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let o = run(dir, OsStr::new(cliff), &mut out, &mut err).expect("the inputs parse");
+        let text = |b: Vec<u8>| String::from_utf8(b).expect("UTF-8");
+        (o, text(out), text(err))
+    }
+}
+
+#[test]
+fn the_whole_history_passes_through_git_cliff() {
+    let r = Repo::new();
+    r.commit("feat(app): one");
+    r.commit("fix: two");
+    let cliff = r.cliff(LISTS_ALL);
+    let got = r.run_in(&r.repo(), &cliff);
+    assert_eq!(
+        got,
+        (
+            Outcome::Passed,
+            "check-changelog: 2 commits, 0 failures\n".to_string(),
+            String::new()
+        )
+    );
+}
+
+#[test]
+fn a_commit_in_the_history_that_is_not_conventional_fails_by_its_short_hash() {
+    let r = Repo::new();
+    r.commit("feat: one");
+    let sha = r.commit("Update things");
+    let cliff = r.cliff(LISTS_ALL);
+    let (o, out, err) = r.run_in(&r.repo(), &cliff);
+    assert_eq!(o, Outcome::Failed);
+    assert_eq!(
+        out,
+        format!(
+            "{} not a Conventional Commit: Update things\n\
+             check-changelog: 2 commits, 1 failures\n",
+            &sha[..12]
+        )
+    );
+    assert_eq!(err, "");
+}
+
+#[test]
+fn a_merge_commit_is_not_read() {
+    let r = Repo::new();
+    r.commit("feat: one");
+    r.git(&r.repo(), &["checkout", "-q", "-b", "side"]);
+    r.commit("fix: two");
+    r.git(&r.repo(), &["checkout", "-q", "main"]);
+    r.commit("docs: three");
+    r.git(
+        &r.repo(),
+        &["merge", "-q", "--no-ff", "-m", "Merge side", "side"],
+    );
+    let cliff = r.cliff(LISTS_ALL);
+    let (o, out, _) = r.run_in(&r.repo(), &cliff);
+    assert_eq!(o, Outcome::Passed, "{out}");
+    assert_eq!(out, "check-changelog: 3 commits, 0 failures\n");
+}
+
+#[test]
+fn a_git_cliff_that_fails_fails_the_gate() {
+    let r = Repo::new();
+    r.commit("feat: one");
+    let cliff = r.cliff("#!/bin/sh\necho '[]'\nexit 1\n");
+    let got = r.run_in(&r.repo(), &cliff);
+    assert_eq!(
+        got,
+        (
+            Outcome::Failed,
+            String::new(),
+            "check-changelog: git-cliff failed\n".to_string()
+        )
+    );
+}
+
+#[test]
+fn a_git_cliff_that_cannot_start_fails_the_gate() {
+    let r = Repo::new();
+    r.commit("feat: one");
+    let got = r.run_in(&r.repo(), &r.0.join("bin/no-such-git-cliff"));
+    assert_eq!(got.0, Outcome::Failed);
+    assert_eq!(got.2, "check-changelog: git-cliff failed\n");
+}
+
+#[test]
+fn a_shallow_clone_fails_before_git_cliff_runs() {
+    let r = Repo::new();
+    r.commit("feat: one");
+    r.commit("fix: two");
+    let url = format!("file://{}", r.repo().display());
+    let clone = r.0.join("clone");
+    let clone_s = clone.to_string_lossy().into_owned();
+    r.git(&r.0, &["clone", "-q", "--depth", "1", &url, &clone_s]);
+    let cliff = r.cliff("#!/bin/sh\nexit 7\n");
+    let got = r.run_in(&clone, &cliff);
+    assert_eq!(
+        got,
+        (
+            Outcome::Failed,
+            String::new(),
+            "check-changelog: a shallow clone; fetch the whole history\n".to_string()
+        )
+    );
 }

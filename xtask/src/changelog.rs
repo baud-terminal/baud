@@ -14,13 +14,29 @@
 //!   3. git-cliff's context has it, as conventional, in no UNPARSED group.
 //!
 //! The history comes in as `git log --format='%H%x00%s'`, one commit a line.
+//!
+//! `cargo xtask changelog` ([`run`]) reads the whole history, from the root
+//! to `HEAD`, and git-cliff's context under [`CLIFF_CONFIG`] itself;
+//! `cargo xtask changelog <context>` reads the log on stdin and the context
+//! from the file named. A merge commit is not read: its changes are its
+//! parents', each of which is. A shallow clone cannot show the history, so
+//! it fails rather than pass on the part it has.
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::fs;
+use std::io::Write;
+use std::path::Path;
+use std::process::{Command, Stdio};
 
 use regex::Regex;
 use serde_json::Value;
 
 use crate::text;
+use crate::third_party::Outcome;
+
+/// git-cliff's configuration for leg 3, from the repository's root.
+pub const CLIFF_CONFIG: &str = "scripts/changelog/cliff.toml";
 
 /// The types the changelog lists or skips by name.
 pub const TYPES: &str = "feat|fix|perf|docs|refactor|test|build|ci|style|revert|chore";
@@ -189,4 +205,57 @@ fn truthy(v: &Value) -> bool {
         Value::Array(a) => !a.is_empty(),
         Value::Object(o) => !o.is_empty(),
     }
+}
+
+/// `cargo xtask changelog`, run against the repository at `root` with
+/// `cliff` as git-cliff: the report on `out`, and a shallow clone or a
+/// git-cliff that fails named on `err`, each a failure.
+pub fn run(
+    root: &Path,
+    cliff: &OsStr,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<Outcome, String> {
+    let io = |e: std::io::Error| e.to_string();
+    if git(root, &["rev-parse", "--is-shallow-repository"]).trim() == "true" {
+        writeln!(
+            err,
+            "check-changelog: a shallow clone; fetch the whole history"
+        )
+        .map_err(io)?;
+        return Ok(Outcome::Failed);
+    }
+    let context = Command::new(cliff)
+        .args(["--config", CLIFF_CONFIG, "--context"])
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    let context = match context {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+        _ => {
+            writeln!(err, "check-changelog: git-cliff failed").map_err(io)?;
+            return Ok(Outcome::Failed);
+        }
+    };
+    let log = git(root, &["log", "--no-merges", "--format=%H%x00%s", "HEAD"]);
+    let plz = fs::read_to_string(root.join("release-plz.toml"))
+        .map_err(|e| format!("release-plz.toml: {e}"))?;
+    let (report, ok) = check(&log, &plz, &context)?.report();
+    out.write_all(report.as_bytes()).map_err(io)?;
+    Ok(if ok { Outcome::Passed } else { Outcome::Failed })
+}
+
+/// What `git args` prints in `root`, or nothing when it fails.
+fn git(root: &Path, args: &[&str]) -> String {
+    Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
 }

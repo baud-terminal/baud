@@ -1,4 +1,4 @@
-# git-cliff's reading of the history, for `scripts/check-changelog.sh`.
+# git-cliff's reading of the history, for `cargo xtask changelog`.
 # release-plz writes CHANGELOG.md from `release-plz.toml`'s `[changelog]`;
 # this file groups the same Conventional Commit types and adds a last
 # parser, `.*`, whose group is UNPARSED, so a commit no type parser matches

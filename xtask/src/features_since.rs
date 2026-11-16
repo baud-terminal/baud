@@ -1,5 +1,5 @@
 //! `cargo xtask features-since`: which crates' feature arms a change can
-//! break, for `check-features.sh --since`.
+//! break, for `cargo xtask feature-arms --since`.
 //!
 //! ```text
 //! cargo xtask features-since <rev>
@@ -88,7 +88,7 @@ const EVERYTHING_FILES: [&str; 15] = [
     "devenv.yaml",
     "flake.nix",
     "flake.lock",
-    "scripts/check-features.sh",
+    "xtask/src/feature_arms.rs",
     "xtask/src/features_since.rs",
     "xtask/src/py.rs",
     "xtask/src/py_path.rs",

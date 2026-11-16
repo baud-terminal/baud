@@ -6,16 +6,21 @@
 //! - `audit`: the raw-integer budgets (`audit_all.sh`).
 //! - `impl-audit <file>`: one file's nine categories and two sums.
 //! - `scan-audit [limit]`: the ingest path's scan loops.
-//! - `changelog <context>`: every commit on stdin reaches the changelog
-//!   (`scripts/check-changelog.sh`).
+//! - `changelog [<context>]`: every commit reaches the changelog: the whole
+//!   history through git-cliff, or the log on stdin against a context file.
 //! - `fnv1a <src> <lib> <sdig> <ldig>`: the Metal library's digests
 //!   (`scripts/build-metallib.sh`).
 //! - `features [--check]`: docs/guide/features.md, written from
 //!   docs/data/features.toml or checked against it and the tree.
 //! - `features-since <rev>|--explain`: the crates a change can reach, for
-//!   `scripts/check-features.sh --since`.
+//!   `feature-arms --since`.
+//! - `feature-arms [--since <rev>]`: every feature of every crate builds
+//!   alone.
+//! - `feature-suites`: baud-core's suite under its feature arms.
 //! - `test-scope <from> <to>|<rev>`: the tests and gates a change needs, for
-//!   `scripts/scoped-test.sh`.
+//!   `scoped-test`.
+//! - `scoped-test <from> <to>`: the gates `test-scope` names, run; exit 3
+//!   when it names every gate.
 //! - `sources`: the source-provenance gate (`scripts/check-sources.sh`),
 //!   which runs `third-party --check`, `citations --check` and the offline
 //!   half of `page-text`.
@@ -56,10 +61,13 @@
 pub mod audit;
 pub mod changelog;
 pub mod citations;
+pub mod cmd;
 pub mod comments;
 pub mod crates;
 pub mod credits;
 pub mod difflib;
+pub mod feature_arms;
+pub mod feature_suites;
 pub mod features;
 pub mod features_since;
 pub mod fnv;
@@ -78,6 +86,7 @@ pub mod publish;
 pub mod py;
 pub mod py_path;
 pub mod scan_audit;
+pub mod scoped_test;
 pub mod sha256;
 pub mod sources;
 pub mod tarball;

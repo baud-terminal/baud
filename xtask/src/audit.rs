@@ -304,7 +304,7 @@ const fn tree(dir: &'static str, limit: Sites) -> Tree {
 /// **Every other crate's `tests/` was audited by nothing** until these rows:
 /// the eleven test trees carried 100 raw-integer sites between them, the
 /// same scoped-to-what-it-was-written-beside failure as `docs.rs`'s `ROOTS`
-/// and `check-features.sh`'s crate list. The rows that read zero are listed
+/// and `feature-arms`'s crate list. The rows that read zero are listed
 /// rather than omitted -- a tree absent from this list is a tree nothing
 /// checks -- and a named directory that holds no sources fails, so a rename
 /// cannot silently empty one.
