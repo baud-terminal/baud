@@ -65,3 +65,56 @@ fn fields_are_counted_line_by_line_across_the_file() {
     );
     assert_eq!(Counts::of(src).0[5], Sites(3), "{src:?}");
 }
+
+/// A generic fn's parameters are read as a non-generic fn's are: type
+/// parameters with bounds, lifetimes, a const generic, and a list rustfmt
+/// has broken over lines.
+#[test]
+fn a_generic_fn_s_raw_parameter_is_counted() {
+    let bounded = concat!("fn g<B: AsRef<[u8]>>(b: B, at:", " u16) {}");
+    assert_eq!(Counts::of(bounded).0[2], Sites(1), "{bounded:?}");
+    let lifetimes = concat!("fn g<'a, 'b: 'a>(s: &'a str, n:", " u32) {}");
+    assert_eq!(Counts::of(lifetimes).0[2], Sites(1), "{lifetimes:?}");
+    let konst = concat!("fn g<const N: usize>(a: [Col; N], i:", " u8) {}");
+    assert_eq!(Counts::of(konst).0[2], Sites(1), "{konst:?}");
+    let broken = concat!(
+        "    fn g<\n        F: Fn(&str) -> Row,\n    >(\n        f: F,\n        n:",
+        " u64,\n    ) {\n    }\n"
+    );
+    assert_eq!(Counts::of(broken).0[2], Sites(1), "{broken:?}");
+    let flag = concat!("fn g<T: Copy>(t: T, on:", " bool) {}");
+    assert_eq!(Counts::of(flag).0[4], Sites(1), "{flag:?}");
+    let operation = concat!("fn g<T>(&mut self, t: T, n:", " usize) {}");
+    let n = Counts::of(operation);
+    assert_eq!((n.0[1], n.0[2]), (Sites(1), Sites(1)), "{operation:?}");
+    let opaque = concat!("fn g<T>(t: T, b: impl AsRef<[u8]>, n:", " u16) {}");
+    assert_eq!(Counts::of(opaque).0[2], Sites(1), "{opaque:?}");
+}
+
+/// A generic fn's return is read as a non-generic fn's is, with or without
+/// a where clause after it.
+#[test]
+fn a_generic_fn_s_raw_return_is_counted() {
+    let bounded = concat!("fn g<B: AsRef<[u8]>>(b: B, at: Col) ->", " u32 {}");
+    assert_eq!(Counts::of(bounded).0[3], Sites(1), "{bounded:?}");
+    let bound_after = concat!(
+        "fn g<T>(t: T) ->",
+        " Option<u16>\nwhere\n    T: Copy,\n{\n}\n"
+    );
+    assert_eq!(Counts::of(bound_after).0[3], Sites(1), "{bound_after:?}");
+}
+
+/// A generic fn with typed parameters and a typed return counts nothing,
+/// and the const generic's own type is not a parameter.
+#[test]
+fn a_typed_generic_fn_counts_nothing() {
+    for src in [
+        "fn g<B: AsRef<[u8]>>(b: B, at: Col) -> Row {\n    Row(at.0)\n}\n",
+        "fn g<const N: usize>(a: [Col; N]) -> Row {\n    Row(a[0].0)\n}\n",
+        "fn g<'a, T>(t: &'a T, x: Col) -> Option<Row>\nwhere\n    T: Copy,\n{\n    None\n}\n",
+    ] {
+        let n = Counts::of(src);
+        assert_eq!(n.sum(Sum::Signature), Sites(0), "{src:?}");
+        assert_eq!(n.sum(Sum::Total), Sites(0), "{src:?}");
+    }
+}

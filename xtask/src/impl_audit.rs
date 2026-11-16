@@ -47,6 +47,17 @@ pub struct Category {
 /// struct field. A gate that agrees with whoever wrote the code is the
 /// failure this repo keeps recording; the three signature categories are
 /// what that read found.
+///
+/// **A generic fn is read like any other.** Each pattern that starts at
+/// `fn` takes an optional generic list between the name and the parameters
+/// -- lifetimes, type parameters with their bounds, const generics, over one
+/// line or several -- ending at the first `>` that a `(` follows, with no
+/// `{` or `;` inside it, so the parameters and the return after it are
+/// counted as they are on a fn with no list. A const generic's own type is
+/// inside the list and is not a parameter: the language requires it to be a
+/// primitive. A parameter list that holds a parenthesised type, such as a
+/// closure bound or a tuple, still ends the scan at its first `)`, generic
+/// or not.
 pub const CATEGORIES: [Category; 9] = [
     Category {
         name: "raw index arithmetic  (y * MAX_COLS + x)",
@@ -55,22 +66,22 @@ pub const CATEGORIES: [Category; 9] = [
     },
     Category {
         name: "usize params on operations",
-        pattern: r"fn \w+\(&mut self[^)]*: usize",
+        pattern: r"fn \w+(?:<[^{;]*?>)?\(&mut self[^)]*: usize",
         sum: Sum::Total,
     },
     Category {
         name: "raw primitive fn params",
-        pattern: r"fn \w+\([^)]*?\b\w+: (u8|u16|u32|u64|usize|i8|i16|i32|i64|isize)\b",
+        pattern: r"fn \w+(?:<[^{;]*?>)?\([^)]*?\b\w+: (u8|u16|u32|u64|usize|i8|i16|i32|i64|isize)\b",
         sum: Sum::Signature,
     },
     Category {
         name: "raw primitive fn returns",
-        pattern: r"fn \w+\([^)]*\)\s*->\s*(?:Option<)?(u8|u16|u32|u64|usize)\b",
+        pattern: r"fn \w+(?:<[^{;]*?>)?\([^)]*\)\s*->\s*(?:Option<)?(u8|u16|u32|u64|usize)\b",
         sum: Sum::Signature,
     },
     Category {
         name: "bool as a fn param",
-        pattern: r"fn \w+\([^)]*?\b\w+: bool\b",
+        pattern: r"fn \w+(?:<[^{;]*?>)?\([^)]*?\b\w+: bool\b",
         sum: Sum::Signature,
     },
     Category {
