@@ -105,8 +105,9 @@ pub struct Pace<T = ()> {
     why: Why,
     /// What reads a held file medium.
     files: crate::kitty_files::FileReader,
-    /// The held file medium's read, while it runs.
-    reading: Option<crate::kitty_files::Reading>,
+    /// The held file medium's read, while it runs, and the tag its end
+    /// is filed under ([`file_end`]).
+    reading: Option<(crate::kitty_files::Reading, T)>,
     /// What the reading thread wakes the driver with.
     wake: Option<crate::kitty_files::Wake>,
     /// Delays ended early by [`HELD_MAX`].
@@ -519,7 +520,7 @@ pub fn paced<'r, T: Part>(
     }
     printer_wait(term, pace, now);
     notice_wait(term, pace, now);
-    kitty_wait(term, pace, now);
+    let ended = kitty_wait(term, pace, now, took);
     owed(term, &mut sink);
     log.follow(term);
     if pace.input != Input::Free {
@@ -550,7 +551,7 @@ pub fn paced<'r, T: Part>(
         pace.until = None;
     }
     let held = core::mem::take(&mut pace.held);
-    let mut fed = Fed::Nothing;
+    let mut fed = ended;
     for (bytes, tag) in held.iter() {
         fed = paced_one(
             term,
@@ -621,9 +622,16 @@ fn notice_wait<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) {
 /// to the core, a turn's worth, and its end; at [`KITTY_FILE_WAIT`] or
 /// past [`HELD_MAX`] everything queued is taken and a read still running
 /// is given up with the one file error, its thread left to end on its own.
-fn kitty_wait<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) {
+/// A read that ends is a part of its own in `took` ([`file_end`]), and the
+/// call has fed the core.
+fn kitty_wait<T: Part>(
+    term: &mut Term<'_>,
+    pace: &mut Pace<T>,
+    now: Instant,
+    took: &mut Vec<T>,
+) -> Fed {
     let Some(t) = pace.until.filter(|_| pace.why == Why::KittyFile) else {
-        return;
+        return Fed::Nothing;
     };
     let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
     let due = now >= t || waiting > HELD_MAX;
@@ -631,44 +639,78 @@ fn kitty_wait<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) {
         true => crate::kitty_files::Drain::All,
         false => crate::kitty_files::Drain::Step,
     };
-    let took = match pace.reading.as_mut() {
-        Some(r) => r.take(drain, &mut |b| term.kitty_file_piece(b)),
+    let taken = match pace.reading.as_mut() {
+        Some((r, _)) => r.take(drain, &mut |b| term.kitty_file_piece(b)),
         None => crate::kitty_files::Took::Ended(Err(KittyFileFailed)),
     };
-    match took {
-        crate::kitty_files::Took::Ended(read) => term.kitty_file_end(read),
+    let read = match taken {
+        crate::kitty_files::Took::Ended(read) => read,
         crate::kitty_files::Took::Running if due => {
             crate::warn!("kitty graphics: a file read given up at its deadline");
-            term.kitty_file_end(Err(KittyFileFailed));
+            Err(KittyFileFailed)
         }
-        crate::kitty_files::Took::Running => return,
+        crate::kitty_files::Took::Running => return Fed::Nothing,
+    };
+    match pace.reading.take() {
+        Some((_, tag)) => {
+            file_end(term, read, tag, took);
+        }
+        None => term.kitty_file_end(read),
     }
-    pace.reading = None;
     pace.until = None;
+    Fed::Some
+}
+
+/// **A file medium's read ends, a part of its own of none of the read's
+/// bytes**, as a resize's part is: the image its end places, the cursor it
+/// moves and the reply it owes are on this part's record, read at once,
+/// with whether it placed an image (`vouch::Drew`), filed under `tag` --
+/// none of them on the part before it, which was recorded as the
+/// terminator stopped it, or on the part after. A part with a quiet
+/// record that placed nothing is not pushed. What it pushed, if anything.
+fn file_end<T: Part>(
+    term: &mut Term<'_>,
+    read: Result<(), KittyFileFailed>,
+    tag: T,
+    took: &mut Vec<T>,
+) -> Option<Taken> {
+    let images = crate::vouch::ImagesAt::of(term);
+    term.kitty_file_end(read);
+    let record = term.take_record();
+    let drew = crate::vouch::Drew::of(images, term);
+    if quiet(&record) && drew == crate::vouch::Drew::Nothing {
+        return None;
+    }
+    let taken = Taken {
+        record,
+        top: term.history_mark().line(),
+        end_row: crate::vouch::EndRow::of(term),
+        drew,
+        recut: None,
+    };
+    took.push(tag.recorded(Some(taken)));
+    Some(taken)
 }
 
 /// **A file medium the core holds is read**: on a thread of its own, the
-/// rest of the read and the reads after it held until it ends -- or, ended
-/// at once, refused unread, the one file error owed now and the rest fed
-/// on in this call.
-fn kitty_read<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) -> FileRead {
+/// rest of the read and the reads after it held until it ends, its end
+/// filed under `tag` -- or, ended at once or refused unread, how it ended,
+/// for the caller to end it ([`file_end`]) and feed the rest on in this
+/// call.
+fn kitty_read<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant, tag: T) -> FileRead {
     let started = term
         .kitty_file_asked()
         .map(|req| pace.files.start(&req, pace.wake.clone()));
     let Some(mut reading) = started else {
-        term.kitty_file_end(Err(KittyFileFailed));
-        return FileRead::Ended;
+        return FileRead::Ended(Err(KittyFileFailed));
     };
     let took = reading.take(crate::kitty_files::Drain::Step, &mut |b| {
         term.kitty_file_piece(b)
     });
     match took {
-        crate::kitty_files::Took::Ended(read) => {
-            term.kitty_file_end(read);
-            FileRead::Ended
-        }
+        crate::kitty_files::Took::Ended(read) => FileRead::Ended(read),
         crate::kitty_files::Took::Running => {
-            pace.reading = Some(reading);
+            pace.reading = Some((reading, tag));
             pace.until = Some(now + KITTY_FILE_WAIT);
             pace.why = Why::KittyFile;
             FileRead::Running
@@ -676,10 +718,10 @@ fn kitty_read<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) ->
     }
 }
 
-/// Whether [`kitty_read`] left the reads held.
+/// Whether [`kitty_read`] left the reads held, or how the read ended.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum FileRead {
-    Ended,
+    Ended(Result<(), KittyFileFailed>),
     Running,
 }
 
@@ -882,8 +924,11 @@ fn paced_one<T: Part>(
                 );
             }
         } else if term.kitty_file_owed() == KittyFileOwed::Yes {
-            // The terminator stopped the read with its file owed.
-            match kitty_read(term, pace, now) {
+            // The terminator stopped the read with its file owed; its end
+            // is a part of its own after this one, of none of its bytes.
+            let end = BytePos::from_index(fed_to);
+            let ending = piece.part(end, end).under(pens);
+            match kitty_read(term, pace, now, ending) {
                 FileRead::Running => {
                     if let Some(r) = next.take() {
                         pace.keep(
@@ -894,7 +939,13 @@ fn paced_one<T: Part>(
                 }
                 // Ended at once: its answer goes out ahead of the rest,
                 // and in this call when no rest follows.
-                FileRead::Ended => owed(term, sink),
+                FileRead::Ended(read) => {
+                    if let Some(taken) = file_end(term, read, ending, took) {
+                        last = Some(ending);
+                        last_end = Some(taken.end_row);
+                    }
+                    owed(term, sink)
+                }
             }
         } else if pace.until.is_none() && term.regis_input() == RegisInput::OneShot {
             // A delay taken in this feed holds the reads first.
@@ -2010,6 +2061,117 @@ mod tests {
         assert_eq!((out.as_slice(), row0(&t).as_str()), (err, "X"));
         drop(readings);
         drop(release);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A tag that keeps only whether its part placed an image.
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    struct Drawn(Option<crate::vouch::Drew>);
+
+    impl Part for Drawn {
+        fn part(self, _: BytePos, _: BytePos) -> Drawn {
+            self
+        }
+        fn rest(self, _: BytePos) -> Drawn {
+            self
+        }
+        fn under(self, _: crate::paths::Pens) -> Drawn {
+            self
+        }
+        fn recorded(self, taken: Option<Taken>) -> Drawn {
+            Drawn(taken.map(|t| t.drew))
+        }
+    }
+
+    /// **A file read's end is a part of its own**: the image an `a=T`
+    /// through a held file places when its read ends, in a call with no
+    /// read, is filed with what it drew (`vouch::Drew`), and that call says
+    /// it fed the core, so the frame after it is owed and draws the image.
+    /// The command is the read's last bytes, so nothing is held behind it
+    /// to say so instead.
+    #[test]
+    fn a_file_reads_end_is_filed_with_its_image_and_owes_the_frame() {
+        use std::os::unix::ffi::OsStrExt;
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let dir = std::fs::canonicalize(std::env::temp_dir())
+            .unwrap()
+            .join(format!(
+                "baud-kfe-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let good = dir.join("good.raw");
+        std::fs::write(&good, [7u8; 3 * 2 * 4]).unwrap();
+        let (release, gate) = std::sync::mpsc::channel::<()>();
+        let gate = std::sync::Mutex::new(gate);
+        let at = good.clone();
+        let stall: crate::kitty_files::Stall = std::sync::Arc::new(move |p: &std::path::Path| {
+            if p == at {
+                let _ = gate.lock().unwrap().recv();
+            }
+        });
+        let running: &'static crate::kitty_files::Running =
+            Box::leak(Box::new(crate::kitty_files::Running::new()));
+        let mut s = Owned::new(&WS).with_images(baud_domain::ImageBudget::of(4096));
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_cell_size(baud_domain::ImagePx::of(10), baud_domain::ImagePx::of(20));
+        t.hold_kitty_files();
+        let mut pace: Pace<Drawn> = Pace::new();
+        pace.files = crate::kitty_files::FileReader::for_test(
+            std::slice::from_ref(&dir),
+            running,
+            Some(stall),
+        );
+        let cmd = kitty_apc("a=T,i=1,t=f,f=32,s=3,v=2", good.as_os_str().as_bytes());
+        let mut out = Vec::new();
+        let mut took = Vec::new();
+        let t0 = Instant::now();
+        super::paced(
+            &mut t,
+            &mut pace,
+            t0,
+            [(cmd.as_slice(), Drawn(None))],
+            |b| out.extend_from_slice(b),
+            |_, _| {},
+            &mut crate::hostlog::NoLog,
+            &mut took,
+        );
+        assert!(pace.reading.is_some(), "the read is held");
+        assert!(
+            !took.contains(&Drawn(Some(crate::vouch::Drew::Image))),
+            "nothing placed before the read ends"
+        );
+        let before = t.images().last_serial();
+        drop(release);
+        let end = Instant::now() + Duration::from_secs(10);
+        let mut fed = Fed::Nothing;
+        while pace.reading.is_some() {
+            assert!(Instant::now() < end, "the read never ended");
+            std::thread::yield_now();
+            took.clear();
+            fed = super::paced(
+                &mut t,
+                &mut pace,
+                t0,
+                [],
+                |b| out.extend_from_slice(b),
+                |_, _| {},
+                &mut crate::hostlog::NoLog,
+                &mut took,
+            );
+        }
+        assert_eq!(out, b"\x1b_Gi=1;OK\x1b\\", "the read ended whole");
+        assert!(
+            t.images().last_serial() != before,
+            "the end placed the image"
+        );
+        assert_eq!(fed, Fed::Some, "the call the read ended in fed the core");
+        assert_eq!(
+            took,
+            [Drawn(Some(crate::vouch::Drew::Image))],
+            "the end is a part of its own, with what it drew"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
