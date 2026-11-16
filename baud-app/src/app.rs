@@ -959,8 +959,9 @@ struct App {
     /// attention request a program's `RequestAttention=yes` or `once` made.
     notes: crate::notify::Delivery<Instant, String>,
     /// The reader of the file iTerm2's `image` names, with every check
-    /// kitty's file medium makes.
-    pictures: crate::kitty_files::LocalFiles,
+    /// kitty's file medium makes, off this thread: each piece and the end
+    /// wake the window, whose turn takes them (`Delivery::mac`).
+    pictures: crate::kitty_files::Pictures,
     /// The thread that checks iTerm2's pictures before they are attached,
     /// off this one (`notify::Checker`).
     checker: crate::notify::Checker,
@@ -1874,7 +1875,9 @@ impl App {
             pace,
             printing,
             notes,
-            pictures: crate::kitty_files::LocalFiles::new(),
+            pictures: crate::kitty_files::Pictures::new(Some(std::sync::Arc::new(move || {
+                waker.wake()
+            }))),
             checker: crate::notify::Checker::new(move || waker.wake(), crate::notify::attaches),
             fireworks,
             notice_listening: center
@@ -5182,6 +5185,9 @@ struct Driver {
     paths_wake: PathsWake,
     /// The wake scheduled for the notices' next timed step (`notice_schedule`).
     notice_wake: crate::notify::ExpiryWake<Instant>,
+    /// The wake scheduled for the earliest deadline of a notification's
+    /// picture read (`picture_schedule`).
+    picture_wake: crate::notify::ExpiryWake<Instant>,
     home: Option<Vec<u8>>,
     /// Whether a key hid the pointer, and what the core said when it was
     /// last asked (`hide.rs`).
@@ -5440,7 +5446,7 @@ mod notice_no_center_tests {
                 || (Focus::Unfocused, Visible::Covered),
                 Instant::now(),
                 "baud-1",
-                &mut crate::kitty_files::LocalFiles::new(),
+                &mut crate::kitty_files::Pictures::new(None),
                 |_| {},
             );
             ExpiryWake::new().schedule(d.shown.next_due())
@@ -14986,6 +14992,9 @@ impl Driver {
         self.record_lamps_due();
         // The notices' next timed step, after this turn took its own.
         self.notice_schedule();
+        // A notification's picture read given up at its deadline, after
+        // this turn's delivery took what the reads brought.
+        self.picture_schedule();
         // The event rig's census turn ends: a write from here to the next
         // pump's turn is a responder method's (`rig::turn_end`).
         #[cfg(feature = "effect-probe")]
@@ -16452,6 +16461,7 @@ impl Opening {
             title_paced: TitlePaced::default(),
             paths_wake: PathsWake::default(),
             notice_wake: crate::notify::ExpiryWake::new(),
+            picture_wake: crate::notify::ExpiryWake::new(),
             home: std::env::var_os("HOME")
                 .map(|h| std::os::unix::ffi::OsStrExt::as_bytes(h.as_os_str()).to_vec()),
             hiding,
@@ -18110,6 +18120,24 @@ impl Driver {
         };
         if self.wake_holding(at, due) == Scheduled::No {
             self.notice_wake.disarm();
+        }
+    }
+
+    /// **A notification's picture read, its deadline's wake scheduled once
+    /// at a turn's end** (`ExpiryWake`): at the earliest deadline a parked
+    /// read has (`Delivery::picture_due`), again only when a read brings an
+    /// earlier one or the wake ran with it still there, and none with
+    /// none. The turn the wake brings delivers, which lets the read go and
+    /// posts the text alone (`Delivery::mac`). A read's pieces and its end
+    /// wake the window themselves (`kitty_files::Pictures`).
+    fn picture_schedule(&mut self) {
+        self.picture_wake.fired();
+        let Some(at) = self.picture_wake.schedule(self.app.notes.picture_due()) else {
+            return;
+        };
+        let ran = self.picture_wake.arm(at);
+        if self.wake_holding(at, ran) == Scheduled::No {
+            self.picture_wake.disarm();
         }
     }
 
@@ -25708,6 +25736,16 @@ impl Held for NoticeDue {
         let NoticeDue { owe, ran } = self;
         drop(owe);
         drop(ran);
+        Wakes::Yes
+    }
+}
+
+/// **A picture read's deadline wake, as its callback lets it go**
+/// (`Driver::picture_schedule`): the wake marked run (`notify::Ran`) before
+/// the window is woken, whose turn lets the read go.
+impl Held for crate::notify::Ran {
+    fn let_go(self, _: Waker) -> Wakes {
+        drop(self);
         Wakes::Yes
     }
 }

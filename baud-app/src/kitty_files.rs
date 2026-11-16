@@ -398,9 +398,12 @@ impl LocalFiles {
     }
 }
 
-impl KittyFiles for LocalFiles {
-    fn read(
+impl LocalFiles {
+    /// **What `req` names, read for `caller`**, its refusal logged under
+    /// `caller`'s name.
+    fn read_as(
         &mut self,
+        caller: Caller,
         req: &KittyFileRequest<'_>,
         sink: &mut dyn FnMut(&[u8]) -> KittyFlow,
     ) -> Result<(), KittyFileFailed> {
@@ -411,7 +414,8 @@ impl KittyFiles for LocalFiles {
         };
         r.map_err(|why| {
             crate::warn!(
-                "kitty graphics: refused to read {:?} ({:?}): {why:?}",
+                "{}: refused to read {:?} ({:?}): {why:?}",
+                caller.name(),
                 String::from_utf8_lossy(req.path),
                 req.medium
             );
@@ -420,12 +424,48 @@ impl KittyFiles for LocalFiles {
     }
 }
 
-/// **The file iTerm2's `image` names, read with every check a `t=f` file
-/// gets** (the module's list): an absolute path, resolved, outside
-/// `/proc`, `/sys` and `/dev`, a regular file opened as the one checked,
-/// read whole up to [`crate::notify::PICTURE_MAX`] and refused past it.
-impl crate::notify::PictureReader for LocalFiles {
-    fn picture(&mut self, path: &[u8]) -> Result<Vec<u8>, String> {
+impl KittyFiles for LocalFiles {
+    fn read(
+        &mut self,
+        req: &KittyFileRequest<'_>,
+        sink: &mut dyn FnMut(&[u8]) -> KittyFlow,
+    ) -> Result<(), KittyFileFailed> {
+        self.read_as(Caller::KittyGraphics, req, sink)
+    }
+}
+
+/// **The reader of the file iTerm2's notification `image` names**: a
+/// [`FileReader`], so the read runs on a thread of its own with every
+/// check a `t=f` file gets (the module's list) -- an absolute path,
+/// resolved, outside `/proc`, `/sys` and `/dev`, a regular file opened as
+/// the one checked -- read whole up to [`crate::notify::PICTURE_MAX`] and
+/// refused past it, counted among the [`READERS`], and `wake` called at
+/// each piece and at the end.
+pub struct Pictures {
+    files: FileReader,
+    wake: Option<Wake>,
+}
+
+impl Pictures {
+    /// The process's reader, its reads waking the thread `wake` wakes.
+    pub fn new(wake: Option<Wake>) -> Pictures {
+        Pictures::over(FileReader::new(), wake)
+    }
+
+    /// The pictures read through `files`.
+    pub fn over(files: FileReader, wake: Option<Wake>) -> Pictures {
+        Pictures {
+            files: FileReader {
+                caller: Caller::Notification,
+                ..files
+            },
+            wake,
+        }
+    }
+}
+
+impl crate::notify::PictureReader for Pictures {
+    fn start(&mut self, path: &[u8]) -> Reading {
         let req = KittyFileRequest {
             medium: KittyMedium::File,
             path,
@@ -434,13 +474,7 @@ impl crate::notify::PictureReader for LocalFiles {
             limit: crate::notify::PICTURE_MAX,
             past: KittyPastLimit::Refuse,
         };
-        let mut out = Vec::new();
-        self.file(&req, &mut |b| {
-            out.extend_from_slice(b);
-            KittyFlow::More
-        })
-        .map(|()| out)
-        .map_err(|why| format!("{why:?}"))
+        self.files.start(&req, self.wake.clone())
     }
 }
 
@@ -472,7 +506,10 @@ fn resolved(dirs: &[PathBuf]) -> Arc<[PathBuf]> {
 /// that never answers, it never does. Past it a file medium is refused at
 /// once, unread, with the one file error, and counted
 /// (`FileReader::refused`), for as long as those reads run; a `t=t` file
-/// refused there is never opened, so it is left where it is.
+/// refused there is never opened, so it is left where it is. A
+/// notification's picture is read among the same four ([`Pictures`]): with
+/// four reads held, the next picture is refused the same way, counted, and
+/// its notification posts its text alone at once.
 pub const READERS: usize = 4;
 
 /// The pieces a read queues ahead of the terminal taking them.
@@ -545,10 +582,31 @@ pub struct RefusedAtCap(usize);
 pub struct FileReader {
     temp: Arc<[PathBuf]>,
     running: &'static Running,
+    /// Whose reads these are, named in what the reads log.
+    caller: Caller,
     /// Run on the read's thread once the path is resolved, so a test can
     /// hold the read there as a stalled mount does.
     #[cfg(test)]
     stall: Option<Stall>,
+}
+
+/// **Whose read a [`FileReader`] runs**, named in what it logs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Caller {
+    /// A file medium of the terminal graphics protocol.
+    KittyGraphics,
+    /// The picture a notification names ([`Pictures`]).
+    Notification,
+}
+
+impl Caller {
+    /// The name the log gives these reads.
+    fn name(self) -> &'static str {
+        match self {
+            Caller::KittyGraphics => "kitty graphics",
+            Caller::Notification => "notifications: a picture",
+        }
+    }
 }
 
 /// What a test runs where a read stalls.
@@ -556,6 +614,7 @@ pub struct FileReader {
 pub type Stall = Arc<dyn Fn(&Path) + Send + Sync>;
 
 /// One piece of a read, or its end.
+#[derive(Debug)]
 enum Piece {
     Bytes(Vec<u8>),
     End(Result<(), KittyFileFailed>),
@@ -563,6 +622,7 @@ enum Piece {
 
 /// **A file medium's read under way**: dropped, its thread stops at its
 /// next piece, and a thread a stalled mount holds ends on its own.
+#[derive(Debug)]
 pub struct Reading {
     rx: Option<Receiver<Piece>>,
     ended: Option<Result<(), KittyFileFailed>>,
@@ -594,6 +654,7 @@ impl FileReader {
         FileReader {
             temp: resolved(&temp_dirs()),
             running: &PROCESS,
+            caller: Caller::KittyGraphics,
             #[cfg(test)]
             stall: None,
         }
@@ -610,6 +671,7 @@ impl FileReader {
         FileReader {
             temp: resolved(dirs),
             running,
+            caller: Caller::KittyGraphics,
             stall,
         }
     }
@@ -627,7 +689,8 @@ impl FileReader {
     pub fn start(&self, req: &KittyFileRequest<'_>, wake: Option<Wake>) -> Reading {
         let Some(seat) = Seat::take(self.running) else {
             crate::warn!(
-                "kitty graphics: refused to read {:?} ({:?}): {READERS} reads still running, {} refused so far",
+                "{}: refused to read {:?} ({:?}): {READERS} reads still running, {} refused so far",
+                self.caller.name(),
                 String::from_utf8_lossy(req.path),
                 req.medium,
                 self.running.refused.load(Ordering::Acquire)
@@ -637,7 +700,7 @@ impl FileReader {
         let (medium, offset, size, limit, past) =
             (req.medium, req.offset, req.size, req.limit, req.past);
         let path = req.path.to_vec();
-        let temp = self.temp.clone();
+        let (temp, caller) = (self.temp.clone(), self.caller);
         #[cfg(test)]
         let stall = self.stall.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel(QUEUE);
@@ -670,7 +733,7 @@ impl FileReader {
                         Err(_) => KittyFlow::Stop,
                     }
                 };
-                let read = files.read(&req, &mut sink);
+                let read = files.read_as(caller, &req, &mut sink);
                 // The place is given back before the end is told, so a
                 // read the end was taken from is no longer counted.
                 drop(seat);
@@ -683,7 +746,7 @@ impl FileReader {
                 ended: None,
             },
             Err(e) => {
-                crate::warn!("kitty graphics: no thread to read a file medium on: {e}");
+                crate::warn!("{}: no thread to read a file on: {e}", self.caller.name());
                 Reading::ended(Err(KittyFileFailed))
             }
         }
@@ -764,6 +827,21 @@ impl Reading {
         self.rx = None;
         self.ended = Some(read);
         Took::Ended(read)
+    }
+
+    /// **A read whose pieces are already queued**: `read`'s bytes as one
+    /// piece and its end, or its end alone in the error.
+    #[cfg(test)]
+    pub fn queued(read: Result<Vec<u8>, KittyFileFailed>) -> Reading {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let end = read.map(|bytes| {
+            let _ = tx.send(Piece::Bytes(bytes));
+        });
+        let _ = tx.send(Piece::End(end));
+        Reading {
+            rx: Some(rx),
+            ended: None,
+        }
     }
 }
 

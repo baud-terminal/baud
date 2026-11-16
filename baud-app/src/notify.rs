@@ -25,11 +25,14 @@
 //!   a PNG, a JPEG or a GIF of at most 1024 pixels a side, decoded by
 //!   baud's own decoders; the rest are counted ([`Delivery::image_data`]).
 //! * **iTerm2's picture**: the local file its `image` names is read only
-//!   when the notification is shown, through the reader kitty's file
-//!   medium reads through, with every check it makes
-//!   ([`Delivery::image`]), and shown: on Linux as an icon a program sent
-//!   is, on macOS attached once baud's own decoders read it, checked off
-//!   the main thread ([`Checker`]) and posted when the check is done
+//!   when the notification is shown, off the thread that feeds the
+//!   terminal, through the reader kitty's file mediums are read through,
+//!   with every check it makes (`kitty_files::Pictures`); the notification
+//!   is parked until the read ends, or [`PICTURE_WAIT`] passes and its
+//!   text posts alone, and the ones after it wait behind it, so they post
+//!   in the order they came. It is shown: on Linux as an icon a program
+//!   sent is, on macOS attached once baud's own decoders read it, checked
+//!   off the main thread ([`Checker`]) and posted when the check is done
 //!   ([`Delivery::mac_checked`]) or its window closes
 //!   ([`Delivery::mac_closing`]); nothing about it goes back to the
 //!   program.
@@ -61,7 +64,8 @@ pub struct Posted {
     /// iTerm2's `subtitle`.
     pub subtitle: String,
     /// The path of the local file iTerm2's `image` names, read only when
-    /// the notification is shown ([`Delivery::image`]).
+    /// the notification is shown, off the thread that feeds the terminal
+    /// ([`PictureReader`]).
     pub picture: Option<Vec<u8>>,
     /// The buttons it shows, each with the number the core gave it: a
     /// label of controls alone shows nothing and is left out, and the
@@ -591,8 +595,8 @@ pub struct Delivery<T, P> {
     /// burst.
     said: (Dropped, Bursts),
     /// The images not shown -- on Linux ([`Delivery::image_data`]), and
-    /// iTerm2's pictures on macOS ([`Delivery::mac_checked`]) -- and
-    /// whether the log has said so.
+    /// iTerm2's pictures on macOS ([`Delivery::mac_checked`]) and on both
+    /// past [`PICTURE_WAIT`] -- and whether the log has said so.
     pub unshown: Unshown,
     unshown_said: Said,
     /// The notifications not posted for want of anything the platform
@@ -604,12 +608,62 @@ pub struct Delivery<T, P> {
     /// `[images] pixels_mb` ([`attaches`]).
     #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
     pictures: baud_domain::ImageBudget,
-    /// The macOS notifications whose picture is being checked off the main
-    /// thread, each posted when its check comes back
-    /// ([`Delivery::mac_checked`]), or when its window closes
-    /// ([`Delivery::mac_closing`]).
+    /// The notifications shown and not yet posted, in the order they
+    /// came: the first waits for its picture's read, or on macOS its
+    /// check ([`Delivery::mac_checked`]), and each after it for the ones
+    /// ahead of it; posted from the front as each is ready, or when its
+    /// window closes ([`Delivery::mac_closing`]).
+    parked: VecDeque<Parked<T>>,
+}
+
+/// **A notification shown and not yet posted** ([`Delivery`]'s `parked`),
+/// and what it waits for.
+#[derive(Debug)]
+struct Parked<T> {
+    p: Posted,
+    at: Stage<T>,
+}
+
+/// What a parked notification waits for.
+#[derive(Debug)]
+enum Stage<T> {
+    /// Its picture, read off this thread into `bytes`, given up at `by`.
+    Reading {
+        reading: crate::kitty_files::Reading,
+        by: T,
+        bytes: Vec<u8>,
+    },
+    /// Its picture's check, off the main thread (macOS).
     #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
-    checking: Vec<Posted>,
+    Checking,
+    /// Nothing but the ones ahead of it; then it posts with `Image`.
+    Ready(Image),
+}
+
+/// Whether a picture's read stayed within [`PICTURE_MAX`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Past {
+    Within,
+    Over,
+}
+
+/// A notification Linux posts now and the `image-data` it sends.
+#[cfg(any(target_os = "linux", test))]
+pub type LinuxPost = (Posted, Option<(baud_domain::png::Size, Vec<u8>)>);
+
+/// What a parked notification posts with.
+#[derive(Debug)]
+enum Image {
+    /// Its text alone: no image sent, or its picture not read.
+    Text,
+    /// The icon it carries, `Posted::icon`.
+    Icon,
+    /// Its picture, as read, not yet decoded or checked.
+    Read(Vec<u8>),
+    /// On macOS, its picture as checked: the bytes and the extension they
+    /// attach as, or left out.
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    Attached(Option<(Vec<u8>, &'static str)>),
 }
 
 /// A count of the images a notification carried that were not shown.
@@ -643,7 +697,7 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
             bare: Unshown(0),
             bare_said: Said::Not,
             pictures,
-            checking: Vec::new(),
+            parked: VecDeque::new(),
         }
     }
 
@@ -679,41 +733,174 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
         })
     }
 
-    /// **The image a notification shows, as its bytes**: the one sent with
-    /// it or cached under its `g`, else the picture iTerm2's `image`
-    /// names, read now through `files`, which is only when it is shown.
-    pub fn image(&mut self, p: &Posted, files: &mut dyn PictureReader) -> Option<Vec<u8>> {
-        if p.icon.is_some() {
-            return p.icon.clone();
-        }
-        let path = p.picture.as_deref()?;
-        files
-            .picture(path)
-            .map_err(|why| {
-                crate::warn!(
-                    "notifications: the picture {:?} was not read: {why}",
-                    String::from_utf8_lossy(path)
-                );
-            })
-            .ok()
+    /// **`p`, shown, parked in the order it came**: with iTerm2's picture
+    /// and no icon sent, its picture's read started through `files` --
+    /// only now, when it is shown -- and given up at [`PICTURE_WAIT`] from
+    /// `now`; else ready, to post once every one ahead of it has.
+    fn park(&mut self, p: Posted, files: &mut dyn PictureReader, now: T) {
+        let at = match (&p.icon, &p.picture) {
+            (Some(_), _) => Stage::Ready(Image::Icon),
+            (None, Some(path)) => Stage::Reading {
+                reading: files.start(path),
+                by: now.after(PICTURE_WAIT),
+                bytes: Vec::new(),
+            },
+            (None, None) => Stage::Ready(Image::Text),
+        };
+        self.parked.push_back(Parked { p, at });
     }
 
-    /// **The image Linux sends as `image-data`**: a PNG, a JPEG or a GIF
-    /// of at most 1024 pixels a side, decoded ([`rgba`]). Any other image
-    /// -- another format, a larger one, or one that does not decode -- is
-    /// not shown, and counted.
+    /// **Every picture read parked, taken from without waiting**: one read
+    /// whole is ready with its bytes; one that failed or was refused --
+    /// the reader logs why -- or that passed [`PICTURE_MAX`] is ready with
+    /// its text alone; one still reading at its deadline is let go, its
+    /// thread stopping at its next piece, ready with its text alone, its
+    /// picture counted as not shown.
+    fn take_reads(&mut self, now: T) {
+        for k in self.parked.iter_mut() {
+            let Stage::Reading { reading, by, bytes } = &mut k.at else {
+                continue;
+            };
+            let mut past = Past::Within;
+            let took = reading.take(crate::kitty_files::Drain::All, &mut |b| {
+                if bytes.len() + b.len() > PICTURE_MAX {
+                    past = Past::Over;
+                    return baud_domain::KittyFlow::Stop;
+                }
+                bytes.extend_from_slice(b);
+                baud_domain::KittyFlow::More
+            });
+            k.at = match (took, past) {
+                (crate::kitty_files::Took::Ended(Ok(())), Past::Within) => {
+                    Stage::Ready(Image::Read(core::mem::take(bytes)))
+                }
+                (crate::kitty_files::Took::Ended(_), _) => Stage::Ready(Image::Text),
+                (crate::kitty_files::Took::Running, _) if now >= *by => {
+                    crate::warn!(
+                        "notifications: the picture {:?} was not read within {PICTURE_WAIT:?}; its text posted alone",
+                        String::from_utf8_lossy(k.p.picture.as_deref().unwrap_or_default())
+                    );
+                    self.unshown.0 += 1;
+                    Stage::Ready(Image::Text)
+                }
+                (crate::kitty_files::Took::Running, _) => continue,
+            };
+        }
+    }
+
+    /// The notifications at the front that are ready, taken in order: none
+    /// passes one still waiting.
+    fn ready(&mut self) -> Vec<(Posted, Image)> {
+        let mut out = Vec::new();
+        while matches!(
+            self.parked.front(),
+            Some(Parked {
+                at: Stage::Ready(_),
+                ..
+            })
+        ) {
+            if let Some(Parked {
+                p,
+                at: Stage::Ready(image),
+            }) = self.parked.pop_front()
+            {
+                out.push((p, image));
+            }
+        }
+        out
+    }
+
+    /// **The earliest a parked picture's read is given up**, for the
+    /// driver's wait: a wake scheduled for it on macOS, the poll's timeout
+    /// on Linux.
+    pub fn picture_due(&self) -> Option<T> {
+        self.parked
+            .iter()
+            .filter_map(|k| match k.at {
+                Stage::Reading { by, .. } => Some(by),
+                _ => None,
+            })
+            .min()
+    }
+
+    /// Whether a notification waits for its picture -- its read, or its
+    /// check -- or behind one that does, which the close a shell's exit
+    /// asks for waits on, as it waits for the log.
+    pub fn checks(&self) -> Checks {
+        match self.parked.is_empty() {
+            true => Checks::Done,
+            false => Checks::Waiting,
+        }
+    }
+
+    /// **The image Linux sends as `image-data` for the icon `p` carries**
+    /// (`Delivery::decoded`).
     #[cfg(any(target_os = "linux", test))]
-    pub fn image_data(
-        &mut self,
-        p: &Posted,
-        files: &mut dyn PictureReader,
-    ) -> Option<(baud_domain::png::Size, Vec<u8>)> {
-        let b = self.image(p, files)?;
-        let shown = rgba(&b);
+    pub fn image_data(&mut self, p: &Posted) -> Option<(baud_domain::png::Size, Vec<u8>)> {
+        let b = p.icon.as_deref()?;
+        self.decoded(b)
+    }
+
+    /// **An image as Linux sends it as `image-data`**: a PNG, a JPEG or a
+    /// GIF of at most 1024 pixels a side, decoded ([`rgba`]). Any other
+    /// image -- another format, a larger one, or one that does not decode
+    /// -- is not shown, and counted.
+    #[cfg(any(target_os = "linux", test))]
+    fn decoded(&mut self, b: &[u8]) -> Option<(baud_domain::png::Size, Vec<u8>)> {
+        let shown = rgba(b);
         if shown.is_none() {
             self.unshown.0 += 1;
         }
         shown
+    }
+
+    /// **`p`, shown on Linux, parked in the order it came**
+    /// (`Delivery::park`), and what is ready to post now, in order
+    /// ([`Delivery::linux_reads`]).
+    #[cfg(any(target_os = "linux", test))]
+    pub fn linux(&mut self, p: Posted, files: &mut dyn PictureReader, now: T) -> Vec<LinuxPost> {
+        self.park(p, files, now);
+        self.linux_reads(now)
+    }
+
+    /// **What Linux posts now, in the order it came**: the parked reads
+    /// taken from (`Delivery::take_reads`), and every notification at
+    /// the front that is ready, each with its image decoded, an icon sent
+    /// or a picture read (`Delivery::decoded`).
+    #[cfg(any(target_os = "linux", test))]
+    pub fn linux_reads(&mut self, now: T) -> Vec<LinuxPost> {
+        self.take_reads(now);
+        self.linux_ready()
+    }
+
+    /// **The notifications a closing window still holds, posted now with
+    /// their text alone** where a read is still out, each picture counted
+    /// as not shown; nothing waits for a read.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn linux_closing(&mut self) -> Vec<LinuxPost> {
+        for k in self.parked.iter_mut() {
+            if !matches!(k.at, Stage::Ready(_)) {
+                self.unshown.0 += 1;
+                k.at = Stage::Ready(Image::Text);
+            }
+        }
+        self.linux_ready()
+    }
+
+    /// The ready ones at the front, with their images decoded.
+    #[cfg(any(target_os = "linux", test))]
+    fn linux_ready(&mut self) -> Vec<LinuxPost> {
+        self.ready()
+            .into_iter()
+            .map(|(p, image)| {
+                let shown = match image {
+                    Image::Icon => self.image_data(&p),
+                    Image::Read(b) => self.decoded(&b),
+                    Image::Text | Image::Attached(_) => None,
+                };
+                (p, shown)
+            })
+            .collect()
     }
 
     /// A line for the log the first time an image was not shown, and
@@ -964,7 +1151,11 @@ impl<T: Moment> Delivery<T, String> {
     /// picture for a post it makes, and a picture that has to be decoded
     /// before it is attached is handed to the window's [`Checker`]
     /// (`MacCall::Check`), its notification posted when the check comes
-    /// back ([`Delivery::mac_checked`]), so no decode runs here.
+    /// back ([`Delivery::mac_checked`]), so no decode runs here. The read
+    /// itself runs off this thread: a post with a picture is parked until
+    /// it ends or [`PICTURE_WAIT`] passes, and a post after it waits behind
+    /// it (`Delivery::park`); each call takes what the reads parked have
+    /// brought first, so the driver calls this on every turn.
     ///
     /// `window` reads the window's focus and visibility, which only a
     /// post's [`plan`] needs: it is called once, at the first post, and
@@ -982,34 +1173,14 @@ impl<T: Moment> Delivery<T, String> {
         mut reply: impl FnMut(&[u8]),
     ) -> Vec<MacCall> {
         let mut calls = Vec::new();
+        self.mac_reads(term, now, prefix, &mut calls, &mut reply);
         let mut state = None;
         for p in posted {
             let (focus, visible) = *state.get_or_insert_with(&mut window);
             match plan(&p, self.setting, focus, visible, &mut self.bucket, now) {
                 Plan::Show => {
-                    // A kitty icon is attached by its signature; iTerm2's
-                    // picture once it decodes, which is checked off this
-                    // thread when its bytes say it is a picture.
-                    let image = match &p.icon {
-                        Some(b) => image_kind(b).map(|k| (b.clone(), k)),
-                        None => match self.image(&p, files) {
-                            Some(bytes) if image_kind(&bytes).is_some() => {
-                                calls.push(MacCall::Check(Check {
-                                    token: p.token,
-                                    bytes,
-                                    pixels: self.pictures,
-                                }));
-                                self.checking.push(p);
-                                continue;
-                            }
-                            Some(_) => {
-                                self.unshown.0 += 1;
-                                None
-                            }
-                            None => None,
-                        },
-                    };
-                    self.post_mac(term, p, image, now, prefix, &mut calls, &mut reply);
+                    self.park(p, files, now);
+                    self.mac_reads(term, now, prefix, &mut calls, &mut reply);
                 }
                 // Closed by baud, so the core forgets it at once: on macOS
                 // nothing else would say so (`p=alive`).
@@ -1036,17 +1207,78 @@ impl<T: Moment> Delivery<T, String> {
         calls
     }
 
+    /// **What the reads parked have brought, and what is ready, posted**:
+    /// a picture read whose bytes say it is one goes to the window's
+    /// [`Checker`] (`MacCall::Check`) and stays parked; one whose bytes do
+    /// not is left out, counted; then every notification at the front that
+    /// is ready posts, in order (`Delivery::mac_ready`).
+    fn mac_reads(
+        &mut self,
+        term: &mut Term<'_>,
+        now: T,
+        prefix: &str,
+        calls: &mut Vec<MacCall>,
+        reply: &mut impl FnMut(&[u8]),
+    ) {
+        self.take_reads(now);
+        for k in self.parked.iter_mut() {
+            let Stage::Ready(Image::Read(b)) = &mut k.at else {
+                continue;
+            };
+            let bytes = core::mem::take(b);
+            k.at = match image_kind(&bytes) {
+                Some(_) => {
+                    calls.push(MacCall::Check(Check {
+                        token: k.p.token,
+                        bytes,
+                        pixels: self.pictures,
+                    }));
+                    Stage::Checking
+                }
+                None => {
+                    self.unshown.0 += 1;
+                    Stage::Ready(Image::Attached(None))
+                }
+            };
+        }
+        self.mac_ready(term, now, prefix, calls, reply);
+    }
+
+    /// **Every notification at the front that is ready, posted in order**:
+    /// a kitty icon attached by its signature, iTerm2's picture as its
+    /// check left it, and the text alone where nothing was read.
+    fn mac_ready(
+        &mut self,
+        term: &mut Term<'_>,
+        now: T,
+        prefix: &str,
+        calls: &mut Vec<MacCall>,
+        reply: &mut impl FnMut(&[u8]),
+    ) {
+        for (p, image) in self.ready() {
+            let image = match image {
+                Image::Icon => p
+                    .icon
+                    .as_ref()
+                    .and_then(|b| image_kind(b).map(|k| (b.clone(), k))),
+                Image::Attached(a) => a,
+                Image::Text | Image::Read(_) => None,
+            };
+            self.post_mac(term, p, image, now, prefix, calls, reply);
+        }
+    }
+
     /// **A notification whose picture came back from the [`Checker`],
-    /// posted now**: with the picture when its bytes decode within the
-    /// pixels `[images] pixels_mb` lets an image decode to ([`attaches`]),
-    /// else without it, counted, the text posted; a picture alone that
-    /// does not decode is not posted, and counted. Nothing is posted
-    /// before the check is done: a second post under the same identifier
-    /// "will alert for the new notification request and replace the
-    /// existing delivered notification" (`[[source:
-    /// macos-sdk-unusernotificationcenter-h]]`), so text first and the
-    /// picture after would show and sound twice. A notification with
-    /// nothing to check posts as it comes, ahead of one still checked.
+    /// posted once the ones ahead of it have**: with the picture when its
+    /// bytes decode within the pixels `[images] pixels_mb` lets an image
+    /// decode to ([`attaches`]), else without it, counted, the text
+    /// posted; a picture alone that does not decode is not posted, and
+    /// counted. Nothing is posted before the check is done: a second post
+    /// under the same identifier "will alert for the new notification
+    /// request and replace the existing delivered notification"
+    /// (`[[source: macos-sdk-unusernotificationcenter-h]]`), so text first
+    /// and the picture after would show and sound twice. A notification
+    /// after it waits for it, so they post in the order they came.
     pub fn mac_checked(
         &mut self,
         term: &mut Term<'_>,
@@ -1056,27 +1288,32 @@ impl<T: Moment> Delivery<T, String> {
         mut reply: impl FnMut(&[u8]),
     ) -> Vec<MacCall> {
         let mut calls = Vec::new();
-        let Some(i) = self.checking.iter().position(|p| p.token == checked.token) else {
+        let Some(k) = self
+            .parked
+            .iter_mut()
+            .find(|k| matches!(k.at, Stage::Checking) && k.p.token == checked.token)
+        else {
             return calls;
         };
-        let p = self.checking.remove(i);
-        let image = checked.kind.map(|k| (checked.bytes, k));
+        let image = checked.kind.map(|kind| (checked.bytes, kind));
         if image.is_none() {
             self.unshown.0 += 1;
         }
-        self.post_mac(term, p, image, now, prefix, &mut calls, &mut reply);
+        k.at = Stage::Ready(Image::Attached(image));
+        self.mac_ready(term, now, prefix, &mut calls, &mut reply);
         calls
     }
 
     /// **The notifications a closing window still holds for their
-    /// pictures' checks, posted now**, so none goes with the window, text
-    /// and all: each one whose check came back (`finished`) with its
-    /// picture as checked ([`Delivery::mac_checked`]), then the rest with
+    /// pictures, posted now in the order they came**, so none goes with
+    /// the window, text and all: each one whose check came back
+    /// (`finished`) with its picture as checked
+    /// ([`Delivery::mac_checked`]), the ones still read or checked with
     /// their text alone, each picture counted as not shown, and a picture
     /// alone that never came back not posted, and counted. Nothing waits
-    /// for a check. The close a shell's exit asks for waits until none is
-    /// out ([`Delivery::checks`]), so the ones that come here still out
-    /// are a close the person made.
+    /// for a read or a check. The close a shell's exit asks for waits until
+    /// none is out ([`Delivery::checks`]), so the ones that come here still
+    /// out are a close the person made.
     pub fn mac_closing(
         &mut self,
         term: &mut Term<'_>,
@@ -1089,20 +1326,14 @@ impl<T: Moment> Delivery<T, String> {
         for checked in finished {
             calls.extend(self.mac_checked(term, checked, now, prefix, &mut reply));
         }
-        for p in core::mem::take(&mut self.checking) {
-            self.unshown.0 += 1;
-            self.post_mac(term, p, None, now, prefix, &mut calls, &mut reply);
+        for k in self.parked.iter_mut() {
+            if !matches!(k.at, Stage::Ready(_)) {
+                self.unshown.0 += 1;
+                k.at = Stage::Ready(Image::Attached(None));
+            }
         }
+        self.mac_ready(term, now, prefix, &mut calls, &mut reply);
         calls
-    }
-
-    /// Whether a notification waits for its picture's check, which the
-    /// close a shell's exit asks for waits on, as it waits for the log.
-    pub fn checks(&self) -> Checks {
-        match self.checking.is_empty() {
-            true => Checks::Done,
-            false => Checks::Waiting,
-        }
     }
 
     /// **`p` posted with `image`**, the core told it shown; or, a picture
@@ -1370,12 +1601,20 @@ pub fn untitled(p: &Posted) -> bool {
 }
 
 /// **The reader of the file iTerm2's `image` names**: both drivers lend
-/// the one kitty's file medium reads through (`kitty_files::LocalFiles`),
-/// with every check it makes, and a test a reader of its own.
+/// the one kitty's file mediums are read through, off the thread that
+/// feeds the terminal (`kitty_files::Pictures`), with every check it
+/// makes, and a test a reader of its own.
 pub trait PictureReader {
-    /// The file's bytes, at most [`PICTURE_MAX`], or why not, for the log.
-    fn picture(&mut self, path: &[u8]) -> Result<Vec<u8>, String>;
+    /// The file's read started, its bytes at most [`PICTURE_MAX`], taken
+    /// from without waiting; a refusal is logged by the reader.
+    fn start(&mut self, path: &[u8]) -> crate::kitty_files::Reading;
 }
+
+/// **The longest a notification waits for its picture's read**; past it
+/// the read is let go and the text posts alone, the picture counted as not
+/// shown. It bounds the close a shell's exit asks for, which waits for
+/// the pictures ([`Delivery::checks`]).
+pub const PICTURE_WAIT: Duration = Duration::from_secs(2);
 
 /// The most of a picture read: Apple's limit for an image attachment,
 /// "10 MB" (`[[source: apple-unnotificationattachment]]`), taken as
@@ -1565,14 +1804,14 @@ pub struct Checked {
     pub kind: Option<&'static str>,
 }
 
-/// Whether any of a window's notifications waits for its picture's
-/// check ([`Delivery::checks`]).
+/// Whether any of a window's notifications waits for its picture
+/// ([`Delivery::checks`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg(any(target_os = "macos", test))]
 pub enum Checks {
     /// None waits.
     Done,
-    /// One or more is parked until its check comes back.
+    /// One or more is parked until its picture's read or check ends, or
+    /// behind one that is.
     Waiting,
 }
 
@@ -1793,22 +2032,136 @@ mod tests {
     struct NoFiles;
 
     impl PictureReader for NoFiles {
-        fn picture(&mut self, _: &[u8]) -> Result<Vec<u8>, String> {
-            Err("no files".into())
+        fn start(&mut self, _: &[u8]) -> crate::kitty_files::Reading {
+            crate::kitty_files::Reading::queued(Err(baud_domain::KittyFileFailed))
         }
     }
 
-    /// A reader that counts what it is asked for and answers `bytes`.
+    /// A reader that counts what it is asked for and answers `bytes`, its
+    /// read already ended when it starts.
     struct Files {
         asked: Vec<Vec<u8>>,
         bytes: Result<Vec<u8>, String>,
     }
 
     impl PictureReader for Files {
-        fn picture(&mut self, path: &[u8]) -> Result<Vec<u8>, String> {
+        fn start(&mut self, path: &[u8]) -> crate::kitty_files::Reading {
             self.asked.push(path.to_vec());
-            self.bytes.clone()
+            crate::kitty_files::Reading::queued(
+                self.bytes.clone().map_err(|_| baud_domain::KittyFileFailed),
+            )
         }
+    }
+
+    /// **A picture reader a test holds**: the reader the drivers lend, its
+    /// reads counted in the test's own `running`, so no other test's reads
+    /// fill its [`crate::kitty_files::READERS`]; with [`Hold::Stalled`] a
+    /// read waits, once its path is resolved, as a stalled mount holds it,
+    /// until `release` is dropped -- ten seconds at most, which only turns
+    /// a hang into a failure -- and each piece and end is a wake on `woke`.
+    struct Reader {
+        files: crate::kitty_files::Pictures,
+        release: Option<std::sync::mpsc::Sender<()>>,
+        woke: std::sync::mpsc::Receiver<()>,
+    }
+
+    /// Whether a [`Reader`]'s reads are held.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Hold {
+        Free,
+        Stalled,
+    }
+
+    fn reader(running: &'static crate::kitty_files::Running, hold: Hold) -> Reader {
+        let (release, gate) = std::sync::mpsc::channel::<()>();
+        let gate = std::sync::Mutex::new(gate);
+        let stall: crate::kitty_files::Stall = std::sync::Arc::new(move |_: &std::path::Path| {
+            if let Ok(g) = gate.lock() {
+                let _ = g.recv_timeout(Duration::from_secs(10));
+            }
+        });
+        let (tx, woke) = std::sync::mpsc::channel();
+        let wake: crate::kitty_files::Wake = std::sync::Arc::new(move || {
+            let _ = tx.send(());
+        });
+        let files = crate::kitty_files::FileReader::for_test(
+            &[],
+            running,
+            (hold == Hold::Stalled).then_some(stall),
+        );
+        Reader {
+            files: crate::kitty_files::Pictures::over(files, Some(wake)),
+            release: Some(release),
+            woke,
+        }
+    }
+
+    impl Reader {
+        /// The held reads let go.
+        fn release(&mut self) {
+            drop(self.release.take());
+        }
+
+        /// The next wake a read sends; ten seconds only turn a hang into a
+        /// failure.
+        fn woken(&self) {
+            self.woke
+                .recv_timeout(Duration::from_secs(10))
+                .expect("a read wakes the window");
+        }
+    }
+
+    /// **A picture file a test writes**, and its path as a program names it.
+    fn picture_file(name: &str, bytes: &[u8]) -> Vec<u8> {
+        let dir = std::env::temp_dir().join(format!("baud-notify-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let file = dir.join("p.png");
+        std::fs::write(&file, bytes).expect("written");
+        let path = std::fs::canonicalize(&file).expect("resolved");
+        path.to_str().expect("UTF-8").as_bytes().to_vec()
+    }
+
+    /// The notices `bytes` publish on `t`, taken as a driver takes them.
+    fn taken(t: &mut Term<'_>, bytes: &[u8]) -> Vec<Posted> {
+        feed(t, bytes);
+        let posted = t
+            .notices()
+            .map(|n| Posted::of(&n, &mut Icons::default()))
+            .collect();
+        t.clear_notices();
+        posted
+    }
+
+    /// A macOS turn's calls, an unfocused window's, the pictures checked as
+    /// the window's checker checks them.
+    fn mac_turn(
+        d: &mut Delivery<HostTime, String>,
+        t: &mut Term<'_>,
+        posted: Vec<Posted>,
+        files: &mut dyn PictureReader,
+        now: HostTime,
+    ) -> Vec<MacCall> {
+        let calls = d.mac(
+            t,
+            posted,
+            || (Focus::Unfocused, Visible::Covered),
+            now,
+            "baud-1",
+            files,
+            |_| {},
+        );
+        checked_now(d, t, calls, now)
+    }
+
+    /// The posts among `calls`.
+    fn posts(calls: &[MacCall]) -> Vec<&MacPost> {
+        calls
+            .iter()
+            .filter_map(|c| match c {
+                MacCall::Post(p) => Some(p),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Whole seconds after the clock's start.
@@ -2410,23 +2763,20 @@ mod tests {
             p
         };
         let none = posted(b"\x1b]99;;x\x1b\\", &mut Icons::default()).remove(0);
-        assert_eq!(d.image_data(&none, &mut NoFiles), None);
+        assert_eq!(d.image_data(&none), None);
         assert_eq!(d.image_line(), None, "no image, nothing to say");
-        assert_eq!(d.image_data(&with(&PNG), &mut NoFiles), Some((size, px)));
+        assert_eq!(d.image_data(&with(&PNG)), Some((size, px)));
         assert_eq!(d.image_line(), None);
-        assert_eq!(d.image_data(&with(b"GIF89a\x01\x00"), &mut NoFiles), None);
-        assert_eq!(
-            d.image_data(&with(&[0xff, 0xd8, 0xff, 0xe0]), &mut NoFiles),
-            None
-        );
-        assert_eq!(d.image_data(&with(&wide), &mut NoFiles), None);
+        assert_eq!(d.image_data(&with(b"GIF89a\x01\x00")), None);
+        assert_eq!(d.image_data(&with(&[0xff, 0xd8, 0xff, 0xe0])), None);
+        assert_eq!(d.image_data(&with(&wide)), None);
         assert_eq!(d.unshown, Unshown(3));
         assert!(
             d.image_line()
                 .expect("said")
                 .starts_with("notifications: images not shown, 3 so far")
         );
-        assert_eq!(d.image_data(&with(b"GIF87a"), &mut NoFiles), None);
+        assert_eq!(d.image_data(&with(b"GIF87a")), None);
         assert_eq!(d.unshown, Unshown(4));
         assert_eq!(d.image_line(), None, "said once");
         assert_eq!(escape_markup("a <b> & c"), "a &lt;b&gt; &amp; c");
@@ -2854,7 +3204,10 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
         let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
-        let mut files = crate::kitty_files::LocalFiles::new();
+        static RUNNING: crate::kitty_files::Running = crate::kitty_files::Running::new();
+        let mut real = reader(&RUNNING, Hold::Free);
+        let woke = core::mem::replace(&mut real.woke, std::sync::mpsc::channel().1);
+        let mut files = real.files;
         // Each post two seconds after the last, under the bound's rate.
         let clock = core::cell::Cell::new(0);
         let post = |t: &mut Term<'_>,
@@ -2878,7 +3231,24 @@ mod tests {
                 files,
                 |_| {},
             );
-            checked_now(d, t, calls, now)
+            let mut calls = checked_now(d, t, calls, now);
+            // The read runs off this thread; each turn its wake brings
+            // takes what it read.
+            while d.checks() == Checks::Waiting {
+                woke.recv_timeout(Duration::from_secs(10))
+                    .expect("a read wakes the window");
+                let more = d.mac(
+                    t,
+                    Vec::new(),
+                    || (focus, Visible::Covered),
+                    now,
+                    "baud-1",
+                    files,
+                    |_| {},
+                );
+                calls.extend(checked_now(d, t, more, now));
+            }
+            calls
                 .into_iter()
                 .filter_map(|c| match c {
                     MacCall::Post(p) => Some(p),
@@ -3064,9 +3434,11 @@ mod tests {
     /// nothing is decoded where the notices are delivered**: the read's
     /// picture comes back as a check, with its bytes and the pixels
     /// `[images] pixels_mb` allows, its notification neither posted nor
-    /// shown; one with nothing to check, after it in the same read, posts
-    /// at once; the check's answer posts it with its picture, once, and
-    /// one that does not decode posts its text alone.
+    /// shown; one with nothing to check, after it in the same read, waits
+    /// behind it; the check's answer posts it with its picture, once, and
+    /// then the one behind it, in the order they came; one that does not
+    /// decode posts its text alone. Break: a post with nothing to check
+    /// sent at once -- "Later" goes out first.
     #[test]
     fn a_picture_is_checked_before_its_notification_posts() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
@@ -3115,7 +3487,8 @@ mod tests {
             (&checks[0].bytes[..], checks[0].pixels),
             (&PNG_2X1[..], PIXELS)
         );
-        assert_eq!(titles, ["Later"], "the one with nothing to check, at once");
+        assert!(titles.is_empty(), "the one after it waits: {titles:?}");
+        assert_eq!(d.checks(), Checks::Waiting);
         let token = checks[0].token;
         assert_eq!(d.shown.id(token), None, "not shown while it is checked");
         let back = Checked {
@@ -3124,12 +3497,14 @@ mod tests {
             kind: attaches(&PNG_2X1, PIXELS),
         };
         let calls = d.mac_checked(&mut t, back.clone(), at(Secs(1)), "baud-1", |_| {});
-        let [MacCall::Post(p)] = &calls[..] else {
-            panic!("one post: {calls:?}");
+        let [MacCall::Post(p), MacCall::Post(later)] = &calls[..] else {
+            panic!("two posts: {calls:?}");
         };
         assert_eq!(p.title, "Build");
         assert_eq!(p.image, Some((PNG_2X1.to_vec(), "png")));
         assert_eq!(d.shown.id(token).as_deref(), Some(p.id.as_str()));
+        assert_eq!((later.title.as_str(), &later.image), ("Later", &None));
+        assert_eq!(d.checks(), Checks::Done);
         assert!(
             d.mac_checked(&mut t, back, at(Secs(1)), "baud-1", |_| {})
                 .is_empty(),
@@ -3495,7 +3870,7 @@ mod tests {
         "#;
         let dropped = linux.find(&bare(DROP)).expect("the drop arm, as written");
         let posts = linux
-            .find("Plan::Show=>matchself.bus.as_mut()")
+            .find("Plan::Show=>matchself.bus.is_some()")
             .expect("the arm that posts");
         assert!(dropped < posts, "the drop arm is tried first");
         for line in ["bare_line()", "image_line()"] {
@@ -3605,17 +3980,365 @@ mod tests {
             .next()
             .expect("posted");
         assert!(!untitled(&p));
-        let (size, px) = d.image_data(&p, &mut files).expect("decoded");
+        let ready = d.linux(p.clone(), &mut files, at(Secs(0)));
+        let [(posted, Some((size, px)))] = &ready[..] else {
+            panic!("one post, its picture decoded: {ready:?}");
+        };
+        assert_eq!(posted.title, "Build");
         assert_eq!((size.width, size.height, px.len()), (2, 1, 8));
         assert_eq!(files.asked, [b"/tmp/p.png".to_vec()]);
         let mut icon = p.clone();
         icon.icon = Some(PNG_2X1.to_vec());
-        assert!(d.image_data(&icon, &mut files).is_some());
+        let ready = d.linux(icon, &mut files, at(Secs(0)));
+        assert!(matches!(&ready[..], [(_, Some(_))]), "{ready:?}");
         assert_eq!(files.asked.len(), 1, "an icon sent is used, nothing read");
+        assert_eq!(d.checks(), Checks::Done);
         let mut bare = p.clone();
         bare.title.clear();
         assert!(untitled(&bare), "no summary for Notify");
         bare.subtitle = "main".into();
         assert!(!untitled(&bare), "the subtitle stands as the summary");
+    }
+
+    /// **A stalled picture read holds up neither the window nor anything
+    /// else**: with the read held where a stalled mount holds it, `mac`
+    /// returns at once with nothing posted or checked, the notification
+    /// parked and its deadline [`PICTURE_WAIT`] away; let go, the read's
+    /// wake brings the turn that checks the picture and posts it with it.
+    /// Break: the read made where the notices are delivered -- `mac` waits
+    /// out the stall and posts.
+    #[test]
+    fn a_stalled_picture_read_parks_its_notification_and_returns_at_once() {
+        static RUNNING: crate::kitty_files::Running = crate::kitty_files::Running::new();
+        let path = picture_file("stalled", &PNG_2X1);
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut r = reader(&RUNNING, Hold::Stalled);
+        let posted = taken(&mut t, &iterm(&[("title", b"Build"), ("image", &path)]));
+        let calls = mac_turn(&mut d, &mut t, posted, &mut r.files, at(Secs(0)));
+        assert!(calls.is_empty(), "nothing posted or checked: {calls:?}");
+        assert_eq!(d.checks(), Checks::Waiting, "parked");
+        assert_eq!(d.picture_due(), Some(HostTime::ZERO.plus(PICTURE_WAIT)));
+        r.release();
+        let mut got = Vec::new();
+        while d.checks() == Checks::Waiting {
+            r.woken();
+            got.extend(mac_turn(
+                &mut d,
+                &mut t,
+                Vec::new(),
+                &mut r.files,
+                at(Secs(1)),
+            ));
+        }
+        let got = posts(&got);
+        let [p] = &got[..] else {
+            panic!("one post: {got:?}");
+        };
+        assert_eq!(p.title, "Build");
+        assert_eq!(p.image, Some((PNG_2X1.to_vec(), "png")), "the file read");
+        assert_eq!(d.picture_due(), None);
+        assert_eq!(d.unshown, Unshown(0));
+    }
+
+    /// **A picture not read by its deadline posts its text alone**: a turn
+    /// before [`PICTURE_WAIT`] posts nothing; the turn at it lets the read
+    /// go and posts the text, the picture counted as not shown and said
+    /// once, and nothing waits after it. Break: no deadline -- the
+    /// notification stays parked, and the close a shell's exit asks for
+    /// with it.
+    #[test]
+    fn a_picture_not_read_by_its_deadline_posts_its_text_alone() {
+        static RUNNING: crate::kitty_files::Running = crate::kitty_files::Running::new();
+        let path = picture_file("deadline", &PNG_2X1);
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut r = reader(&RUNNING, Hold::Stalled);
+        let posted = taken(&mut t, &iterm(&[("title", b"Build"), ("image", &path)]));
+        let t0 = HostTime::ZERO;
+        assert!(mac_turn(&mut d, &mut t, posted, &mut r.files, t0).is_empty());
+        let before = t0.plus(PICTURE_WAIT - Duration::from_millis(1));
+        assert!(
+            mac_turn(&mut d, &mut t, Vec::new(), &mut r.files, before).is_empty(),
+            "the control: before the deadline"
+        );
+        let calls = mac_turn(
+            &mut d,
+            &mut t,
+            Vec::new(),
+            &mut r.files,
+            t0.plus(PICTURE_WAIT),
+        );
+        let posted = posts(&calls);
+        let [p] = &posted[..] else {
+            panic!("one post: {calls:?}");
+        };
+        assert_eq!((p.title.as_str(), &p.image), ("Build", &None));
+        assert_eq!(d.unshown, Unshown(1));
+        assert_eq!(d.checks(), Checks::Done);
+        assert_eq!(d.picture_due(), None);
+        assert!(
+            d.image_line()
+                .expect("said")
+                .starts_with("notifications: images not shown, 1 so far")
+        );
+        r.release();
+    }
+
+    /// **Past the readers a picture is refused at once, and its text
+    /// posts at once**: with every one of [`crate::kitty_files::READERS`]
+    /// held, the next notification's read ends unread in the turn it
+    /// starts, so it posts its text alone then, nothing parked.
+    #[test]
+    fn past_the_readers_a_picture_posts_its_text_at_once() {
+        static RUNNING: crate::kitty_files::Running = crate::kitty_files::Running::new();
+        let path = picture_file("readers", &PNG_2X1);
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut r = reader(&RUNNING, Hold::Stalled);
+        let held: Vec<_> = (0..crate::kitty_files::READERS)
+            .map(|_| r.files.start(&path))
+            .collect();
+        let posted = taken(&mut t, &iterm(&[("title", b"Build"), ("image", &path)]));
+        let calls = mac_turn(&mut d, &mut t, posted, &mut r.files, at(Secs(0)));
+        let posted = posts(&calls);
+        let [p] = &posted[..] else {
+            panic!("one post, at once: {calls:?}");
+        };
+        assert_eq!((p.title.as_str(), &p.image), ("Build", &None));
+        assert_eq!(d.checks(), Checks::Done, "nothing parked");
+        r.release();
+        drop(held);
+    }
+
+    /// **A post after a parked picture waits behind it, on macOS and on
+    /// Linux**: the program's order is the order they post in, as when the
+    /// picture was read where it was delivered -- a text-only notification
+    /// after one whose read is stalled posts nothing until that read ends,
+    /// and then they post in the order they came. Break: a post with
+    /// nothing to read sent at once -- "Later" goes out first.
+    #[test]
+    fn a_post_after_a_parked_picture_waits_behind_it() {
+        static MAC: crate::kitty_files::Running = crate::kitty_files::Running::new();
+        static LINUX: crate::kitty_files::Running = crate::kitty_files::Running::new();
+        let path = picture_file("order", &PNG_2X1);
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let picture = iterm(&[("title", b"Build"), ("image", &path)]);
+        let later = iterm(&[("title", b"Later")]);
+        // macOS: the second post a turn after the first.
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut r = reader(&MAC, Hold::Stalled);
+        let posted = taken(&mut t, &picture);
+        assert!(mac_turn(&mut d, &mut t, posted, &mut r.files, at(Secs(0))).is_empty());
+        let posted = taken(&mut t, &later);
+        let calls = mac_turn(&mut d, &mut t, posted, &mut r.files, at(Secs(1)));
+        assert!(posts(&calls).is_empty(), "Later waits: {calls:?}");
+        r.release();
+        let mut got = Vec::new();
+        while d.checks() == Checks::Waiting {
+            r.woken();
+            got.extend(mac_turn(
+                &mut d,
+                &mut t,
+                Vec::new(),
+                &mut r.files,
+                at(Secs(1)),
+            ));
+        }
+        let titles: Vec<&str> = posts(&got).into_iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(titles, ["Build", "Later"], "in the order they came");
+        // Linux: the same.
+        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut r = reader(&LINUX, Hold::Stalled);
+        for p in taken(&mut t, &picture) {
+            assert!(d.linux(p, &mut r.files, at(Secs(0))).is_empty());
+        }
+        for p in taken(&mut t, &later) {
+            assert!(
+                d.linux(p, &mut r.files, at(Secs(1))).is_empty(),
+                "Later waits"
+            );
+        }
+        r.release();
+        let mut got = Vec::new();
+        while d.checks() == Checks::Waiting {
+            r.woken();
+            got.extend(d.linux_reads(at(Secs(1))));
+        }
+        let [(build, Some(_)), (after, None)] = &got[..] else {
+            panic!("two posts, the picture decoded: {got:?}");
+        };
+        assert_eq!(
+            (build.title.as_str(), after.title.as_str()),
+            ("Build", "Later")
+        );
+    }
+
+    /// **On Linux a stalled picture read parks its notification, and its
+    /// deadline or the window's close posts the text alone**: the read held,
+    /// nothing posts and the deadline is [`PICTURE_WAIT`] away; at it the
+    /// text posts, the picture counted; a closing window posts what is
+    /// still parked, in order, with its text alone, and nothing waits.
+    #[test]
+    fn a_stalled_picture_read_on_linux_posts_its_text_at_the_deadline_or_the_close() {
+        static RUNNING: crate::kitty_files::Running = crate::kitty_files::Running::new();
+        let path = picture_file("linux", &PNG_2X1);
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut r = reader(&RUNNING, Hold::Stalled);
+        let t0 = HostTime::ZERO;
+        for p in taken(&mut t, &iterm(&[("title", b"Build"), ("image", &path)])) {
+            assert!(d.linux(p, &mut r.files, t0).is_empty(), "returns at once");
+        }
+        assert_eq!(d.picture_due(), Some(t0.plus(PICTURE_WAIT)));
+        assert!(
+            d.linux_reads(t0.plus(PICTURE_WAIT - Duration::from_millis(1)))
+                .is_empty(),
+            "the control: before the deadline"
+        );
+        let got = d.linux_reads(t0.plus(PICTURE_WAIT));
+        let [(p, None)] = &got[..] else {
+            panic!("the text alone: {got:?}");
+        };
+        assert_eq!(p.title, "Build");
+        assert_eq!((d.unshown, d.checks()), (Unshown(1), Checks::Done));
+        // The close: what is parked posts in order, the text alone.
+        for msg in [
+            iterm(&[("title", b"Out"), ("image", &path)]),
+            iterm(&[("title", b"After")]),
+        ] {
+            for p in taken(&mut t, &msg) {
+                assert!(d.linux(p, &mut r.files, at(Secs(5))).is_empty());
+            }
+        }
+        let got = d.linux_closing();
+        let titles: Vec<(&str, bool)> = got
+            .iter()
+            .map(|(p, image)| (p.title.as_str(), image.is_some()))
+            .collect();
+        assert_eq!(titles, [("Out", false), ("After", false)]);
+        assert_eq!((d.unshown, d.checks()), (Unshown(2), Checks::Done));
+        assert!(d.linux_closing().is_empty(), "a second close");
+        r.release();
+    }
+
+    /// **A close of a notification parked behind a picture is not
+    /// honoured, and the notification posts later** -- pinned as it is: the
+    /// close finds nothing shown under its id, so nothing is removed, and
+    /// once the picture ahead of it is read the closed one posts and is
+    /// shown.
+    #[test]
+    fn a_close_of_a_parked_notification_is_not_honoured() {
+        static RUNNING: crate::kitty_files::Running = crate::kitty_files::Running::new();
+        let path = picture_file("close", &PNG_2X1);
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut r = reader(&RUNNING, Hold::Stalled);
+        let mut bytes = iterm(&[("title", b"Build"), ("image", &path)]);
+        bytes.extend_from_slice(b"\x1b]99;i=j;Kept\x1b\\\x1b]99;i=j:p=close;\x1b\\");
+        let posted = taken(&mut t, &bytes);
+        assert_eq!(posted.len(), 3, "{posted:?}");
+        let kept = posted[1].token;
+        let calls = mac_turn(&mut d, &mut t, posted, &mut r.files, at(Secs(0)));
+        assert!(
+            calls.is_empty(),
+            "nothing posted, nothing removed: {calls:?}"
+        );
+        r.release();
+        let mut got = Vec::new();
+        while d.checks() == Checks::Waiting {
+            r.woken();
+            got.extend(mac_turn(
+                &mut d,
+                &mut t,
+                Vec::new(),
+                &mut r.files,
+                at(Secs(1)),
+            ));
+        }
+        let titles: Vec<&str> = posts(&got).into_iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(titles, ["Build", "Kept"]);
+        assert!(d.shown.id(kept).is_some(), "the closed one is shown");
+    }
+
+    /// **Both drivers read pictures off the thread that feeds the
+    /// terminal, and wait for them only to a deadline**: macOS lends the
+    /// reader that wakes the window and schedules the deadline's wake on
+    /// every turn; Linux lends one that wakes the loop's wait, bounds the
+    /// wait by the deadline, takes the reads after the paths' turn drains
+    /// the wake they share, holds the close a shell's exit asks for while a
+    /// picture waits, and posts what is parked when the window closes. The
+    /// drivers' own code is read, since no test runs them.
+    #[test]
+    fn both_drivers_read_pictures_off_the_feeding_thread() {
+        let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+        let mac = bare(include_str!("app.rs"));
+        assert!(
+            mac.contains("pictures:crate::kitty_files::Pictures,"),
+            "macOS lends the reader off the thread"
+        );
+        assert!(
+            mac.contains(
+                "pictures:crate::kitty_files::Pictures::new(Some(std::sync::Arc::new(move||{waker.wake()}))),"
+            ),
+            "its reads wake the window"
+        );
+        let pump = mac
+            .split_once("fnpump(&mutself,trigger:Trigger){")
+            .and_then(|(_, rest)| rest.split_once("fnkey(&mutself,key:&KeyPress)->Handled{"))
+            .map(|(b, _)| b)
+            .expect("the macOS loop's turn");
+        let before = &pump[..pump.find("self.picture_schedule();").expect("scheduled")];
+        assert_eq!(
+            before.matches('{').count(),
+            before.matches('}').count(),
+            "the deadline's wake every turn, under no condition"
+        );
+        assert!(
+            mac.contains("self.picture_wake.schedule(self.app.notes.picture_due())"),
+            "at the earliest deadline"
+        );
+        const LINUX: &str = include_str!("linux.rs");
+        let linux = bare(LINUX);
+        assert!(
+            linux.contains("pictures:crate::kitty_files::Pictures,")
+                && linux.contains("pictures:crate::kitty_files::Pictures::new(picture_wake),"),
+            "Linux lends the reader off the thread, waking the wait"
+        );
+        assert!(
+            crate::own_line::wait_bounds(LINUX)
+                .iter()
+                .any(|b| b == "pictures"),
+            "the wait is bounded by the deadline"
+        );
+        let run = linux.split_once("'run:loop{").expect("the loop").1;
+        let paths = run.find("d.paths_turn();").expect("the paths' turn");
+        let pictures = run.find("d.pictures_turn();").expect("the pictures' turn");
+        assert!(paths < pictures, "taken after the shared wake is drained");
+        assert!(
+            linux.contains(
+                "crate::held::Decided::Close=>matchself.notes.checks(){crate::notify::Checks::Done=>Quit::Yes,crate::notify::Checks::Waiting=>Quit::No,},"
+            ),
+            "the exit's close waits for the pictures"
+        );
+        let close = run.find("d.pictures_at_close();").expect("the close");
+        let quit = run.find("d.quit_log();").expect("the end");
+        assert!(close < quit, "posted before the end");
+        assert_eq!(run.matches("d.pictures_at_close();").count(), 1);
+        for src in [&mac, &linux] {
+            assert!(!src.contains("pictures:crate::kitty_files::LocalFiles"));
+        }
     }
 }

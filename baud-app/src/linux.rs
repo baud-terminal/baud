@@ -443,8 +443,10 @@ struct Driver {
     /// (`notify.rs`), and what the notification server said it supports.
     notes: crate::notify::Delivery<Instant, crate::bus::NotifyId>,
     /// The reader of the file iTerm2's `image` names, with every check
-    /// kitty's file medium makes.
-    pictures: crate::kitty_files::LocalFiles,
+    /// kitty's file medium makes, off this thread: each piece and the end
+    /// wake the loop's wait through `woken`, and the turn after the paths'
+    /// takes them (`pictures_turn`).
+    pictures: crate::kitty_files::Pictures,
     caps: crate::notify::ServerCaps,
     /// What the launcher was last told: a program's progress and its
     /// request for attention.
@@ -821,12 +823,23 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     let notes = crate::notify::Delivery::new(cfg.notifications, &term, cfg.images);
     // The printed paths' worker writes a byte here after each answer, which
     // the loop's one wait hears (`probe::Woken`); with no pair, an answer is
-    // read at the next turn the wait has.
-    let (woken, mut probes) = match crate::probe::Woken::pair() {
-        Ok((w, wake)) => (Some(w), crate::probe::Probes::system(wake)),
+    // read at the next turn the wait has. A notification's picture read
+    // writes to the same pair at each piece and at its end, and is taken
+    // after the paths' turn drains it (`pictures_turn`); with no pair, at
+    // the next turn, or its deadline's.
+    let (woken, mut probes, picture_wake) = match crate::probe::Woken::pair() {
+        Ok((w, wake)) => {
+            let shared = std::sync::Mutex::new(wake.clone());
+            let pictures: crate::kitty_files::Wake = std::sync::Arc::new(move || {
+                if let Ok(wake) = shared.lock() {
+                    wake();
+                }
+            });
+            (Some(w), crate::probe::Probes::system(wake), Some(pictures))
+        }
         Err(e) => {
             crate::warn!("paths: no wake for the file checks ({e}); their answers wait for a turn");
-            (None, crate::probe::Probes::system(|| {}))
+            (None, crate::probe::Probes::system(|| {}), None)
         }
     };
     // No kind of link is asked about here (`Link::programs`): the list is
@@ -979,7 +992,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         later: crate::next_turn::NextTurn::default(),
         host: crate::opener::host_name(),
         notes,
-        pictures: crate::kitty_files::LocalFiles::new(),
+        pictures: crate::kitty_files::Pictures::new(picture_wake),
         caps: crate::notify::ServerCaps::NONE,
         launcher: crate::bus::Launcher::IDLE,
         reload,
@@ -1077,6 +1090,12 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             .shown
             .next_due()
             .map(|t| t.saturating_duration_since(now));
+        // A notification's picture read, given up at its deadline
+        // (`Delivery::picture_due`).
+        let pictures = d
+            .notes
+            .picture_due()
+            .map(|t| t.saturating_duration_since(now));
         // The config's settle, ended on the timeout (`reload.rs`).
         let settle = d
             .reload
@@ -1102,7 +1121,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         // the window's held events over them (`wait_bound`).
         let timeout = [
             sync, repeat, flash, copied, caret, decode, paste, delay, effects, frames, expiry,
-            settle, report, lights, words, paths, reap,
+            pictures, settle, report, lights, words, paths, reap,
         ];
         let timeout = wait_bound(&timeout, Held::of(&d.window));
         // The clipboard's pipes, each waited on for what it owes, and the
@@ -1255,6 +1274,9 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         // The printed paths' answers, never waited for, and their next batch
         // when it is due.
         d.paths_turn();
+        // The notifications' picture reads, after the paths' turn drained
+        // the wake they share, so a piece that woke the wait is taken now.
+        d.pictures_turn();
         // After a timeout as much as after readiness: a repeat is due on
         // the clock, not on an event, and so is a flash's end. The
         // transfers move as far as their pipes allow, a paste finished
@@ -1461,6 +1483,9 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             }
         }
     }
+    // The notifications still waiting for their pictures, posted with
+    // their text alone (`Delivery::linux_closing`).
+    d.pictures_at_close();
     // **The session's end, however it came**: the log writes what the
     // last reads queued before the process ends (`HostLog::quit`).
     d.quit_log();
@@ -2199,19 +2224,15 @@ impl Driver {
                     self.notes.bare.0 += 1;
                     self.term.notice_dropped(p.token);
                 }
-                Plan::Show => match self.bus.as_mut() {
-                    Some(bus) => {
-                        let replaces = match p.action {
-                            baud_core::NoticeAction::Replace => self.notes.shown.id(p.token),
-                            _ => None,
-                        };
-                        let image = self.notes.image_data(&p, &mut self.pictures);
-                        let n = crate::bus::notification(&p, replaces, self.caps, image);
-                        bus.notify(&n, p.token);
-                        let buttons = p.buttons.iter().map(|(n, _)| *n).collect();
-                        self.notes.waiting.push((p.token, p.expiry, buttons));
+                // Parked in the order it came while a picture is read off
+                // this thread, its own or one ahead of it's
+                // (`Delivery::linux`).
+                Plan::Show => match self.bus.is_some() {
+                    true => {
+                        let ready = self.notes.linux(p, &mut self.pictures, now);
+                        self.notify(ready);
                     }
-                    None => self.term.notice_dropped(p.token),
+                    false => self.term.notice_dropped(p.token),
                 },
                 Plan::Close => {
                     if let (Some(id), Some(bus)) = (self.notes.shown.id(p.token), self.bus.as_mut())
@@ -2253,6 +2274,46 @@ impl Driver {
                 bus.launcher(l);
             }
         }
+    }
+
+    /// **Notifications posted on the session bus**, each with the
+    /// `image-data` it sends, the server's answer awaited; with no bus,
+    /// dropped.
+    fn notify(&mut self, ready: Vec<crate::notify::LinuxPost>) {
+        for (p, image) in ready {
+            let Some(bus) = self.bus.as_mut() else {
+                self.term.notice_dropped(p.token);
+                continue;
+            };
+            let replaces = match p.action {
+                baud_core::NoticeAction::Replace => self.notes.shown.id(p.token),
+                _ => None,
+            };
+            let n = crate::bus::notification(&p, replaces, self.caps, image);
+            bus.notify(&n, p.token);
+            let buttons = p.buttons.iter().map(|(n, _)| *n).collect();
+            self.notes.waiting.push((p.token, p.expiry, buttons));
+        }
+    }
+
+    /// **The notifications' picture reads, on each turn of the loop**: what
+    /// they brought taken, never waiting, and each notification ready at
+    /// the front posted in order -- one whose read ended, one past its
+    /// deadline with its text alone, and the ones that waited behind it
+    /// (`Delivery::linux_reads`).
+    fn pictures_turn(&mut self) {
+        let ready = self.notes.linux_reads(Instant::now());
+        self.notify(ready);
+        if let Some(line) = self.notes.image_line() {
+            crate::warn!("{line}");
+        }
+    }
+
+    /// The notifications still waiting for their pictures when the window
+    /// closes, posted with their text alone; nothing waits for a read.
+    fn pictures_at_close(&mut self) {
+        let ready = self.notes.linux_closing();
+        self.notify(ready);
     }
 
     /// The notifications whose `w` has passed, closed: "guaranteed to be
@@ -3104,7 +3165,12 @@ impl Driver {
         }
         match self.pty.decide(self.pty.stream()) {
             crate::held::Decided::Wait => Quit::No,
-            crate::held::Decided::Close => Quit::Yes,
+            // As on macOS, not while a notification waits for its picture,
+            // which its deadline bounds (`Delivery::checks`).
+            crate::held::Decided::Close => match self.notes.checks() {
+                crate::notify::Checks::Done => Quit::Yes,
+                crate::notify::Checks::Waiting => Quit::No,
+            },
             crate::held::Decided::Hold(line) => {
                 self.holding = crate::held::Holding::Yes(line);
                 // The line goes in behind any reads a delay held, which go on
