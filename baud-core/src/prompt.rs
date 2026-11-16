@@ -570,6 +570,9 @@ impl Paint<'_, '_> {
             if self.past_edge() {
                 self.clear_swept();
             }
+            // The window moving back moves the cursor's line: a margin bell
+            // armed on it is disarmed (`margin.rs`).
+            self.margin_bell_line_left();
             self.view.retreat_rot(above, &mut OneTable);
             // The rows taken back are erased below, and the rows given up
             // show nothing: neither holds a frozen line (`crate::freeze`).

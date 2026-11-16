@@ -17,22 +17,32 @@
 //! rung", or "The cursor moves to a new line"; horizontal positioning
 //! neither rings it nor arms it.
 //!
-//! **"A new line" is tested at the write, against the line the keystroke
-//! armed on** ([`Line`]): the screen's epoch, the ring's rotation (which
-//! every whole-screen scroll moves, on either screen) and the cursor's row.
-//! A different line disarms it unrung. **A scroll that moves the armed
-//! line's text disarms it, and one that does not keeps it armed**: rows
-//! moved in place -- a region scrolled by copy, `IL`, `DL` -- disarm it
-//! when the armed row is among them ([`BellState::rows_moved`]), and a
-//! region at the top, which rotates the ring and puts the rows under it
-//! back, re-reads the rotation of a line armed under it
-//! (`Paint::margin_bell_under`). **A cursor that leaves the line and comes
-//! back before anything is printed stays armed**, where STD 070 disarms it:
-//! an open departure, since telling it needs a test on every row change.
+//! **"A new line" disarms it when the cursor reaches one**, as "It depends
+//! on the status of RING ENABLED/DISABLED at the instant the other
+//! condition for ringing the Margin Bell is satisfied", so a cursor that
+//! leaves the line and comes back before anything is printed is disarmed.
+//! A move to another row disarms it (`Paint::set_row`), and a move that
+//! keeps the row does not. **A scroll that moves the armed line's text
+//! disarms it, and one that does not keeps it armed**: a whole-screen
+//! scroll, up or down, on either screen, disarms it
+//! (`Paint::margin_bell_line_left`), as does the window moving back over a
+//! shell's redrawn prompt; rows moved in place -- a region scrolled by
+//! copy, `IL`, `DL` -- disarm it when the armed row is among them
+//! ([`BellState::rows_moved`]); and a region at the top, which rotates the
+//! ring and puts the rows under it back, re-reads the rotation of a line
+//! armed under it and disarms one armed in it
+//! (`Paint::margin_bell_under`). The write then tests the line the
+//! keystroke armed on ([`Line`]): the screen's epoch, the ring's rotation
+//! and the cursor's row, so a line feed that steps down a row, or a
+//! change of screen, disarms it unrung at the next write.
 //!
-//! The test runs behind the write path's one hook compare
-//! (`Paint::overwrote`), on while a bell is armed, so a terminal with no
-//! margin bell armed writes as it did. A write that prints no character --
+//! Each disarm on a row change or a scroll runs behind the write path's
+//! hook flag (`Paint::hooks`), on while a bell is armed: a row change or a
+//! whole-screen scroll with none armed pays one compare, and a printed byte
+//! or a line feed that steps down a row pays nothing more. The ring test
+//! runs behind the write path's one hook compare (`Paint::overwrote`), so a
+//! terminal with no margin bell armed writes as it did. A write that prints
+//! no character --
 //! a double line's cleared half, a rectangle -- takes the hook with the
 //! bell set aside (`Paint::overwrote_unprinted`), so it neither rings nor
 //! disarms it.

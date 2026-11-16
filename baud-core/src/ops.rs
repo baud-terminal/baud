@@ -1147,6 +1147,7 @@ impl Paint<'_, '_> {
             {
                 self.scroll_rot += k;
             }
+            self.margin_bell_line_left();
             for _ in 0..k {
                 self.retire();
                 self.view.advance_rot(1, &mut OneTable);
@@ -1303,17 +1304,19 @@ impl Paint<'_, '_> {
     /// `k` rows** keeps its line: the rotation moves the ring under the
     /// rows, and the repair puts their text back where it was, so the
     /// armed line is read at the rotation the scroll leaves. A line armed
-    /// at another rotation is left to disarm at the write.
+    /// in the region, or at another rotation, has moved: it is disarmed.
     #[cold]
     #[inline(never)]
     fn margin_bell_under(&mut self, bot: Row, k: Rows) {
         let rot = self.view.rot();
         let ring = self.view.ring();
-        if let Some(a) = self.cold.bell.armed.as_mut() {
-            if a.row > bot && a.rot == rot {
-                a.rot = rot.advance(k.index(), ring);
-            }
-        }
+        self.cold.bell.armed = match self.cold.bell.armed {
+            Some(a) if a.row > bot && a.rot == rot => Some(crate::margin::Line {
+                rot: rot.advance(k.index(), ring),
+                ..a
+            }),
+            _ => None,
+        };
     }
 
     /// **A top region's `n` scrolls, each a rotation and a repair**: the
@@ -1632,6 +1635,7 @@ impl Paint<'_, '_> {
         let k = n.at_least_one().min(bot.index() + 1 - top.index());
         let last = self.rows.index() - 1;
         if top.index() == 0 && bot.index() == last {
+            self.margin_bell_line_left();
             // **One compare for the passes past the edge, then the scroll
             // the core had before them.** Tested again after each line and
             // followed by the swept count's store, they were sixteen

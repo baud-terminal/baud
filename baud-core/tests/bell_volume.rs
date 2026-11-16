@@ -370,6 +370,60 @@ fn every_way_to_a_new_line_disarms_it() {
     }
 }
 
+/// **A cursor that leaves its line and comes back before anything is
+/// printed is disarmed**: "The Margin Bell is set to RING DISABLED when:
+/// ... 3. The cursor moves to a new line", and "It depends on the status
+/// of RING ENABLED/DISABLED at the instant the other condition for ringing
+/// the Margin Bell is satisfied" (070-6 p. 6-46). The way back is a cursor
+/// move, or a scroll that brings the armed line's text back under the
+/// cursor: a full-screen scroll down after one up, or as many scrolls of
+/// the alternate screen, or of a top region on it, as its ring holds rows.
+/// A move that keeps the row keeps it armed.
+#[test]
+fn a_cursor_that_leaves_the_line_and_comes_back_is_disarmed() {
+    use Step::*;
+    let alt = [b"\x1b[?1049h".as_slice(), &at(6, 72)].concat();
+    let alt_top = [b"\x1b[?1049h\x1b[1;4r".as_slice(), &at(2, 72)].concat();
+    let cases: [(&str, Vec<u8>, &[u8], usize); 12] = [
+        ("CUU and CUD", at(2, 72), b"\x1b[A\x1b[B", 0),
+        ("LF and RI", at(2, 72), b"\n\x1bM", 0),
+        ("CUP away and back", at(2, 72), b"\x1b[4;72H\x1b[2;72H", 0),
+        ("VPA away and back", at(2, 72), b"\x1b[4d\x1b[2d", 0),
+        ("DECSC, CUD, DECRC", at(2, 72), b"\x1b7\x1b[B\x1b8", 0),
+        ("LF at the bottom, then SD", at(6, 72), b"\n\x1b[T", 0),
+        ("SU, then SD", at(2, 72), b"\x1b[S\x1b[T", 0),
+        ("the alternate screen's ring round", alt, b"\n\n\n\n\n\n", 0),
+        (
+            "a top region's scrolls round the alternate screen's ring",
+            alt_top,
+            b"\x1b[S\x1b[S\x1b[S\x1b[S\x1b[S\x1b[S",
+            0,
+        ),
+        // The controls: the row is kept.
+        ("CUP to the same row", at(2, 72), b"\x1b[2;72H", 1),
+        ("CUU at the top", at(1, 72), b"\x1b[A", 1),
+        ("VPA to the same row", at(2, 72), b"\x1b[2d", 1),
+    ];
+    let mut bad = Vec::new();
+    for (why, setup, moved, want) in cases {
+        assert_eq!(
+            rings(&WS, &setup, &[Key('a'), Host(b"a")]),
+            1,
+            "{why}: the control"
+        );
+        let n = rings(&WS, &setup, &[Key('a'), Host(moved), Host(b"a")]);
+        if n != want {
+            bad.push(format!("{why}: rang {n}, not {want}"));
+        }
+        let one = [moved, b"a"].concat();
+        let n = rings(&WS, &setup, &[Key('a'), Host(&one)]);
+        if n != want {
+            bad.push(format!("{why}, in one read: rang {n}, not {want}"));
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
 /// **Horizontal positioning neither rings nor disarms it** (070-6 p.
 /// 6-46): `CUF` across the column rings nothing, and a character printed
 /// across it after a `CUF` to its left still rings.

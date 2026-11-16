@@ -2351,10 +2351,17 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// ([`Fences::ByRow`]), the fence is taken for the row reached, out of
     /// line ([`Paint::fence_by_row`]): a move between a row outside the area
     /// and one inside it changes where a write wraps.
+    ///
+    /// **A move to another row disarms the margin bell** (`margin.rs`),
+    /// behind the write path's hook gate: a move that keeps the row keeps it
+    /// armed.
     pub(crate) fn set_row(&mut self, r: Row) {
         #[cfg(feature = "read-record")]
         if r < self.cy {
             self.record_climb(r);
+        }
+        if self.hooks == WriteHooks::On && r != self.cy {
+            self.margin_bell_disarmed();
         }
         self.end_left_edge();
         self.step_row(r);
@@ -2780,6 +2787,27 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
+    /// **The cursor's line left or moved under it while a margin bell may
+    /// be armed** -- a move to another row, a full-screen scroll -- behind
+    /// the write path's hook gate, so a terminal with no bell armed pays one
+    /// compare.
+    #[inline(always)]
+    pub(crate) fn margin_bell_line_left(&mut self) {
+        if self.hooks == WriteHooks::On {
+            self.margin_bell_disarmed();
+        }
+    }
+
+    /// **The margin bell disarmed**: "The cursor moves to a new line"
+    /// (`margin.rs`).
+    #[cold]
+    #[inline(never)]
+    fn margin_bell_disarmed(&mut self) {
+        if self.cold.bell.armed.take().is_some() {
+            self.rehook();
+        }
+    }
+
     /// **The `BEL`s this read counted since the last fold, credited to the
     /// warning volume they rang at**: before DECSWBV or `RIS` changes it, and
     /// at the read's end ([`Paint::bells_read_out`]), so an embedder reading
@@ -3012,6 +3040,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.cold.top == Row::ZERO && self.cold.bot.index() == last,
             "only a full-screen region rotates the whole screen"
         );
+        self.margin_bell_line_left();
         self.retire();
         let rot = self.view.advance_rot(1, &mut OneTable);
         #[cfg(feature = "probe-warm-scroll")]
