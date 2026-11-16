@@ -1443,6 +1443,36 @@ fn a_read_taking_back_more_than_the_alternate_ring_keeps_its_selection() {
     }
 }
 
+/// **A second alternate-screen property case, pinned**: `A0` selected,
+/// a reverse index at the top and a scroll down of six, margins set,
+/// a scroll down of two that leaves `A0` on row 9, `DL 2` at the top
+/// carrying it up to row 7, and a scroll down of two that puts it back on
+/// row 9. Nine lines taken back with the selection armed on row 0, more
+/// than the alternate ring holds, before the carry up. Whole, a byte a
+/// read and cut after each step, the watch keeps `A0` on row 9.
+#[test]
+fn a_selection_carried_up_between_reads_taking_back_past_the_alternate_ring_keeps_its_line() {
+    let atoms = [28, 29, 0, 27, 13, 27, 0];
+    let prog = bytes_of(&atoms);
+    let sel = Some((0, 0));
+    let setup = alternate();
+    let ones: Vec<usize> = (1..prog.len()).collect();
+    let steps: Vec<usize> = atoms
+        .iter()
+        .scan(0, |end, &k| {
+            *end += ATOMS[k].len();
+            Some(*end)
+        })
+        .collect();
+    for cuts in [vec![], ones, steps] {
+        assert_eq!(
+            reached_after(&setup, &prog, sel, &cuts),
+            Some(Some((9, 9))),
+            "cut at {cuts:?}"
+        );
+    }
+}
+
 /// **A line kept on the alternate screen through more lines taken back
 /// than its ring holds**: armed on `A0`, a line scrolled down and deleted
 /// back at the top, again and again in one read -- each round a line taken
