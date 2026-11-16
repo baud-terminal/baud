@@ -19,7 +19,7 @@
 //! way to find out". Checked here against the specification's list, so a
 //! sequence baud never thought about still cannot fall into it.
 
-use crate::support;
+use crate::support::{self, Form, parse_form};
 use baud_core::*;
 use std::collections::BTreeSet;
 
@@ -181,74 +181,6 @@ fn every_spec_csi_final_is_handled_or_counted() {
         spec.len(),
         unaccounted.join("\n  ")
     );
-}
-
-/// A `CSI` form as the specification writes it: optional marker, parameters,
-/// optional intermediate, final byte.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct Form {
-    marker: Option<u8>,
-    inter: Option<u8>,
-    final_byte: u8,
-}
-
-impl Form {
-    /// The bytes an application would send. `1` stands in for any parameter --
-    /// a real value, and the default for every counted operation.
-    fn wire(self) -> Vec<u8> {
-        let mut v = vec![0x1b, b'['];
-        if let Some(m) = self.marker {
-            v.push(m);
-        }
-        v.push(b'1');
-        if let Some(i) = self.inter {
-            v.push(i);
-        }
-        v.push(self.final_byte);
-        v
-    }
-}
-
-/// Parse one `CSI ...` line into a [`Form`].
-///
-/// Tokens are a marker (`?`, `>`, `<`, `=`), parameter placeholders (`Ps`,
-/// `Pm`, `Pl`, `Pc`, `Pt`) and separators, an intermediate (`SP` or a byte in
-/// `20..2F`), then the final. Anything else -- a `Pt` string form, a multi-byte
-/// tail -- returns `None` rather than being guessed at.
-fn parse_form(seq: &str) -> Option<Form> {
-    let rest = seq.strip_prefix("CSI")?;
-    let toks: Vec<&str> = rest.split_whitespace().collect();
-    let (last, head) = toks.split_last()?;
-    let fb = last.as_bytes();
-    if fb.len() != 1 || !(0x40..=0x7e).contains(&fb[0]) {
-        return None;
-    }
-    let (mut marker, mut inter) = (None, None);
-    for (n, t) in head.iter().enumerate() {
-        let b = t.as_bytes();
-        if *t == "SP" {
-            inter = Some(0x20);
-            continue;
-        }
-        if t.starts_with('P') || *t == ";" || t.chars().all(|c| c.is_ascii_digit() || c == ';') {
-            continue;
-        }
-        if b.len() != 1 {
-            return None; // something this parser does not model
-        }
-        if n == 0 && matches!(b[0], b'?' | b'>' | b'<' | b'=') {
-            marker = Some(b[0]);
-        } else if (0x20..=0x2f).contains(&b[0]) {
-            inter = Some(b[0]);
-        } else {
-            return None;
-        }
-    }
-    Some(Form {
-        marker,
-        inter,
-        final_byte: fb[0],
-    })
 }
 
 /// Every `CSI` form the specification defines, in any namespace.
