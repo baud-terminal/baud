@@ -17,14 +17,16 @@ baud installs with [Nix](https://nixos.org), with flakes turned on:
 nix run github:baud-terminal/baud
 ```
 
-This builds the `baud` binary for macOS 26, with the settings baud is
+This builds the `baud` binary, for macOS 26 and later or for Linux under
+Wayland, with the settings baud is
 measured with, and opens a window running your login shell;
 `nix profile add github:baud-terminal/baud` keeps it on your `PATH`. The
 app bundle for Applications and the Dock is built from the repository
 ([Installing](https://github.com/baud-terminal/baud/blob/master/docs/guide/install.md)).
 
-The Linux version builds and has run in headless sessions; it is not ready
-to use yet ([Status](https://github.com/baud-terminal/baud/blob/master/docs/guide/status.md)).
+On Linux baud runs under Wayland, as an everyday terminal;
+[Status](https://github.com/baud-terminal/baud/blob/master/docs/guide/status.md)
+says what is in progress there.
 
 ## More
 

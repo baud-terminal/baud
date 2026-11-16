@@ -27,14 +27,14 @@ the job: every character a program sends, on your screen, drawn right and
 in time. baud does it with a look of its own.
 
 **Status:** baud runs as an everyday terminal on macOS 26 and later, and
-runs on Linux under Wayland, where it is not ready for everyday use. [What
-works today, and what does not](docs/guide/status.md).
+on Linux under Wayland. [What works today, and what is in
+progress](docs/guide/status.md).
 
 **[See all 221 features](docs/guide/features.md)**
 
 ## Install
 
-baud runs on macOS 26 and later, and installs with
+baud runs on macOS 26 and later and on Linux under Wayland, and installs with
 [Nix](https://nixos.org) (with flakes turned on). One command fetches the
 exact compiler, builds baud with the settings it is measured with -- the
 `baud` command, and on a Mac the app, `baud.app` -- and opens it: a

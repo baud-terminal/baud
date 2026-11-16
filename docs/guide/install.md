@@ -7,8 +7,8 @@ A clone of the repository builds the same app with devenv.
 
 ## What you need
 
-- **A Mac running macOS 26 or later.** On an older system baud says what
-  it needs and quits.
+- **A Mac running macOS 26 or later, or Linux under a Wayland
+  compositor.** On an older macOS baud says what it needs and quits.
 - **[Nix](https://nixos.org)** with flakes turned on. It fetches the exact
   compiler baud is built with, so you do not pick a Rust version yourself.
 
@@ -115,17 +115,15 @@ cursor or window, see [Configuration](configuration.md).
 
 ## Linux
 
-The Linux version builds and has run only on headless Wayland
-compositors, weston and sway. There, given the same fonts and colours, it
-drew the same pixels as the Mac version, copied and pasted with the
-compositor's clipboard, and a virtual mouse selected, scrolled back,
-pasted with the middle button, passed links on to be opened and worked in
-programs that use the mouse; characters drawn from each system's own
-fonts, and some programs' dim colours, can still look different. A point
-is the desktop's there, 96 dots to the inch times its text scaling, so
-text is larger than the same `font_size` on the Mac. It has also run on a
-real screen, and is not ready for everyday use.
-[Status](status.md) says what is missing.
+baud runs as an everyday terminal on Linux under a Wayland compositor.
+Given the same fonts and colours it draws the same pixels as the Mac
+version, copies and pastes with the compositor's clipboard, and the mouse
+selects, scrolls back, pastes with the middle button, passes links on to
+be opened and works in programs that use the mouse; characters drawn from
+each system's own fonts, and some programs' dim colours, can still look
+different. A point is the desktop's there, 96 dots to the inch times its
+text scaling, so text is larger than the same `font_size` on the Mac.
+[Status](status.md) says what is in progress on Linux and what is open.
 
 ## For contributors
 

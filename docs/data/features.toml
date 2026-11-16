@@ -1649,7 +1649,7 @@ area = "window"
 name = "See-through on Linux"
 does = "The background's see-through level and the panel and picture rules carry over to Linux, with the same shades as on macOS."
 status = "partial"
-gap = "tested only in a headless session over a black background, and on one desktop light mode reads grey under the compositor's blur; dim text a program draws, such as btop's, is lifted brighter on Linux, which cannot know what is behind the window."
+gap = "tested only in a headless session over a black background; dim text a program draws, such as btop's, is lifted brighter on Linux, which cannot know what is behind the window."
 platform = "linux"
 paths = ["baud-app/src/linux.rs"]
 
@@ -1797,7 +1797,7 @@ area = "window"
 name = "Light and dark on Linux"
 does = "The Linux version follows the desktop's light or dark setting and switches the moment you do, or you can pin one; a desktop with no preference gets the light colours."
 status = "partial"
-gap = "on one desktop a shell's own colours are lost after a light/dark change, and no headless compositor tests it."
+gap = "no headless compositor tests it."
 platform = "linux"
 tests = ["baud-app/src/appearance.rs::auto_follows_the_portal_and_a_pinned_theme_stays", "baud-app/src/bus.rs::the_portals_scheme_is_read_and_followed"]
 
@@ -2185,7 +2185,7 @@ area = "platforms"
 name = "Linux"
 does = "The same terminal core on Wayland, drawn on the CPU, with the keyboard, the mouse and its pointer shapes, copy and paste, and window titles."
 status = "partial"
-gap = "on a desktop the mouse, the clipboard, input methods, the bell, zoom and reduced motion have not been tried, and it draws on the CPU only."
+gap = "input methods, the bell and zoom have not yet run on a screen, and it draws on the CPU; a GPU renderer, through Vulkan, is in progress."
 platform = "linux"
 tests = ["baud-present-wayland/tests/handshake.rs::a_window_opens_shows_a_frame_and_types", "baud-present-wayland/tests/handshake.rs::the_pointer_reports_by_frame_and_takes_its_shape", "baud-present-wayland/tests/handshake.rs::a_pointer_event_carries_the_modifiers_of_its_moment", "baud-app/src/seat.rs::a_tracking_child_gets_the_buttons_and_the_wheel"]
 

@@ -10,6 +10,48 @@ light and dark colours, fonts and emoji, the cursor and its trails, scrollback w
 scrollbar and find, selection, copy and paste, mouse and keyboard support for
 programs, and pictures.
 
+## Ready to use: Linux under Wayland
+
+baud runs as an everyday terminal on Linux under a Wayland compositor, with
+the same terminal core as on the Mac. On a 4K monitor under Hyprland it
+draws sharp at scales 1, 1.5 and 2 and follows a change of scale live;
+draws Hebrew, Arabic, Devanagari, Chinese, Japanese, Korean, Thai, emoji
+and ligatures, the cursor trails, the activity lights on the top line, the
+launch logo and the padding around the text; follows the desktop's light
+and dark setting both ways; copies and pastes with the desktop's
+clipboard; and runs programs such as btop, with the keys you type and the
+mouse reaching them. A `font_size` in
+points draws as large as the desktop's other windows draw it: 96 dots to
+the inch times the desktop's text scale. What the window leaves beyond the
+whole cells is split between its sides. On the headless Wayland
+compositors weston and sway, given the same fonts and colours at the same
+size in pixels, it draws the same pixels as the Mac version, stays sharp
+when its window moves to an output of another scale, copies and pastes
+with the compositor's clipboard, and the mouse selects text, scrolls back
+through the history, pastes with the middle button, passes links on to be
+opened with Ctrl-click and works in programs that use the mouse. With
+animations turned off on the desktop, baud reduces its motion: no default
+cursor trail, a plain blink and still blinking text.
+
+In progress on Linux:
+
+- **Drawing on the GPU.** baud draws on the CPU; a renderer on the GPU,
+  through Vulkan, is being built.
+- **Input methods, the bell, zoom, and paging the history with Shift+Page
+  Up and Shift+Page Down** are built and have not yet run on a screen.
+  [Features](features.md) marks each Linux feature that has not run on a
+  compositor.
+
+Open on Linux:
+
+- **A font DPI a desktop keeps outside the settings portal is not read.**
+  The text scale the portal relays is, and `[font] dpi` sets a size of
+  your own.
+- **Dim text a program draws, such as btop's, is drawn brighter than on
+  the Mac,** because baud on Linux cannot know what is behind its window.
+- **A program cannot move, raise, lower or un-minimise the window,** or
+  maximise it one way only: Wayland has no request for them.
+
 ## Not built
 
 - **Right-to-left text, in part.** A line that starts in Hebrew or Arabic
@@ -19,28 +61,6 @@ programs, and pictures.
   right-to-left line. A paragraph that wraps with both directions in it,
   and ECMA-48's reversed and directed strings, are not drawn
   ([bidi](../bidi.md)).
-- **Linux.** baud runs on Linux under Wayland, and is not ready for
-  everyday use. On a real screen, a 4K monitor under Hyprland, it has
-  drawn sharp at scales 1, 1.5 and 2 and followed a change of scale live;
-  drawn Hebrew, Arabic, Devanagari, Chinese, Japanese, Korean, Thai, emoji
-  and ligatures, the cursor trails, the activity lights on the top line,
-  the launch logo and the padding around the text; followed the desktop's
-  light and dark setting both ways; and run programs such as btop, with
-  the keys typed reaching them. A `font_size` in points draws as large as
-  the desktop's other windows draw it: 96 dots to the inch times the
-  desktop's text scale. What the window leaves beyond the whole cells is
-  split between its sides. On headless Wayland compositors, weston and sway,
-  given the same fonts and colours at the same size in pixels, it drew the
-  same pixels as the Mac version, stayed sharp when its window moved to an
-  output of another scale, copied and pasted with the compositor's
-  clipboard, and a virtual mouse selected text, scrolled back through the
-  history, pasted with the middle button, passed links on to be opened
-  with Ctrl-click and worked in programs that use the mouse. Not tried
-  on a real screen: the mouse, the clipboard, input methods, the bell,
-  zoom and reduced motion. Seen on a real screen and not fixed: the
-  launch logo's plasma shows a hard-edged grey band, and light mode
-  reads grey under the compositor's blur. Shift+Page Up and Down do not scroll the
-  history. It draws on the CPU; drawing on the GPU is not built.
 - **A few control sequences.** The gaps are each listed with their reason
   in [vt-coverage](../vt-coverage.md), as a row at **partial** or **out**.
 
