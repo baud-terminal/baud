@@ -5,6 +5,8 @@
 # Cascadia Mono's notices: data read out of both fonts, under each font's
 # SIL Open Font License 1.1 (CascadiaMono-OFL.txt and JetBrainsMono-OFL.txt
 # beside this file).
+# The two geometric-shape glyphs, U+25D0 and U+25D1, are JetBrains Mono's
+# own circle points rearranged, under its licence beside this file.
 style Bold
 head.modified 2398377600
 os2.ulUnicodeRange1 0xa0040aff
@@ -364,6 +366,12 @@ contour -430,742 -429,756 -427,772 -423,787 -417,801 -409,814 -399,826 -384,836 
 glyph heb_05AF advance 0 class 3 unicode 05AF
 contour -240,702 -240,686,off -256,658,off -283,642,off -317,642,off -344,658,off -360,686,off -360,702 -360,719,off -344,747,off -317,763,off -283,763,off -256,747,off -240,719,off
 contour -307,702 -307,700,off -303,696,off -297,696,off -293,700,off -293,702 -293,705,off -297,709,off -303,709,off -307,705,off
+glyph uni25D0 advance 600 class 1 unicode 25D0
+contour 300,50 212,50,off 71,131,off -10,272,off -10,360 -10,449,off 71,589,off 212,670,off 300,670 389,670,off 529,589,off 610,449,off 610,360 610,272,off 529,131,off 389,50,off
+contour 300,100 374,100,off 492,168,off 560,286,off 560,360 560,434,off 492,552,off 374,620,off 300,620
+glyph uni25D1 advance 600 class 1 unicode 25D1
+contour 300,50 212,50,off 71,131,off -10,272,off -10,360 -10,449,off 71,589,off 212,670,off 300,670 389,670,off 529,589,off 610,449,off 610,360 610,272,off 529,131,off 389,50,off
+contour 300,620 226,620,off 108,552,off 40,434,off 40,360 40,286,off 108,168,off 226,100,off 300,100
 script GSUB hebr DFLT
 script GPOS hebr DFLT
 feature GPOS 0 mark 0 1 5

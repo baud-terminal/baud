@@ -4541,7 +4541,7 @@ struct GlyphOrder(u8);
 /// substitution is not alike, and a syllable in two renditions keeps its
 /// first cell's face there. Asked once per stack, of its faces that are
 /// not narrower instances, and the tables are read only for a pair that
-/// holds as many glyphs: the built Regular and Bold each hold 2661, with
+/// holds as many glyphs: the built Regular and Bold each hold 2663, with
 /// 18,560 bytes of `cmap` and 88,844 of `GSUB` alike.
 fn same_glyphs(a: &Face<'_>, b: &Face<'_>) -> bool {
     a.glyph_count() == b.glyph_count()

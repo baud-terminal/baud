@@ -1761,6 +1761,92 @@ mod tests {
         }
     }
 
+    /// **The default stack draws the half circles from the embedded
+    /// Regular.** U+25D0 and U+25D1 map in the embedded Regular, `faces[0]`,
+    /// and the stack selects it, so no face behind it is reached. STIX,
+    /// further down the chain, maps both too: the Regular is chosen by its
+    /// place, not because it alone has them.
+    #[test]
+    fn the_default_stack_draws_the_half_circles_from_the_embedded_regular() {
+        let mut cfg = crate::config::Config::defaults();
+        let l = super::load_faces(&mut cfg);
+        let (faces, stack) = (l.faces, &l.stack);
+        assert!(
+            matches!(cfg.faces[0].from,
+                crate::config::FaceFrom::Embedded(b) if b == crate::embedded::REGULAR.bytes),
+            "{}",
+            cfg.faces[0].path
+        );
+        let stix = cfg
+            .faces
+            .iter()
+            .position(|f| {
+                matches!(f.from,
+                    crate::config::FaceFrom::Embedded(b) if b == crate::embedded::STIX.bytes)
+            })
+            .expect("STIX in the default stack");
+        for cp in [0x25D0, 0x25D1] {
+            let c = baud_domain::Codepoint::new(cp).unwrap();
+            assert!(
+                faces[stix].glyph(c).is_some(),
+                "U+{cp:04X}, the control: STIX maps it"
+            );
+            assert!(
+                faces[0].glyph(c).is_some(),
+                "U+{cp:04X}: the embedded Regular, faces[0], does not map it"
+            );
+            assert_eq!(l.place[stack.select(c).index()], 0, "U+{cp:04X}");
+        }
+    }
+
+    /// **The half circles draw from the embedded Regular behind a
+    /// configured font.** The committed plain JetBrains Mono maps neither
+    /// U+25D0 nor U+25D1; the embedded Regular follows it in the chain,
+    /// ahead of the icon face and STIX, and draws both, though STIX maps
+    /// them too.
+    #[test]
+    fn the_half_circles_draw_from_the_embedded_regular_behind_a_configured_font() {
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf"
+        );
+        let mut cfg = crate::config::Config::defaults();
+        let said = cfg.apply(&format!("fonts = [\"{font}\"]\n"));
+        assert!(said.is_empty(), "{said:?}");
+        let l = super::load_faces(&mut cfg);
+        let chain = cfg
+            .faces
+            .iter()
+            .filter(|f| f.role == baud_render::FaceRole::Fallback)
+            .count();
+        assert_eq!(chain, 4);
+        assert!(
+            matches!(cfg.faces[1].from,
+                crate::config::FaceFrom::Embedded(b) if b == crate::embedded::REGULAR.bytes),
+            "{}",
+            cfg.faces[1].path
+        );
+        assert!(
+            matches!(cfg.faces[3].from,
+                crate::config::FaceFrom::Embedded(b) if b == crate::embedded::STIX.bytes),
+            "{}",
+            cfg.faces[3].path
+        );
+        let stack = &l.stack;
+        for cp in [0x25D0, 0x25D1] {
+            let c = baud_domain::Codepoint::new(cp).unwrap();
+            assert!(
+                l.faces[0].glyph(c).is_none(),
+                "U+{cp:04X}, the control: not in the named face"
+            );
+            assert!(
+                l.faces[3].glyph(c).is_some(),
+                "U+{cp:04X}, the control: STIX maps it"
+            );
+            assert_eq!(l.place[stack.select(c).index()], 1, "U+{cp:04X}");
+        }
+    }
+
     /// **The configured widths reach the core.** After `set_widths`, `±`
     /// (East Asian Ambiguous) takes the configured columns, U+E0B0 (a
     /// Nerd Fonts separator, private use) one under either, a heart with

@@ -125,10 +125,10 @@ mod tests {
                 .expect("a head table")
         };
         for (e, len, hash, style) in [
-            (REGULAR, 604_228, 0x63ae_c7c3_24cf_ba25_u64, 0),
-            (BOLD, 610_952, 0xd7a3_22b3_aed8_3787, 1),
-            (ITALIC, 607_852, 0x31c5_5a61_151f_746f, 2),
-            (BOLD_ITALIC, 613_756, 0xdd4a_a8a6_781c_5a26, 3),
+            (REGULAR, 604_452, 0xb649_beee_83e4_c452_u64, 0),
+            (BOLD, 611_180, 0x64a1_ee9b_dab3_bed7, 1),
+            (ITALIC, 608_076, 0x089b_b776_a733_c323, 2),
+            (BOLD_ITALIC, 613_984, 0x45e7_5ef6_0b46_0695, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
             (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
@@ -162,10 +162,10 @@ mod tests {
         // Name, which binds the built font as a modified version.
         let manifest = std::fs::read_to_string(format!("{dir}/built/MANIFEST")).unwrap();
         for out in [
-            "output 25856f2405fc07b469c39cc3ebd37d2912e4cb90e6a60c595a26094798f622e4 baud-app/fonts/built/Regular.ttf",
-            "output ce20774ef74a685ea2a5165d3102315c315d61a862810e929cea4026eb650d77 baud-app/fonts/built/Bold.ttf",
-            "output 5f1bcc0e3207c08dc2150f0d19aa83ff6a9a60181dc70b9307b80dfb41efb0cd baud-app/fonts/built/Italic.ttf",
-            "output c2ce797363915571617a0fb1408b430ee53c02c8f0c775e9f968fadd6b37200b baud-app/fonts/built/BoldItalic.ttf",
+            "output 462214e66f0ce9f99959d77b6646d9a7ed85fb75228f7dc04aab47ac8e4df6b6 baud-app/fonts/built/Regular.ttf",
+            "output e32b95b1811f53beefd9f4c861b1cc435f29f4081994f1b813f6903b8b548de9 baud-app/fonts/built/Bold.ttf",
+            "output bc6cdbd048f979b9b879c41f7c34f9e9345d4e99aa19684925f58425848bca8b baud-app/fonts/built/Italic.ttf",
+            "output bce591333f6d413831850078142714c32d402d85ac3735bd37c9483afed8fac8 baud-app/fonts/built/BoldItalic.ttf",
         ] {
             assert!(manifest.contains(out), "MANIFEST: {out}");
         }
@@ -358,6 +358,16 @@ mod tests {
             .chain(
                 (0xFB1D..=0xFB4F).filter(|c| ![0xFB37, 0xFB3D, 0xFB3F, 0xFB42, 0xFB45].contains(c)),
             )
+            .map(|v| Codepoint::new(v).unwrap())
+            .collect()
+    }
+
+    /// The two geometric shapes the Hebrew stage adds beside the Hebrew:
+    /// U+25D0 CIRCLE WITH LEFT HALF BLACK and U+25D1 CIRCLE WITH RIGHT HALF
+    /// BLACK, one glyph each.
+    fn half_circles() -> Vec<Codepoint> {
+        [0x25D0, 0x25D1]
+            .into_iter()
             .map(|v| Codepoint::new(v).unwrap())
             .collect()
     }
@@ -810,7 +820,8 @@ mod tests {
             (Some(b), Some(s)) if keeps_lookups(b.as_slice(), s.as_slice()) => {}
             _ => lost.push("GSUB"),
         }
-        let added_glyphs = u32::try_from(shipped().len()).unwrap() + DEVANAGARI_GLYPHS;
+        let added_glyphs =
+            u32::try_from(shipped().len() + half_circles().len()).unwrap() + DEVANAGARI_GLYPHS;
         if u32::from(built.glyph_count().value())
             != u32::from(base.glyph_count().value()) + added_glyphs
         {
@@ -828,8 +839,8 @@ mod tests {
         if !same {
             lost.push("cmap");
         }
-        // What the built file maps and the stock does not is `shipped()`
-        // and `devanagari()`.
+        // What the built file maps and the stock does not is `shipped()`,
+        // `half_circles()` and `devanagari()`.
         let mut added = Vec::new();
         built.candidates(|lo, hi| {
             for c in (lo.value()..=hi.value()).filter_map(Codepoint::new) {
@@ -841,6 +852,7 @@ mod tests {
         added.sort_by_key(|c| c.value());
         added.dedup();
         let mut want = shipped();
+        want.extend(half_circles());
         want.extend(devanagari());
         want.sort_by_key(|c| c.value());
         if added != want {
@@ -867,9 +879,10 @@ mod tests {
     /// **The built font keeps JetBrains Mono**: each built style against
     /// the stock file of its style keeps every GSUB lookup byte for byte at
     /// its index, and what DFLT and latn name; maps every code point the
-    /// stock file maps to the same glyph and adds exactly `shipped()` and
-    /// `devanagari()`; carries the stock glyphs, one more for each Hebrew
-    /// code point and the 783 Devanagari glyphs; and keeps every stock
+    /// stock file maps to the same glyph and adds exactly `shipped()`,
+    /// `half_circles()` and `devanagari()`; carries the stock glyphs, one
+    /// more for each Hebrew code point and each half circle, and the 783
+    /// Devanagari glyphs; and keeps every stock
     /// glyph's advance and outline -- the Latin, its ligatures and the
     /// icons' neighbours draw as they did. Each check has its control, so
     /// none of them is a probe that cannot fire.

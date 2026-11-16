@@ -9,14 +9,14 @@ step instance-noto baud-fontbuild instance NotoSansDevanagari[wdth,wght].ttf 400
 step merge baud-fontbuild merge <style>-hebrew.ttf noto<weight>.ttf <style> 315532800 <style>.ttf, once per style (Regular, Italic: noto400; Bold, Bold Italic: noto700)
 step cmp built/<style>.ttf <style>.ttf, once per style (each must be the same bytes)
 input eba0142e50ef608bccdea8ba6dfa0438c16d4e94cd40eaaa60d4f16101ad7cf9 baud-app/fonts/glyphs/languages/devanagari/SOURCE
-input a2e19fa9192f8f15af8244d1cb1402bf2e6cc1a2787081b24cc11b49fcb8ce49 baud-app/fonts/glyphs/languages/hebrew/stage/Bold.txt
-input e4a82b43dbfa8078985a6503661c82cfee8f722338ae99508301eef57e887af2 baud-app/fonts/glyphs/languages/hebrew/stage/BoldItalic.txt
+input 31c2e0c13680d2001f0ce0c635ec19aa24feb7460e18f16908c5f729187bc82e baud-app/fonts/glyphs/languages/hebrew/stage/Bold.txt
+input 6c99be01fe88a0e6335053613554e088276f4c05eaafbbd31443437a425c73b7 baud-app/fonts/glyphs/languages/hebrew/stage/BoldItalic.txt
 input 51882cd3cdba4e16f220f44ddb08a635c38c44ea6e0975db2574f4be6f958238 baud-app/fonts/glyphs/languages/hebrew/stage/CascadiaMono-OFL.txt
-input 8a25fe32e92909bf0cd5b035d7104424d3afa7122cc5f541e14c882d555d4930 baud-app/fonts/glyphs/languages/hebrew/stage/Italic.txt
+input 0aa44aa7998a1ff4c3080b6888ed56929f65b2f1b5156463b852682210a8d928 baud-app/fonts/glyphs/languages/hebrew/stage/Italic.txt
 input 30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad baud-app/fonts/glyphs/languages/hebrew/stage/JetBrainsMono-OFL.txt
-input 45c3761b7ecba42a1b6741a7fad21a72706c7ce4ecc87624f36163892bdedd08 baud-app/fonts/glyphs/languages/hebrew/stage/Regular.txt
+input 9bd03802b6da08608e1932d1c4bebae85c1959a143608d5ba92f524a4c0e4a71 baud-app/fonts/glyphs/languages/hebrew/stage/Regular.txt
 input 09dbb6fe51fb7d88a7886646edd605a5080a312225aede85579ff744e152cff6 baud-font/src/bake.rs
-input 4ae5387f14c84e06064b5a3416a0d43a36530d51052a7cebe3a32a15484b9d9b baud-font/src/bake/partial.rs
+input c35618b464c535a3db2140b2591933b47fa6ffa97558e654d93c01cf4006acd6 baud-font/src/bake/partial.rs
 input f79e0a1a9fa063d4b8e2575a9032d42b6daa8af860e0d4f69c3c5b12f481a320 tools/Cargo.lock
 input a916542be74fb8e6321498ad78e2d412d8e964becb0a7e08da7c276046d552d2 tools/Cargo.toml
 input 2976d7e764e2bac624811dedf6999dab27655fb15cf307161730769d7d15342c tools/baud-fontbuild/Cargo.toml
@@ -43,11 +43,11 @@ intermediate e2569116e656d46710fe1133548fcbcda9decdc94ec5d3c3219213a046d13da7 no
 oracle 92cde87d462bf2a8a9e4cccb51c02c9aeaf6ef4e99db06af0ebc0e7c5e82f64b fontTools 4.63.0's noto400.ttf, which noto400.ttf compared equal to when it was pinned (not committed)
 intermediate 7eea4776889a270ad2cdf4afa89b169ab3b513990abb838fc702cb03aa6052bb noto700.ttf (Noto Sans Devanagari at wght 700, its width axis kept; not committed)
 oracle f3e9be2b943be49cc1683f30456b9dba068422a917a4918677e8cb0dc652cdc4 fontTools 4.63.0's noto700.ttf, which noto700.ttf compared equal to when it was pinned (not committed)
-intermediate 171d0c179a18ec98d9aa7205162fdcf187220135bf9bfe9240b1ec69899f6da3 Regular-hebrew.ttf (the Hebrew stage; not committed)
-intermediate a16f22743b13785aef4d325d6fdcb984e0e51ef43dfbabbfd07bbba43ae37fa3 Bold-hebrew.ttf (the Hebrew stage; not committed)
-intermediate c141a5e379548f59a938db9819c82d32aa03184f06cbf418dfe34d0c71b056b8 Italic-hebrew.ttf (the Hebrew stage; not committed)
-intermediate 900240529d0cc10a0a190499af943ab0beceb3f01c6709a018dfe50233be9a99 BoldItalic-hebrew.ttf (the Hebrew stage; not committed)
-output 25856f2405fc07b469c39cc3ebd37d2912e4cb90e6a60c595a26094798f622e4 baud-app/fonts/built/Regular.ttf
-output ce20774ef74a685ea2a5165d3102315c315d61a862810e929cea4026eb650d77 baud-app/fonts/built/Bold.ttf
-output 5f1bcc0e3207c08dc2150f0d19aa83ff6a9a60181dc70b9307b80dfb41efb0cd baud-app/fonts/built/Italic.ttf
-output c2ce797363915571617a0fb1408b430ee53c02c8f0c775e9f968fadd6b37200b baud-app/fonts/built/BoldItalic.ttf
+intermediate d62f653d311bde30066919aa061ab0ceeabfbe268c406a600d47bc9b762cf135 Regular-hebrew.ttf (the Hebrew stage; not committed)
+intermediate d3370638b863f428d0a8c188ec94c2df0913c1564a92e2512278cc8f5d8412d2 Bold-hebrew.ttf (the Hebrew stage; not committed)
+intermediate f5c1c15594d52f0b4658e46277f5e8340237c9ba9b34f0478c6941bcb9a3cda6 Italic-hebrew.ttf (the Hebrew stage; not committed)
+intermediate 15ccfe27e294f1a16510f92fd22f900b42f8cf4ba7f0afcd3e0d9f3b64c01cca BoldItalic-hebrew.ttf (the Hebrew stage; not committed)
+output 462214e66f0ce9f99959d77b6646d9a7ed85fb75228f7dc04aab47ac8e4df6b6 baud-app/fonts/built/Regular.ttf
+output e32b95b1811f53beefd9f4c861b1cc435f29f4081994f1b813f6903b8b548de9 baud-app/fonts/built/Bold.ttf
+output bc6cdbd048f979b9b879c41f7c34f9e9345d4e99aa19684925f58425848bca8b baud-app/fonts/built/Italic.ttf
+output bce591333f6d413831850078142714c32d402d85ac3735bd37c9483afed8fac8 baud-app/fonts/built/BoldItalic.ttf
