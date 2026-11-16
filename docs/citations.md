@@ -10297,7 +10297,7 @@ DECNCSM — Set/Reset No Clearing Screen On Column Change (VT510 Programmer Info
 - **sha256:** `0bad959a9709a60c14dbd02c17d2b2f0fa1b7b8e686ac7b08792b5c124a422ce` (19969 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-14
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/xterm/column_mode.rs`, `baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-core/src/ops.rs`, `baud-core/src/term.rs`, `baud-core/tests/xterm/column_mode.rs`, `baud-domain/src/vt/mode.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decnkm"></a>
 ### vt510-decnkm
@@ -10423,7 +10423,7 @@ DECSCPP — Select Columns Per Page (VT510 Programmer Information). Digital Equi
 - **URL:** <https://vt100.net/docs/vt510-rm/DECSCPP.html>
 - **sha256:** `6a84f639349a1d4eb937a60a70276089f70d049e62f248c4269bd6077ca44bce` (21216 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/xterm/column_mode.rs`, `baud-domain/src/vt/csi.rs`, `docs/vt-coverage.md`
 
 <a id="vt510-decsed"></a>
 ### vt510-decsed

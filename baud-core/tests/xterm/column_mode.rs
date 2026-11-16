@@ -602,8 +602,7 @@ fn decscpp_clears_columns_81_to_132_and_keeps_1_to_80() {
 /// **"When changing from an 80 column page to a 132 column page, the
 /// information in columns 1-80 is preserved"** (`[[source: dec-std-070]]`
 /// p. 5-73): a line wrapped at 80 stays two rows at 132. The control: the
-/// same widening asked by `?3 h` under `?95` is answered as a window's, and
-/// re-cuts the two rows into one.
+/// same widening by the window's resize re-cuts the two rows into one.
 #[test]
 fn decscpp_widening_keeps_1_to_80_where_they_are() {
     let line = [[b'a'; 80].as_slice(), &[b'b'; 10]].concat();
@@ -613,11 +612,15 @@ fn decscpp_widening_keeps_1_to_80_where_they_are() {
         (s.cols, s.text[0].as_str(), s.text[1].as_str()),
         (Cols::of_index(132), a.as_str(), "bbbbbbbbbb")
     );
-    let c = honoured(&[line.as_slice(), b"\x1b[?40;95h\x1b[?3h"].concat());
+    let mut o = Owned::new(&ROOM);
+    let mut t = Term::new(o.storage(), &SMALL);
+    feed(&mut t, &line);
+    assert_eq!(t.resize(&ROOM), Resized::Ok, "the room is provisioned");
+    let c = seen(&mut t);
     assert_eq!(
         (c.cols, c.text[0].as_str(), c.text[1].as_str()),
         (Cols::of_index(132), format!("{a}bbbbbbbbbb").as_str(), ""),
-        "the control: DECCOLM's answer re-cuts"
+        "the control: the window's resize re-cuts"
     );
 }
 
@@ -649,7 +652,8 @@ fn decscpp_clears_the_page_and_keeps_the_history() {
 }
 
 /// **DECSCPP's answer re-cuts no line and tells none**
-/// (`Term::resize_page_with`), where `?3`'s is a window's resize.
+/// (`Term::resize_page_with`), where a `?3`'s with `?95` reset is a
+/// window's resize.
 #[test]
 fn decscpp_answer_tells_no_line() {
     let mut o = Owned::new(&ROOM);
@@ -668,6 +672,136 @@ fn decscpp_answer_tells_no_line() {
     assert!(told.is_empty(), "{told:?}");
     t.feed(rest.at, rest.len);
     assert_eq!(t.geometry().0, Cols::of_index(132));
+}
+
+/// **`?95` keeps the screen as a page, and a narrowing loses what lies past
+/// the new edge**: "When enabled, a column mode change (either through
+/// Set-Up or by the escape sequence DECCOLM) does not clear the screen"
+/// (`[[source: vt510-decncsm]]`), and "If you switch from 132-column to
+/// 80-column pages, then you can lose data from page memory. Columns no
+/// longer present in page memory are lost" (`[[source: vt510-decscpp]]`).
+/// Text at column 1, an `X` at column 100 and `AB` on columns 79 and 80,
+/// then `?3 l` and `?3 h`: the `X` is not there to come back and `AB` is
+/// where it was. The cursor is home and the margins are the new page's,
+/// as DECCOLM leaves them.
+#[test]
+fn ncsm_deccolm_loses_columns_past_80_and_keeps_1_to_80() {
+    let s = honoured(b"\x1b[?40;95h\x1b[?3hkept\x1b[1;100HX\x1b[2;79HAB\x1b[?3l\x1b[?3h");
+    assert_eq!(
+        (
+            s.cols,
+            s.text[0].as_str(),
+            s.text[1].as_str(),
+            s.text[2].as_str()
+        ),
+        (
+            Cols::of_index(132),
+            "kept",
+            format!("{}AB", " ".repeat(78)).as_str(),
+            ""
+        )
+    );
+    let n = honoured(b"\x1b[?40;95h\x1b[?3h\x1b[?69h\x1b[3;9r\x1b[5;60s\x1b[2;7H\x1b[?3l");
+    assert_eq!(
+        (n.cols, n.cursor, n.margins.as_str()),
+        (Cols::of_index(80), (0, 0), WHOLE_SCREEN),
+        "DECCOLM's home and margins, at the new width"
+    );
+    assert!(n.modes.contains("\x1b[?69;2$y"), "{:?}", n.modes);
+}
+
+/// **`?95`'s widening keeps columns 1-80 where they are**: "When enabled,
+/// a column mode change ... does not clear the screen"
+/// (`[[source: vt510-decncsm]]`), so a line wrapped at 80 is two rows on
+/// the 132-column page, not one.
+#[test]
+fn ncsm_deccolm_widening_keeps_1_to_80_where_they_are() {
+    let line = [[b'a'; 80].as_slice(), &[b'b'; 10]].concat();
+    let s = honoured(&[line.as_slice(), b"\x1b[?40;95h\x1b[?3h"].concat());
+    assert_eq!(
+        (s.cols, s.text[0].as_str(), s.text[1].as_str()),
+        (Cols::of_index(132), "a".repeat(80).as_str(), "bbbbbbbbbb")
+    );
+}
+
+/// **`?95`'s answer re-cuts no line and tells none**
+/// (`Term::resize_page_with`): a line of 100 behind the window, wrapped at
+/// 80, and one on the screen's last two rows stay two rows each at 132.
+/// With `?95` reset the same request clears the screen. The control: the
+/// same lines given the window's resize to 132, with no request, are
+/// re-cut and told.
+#[test]
+fn ncsm_deccolm_answer_tells_no_line() {
+    let ask = |modes: &[u8]| {
+        let mut o = Owned::new(&ROOM);
+        let mut t = Term::new(o.storage(), &SMALL);
+        t.set_width_hold(WidthHold::On);
+        let lines = b"\r\n".repeat(24);
+        let program = [
+            [b'a'; 100].as_slice(),
+            lines.as_slice(),
+            &[b'c'; 100],
+            modes,
+            b"\x1b[?3h",
+        ]
+        .concat();
+        feed(&mut t, &program);
+        let rest = t.take_held().expect("the request held the read");
+        let mut told = Vec::new();
+        let ws = WinSize {
+            ws_row: SMALL.ws_row,
+            ws_col: 132,
+        };
+        let answer = t.resize_page_with(&ws, &mut |r| told.push(r));
+        t.feed(rest.at, rest.len);
+        let row = |y| text_of(t.row(Row::from_index(y)).expect("a row on the grid"));
+        let page = [row(22), row(23)];
+        (answer.0, told.len(), page, t.geometry().0)
+    };
+    assert_eq!(
+        ask(b"\x1b[?40;95h"),
+        (
+            Resized::Ok,
+            0,
+            ["c".repeat(80), "c".repeat(20)],
+            Cols::of_index(132)
+        )
+    );
+    let (resized, _, page, cols) = ask(b"\x1b[?40h");
+    assert_eq!(
+        (resized, page, cols),
+        (
+            Resized::Ok,
+            [String::new(), String::new()],
+            Cols::of_index(132)
+        )
+    );
+    let mut o = Owned::new(&ROOM);
+    let mut t = Term::new(o.storage(), &SMALL);
+    let lines = b"\r\n".repeat(24);
+    feed(
+        &mut t,
+        &[[b'a'; 100].as_slice(), lines.as_slice(), &[b'c'; 100]].concat(),
+    );
+    let mut told = Vec::new();
+    let ws = WinSize {
+        ws_row: SMALL.ws_row,
+        ws_col: 132,
+    };
+    let (_, following) = t.resize_with(&ws, &mut |r| told.push(r));
+    // Built without the read record, a re-cut is told nothing and is not
+    // followed.
+    #[cfg(feature = "read-record")]
+    assert!(
+        !told.is_empty() && following == Following::Followed,
+        "the control: the window's resize tells its re-cut"
+    );
+    #[cfg(not(feature = "read-record"))]
+    assert_eq!(
+        (told.len(), following),
+        (0, Following::NotFollowed),
+        "the control: without the record, the re-cut is not followed"
+    );
 }
 
 /// **A request that is the read's last byte holds an empty rest**, and a

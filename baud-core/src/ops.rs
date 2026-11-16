@@ -4751,6 +4751,11 @@ impl Paint<'_, '_> {
                 self.status_column_mode();
                 self.home();
                 self.ask_width(PageWidth::of_column_mode(change), node);
+                // With `?95` set the screen it kept is a page, and the
+                // width is answered as DECSCPP's (`Term::resize_page`).
+                if self.cold.modes.is_set(ModeBit::NoClearOnColumn) {
+                    self.cold.width.by_page = self.cold.width.requests;
+                }
             }
             // **`?40` and `?95` act through `?3`**, which reads both.
             PrivateMode::AllowColumnMode => self.cold.modes.apply(ModeBit::AllowColumnMode, on),

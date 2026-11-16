@@ -1105,8 +1105,9 @@ impl Recuts {
     }
 
     /// [`Recuts::resize`] for the resize that answers a program's page
-    /// width (`Term::resize_page_with`): DECSCPP's re-cuts nothing and
-    /// tells nothing, a `?3`'s or a `RIS`'s re-cuts as a window's does.
+    /// width (`Term::resize_page_with`): DECSCPP's and a `?3`'s under
+    /// `?95` re-cut nothing and tell nothing, any other `?3`'s or a
+    /// `RIS`'s re-cuts as a window's does.
     #[cfg(target_os = "macos")]
     pub fn resize_page(
         &mut self,

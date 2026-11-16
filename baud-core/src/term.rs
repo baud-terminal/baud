@@ -43,15 +43,16 @@ struct ResizeGeometry {
 }
 
 /// How a resize fits the screen to a new width: the window's, which
-/// re-cuts the primary ([`Term::resize`]), or the answer to DECSCPP's page
-/// width, which re-cuts nothing ([`Term::resize_page`]).
+/// re-cuts the primary ([`Term::resize`]), or the answer to a page width
+/// DECSCPP asked, or `?3` with `?95` set, which re-cuts nothing
+/// ([`Term::resize_page`]).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Fit {
     /// The primary's lines re-cut to the new width ([`Term::primary_cut`]),
     /// the margins reset.
     Recut,
-    /// DECSCPP's page: every cell kept at its column, the page's columns
-    /// past a narrower width cleared, the margins kept but past the edge.
+    /// The page's: every cell kept at its column, the page's columns past
+    /// a narrower width cleared, the margins kept but past the edge.
     Page,
 }
 
@@ -851,10 +852,11 @@ impl core::fmt::Debug for Rest {
 pub(crate) struct WidthAsk {
     pub(crate) requests: WidthRequests,
     pub(crate) last: Option<WidthRequest>,
-    /// **The request DECSCPP made last**, by its count: while it equals
-    /// `requests`, the width last asked is DECSCPP's, and
-    /// [`Term::resize_page`] answers it by DECSCPP's rules. A `?3` or a
-    /// `RIS` asking after it moves `requests` on. Four bytes in the
+    /// **The request last made that a page answers**, by its count:
+    /// DECSCPP's, or a `?3`'s with `?95` set. While it equals `requests`,
+    /// [`Term::resize_page`] answers the width last asked by DECSCPP's
+    /// rules. A `?3` with `?95` reset or a `RIS` asking after it moves
+    /// `requests` on. Four bytes in the
     /// struct's padding.
     pub(crate) by_page: WidthRequests,
     pub(crate) hold: WidthHold,
@@ -2905,7 +2907,7 @@ impl<'b> Term<'b> {
         );
     }
 
-    /// **DECSCPP's narrower page clears the columns past its width** on
+    /// **A narrower page clears the columns past its width** on
     /// each row of the screen that is up: "The information in columns
     /// 81-132 is cleared" (`[[source: dec-std-070]]` p. 5-73), whose
     /// algorithm sets every cell from column 81 on to `EMPTY_CHARACTER`
@@ -2914,8 +2916,9 @@ impl<'b> Term<'b> {
     /// the old edge first ([`View::clear_past_edge_of`]), then the fill,
     /// which keeps each row's mark true, so the measure after the
     /// narrowing finds nothing past the new edge on the page's rows. A
-    /// character the new edge cuts is cleared whole. Once a DECSCPP's
-    /// answer, never per byte.
+    /// character the new edge cuts is cleared whole. A `?3` with `?95` set
+    /// loses them too: "Columns no longer present in page memory are lost"
+    /// (`[[source: vt510-decscpp]]`). Once a page's answer, never per byte.
     fn clear_page_past(&mut self, g: ResizeGeometry) {
         let (which, ring, rot) = match self.cold.screen {
             Screen::Normal => (Which::Primary, self.store.ring_rows(), self.rot),
@@ -3026,9 +3029,9 @@ impl<'b> Term<'b> {
 
     /// **The resize that answers the page width last asked**
     /// ([`Term::requested_width`]), for an embedder that honours one. A
-    /// `?3` or a `RIS` is answered as [`Term::resize`] answers a window.
-    /// DECSCPP's is answered by `[[source: dec-std-070]]` pp. 5-73 and
-    /// 5-74, with no line re-cut:
+    /// `?3` with `?95` reset, which cleared the screen, or a `RIS` is
+    /// answered as [`Term::resize`] answers a window. DECSCPP's is answered
+    /// by `[[source: dec-std-070]]` pp. 5-73 and 5-74, with no line re-cut:
     ///
     /// * "DECSCPP does not cause the Active position to move. However if
     ///   the active position is beyond the width of the new page ... the
@@ -3044,14 +3047,21 @@ impl<'b> Term<'b> {
     ///   alternate is up, are kept as written.
     /// * "When changing from an 80 column page to a 132 column page, the
     ///   information in columns 1-80 is preserved."
+    ///
+    /// **A `?3` with `?95` set is answered as DECSCPP's**, the screen it
+    /// kept with no line re-cut: "When enabled, a column mode change ...
+    /// does not clear the screen" (`[[source: vt510-decncsm]]`), and on a
+    /// narrowing "Columns no longer present in page memory are lost"
+    /// (`[[source: vt510-decscpp]]`). The control itself homed the cursor
+    /// and reset the margins and `?69`, so they are the new page's.
     pub fn resize_page(&mut self, ws: &WinSize) -> Resized {
         let fit = self.page_fit();
         self.resized(ws, None, fit).0
     }
 
     /// [`Term::resize_page`], telling `told` each line a re-cut moved, as
-    /// [`Term::resize_with`] does: DECSCPP's answer re-cuts none and tells
-    /// nothing.
+    /// [`Term::resize_with`] does: DECSCPP's answer, and a `?3`'s with
+    /// `?95` set, re-cut none and tell nothing.
     pub fn resize_page_with(
         &mut self,
         ws: &WinSize,
@@ -3061,7 +3071,8 @@ impl<'b> Term<'b> {
         self.resized(ws, Some(told), fit)
     }
 
-    /// [`Fit::Page`] while the width last asked is DECSCPP's.
+    /// [`Fit::Page`] while the width last asked is DECSCPP's or a `?3`'s
+    /// with `?95` set.
     fn page_fit(&self) -> Fit {
         let a = &self.cold.width;
         match a.last.is_some() && a.by_page == a.requests {
@@ -4012,7 +4023,8 @@ impl<'b> Term<'b> {
     /// (`[[source: dec-std-070]]` p. 5-74) -- and the top, bottom and left
     /// margins kept. **With `?69` reset the side margins are the page's
     /// edges**, as `?69 l` leaves them and as no DECSLRM can move them, so
-    /// the right margin is the new page's last column. A scroll area the
+    /// the right margin is the new page's last column, as after a `?3`
+    /// with `?95` set, which reset `?69` and the margins. A scroll area the
     /// rows no longer hold, and a left margin the right one no longer
     /// clears, are no margins to keep: each pair goes to the page's edges.
     /// The fences are taken again for the margins kept ([`Paint::refence`]).
