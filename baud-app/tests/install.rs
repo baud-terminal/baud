@@ -424,6 +424,51 @@ fn the_nix_package_ships_the_app() {
     );
 }
 
+/// **The app carries baud's licence and the third-party notices**, each
+/// the repository's own file byte for byte, in `Contents/Resources/`. The
+/// bundle is assembled as the Nix package assembles it, `--assemble`,
+/// around a stand-in executable, into a folder not named `.app` and
+/// removed after: no build, no signing, and nothing in it is run. The
+/// icon is compared the same way, the control that the assembly ran and
+/// that a copy compares equal.
+#[cfg(unix)]
+#[test]
+fn the_app_carries_the_licence_and_the_notices() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("bundle-licence");
+    std::fs::create_dir_all(&dir).expect("a scratch directory");
+    let bin = dir.join("baud");
+    std::fs::write(&bin, "#!/bin/sh\n").expect("the stand-in executable");
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755))
+        .expect("the stand-in is executable");
+    let app = dir.join("assembled");
+    let ran = std::process::Command::new("bash")
+        .arg(workspace().join("scripts/bundle-macos.sh"))
+        .args(["--assemble".as_ref(), bin.as_os_str(), app.as_os_str()])
+        .output()
+        .expect("bundle-macos.sh runs");
+    assert!(
+        ran.status.success(),
+        "bundle-macos.sh --assemble failed: {}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let resources = app.join("Contents/Resources");
+    for (repo, bundled) in [
+        ("packaging/macos/baud.icns", "baud.icns"),
+        ("LICENSE", "LICENSE"),
+        ("THIRD_PARTY.md", "THIRD_PARTY.md"),
+    ] {
+        let want = std::fs::read(workspace().join(repo)).unwrap_or_else(|e| panic!("{repo}: {e}"));
+        let got = std::fs::read(resources.join(bundled))
+            .unwrap_or_else(|e| panic!("the bundle carries no {bundled}: {e}"));
+        assert!(
+            got == want,
+            "the bundle's {bundled} is not {repo} byte for byte"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The quoted entries of `settings.global.excludes` in `devenv.nix`, with
 /// its comments left out, so an entry a comment only mentions does not count.
 fn treefmt_excludes() -> Vec<String> {

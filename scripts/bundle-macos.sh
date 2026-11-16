@@ -102,6 +102,9 @@ cp "$ROOT/packaging/macos/baud.icns" "$APP/Contents/Resources/baud.icns"
 cp "$ROOT/assets/readme/logo-dark.gif" "$ROOT/assets/readme/logo-light.gif" \
   "$ROOT/assets/readme/author.jpg" "$APP/Contents/Resources/"
 
+# baud's licence and the third-party notices, as the repository holds them.
+cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY.md" "$APP/Contents/Resources/"
+
 # The executable.
 cp "$BIN" "$APP/Contents/MacOS/baud"
 

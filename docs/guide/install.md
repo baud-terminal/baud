@@ -25,8 +25,9 @@ on your `PATH`:
 nix profile add github:baud-terminal/baud
 ```
 
-The package carries the licences of the fonts baud draws with in
-`share/doc/baud/`, as the app does. On a Mac it carries the app too, in
+The package carries baud's licence, the third-party notices and the
+licences of the fonts baud draws with in `share/doc/baud/`, as the app
+does. On a Mac it carries the app too, in
 `Applications/baud.app`, signed ad hoc as a clone's build signs it, and
 its `bin/baud` is the app's own program. On Linux it carries a desktop
 entry, `share/applications/org.baud.terminal.desktop`, and baud's icon
