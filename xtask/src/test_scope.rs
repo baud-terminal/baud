@@ -34,6 +34,10 @@
 //!   documentation.
 //! - `gif<TAB><reason>`: the README's GIF or its provenance changed, so its
 //!   flash census and `--verify` run.
+//! - `tried<TAB><reason>`, alone, in place of the rest: a try already ran
+//!   `<to>`'s tree clean, by the list of tree hashes the file
+//!   `BAUD_TRIED_TREES` names, so only the gates that build nothing run. A
+//!   change that runs every gate still prints `full`.
 //!
 //! The gates that build nothing (formatting, sources, paths, the
 //! changelog, no Python) are the runner's to run every time. A file that no
@@ -622,8 +626,31 @@ pub fn run(args: &[&str], out: &mut impl Write) -> io::Result<u8> {
     })();
     let plan = computed
         .unwrap_or_else(|e| Plan::everything(format!("the scope could not be computed ({e})")));
+    if plan.full.is_none() {
+        if let Some(why) = to.and_then(tried) {
+            writeln!(out, "tried\t{why}")?;
+            return Ok(0);
+        }
+    }
     for line in plan.lines() {
         writeln!(out, "{line}")?;
     }
     Ok(0)
+}
+
+/// Whether a try already ran `to`'s tree clean: a line of the file
+/// `BAUD_TRIED_TREES` names starts with its tree hash. The line, when one
+/// does.
+fn tried(to: &str) -> Option<String> {
+    let list = std::env::var_os("BAUD_TRIED_TREES")?;
+    let text = fs::read_to_string(list).ok()?;
+    let spec = format!("{to}^{{tree}}");
+    let tree = git(&["rev-parse", "--verify", "--quiet", &spec]).ok()?;
+    let tree = std::str::from_utf8(&tree).ok()?.trim().to_string();
+    if tree.is_empty() {
+        return None;
+    }
+    text.lines()
+        .find(|l| l.split_whitespace().next() == Some(tree.as_str()))
+        .map(|l| format!("tree {tree} was tried clean: {l}"))
 }

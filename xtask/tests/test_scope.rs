@@ -99,10 +99,23 @@ impl Repo {
     /// The plan's lines for the last commit, each cut to its step and
     /// what it names: the reasons are left out.
     fn scope(&self) -> Vec<String> {
-        let out = Command::new(env!("CARGO_BIN_EXE_xtask"))
-            .args(["test-scope", "HEAD~1", "HEAD"])
+        self.scope_tried(None)
+    }
+
+    /// The plan with `BAUD_TRIED_TREES` naming `tried`, a file of tree
+    /// hashes a try ran clean, one a line.
+    fn scope_tried(&self, tried: Option<&str>) -> Vec<String> {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_xtask"));
+        c.args(["test-scope", "HEAD~1", "HEAD"])
             .current_dir(&self.0.0)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env_remove("BAUD_TRIED_TREES");
+        if let Some(t) = tried {
+            let list = self.path("tried-trees.txt");
+            fs::write(&list, format!("{t} lane 0000 2026-11-15\n")).expect("the list");
+            c.env("BAUD_TRIED_TREES", &list);
+        }
+        let out = c
             .stderr(Stdio::null())
             .output()
             .expect("xtask");
@@ -196,6 +209,30 @@ fn data_a_library_compiles_in_reaches_every_crate_that_builds_from_it() {
             "linux",
         ]
     );
+}
+
+#[test]
+fn a_tree_a_try_ran_clean_runs_only_the_gates_that_build_nothing() {
+    let r = Repo::new();
+    r.put("core/src/lib.rs", "pub fn f() {}\npub fn g() {}\n");
+    r.commit("core");
+    let tree = r.git(&["rev-parse", "HEAD^{tree}"]);
+    assert_eq!(r.scope_tried(Some(&tree)), ["tried"]);
+    let other = r.git(&["rev-parse", "HEAD~1^{tree}"]);
+    assert_eq!(
+        r.scope_tried(Some(&other)),
+        r.scope(),
+        "a tree no try ran is scoped as before"
+    );
+}
+
+#[test]
+fn a_tried_tree_that_reaches_every_crate_still_runs_everything() {
+    let r = Repo::new();
+    r.put(".config/nextest.toml", "[profile.default]\n");
+    r.commit("nextest");
+    let tree = r.git(&["rev-parse", "HEAD^{tree}"]);
+    assert_eq!(r.scope_tried(Some(&tree)), ["full"]);
 }
 
 #[test]

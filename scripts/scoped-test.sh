@@ -32,6 +32,8 @@ fi
 if printf '%s\n' "$plan" | grep -q '^full'; then
   exit 3
 fi
+# A tree a try already ran clean: the gates that build nothing, and no cargo.
+tried_only=$(printf '%s\n' "$plan" | grep -c '^tried')
 field() { printf '%s\n' "$plan" | awk -F'\t' -v s="$1" -v n="$2" '$1 == s { print $n }'; }
 failed=()
 step() {
@@ -51,6 +53,15 @@ step sources bash ./scripts/check-sources.sh
 step no-python cargo xtask no-python
 step paths bash ./scripts/check-paths.sh
 step changelog bash ./scripts/check-changelog.sh
+
+if [ "$tried_only" -gt 0 ]; then
+  if [ ${#failed[@]} -ne 0 ]; then
+    echo "scoped-test: FAILED: ${failed[*]}"
+    exit 1
+  fi
+  echo "scoped-test: tried clean, so no cargo gate runs; every gate that builds nothing passed"
+  exit 0
+fi
 
 clippy=$(field clippy 2)
 if [ -n "$clippy" ]; then
