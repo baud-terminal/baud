@@ -2810,6 +2810,7 @@ impl Config {
                 ("link.path", "spaces") => pend("path", "spaces", &value),
                 ("link.path", "action") => pend("path", "action", &value),
                 ("link.path", "command") => pend("path", "command", &value),
+                ("link.path", "remote") => pend("path", "remote", &value),
                 // A `[link.NAME]` rule's keys (`rules::RULE_KEYS`), and any
                 // key of `[link.path]` above it does not name, which refuses
                 // that rule whole.
@@ -6338,6 +6339,39 @@ mod reader {
         assert_eq!(r.rule_for("mailto").map(|(_, x)| x.act()), Some(&Act::Off));
         assert_eq!(r.forms(), crate::paths::Forms::DEFAULT);
         assert!(matches!(r.path_act(), PathAct::Command(_)));
+    }
+
+    /// **`[link.path] remote` is what a window on another machine runs**,
+    /// read from the file with the rest of its section: given, it replaces
+    /// `command` there and only there; one baud cannot use ignores the
+    /// section, says so, and the defaults stay. Named breaks: leave
+    /// `remote` out of `apply`'s arms -- it is not the guide's key; read a
+    /// junk one as absent -- the window stays and nothing is said.
+    #[test]
+    fn link_path_remote_reads_from_the_file() {
+        use crate::rules::PathAct;
+        let window = "[link.path]\naction = \"window\"\ncommand = [\"/bin/cat\", \"{path}\"]\n";
+        let mut c = Config::defaults();
+        let said = c.apply(&format!("{window}remote = [\"vi\", \"{{path}}\"]\n"));
+        assert_eq!(said, Vec::<String>::new());
+        let far = c.link.rules.path_remote(b"/srv/a", "", "");
+        assert_eq!(
+            far.expect("a far window").expect("built").argv(),
+            ["vi", "/srv/a"]
+        );
+        let here = c.link.rules.path_window(b"/srv/a", "", "");
+        assert_eq!(
+            here.expect("a window").expect("built").argv(),
+            ["/bin/cat", "/srv/a"]
+        );
+        let mut c = Config::defaults();
+        let said = c.apply(&format!("{window}remote = [\"vi\"]\n"));
+        assert_eq!(c.link.rules.path_act(), &PathAct::Reveal);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].starts_with("config: [link.path] remote: "),
+            "{said:?}"
+        );
     }
 
     /// **The guide's "Your own link types" table lists a rule's keys, and no

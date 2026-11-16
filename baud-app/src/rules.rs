@@ -68,7 +68,9 @@ pub const SCHEME_MAX: usize = 32;
 pub const RULE_KEYS: [&str; 3] = ["scheme", "action", "command"];
 
 /// **The keys of `[link.path]`**, the printed-path rule.
-pub const PATH_KEYS: [&str; 6] = ["forms", "names", "line_col", "spaces", "action", "command"];
+pub const PATH_KEYS: [&str; 7] = [
+    "forms", "names", "line_col", "spaces", "action", "command", "remote",
+];
 
 /// **The values of a `[link.NAME]` rule's `action`**, the one list the
 /// reader's refusal, the guide and the example are held to.
@@ -645,6 +647,11 @@ pub struct Rules {
     added: Added,
     forms: Forms,
     path: PathAct,
+    /// **What a window on another machine runs** for a remote program's
+    /// `file://` link: `[link.path]`'s `remote`, or its `command` as
+    /// written, a `~/` program left for that machine. Only under
+    /// [`PathAct::Window`].
+    far: Option<Argv>,
 }
 
 impl Default for Rules {
@@ -663,6 +670,7 @@ impl Rules {
         added: Added::No,
         forms: Forms::DEFAULT,
         path: PathAct::Reveal,
+        far: None,
     };
 
     /// The rules, in file order.
@@ -805,6 +813,15 @@ impl Rules {
             return None;
         };
         Some(path_filled(argv, path, line, col))
+    }
+
+    /// **The argv another machine runs for a click on a remote program's
+    /// `file://` link to `path`**, [`Rules::path_window`]'s substitution
+    /// and checks on `remote`, or on `command` as written: a `~/` program
+    /// stays `~/`, for that machine's shell to take against its own home
+    /// folder. None when a click does not open a window.
+    pub fn path_remote(&self, path: &[u8], line: &str, col: &str) -> Option<Result<Run, Refused>> {
+        Some(path_filled(self.far.as_ref()?, path, line, col))
     }
 
     /// **What baud says once a load reads these rules**, a line each, for the
@@ -1048,9 +1065,10 @@ pub fn read(
         let at = format!("config: [link.{}]", s.name);
         if s.name == PATH_RULE {
             match path_rule(s, home) {
-                Ok((forms, act)) => {
+                Ok((forms, act, far)) => {
                     rules.forms = forms;
                     rules.path = act;
+                    rules.far = far;
                     if let Some((a, _)) = rules.path.runs() {
                         missing(&at, a, path_var, &mut said);
                     }
@@ -1214,12 +1232,23 @@ fn placeholders(e: &str) -> impl Iterator<Item = &str> {
     })
 }
 
+/// **The machine whose home folder a command's `~/` program is under.**
+#[derive(Clone, Copy, Debug)]
+enum Home<'a> {
+    /// This machine's, read now: the program is made absolute, and refused
+    /// with no home folder.
+    Here(Option<&'a Path>),
+    /// The machine a remote program's link names: the program keeps its
+    /// `~/`, which that machine's shell takes (`ssh::window_argv`).
+    Far,
+}
+
 /// **A command as the config wrote it, read**: a list of strings, the first
 /// a program by its absolute path, under `~/`, or a name with no `/`; each
 /// placeholder one of `allowed`, none in the program and `needed` among
 /// them; none in a script ([`scripted`]) or an option ([`optioned`]); and
 /// no control in any element.
-fn command(v: &str, allowed: &[&str], needed: &str, home: Option<&Path>) -> Result<Argv, String> {
+fn command(v: &str, allowed: &[&str], needed: &str, home: Home<'_>) -> Result<Argv, String> {
     let argv = list(v).map_err(|e| format!("command: {e}"))?;
     let Some(prog) = argv.first().cloned() else {
         return Err("command names no program".to_string());
@@ -1253,18 +1282,19 @@ fn command(v: &str, allowed: &[&str], needed: &str, home: Option<&Path>) -> Resu
     if let Some(why) = optioned(&argv, &args) {
         return Err(why);
     }
-    let program = match prog.strip_prefix("~/") {
-        Some(rest) => match home {
+    let program = match (prog.strip_prefix("~/"), home) {
+        (Some(_), Home::Far) => prog,
+        (Some(rest), Home::Here(home)) => match home {
             Some(h) => h.join(rest).to_string_lossy().into_owned(),
             None => return Err("command's program is under ~/, and baud has no home folder".into()),
         },
-        None if prog.contains('/') && !prog.starts_with('/') => {
+        (None, _) if prog.contains('/') && !prog.starts_with('/') => {
             return Err(format!(
                 "command's program {prog:?} is a relative path; give its full path, or a name \
                  to find on PATH"
             ));
         }
-        None => prog,
+        (None, _) => prog,
     };
     Ok(Argv { program, args })
 }
@@ -1438,12 +1468,18 @@ fn scheme_rule(s: &Section, home: Option<&Path>) -> Result<Rule, String> {
         Some("open") | None if named.is_none() => Act::Open,
         Some("off") if named.is_none() => Act::Off,
         Some("copy") if named.is_none() => Act::Copy,
-        Some("command") | None if named.is_some() => {
-            Act::Command(command(named.unwrap_or_default(), &[URL], URL, home)?)
-        }
-        Some("window") if named.is_some() => {
-            Act::Window(command(named.unwrap_or_default(), &[URL], URL, home)?)
-        }
+        Some("command") | None if named.is_some() => Act::Command(command(
+            named.unwrap_or_default(),
+            &[URL],
+            URL,
+            Home::Here(home),
+        )?),
+        Some("window") if named.is_some() => Act::Window(command(
+            named.unwrap_or_default(),
+            &[URL],
+            URL,
+            Home::Here(home),
+        )?),
         Some(a @ ("open" | "off" | "copy")) => {
             return Err(format!("names a command with action {a:?}"));
         }
@@ -1492,8 +1528,11 @@ fn turned(key: &str, v: &str) -> Result<Turned, String> {
     }
 }
 
-/// **`[link.path]`, read whole**: the forms read, and what a click does.
-fn path_rule(s: &Section, home: Option<&Path>) -> Result<(Forms, PathAct), String> {
+/// **`[link.path]`, read whole**: the forms read, what a click does, and
+/// under `"window"` what a window on another machine runs ([`Rules::far`]).
+/// `remote` is read and checked as `command` is whatever the action, so a
+/// `remote` baud cannot use refuses the rule as any other key does.
+fn path_rule(s: &Section, home: Option<&Path>) -> Result<(Forms, PathAct, Option<Argv>), String> {
     let get = keys(s, &PATH_KEYS)?;
     let mut forms = Forms::DEFAULT;
     if let Some(v) = get("forms") {
@@ -1544,13 +1583,13 @@ fn path_rule(s: &Section, home: Option<&Path>) -> Result<(Forms, PathAct), Strin
             named.unwrap_or_default(),
             &[PATH, LINE, COL],
             PATH,
-            home,
+            Home::Here(home),
         )?),
         Some("window") if named.is_some() => PathAct::Window(command(
             named.unwrap_or_default(),
             &[PATH, LINE, COL],
             PATH,
-            home,
+            Home::Here(home),
         )?),
         Some(a @ ("reveal" | "off" | "copy")) => {
             return Err(format!("names a command with action {a:?}"));
@@ -1563,7 +1602,17 @@ fn path_rule(s: &Section, home: Option<&Path>) -> Result<(Forms, PathAct), Strin
         }
         None => unreachable!("both arms of a command named or not are above"),
     };
-    Ok((forms, act))
+    let read_far = |v: &str| command(v, &[PATH, LINE, COL], PATH, Home::Far);
+    let remote = get("remote")
+        .map(read_far)
+        .transpose()
+        .map_err(|e| format!("remote: {e}"))?;
+    let far = match (&act, remote) {
+        (PathAct::Window(_), Some(r)) => Some(r),
+        (PathAct::Window(_), None) => named.map(read_far).transpose()?,
+        _ => None,
+    };
+    Ok((forms, act, far))
 }
 
 #[cfg(test)]
@@ -2869,5 +2918,92 @@ mod tests {
         );
         let filled = Element::read("x{url}y").filled(&[(Placeholder::Url, b"{url}", Value::Uri)]);
         assert_eq!(filled, Ok((b"x{url}y".to_vec(), Put::Yes)));
+    }
+
+    /// `[link.path]` opening a window, with `fields` beside its action.
+    fn window_path(fields: &[(&str, &str)]) -> (Rules, Vec<String>) {
+        let mut all = vec![("action", "\"window\"")];
+        all.extend_from_slice(fields);
+        rules(&[section(PATH_RULE, &all)])
+    }
+
+    /// The argv `r` runs on the other machine for a click on `/srv/a`.
+    fn far(r: &Rules) -> Option<Vec<String>> {
+        let run = r.path_remote(b"/srv/a", "", "")?.expect("built");
+        Some(
+            run.argv()
+                .iter()
+                .map(|w| w.to_string_lossy().into_owned())
+                .collect(),
+        )
+    }
+
+    /// **The other machine's program keeps its `~/`**: with no `remote`,
+    /// it is `command` as written, its `~/` left for that machine's shell,
+    /// while the window on this machine runs the program under this home
+    /// folder. Named break: take the far program from the local window's
+    /// argv -- `/home/u/bin/x` reaches the other machine.
+    #[test]
+    fn the_far_program_keeps_its_home_unread() {
+        let (r, _) = window_path(&[("command", "[\"~/bin/x\", \"{path}\"]")]);
+        let here = r.path_window(b"/srv/a", "", "").expect("a window");
+        assert_eq!(here.expect("built").argv(), ["/home/u/bin/x", "/srv/a"]);
+        assert_eq!(far(&r), Some(vec!["~/bin/x".into(), "/srv/a".into()]));
+    }
+
+    /// **`remote` replaces `command` on the other machine only**, read and
+    /// checked as `command` is, its program never looked up here; a
+    /// `command` click reads it and runs no far program. Named breaks:
+    /// keep `command` on the far side -- `hx` reaches it; look the far
+    /// program up on this PATH -- a line says it is missing.
+    #[test]
+    fn remote_replaces_the_command_on_the_other_machine() {
+        let (r, said) = window_path(&[
+            ("command", "[\"/bin/cat\", \"{path}\"]"),
+            ("remote", "[\"far-only-vi\", \"+{line}\", \"{path}\"]"),
+        ]);
+        assert_eq!(said, Vec::<String>::new());
+        assert_eq!(
+            far(&r),
+            Some(vec!["far-only-vi".into(), "+1".into(), "/srv/a".into()])
+        );
+        let here = r.path_window(b"/srv/a", "", "").expect("a window");
+        assert_eq!(here.expect("built").argv(), ["/bin/cat", "/srv/a"]);
+        let (r, said) = rules(&[section(
+            PATH_RULE,
+            &[
+                ("command", "[\"/bin/cat\", \"{path}\"]"),
+                ("remote", "[\"vi\", \"{path}\"]"),
+            ],
+        )]);
+        assert_eq!(said, Vec::<String>::new());
+        assert!(matches!(r.path_act(), PathAct::Command(_)));
+        assert_eq!(far(&r), None, "a command opens no far window");
+    }
+
+    /// **A `remote` baud cannot use ignores `[link.path]` whole, and says
+    /// so**, as any key of the section does, and the defaults stay: one
+    /// that is no list, names no `{path}`, runs a script, or names a
+    /// relative program. Named break: read a junk `remote` as absent --
+    /// the window stays and nothing is said.
+    #[test]
+    fn a_remote_baud_cannot_use_ignores_the_rule_and_says_so() {
+        for junk in [
+            "\"vi\"",
+            "[\"vi\"]",
+            "[\"sh\", \"-c\", \"{path}\"]",
+            "[\"bin/vi\", \"{path}\"]",
+        ] {
+            let (r, said) =
+                window_path(&[("command", "[\"/bin/cat\", \"{path}\"]"), ("remote", junk)]);
+            assert_eq!(r.path_act(), &PathAct::Reveal, "{junk}");
+            assert_eq!(far(&r), None, "{junk}");
+            assert_eq!(said.len(), 1, "{junk}: {said:?}");
+            assert!(
+                said[0].starts_with("config: [link.path] remote: ")
+                    && said[0].ends_with("; the rule is ignored"),
+                "{junk}: {said:?}"
+            );
+        }
     }
 }

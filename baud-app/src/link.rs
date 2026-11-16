@@ -2191,8 +2191,9 @@ fn opens_remotely(uri: &[u8], origin: crate::paths::LinkOrigin, rules: &Rules) -
 
 /// **The window a click on a remote program's `file://` link opens**:
 /// `ssh` to the session in front, with its identity options and its
-/// destination as typed, running `[link.path]`'s program on the session's
-/// machine with `{path}` the link's decoded path; the link's host and every
+/// destination as typed, running `[link.path]`'s `remote`, or its `command`
+/// as written, on the session's machine with `{path}` the link's decoded
+/// path (`Rules::path_remote`); the link's host and every
 /// word reach the far end quoted, where the machine checks the host is its
 /// own name before anything runs (`ssh::window_argv`). The URI is held to
 /// [`admit_with`]'s bytes and to RFC 8089's grammar first. Refused when no
@@ -2230,7 +2231,7 @@ fn remote_window(
         return Err(Refused::Elsewhere);
     }
     let run = rules
-        .path_window(path.as_os_str().as_bytes(), "", "")
+        .path_remote(path.as_os_str().as_bytes(), "", "")
         .ok_or(Refused::NoCommand)??;
     let argv =
         crate::ssh::window_argv(session.ssh(), &named, run.argv()).map_err(|_| Refused::Byte)?;

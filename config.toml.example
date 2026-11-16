@@ -732,6 +732,13 @@
 # up on PATH, which for a baud started from the Dock is the system's short
 # one; a full path always works.
 # command = ["/usr/bin/env", "code", "-g", "{path}:{line}:{col}"]
+#
+# With "window", what runs on another computer when you click a file link
+# a program printed inside an ssh session: a new window runs ssh to that
+# session, and that computer runs these strings, {path} the file's path
+# there. A program under ~/ is under your home folder there, not this one.
+# Unset, it is the command above as you wrote it.
+# remote = ["hx", "{path}"]
 
 # Your own link types: a [link.NAME] section adds a kind of link, such as
 # tel: or ssh://, or changes what a click on web, mail or file links does.

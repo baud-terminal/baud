@@ -564,12 +564,28 @@ pub fn quoted(w: &OsStr) -> Result<OsString, Unquotable> {
     Ok(OsString::from(out))
 }
 
+/// **The program `w` as the other machine's login shell reads it**: as
+/// [`quoted`], but a program under `~/` keeps the `~/` outside the quotes,
+/// so that shell takes it against its own home folder, and the rest is one
+/// quoted word. Only the program is read this way, as only a rule's
+/// program is read under `~/`; an argument, and the link's path, which is
+/// absolute, are quoted whole.
+fn program_quoted(w: &OsStr) -> Result<OsString, Unquotable> {
+    let Some(rest) = w.to_str().and_then(|s| s.strip_prefix("~/")) else {
+        return quoted(w);
+    };
+    let mut out = OsString::from("~/");
+    out.push(quoted(OsStr::new(rest))?);
+    Ok(out)
+}
+
 /// **The argv of the window that opens a remote file**: `ssh`, the user's
 /// identity options, `-t` for a terminal, the destination as typed, `--`,
 /// then the remote command as words: `exec /bin/sh -c` and the quoted
 /// [`SCRIPT`], `sh`, the link's host and `remote`'s elements, each quoted
-/// on its own. ssh joins the words with spaces into the one command sshd
-/// hands the login shell; nothing local runs a shell.
+/// on its own, the program under `~/` as [`program_quoted`] reads it. ssh
+/// joins the words with spaces into the one command sshd hands the login
+/// shell; nothing local runs a shell.
 pub fn window_argv(
     ssh: &SshDest,
     host: &HostName,
@@ -587,7 +603,11 @@ pub fn window_argv(
     out.push(quoted(OsStr::new(SCRIPT))?);
     out.push("sh".into());
     out.push(quoted(OsStr::new(host.as_str()))?);
-    for w in remote {
+    let mut words = remote.iter();
+    if let Some(program) = words.next() {
+        out.push(program_quoted(program)?);
+    }
+    for w in words {
         out.push(quoted(w)?);
     }
     Ok(out)
@@ -951,6 +971,36 @@ mod tests {
             !dir.join("x").exists() && !std::path::Path::new("x").exists(),
             "nothing ran"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A program under `~/` is taken against the other machine's home
+    /// folder**: its word keeps `~/` outside the quotes and the rest one
+    /// quoted word, so each of [`SHELLS`], as the login shell, runs the
+    /// program in its own `$HOME` with the path as its bytes; a `~/` inside
+    /// an argument, and a program named `~` or under `~user/`, stay quoted
+    /// whole. Named break: quote the program whole -- no shell finds
+    /// `~/bin/show`, and nothing runs.
+    #[test]
+    fn a_program_under_home_runs_from_the_far_home() {
+        let s = read(&os(&["ssh", "demo"])).expect("a session");
+        let host = HostName::of("demo").expect("a host");
+        let argv =
+            window_argv(&s, &host, &os(&["~/bin/show", "~/x y", "/tmp/a b"])).expect("quoted");
+        assert_eq!(
+            &argv[argv.len() - 3..],
+            os(&["~/'bin/show'", "'~/x y'", "'/tmp/a b'"]).as_slice()
+        );
+        for whole in ["~", "~j/bin/show", "/tmp/~/show"] {
+            let one = window_argv(&s, &host, &os(&[whole, "/a"])).expect("quoted");
+            assert_eq!(one[one.len() - 2], OsString::from(format!("'{whole}'")));
+        }
+        let dir = scratch("home", "demo");
+        for shell in SHELLS {
+            let (out, ok) = login_shell(shell, &remote_command(&argv), &dir);
+            assert!(ok, "{shell:?}: {}", String::from_utf8_lossy(&out));
+            assert_eq!(out, b"~/x y\0/tmp/a b\0", "{shell:?}");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

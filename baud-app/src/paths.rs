@@ -7688,6 +7688,40 @@ mod tests {
         }
     }
 
+    /// **A remote link's window runs `remote` on the other machine, or
+    /// `command` as written, and a program under `~/` there is under that
+    /// machine's home folder**: the click's argv carries `~/` outside the
+    /// quotes, never this machine's home, and `remote`, when given, in
+    /// place of `command`. Named breaks: build the far program from the
+    /// local window's argv -- this machine's home reaches the other one;
+    /// ignore `remote` -- `hx` runs there.
+    #[test]
+    fn a_remote_links_window_runs_remote_with_the_far_home() {
+        let session = demo_session();
+        let link = marked("file://demo/srv/a.md", "it");
+        let program = |config: &str| {
+            let argv = remote_click(
+                rules_of!(config),
+                link.as_bytes(),
+                Front::Elsewhere,
+                Some(&session),
+                baud_domain::Row::ZERO,
+            )
+            .expect("a remote link")
+            .expect("a window");
+            argv[argv.len() - 2..].to_vec()
+        };
+        let home = "[link.path]\naction = \"window\"\ncommand = [\"~/bin/hx\", \"{path}\"]\n";
+        assert_eq!(program(home), ["~/'bin/hx'", "'/srv/a.md'"]);
+        let remote = format!("{home}remote = [\"~/bin/vi\", \"{{path}}\"]\n");
+        assert_eq!(program(&remote), ["~/'bin/vi'", "'/srv/a.md'"]);
+        assert_eq!(
+            program(&format!("{PATH_WINDOW}remote = [\"vi\", \"{{path}}\"]\n")),
+            ["'vi'", "'/srv/a.md'"],
+            "the control: a name on the far PATH"
+        );
+    }
+
     /// **An `OSC 8` `file://` link and the same URI printed as plain text
     /// open the same window**, `[link.path]`'s, with its path decoded; a
     /// `[link.file]` rule of yours keeps its own answer, and a remote
