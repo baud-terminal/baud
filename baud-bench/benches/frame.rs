@@ -215,12 +215,18 @@ mod lined;
 #[allow(dead_code, unused_imports)]
 #[path = "../../baud-app/src/link.rs"]
 mod link;
-#[allow(dead_code, unused_imports)]
+// Its tests' `rules_of!` is expanded only in `#[test]` functions, which
+// this bench does not compile.
+#[allow(dead_code, unused_imports, unused_macros)]
 #[path = "../../baud-app/src/paths.rs"]
 mod paths;
 #[allow(dead_code, unused_imports)]
 #[path = "../../baud-app/src/rules.rs"]
 mod rules;
+// The ssh session a remote link opens through (`link.rs`).
+#[allow(dead_code, unused_imports)]
+#[path = "../../baud-app/src/ssh.rs"]
+mod ssh;
 // What a rule's command is started with (`sys::child`).
 #[allow(dead_code, unused_imports)]
 #[path = "../../baud-app/src/sys.rs"]

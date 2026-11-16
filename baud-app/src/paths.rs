@@ -7378,6 +7378,231 @@ mod tests {
         );
     }
 
+    /// `[link.path]` opening a window running `hx` on the path.
+    const PATH_WINDOW: &str = "[link.path]\naction = \"window\"\ncommand = [\"hx\", \"{path}\"]\n";
+
+    /// **The link rules `config` leaves over the defaults**, read as the
+    /// app reads its file. A macro, expanded only inside `#[test]`
+    /// functions: the `frame` bench compiles this module without them and
+    /// without `config.rs`, so a helper it compiles takes the rules.
+    macro_rules! rules_of {
+        ($config:expr) => {{
+            let mut c = crate::config::Config::defaults();
+            let _ = c.apply($config);
+            c.link.rules
+        }};
+    }
+
+    /// **The ssh session in front**: `ssh -p 2222 -i k -L 1:h:1 demo`,
+    /// which `ssh -G` resolves to `demo.example`.
+    fn demo_session() -> crate::ssh::Session {
+        let argv: Vec<std::ffi::OsString> = ["ssh", "-p", "2222", "-i", "k", "-L", "1:h:1", "demo"]
+            .iter()
+            .map(Into::into)
+            .collect();
+        crate::ssh::session(&argv, |_| {
+            Some(b"hostname demo.example\nport 2222\n".to_vec())
+        })
+        .expect("a session")
+    }
+
+    /// **What the click both drivers make does with the link at `row`'s
+    /// second cell** (`link::click_on`), every row of `bytes` written while
+    /// `front` was in front, `rules` set, this machine named [`HERE`] and
+    /// `session` the ssh session in front: `Ok` with what opening it on the
+    /// session's machine comes to, the window's argv or why none opens;
+    /// `Err` with the refusal of a link judged as any other is.
+    fn remote_click(
+        rules: crate::rules::Rules,
+        bytes: &[u8],
+        front: Front,
+        session: Option<&crate::ssh::Session>,
+        row: baud_domain::Row,
+    ) -> Result<Result<Vec<String>, crate::link::Refused>, crate::link::Refused> {
+        use crate::link::{ClickOn, MachineNames, Spot, click_on, hovered};
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set_rules(rules);
+        p.set_names(MachineNames::one(HERE));
+        feed(&mut t, bytes);
+        let last = baud_domain::Row::from_index(usize::from(WS.ws_row) - 1);
+        p.written_under(
+            Seen::Named(front),
+            LineSpan::of(
+                at().line(Rows::ZERO, baud_domain::Row::ZERO),
+                at().line(Rows::ZERO, last),
+            ),
+        );
+        let spot = Spot {
+            scrolled: at(),
+            back: Rows::ZERO,
+            row,
+            col: baud_domain::Col::at_index(1),
+        };
+        let under = hovered(&t, spot).expect("a link under the cell");
+        let words = |run: crate::rules::Run| {
+            run.argv()
+                .iter()
+                .map(|w| w.to_str().expect("UTF-8").to_owned())
+                .collect()
+        };
+        match click_on(&under, &t, &MachineNames::one(HERE), p.rules(), &p, session) {
+            ClickOn::Remote(built, _) => Ok(built.map(words)),
+            ClickOn::Refused(why, _) => Err(why),
+            other => panic!("row {row:?}: {other:?}"),
+        }
+    }
+
+    /// **A click on a remote program's `file://` link opens a window
+    /// running `ssh` to the session in front**: its identity options and
+    /// not its forward, `-t`, the destination as typed, and the far end's
+    /// check with the link's host and `[link.path]`'s program and path, each
+    /// word quoted on its own -- the `'` in the path as `'\''`, the `$` and
+    /// the decoded space left inside the quotes. The control: the same link
+    /// on a line the shell printed is refused here, a file on another
+    /// computer. Named breaks: take the link's host as the destination --
+    /// `demo.example` follows `-t`; pass the path unquoted -- the path's
+    /// word has no quotes.
+    #[test]
+    fn a_click_on_a_remote_file_link_opens_ssh_to_the_sessions_machine() {
+        let session = demo_session();
+        let link = marked("file://demo.example/home/u/it's%20$x.md", "it");
+        let window = remote_click(
+            rules_of!(PATH_WINDOW),
+            link.as_bytes(),
+            Front::Elsewhere,
+            Some(&session),
+            baud_domain::Row::ZERO,
+        );
+        let script = crate::ssh::quoted(std::ffi::OsStr::new(crate::ssh::SCRIPT))
+            .expect("the script quotes")
+            .into_string()
+            .expect("UTF-8");
+        let want: Vec<String> = [
+            "ssh",
+            "-p",
+            "2222",
+            "-i",
+            "k",
+            "-t",
+            "demo",
+            "--",
+            "exec",
+            "/bin/sh",
+            "-c",
+            script.as_str(),
+            "sh",
+            "'demo.example'",
+            "'hx'",
+            "'/home/u/it'\\''s $x.md'",
+        ]
+        .iter()
+        .map(|w| w.to_string())
+        .collect();
+        assert_eq!(window, Ok(Ok(want)), "the window's argv");
+        assert_eq!(
+            remote_click(
+                rules_of!(PATH_WINDOW),
+                link.as_bytes(),
+                Front::Local,
+                Some(&session),
+                baud_domain::Row::ZERO
+            ),
+            Err(crate::link::Refused::Host),
+            "the control: printed by the shell"
+        );
+    }
+
+    /// **A remote program's `file://` link that names no machine of the
+    /// session's opens nothing, and says why**: `localhost`, this machine's
+    /// name and the empty host, in either spelling, name this machine, which the session's ssh
+    /// does not reach, and with no session in front there is nothing to
+    /// open it through; the bar says each in words. The control: the
+    /// destination as typed opens. Named breaks: skip `ssh::names` --
+    /// `localhost` opens on the far end; open with no session -- there is
+    /// no argv to build, and a click must not fall back to this machine.
+    #[test]
+    fn a_remote_link_naming_another_machine_opens_nothing_and_says_why() {
+        use crate::link::{Refused, refusal_words};
+        let session = demo_session();
+        let click = |uri: &str, session| {
+            remote_click(
+                rules_of!(PATH_WINDOW),
+                marked(uri, "it").as_bytes(),
+                Front::Elsewhere,
+                session,
+                baud_domain::Row::ZERO,
+            )
+        };
+        for uri in [
+            "file://localhost/etc/hosts",
+            "file://here.example/etc/hosts",
+            "file:///etc/hosts",
+            "file:/etc/hosts",
+        ] {
+            assert_eq!(
+                click(uri, Some(&session)),
+                Ok(Err(Refused::Elsewhere)),
+                "{uri}"
+            );
+        }
+        assert_eq!(
+            click("file://demo/etc/hosts", None),
+            Ok(Err(Refused::NoSession)),
+            "no session in front"
+        );
+        assert!(
+            matches!(click("file://demo/etc/hosts", Some(&session)), Ok(Ok(_))),
+            "the control: the destination as typed"
+        );
+        for why in [Refused::Elsewhere, Refused::NoSession] {
+            assert!(
+                refusal_words(why).contains("ssh session in front"),
+                "{why:?}: {}",
+                refusal_words(why)
+            );
+        }
+    }
+
+    /// **An `OSC 8` `file://` link and the same URI printed as plain text
+    /// open the same window**, `[link.path]`'s, with its path decoded; a
+    /// `[link.file]` rule of yours keeps its own answer, and a remote
+    /// program's link it takes is refused as before. Named breaks: take only
+    /// marked links remotely -- the plain one is refused; take a remote link
+    /// past a `[link.file]` rule -- it opens.
+    #[test]
+    fn a_marked_and_a_plain_file_link_take_the_same_window() {
+        let session = demo_session();
+        let uri = "file://demo/srv/a%20b.md";
+        let bytes = format!("{}\r\n{uri}\r\n", marked(uri, "ab"));
+        let click = |config: &str, row| {
+            remote_click(
+                rules_of!(config),
+                bytes.as_bytes(),
+                Front::Elsewhere,
+                Some(&session),
+                baud_domain::Row::from_index(row),
+            )
+        };
+        let marked_one = click(PATH_WINDOW, 0);
+        assert!(
+            matches!(&marked_one, Ok(Ok(argv)) if argv.last().map(String::as_str) == Some("'/srv/a b.md'")),
+            "{marked_one:?}"
+        );
+        assert_eq!(click(PATH_WINDOW, 1), marked_one, "the plain one");
+        let ruled = format!(
+            "{PATH_WINDOW}\n[link.file]\naction = \"window\"\ncommand = [\"hx\", \"{{url}}\"]\n"
+        );
+        for row in [0, 1] {
+            assert_eq!(
+                click(&ruled, row),
+                Err(crate::link::Refused::Host),
+                "row {row}: [link.file] keeps its answer"
+            );
+        }
+    }
+
     /// **A row nothing was filed over is not known, everywhere**: with the
     /// shell's folder reported and this machine named, a `./` path on a row
     /// no read filed is asked about by no one and draws no line, and a plain

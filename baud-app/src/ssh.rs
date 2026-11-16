@@ -191,11 +191,13 @@ impl Destination {
     }
 
     /// The argument as typed.
+    #[cfg(test)]
     pub fn arg(&self) -> &OsStr {
         &self.arg
     }
 
     /// Its host, when the argument names one.
+    #[cfg(test)]
     pub fn host(&self) -> Option<&HostName> {
         self.host.as_ref()
     }
@@ -212,11 +214,13 @@ pub struct SshDest {
 
 impl SshDest {
     /// The identity options, to pass on.
+    #[cfg(test)]
     pub fn options(&self) -> &[OsString] {
         &self.options
     }
 
     /// Where it connects.
+    #[cfg(test)]
     pub fn dest(&self) -> &Destination {
         &self.dest
     }
@@ -228,7 +232,7 @@ pub enum NotSession {
     /// It runs a command of its own on the other machine.
     Command,
     /// One of [`NOT_INTERACTIVE`]'s flags.
-    Flag(u8),
+    Flag(#[cfg_attr(not(test), allow(dead_code))] u8),
     /// No destination, or one ssh refuses.
     NoDestination,
     /// A flag ssh does not have, or one missing its argument: ssh
@@ -337,6 +341,7 @@ pub struct Resolved {
 
 impl Resolved {
     /// The host it resolved to.
+    #[cfg(test)]
     pub fn hostname(&self) -> Option<&HostName> {
         self.hostname.as_ref()
     }

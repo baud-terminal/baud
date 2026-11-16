@@ -2016,17 +2016,35 @@ impl Driver {
         // bus included, as the macOS app counts a link the system did not
         // take. The one decision both drivers make (`link::click_on`): the
         // link takes its origin from the rows it covers, as the worker named
-        // who wrote them.
+        // who wrote them; a remote program's `file://` link opens through
+        // the ssh session the worker last read in front.
         let decided = crate::link::click_on(
             link,
             &self.term,
             self.uris.names(),
             self.uris.rules(),
             &self.seat.paths,
+            self.probes.session(),
         );
         match decided {
             // Asked again off the frame, and revealed or said on a later turn.
             ClickOn::Path(p) => self.check_path(p),
+            // A remote program's file link: a new baud running `ssh` to the
+            // session's machine with `-e`, in this window's folder, started
+            // through the opener on the loop's next turn (`Later`), as a
+            // rule's window is.
+            ClickOn::Remote(Ok(run), _) => {
+                let dir = crate::windows::inherited(
+                    self.term.working_directory(),
+                    std::slice::from_ref(&self.host),
+                    self.derive.dir(),
+                );
+                self.later.push(Later::Window(run, dir, self.grid()));
+            }
+            ClickOn::Remote(Err(why), uri) => {
+                self.report.links.refused.bump();
+                crate::warn!("link refused ({why:?}): {}", shown(uri));
+            }
             ClickOn::Gone => {
                 self.report.links.refused.bump();
                 crate::warn!("link refused (gone)");

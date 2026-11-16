@@ -176,15 +176,25 @@ pub(crate) enum Then<'a> {
 /// **A click on `link`, decided**: its URI admitted with the origin of
 /// the programs that printed the rows it covers (`link::click_on`, the
 /// Linux driver's decision too), then what the click comes to
-/// (`link::click`) and what its rule builds.
+/// (`link::click`) and what its rule builds. A remote program's `file://`
+/// link that a click opens on the ssh session's machine, through `session`,
+/// the session in front, comes to that window or its refusal.
 pub(crate) fn decide<'l: 'a, 'a>(
     link: &'l Under,
     term: &'a Term<'_>,
     paths: &Paths,
     uris: &Uris,
+    session: Option<&crate::ssh::Session>,
 ) -> Decision<'l, 'a> {
-    let (t, uri) = match crate::link::click_on(link, term, uris.names(), uris.rules(), paths) {
+    let clicked = crate::link::click_on(link, term, uris.names(), uris.rules(), paths, session);
+    let (t, uri) = match clicked {
         ClickOn::Path(p) => return Decision::Path(p),
+        ClickOn::Remote(built, uri) => {
+            return Decision::Read {
+                uri,
+                then: Then::Window(Some(built)),
+            };
+        }
         ClickOn::Gone => return Decision::Gone,
         ClickOn::Unreadable(why, text) => return Decision::Unreadable(why, text),
         ClickOn::Refused(why, uri) => {

@@ -2047,11 +2047,11 @@ mod tests {
             crate::no_appkit::fn_body(layer, concat!("pub(crate) fn ", "decide<'l: 'a, 'a>("));
         assert!(
             open.contains(concat!(
-                "crate::link_layer::decide(link, &self.app.term, ",
-                "&self.app.paths, &self.app.uris);"
+                "crate::link_layer::decide(\n            link,\n            &self.app.term,\n",
+                "            &self.app.paths,\n            &self.app.uris,\n"
             )) && decide.contains(concat!(
                 "click_on(link, term, uris.",
-                "names(), uris.rules(), paths)"
+                "names(), uris.rules(), paths, session)"
             )),
             "a click admits against the name the lines do"
         );

@@ -19294,9 +19294,15 @@ impl Driver {
         // What the click comes to, decided as the film's tap and the Linux
         // driver decide it (`link_layer::decide`, `link::click_on`): the
         // link takes its origin from the rows it covers, as the worker named
-        // who wrote them.
-        let decided =
-            crate::link_layer::decide(link, &self.app.term, &self.app.paths, &self.app.uris);
+        // who wrote them; a remote program's `file://` link opens through
+        // the ssh session the worker last read in front.
+        let decided = crate::link_layer::decide(
+            link,
+            &self.app.term,
+            &self.app.paths,
+            &self.app.uris,
+            self.app.probes.session(),
+        );
         let (uri, then) = match decided {
             // Asked again off the frame, and opened or said at a later tick.
             Decision::Path(p) => {

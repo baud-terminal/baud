@@ -2440,7 +2440,6 @@ impl<T: Moment> Probes<T> {
     /// **The session of the ssh in front**, as the worker last read it:
     /// none while no ssh leads the group in front, for one that is no
     /// session a file can be opened in, and once marks close.
-    #[expect(dead_code, reason = "read by the click on a remote file link")]
     pub fn session(&self) -> Option<&crate::ssh::Session> {
         self.session.as_deref()
     }
