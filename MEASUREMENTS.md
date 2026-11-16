@@ -22,7 +22,9 @@ Ranges are quoted as `[min-max]`. **If two ranges overlap there is no result.**
 ## Host
 
 Apple M5 Max, macOS 27.0. Each section names its own commit and date, and its
-power state where its source states one.
+power state where its source states one. A section headed "Linux x86_64" was
+taken on an AMD Ryzen Threadripper 9980X, Linux 7.2.6, NixOS, and names that
+host in its first line.
 
 The compiler moved to rustc 1.96.0-nightly 02c7f9bec, the nightly of
 2026-04-11, when devenv.lock moved to it, and no figure here was
@@ -251,6 +253,82 @@ same-box, same-session numbers may be compared.
 568.6, 567.4, 559.7 for the new core -- which is tighter than most rows here
 and makes it a good instrument as well as a good payload.
 
+## Against other implementations, on real capture, Linux x86_64, 2026-11-15
+
+AMD Ryzen Threadripper 9980X, Linux 7.2.6, NixOS, rustc 1.101.0-nightly.
+`bench-others/multibench` built from the tree as of `f231b87e`,
+`TRANSPORT=memory`: 4096-byte reads, 10,000 lines of scrollback on every
+core, a 200x50 grid (the recordings' own size), and a median of 9 a run, the
+cores interleaved and rotated inside each run. Four rounds of two pairs,
+`ascii/cat-scroll.raw` with `utf8/cat-cjk.raw` and `ascii/less-pager.raw`
+with `ascii/git-log.raw`, the pair order rotated each round; round 1 is
+dropped, and each figure is the median of rounds 2-4's run medians [range of
+those three], MB/s. One copied binary, pinned to one core with `taskset`.
+load1 at the round starts was 2.49, 1.78, 1.10 and 1.02; every run exited 0.
+This is the parser and screen model fed from memory, not the whole terminal
+app: no pty, no rendering, no window.
+
+Build flags, matched:
+
+* the Rust cores -- baud-core, alacritty_terminal 0.26, vt100 0.18, termwiz
+  0.23 and tattoy-wezterm-term 0.1.0-fork.5 -- release, `lto = true`,
+  `codegen-units = 1`, opt-level 3, baseline x86-64;
+* ghostty: libghostty-vt at ghostty commit d9840f3c8fc2,
+  `zig build -Demit-lib-vt=true -Doptimize=ReleaseFast -Dcpu=baseline`, Zig
+  0.16.0. Its run-time SIMD dispatch (simdutf, highway) is kept, as a
+  shipped build has it: 26 `%zmm` instructions remain, all in those kernels;
+* sfte (C, gcc `-O2`, not LTO) runs inside the binary and is not reported:
+  its flags do not match.
+
+| recording | baud-core | ghostty | alacritty | termwiz (parse only) | vt100 | wezterm (full) |
+|---|---|---|---|---|---|---|
+| cat (cat-scroll) | **919.5** [912.1-921.5] | 111.3 [110.3-111.4] | 210.3 [204.3-210.8] | 120.1 [120.0-120.1] | 62.3 [62.2-62.7] | 52.4 [52.2-52.5] |
+| cat-cjk | **346.2** [344.0-346.7] | 161.8 [159.6-161.8] | 195.3 [194.3-195.8] | 203.6 [203.6-203.7] | 86.5 [86.0-86.6] | 77.6 [77.2-78.0] |
+| less (less-pager) | **1084.1** [1082.5-1084.4] | 273.3 [273.3-273.5] | 208.9 [208.3-210.4] | 121.2 [121.2-121.3] | 123.1 [123.1-123.7] | 36.1 [36.0-36.1] |
+| git-log | **1052.8** [1051.8-1055.4] | 152.8 [152.7-153.5] | 184.4 [183.9-187.5] | 120.2 [120.2-120.3] | 74.3 [74.2-74.5] | 52.7 [52.4-52.7] |
+
+baud-core over each, from the medians:
+
+| recording | vs ghostty | vs alacritty | vs wezterm (full) |
+|---|---|---|---|
+| cat | 8.26x | 4.37x | 17.5x |
+| cat-cjk | 2.14x | 1.77x | 4.46x |
+| less | 3.97x | 5.19x | 30.0x |
+| git-log | 6.89x | 5.71x | 20.0x |
+
+Every baud-core range is clear of every other core's on all four
+recordings: 2.1x to 8.3x ghostty's libghostty-vt, 1.8x to 5.7x alacritty's.
+Not comparable with the Mac tables above: another host and another commit.
+
+**Screens.** A core that skips work reads faster, so each core's final
+screen was compared with baud's on all four recordings, with scratch checks
+not yet in the repository:
+
+| core | how | cat | cat-cjk | less | git-log |
+|---|---|---|---|---|---|
+| alacritty_terminal | baud-difftest's normaliser: every cell's character and background, the whole 200x50 screen, baud fed in 4096-byte reads | same | **125 of 10,000 cells differ**, all by character, on 7 rows | same | same |
+| ghostty (libghostty-vt) | `bench-others/ghostty-oracle`'s state: every row's text, the cursor and the pending wrap, both fed in 4096-byte reads after a resize to 200x50 | same, cursor (49,0) | **7 of 50 rows differ**; cursor and pending wrap the same | same, cursor (49,1) | same, cursor (49,0) |
+| vt100, wezterm | **not checked** | | | | |
+| termwiz | a parser with no screen | | | | |
+
+The cat-cjk rows are ZWJ emoji sequences, the same 7 rows (4, 11, 18, 25,
+32, 39 and 46) for both cores. baud joins 👩‍💻, 🏳️‍🌈 and 👨‍👩‍👧‍👦 each into one
+grapheme cluster, two cells wide (UAX #29); alacritty and libghostty-vt
+(libghostty-vt's default, without mode 2027) lay out each code point as its
+own wide character. So baud does **more** work on these rows, not less, and
+the cat-cjk ratios are not overstated by the difference.
+
+**Would have proven it wrong:** a baud range overlapping another core's; a
+core drawing a different screen from baud's because baud did less work; or
+flags mismatched in baud's favour, which is why ghostty is built at baseline.
+
+**Limits:** one host and one build of each. In memory only: a terminal's
+speed through a pty and its drawing are not measured here. termwiz is a
+parser only, not a screen model, so it is not a like-for-like terminal.
+vt100's and wezterm's screens are not checked against baud's. No A/A arm:
+the cores are different programs, and their stability is the round-to-round
+ranges above.
+
 ## Against other implementations, on generated payloads
 
 **Taken before `multibench` aligned every function to 128 bytes**, like the
@@ -351,6 +429,87 @@ no cross-cell ligature: the cell path's ligature windows are measured since, row
 frame on cat-cjk; that is not re-checked here. wezterm was a nix build of an
 unstable branch (a kitty-image PR), ghostty the 1.3.1 app bundle, alacritty and
 kitty nix packages, each configured only for geometry and font.
+
+## Six terminals through a pty, Linux x86_64, 2026-11-15
+
+AMD Ryzen Threadripper 9980X, Linux 7.2.6, NixOS. baud built from `2789e0d0` with app changes not yet in the
+repository (`cargo build --release`, baud's own profile); foot 1.28.0,
+alacritty 0.17.0, kitty 0.50.0, ghostty 1.4.0 and wezterm
+0-unstable-2026-11-08 are nixpkgs d5cc6833's distribution builds, what each
+one ships.
+
+The harness is a Linux port of `scripts/vt-compare.sh` with its own child
+script, not yet in the repository. The child:
+
+* replays a recording N times with one `cat`;
+* ends any synchronised update, resets the terminal, and asks DSR 6;
+* takes wall time from before the first byte to the reply, since the reply
+  can come only after every byte ahead of it is parsed;
+* reads the terminal's CPU from `/proc/<pid>/stat` and its grid from
+  `stty size`.
+
+Each run replays about 40 MB (cat 89 reps, cat-cjk 122, less 1326, git-log
+79). Five rounds, the terminal order turned by one each round, round 1
+dropped: 120 runs, all exited 0, all at **50x200**, all with the expected
+reply. Every terminal ran under a private headless sway 1.12 on
+/dev/dri/renderD128 (gles2), a 3840x2160 output with every window floating,
+with DejaVu Sans Mono 13 as the only font (a private fontconfig file), a
+scratch HOME and no user config. baud had an empty config plus `padding = 0`
+and `[window] activity_lights = "off"`, opened with `--grid 200x50`.
+Scrollback is 2000 lines where a flag sets it. load1 at the round starts was
+1.04-1.57.
+
+**MB/s, median of rounds 2-5 [range]** (MB, not the MiB of the Mac table
+above):
+
+| recording | baud | foot 1.28.0 | alacritty 0.17.0 | kitty 0.50.0 | ghostty 1.4.0 | wezterm |
+|---|---|---|---|---|---|---|
+| cat (cat-scroll) | 77.5 [70.9-80.0] | **131.8** [101.0-136.0] | 103.8 [98.2-112.4] | 113.0 [110.5-114.2] | 123.6 [117.6-125.1] | 29.3 [28.8-29.7] |
+| cat-cjk | 91.7 [86.8-98.8] | 100.8 [98.1-102.5] | 109.3 [107.0-110.5] | 102.4 [101.6-104.0] | **174.8** [136.6-216.1] | 3.7 [3.5-4.7] |
+| less (less-pager) | 82.2 [68.3-92.7] | 46.3 [45.4-46.4] | 101.0 [99.5-101.8] | 128.9 [127.2-129.1] | **136.0** [129.8-143.0] | 21.8 [21.3-22.2] |
+| git-log | 88.4 [71.0-96.2] | 149.8 [121.2-151.6] | 112.6 [109.7-115.9] | 128.3 [114.7-131.6] | **165.2** [121.7-171.1] | 31.0 [30.8-31.0] |
+
+**CPU time against wall time** (rounds 2-5, mean), cat and git-log:
+
+| terminal | cat wall | cat CPU | git-log wall | git-log CPU |
+|---|---|---|---|---|
+| baud | 0.52 s | 0.67 s | 0.47 s | 0.62 s |
+| alacritty | 0.38 s | 0.42 s | 0.35 s | 0.39 s |
+| foot | 0.32 s | 0.54 s | 0.28 s | 0.47 s |
+| kitty | 0.35 s | 0.64 s | 0.32 s | 0.54 s |
+| ghostty | 0.33 s | 0.79 s | 0.26 s | 0.67 s |
+| wezterm | 1.36 s | 1.88 s | 1.28 s | 1.65 s |
+
+* **Through a pty, the whole baud app is slower than ghostty, kitty and
+  alacritty on all four recordings, and slower than foot on three: 77-92
+  MB/s against ghostty's 124-175.** This is the reverse of the Linux
+  in-memory comparison above, where baud-core reads the same bytes 2-8x faster than any
+  other core.
+* baud's range is clear below ghostty's and kitty's on every recording, and
+  below alacritty's on cat and less. On cat-cjk, baud's top (98.8) overlaps
+  foot's bottom; on git-log, baud's top (96.2) is below every other terminal
+  except wezterm. baud is ahead of foot on less only, and ahead of wezterm
+  everywhere.
+* **baud is busy, not waiting.** It spends 0.62-0.67 s of CPU per run, where
+  its core needs about 0.04 s for those 40 MB at the Linux in-memory speed. So
+  about 90% of the app's CPU goes outside the parser and screen model: the
+  pty read loop, the frame and present path, or something else. That has not
+  been profiled.
+
+**Would have proven it wrong:** a terminal at a different grid (none was); a
+reply arriving before the bytes were consumed (DSR 6 cannot); baud waiting
+rather than working (its CPU exceeds its wall time).
+
+**Limits:**
+
+* Short runs: 0.24-0.52 s for all but wezterm, so the ranges are wider than
+  the Linux in-memory comparison's. baud's widest range is 68-93 MB/s on less.
+* One host, a headless output, and one font; a real display's vsync is not in
+  play.
+* The grid is not checked against each terminal's drawn screen here; the
+  Linux in-memory comparison checked the cores.
+* Whether baud's present path is throttled by a frame clock under headless
+  sway is not ruled out. CPU over wall says it is mostly working, not idling.
 
 ## Three things the comparison is sensitive to
 
@@ -595,6 +754,75 @@ time is the late bound. **Under the probe's capture `to_shown` reads 13 ms, four
 times the sweep's**, so the probe validates the bounds and does not replace the
 sweep. Typeahead at a 2 ms cadence: 76 of 80 keys shared a frame, one commit per
 8.33 ms period.
+
+## Keystroke to the compositor's commit, Linux x86_64, 2026-11-16
+
+AMD Ryzen Threadripper 9980X, Linux 7.2.6, NixOS, on a 3840x2160 240 Hz
+display under Hyprland 0.56.2 (Hyprland commit efb50993), scale 1, checked for
+every arm. baud built from `2789e0d0` with app changes not yet in the
+repository, release, at its defaults but cursor blink; foot 1.28.0, alacritty 0.17.0, kitty 0.50.0, ghostty 1.4.0 and wezterm
+0-unstable-2026-11-08 are nixpkgs d5cc6833's distribution builds.
+
+The tool is key-pixel, a Linux keystroke prober, not yet in the repository.
+It posts each key through the virtual keyboard and reads a 96x64 rect at the
+top-left through wlr-screencopy, with a capture request outstanding before
+every key. The key's frame is the first whose rect bytes differ from the
+baseline, and the latency is that frame's `ready` time minus the key's post,
+both CLOCK_MONOTONIC. Before each key: a jittered gap (150 ms mean, ±25%),
+then BackSpace undoes the previous key, and the baseline is the rect once it
+has held for 300 ms. Each terminal runs full screen with `clear; exec cat`,
+cursor blink off, DejaVu Sans Mono 13 as its one font, and a scratch home.
+90 keys an arm; the order turns each round, round 1 is dropped, and the
+figures are rounds 2-4. The A/A arm is the same baud binary in its own
+windows. load1 was 0.14-0.48. Every key was shown and none read "not idle";
+28 of 28 arms exited 0.
+
+**ms, key posted to the compositor's commit of the changed frame:**
+
+| terminal | median | IQR | p95 | round medians (2, 3, 4) |
+|---|---|---|---|---|
+| **baud** | **0.92** | 0.85-0.97 | 2.30 | 0.91, 0.92, 0.89 |
+| baud again (A/A) | 0.90 | 0.83-0.98 | 1.07 | 0.93, 0.91, 0.86 |
+| kitty 0.50.0 | 1.16 | 1.07-1.23 | 1.37 | 1.16, 1.16, 1.15 |
+| foot 1.28.0 | 1.42 | 1.32-1.57 | 1.75 | 1.51, 1.37, 1.39 |
+| alacritty 0.17.0 | 1.68 | 1.58-1.71 | 1.93 | 1.70, 1.70, 1.57 |
+| ghostty 1.4.0 | 4.29 | 3.98-4.56 | 4.89 | 4.24, 4.30, 4.30 |
+| wezterm | 8.37 | 8.05-8.63 | 8.74 | 8.41, 8.37, 8.19 |
+
+* **baud shows a key sooner than every other terminal measured**: ghostty
+  takes 4.7x as long. baud's middle half of keys (0.85-0.97 ms) is clear of
+  every other terminal's, and the median of each of rounds 2-4 agrees within
+  0.06 ms.
+* **Noise floor:** the A/A arm moved the median by 0.02 ms, and each IQR is
+  0.12-0.15 ms wide. Every gap between terminals above is many times that.
+* **baud's tail:** baud's p95 (2.30 ms) is above kitty's, foot's and
+  alacritty's, while its A/A arm's p95 is 1.07. So a few of baud's keys were
+  slow in one arm and not the other; this run cannot tell whether the tail is
+  baud's.
+
+**Validation, before the comparison.** With baud's keystroke records on
+(`BAUD_KEYLAT=1`), each of 15 keys read 0.2-3.75 ms after baud's own surface
+commit, within one 4.17 ms refresh, which is when Hyprland next composites it.
+A child that echoes each byte 20 ms late (raw mode) read about 22 ms above
+plain baud.
+
+**What this is and is not:**
+
+* **The commit, not the glass.** Hyprland stamps `ready` right after it
+  commits the frame to its backend, "not when page flip happens"
+  (ScreenshareFrame.cpp at efb50993). The light leaves the panel up to a
+  refresh plus scan-out later, the same for every terminal. Absolute glass
+  latency needs a camera or a photodiode.
+* **Observed, not alone.** A pending capture keeps Hyprland committing and
+  blocks direct scan-out, for every terminal alike. With capture on, baud's
+  own surface commit came at a median of 2.6 ms in the validation run, later
+  than without capture.
+* **It depends on how long the terminal sat idle.** With the baseline taken
+  150 ms before the key rather than just before it, baud read 3-9 ms in a
+  smoke run. This run keeps every terminal to the same order: gap, settle,
+  key.
+* One host, one desktop, one font, cooked `cat` echo; 90 keys an arm. Not
+  comparable with the Mac's figures above, which end at a different point.
 
 ## The shader cache at launch
 

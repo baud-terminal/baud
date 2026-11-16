@@ -7,8 +7,11 @@ in plain terms. [MEASUREMENTS.md](../../MEASUREMENTS.md) is the full record,
 with every table's method and, under Reproducing, how to re-run them.
 
 Every figure here was taken on one Mac, an Apple M5 Max running macOS 27.0,
-and carries the commit and date it was taken at. A figure is not current
-just because it is printed: code has changed since most of them.
+unless it is marked Linux: those were taken on one PC, an AMD Ryzen
+Threadripper 9980X running Linux 7.2.6 under NixOS. A figure from one machine
+is not comparable with a figure from the other. Every figure carries the
+commit and date it was taken at. A figure is not current just because it is
+printed: code has changed since most of them.
 
 ## In short
 
@@ -16,15 +19,25 @@ just because it is printed: code has changed since most of them.
   measured.** baud's core was 1.19 to 5.80 times as fast as ghostty's on
   six recordings of real programs, in memory (`e5bc3ef`, 2026-09-20), and
   1.65 to 1.70 times on three captured later (`e9af53d9`, 2026-10-28); the
-  two sweeps are not comparable with each other.
-- **Through a real terminal connection: the fastest of five terminals.**
-  Replaying recordings into baud, alacritty, kitty, ghostty and wezterm,
+  two sweeps are not comparable with each other. On Linux it was 2.14 to
+  8.26 times as fast as ghostty's on four (`f231b87e`, 2026-11-15).
+- **Through a real terminal connection: the fastest of five terminals on
+  the Mac, and behind ghostty, kitty and alacritty on Linux.** On the Mac,
+  replaying recordings into baud, alacritty, kitty, ghostty and wezterm,
   baud had the highest throughput on every recording, tied
   with alacritty on one, and used the least CPU, or tied for least, on all
-  but one (`46f5e1c`, 2026-09-12; before baud kept scrollback).
-- **Answering a key: about 3 ms to a new frame.** From a key arriving to
-  the new frame being handed to the display took a median of 3.0 ms when the
-  program echoing it was `cat` (`28f2382`, 2026-09-18).
+  but one (`46f5e1c`, 2026-09-12; before baud kept scrollback). On Linux,
+  baud took in 77-92 MB/s against ghostty's 124-175, slower than ghostty,
+  kitty and alacritty on all four recordings and than foot on three
+  (`2789e0d0` with app changes not yet
+  published, 2026-11-15).
+- **Answering a key: about 3 ms to a new frame on the Mac, and the soonest
+  of six terminals on Linux.** On the Mac, from a key arriving to the new
+  frame being handed to the display took a median of 3.0 ms when the
+  program echoing it was `cat` (`28f2382`, 2026-09-18). On Linux, a key
+  reached the compositor's commit of the frame showing it in a median of
+  0.92 ms, against 1.16 ms for the next terminal, kitty (`2789e0d0`
+  with app changes not yet published, 2026-11-16).
 - **Starting up: about 0.1 s to the first frame.** 99 ms with the system's
   shader caches warm and 134 ms with them cleared (`bdc99eb`, 2026-09-19).
 - **Sitting idle: under half a percent of one CPU core.** 0.46% with a
@@ -70,6 +83,26 @@ What this does and does not show:
   10%, and the second after it, so the two tables are not comparable: baud's
   less row reads 1684.5 in one and 1450.0 in the other.
 
+On Linux, measured at `f231b87e` on 2026-11-15 the same way, in memory with
+10,000 lines of scrollback each and the cores taken in turn, baud was ahead
+of every other core measured on all four recordings, its range clear of
+every other's each time, and 1.77 to 5.71 times as fast as alacritty's.
+Megabytes per second:
+
+| recording | baud | ghostty | alacritty | baud vs ghostty |
+|---|---|---|---|---|
+| cat, scrolling text | **919.5** | 111.3 | 210.3 | **8.26x** |
+| cat, Chinese, Japanese and Korean text | **346.2** | 161.8 | 195.3 | **2.14x** |
+| less, paging a file | **1084.1** | 273.3 | 208.9 | **3.97x** |
+| git log | **1052.8** | 152.8 | 184.4 | **6.89x** |
+
+alacritty and ghostty ended on baud's screen on three of the four; on the
+Chinese, Japanese and Korean recording they lay out an emoji sequence one
+code point at a time where baud joins it into one character, so baud does
+more work there, not less.
+[MEASUREMENTS.md](../../MEASUREMENTS.md#against-other-implementations-on-real-capture-linux-x86_64-2026-11-15)
+has the method and three more cores.
+
 ## Through a real terminal connection, against other terminals
 
 Measured at `46f5e1c` on 2026-09-12: each terminal opened fresh at 200x50 in
@@ -96,6 +129,28 @@ program that reads and discards. baud did not keep scrollback when this was
 taken. [MEASUREMENTS.md](../../MEASUREMENTS.md#five-terminals-through-a-pty)
 has the CPU time of each run too.
 
+On Linux, measured on 2026-11-15 with baud built from `2789e0d0` and app
+changes not yet published, the result is the reverse.
+Each terminal opened at 200x50 in DejaVu Sans Mono 13 under a headless
+compositor, with about 40 MB of each recording replayed into it through a
+pty. Megabytes per second, not the MiB above:
+
+| recording | baud | foot 1.28.0 | alacritty 0.17.0 | kitty 0.50.0 | ghostty 1.4.0 | wezterm |
+|---|---|---|---|---|---|---|
+| cat-scroll | 77.5 | **131.8** | 103.8 | 113.0 | 123.6 | 29.3 |
+| cat-cjk | 91.7 | 100.8 | 109.3 | 102.4 | **174.8** | 3.7 |
+| less-pager | 82.2 | 46.3 | 101.0 | 128.9 | **136.0** | 21.8 |
+| git-log | 88.4 | 149.8 | 112.6 | 128.3 | **165.2** | 31.0 |
+
+baud was slower than ghostty, kitty and alacritty on all four recordings and
+than foot on three, though on cat-cjk the two overlap; it was ahead of foot
+on less-pager and of wezterm on all four. baud is busy, not waiting: about
+90% of its CPU time goes outside the part that interprets output, which on
+the same machine reads these bytes 2-8x faster than any other core
+measured. Where that time goes is not yet profiled.
+[MEASUREMENTS.md](../../MEASUREMENTS.md#six-terminals-through-a-pty-linux-x86_64-2026-11-15)
+has the ranges and each terminal's CPU time.
+
 ## Typing
 
 Measured at `28f2382` on 2026-09-18, on the built-in 120 Hz display, medians
@@ -108,8 +163,32 @@ of 120 keys:
 
 The shell's extra time is the shell itself: zsh took 2.5 ms to echo a key
 where the operating system's own echo for `cat` took 0.015 ms.
-No other terminal's typing latency has been measured on this machine, so
-there is no comparison.
+No other terminal's typing latency has been measured on the Mac, so there
+is no comparison there.
+
+On Linux, measured on 2026-11-16 with baud built from `2789e0d0` and app
+changes not yet published, on a 3840x2160 240 Hz display
+under Hyprland 0.56.2, each terminal running `cat`, medians of 90 keys from
+a key being sent to the compositor committing the frame that shows it:
+
+| terminal | median |
+|---|---|
+| baud | **0.92 ms** |
+| kitty 0.50.0 | 1.16 ms |
+| foot 1.28.0 | 1.42 ms |
+| alacritty 0.17.0 | 1.68 ms |
+| ghostty 1.4.0 | 4.29 ms |
+| wezterm | 8.37 ms |
+
+Every terminal was read from outside, the same way. This ends at the
+compositor's commit, not at the light leaving the panel, which comes up to a
+refresh and a scan-out later for every terminal alike, so it is not
+comparable with the Mac figures above. baud's slowest keys were slower than
+kitty's, foot's and alacritty's: its 95th percentile was 2.30 ms, where a
+second copy of baud in the same run read 1.07 ms, so the run cannot tell
+whether that tail is baud's.
+[MEASUREMENTS.md](../../MEASUREMENTS.md#keystroke-to-the-compositors-commit-linux-x86_64-2026-11-16)
+has the method and its checks.
 
 ## Starting up and idling
 
@@ -129,7 +208,9 @@ No memory figure has been compared with another terminal.
 
 ## Not measured
 
-- Memory, frame rate and typing latency against other terminals.
-- Any discrete graphics card: every drawing figure is this Mac's built-in
-  GPU.
-- Any machine other than this one.
+- Memory and frame rate against other terminals, and typing latency
+  against them on the Mac.
+- Any discrete graphics card: every drawing figure on the Mac is its
+  built-in GPU, and no Linux figure measures drawing on its own or names
+  its graphics card.
+- Any machine other than these two.
