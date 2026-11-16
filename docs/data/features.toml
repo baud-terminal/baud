@@ -1392,6 +1392,15 @@ platform = "both"
 tests = ["baud-app/src/wheel.rs::whole_lines_land_at_once", "baud-app/src/wheel.rs::settling_drops_the_remainder"]
 
 [[feature]]
+id = "history-keys"
+area = "scroll"
+name = "Page through the history from the keyboard"
+does = "Shift+Page Up and Shift+Page Down page the history a window at a time; on a Mac laptop the chord is fn+Shift+Up and fn+Shift+Down. Plain Page Up and Page Down stay the program's, and on the alternate screen, where full-screen programs run, the chord is the program's too, judged against the screen in force as each key arrives. A program on the main screen never receives Shift+Page Up or Shift+Page Down. On Linux the keys have not run, even on a headless compositor."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/history_keys.rs::shift_page_pages_the_main_screens_history_against_the_screen_in_force", "baud-app/src/history_keys.rs::a_page_is_the_windows_rows_held_to_the_history", "baud-app/src/app.rs::the_macs_shift_page_keys_page_the_main_screens_history", "baud-app/src/app.rs::the_macs_key_path_pages_the_history_before_the_snap"]
+
+[[feature]]
 id = "find"
 area = "scroll"
 name = "Find in the scrollback"

@@ -1130,20 +1130,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         }
         // A ReGIS delay's held reads, at its deadline, read or not, and a
         // one-shot input's once it has ended.
-        if d.pace.due(Instant::now()) || d.pace.released(&d.term) {
-            let began = d.seat.cursor_on(&d.term);
-            let took = d.feed(&[], Default::default());
-            let ended = d.seat.cursor_on(&d.term);
-            let lines = d.seat.counts().core_lines(&d.term);
-            d.probes.drain_taken(
-                &mut d.seat.paths,
-                &d.term,
-                (began, ended),
-                lines,
-                took.iter().copied(),
-                Instant::now(),
-            );
-        }
+        d.feed_released();
         // The config's files: what inotify said, when the wait says it is
         // readable, and the reading at the settle's end (`follow_config`).
         let heard = inotify
@@ -1214,9 +1201,30 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                 // The find field takes every key while it is open, before a
                 // key could snap the window away from the match it shows,
                 // and a release goes where its press went (`pressed.rs`).
+                // Shift+Page Up and Shift+Page Down page the main screen's
+                // history (`history_keys.rs`), settled now: the held reads
+                // that may go on are fed first, and reads a wait still
+                // holds leave the key the program's. A press taken here is
+                // not remembered, so its release goes to nobody.
                 Event::Key(k) => {
-                    let route = d.pressed.key(k, d.keys_to());
-                    d.route_key(route);
+                    let history = match d.keys_to() {
+                        crate::pressed::KeysTo::Program => {
+                            d.feed_released();
+                            let undecoded = match d.pace.holds() {
+                                true => crate::history_keys::Undecoded::Held,
+                                false => crate::history_keys::Undecoded::None,
+                            };
+                            crate::history_keys::decide(&k, d.term.screen(), undecoded)
+                        }
+                        crate::pressed::KeysTo::FindField => None,
+                    };
+                    match history {
+                        Some(p) => d.page_history(p),
+                        None => {
+                            let route = d.pressed.key(k, d.keys_to());
+                            d.route_key(route);
+                        }
+                    }
                 }
                 Event::Typed(k) => {
                     let route = crate::pressed::Pressed::typed(k, d.keys_to());
@@ -2825,6 +2833,38 @@ impl Driver {
         }
         // Text a held phase hid is shown again on the next turn's flip
         // check, which repaints whole.
+    }
+
+    /// **The held reads now owed a feed, fed**: a ReGIS delay's at its
+    /// deadline, read or not, and a one-shot input's once it has ended
+    /// (`reads::paced`). The loop calls it every turn, and a key before it
+    /// decides against the screen (`history_keys::decide`), so the screen
+    /// it reads is the one every byte that may be decoded made.
+    fn feed_released(&mut self) {
+        if self.pace.due(Instant::now()) || self.pace.released(&self.term) {
+            let began = self.seat.cursor_on(&self.term);
+            let took = self.feed(&[], Default::default());
+            let ended = self.seat.cursor_on(&self.term);
+            let lines = self.seat.counts().core_lines(&self.term);
+            self.probes.drain_taken(
+                &mut self.seat.paths,
+                &self.term,
+                (began, ended),
+                lines,
+                took.iter().copied(),
+                Instant::now(),
+            );
+        }
+    }
+
+    /// **Shift+Page Up or Shift+Page Down, taken for the history**
+    /// (`history_keys::page`): the window moves a page and the thumb shows,
+    /// as it does for the wheel.
+    fn page_history(&mut self, p: crate::history_keys::HistoryPage) {
+        if crate::history_keys::page(&mut self.term, p) == crate::history_keys::Paged::Moved {
+            self.pending = Pending::Dirty;
+            self.reveal_thumb();
+        }
     }
 
     /// **The thumb shown, held and faded**: the window moved over the

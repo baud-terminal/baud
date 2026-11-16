@@ -228,6 +228,13 @@ impl<T: Copy> Pace<T> {
         self.until
     }
 
+    /// **Whether reads are held, read and not yet decoded**: a delay's, a
+    /// held query's or a one-shot input's, which no byte of has reached the
+    /// screen (`history_keys::decide`), on either system.
+    pub fn holds(&self) -> bool {
+        !self.held.is_empty()
+    }
+
     /// Whether a delay's held reads are owed a feed at `now`.
     #[cfg(any(target_os = "linux", test))]
     pub fn due(&self, now: Instant) -> bool {

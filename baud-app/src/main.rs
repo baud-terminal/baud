@@ -244,6 +244,11 @@ mod own_line;
 // Where the frame sits in the Linux surface: the padding and the leftover.
 #[cfg(any(target_os = "linux", test))]
 mod origin;
+// Shift+Page Up and Shift+Page Down over the main screen's history: the
+// chords and the screen rule both drivers decide each key by. Pure, so its
+// tests run on every platform.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod history_keys;
 // Where the Linux driver sends a key's release: its tests run on every
 // platform.
 #[cfg(any(target_os = "linux", test))]

@@ -4484,6 +4484,25 @@ fn pressed(code: KeyCode, key: &KeyPress, m: Modifiers) -> KeyEvent {
     e
 }
 
+/// **Whether a key pages the history** (`history_keys::decide`): the key
+/// as the program would get it -- its code, the modifiers held with Caps
+/// Lock from `flags`, a press or a repeat -- against the screen in force
+/// and what a wait still holds. On a laptop, fn+Shift+Up and fn+Shift+Down
+/// are the Page keys' own codes.
+fn history_page(
+    key: &KeyPress,
+    flags: NSEventModifierFlags,
+    screen: Screen,
+    undecoded: crate::history_keys::Undecoded,
+) -> Option<crate::history_keys::HistoryPage> {
+    let code = special(key)?;
+    let e = KeyEvent {
+        kind: kind_of(key),
+        ..pressed(code, key, held_with_locks(key, flags))
+    };
+    crate::history_keys::decide(&e, screen, undecoded)
+}
+
 /// Whether a key's text is what it sends, so that drawing it ahead of the
 /// echo predicts the echo: a keypad key only from the numeric column
 /// (`[[source: ctlseqs]]` line 2498), under DECKPAM `5` being `SS3 u`.
@@ -14977,6 +14996,22 @@ impl Responder for Driver {
             self.close_later();
             return Handled::Consumed;
         }
+        // Shift+Page Up and Shift+Page Down page the main screen's history
+        // (`history_keys.rs`), ahead of `?1011`'s snap, which would take the
+        // window to the live screen first; not while a composition or the
+        // find field has the keys. Reads a wait still holds leave the key
+        // the program's. A press taken here is not recorded (`Downs`), so
+        // its release goes to no program.
+        if self.app.finding.is_none() && !composing_first(key, &self.app.composing) {
+            let undecoded = match self.app.pace.holds() {
+                true => crate::history_keys::Undecoded::Held,
+                false => crate::history_keys::Undecoded::None,
+            };
+            if let Some(p) = history_page(key, flags, self.app.term.screen(), undecoded) {
+                self.page_history(p);
+                return Handled::Consumed;
+            }
+        }
         // `?1011`, scroll to the bottom on a key press: set at power-on, so a
         // key snaps as it always has, and a program can turn it off -- but
         // not while the find field is open, whose keys are its own and
@@ -19371,6 +19406,22 @@ impl Driver {
     /// jump reveals the thumb as a wheel's move does.
     fn jump_to_prompt(&mut self, to: PromptJump) {
         if !self.app.term.jump_to_prompt(to) {
+            return;
+        }
+        self.app.reveal.reveal(self.app.effects_now());
+        if self.app.term.window_back().index() != 0 {
+            self.app.slide.snap();
+        }
+        self.app.owe_frame();
+        self.pump(Trigger::Wake);
+    }
+
+    /// **Shift+Page Up or Shift+Page Down, taken for the history**
+    /// (`history_keys::page`): the window moves a page and the thumb shows,
+    /// as it does for the wheel; at either end it stays, and nothing is
+    /// drawn.
+    fn page_history(&mut self, p: crate::history_keys::HistoryPage) {
+        if crate::history_keys::page(&mut self.app.term, p) == crate::history_keys::Paged::Still {
             return;
         }
         self.app.reveal.reveal(self.app.effects_now());
@@ -28016,5 +28067,202 @@ mod decode_owes_tests {
         assert_eq!(count("self.app.os.owe_turn()"), 3, "{W}");
         let alive = body(SRC, concat!("    fn notices_", "alive_check(&mut self) {"));
         assert_eq!(alive.matches("self.app.os.owe_turn();").count(), 1, "{W}");
+    }
+}
+
+#[cfg(test)]
+mod history_key_tests {
+    use super::link_pointer_tests::body;
+    use super::*;
+    use crate::history_keys::{HistoryPage, Undecoded};
+    use macos_liquid_glass::drawable::Modifiers as MacMods;
+
+    /// A key press with nothing typed, no modifier held and no repeat, for
+    /// a test to set its code and modifiers on.
+    fn blank() -> KeyPress {
+        KeyPress {
+            key_code: 0,
+            characters: String::new(),
+            unmodified: String::new(),
+            modifiers: MacMods::default(),
+            repeat: false,
+        }
+    }
+
+    /// **The Mac's Page keys with Shift page the main screen's history**:
+    /// Page Up (`0x74`) back and Page Down (`0x79`) forward, fn+Shift+Up
+    /// and fn+Shift+Down on a laptop being those codes with `fn` held, a
+    /// repeat as a press, Caps Lock on or off. Plain Page Up, Shift with
+    /// Control, Shift+Up, the alternate screen and a wait holding reads
+    /// all leave the key the program's.
+    #[test]
+    fn the_macs_shift_page_keys_page_the_main_screens_history() {
+        let shift = MacMods {
+            shift: true,
+            ..MacMods::default()
+        };
+        let none = NSEventModifierFlags(0);
+        let main = Screen::Normal;
+        let at = history_page;
+        let up = KeyPress {
+            key_code: 0x74,
+            modifiers: shift,
+            ..blank()
+        };
+        let down = KeyPress {
+            key_code: 0x79,
+            modifiers: shift,
+            ..blank()
+        };
+        assert_eq!(
+            at(&up, none, main, Undecoded::None),
+            Some(HistoryPage::Back)
+        );
+        assert_eq!(
+            at(&down, none, main, Undecoded::None),
+            Some(HistoryPage::Forward)
+        );
+        let laptop = MacMods {
+            function: true,
+            ..shift
+        };
+        assert_eq!(
+            at(
+                &KeyPress {
+                    key_code: 0x74,
+                    modifiers: laptop,
+                    ..blank()
+                },
+                none,
+                main,
+                Undecoded::None
+            ),
+            Some(HistoryPage::Back),
+            "fn+Shift+Up"
+        );
+        assert_eq!(
+            at(
+                &KeyPress {
+                    key_code: 0x74,
+                    modifiers: shift,
+                    repeat: true,
+                    ..blank()
+                },
+                none,
+                main,
+                Undecoded::None
+            ),
+            Some(HistoryPage::Back),
+            "a held chord keeps paging"
+        );
+        assert_eq!(
+            at(&up, NSEventModifierFlags::CapsLock, main, Undecoded::None),
+            Some(HistoryPage::Back),
+            "Caps Lock is not a held key"
+        );
+        let plain = KeyPress {
+            key_code: 0x74,
+            modifiers: MacMods::default(),
+            ..blank()
+        };
+        assert_eq!(
+            at(&plain, none, main, Undecoded::None),
+            None,
+            "plain Page Up"
+        );
+        let ctrl = MacMods {
+            control: true,
+            ..shift
+        };
+        assert_eq!(
+            at(
+                &KeyPress {
+                    key_code: 0x74,
+                    modifiers: ctrl,
+                    ..blank()
+                },
+                none,
+                main,
+                Undecoded::None
+            ),
+            None
+        );
+        assert_eq!(
+            at(
+                &KeyPress {
+                    key_code: 0x7E,
+                    modifiers: shift,
+                    ..blank()
+                },
+                none,
+                main,
+                Undecoded::None
+            ),
+            None,
+            "Shift+Up"
+        );
+        assert_eq!(at(&up, none, Screen::Alternate, Undecoded::None), None);
+        assert_eq!(
+            at(&up, none, main, Undecoded::Held),
+            None,
+            "a wait holds reads"
+        );
+    }
+
+    /// **The Mac's key path takes the chord after the held window's gate
+    /// and before `?1011`'s snap to the live screen**, outside a
+    /// composition and the find field, and pages through
+    /// `history_keys::page`, revealing the thumb. The responder is
+    /// AppKit's, so the source is what can fail. Named breaks: no call --
+    /// the key goes on to the program; the call below the snap -- every
+    /// press starts from the live screen and the window never passes one
+    /// page.
+    #[test]
+    fn the_macs_key_path_pages_the_history_before_the_snap() {
+        const SRC: &str = include_str!("app.rs");
+        let key = body(
+            SRC,
+            concat!("    fn key(&mut self, key: ", "&KeyPress) -> Handled {"),
+        );
+        let gate = key
+            .find(concat!("self.close_", "later();"))
+            .expect("the held window's gate");
+        let call = key
+            .find(concat!(
+                "history_",
+                "page(key, flags, self.app.term.screen(), undecoded)"
+            ))
+            .expect("the history keys taken");
+        let snap = key
+            .find(concat!("self.snap_", "to_live();"))
+            .expect("?1011's snap");
+        assert!(gate < call && call < snap, "held gate, history, snap");
+        let open = key
+            .find(concat!(
+                "if self.app.finding.is_none() ",
+                "&& !composing_first(key, &self.app.composing) {"
+            ))
+            .expect("outside a composition and the find field");
+        assert!(gate < open && open < call, "the call inside its gate");
+        let holds = key
+            .find(concat!("self.app.pace.", "holds()"))
+            .expect("what a wait holds");
+        assert!(open < holds && holds < call, "read as the key arrives");
+        let taken = &key[call..snap];
+        assert!(taken.contains(concat!("self.page_", "history(p);")));
+        assert!(taken.contains("return Handled::Consumed;"));
+        let paged = body(
+            SRC,
+            concat!(
+                "    fn page_",
+                "history(&mut self, p: crate::history_keys::HistoryPage) {"
+            ),
+        );
+        assert!(paged.contains(concat!(
+            "crate::history_keys::",
+            "page(&mut self.app.term, p)"
+        )));
+        assert!(paged.contains(concat!("self.app.reveal.", "reveal(")));
+        assert!(paged.contains(concat!("self.app.", "owe_frame();")));
     }
 }
