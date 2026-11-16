@@ -1698,13 +1698,25 @@ fn clearing_the_screen_takes_a_picture_below_the_alternate_screen() {
     });
 }
 
-/// **The primary's `ED 2` leaves a picture under its window with its
-/// row**: the row a reverse scroll pushed under the window keeps its
-/// text, which `ED 2` erases only on the screen's rows, and a taller
-/// window shows it again, the picture beside it, as an image follows the
-/// row it was placed on.
+/// **The primary's `ED 2` takes a picture under its window too**, as it
+/// takes one below the alternate screen: the clear takes every placement
+/// but one wholly above the screen (`[[source: kitty-screen-c]]`
+/// `screen_erase_in_display()`, `[[source: kitty-graphics-c]]`
+/// `clear_filter_func`). So a line feed at the bottom brings no picture
+/// back over the cleared screen, and a taller window shows the row under
+/// it with its text, which `ED 2` erases only on the screen's rows, and
+/// without the picture.
 #[test]
-fn clearing_the_primary_leaves_a_picture_under_its_window_with_its_row() {
+fn clearing_the_primary_takes_a_picture_under_its_window() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        push_below(t, b"", &mut r);
+        assert_eq!(shown_rows(t), (vec![24], 0), "the premise");
+        feed(t, b"\x1b[2J", &mut r);
+        assert_eq!(shown_rows(t), (vec![], 0), "taken by the clear");
+        feed(t, b"\x1b[24;1H\n", &mut r);
+        assert_eq!(shown_rows(t), (vec![], 0), "a line feed brings none back");
+    });
     let room = WinSize {
         ws_row: 25,
         ws_col: 80,
@@ -1721,10 +1733,16 @@ fn clearing_the_primary_leaves_a_picture_under_its_window_with_its_row() {
         &apc("a=T,f=24,s=10,v=20,i=1,q=2,C=1", &b64(&[7u8; 600])),
         &mut r,
     );
-    feed(t, b"\x1b[1;1H\x1bM\x1b[2J", &mut r);
-    assert_eq!(shown_rows(t), (vec![24], 0), "kept under the window");
+    feed(t, b"\x1b[1;1H\x1bM", &mut r);
+    assert_eq!(
+        shown_rows(t),
+        (vec![24], 0),
+        "the premise: under the window"
+    );
+    feed(t, b"\x1b[2J", &mut r);
+    assert_eq!(shown_rows(t), (vec![], 0), "taken by the clear");
     assert_eq!(t.resize(&room), Resized::Ok);
-    assert_eq!(shown_rows(t), (vec![24], 0), "on the row a growth shows");
+    assert_eq!(shown_rows(t), (vec![], 0), "none on the row a growth shows");
     let row = t.row(Row::from_index(24)).expect("the grown row");
     let text: String = row
         .iter()
@@ -1735,7 +1753,7 @@ fn clearing_the_primary_leaves_a_picture_under_its_window_with_its_row() {
                 .map_or(' ', |cp| char::from_u32(cp.value()).unwrap_or('?'))
         })
         .collect();
-    assert_eq!(text, "MARKER", "its text beside it");
+    assert_eq!(text, "MARKER", "its text kept");
 }
 
 /// **`?1049 h` on the alternate screen clears a picture kept below it**:
