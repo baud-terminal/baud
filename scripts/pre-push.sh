@@ -10,6 +10,14 @@ set -u
 cd "$(git rev-parse --show-toplevel)" || exit 1
 from=${PRE_COMMIT_FROM_REF:-}
 to=${PRE_COMMIT_TO_REF:-}
+# The static gates run first, each in seconds and before any build: every
+# crate's NOTICE against its files' rows, and the source manifest. A failure
+# here refuses the push without starting the suite.
+echo "pre-push: the static gates"
+devenv shell -- bash -c 'cargo xtask publish && bash scripts/check-sources.sh' || {
+  echo "pre-push: a static gate failed; no build or test ran"
+  exit 1
+}
 full() {
   echo "pre-push: every gate ($1)"
   exec devenv test
