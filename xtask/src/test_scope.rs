@@ -38,6 +38,13 @@
 //!   `<to>`'s tree clean, by the list of tree hashes the file
 //!   `BAUD_TRIED_TREES` names, so only the gates that build nothing run. A
 //!   change that runs every gate still prints `full`.
+//! - `from-tried<TAB><tree> <lane>`, first, before the rest: the plan is
+//!   over the paths that differ between `<to>` and a tried tree, named by
+//!   its first twelve hex digits and its lane, in place of `<from>`. Of the
+//!   listed trees this repository holds, it is the one whose difference
+//!   touches the fewest paths (the later line among equals), and it is used
+//!   when that difference touches fewer paths than `<from>`'s and does not
+//!   run every gate.
 //!
 //! The gates that build nothing (formatting, sources, paths, the
 //! changelog, no Python) are the runner's to run every time. A file that no
@@ -611,31 +618,101 @@ pub fn run(args: &[&str], out: &mut impl Write) -> io::Result<u8> {
             return Ok(2);
         }
     };
-    let computed = (|| -> Result<Plan, String> {
+    let computed = (|| -> Result<Scope, String> {
         let paths = changed(from, to)?;
         let packages = packages()?;
         let scan = Scan::load().ok_or("the workspace could not be scanned")?;
         let reach = |p: &[String]| scan.reach(p);
         let sources = sources(&packages);
-        Ok(plan(&Inputs {
-            paths: &paths,
-            reach: &reach,
-            packages: &packages,
-            sources: &sources,
-        }))
+        let plan_of = |paths: &[String]| {
+            plan(&Inputs {
+                paths,
+                reach: &reach,
+                packages: &packages,
+                sources: &sources,
+            })
+        };
+        let whole = plan_of(&paths);
+        let Some(to) = to.filter(|_| whole.full.is_none()) else {
+            return Ok(Scope::Plan(whole));
+        };
+        if let Some(why) = tried(to) {
+            return Ok(Scope::Tried(why));
+        }
+        if let Some(n) = nearest(to, &paths) {
+            let from_tree = plan_of(&n.paths);
+            if from_tree.full.is_none() {
+                return Ok(Scope::FromTried(n.tree, from_tree));
+            }
+        }
+        Ok(Scope::Plan(whole))
     })();
-    let plan = computed
-        .unwrap_or_else(|e| Plan::everything(format!("the scope could not be computed ({e})")));
-    if plan.full.is_none() {
-        if let Some(why) = to.and_then(tried) {
+    let plan = match computed {
+        Ok(Scope::Tried(why)) => {
             writeln!(out, "tried\t{why}")?;
             return Ok(0);
         }
-    }
+        Ok(Scope::FromTried(tree, p)) => {
+            writeln!(out, "from-tried\t{tree}")?;
+            p
+        }
+        Ok(Scope::Plan(p)) => p,
+        Err(e) => Plan::everything(format!("the scope could not be computed ({e})")),
+    };
     for line in plan.lines() {
         writeln!(out, "{line}")?;
     }
     Ok(0)
+}
+
+/// What the command prints for a scope it computed.
+enum Scope {
+    /// The plan over the changed paths.
+    Plan(Plan),
+    /// A try ran the tree clean, so only the gates that build nothing run.
+    Tried(String),
+    /// The plan over the paths that differ from a tried tree, which is
+    /// named by its first twelve hex digits and its lane.
+    FromTried(String, Plan),
+}
+
+/// A tried tree and the paths that differ between it and the tip.
+struct Nearest {
+    /// The tree's first twelve hex digits and its lane.
+    tree: String,
+    /// The paths that differ.
+    paths: Vec<String>,
+}
+
+/// The tried tree whose difference from `to` touches the fewest paths,
+/// the later line of the file `BAUD_TRIED_TREES` names among equals, when
+/// it touches fewer than `whole`. A line names a tree, its lane, its
+/// commit and its time; a tree this repository does not hold is skipped.
+fn nearest(to: &str, whole: &[String]) -> Option<Nearest> {
+    let list = std::env::var_os("BAUD_TRIED_TREES")?;
+    let text = fs::read_to_string(list).ok()?;
+    let mut best: Option<Nearest> = None;
+    for l in text.lines() {
+        let mut fields = l.split_whitespace();
+        let Some(tree) = fields.next() else {
+            continue;
+        };
+        if !tree.bytes().all(|b| b.is_ascii_hexdigit()) || git(&["cat-file", "-e", tree]).is_err() {
+            continue;
+        }
+        let Ok(paths) = changed(tree, Some(to)) else {
+            continue;
+        };
+        if best.as_ref().is_none_or(|b| paths.len() <= b.paths.len()) {
+            let lane = fields.next().unwrap_or("");
+            let short = tree.get(..12).unwrap_or(tree);
+            best = Some(Nearest {
+                tree: format!("{short} {lane}"),
+                paths,
+            });
+        }
+    }
+    best.filter(|n| n.paths.len() < whole.len())
 }
 
 /// Whether a try already ran `to`'s tree clean: a line of the file

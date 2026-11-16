@@ -105,15 +105,22 @@ impl Repo {
     /// The plan with `BAUD_TRIED_TREES` naming `tried`, a file of tree
     /// hashes a try ran clean, one a line.
     fn scope_tried(&self, tried: Option<&str>) -> Vec<String> {
+        let line = tried.map(|t| format!("{t} lane 0000 2026-11-15\n"));
+        self.scope_from("HEAD~1", line.as_deref())
+    }
+
+    /// The plan from `from` to the last commit, with `BAUD_TRIED_TREES`
+    /// naming a file that holds `list`, when there is one.
+    fn scope_from(&self, from: &str, list: Option<&str>) -> Vec<String> {
         let mut c = Command::new(env!("CARGO_BIN_EXE_xtask"));
-        c.args(["test-scope", "HEAD~1", "HEAD"])
+        c.args(["test-scope", from, "HEAD"])
             .current_dir(&self.0.0)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env_remove("BAUD_TRIED_TREES");
-        if let Some(t) = tried {
-            let list = self.path("tried-trees.txt");
-            fs::write(&list, format!("{t} lane 0000 2026-11-15\n")).expect("the list");
-            c.env("BAUD_TRIED_TREES", &list);
+        if let Some(text) = list {
+            let file = self.path("tried-trees.txt");
+            fs::write(&file, text).expect("the list");
+            c.env("BAUD_TRIED_TREES", &file);
         }
         let out = c.stderr(Stdio::null()).output().expect("xtask");
         assert_eq!(out.status.code(), Some(0), "{out:?}");
@@ -230,6 +237,60 @@ fn a_tried_tree_that_reaches_every_crate_still_runs_everything() {
     r.commit("nextest");
     let tree = r.git(&["rev-parse", "HEAD^{tree}"]);
     assert_eq!(r.scope_tried(Some(&tree)), ["full"]);
+}
+
+/// The base, a commit whose tree a try ran clean (lane a's change to
+/// `baud-core`), and the tip, lane b's `change` on top of it. The base's
+/// tree, the tried tree and a tree this repository does not hold make the
+/// tried list.
+fn tried_then(change: (&str, &str)) -> (Repo, String) {
+    let r = Repo::new();
+    let base = r.git(&["rev-parse", "HEAD^{tree}"]);
+    r.put("core/src/lib.rs", "pub fn f() {}\npub fn g() {}\n");
+    r.commit("lane a");
+    let tried = r.git(&["rev-parse", "HEAD^{tree}"]);
+    r.put(change.0, change.1);
+    r.commit("lane b");
+    let list = format!(
+        "{base} base 000000000000 2026-11-15T10:00\n\
+         {tried} lane-a 111111111111 2026-11-15T11:00\n\
+         {} gone 222222222222 2026-11-15T12:00\n",
+        "e".repeat(40)
+    );
+    (r, list)
+}
+
+#[test]
+fn a_tip_a_commit_past_a_tried_tree_plans_only_what_differs_from_it() {
+    let (r, list) = tried_then(("other/src/lib.rs", "pub fn f() {}\npub fn g() {}\n"));
+    assert_eq!(
+        r.scope_from("HEAD~2", Some(&list)),
+        ["from-tried", "package other", "clippy other", "doc other"]
+    );
+    assert_eq!(
+        r.scope_from("HEAD~2", None),
+        [
+            "package baud",
+            "package baud-core",
+            "package other",
+            "clippy baud",
+            "clippy baud-core",
+            "clippy other",
+            "doc baud",
+            "doc baud-core",
+            "doc other",
+            "rig",
+            "bare",
+            "linux",
+        ],
+        "with no tried tree the whole range is planned"
+    );
+}
+
+#[test]
+fn a_shell_input_past_a_tried_tree_still_runs_everything() {
+    let (r, list) = tried_then(("devenv.nix", "{ }\n"));
+    assert_eq!(r.scope_from("HEAD~2", Some(&list)), ["full"]);
 }
 
 #[test]
