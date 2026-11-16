@@ -30,7 +30,7 @@
 //! tests hold to its properties and the pixel oracle's reference calls.
 
 use crate::det::Det;
-use crate::effect::{self, Hash, Ignition, Particle, Vfx};
+use crate::effect::{self, Hash, Ignition, Particle, Vfx, smoothstep};
 use crate::trail::{Corners, Pt};
 
 /// The orb's radius, its halo's width and peak, and its comet's peak.
@@ -122,11 +122,6 @@ pub fn line(vfx: &Vfx) -> Corners {
     let t = vfx.ignition.tail;
     let a = aim(vfx);
     Corners([t, a, a, t])
-}
-
-fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
-    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }
 
 fn length(x: f32, y: f32) -> f32 {

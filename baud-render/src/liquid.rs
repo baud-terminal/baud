@@ -27,7 +27,7 @@
 //! cursor, so the meniscus is outside the quad.
 
 use crate::det::Det;
-use crate::effect::{self, Hash, Ignition, Vfx};
+use crate::effect::{self, Hash, Ignition, Vfx, smoothstep};
 use crate::trail::{Corners, Pt, TAU_SLOW};
 
 /// The tube's radius across the move, as a share of the cell; the smooth
@@ -88,11 +88,6 @@ pub const LIFE: f32 = 0.60;
 /// same two numbers.
 pub const APPEAR: f32 = 0.035;
 pub const FADE: f32 = 0.10;
-
-fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
-    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
 
 fn length(x: f32, y: f32) -> f32 {
     (x * x + y * y).sqrt()

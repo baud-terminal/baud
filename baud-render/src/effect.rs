@@ -590,9 +590,9 @@ impl Vfx {
     }
 
     /// **Every shape the effect draws within its reach of**, which the
-    /// bands cover: its region; for the ice the path as well -- the frost is
-    /// laid along the path, where the quad is for a few tens of milliseconds
-    /// at a point; for the ufo only the box its saucer, beam and wake are
+    /// bands cover: its region; for the ice its path as well, which its frost
+    /// is laid along ([`ice::support`]); for the ufo only the box its saucer,
+    /// beam and wake are
     /// drawn in, which the quad's reach could not hold; for the orb the line
     /// it flies on, which it lags the quad along; and for the liquid its spine
     /// and the cursor, which kitty's leading corners have not reached early
@@ -600,15 +600,7 @@ impl Vfx {
     pub fn support(&self, mut each: impl FnMut(Corners)) {
         match self.effect {
             Effect::Fire | Effect::Plasma | Effect::Lightning => each(self.region()),
-            Effect::Ice => {
-                each(self.region());
-                let f = &self.ignition;
-                let head = Pt {
-                    x: f.tail.x + f.dir.x * f.len,
-                    y: f.tail.y + f.dir.y * f.len,
-                };
-                each(Corners([f.tail, head, head, f.tail]));
-            }
+            Effect::Ice => ice::support(self, each),
             Effect::Ufo => each(ufo::region(self)),
             Effect::Orb => each(orb::line(self)),
             Effect::Liquid => liquid::support(self, each),

@@ -295,7 +295,7 @@ pub struct Chase<M> {
     /// waiting out the dwell.
     pending: Option<(Rect, M)>,
     /// An effect's ignition while it burns.
-    fire: Option<Burning<M>>,
+    live: Option<Burning<M>>,
     /// When the last ignition was lit, which outlives it: a lightning bolt
     /// is out in 0.32 s, inside [`REIGNITE`], so a guard read off the live
     /// ignition would let a fourth bolt a second through.
@@ -373,7 +373,7 @@ impl<M: Moment> Chase<M> {
             moving: None,
             carry: Carry::Riding(0.0),
             pending: None,
-            fire: None,
+            live: None,
             last_lit: None,
             next_seed: Seed(1),
             axis: Pt { x: 1.0, y: 0.0 },
@@ -423,7 +423,7 @@ impl<M: Moment> Chase<M> {
                 Some(hole) if level > 0.0 => self.look(hole, now, level),
                 _ => {
                     self.moving = None;
-                    self.fire = None;
+                    self.live = None;
                     None
                 }
             };
@@ -528,7 +528,7 @@ impl<M: Moment> Chase<M> {
                 })
             }),
             Style::Effect(effect) => {
-                let Some(ig) = self.fire else {
+                let Some(ig) = self.live else {
                     // Nothing burns: a long move the three-a-second guard
                     // refused after the last ignition went out. It draws
                     // nothing, so the quad it would ride owes no frames.
@@ -539,7 +539,7 @@ impl<M: Moment> Chase<M> {
                 if age >= ig.end {
                     // Out: the flame and every ember, and the quad it rode
                     // with them.
-                    self.fire = None;
+                    self.live = None;
                     self.moving = None;
                     return None;
                 }
@@ -627,7 +627,7 @@ impl<M: Moment> Chase<M> {
         (cell, height): ((f32, f32), Points),
     ) {
         let out = match self.style {
-            Style::Effect(_) if self.fire.is_none() => return,
+            Style::Effect(_) if self.live.is_none() => return,
             Style::Effect(e) => (e.reach() * cell.1, e.reach() * cell.1),
             Style::Smear(_) => cell,
         };
@@ -693,13 +693,13 @@ impl<M: Moment> Chase<M> {
         // A gel lit over one a restart laid, while that one is not yet
         // fading, carries its opacity on; over a first gel it fades in, as
         // every ignition does.
-        let ahead = match (effect, self.fire) {
+        let ahead = match (effect, self.live) {
             (Effect::Liquid, Some(b)) if b.laid == Laid::Restarted => {
                 self.unfaded(at).unwrap_or(0.0)
             }
             _ => 0.0,
         };
-        self.fire = Some(Burning {
+        self.live = Some(Burning {
             at,
             ignition,
             end: effect.end(&ignition),
@@ -714,7 +714,7 @@ impl<M: Moment> Chase<M> {
     /// carries on rather than going out and coming back. `None` with
     /// nothing burning or a gel within `liquid::FADE` of its end.
     fn unfaded(&self, at: M) -> Option<f32> {
-        let b = self.fire?;
+        let b = self.live?;
         let age = self.clock(b.at, at) + b.ahead;
         (age < b.end - baud_render::liquid::FADE).then(|| age.min(baud_render::liquid::APPEAR))
     }
@@ -734,7 +734,7 @@ impl<M: Moment> Chase<M> {
     /// that gel is not yet fading, starts as far into its fade-in
     /// ([`Chase::unfaded`]).
     fn restart(&mut self, tail: Pt, rect: Rect, at: M, cell: (f32, f32)) {
-        let Some(b) = self.fire else {
+        let Some(b) = self.live else {
             return;
         };
         let age = self.clock(b.at, at) + b.ahead;
@@ -742,7 +742,7 @@ impl<M: Moment> Chase<M> {
             return;
         }
         let ignition = Ignition::ignite(tail, rect, b.ignition.seed, cell.1);
-        self.fire = Some(Burning {
+        self.live = Some(Burning {
             at,
             ignition,
             end: Effect::Liquid.end(&ignition),
@@ -784,7 +784,7 @@ impl<M: Moment> Chase<M> {
                 self.carry = Carry::Riding(r + dy);
             }
         }
-        if let Some(b) = self.fire.as_mut() {
+        if let Some(b) = self.live.as_mut() {
             let applied = (b.ignition.tail.y + dy).max(floor) - b.ignition.tail.y;
             b.ignition = b.ignition.translated(applied);
         }
@@ -825,7 +825,7 @@ impl<M: Moment> Chase<M> {
                 t0,
             ));
         }
-        if let Some(b) = self.fire.as_mut() {
+        if let Some(b) = self.live.as_mut() {
             b.ignition = b.ignition.translated(dy);
         }
     }
@@ -851,7 +851,7 @@ impl<M: Moment> Chase<M> {
         let due = self
             .pending
             .is_some_and(|(_, since)| now.elapsed_since(since) >= DWELL);
-        if self.moving.is_some() || self.fire.is_some() || due {
+        if self.moving.is_some() || self.live.is_some() || due {
             Owes::Frame
         } else {
             Owes::Nothing
@@ -865,7 +865,7 @@ impl<M: Moment> Chase<M> {
     /// link runs for them, rather than either waiting on a deadline, so
     /// this names none for them.
     pub fn deadline(&self) -> Option<M> {
-        match (self.moving, self.fire, self.pending) {
+        match (self.moving, self.live, self.pending) {
             (None, None, Some((_, since))) => Some(since.after(DWELL)),
             _ => None,
         }
@@ -1385,7 +1385,7 @@ mod tests {
             q.fire(Some(at(10.0, 5.0)), t0);
             q.fire(Some(at(14.0, 5.0)), t0 + MS * 8);
             let first = q.fire(Some(at(14.0, 5.0)), t0 + MS * 20).expect("lit");
-            let end = q.fire.expect("burning").end;
+            let end = q.live.expect("burning").end;
             let fade = end - liquid::FADE;
             let lit = t0 + MS * 8;
             if case == "out" {
@@ -1393,7 +1393,7 @@ mod tests {
                 let past = lit + Duration::from_secs_f32(end + 0.004);
                 assert!(end + 0.004 < 0.334, "the window: {end}");
                 q.restart(centre(at(14.0, 5.0).corners()), at(14.0, 12.0), past, CELL);
-                let b = q.fire.expect("left as it was");
+                let b = q.live.expect("left as it was");
                 assert_eq!(
                     (b.ignition.dir, b.end),
                     (first.ignition.dir, end),
@@ -1460,7 +1460,7 @@ mod tests {
             // 8 ms, and taken 12 ms later; the gel under it not yet fading
             // at either.
             let seen = t0 + MS * 345;
-            let b = q.fire.expect("burning");
+            let b = q.live.expect("burning");
             let age = q.clock(b.at, seen) + b.ahead;
             assert!(
                 age > liquid::APPEAR && age + 0.012 < b.end - liquid::FADE,
@@ -1470,7 +1470,7 @@ mod tests {
             q.fire(Some(at(40.0, 2.0)), seen);
             let v = q.fire(Some(at(40.0, 2.0)), seen + MS * 12).expect("relit");
             assert_eq!(v.ignition.seed, Seed(2), "restarted {restarted}: lit");
-            let (ahead, envelope) = (q.fire.expect("burning").ahead, liquid::state(&v).envelope);
+            let (ahead, envelope) = (q.live.expect("burning").ahead, liquid::state(&v).envelope);
             match restarted {
                 false => assert!(
                     ahead == 0.0 && envelope < 0.5,
@@ -1927,13 +1927,13 @@ mod tests {
             for rebased in [true, false] {
                 let t0 = Instant::now();
                 let (mut q, mut kept) = (in_flight(style, t0), in_flight(style, t0));
-                let tail = q.fire.map(|b| b.ignition.tail);
+                let tail = q.live.map(|b| b.ignition.tail);
                 let longs = q.longs;
                 if rebased {
                     q.rebase(dy);
                     assert_eq!(q.target, Some(at(60.0, 8.0)), "{style:?}: where it rests");
                     if let Some(t) = tail {
-                        let moved = q.fire.map(|b| b.ignition.tail);
+                        let moved = q.live.map(|b| b.ignition.tail);
                         assert_eq!(
                             moved,
                             Some(Pt {
@@ -2232,7 +2232,7 @@ mod tests {
         q.fire(Some(from), t0);
         q.fire(Some(to), t0 + MS * 8);
         let before = q.fire(Some(to), t0 + MS * 20).expect("lit");
-        let (at0, end0) = q.fire.map(|b| (b.at, b.end)).unwrap();
+        let (at0, end0) = q.live.map(|b| (b.at, b.end)).unwrap();
         q.ride(-CELL.1, t0 + MS * 30, FLOOR, CELL.1);
         let after = q.fire(Some(to), t0 + MS * 40).expect("still burning");
         assert!((after.ignition.tail.y - before.ignition.tail.y + CELL.1).abs() < 1e-3);
@@ -2243,11 +2243,11 @@ mod tests {
             (before.ignition.dir, before.ignition.len)
         );
         assert_eq!(after.ignition.seed, before.ignition.seed);
-        assert_eq!(q.fire.map(|b| (b.at, b.end)), Some((at0, end0)));
+        assert_eq!(q.live.map(|b| (b.at, b.end)), Some((at0, end0)));
         // To the floor and no further: the tail is about 5.5 rows down.
         let tail = after.ignition.tail.y;
         q.ride(-1000.0, t0 + MS * 50, -100.0, CELL.1);
-        let past = q.fire.expect("still burning").ignition;
+        let past = q.live.expect("still burning").ignition;
         assert_eq!(past.tail.y, -100.0);
         assert!(
             (past.rode - (-CELL.1 + (-100.0 - tail))).abs() < 1e-3,
@@ -2682,7 +2682,7 @@ mod tests {
         let t0 = Instant::now();
         let mut q = Chase::new(Style::Effect(Effect::Lightning));
         jumped(&mut q, t0);
-        let end = q.fire.expect("struck").end;
+        let end = q.live.expect("struck").end;
         assert!(
             end < 0.36,
             "the control: the bolt ends inside the fade, {end}"

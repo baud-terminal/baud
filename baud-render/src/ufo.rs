@@ -21,7 +21,7 @@
 //! tests hold to its properties and the pixel oracle's reference calls.
 
 use crate::det::Det;
-use crate::effect::{self, Hash, Ignition, Particle, Seed, Vfx};
+use crate::effect::{self, Hash, Ignition, Particle, Seed, Vfx, smoothstep};
 use crate::trail::{Corners, Pt, Rect};
 
 /// The saucer's hover above the cursor, in cells; its scale; the beam's and
@@ -72,11 +72,6 @@ const LIGHTS: [(f32, f32); 5] = [
     (-0.809_017, -0.587_785),
     (0.309_017, -0.951_057),
 ];
-
-fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
-    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
 
 fn length(x: f32, y: f32) -> f32 {
     (x * x + y * y).sqrt()

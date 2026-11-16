@@ -23,8 +23,8 @@
 //! oracle's reference calls.
 
 use crate::det::Det;
-use crate::effect::{self, Hash, Ignition, Particle, Vfx};
-use crate::trail::{Pt, TAU_FAST};
+use crate::effect::{self, Hash, Ignition, Particle, Vfx, smoothstep};
+use crate::trail::{Corners, Pt, TAU_FAST};
 
 /// Seconds from ignition to when the last crystal, at the head, is gone:
 /// the hold, the melt's spread along the path, a crystal's melt and its
@@ -72,11 +72,6 @@ const GRAVITY: f32 = 6.0;
 
 fn sat(x: f32) -> f32 {
     x.clamp(0.0, 1.0)
-}
-
-fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
-    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }
 
 fn length(x: f32, y: f32) -> f32 {
@@ -426,6 +421,19 @@ impl Shard {
     }
 }
 
+/// **The shapes the ice's bands cover**: the quad its pane rides, and the
+/// path its frost is laid along, where the quad is for a few tens of
+/// milliseconds at a point.
+pub fn support(vfx: &Vfx, mut each: impl FnMut(Corners)) {
+    each(vfx.region());
+    let f = &vfx.ignition;
+    let head = Pt {
+        x: f.tail.x + f.dir.x * f.len,
+        y: f.tail.y + f.dir.y * f.len,
+    };
+    each(Corners([f.tail, head, head, f.tail]));
+}
+
 /// Every shard alive at the ignition's age.
 pub fn shards(f: &Ignition) -> impl Iterator<Item = Particle> + '_ {
     shed(f).filter_map(move |h| Shard::draw(h).at(f))
@@ -463,6 +471,29 @@ mod tests {
             ignition: f.at(age),
             axis: f.dir,
         }
+    }
+
+    /// **The ice's bands cover its quad and its path**, in that order: the
+    /// quad the emitter rides, then the path from the ignition's tail to
+    /// its head as a degenerate quad, which the frost is laid along.
+    #[test]
+    fn the_ice_supports_its_quad_and_then_its_path() {
+        let (from, to) = (cell(10.0, 5.0), cell(40.0, 9.0));
+        let v = vfx(from, to, Seed(7), 0.05);
+        let mut shapes = Vec::new();
+        support(&v, |c| shapes.push(c));
+        let f = v.ignition;
+        let head = Pt {
+            x: f.tail.x + f.dir.x * f.len,
+            y: f.tail.y + f.dir.y * f.len,
+        };
+        assert_eq!(
+            shapes,
+            [v.emitter.corners, Corners([f.tail, head, head, f.tail])]
+        );
+        let mut through = Vec::new();
+        v.support(|c| through.push(c));
+        assert_eq!(through, shapes, "the effect's support is the ice's own");
     }
 
     /// Crystal `k`'s centre, in pixels, for a test to look at.
