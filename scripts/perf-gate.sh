@@ -36,7 +36,7 @@
 # count moves run to run is fixed or left ungated, never given slack. Three
 # things the counts would otherwise follow are held fixed for every run:
 #
-#   * the environment (`env -i`): the timed loop reads a variable each
+#   * the environment (`env -i`): ingest2's timed loop reads a variable each
 #     chunk, and the lookup's cost grows with the environment it scans;
 #   * the addresses (`setarch -R`): a randomised stack moves where the
 #     loop's locals fall in a page, which changes which branch `memcmp`
@@ -45,7 +45,7 @@
 #     its loop the bench lists every process on the machine, and what that
 #     listing allocated and freed moves where the loop's own allocations
 #     land. In a namespace of its own the listing holds the bench alone,
-#     and the bench copy runs as `./ingest2` so its path is the same length
+#     and the bench copy runs as `./<bench>` so its path is the same length
 #     wherever the gate runs.
 #
 # Ir is then the same in any checkout. The simulated miss counts also
@@ -104,13 +104,30 @@ trap 'rm -rf "$work"' EXIT
 
 # --- the configuration -------------------------------------------------------
 
-# `[gate.<path>]` tables: `fn`, `kind` and `inputs`, one line each.
+# `[gate.<path>]` tables, one line a key: `fn`, the function the toggle
+# names; `kind`, which budgets apply; `bench`, the `baud-bench` bench that
+# runs it (`ingest2` when absent); `args`, the bench's arguments, with
+# `{input}` standing for each input (`{input} 1` when absent); and
+# `inputs`, a string of space-separated inputs or an array of strings, each
+# of which may hold spaces. An input's key in its entry is the input with
+# each space a `-`. Inputs come out `;`-separated.
 gates=$(awk '
   /^\[gate\./ { p = $0; sub(/^\[gate\./, "", p); sub(/\].*$/, "", p); next }
   /^\[/ { p = ""; next }
-  p != "" && /^(fn|kind|inputs) *=/ {
+  p != "" && /^(fn|kind|bench|args|inputs) *=/ {
     k = $0; sub(/ *=.*/, "", k)
-    v = $0; sub(/^[^=]*= *"/, "", v); sub(/" *$/, "", v)
+    v = $0; sub(/^[^=]*= */, "", v); sub(/ *$/, "", v)
+    if (v ~ /^\[/) {
+      out = ""
+      while (match(v, /"[^"]*"/)) {
+        out = out (out == "" ? "" : ";") substr(v, RSTART + 1, RLENGTH - 2)
+        v = substr(v, RSTART + RLENGTH)
+      }
+      v = out
+    } else {
+      sub(/^"/, "", v); sub(/"$/, "", v)
+      if (k == "inputs") gsub(/ +/, ";", v)
+    }
     print p "\t" k "\t" v
   }' "$budgets")
 gate_get() { printf '%s\n' "$gates" | awk -F'\t' -v p="$1" -v k="$2" '$1 == p && $2 == k { print $3 }'; }
@@ -145,22 +162,29 @@ fi
 
 # --- the build ---------------------------------------------------------------
 
-echo "perf-gate: building the ingest2 bench"
-build=$(cargo bench -p baud-bench --bench ingest2 --no-run 2>&1) || {
-  printf '%s\n' "$build"
-  echo "perf-gate: FAIL: the bench did not build"
-  exit 1
-}
-bin=$(printf '%s\n' "$build" | sed -n 's/^ *Executable benches\/ingest2\.rs (\(.*\))$/\1/p' | tail -n 1)
-case "$bin" in
-/*) ;;
-*) bin="$root/$bin" ;;
-esac
-[ -x "$bin" ] || {
-  printf '%s\n' "$build"
-  echo "perf-gate: FAIL: no ingest2 executable in cargo's output"
-  exit 1
-}
+# Each bench a gate names, built once; ingest2 always, which the control
+# runs on.
+declare -A binof
+for b in ingest2 $(for p in $paths; do gate_get "$p" bench; done); do
+  [ -z "${binof[$b]:-}" ] || continue
+  echo "perf-gate: building the $b bench"
+  build=$(cargo bench -p baud-bench --bench "$b" --no-run 2>&1) || {
+    printf '%s\n' "$build"
+    echo "perf-gate: FAIL: the $b bench did not build"
+    exit 1
+  }
+  bin=$(printf '%s\n' "$build" | sed -n "s/^ *Executable benches\/$b\.rs (\(.*\))\$/\1/p" | tail -n 1)
+  case "$bin" in
+  /*) ;;
+  *) bin="$root/$bin" ;;
+  esac
+  [ -x "$bin" ] || {
+    printf '%s\n' "$build"
+    echo "perf-gate: FAIL: no $b executable in cargo's output"
+    exit 1
+  }
+  binof[$b]=$bin
+done
 rustc_now=$(rustc -V)
 rustc_set=$(awk -F'"' '/^rustc *=/ { print $2 }' "$budgets")
 if [ -n "$rustc_set" ] && [ "$rustc_set" != "$rustc_now" ]; then
@@ -169,25 +193,26 @@ fi
 
 # --- the runs ----------------------------------------------------------------
 
-# run <dir> <fn> <input> <line>: one callgrind run, its counts left in
-# <dir>/counts as `<event> <count>` lines, the calls into <fn> in
-# <dir>/calls, and the bench's exit status in <dir>/status.
+# run <dir> <fn> <bench> <line> <arg>...: one callgrind run of <bench> with
+# <arg>..., its counts left in <dir>/counts as `<event> <count>` lines, the
+# calls into <fn> in <dir>/calls, and the bench's exit status in <dir>/status.
 #
 # The bench is pid 1 of its own namespace, so its profile is `cg.1` (and
 # `cg.1.<n>` for any part it dumps). The child it spawns after the timed
 # loop is forked under valgrind and writes `cg.2`, a copy of its parent's
 # counts, which is left out: summing the two would count the loop twice.
 run() {
-  local dir=$1 fn=$2 input=$3 line=$4 status=0
+  local dir=$1 fn=$2 bench=$3 line=$4 status=0
+  shift 4
   mkdir -p "$dir"
-  cp "$bin" "$dir/ingest2"
+  cp "${binof[$bench]}" "$dir/$bench"
   (
     cd "$dir"
     exec "${pin[@]}" "$ns" -r -p -f --mount-proc env -i PATH=/usr/bin:/bin LC_ALL=C \
       "$sa" -R "$vg" --tool=callgrind \
       --toggle-collect="$fn" --cache-sim=yes \
       --D1="$d1,$line" --LL="$ll,$line" \
-      --callgrind-out-file="$dir/cg.%p" ./ingest2 "$input" 1
+      --callgrind-out-file="$dir/cg.%p" "./$bench" "$@"
   ) >"$dir/log" 2>&1 || status=$?
   echo "$status" >"$dir/status"
   awk '
@@ -209,7 +234,7 @@ run() {
       if (/^cfn=\(/) { id = substr($0, 6); sub(/\).*/, "", id); if (id in want) prev = id }
     }
     END { print calls + 0 }' "$dir/cg.1" 2>/dev/null >"$dir/calls" || echo 0 >"$dir/calls"
-  rm -f "$dir/ingest2"
+  rm -f "${dir:?}/$bench"
 }
 count() { awk -v k="$2" '$1 == k { print $2; f = 1 } END { if (!f) print 0 }' "$1/counts"; }
 
@@ -218,16 +243,22 @@ count() { awk -v k="$2" '$1 == k { print $2; f = 1 } END { if (!f) print 0 }' "$
 entries=()
 for p in $paths; do
   fn=$(gate_get "$p" fn)
-  for input in $(gate_get "$p" inputs); do
-    e="$p.$input.$isa"
+  bench=$(gate_get "$p" bench)
+  bench=${bench:-ingest2}
+  template=$(gate_get "$p" args)
+  template=${template:-"{input} 1"}
+  IFS=';' read -ra inputs <<<"$(gate_get "$p" inputs)"
+  for input in "${inputs[@]}"; do
+    e="$p.${input// /-}.$isa"
     entries+=("$e")
-    run "$work/$e/a64" "$fn" "$input" 64 &
-    run "$work/$e/b64" "$fn" "$input" 64 &
-    run "$work/$e/a128" "$fn" "$input" 128 &
+    read -ra argv <<<"${template//\{input\}/$input}"
+    run "$work/$e/a64" "$fn" "$bench" 64 "${argv[@]}" &
+    run "$work/$e/b64" "$fn" "$bench" 64 "${argv[@]}" &
+    run "$work/$e/a128" "$fn" "$bench" 128 "${argv[@]}" &
   done
 done
 control_fn=perf_gate::no_such_fn
-run "$work/control" "$control_fn" less 64 &
+run "$work/control" "$control_fn" ingest2 64 less 1 &
 wait
 
 # --- the verdicts ------------------------------------------------------------

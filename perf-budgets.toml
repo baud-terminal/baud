@@ -38,9 +38,24 @@ rustc = "rustc 1.101.0-nightly (249c1e4e3 2026-11-05)"
 # `READ_CHUNK` at a time. `Term::feed` is inlined into it in a release
 # build, so the loop is the function a toggle can name.
 [gate.ingest]
+bench = "ingest2"
+args = "{input} 1"
 fn = "ingest2::timed"
 kind = "ingest"
 inputs = "cat cat-cjk less git-log vim btop"
+
+# The frame: `frame`'s timed frame, the seal and the render after each
+# read of a recording, at 200x50 cells, 14 px, the bundled face. One rep,
+# whose first frames fill the atlas: a run takes about 19 s under callgrind,
+# and two reps about 37. `Renderer::render` and `convert_with` are inlined
+# into it in a release build, so the frame is the function a toggle can
+# name.
+[gate.frame]
+fn = "frame::timed_frame"
+kind = "other"
+bench = "frame"
+args = "{input}"
+inputs = ["btop 1 full", "btop 1 incremental", "cat 1 full", "cat 1 incremental"]
 
 [ingest.cat.x86_64]
 ir = { value = 7893514, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
@@ -107,3 +122,47 @@ d1-128.d1mw = { value = 4582, set_in = "2026-11-15, x86_64", reason = "first bas
 d1-128.d1mr = { value = 11548, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 d1-128.llmr = { value = 3898, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 d1-128.llmw = { value = 40, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
+
+[frame.btop-1-full.x86_64]
+ir = { value = 3563372034, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.d1mw = { value = 10694049, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.d1mr = { value = 2128046, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.llmr = { value = 3248, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.llmw = { value = 101123, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.d1mw = { value = 5371847, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.d1mr = { value = 1441160, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.llmr = { value = 1959, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.llmw = { value = 50614, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+
+[frame.btop-1-incremental.x86_64]
+ir = { value = 733055862, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.d1mw = { value = 2118730, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.d1mr = { value = 718142, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.llmr = { value = 3262, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.llmw = { value = 101117, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.d1mw = { value = 1070389, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.d1mr = { value = 483207, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.llmr = { value = 1968, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.llmw = { value = 50610, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+
+[frame.cat-1-full.x86_64]
+ir = { value = 3596429297, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.d1mw = { value = 10875027, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.d1mr = { value = 3797803, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.llmr = { value = 3655, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.llmw = { value = 102330, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.d1mw = { value = 5609970, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.d1mr = { value = 3069611, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.llmr = { value = 2180, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.llmw = { value = 51237, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+
+[frame.cat-1-incremental.x86_64]
+ir = { value = 3550645427, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.d1mw = { value = 10643108, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.d1mr = { value = 3778923, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.llmr = { value = 3669, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-64.llmw = { value = 102333, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.d1mw = { value = 5491876, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.d1mr = { value = 3078897, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.llmr = { value = 2188, set_in = "2026-11-15, x86_64", reason = "first baseline" }
+d1-128.llmw = { value = 51241, set_in = "2026-11-15, x86_64", reason = "first baseline" }
