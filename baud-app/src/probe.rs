@@ -4054,8 +4054,9 @@ fn c_field(f: &[core::ffi::c_char]) -> Vec<u8> {
         .collect()
 }
 
-/// **The Linux loop's wake**: a socket pair the worker writes a byte to after
-/// each answer, which the loop's `poll` waits on beside the rest.
+/// **The Linux loop's wake**: a socket pair a worker writes a byte to after
+/// each answer -- the printed paths' worker, a kitty file read's thread --
+/// which the loop's `poll` waits on beside the rest.
 #[cfg(target_os = "linux")]
 pub struct Woken {
     read: std::os::unix::net::UnixStream,
@@ -4064,7 +4065,7 @@ pub struct Woken {
 #[cfg(target_os = "linux")]
 impl Woken {
     /// The pair, both ends non-blocking, and the worker's call.
-    pub fn pair() -> std::io::Result<(Woken, impl Fn() + Send + Clone + 'static)> {
+    pub fn pair() -> std::io::Result<(Woken, impl Fn() + Send + Sync + Clone + 'static)> {
         let (read, write) = std::os::unix::net::UnixStream::pair()?;
         read.set_nonblocking(true)?;
         write.set_nonblocking(true)?;

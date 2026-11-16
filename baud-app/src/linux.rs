@@ -419,6 +419,9 @@ struct Driver {
     /// worker wakes the loop's wait through `woken` when it answers.
     probes: crate::probe::Probes<Instant>,
     woken: Option<crate::probe::Woken>,
+    /// What a kitty file medium's reading thread wakes the loop's wait
+    /// with (`reads::hold_kitty_files`).
+    files_woken: Option<crate::probe::Woken>,
     /// When a read asks which program wrote it (`probe::Sampler`).
     groups: crate::probe::Sampler,
     link_config: crate::config::Link,
@@ -829,6 +832,23 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     // No kind of link is asked about here (`Link::programs`): the list is
     // the `[link.*]` rules' commands alone.
     probes.set_programs(cfg.link.programs());
+    // **A kitty file medium is read off the loop's thread**, which a pair
+    // of its own wakes at each piece and at the read's end; the turn drains
+    // it before the pieces are taken (`feed_released`). With no pair, the
+    // files are read at the terminator by the reader lent above.
+    let mut pace = crate::reads::Pace::new();
+    let files_woken = match crate::probe::Woken::pair() {
+        Ok((w, wake)) => {
+            crate::reads::hold_kitty_files(&mut term, &mut pace, std::sync::Arc::new(wake));
+            Some(w)
+        }
+        Err(e) => {
+            crate::warn!(
+                "kitty graphics: no wake for a file read ({e}); files are read in the feed"
+            );
+            None
+        }
+    };
     let mut d = Driver {
         bell,
         ringer: crate::bell::Ringer::new(&term),
@@ -867,7 +887,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         outbox: Outbox::default(),
         hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
         widths,
-        pace: crate::reads::Pace::new(),
+        pace,
         frame: Vec::new(),
         kept: Vec::new(),
         composed: Vec::new(),
@@ -950,6 +970,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         },
         probes,
         woken,
+        files_woken,
         groups,
         link_config: cfg.link.clone(),
         path_click: None,
@@ -1101,6 +1122,11 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         if let Some(w) = &d.woken {
             transfers.push((w.as_fd(), crate::pty::Interest::Read));
         }
+        // A kitty file read's thread, which writes at each piece and at
+        // the read's end.
+        if let Some(w) = &d.files_woken {
+            transfers.push((w.as_fd(), crate::pty::Interest::Read));
+        }
         if let Some(bus) = &d.bus {
             transfers.push((bus.as_fd(), crate::pty::Interest::Read));
             if bus.wants_write() {
@@ -1210,8 +1236,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         if d.ended() == Quit::Yes || d.quit == Quit::Yes {
             break 'run;
         }
-        // A ReGIS delay's held reads, at its deadline, read or not, and a
-        // one-shot input's once it has ended.
+        // A ReGIS delay's held reads, at its deadline, read or not, a
+        // one-shot input's once it has ended, and a kitty file read's pieces.
         d.feed_released();
         // The config's files: what inotify said, when the wait says it is
         // readable, and the reading at the settle's end (`follow_config`).
@@ -2945,11 +2971,16 @@ impl Driver {
     }
 
     /// **The held reads now owed a feed, fed**: a ReGIS delay's at its
-    /// deadline, read or not, and a one-shot input's once it has ended
-    /// (`reads::paced`). The loop calls it every turn, and a key before it
-    /// decides against the screen (`history_keys::decide`), so the screen
-    /// it reads is the one every byte that may be decoded made.
+    /// deadline, read or not, a one-shot input's once it has ended, and a
+    /// kitty file read's pieces and end while it runs (`reads::paced`). The
+    /// loop calls it every turn, and a key before it decides against the
+    /// screen (`history_keys::decide`), so the screen it reads is the one
+    /// every byte that may be decoded made. The file read's wakes are
+    /// drained first, so one its thread sends after is the next wait's.
     fn feed_released(&mut self) {
+        if let Some(w) = &self.files_woken {
+            w.drain();
+        }
         if self.pace.due(Instant::now()) || self.pace.released(&self.term) {
             let began = self.seat.cursor_on(&self.term);
             let took = self.feed(&[], Default::default());

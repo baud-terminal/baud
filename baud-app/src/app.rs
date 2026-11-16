@@ -1614,6 +1614,17 @@ impl App {
         // A read stops once its answers fill the reply buffer past one
         // control's worth, and `pump` sends them before the rest is parsed.
         crate::reads::hold_replies(&mut term);
+        // **A kitty file medium is read off the main thread**: the read
+        // stops at its terminator, the file is read on a thread of its own
+        // that wakes the view at each piece and at its end, and `pump`
+        // hands them on at that wake and feeds the rest once the read ends;
+        // its deadline is the pace's (`pace_wake`).
+        let mut pace = crate::reads::Pace::new();
+        crate::reads::hold_kitty_files(
+            &mut term,
+            &mut pace,
+            std::sync::Arc::new(move || waker.wake()),
+        );
         // ReGIS draws its built-in alphabet with the embedded face
         // (`regis_font.rs`).
         term.set_regis_font(crate::regis_font::glyph);
@@ -1860,7 +1871,7 @@ impl App {
             clipboard,
             clips,
             widths,
-            pace: crate::reads::Pace::new(),
+            pace,
             printing,
             notes,
             pictures: crate::kitty_files::LocalFiles::new(),
@@ -14636,6 +14647,12 @@ impl Driver {
                 self.app.echo = Echo::Fed;
             }
             self.judge();
+        }
+        // **What the output set is acted on after every read fed**, its own
+        // chunks or the reads a held kitty file read or a ReGIS delay held,
+        // fed on a wake with no chunk of their own: on the turn the hold
+        // ends, not at the program's next output.
+        if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {
             // A program's title: only a read can set one, so this is the
             // one place it can have changed. The read owes the derived
             // title a check too, made after the feed (`title_check`).
@@ -26472,6 +26489,37 @@ mod deferred_tests {
         let dirty = pump.find("self.app.owe_frame();").expect("the frame's");
         let frame = pump[..dirty].rfind("if ").expect("its gate");
         assert_eq!(pump[frame..dirty].trim(), fed, "the frame's gate");
+    }
+
+    /// **The title and the pointer follow every read fed**, its own chunks
+    /// or the reads a held kitty file read or a ReGIS delay held, which a
+    /// wake feeds with no chunk: each is in a block gated as the frame is,
+    /// so a title or a pointer shape written behind a `t=f` takes effect on
+    /// the turn the read ends. Perturbation: the block gated on the chunks
+    /// alone.
+    #[test]
+    fn the_title_and_pointer_follow_every_read_fed() {
+        let src = include_str!("app.rs");
+        let pump = src
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .expect("the pump")
+            .1;
+        let fed = "if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {";
+        for what in [
+            "self.derive.owe();",
+            "self.send_title();",
+            "self.app.reshape_pointer();",
+            concat!("hide_pointer(self.hiding.", "read(&self.app.term));"),
+        ] {
+            let at = pump.find(what).unwrap_or_else(|| panic!("no {what}"));
+            let gate = pump[..at].rfind("\n        if ").expect("its gate") + 1;
+            let line = pump[gate..].lines().next().expect("the gate's line");
+            assert_eq!(line.trim(), fed, "{what}'s gate");
+            assert!(
+                !pump[gate..at].contains("\n        }"),
+                "{what} inside that block"
+            );
+        }
     }
 }
 

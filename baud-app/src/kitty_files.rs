@@ -690,7 +690,36 @@ impl FileReader {
     }
 }
 
+/// **A read's pieces and end, sent by a test** as a reading thread sends
+/// them, at the moments the test picks ([`Reading::fed_by_test`]).
+#[cfg(test)]
+pub struct Feeder(std::sync::mpsc::SyncSender<Piece>);
+
+#[cfg(test)]
+impl Feeder {
+    /// The next piece, queued.
+    pub fn piece(&self, bytes: &[u8]) {
+        self.0.send(Piece::Bytes(bytes.to_vec())).expect("taken");
+    }
+
+    /// The read's end, queued.
+    pub fn end(&self, read: Result<(), KittyFileFailed>) {
+        self.0.send(Piece::End(read)).expect("taken");
+    }
+}
+
 impl Reading {
+    /// A read whose pieces and end the [`Feeder`] handed back sends.
+    #[cfg(test)]
+    pub fn fed_by_test() -> (Reading, Feeder) {
+        let (tx, rx) = std::sync::mpsc::sync_channel(QUEUE);
+        let reading = Reading {
+            rx: Some(rx),
+            ended: None,
+        };
+        (reading, Feeder(tx))
+    }
+
     /// A read that ended before it began.
     fn ended(read: Result<(), KittyFileFailed>) -> Reading {
         Reading {
