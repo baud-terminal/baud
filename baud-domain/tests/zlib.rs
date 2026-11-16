@@ -370,6 +370,206 @@ fn a_reference_before_the_start_and_a_bad_stored_length_are_refused() {
     );
 }
 
+/// The order 3.2.7 sends the code length code's lengths in.
+const CLEN_ORDER: [usize; 19] = [
+    16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+];
+
+/// A complete code length code: four bits for each length 0-15, none for
+/// the repeats 16-18.
+const EVERY_LENGTH: [u8; 19] = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 0, 0, 0];
+
+/// A symbol of a block's body: literal/length or distance.
+#[derive(Clone, Copy)]
+enum Sym {
+    Lit(usize),
+    Dist(usize),
+}
+
+/// `n` bits of `v`, least significant first, as 3.1.1 packs a data element.
+fn element(v: usize, n: usize) -> impl Iterator<Item = bool> {
+    (0..n).map(move |i| (v >> i) & 1 == 1)
+}
+
+/// The code 3.2.2's algorithm assigns each symbol from its length, as bits
+/// most significant first, as 3.1.1 packs a Huffman code; empty for a
+/// length of zero.
+fn canonical(lengths: &[u8]) -> Vec<Vec<bool>> {
+    let mut count = [0usize; 16];
+    for &l in lengths {
+        count[usize::from(l)] += 1;
+    }
+    count[0] = 0;
+    let mut next = [0usize; 16];
+    let mut code = 0;
+    for (n, below) in next.iter_mut().skip(1).zip(count) {
+        code = (code + below) << 1;
+        *n = code;
+    }
+    lengths
+        .iter()
+        .map(|&l| {
+            let len = usize::from(l);
+            let c = next[len];
+            next[len] += 1;
+            (0..len).rev().map(|i| (c >> i) & 1 == 1).collect()
+        })
+        .collect()
+}
+
+/// Lengths for `n` symbols, zero but for those `set` names.
+fn code_lengths(n: usize, set: &[(usize, u8)]) -> Vec<u8> {
+    let mut lengths = vec![0; n];
+    for &(symbol, len) in set {
+        lengths[symbol] = len;
+    }
+    lengths
+}
+
+/// Adler-32 (RFC 1950 section 8), a byte at a time.
+fn adler32(data: &[u8]) -> u32 {
+    let (a, b) = data.iter().fold((1u32, 0u32), |(a, b), &x| {
+        let a = (a + u32::from(x)) % 65_521;
+        (a, (b + a) % 65_521)
+    });
+    (b << 16) | a
+}
+
+/// A zlib stream of one final dynamic block (3.2.7): `clen` the code length
+/// code's lengths by symbol, `lit` and `dist` the literal/length and
+/// distance codes' lengths, each sent as its own code length symbol, then
+/// `body` and the Adler-32 of `data`, what the block inflates to.
+fn dynamic(clen: &[u8; 19], lit: &[u8], dist: &[u8], body: &[Sym], data: &[u8]) -> Vec<u8> {
+    let mut bits: Vec<bool> = Vec::new();
+    // BFINAL 1, BTYPE 10.
+    bits.extend(element(0b101, 3));
+    bits.extend(element(lit.len() - 257, 5));
+    bits.extend(element(dist.len() - 1, 5));
+    bits.extend(element(CLEN_ORDER.len() - 4, 4));
+    for s in CLEN_ORDER {
+        bits.extend(element(usize::from(clen[s]), 3));
+    }
+    let clen_codes = canonical(clen);
+    for &l in lit.iter().chain(dist) {
+        bits.extend(&clen_codes[usize::from(l)]);
+    }
+    let lit_codes = canonical(lit);
+    let dist_codes = canonical(dist);
+    for sym in body {
+        bits.extend(match *sym {
+            Sym::Lit(s) => &lit_codes[s],
+            Sym::Dist(s) => &dist_codes[s],
+        });
+    }
+    let mut z = vec![0x78, 0x01];
+    z.extend(bits.chunks(8).map(|byte| {
+        byte.iter()
+            .rev()
+            .fold(0u8, |b, &bit| (b << 1) | u8::from(bit))
+    }));
+    z.extend(adler32(data).to_be_bytes());
+    z
+}
+
+/// 3.2.1 defines a prefix code as a binary tree "in which the two edges
+/// descending from each non-leaf node are labeled 0 and 1 and in which the
+/// leaf nodes correspond one-for-one with (are labeled with) the symbols of
+/// the alphabet", and 3.2.7 names the one set with a code to spare: "If only
+/// one distance code is used, it is encoded using one bit, not zero bits; in
+/// this case there is a single code length of one, with one unused code."
+/// A literal/length, distance or code length code of more than one code
+/// that leaves a code unused is refused as a damaged block is, wherever the
+/// reads fall. Each stream is otherwise whole: its body spells `data` in
+/// the codes its lengths make, and its trailer is `data`'s Adler-32.
+#[test]
+fn an_incomplete_code_of_more_than_one_code_is_refused() {
+    // 'A' and end-of-block, two codes of two bits.
+    let lit = dynamic(
+        &EVERY_LENGTH,
+        &code_lengths(257, &[(65, 2), (256, 2)]),
+        &[1],
+        &[Sym::Lit(65), Sym::Lit(256)],
+        b"A",
+    );
+    // "AAAA": 'A', then length 3 at distance 1 in the first of two
+    // distance codes of two bits.
+    let dist = dynamic(
+        &EVERY_LENGTH,
+        &code_lengths(258, &[(65, 1), (256, 2), (257, 2)]),
+        &[2, 2],
+        &[Sym::Lit(65), Sym::Lit(257), Sym::Dist(0), Sym::Lit(256)],
+        b"AAAA",
+    );
+    // Lengths 0, 1 and 2, three codes of two bits.
+    let three = code_lengths(19, &[(0, 2), (1, 2), (2, 2)]);
+    let clen: [u8; 19] = three.try_into().expect("19 lengths");
+    let code_length = dynamic(
+        &clen,
+        &code_lengths(257, &[(65, 1), (256, 1)]),
+        &[0],
+        &[Sym::Lit(65), Sym::Lit(256)],
+        b"A",
+    );
+    for (what, z, n) in [
+        ("literal/length", lit, 1),
+        ("distance", dist, 4),
+        ("code length", code_length, 1),
+    ] {
+        assert_eq!(
+            every_split_and_size(&z, n, what).verdict,
+            Err(ZlibError::Block),
+            "{what}"
+        );
+    }
+}
+
+/// Three codes of one bit are more leaves than 3.2.1's tree has edges
+/// below its root: the set is refused as a damaged block is.
+#[test]
+fn an_over_subscribed_code_is_refused() {
+    let z = dynamic(
+        &EVERY_LENGTH,
+        &code_lengths(257, &[(65, 1), (66, 1), (256, 1)]),
+        &[0],
+        &[Sym::Lit(256)],
+        b"",
+    );
+    assert_eq!(
+        every_split_and_size(&z, 0, "over-subscribed").verdict,
+        Err(ZlibError::Block)
+    );
+}
+
+/// 3.2.7: "If only one distance code is used, it is encoded using one bit,
+/// not zero bits; in this case there is a single code length of one, with
+/// one unused code. One distance code of zero bits means that there are no
+/// distance codes used at all (the data is all literals)." Both inflate,
+/// wherever the reads fall.
+#[test]
+fn a_single_one_bit_distance_code_and_none_at_all_are_accepted() {
+    let four = b"AAAA";
+    let one_bit = dynamic(
+        &EVERY_LENGTH,
+        &code_lengths(258, &[(65, 1), (256, 2), (257, 2)]),
+        &[1],
+        &[Sym::Lit(65), Sym::Lit(257), Sym::Dist(0), Sym::Lit(256)],
+        four,
+    );
+    let end = every_split_and_size(&one_bit, 4, "one bit");
+    assert_eq!(end.verdict, Ok(()));
+    assert_eq!(end.out, four);
+    let none = dynamic(
+        &EVERY_LENGTH,
+        &code_lengths(257, &[(65, 1), (256, 1)]),
+        &[0],
+        &[Sym::Lit(65), Sym::Lit(256)],
+        b"A",
+    );
+    let end = every_split_and_size(&none, 1, "no distance codes");
+    assert_eq!(end.verdict, Ok(()));
+    assert_eq!(end.out, b"A");
+}
+
 /// Every PNG under the repository's own directories, sorted: the font
 /// fixtures, the cursor captures and the sources' images (144 tracked).
 fn repo_pngs() -> Vec<PathBuf> {

@@ -44,8 +44,8 @@
 //! that short. A slot no such code fills -- a longer code, or none -- falls
 //! to the walk 3.2.2 describes, a bit at a time. The fixed codes' tables are
 //! built at compile time and a dynamic block's once, after its lengths pass
-//! the check that refuses an over-subscribed set; the walk stays as the
-//! tests' oracle for every slot and every decode.
+//! the check that refuses an over-subscribed or incomplete set; the walk
+//! stays as the tests' oracle for every slot and every decode.
 
 /// Why a stream was refused. Every variant is a property of the bytes, or of
 /// the bytes against the caller's declared length.
@@ -54,7 +54,8 @@ pub enum ZlibError {
     /// CMF and FLG: CM not 8, CINFO above 7, FCHECK wrong, or FDICT set.
     Header,
     /// A block type of 3, a stored block whose NLEN is not LEN's complement,
-    /// an over-subscribed or impossible code, or a symbol no code defines.
+    /// an over-subscribed, incomplete or impossible code, or a symbol no
+    /// code defines.
     Block,
     /// A back-reference to before the first byte written.
     Distance,
@@ -174,6 +175,22 @@ const MAX_LIT: usize = 288;
 const MAX_DIST: usize = 32;
 const MAX_CODE_LENGTHS: usize = 19;
 
+/// Which codes a set of lengths may leave unassigned.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Unused {
+    /// None: the set is complete. A dynamic block's code length code.
+    Nothing,
+    /// None, but for a set of no codes at all or of a single code of length
+    /// one, whose other one-bit code is unused (3.2.7: "If only one distance
+    /// code is used, it is encoded using one bit, not zero bits; in this
+    /// case there is a single code length of one, with one unused code. One
+    /// distance code of zero bits means that there are no distance codes
+    /// used at all"). A dynamic block's literal/length and distance codes.
+    OneBitCode,
+    /// Any: the fixed distance code, whose codes 30 and 31 are left out.
+    Any,
+}
+
 /// A canonical Huffman code as the specification defines it (3.2.2): how
 /// many codes there are of each length, and the symbols in code order.
 #[derive(Clone, Copy)]
@@ -189,12 +206,11 @@ impl<const N: usize> Code<N> {
     };
 
     /// Builds the code from a length per symbol. An over-subscribed set of
-    /// lengths is refused; an incomplete one is allowed, as the reference
-    /// implementations allow it, because a single-code distance tree is
-    /// legal and incomplete. A `const fn`, so the fixed codes are built at
-    /// compile time; the casts widen a length of at most 15 and narrow a
+    /// lengths is refused, and so is an incomplete one that leaves unused
+    /// more than `unused` allows. A `const fn`, so the fixed codes are built
+    /// at compile time; the casts widen a length of at most 15 and narrow a
     /// symbol of at most 319, so none loses a bit.
-    const fn build(lengths: &[u8]) -> Result<Code<N>, ZlibError> {
+    const fn build(lengths: &[u8], unused: Unused) -> Result<Code<N>, ZlibError> {
         let mut code = Code::EMPTY;
         let mut i = 0;
         while i < lengths.len() {
@@ -211,6 +227,20 @@ impl<const N: usize> Code<N> {
                 return Err(ZlibError::Block);
             }
             len += 1;
+        }
+        // `left` counts the unused codes of length fifteen: all of them for
+        // a set of no codes, half for a single code of length one.
+        let allowed = match unused {
+            Unused::Nothing => left == 0,
+            Unused::OneBitCode => {
+                left == 0
+                    || left == 1 << MAX_BITS
+                    || (code.count[1] == 1 && left == 1 << (MAX_BITS - 1))
+            }
+            Unused::Any => true,
+        };
+        if !allowed {
+            return Err(ZlibError::Block);
         }
         let mut offs = [0u16; MAX_BITS + 1];
         len = 1;
@@ -334,8 +364,8 @@ impl<const N: usize, const S: usize> Huffman<N, S> {
 
     /// The code from a length per symbol, refused as [`Code::build`] refuses
     /// it, the table built only for a set that passed.
-    const fn build(lengths: &[u8]) -> Result<Huffman<N, S>, ZlibError> {
-        match Code::build(lengths) {
+    const fn build(lengths: &[u8], unused: Unused) -> Result<Huffman<N, S>, ZlibError> {
+        match Code::build(lengths, unused) {
             Ok(code) => Ok(Huffman {
                 code,
                 fast: fast_table(lengths),
@@ -433,11 +463,12 @@ const FIXED_LIT_LENGTHS: [u8; MAX_LIT] = {
 
 /// The fixed codes (3.2.6), built at compile time. Distance codes 30 and 31
 /// "will never actually occur", and are left out, so the walk refuses them.
-const FIXED_LIT: Huffman<MAX_LIT, LIT_SLOTS> = match Huffman::build(&FIXED_LIT_LENGTHS) {
-    Ok(h) => h,
-    Err(_) => panic!("the fixed literal/length code is complete"),
-};
-const FIXED_DIST: Huffman<MAX_DIST, DIST_SLOTS> = match Huffman::build(&[5u8; 30]) {
+const FIXED_LIT: Huffman<MAX_LIT, LIT_SLOTS> =
+    match Huffman::build(&FIXED_LIT_LENGTHS, Unused::Nothing) {
+        Ok(h) => h,
+        Err(_) => panic!("the fixed literal/length code is complete"),
+    };
+const FIXED_DIST: Huffman<MAX_DIST, DIST_SLOTS> = match Huffman::build(&[5u8; 30], Unused::Any) {
     Ok(h) => h,
     Err(_) => panic!("the fixed distance code is not over-subscribed"),
 };
@@ -666,7 +697,8 @@ impl Inflate {
                     self.phase = if k + 1 < d.ncode {
                         Phase::CodeLengths(Index(k + 1))
                     } else {
-                        d.code_lengths = Code::build(&d.lengths[..MAX_CODE_LENGTHS])?;
+                        d.code_lengths =
+                            Code::build(&d.lengths[..MAX_CODE_LENGTHS], Unused::Nothing)?;
                         d.lengths[..MAX_CODE_LENGTHS].fill(0);
                         Phase::Lengths(Index(0))
                     };
@@ -683,8 +715,11 @@ impl Inflate {
                         if d.lengths[256] == 0 {
                             return Err(ZlibError::Block);
                         }
-                        self.lit = Huffman::build(&d.lengths[..d.nlen])?;
-                        self.dist = Huffman::build(&d.lengths[d.nlen..d.nlen + d.ndist])?;
+                        self.lit = Huffman::build(&d.lengths[..d.nlen], Unused::OneBitCode)?;
+                        self.dist = Huffman::build(
+                            &d.lengths[d.nlen..d.nlen + d.ndist],
+                            Unused::OneBitCode,
+                        )?;
                         self.phase = Phase::Codes;
                     }
                 }
@@ -1064,7 +1099,7 @@ mod tests {
     /// bits: the symbol and its length where a code of at most that many
     /// bits begins them, [`Slot::WALK`] where none does.
     fn slots_agree<const N: usize, const S: usize>(lengths: &[u8]) {
-        let h = Huffman::<N, S>::build(lengths).expect("an accepted set");
+        let h = Huffman::<N, S>::build(lengths, Unused::Any).expect("an accepted set");
         let n = S.trailing_zeros();
         for i in 0..S {
             let mut b = Bits {
@@ -1089,7 +1124,7 @@ mod tests {
     /// `Ok(None)` short of bits, and `Err(Block)` on fifteen bits that
     /// spell no code.
     fn decodes_agree<const N: usize, const S: usize>(lengths: &[u8]) {
-        let h = Huffman::<N, S>::build(lengths).expect("an accepted set");
+        let h = Huffman::<N, S>::build(lengths, Unused::Any).expect("an accepted set");
         for count in COUNTS {
             let held = count.min(15);
             for p in 0..1u64 << held {
@@ -1153,6 +1188,32 @@ mod tests {
             "{long_dist} distance sets past {DIST_FAST} bits"
         );
         assert!(incomplete >= 24, "{incomplete} incomplete sets");
+    }
+
+    /// A dynamic block's literal/length and distance codes are complete,
+    /// empty or a single one-bit code (3.2.7); its code length code is
+    /// complete; the fixed distance code may leave any code unused. The
+    /// verdict on each set is read from its Kraft sum.
+    #[test]
+    fn a_dynamic_code_is_complete_empty_or_one_bit() {
+        let mut refused = 0;
+        each_set(|lit, dist| {
+            for set in [lit, dist] {
+                let codes: std::vec::Vec<u8> = set.iter().copied().filter(|&l| l != 0).collect();
+                let complete = kraft(set) == 1 << 15;
+                let one_bit = complete || codes.is_empty() || codes == [1];
+                let built = Code::<MAX_LIT>::build(set, Unused::OneBitCode);
+                assert_eq!(built.is_ok(), one_bit, "{set:?}");
+                let built = Code::<MAX_LIT>::build(set, Unused::Nothing);
+                assert_eq!(built.is_ok(), complete, "{set:?}");
+                assert!(Code::<MAX_LIT>::build(set, Unused::Any).is_ok(), "{set:?}");
+                refused += usize::from(!one_bit);
+            }
+        });
+        // The positive control: the generated incomplete sets reach the
+        // refusal.
+        assert!(refused >= 40, "{refused} sets refused");
+        assert!(Code::<MAX_LIT>::build(&[1, 1, 1], Unused::Any).is_err());
     }
 
     #[test]
