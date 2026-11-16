@@ -2561,7 +2561,7 @@ impl Paint<'_, '_> {
     /// The span `EraseExtent` names on the cursor's row: EL's and DECSEL's,
     /// and the cursor's row of ED and DECSED. The one definition of where
     /// an erase splits the row, so the four cannot disagree.
-    /// `[[source: ecma48]]` § 8.3.40 (EL): `Ps = 1` erases from the
+    /// `[[source: ecma48]]` § 8.3.41 (EL): `Ps = 1` erases from the
     /// beginning of the line up to and including the active position,
     /// which is why `ToStart` ends one past the cursor's column and not
     /// at it.

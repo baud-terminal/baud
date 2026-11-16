@@ -276,7 +276,7 @@ fn el_on_the_region_top_then_a_move_above_keeps_it_writing_to_the_margin() {
     );
 }
 
-/// **`EA` from row 8, ECMA-48's ERASE IN AREA (8.3.38) with no area
+/// **`EA` from row 8, ECMA-48's ERASE IN AREA (8.3.37) with no area
 /// guarded, the page from the cursor on**: it fills row 9 to its end, and
 /// marks the area's top again (`Paint::erase_in_area`).
 #[test]
