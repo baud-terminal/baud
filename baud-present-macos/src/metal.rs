@@ -30,11 +30,14 @@
 //! instead must not feed while [`Gpu::in_flight`] says busy: the core
 //! rewrites the rows of the live window in place.
 //!
-//! The atlas is the one thing still copied, and only the texels a new
-//! glyph wrote: the renderer's sheets are CPU memory the rasteriser
-//! writes, and a texture takes them by rectangle
+//! Two things are copied, the atlas and images. The atlas copies only
+//! the texels a new glyph wrote: the renderer's sheets are CPU memory the
+//! rasteriser writes, and a texture takes them by rectangle
 //! ([`baud_render::Atlas::take_dirty`]). After the first screenful that is
-//! nothing at all.
+//! nothing at all. An image is copied twice: the renderer snapshots it out
+//! of the store with its fill words resolved to the ground
+//! ([`baud_render::Renderer::image_uploads`]), and the snapshot is copied
+//! into a texture of its own, once per image within a store epoch.
 //!
 //! The shaders are Metal Shading Language compiled at first use, because a
 //! `.metallib` needs Xcode's toolchain at build time and the source is
@@ -789,14 +792,15 @@ pub struct Gpu {
     color: Option<Sheet>,
     /// The atlas generation the sheets were last brought up to.
     uploaded: Option<Generation>,
-    /// Per-image textures, valid for `image_gen`. Each image uploads once to
-    /// its own texture -- images are not glyph-sized and do not belong in the
-    /// shared atlas -- and the cache is cleared whole when the store's epoch
-    /// changes, so an image slot reused after a `reset` cannot return the old
-    /// texture. Keyed by [`ImageId`] within an epoch, by the word a
-    /// Sixel's background fill was drawn as, so a change of the default
-    /// background uploads a filled image again, and by the frame of a
-    /// kitty animation, so a frame shown in another's place uploads.
+    /// Per-image textures, valid for `image_gen`. Each image uploads once per
+    /// store epoch to its own texture -- images are not glyph-sized and do
+    /// not belong in the shared atlas -- and the cache is cleared whole when
+    /// the store's epoch changes, so every visible image uploads again and an
+    /// image slot reused after a `reset` cannot return the old texture. Keyed
+    /// by [`ImageId`] within an epoch, by the word a Sixel's background fill
+    /// was drawn as, so a change of the default background uploads a filled
+    /// image again, and by the frame of a kitty animation, so a frame shown in
+    /// another's place uploads.
     images: Vec<((ImageId, u32, FrameNo), Texture)>,
     image_gen: ImageGen,
     /// Frames committed and not yet completed -- zero or one -- and what
@@ -1931,12 +1935,13 @@ impl Gpu {
         Some(())
     }
 
-    /// Ensures every visible image has a GPU texture -- uploading a new one
-    /// once, its own texture rather than the shared atlas, because an image is
-    /// not glyph-sized -- and returns the placements to draw, in the
-    /// renderer's order, each with the texture to bind. The cache is dropped
-    /// whole when the store's epoch moves, so a slot reused after a `reset`
-    /// cannot return a stale texture. Called before the encoder, so a
+    /// Ensures every visible image has a GPU texture -- uploading each one
+    /// once per store epoch, into its own texture rather than the shared
+    /// atlas, because an image is not glyph-sized -- and returns the
+    /// placements to draw, in the renderer's order, each with the texture to
+    /// bind. The cache is dropped whole when the store's epoch moves, so every
+    /// visible image uploads again and a slot reused after a `reset` cannot
+    /// return a stale texture. Called before the encoder, so a
     /// `replaceRegion` upload never touches a bound texture.
     fn resolve_images(&mut self, renderer: &Renderer<'_, '_>) -> Vec<ImageDraw> {
         let places = renderer.image_placements();
