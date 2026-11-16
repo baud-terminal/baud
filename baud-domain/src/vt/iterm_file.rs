@@ -11,6 +11,7 @@
 //! [`file_geometry`] is a pure function of the arguments, the picture and
 //! the screen, so every drawing path draws the one result.
 
+use crate::bmp::Bmp;
 use crate::gif::{Gif, GifWait};
 use crate::jpeg::Jpeg;
 use crate::png::Png;
@@ -423,10 +424,10 @@ pub struct Picture {
 /// it is the bytes say, as `NSImage`'s `initWithData:` reads them
 /// (`[[source: iterm2-964a75d-image-with-data]]`), not the file's `name`: a
 /// GIF by its signature, its frames an animation ([`Gif::sniff`]), a JPEG
-/// by its `SOI` and the marker after it ([`Jpeg::sniff`]), else a PNG
-/// by its signature, its RGBA8 rows turned into straight ARGB words where
-/// they lie, as kitty's decode turns them. `None`, the image freed, for
-/// bytes that are neither, one that does not decode, or one the store
+/// by its `SOI` and the marker after it ([`Jpeg::sniff`]), a bitmap by its
+/// "BM" ([`Bmp::sniff`]), else a PNG by its signature, its RGBA8 rows
+/// turned into straight ARGB words where they lie. `None`, the image freed,
+/// for bytes that are neither, one that does not decode, or one the store
 /// refuses. A GIF's Plain Text Extensions are drawn with `font`
 /// ([`Gif::with_font`]), and with `None` are not.
 ///
@@ -451,6 +452,9 @@ pub fn decode_picture(
             .unwrap_or(0);
         let used = FileLen(at.saturating_add(work).min(scratch.len()));
         return (jpeg_of(store, scratch, at), used);
+    }
+    if Bmp::sniff(&scratch[..at]) {
+        return (bmp_of(store, &scratch[..at]), FileLen(at));
     }
     let raw = Png::parse(&scratch[..at])
         .ok()
@@ -479,6 +483,34 @@ fn jpeg_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Pict
             height: size.height,
             parts_not_drawn: 0,
         }),
+        Err(_) => {
+            store.free(id);
+            None
+        }
+    }
+}
+
+/// **The bitmap `data`**, decoded into a stored image of its size, marked
+/// by the alpha its pixels carry; it needs no work past the file.
+fn bmp_of(store: &mut ImageStore, data: &[u8]) -> Option<Picture> {
+    let bmp = Bmp::parse(data).ok()?;
+    let size = bmp.size();
+    let (w, h) = (
+        u16::try_from(size.width).ok()?,
+        u16::try_from(size.height).ok()?,
+    );
+    let (id, px) = store.store(ImagePx::of(w), ImagePx::of(h), ImageAlpha::OpaqueOrClear)?;
+    match bmp.decode(px) {
+        Ok(_) => {
+            let mark = ImageAlpha::of(px);
+            store.complete(id, mark);
+            Some(Picture {
+                id,
+                width: size.width,
+                height: size.height,
+                parts_not_drawn: 0,
+            })
+        }
         Err(_) => {
             store.free(id);
             None

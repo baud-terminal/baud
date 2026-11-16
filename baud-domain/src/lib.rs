@@ -56,6 +56,7 @@ mod bidi_data {
     //! counterpart.
     include!(concat!(env!("OUT_DIR"), "/bidi_data.rs"));
 }
+pub mod bmp;
 mod brand;
 mod cache;
 mod caseless;

@@ -4920,7 +4920,7 @@ iTerm2 3.7 Inline Images Protocol -- OSC 1337 File, MultipartFile, FilePart, Fil
 - **URL:** <https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-images.md>
 - **sha256:** `3b619ce2ce4d7798950f3c826b01c5676ecdee57bc89c5a5130863c1337d0290` (5228 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/file.rs`, `baud-core/tests/iterm_file.rs`, `baud-domain/build/iterm_keys.rs`, `baud-domain/src/gif.rs`, `baud-domain/src/jpeg.rs`, `baud-domain/src/vt/iterm_file.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-core/src/file.rs`, `baud-core/tests/iterm_file.rs`, `baud-domain/build/iterm_keys.rs`, `baud-domain/src/bmp.rs`, `baud-domain/src/gif.rs`, `baud-domain/src/jpeg.rs`, `baud-domain/src/vt/iterm_file.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-nsdictionary-9e29604"></a>
 ### iterm2-nsdictionary-9e29604
@@ -7158,6 +7158,96 @@ Developing OpenType Fonts for Arabic Script. Microsoft Typography, 2026, learn.m
 - **Read:** 2026-10-25
 - **Cited in:** `baud-font/src/gsub.rs`, `docs/bidi.md`
 
+<a id="ms-bitmap-compression"></a>
+### ms-bitmap-compression
+
+Bitmap Compression -- BI\_RLE8 and BI\_RLE4: encoded and absolute modes, end of line, end of bitmap, delta, word-aligned absolute runs, and an example of each. Microsoft, 2026, Microsoft Learn, Win32 GDI.
+
+- **URL:** <https://learn.microsoft.com/en-us/windows/win32/gdi/bitmap-compression>
+- **sha256:** `091833bbdb199be9402b383539146d25f0ae1651791bc9e6dfb98771cdff03d4` (50220 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`, `baud-domain/tests/bmp.rs`, `docs/vt-coverage.md`
+
+<a id="ms-bitmap-header-types"></a>
+### ms-bitmap-header-types
+
+Bitmap Header Types -- the four headers 'differentiated by the Size member', colour tables, the BI\_BITFIELDS masks, 'The scan lines are DWORD aligned, except for RLE-compressed bitmaps'. Microsoft, 2026, Microsoft Learn, Win32 GDI.
+
+- **URL:** <https://learn.microsoft.com/en-us/windows/win32/gdi/bitmap-header-types>
+- **sha256:** `6c445fce4232224ccffe38f97e83ce7d18d79a8d13249fd67f0bea184039d69d` (55405 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`, `docs/vt-coverage.md`
+
+<a id="ms-bitmap-storage"></a>
+### ms-bitmap-storage
+
+Bitmap Storage -- 'a BITMAPFILEHEADER structure followed by a BITMAPINFOHEADER, BITMAPV4HEADER, or BITMAPV5HEADER structure', the colour table, the colour-index array, bottom-up and top-down. Microsoft, 2026, Microsoft Learn, Win32 GDI.
+
+- **URL:** <https://learn.microsoft.com/en-us/windows/win32/gdi/bitmap-storage>
+- **sha256:** `797358d9d3af77c3fa530b6a16d637e5cde17c6359d326476d2c4833b0a0bf86` (53897 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`, `baud-domain/tests/bmp.rs`, `docs/vt-coverage.md`
+
+<a id="ms-bitmapcoreheader"></a>
+### ms-bitmapcoreheader
+
+BITMAPCOREHEADER structure (wingdi.h) -- WORD sides, bcBitCount 'must be 1, 4, 8, or 24'. Microsoft, 2026, Microsoft Learn, Win32 API, wingdi.h.
+
+- **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapcoreheader>
+- **sha256:** `38f152149caabd5879aedac33aab035922c56d79a693481643a54642a7edc2ce` (51050 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`, `docs/vt-coverage.md`
+
+<a id="ms-bitmapcoreinfo"></a>
+### ms-bitmapcoreinfo
+
+BITMAPCOREINFO structure (wingdi.h) -- a table of RGBTRIPLEs, 'The origin of the bitmap is the lower-left corner', the entries each bit count holds. Microsoft, 2026, Microsoft Learn, Win32 API, wingdi.h.
+
+- **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapcoreinfo>
+- **sha256:** `9621e8f8d944bcc2f86b03dde1228388b4f77352f3393f513ae67f31d787382c` (53862 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`
+
+<a id="ms-bitmapfileheader"></a>
+### ms-bitmapfileheader
+
+BITMAPFILEHEADER structure (wingdi.h) -- bfType 'must be 0x4d42', bfOffBits. Microsoft, 2026, Microsoft Learn, Win32 API, wingdi.h.
+
+- **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapfileheader>
+- **sha256:** `e294d5fd6292664d9599ffff4163215a8e58e7296f1b4805fe4303f8861ea972` (51086 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`
+
+<a id="ms-bitmapinfoheader"></a>
+### ms-bitmapinfoheader
+
+BITMAPINFOHEADER structure (wingdi.h) -- biHeight's sign, biClrUsed, the colour table and the three BI\_BITFIELDS masks after the header, the stride. Microsoft, 2026, Microsoft Learn, Win32 API, wingdi.h.
+
+- **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapinfoheader>
+- **sha256:** `9731780cb4e2f0836ebfa835a073f71dcf4e839cb786c7c9565bacd4706f59f9` (60316 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-core/tests/iterm_file.rs`, `baud-domain/src/bmp.rs`, `baud-domain/tests/bmp.rs`, `docs/vt-coverage.md`
+
+<a id="ms-bitmapv4header"></a>
+### ms-bitmapv4header
+
+BITMAPV4HEADER structure (wingdi.h) -- the red, green, blue and alpha masks in the header, 'Top-down DIBs cannot be compressed'. Microsoft, 2026, Microsoft Learn, Win32 API, wingdi.h.
+
+- **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapv4header>
+- **sha256:** `ce6945ff4dc974a5f4e20224c9a0a5fa4a76ae19fff41a8dcff7138de9967099` (63216 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`
+
+<a id="ms-bitmapv5header"></a>
+### ms-bitmapv5header
+
+BITMAPV5HEADER structure (wingdi.h) -- each bit count's pixels, BI\_RGB's 555 and 888 layouts, BI\_BITFIELDS 'Valid for 16-bpp and 32-bpp', 'bits set in each DWORD mask must be contiguous', the alpha mask, colour profiles. Microsoft, 2026, Microsoft Learn, Win32 API, wingdi.h.
+
+- **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapv5header>
+- **sha256:** `e213142d25b66b3a320a70a97c498d0577996756757fef00dcb81bb4d9b4e5c9` (67211 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`, `baud-domain/tests/bmp.rs`, `docs/vt-coverage.md`
+
 <a id="ms-d3d12-gpu-upload-heaps"></a>
 ### ms-d3d12-gpu-upload-heaps
 
@@ -7567,6 +7657,26 @@ vmtx -- Vertical Metrics Table. Microsoft Typography, 2026, OpenType specificati
 - **Read:** 2026-10-14
 - **Cited in:** `baud-font/src/face.rs`, `baud-font/src/glyf.rs`, `baud-font/tests/vertical.rs`, `tools/baud-oracle/src/cases/vertical.rs`
 
+<a id="ms-rgbquad"></a>
+### ms-rgbquad
+
+RGBQUAD structure (wingdi.h), the documentation's source -- rgbBlue, rgbGreen, rgbRed, rgbReserved, in that order. Microsoft, 2026, MicrosoftDocs/sdk-api on GitHub, sdk-api-src/content/wingdi/ns-wingdi-rgbquad.md.
+
+- **URL:** <https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/656e9656bfaef34dd29cd7ee9e1146aec17e924c/sdk-api-src/content/wingdi/ns-wingdi-rgbquad.md>
+- **sha256:** `5e0b8d4d95b369f935ef15ddc48ffb779c09428caef8d5539fefde37d5ab4eeb` (2537 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`
+
+<a id="ms-rgbtriple"></a>
+### ms-rgbtriple
+
+RGBTRIPLE structure (wingdi.h), the documentation's source -- rgbtBlue, rgbtGreen, rgbtRed, in that order; a BITMAPCOREINFO's table. Microsoft, 2026, MicrosoftDocs/sdk-api on GitHub, sdk-api-src/content/wingdi/ns-wingdi-rgbtriple.md.
+
+- **URL:** <https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/656e9656bfaef34dd29cd7ee9e1146aec17e924c/sdk-api-src/content/wingdi/ns-wingdi-rgbtriple.md>
+- **sha256:** `8044ec9b1c380de3e72081ebea6002b48316d9999408e456a1b8201561f1cdad` (2235 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`
+
 <a id="ms-syriac-script-development"></a>
 ### ms-syriac-script-development
 
@@ -7577,6 +7687,46 @@ Developing OpenType Fonts for Syriac Script. Microsoft Typography, 2026, learn.m
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-25
 - **Cited in:** `baud-domain/src/joining.rs`, `baud-font/src/gsub.rs`, `baud-font/src/layout.rs`
+
+<a id="ms-wmf-bitmapinfoheader"></a>
+### ms-wmf-bitmapinfoheader
+
+&#91;MS-WMF&#93; 2.2.2.3 BitmapInfoHeader Object -- the width 'MUST be positive', the height 'MUST NOT be zero', past the maximum 'the maximum color table size SHOULD be assumed'. Microsoft, 2026, Microsoft Open Specifications, &#91;MS-WMF&#93;.
+
+- **URL:** <https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/567172fa-b8a2-4d79-86a2-5e21d6659ef3>
+- **sha256:** `00711c04d7b377804fd822bcad748cb3d4af2fade27f59bfeeb741fd182ba557` (42585 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`, `docs/vt-coverage.md`
+
+<a id="ms-wmf-bitmapv4header"></a>
+### ms-wmf-bitmapv4header
+
+&#91;MS-WMF&#93; 2.2.2.4 BitmapV4Header Object -- each field's size in bytes: 'BitmapInfoHeader (40 bytes)', the four masks, 'Endpoints (36 bytes)', the gammas. Microsoft, 2026, Microsoft Open Specifications, &#91;MS-WMF&#93;.
+
+- **URL:** <https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/071b0c0d-c2df-4f1c-9828-d03c26002c61>
+- **sha256:** `80114140f20596c1f7148a8711116c06a3d725834eb5cbc3c9d97370361c6a9a` (41621 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`
+
+<a id="ms-wmf-bitmapv5header"></a>
+### ms-wmf-bitmapv5header
+
+&#91;MS-WMF&#93; 2.2.2.5 BitmapV5Header Object -- the V4 header's fields and four more, each four bytes. Microsoft, 2026, Microsoft Open Specifications, &#91;MS-WMF&#93;.
+
+- **URL:** <https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/8a37c67b-dab0-4693-98a9-fe0499095da6>
+- **sha256:** `35edf4766c38a4606e999d16f3ed034705682cdcb4665b50f90ccf008f5c7741` (39525 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`
+
+<a id="ms-wmf-compression"></a>
+### ms-wmf-compression
+
+&#91;MS-WMF&#93; 2.1.1.7 Compression Enumeration -- BI\_RGB = 0x0000, BI\_RLE8 = 0x0001, BI\_RLE4 = 0x0002, BI\_BITFIELDS = 0x0003, BI\_JPEG, BI\_PNG and the CMYK codes. Microsoft, 2026, Microsoft Open Specifications, &#91;MS-WMF&#93;.
+
+- **URL:** <https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/4e588f70-bd92-4a6f-b77f-35d0feaf7a57>
+- **sha256:** `bf4398afe3fc4b510e13f7343d7a1c6e8e0b1db33d86dd9b83fa7ffffe2cfd25` (39662 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-domain/src/bmp.rs`
 
 <a id="msdfgen-readme"></a>
 ### msdfgen-readme

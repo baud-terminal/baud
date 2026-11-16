@@ -210,6 +210,56 @@ fn a_jpeg_process_not_built_draws_the_placeholder() {
     });
 }
 
+/// **A 2x2 bitmap**: the file header, a 40-byte BITMAPINFOHEADER at 24
+/// bits, and its two rows bottom-up, each padded to four bytes -- blue and
+/// green, then red and white (`[[source: ms-bitmapinfoheader]]`).
+fn bmp() -> Vec<u8> {
+    [
+        // The file header: the file's 70 bytes, and the bits at 54.
+        &b"BM\x46\0\0\0\0\0\0\0\x36\0\0\0"[..],
+        // 40 bytes, 2 by 2, one plane, 24 bits, BI_RGB, 16 bytes of image.
+        b"\x28\0\0\0\x02\0\0\0\x02\0\0\0\x01\0\x18\0\0\0\0\0\x10\0\0\0",
+        // The resolutions, biClrUsed and biClrImportant.
+        b"\x13\x0b\0\0\x13\x0b\0\0\0\0\0\0\0\0\0\0",
+        // Blue and green, then red and white.
+        b"\xff\0\0\0\xff\0\0\0",
+        b"\0\0\xff\xff\xff\xff\0\0",
+    ]
+    .concat()
+}
+
+/// **A bitmap a program sends is placed as it decodes**, at every read size:
+/// its own size, its rows turned top-down, the cursor right of it; and one
+/// whose header is cut short draws the placeholder and is counted.
+#[test]
+fn an_inline_bmp_is_placed_as_it_decodes() {
+    for size in SIZES {
+        with(1 << 16, |t| {
+            feed(t, b"\x1b[3;5H", size);
+            feed(t, &file("inline=1", &bmp()), size);
+            let (col, w, h, got) = placed(t);
+            assert_eq!((col, w, h), (4, 2, 2), "reads of {size}");
+            assert_eq!(
+                got,
+                [0xFFFF_0000, 0xFFFF_FFFF, 0xFF00_00FF, 0xFF00_FF00],
+                "reads of {size}"
+            );
+            assert_eq!(
+                t.cursor(),
+                (Row::from_index(2), Col::at_index(5)),
+                "reads of {size}"
+            );
+            assert_eq!(t.iterm_counts().of(ItermKey::File), Messages::NONE);
+        });
+    }
+    with(1 << 16, |t| {
+        feed(t, &file("inline=1", &bmp()[..30]), 4097);
+        let (_, w, h, _) = placed(t);
+        assert_eq!((w, h), (35, 36), "the placeholder");
+        assert_eq!(t.iterm_counts().of(ItermKey::File), ONE);
+    });
+}
+
 /// One graphic of a GIF this file writes: its rectangle, indices and
 /// Graphic Control Extension (disposal, delay, user input).
 struct Graphic {
