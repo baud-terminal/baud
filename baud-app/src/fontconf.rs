@@ -56,6 +56,11 @@
 //!   over [`FaceView`]: the objects baud reads from a face, family, full
 //!   name, PostScript name, file, index, outline, scalable, colour, variable
 //!   and font format, each as FreeType and fontconfig set it.
+//! * **`<alias>`** (`[[source: fontconfig-fcxml-2-15-0]]` `FcParseAlias`,
+//!   `[[source: fontconfig-fccfg-2-15-0]]` `FcConfigSubstitute`): each, in
+//!   any file read, is a rule that puts other families before, after and
+//!   at the end of a family it names, which a name no installed face
+//!   answers to is looked up through ([`Aliases`]).
 //!
 //! **Departures in the patterns, open.** A pattern that names any other
 //! object -- `lang`, `charset`, `style`, `weight` and the rest a face has --
@@ -143,10 +148,11 @@ pub fn dirs(env: &Env) -> Option<Vec<PathBuf>> {
 pub struct Config {
     pub dirs: Vec<PathBuf>,
     pub select: Select,
+    pub aliases: Aliases,
 }
 
-/// **The configuration, read**: [`dirs`] and the `<selectfont>` rules of
-/// every file read; `None` as [`dirs`] is.
+/// **The configuration, read**: [`dirs`], and the `<selectfont>` and
+/// `<alias>` rules of every file read; `None` as [`dirs`] is.
 pub fn load(env: &Env) -> Option<Config> {
     let name = env.file.clone().unwrap_or_else(|| "fonts.conf".into());
     let mut load = Load {
@@ -154,6 +160,7 @@ pub fn load(env: &Env) -> Option<Config> {
         read: HashSet::new(),
         dirs: Vec::new(),
         select: Select::default(),
+        aliases: Aliases::default(),
         pending: Pending::default(),
     };
     let root = load.filename(&name)?;
@@ -161,6 +168,7 @@ pub fn load(env: &Env) -> Option<Config> {
     Some(Config {
         dirs: load.dirs,
         select: load.select,
+        aliases: load.aliases,
     })
 }
 
@@ -171,19 +179,158 @@ struct Load<'e> {
     read: HashSet<PathBuf>,
     dirs: Vec<PathBuf>,
     select: Select,
-    /// The parts of a `<selectfont>` rule read but not yet taken by the
-    /// element they are inside.
+    aliases: Aliases,
+    /// The parts of a `<selectfont>` or `<alias>` rule read but not yet
+    /// taken by the element they are inside.
     pending: Pending,
 }
 
-/// What fontconfig's parse stack holds between a selector's parts and the
+/// What fontconfig's parse stack holds between a rule's parts and the
 /// element that takes them: a `<patelt>`'s values, a `<pattern>`'s
-/// elements, an `<acceptfont>`'s or `<rejectfont>`'s globs and patterns.
+/// elements, an `<acceptfont>`'s or `<rejectfont>`'s globs and patterns;
+/// an `<alias>`'s own families, its `<prefer>`, `<accept>` and `<default>`,
+/// the families inside one of those, and whether it has a `<test>`.
 #[derive(Default)]
 struct Pending {
     values: Vec<Value>,
     elements: Vec<Patelt>,
     selectors: Vec<Selector>,
+    families: Vec<String>,
+    alias_families: Vec<String>,
+    prefer: Option<Vec<String>>,
+    accept: Option<Vec<String>>,
+    default: Option<Vec<String>>,
+    alias_test: Tested,
+}
+
+/// Whether the `<alias>` being read has a `<test>`.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Tested {
+    #[default]
+    No,
+    Yes,
+}
+
+/// **fontconfig's `<alias>` rules, in the order they were read**
+/// (`[[source: fontconfig-fcxml-2-15-0]]` `FcParseAlias`): each tests a
+/// family name and edits the family list as `[[source:
+/// fontconfig-fccfg-2-15-0]]` `FcConfigSubstitute` applies it
+/// ([`Aliases::expand`]).
+///
+/// * An alias whose `binding` is not `weak`, `strong` or `same` is dropped,
+///   as `FcConfigLexBinding` refuses it. Otherwise its binding is set on
+///   the families it adds (fccfg.c 1772, `same` taken from the matched
+///   family at 1822-1827) and nothing places a value by it, so it changes
+///   no order; it weighs only in fontconfig's own scoring of a match, which
+///   baud does not do, and is not kept.
+/// * An alias with no `<prefer>`, `<accept>` or `<default>` is no rule;
+///   one with no `<family>` is an error and no rule. Of several
+///   `<prefer>`s (or the others) the first is kept, as the parse stack
+///   keeps the last it pops.
+///
+/// **Departures, open.** An alias with a `<test>` is not applied: its
+/// test is fontconfig's expression grammar, which baud does not
+/// evaluate. Nor is one with more than one `<family>`, whose combined test
+/// fontconfig warns "isn't supported and may not work as expected": as
+/// `FcConfigMatchValueList` evaluates it, whether it matches turns on
+/// the last family alone. And baud follows the aliases only for a name no
+/// installed face answers to ([`crate::discover::Catalogue::lookup`]): a
+/// name that is an installed family is drawn as it is, where fontconfig
+/// would put an alias's `<prefer>` ahead of it.
+///
+/// They are read once, with the rest of the configuration, when the
+/// installed fonts are first looked at; an expansion is at most
+/// [`ALIAS_LIST_MAX`] families.
+#[derive(Default)]
+pub struct Aliases(Vec<Alias>);
+
+/// One `<alias>`: the family it tests and the three lists it adds.
+struct Alias {
+    family: String,
+    prefer: Vec<String>,
+    accept: Vec<String>,
+    default: Vec<String>,
+}
+
+/// The most families an expansion holds. fontconfig sets no bound; the
+/// configurations shipped with it add a few dozen at most to a generic
+/// name, and a configuration that adds more is cut here rather than grow
+/// the list without end.
+const ALIAS_LIST_MAX: usize = 256;
+
+impl Aliases {
+    /// **The family list `name` becomes** under fontconfig's aliases:
+    /// `name` alone at first, then for each alias in order, where a family
+    /// in the list equals its own by `FcStrCmpIgnoreBlanksAndCase` (fccfg.c
+    /// 1085; the first such, as the test's qualifier is `any`), its
+    /// `<prefer>` goes before that family, its `<accept>` after it and its
+    /// `<default>` at the end (`FcOpPrepend`, `FcOpAppend`,
+    /// `FcOpAppendLast`). Each alias is applied once, so one that names
+    /// another adds what that one adds only where that one comes later, and
+    /// a cycle ends with the list. A family may appear twice, as fontconfig
+    /// keeps it; the first is the one that counts. At most
+    /// [`ALIAS_LIST_MAX`] families.
+    pub fn expand(&self, name: &str) -> Vec<String> {
+        let mut list = vec![name.to_owned()];
+        for a in &self.0 {
+            let Some(at) = list.iter().position(|f| blank_caseless(f, &a.family)) else {
+                continue;
+            };
+            list.splice(at..at, a.prefer.iter().cloned());
+            let after = at + a.prefer.len() + 1;
+            list.splice(after..after, a.accept.iter().cloned());
+            list.extend(a.default.iter().cloned());
+            list.truncate(ALIAS_LIST_MAX);
+        }
+        list
+    }
+
+    /// The `<alias>` rules of one document, as a file of the configuration
+    /// holding only it gives them.
+    #[cfg(test)]
+    pub fn of_document(xml: &str) -> Aliases {
+        let env = Env {
+            home: None,
+            xdg_data_home: None,
+            xdg_data_dirs: None,
+            xdg_config_home: None,
+            file: None,
+            path: None,
+            config_dir: PathBuf::new(),
+            cwd: None,
+        };
+        let mut load = Load {
+            env: &env,
+            read: HashSet::new(),
+            dirs: Vec::new(),
+            select: Select::default(),
+            aliases: Aliases::default(),
+            pending: Pending::default(),
+        };
+        load.read_bytes(xml.as_bytes(), Path::new("/fonts.conf"));
+        load.aliases
+    }
+
+    /// The families [`Aliases::expand`] adds to `name`, each once, in
+    /// order: what is tried when `name` itself is no installed font.
+    pub fn instead_of(&self, name: &str) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for f in self.expand(name) {
+            if !blank_caseless(&f, name) && !out.iter().any(|o| blank_caseless(o, &f)) {
+                out.push(f);
+            }
+        }
+        out
+    }
+}
+
+/// `FcStrCmpIgnoreBlanksAndCase`'s equality: the two names with their
+/// spaces left out, by default caseless match.
+fn blank_caseless(a: &str, b: &str) -> bool {
+    baud_domain::caseless_eq(
+        a.chars().filter(|&c| c != ' '),
+        b.chars().filter(|&c| c != ' '),
+    )
 }
 
 /// One `<acceptfont>` or `<rejectfont>` child.
@@ -792,8 +939,53 @@ impl Load<'_> {
             }
             "reset-dirs" => self.dirs.clear(),
             "include" => self.include(&e.text, e.attr("prefix")),
+            _ if self.alias_part(e) => {}
             _ => self.selector_part(e),
         }
+    }
+
+    /// **A part of an `<alias>`, or the alias itself** (`FcParseFamily`,
+    /// `FcParseFamilies`, `FcParseAlias`): a `<family>` inside a
+    /// `<prefer>`, `<accept>` or `<default>` waits for it, and one directly
+    /// inside the alias for the alias; each of the three lists, and any
+    /// `<test>`, waits for the alias, which takes them as it ends ([`Aliases`]).
+    /// Whether `e` was one.
+    fn alias_part(&mut self, e: &Element) -> bool {
+        let p = &mut self.pending;
+        match (e.name.as_str(), e.parent.as_deref()) {
+            ("family", Some("prefer" | "accept" | "default")) => p.families.push(e.text.clone()),
+            ("family", Some("alias")) => p.alias_families.push(e.text.clone()),
+            (which @ ("prefer" | "accept" | "default"), Some("alias")) => {
+                let list = core::mem::take(&mut p.families);
+                let slot = match which {
+                    "prefer" => &mut p.prefer,
+                    "accept" => &mut p.accept,
+                    _ => &mut p.default,
+                };
+                slot.get_or_insert(list);
+            }
+            ("test", Some("alias")) => p.alias_test = Tested::Yes,
+            ("alias", _) => {
+                let families = core::mem::take(&mut p.alias_families);
+                let (prefer, accept, default) =
+                    (p.prefer.take(), p.accept.take(), p.default.take());
+                let tested = core::mem::take(&mut p.alias_test);
+                p.families.clear();
+                let binding = matches!(e.attr("binding"), None | Some("weak" | "strong" | "same"));
+                let edits = prefer.is_some() || accept.is_some() || default.is_some();
+                if let ([family], true, true, Tested::No) = (&families[..], binding, edits, tested)
+                {
+                    self.aliases.0.push(Alias {
+                        family: family.clone(),
+                        prefer: prefer.unwrap_or_default(),
+                        accept: accept.unwrap_or_default(),
+                        default: default.unwrap_or_default(),
+                    });
+                }
+            }
+            _ => return false,
+        }
+        true
     }
 
     /// **A part of a `<selectfont>` rule** (`[[source: fontconfig-fcxml-2-15-0]]`
@@ -1807,6 +1999,98 @@ mod tests {
         e.file = Some(format!("/dev/fd/{}", reader.as_raw_fd()).into());
         assert_eq!(dirs(&e).unwrap(), [PathBuf::from("/through-a-pipe")]);
         drop(reader);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// **`<alias>` edits the family list as `FcConfigSubstitute` does**:
+    /// each alias once, in the order read, its `<prefer>` before the first
+    /// family it equals (blanks and case aside), its `<accept>` after it,
+    /// its `<default>` at the end. An alias that tests a family only a later
+    /// one adds is not applied; one that adds the name asked for ends with
+    /// the list. Not rules: an unknown `binding`, a `<test>`, two
+    /// `<family>`s, no edits. What is tried in place of the name is the
+    /// rest, each once.
+    #[test]
+    fn aliases_edit_the_family_list_as_fontconfig_does() {
+        let a = Aliases::of_document(
+            r#"<fontconfig>
+  <alias><family>D Mono</family><prefer><family>Never</family></prefer></alias>
+  <alias>
+    <family>monospace</family>
+    <prefer><family>A Mono</family><family>B Mono</family></prefer>
+    <accept><family>C Mono</family></accept>
+    <default><family>D Mono</family></default>
+  </alias>
+  <alias><family>A Mono</family><prefer><family>A2</family></prefer></alias>
+  <alias><family>MONO SPACE</family><prefer><family>E</family></prefer></alias>
+  <alias binding="bogus"><family>monospace</family><prefer><family>Dropped1</family></prefer></alias>
+  <alias>
+    <test name="lang"><string>ja</string></test>
+    <family>monospace</family><prefer><family>Dropped2</family></prefer>
+  </alias>
+  <alias><family>monospace</family><family>other</family><prefer><family>Dropped3</family></prefer></alias>
+  <alias><family>monospace</family></alias>
+  <alias binding="strong"><family>C Mono</family><accept><family>C2</family></accept></alias>
+  <alias binding="same"><family>B Mono</family><prefer><family>monospace</family></prefer></alias>
+</fontconfig>"#,
+        );
+        assert_eq!(
+            a.expand("monospace"),
+            [
+                "A2",
+                "A Mono",
+                "monospace",
+                "B Mono",
+                "E",
+                "monospace",
+                "C Mono",
+                "C2",
+                "D Mono"
+            ]
+        );
+        assert_eq!(
+            a.instead_of("Monospace"),
+            ["A2", "A Mono", "B Mono", "E", "C Mono", "C2", "D Mono"]
+        );
+        assert_eq!(a.expand("serif"), ["serif"], "no alias for it");
+        assert!(a.instead_of("serif").is_empty());
+    }
+
+    /// **An expansion holds at most [`ALIAS_LIST_MAX`] families**: an alias
+    /// that prefers 300 holds the first 256 of them, and the name drops off.
+    #[test]
+    fn an_expansion_is_bounded() {
+        let prefer: String = (0..300).map(|i| format!("<family>F{i}</family>")).collect();
+        let a = Aliases::of_document(&format!(
+            "<fontconfig><alias><family>mono</family><prefer>{prefer}</prefer></alias></fontconfig>"
+        ));
+        let e = a.expand("mono");
+        assert_eq!(e.len(), ALIAS_LIST_MAX);
+        assert_eq!((e[0].as_str(), e[255].as_str()), ("F0", "F255"));
+    }
+
+    /// **The aliases of every file read, in the order read**: the system's
+    /// `conf.d` before the user's own file, which `50-user.conf` includes,
+    /// so a user's alias for a family the system's adds is applied after.
+    #[test]
+    fn the_aliases_of_every_file_in_order() {
+        let root = scratch("aliases");
+        system(&root);
+        write(
+            &root.join("etc/fonts/conf.d/45-mono.conf"),
+            "<fontconfig><alias><family>monospace</family>\
+             <prefer><family>System Mono</family></prefer></alias></fontconfig>",
+        );
+        write(
+            &root.join("home/.config/fontconfig/fonts.conf"),
+            "<fontconfig><alias><family>System Mono</family>\
+             <prefer><family>My Mono</family></prefer></alias></fontconfig>",
+        );
+        let c = load(&env(&root)).unwrap();
+        assert_eq!(
+            c.aliases.expand("monospace"),
+            ["My Mono", "System Mono", "monospace"]
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -1646,8 +1646,9 @@ impl Config {
                             kept.push(FaceSpec::picked(&p, f.role));
                         }
                         None if configured => said.push(format!(
-                            "config: no installed font is named {:?}; the stack goes on without it",
-                            f.path
+                            "config: no installed font is named {:?}{}; the stack goes on without it",
+                            f.path,
+                            tried(cat, &f.path)
                         )),
                         None => {}
                     }
@@ -1732,9 +1733,10 @@ impl Config {
                     };
                     if regular.is_none() {
                         said.push(format!(
-                            "config: [font] {key} names {:?}, which no installed font is; \
+                            "config: [font] {key} names {:?}, which no installed font is{}; \
                              SGR {sgr} draws the primary font",
-                            f.path
+                            f.path,
+                            tried(cat, &f.path)
                         ));
                     }
                     regular.map(|p| (p, family))
@@ -3721,6 +3723,22 @@ const DEFAULT_FACES: [&str; 5] = [
     "Apple SD Gothic Neo",
 ];
 
+/// What a notice adds for a family `name` that names no installed font:
+/// the families fontconfig's aliases put in its place, each also not
+/// installed ([`crate::discover::Catalogue::instead_of`]), or nothing
+/// when they add none.
+fn tried(cat: &crate::discover::Catalogue, name: &str) -> String {
+    let names = cat.instead_of(name);
+    if names.is_empty() {
+        return String::new();
+    }
+    let list: Vec<String> = names.iter().map(|n| format!("{n:?}")).collect();
+    format!(
+        ", nor any font fontconfig's aliases put in its place ({})",
+        list.join(", ")
+    )
+}
+
 /// The embedded Regular first -- JetBrains Mono with baud's Hebrew and Noto
 /// Sans Devanagari, so Hindi draws from it, the same on macOS and Linux -- the
 /// embedded icon face right behind it (it carries only private-use icons,
@@ -3950,6 +3968,43 @@ mod named {
     /// font directory holds them.
     fn jetbrains() -> Catalogue {
         Catalogue::scan(&[format!("{ROOT}/baud-app/fonts/jetbrains-mono").into()])
+    }
+
+    /// **A `fonts` family no face answers to is found through fontconfig's
+    /// aliases**, and nothing is said; where the families they put in its
+    /// place are not installed either, the notice names them.
+    #[test]
+    fn a_fonts_family_is_found_through_fontconfig_s_aliases() {
+        use crate::fontconf::Aliases;
+        let to = |prefer: &str| {
+            jetbrains().with_aliases(Aliases::of_document(&format!(
+                "<fontconfig><alias><family>monospace</family>\
+                 <prefer>{prefer}</prefer></alias></fontconfig>"
+            )))
+        };
+        let mut c = read("fonts = [\"monospace\"]\n");
+        let said = c.resolve(&to("<family>Nope</family><family>JetBrains Mono</family>"));
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(c.stack, StackFrom::Configured);
+        assert!(
+            c.faces[0].path.contains("/jetbrains-mono/"),
+            "{}",
+            c.faces[0].path
+        );
+        let mut c = read("fonts = [\"monospace\"]\n");
+        let said = c.resolve(&to("<family>Nope</family><family>Nor This</family>"));
+        assert_eq!(
+            said[0],
+            "config: no installed font is named \"monospace\", nor any font fontconfig's \
+             aliases put in its place (\"Nope\", \"Nor This\"); the stack goes on without it"
+        );
+        let mut c = read("fonts = [\"monospace\"]\n");
+        let said = c.resolve(&jetbrains());
+        assert_eq!(
+            said[0],
+            "config: no installed font is named \"monospace\"; the stack goes on without it",
+            "no aliases, as today"
+        );
     }
 
     /// **A value is a file when it has a path separator or a font file's

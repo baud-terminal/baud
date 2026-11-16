@@ -97,9 +97,15 @@
 # /Library/Fonts and the system's fonts; on Linux ~/.local/share/fonts,
 # ~/.fonts, /usr/share/fonts and the other XDG data folders), once, when it
 # starts. The name is matched in any letter case, under any of the names
-# the font gives its family, and the family's regular face is used. A name
+# the font gives its family, and the family's regular face is used. On
+# Linux a name no installed font has, such as "monospace", is looked up
+# through the aliases in fontconfig's configuration -- the families it
+# prefers for that name, then those it accepts, then its defaults -- and the
+# first one installed is used; a name an installed font has is used as it
+# is, even where an alias prefers another font for it. A name
 # no installed font has is left out, with a warning on the terminal baud
-# was started from, and the rest of the list goes on without it; if nothing
+# was started from (naming the aliases tried), and the rest of the list
+# goes on without it; if nothing
 # you named is found, the built-in stack is used. A font file can still be
 # given by its path, as other terminals allow for a font that is not
 # installed: a value with a "/" or ending in .ttf, .otf, .ttc or .otc is a

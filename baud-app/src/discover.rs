@@ -31,7 +31,7 @@
 //! -- one family, the built italics carrying the built family's name
 //! records -- and the icon and maths faces by theirs.
 
-use crate::fontconf::{FaceView, FcIndex, Kept, Select};
+use crate::fontconf::{Aliases, FaceView, FcIndex, Kept, Select};
 use baud_font::var::{Fixed, Variation};
 use baud_font::{Described, FaceIndex, Slope, Tag};
 use std::path::{Path, PathBuf};
@@ -477,12 +477,28 @@ pub fn pick(family: &[&Known], want: Want) -> Option<Picked> {
     })
 }
 
-/// The installed faces, in the order their directories were walked.
+/// The installed faces, in the order their directories were walked, and
+/// on Linux fontconfig's `<alias>` rules, which [`Catalogue::lookup`]
+/// follows for a name no face answers to.
 pub struct Catalogue {
     faces: Vec<Known>,
+    aliases: Aliases,
 }
 
 impl Catalogue {
+    /// The catalogue, looking a name no face answers to up through
+    /// `aliases`.
+    pub fn with_aliases(self, aliases: Aliases) -> Catalogue {
+        Catalogue { aliases, ..self }
+    }
+
+    /// **The families tried in place of `name`**, in order, when no face
+    /// answers to it: those fontconfig's aliases add to it
+    /// ([`Aliases::instead_of`]); none on macOS, which reads no fontconfig.
+    pub fn instead_of(&self, name: &str) -> Vec<String> {
+        self.aliases.instead_of(name)
+    }
+
     /// baud's embedded faces, then the faces under `dirs`, each walked in
     /// name order, earlier directories first; a directory that does not
     /// exist adds nothing.
@@ -496,7 +512,10 @@ impl Catalogue {
     pub fn scan_selected(dirs: &[PathBuf], select: &Select) -> Catalogue {
         let mut faces = embedded();
         faces.extend(Catalogue::read(dirs, DEPTH_MAX, select).faces);
-        Catalogue { faces }
+        Catalogue {
+            faces,
+            aliases: Aliases::default(),
+        }
     }
 
     /// The faces under `dirs` that `select` keeps, walked to `max` levels
@@ -533,6 +552,7 @@ impl Catalogue {
         read.sort_by_key(|r| r.0);
         Catalogue {
             faces: read.into_iter().flat_map(|r| r.1).collect(),
+            aliases: Aliases::default(),
         }
     }
 
@@ -542,8 +562,8 @@ impl Catalogue {
     pub fn system() -> &'static Catalogue {
         static SYSTEM: std::sync::OnceLock<Catalogue> = std::sync::OnceLock::new();
         SYSTEM.get_or_init(|| {
-            let (dirs, select) = system_config();
-            Catalogue::scan_selected(&dirs, &select)
+            let (dirs, select, aliases) = system_config();
+            Catalogue::scan_selected(&dirs, &select).with_aliases(aliases)
         })
     }
 
@@ -559,6 +579,13 @@ impl Catalogue {
     /// own family names), else the faces of the family it is. A unique
     /// name "specifies a single font, not an entire font family"
     /// (`[[source: css-fonts-3]]` 4.3).
+    ///
+    /// **A name no face answers to is looked up through fontconfig's
+    /// aliases** ([`Catalogue::instead_of`]): each family they add, in
+    /// order, as `name` itself is, and the first that names a face is what
+    /// `name` names. A name that names a face is not expanded, where
+    /// fontconfig would also put an alias's `<prefer>` ahead of it: an
+    /// installed face asked for by its own name is drawn. A departure, open.
     pub fn lookup(&self, name: &str) -> Named<'_> {
         match self.lookup_at(name) {
             NamedAt::Face(i) => Named::Face(&self.faces[i]),
@@ -571,6 +598,19 @@ impl Catalogue {
     /// caller that keeps its own record of each face: a program's
     /// `OSC 50`, which names a face among those loaded (`fonts.rs`).
     pub fn lookup_at(&self, name: &str) -> NamedAt {
+        match self.named_at(name) {
+            NamedAt::Nothing => self
+                .instead_of(name)
+                .iter()
+                .map(|n| self.named_at(n))
+                .find(|n| !matches!(n, NamedAt::Nothing))
+                .unwrap_or(NamedAt::Nothing),
+            found => found,
+        }
+    }
+
+    /// [`Catalogue::lookup_at`] for `name` alone, no alias followed.
+    fn named_at(&self, name: &str) -> NamedAt {
         if let Some(i) = self.faces.iter().position(|k| k.postscript_is(name)) {
             return NamedAt::Face(i);
         }
@@ -599,7 +639,13 @@ impl Catalogue {
                 at.push(i);
             }
         }
-        (Catalogue { faces: kept }, at)
+        (
+            Catalogue {
+                faces: kept,
+                aliases: Aliases::default(),
+            },
+            at,
+        )
     }
 
     /// **The faces of `k`'s family**: of its preferred family name
@@ -959,8 +1005,9 @@ pub fn system_dirs() -> Vec<PathBuf> {
 }
 
 /// [`system_dirs`] and, on Linux where fontconfig's configuration is
-/// found, its `<selectfont>` rules; elsewhere rules that keep everything.
-fn system_config() -> (Vec<PathBuf>, Select) {
+/// found, its `<selectfont>` and `<alias>` rules; elsewhere rules that keep
+/// everything and no aliases.
+fn system_config() -> (Vec<PathBuf>, Select, Aliases) {
     let home = std::env::var_os("HOME")
         .filter(|h| !h.is_empty())
         .map(PathBuf::from)
@@ -972,12 +1019,16 @@ fn system_config() -> (Vec<PathBuf>, Select) {
                 assets.extend(rd.flatten().map(|e| e.path()));
             }
         }
-        (mac_dirs(home, assets), Select::default())
+        (
+            mac_dirs(home, assets),
+            Select::default(),
+            Aliases::default(),
+        )
     } else {
         // fontconfig's own list where its configuration is found; the
         // fixed list where there is none.
         match crate::fontconf::load(&crate::fontconf::Env::from_process()) {
-            Some(c) => (c.dirs, c.select),
+            Some(c) => (c.dirs, c.select, c.aliases),
             None => (
                 xdg_dirs(
                     home,
@@ -985,6 +1036,7 @@ fn system_config() -> (Vec<PathBuf>, Select) {
                     std::env::var_os("XDG_DATA_DIRS"),
                 ),
                 Select::default(),
+                Aliases::default(),
             ),
         }
     }
@@ -1736,5 +1788,52 @@ mod tests {
         assert!(face("Apple Color Emoji").is_none(), "a family");
         assert!(matches!(cat.lookup("Apple Color Emoji"), Named::Family(_)));
         assert!(matches!(cat.lookup("No Such Face-Bold"), Named::Nothing));
+    }
+
+    /// **A name no face answers to is looked up through fontconfig's
+    /// aliases**, the first family they add that names a face winning;
+    /// a name that names a face is not expanded, and one whose aliases
+    /// name nothing installed names nothing.
+    #[test]
+    fn a_name_no_face_answers_to_is_looked_up_through_the_aliases() {
+        let dir = std::env::temp_dir().join(format!("baud-aliases-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (to, from) in [
+            ("fira.ttf", "baud-font/tests/fonts/FiraCode-Regular.ttf"),
+            ("jbm.ttf", "baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        ] {
+            std::fs::copy(format!("{ROOT}/{from}"), dir.join(to)).unwrap();
+        }
+        let aliases = Aliases::of_document(
+            "<fontconfig>\
+             <alias><family>monospace</family><prefer><family>Not Installed</family>\
+             <family>JetBrains Mono</family><family>Fira Code</family></prefer></alias>\
+             <alias><family>JetBrains Mono</family><prefer><family>Fira Code</family></prefer></alias>\
+             <alias><family>serif</family><prefer><family>Not Installed</family></prefer></alias>\
+             </fontconfig>",
+        );
+        let cat = Catalogue::scan(core::slice::from_ref(&dir)).with_aliases(aliases);
+        let files = |name: &str| -> Vec<String> {
+            match cat.lookup(name) {
+                Named::Family(f) => f
+                    .iter()
+                    .map(|k| k.path.rsplit('/').next().unwrap().to_string())
+                    .collect(),
+                Named::Face(k) => vec![k.path.rsplit('/').next().unwrap().to_string()],
+                Named::Nothing => Vec::new(),
+            }
+        };
+        // Not Installed, Fira Code (JetBrains Mono's alias), JetBrains Mono,
+        // Fira Code, monospace: the first installed is Fira Code.
+        assert_eq!(files("Monospace"), ["fira.ttf"], "the first installed");
+        assert_eq!(files("JetBrains Mono"), ["jbm.ttf"], "a face's own name");
+        assert!(files("serif").is_empty(), "no alias installed");
+        assert_eq!(
+            cat.instead_of("serif"),
+            ["Not Installed"],
+            "what a notice names"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
