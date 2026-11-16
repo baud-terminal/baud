@@ -239,7 +239,7 @@ pub struct FaceTable {
     blocks: Vec<u16>,
     rows: Vec<[u8; 256]>,
     /// Row to id, so a block identical to one already decided shares it.
-    index: std::collections::HashMap<[u8; 256], u16>,
+    index: crate::seeded::Map<[u8; 256], u16>,
     /// Per block, the faces whose `cmap` could reach it; emptied when the
     /// block is filled.
     proposed: Vec<Vec<u8>>,
@@ -273,7 +273,7 @@ impl FaceTable {
         FaceTable {
             blocks: vec![FaceTable::UNFILLED; FaceTable::COMBOS * FaceTable::BLOCKS],
             rows: Vec::new(),
-            index: std::collections::HashMap::new(),
+            index: crate::seeded::Map::default(),
             proposed,
             idle: [0; FaceTable::COMBOS],
             filled: Filled(0),
@@ -975,10 +975,8 @@ impl<'f, 'a> Stack<'f, 'a> {
         let mut rows = [[0u8; 256]; FaceTable::COMBOS];
         // Each face's answers for the parts and first parts of the block's
         // precomposed characters, asked once each.
-        let mut parts: std::collections::HashMap<(usize, u32), bool> =
-            std::collections::HashMap::new();
-        let mut leaves: std::collections::HashMap<(usize, u32), Draws> =
-            std::collections::HashMap::new();
+        let mut parts: crate::seeded::Map<(usize, u32), bool> = crate::seeded::Map::default();
+        let mut leaves: crate::seeded::Map<(usize, u32), Draws> = crate::seeded::Map::default();
         for lo in 0..256u32 {
             let v = base + lo;
             let cp = Codepoint::new(v);

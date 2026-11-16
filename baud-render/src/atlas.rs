@@ -51,6 +51,7 @@
 //! that cannot fire.
 
 use crate::color::Argb;
+use crate::seeded::Map;
 use crate::stack::{FaceIx, Lean};
 use crate::units::{Coverage, Tally, slots};
 use baud_domain::{Chan, Codepoint, GlyphId};
@@ -59,7 +60,6 @@ use baud_font::{
     Bounds, Canvas, Drawn, Extent, Face, Fit, InkBox, Mirror, Palette, PaletteEntry, Phase, Png,
     Ppem, Px, Rasterizer, Reach, Scale, Sink, Strike, Stroker, VarPoint,
 };
-use std::collections::HashMap;
 
 /// The most scratch the atlas grows to for one outline, in points: a
 /// memory budget, set at HarfBuzz's `HB_GLYF_MAX_POINTS`
@@ -524,42 +524,42 @@ pub enum Rescaled {
 struct Memo {
     size: SizeKey,
     /// `None` records a glyph with no ink, so a space is looked up once.
-    map: HashMap<GlyphKey, Option<Slot>>,
+    map: Map<GlyphKey, Option<Slot>>,
     /// The procedural glyphs -- box drawing, block elements, braille --
     /// by codepoint, drawn once per size the way a font glyph is: a cell
     /// mask is a function of the cell, which is a function of the size.
-    procedural: HashMap<u32, Option<Slot>>,
+    procedural: Map<u32, Option<Slot>>,
     /// The same for a line not single-width: drawn at the doubled cell,
     /// by codepoint, or a ring part's key, and stretch.
-    procedural_stretched: HashMap<(u32, Stretch), Option<Slot>>,
+    procedural_stretched: Map<(u32, Stretch), Option<Slot>>,
     /// **The procedural glyphs of a character two cells wide**, by
     /// codepoint and stretch: a mask across both cells
     /// ([`crate::boxes::draw_across`]). A map of its own, so a one-cell
     /// glyph is looked up by the key it always was.
-    procedural_wide: HashMap<(u32, Stretch), Option<Slot>>,
+    procedural_wide: Map<(u32, Stretch), Option<Slot>>,
     /// **The same mirrored**, as `?2500` draws a box drawing character
     /// two cells wide right to left ([`crate::boxes::Facing`]): a map of
     /// its own, so the character as written keeps its key.
-    procedural_mirrored: HashMap<(u32, Stretch), Option<Slot>>,
+    procedural_mirrored: Map<(u32, Stretch), Option<Slot>>,
     /// **The glyphs drawn flipped left to right**, under the key their
     /// unflipped image is kept by: a Bidi_Mirrored character with no
     /// Bidi_Mirroring_Glyph resolved right to left (UAX #9 L4,
     /// [`Atlas::slot_flipped_at`]). A map of its own, so the key every other
     /// glyph is looked up by is no wider for it.
-    flipped: HashMap<GlyphKey, Option<Slot>>,
+    flipped: Map<GlyphKey, Option<Slot>>,
     /// **The glyphs drawn sheared left**, flipped first or not, by the
     /// lean's bits: an italic SAPV 17 slants left ([`Atlas::slot_sheared_at`]).
-    sheared: HashMap<(GlyphKey, Flip, u32), Option<Slot>>,
+    sheared: Map<(GlyphKey, Flip, u32), Option<Slot>>,
     /// **The glyphs drawn smaller to fit their one cell**, by the scale's
     /// bits: a letter of a joining script wider than its cell
     /// ([`Atlas::slot_fitted_at`], `crate::fit`). A map of its own, so the
     /// key every other glyph is looked up by is no wider for it.
-    fitted: HashMap<(GlyphKey, u32), Option<Slot>>,
+    fitted: Map<(GlyphKey, u32), Option<Slot>>,
     /// **The word wrap's continuation marks** ([`crate::wrapmark`]), by
     /// their side and the width of the box they are drawn in, which the
     /// padding the driver lends sets: the height is the cell's, a function
     /// of the size.
-    wrap_marks: HashMap<(crate::wrapmark::Side, u32), Option<Slot>>,
+    wrap_marks: Map<(crate::wrapmark::Side, u32), Option<Slot>>,
 }
 
 /// Whether a glyph's image is flipped left to right: a mirrored
@@ -575,15 +575,15 @@ impl Memo {
     fn new(size: SizeKey) -> Memo {
         Memo {
             size,
-            map: HashMap::new(),
-            procedural: HashMap::new(),
-            procedural_stretched: HashMap::new(),
-            procedural_wide: HashMap::new(),
-            procedural_mirrored: HashMap::new(),
-            flipped: HashMap::new(),
-            sheared: HashMap::new(),
-            fitted: HashMap::new(),
-            wrap_marks: HashMap::new(),
+            map: Map::default(),
+            procedural: Map::default(),
+            procedural_stretched: Map::default(),
+            procedural_wide: Map::default(),
+            procedural_mirrored: Map::default(),
+            flipped: Map::default(),
+            sheared: Map::default(),
+            fitted: Map::default(),
+            wrap_marks: Map::default(),
         }
     }
 
@@ -618,21 +618,21 @@ pub struct Atlas {
     /// Glyphs drawn at a size of their own, the badge's, by face, glyph and
     /// scale -- the scale is in the key, so they stand at every cell size --
     /// and voided with the rest.
-    sized: HashMap<(FaceIx, GlyphIx, ScaleKey), Option<Slot>>,
+    sized: Map<(FaceIx, GlyphIx, ScaleKey), Option<Slot>>,
     /// The strokes of glyphs drawn at a size of their own, the badge's
     /// outline, by face, glyph, scale and the stroke's width, voided with
     /// the rest.
-    stroked: HashMap<(FaceIx, GlyphIx, ScaleKey, ScaleKey), Option<Slot>>,
+    stroked: Map<(FaceIx, GlyphIx, ScaleKey, ScaleKey), Option<Slot>>,
     /// Colour glyphs drawn at a size of their own inside an alpha, the
     /// badge's, by face, glyph, scale and the alpha, voided with the rest.
-    faded: HashMap<(FaceIx, GlyphIx, ScaleKey, u8), Option<Slot>>,
+    faded: Map<(FaceIx, GlyphIx, ScaleKey, u8), Option<Slot>>,
     /// Pictures of baud's own on the colour sheet, the activity lights' on
     /// their line ([`Atlas::picture`]), by the key their drawer gave, voided
     /// with the rest.
-    pictures: HashMap<PictureKey, Option<Slot>>,
+    pictures: Map<PictureKey, Option<Slot>>,
     /// Each glyph's ink box in font units, by face and glyph: a function of
     /// the outline alone, so of no size, and voided with the rest.
-    inks: HashMap<(FaceIx, GlyphIx), Option<InkBox>>,
+    inks: Map<(FaceIx, GlyphIx), Option<InkBox>>,
     scratch: Vec<f32>,
     /// The points of a varied outline ([`outline`]), grown to the largest
     /// need asked so far and kept.
@@ -662,11 +662,11 @@ impl Atlas {
             color_replaced: Replaced::No,
             held: Memo::new(SizeKey::NONE),
             kept: Vec::new(),
-            sized: HashMap::new(),
-            stroked: HashMap::new(),
-            faded: HashMap::new(),
-            pictures: HashMap::new(),
-            inks: HashMap::new(),
+            sized: Map::default(),
+            stroked: Map::default(),
+            faded: Map::default(),
+            pictures: Map::default(),
+            inks: Map::default(),
             scratch: Vec::new(),
             var: Vec::new(),
             coverage: Vec::new(),

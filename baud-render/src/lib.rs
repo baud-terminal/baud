@@ -75,6 +75,7 @@ mod renderer;
 pub mod screens;
 mod scroll;
 mod scrollbar;
+mod seeded;
 mod select;
 pub mod splash;
 mod stack;
@@ -166,6 +167,7 @@ pub use scrollbar::{
     Bar, Hover, Look, Place, Scroll, Scroller, Thumb, Widths, Window, back_for, bar, gutter, place,
     thumb, track,
 };
+pub use seeded::{HashSeed, Map, Seeded, fix_hash_seed};
 pub use select::{
     AbsLine, Beyond, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,
     WindowLine, char_col, row_of, row_styles_of,

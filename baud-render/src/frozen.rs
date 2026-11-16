@@ -39,13 +39,13 @@
 //! is the rendition table's rule (DEC STD 070's SGR note 3, above) kept for
 //! the frame's copy as it is for the core's.
 
+use crate::seeded::Map;
 use crate::{Orders, Renderer, Resolved, StyleStamp};
 use baud_core::Term;
 use baud_domain::{
     Col, Cols, FrozenSerial, PackedCell, Row, RowStyles, Rows, SlotSet, Stride, StyleId, StyleWord,
 };
 use core::ops::Range;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 /// **Where a run of cells' rendition ids name their words**: one table for
@@ -209,7 +209,7 @@ impl Lendings {
 struct LendScratch {
     sources: Vec<(Source, StyleWord)>,
     marked: Vec<(usize, usize, usize)>,
-    given: HashMap<(FrozenSerial, usize), StyleId>,
+    given: Map<(FrozenSerial, usize), StyleId>,
     order: Vec<Given>,
     slots: Vec<Option<StyleId>>,
 }
@@ -243,7 +243,7 @@ pub struct Lent {
     /// The resolved word of a frozen id, kept by its generation's serial,
     /// under the inputs it was resolved under: a generation's words never
     /// change, and a rebuilt one has a new serial.
-    cache: HashMap<(FrozenSerial, usize), Resolved>,
+    cache: Map<(FrozenSerial, usize), Resolved>,
     /// A struck rendition as the cell draws it and as the strike's rule
     /// leaves it, under the same inputs: the rule decided once a
     /// rendition while the colours in force hold, never a cell.

@@ -29,6 +29,7 @@ use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
 use crate::picture::{Pictured, Pictures};
 use crate::renderer::{BlinkPhases, Blinking, ClusterGlyph, Framed, Renderer};
+use crate::seeded::Map;
 use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
@@ -38,7 +39,6 @@ use baud_domain::{
     UnicodeWidths, Viewport, Vs16Width, Width, WidthPolicy, is_default_ignorable, vs16,
 };
 use baud_font::Px;
-use std::collections::HashMap;
 
 /// What one frame's walk found and what the store holds.
 #[derive(Clone, Copy, Debug, Default)]
@@ -165,18 +165,18 @@ struct Gather {
 
 /// The cluster map and the walk that fills the overlay from it.
 pub struct Overlay {
-    clusters: HashMap<ClusterKey, Vec<ClusterGlyph>>,
+    clusters: Map<ClusterKey, Vec<ClusterGlyph>>,
     /// A cluster's ink measured against its cell, by the key its glyphs
     /// are kept under: `None` where it is not over 1.1 cells wide
     /// (`crate::fit`), so a letter of a joining script is measured once
     /// and not on every frame.
-    wides: HashMap<ClusterKey, Option<crate::fit::Overwide>>,
+    wides: Map<ClusterKey, Option<crate::fit::Overwide>>,
     /// A lam-alef pair's content to the glyphs its lam's cell and its
     /// alef's cell draw, or `None` where the two take different faces.
-    pairs: HashMap<ClusterKey, Option<PairGlyphs>>,
+    pairs: Map<ClusterKey, Option<PairGlyphs>>,
     /// A window's content to what each of its cells draws: `None` where
     /// the map already draws it, the glyphs where it does not.
-    windows: HashMap<ClusterKey, Vec<Option<Vec<ClusterGlyph>>>>,
+    windows: Map<ClusterKey, Vec<Option<Vec<ClusterGlyph>>>>,
     /// **A window's cells as [`Overlay::window`] gathers them**, reused
     /// from window to window and frame to frame, so gathering one
     /// allocates nothing once they have grown to the longest.
@@ -669,10 +669,10 @@ impl Default for Overlay {
 impl Overlay {
     pub fn new() -> Overlay {
         Overlay {
-            clusters: HashMap::new(),
-            wides: HashMap::new(),
-            pairs: HashMap::new(),
-            windows: HashMap::new(),
+            clusters: Map::default(),
+            wides: Map::default(),
+            pairs: Map::default(),
+            windows: Map::default(),
             gather: Gather::default(),
             grown: Tally::default(),
             stats: OverlayStats::default(),

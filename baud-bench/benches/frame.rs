@@ -366,6 +366,13 @@ fn allocations() -> u64 {
 
 fn main() {
     baud_bench::warm::refuse_while_warm();
+    // Every renderer map keyed by one fixed seed, so a run repeats its probes
+    // and a counter gate reads the same instructions twice
+    // (`baud_render::fix_hash_seed`). Before the first map is made.
+    assert!(
+        baud_render::fix_hash_seed(baud_render::HashSeed(0)),
+        "the seed was set before main"
+    );
     let mut args = baud_bench::args();
     let which = args.next().unwrap_or_else(|| "btop".to_string());
     let reps: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(5);

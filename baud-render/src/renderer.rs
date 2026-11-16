@@ -3879,7 +3879,7 @@ pub struct Renderer<'f, 'a> {
     /// Fraktur (`Stack::select_font`), by codepoint and by the style, font
     /// and presentation's code, remembered up to `FONT_FACES_MAX`: empty on
     /// a stack with no font faces, whose cells never ask.
-    font_faces: std::collections::HashMap<(u32, u32), FaceIx>,
+    font_faces: crate::seeded::Map<(u32, u32), FaceIx>,
     /// Whether a face draws all of a marked cluster, remembered, so a run
     /// the cache misses asks `shape` a lookup per marked cell too.
     cluster_covers: ClusterMemo<Cover>,
@@ -3921,7 +3921,7 @@ pub struct Renderer<'f, 'a> {
     /// `differs` count: the face and glyph the cell shader's map would
     /// draw, with its offsets -- not an atlas slot, which a repack moves.
     #[cfg(feature = "exceptions")]
-    singles: std::collections::HashMap<u32, Option<(FaceIx, Placed)>>,
+    singles: crate::seeded::Map<u32, Option<(FaceIx, Placed)>>,
     metrics: Metrics,
     theme: Theme,
     /// The video this frame draws in: the screen's `?5`, or under a flash the
@@ -4327,7 +4327,7 @@ pub struct Renderer<'f, 'a> {
     /// a screen's worth, [`FLASH_CACHED`], emptied between frames when full.
     /// And by the trail's mix ([`Renderer::trail_mix`]), the composite each
     /// is scanned over.
-    flash_caps: std::collections::HashMap<(Argb, Argb, Argb, Mix), Chan>,
+    flash_caps: crate::seeded::Map<(Argb, Argb, Argb, Mix), Chan>,
     /// The alternate-screen fade's veil on this frame and the last, and its
     /// one full-screen solid: while it fades every row is dirty, because the
     /// veil covers the whole screen and the whole screen is what changed.
@@ -4702,7 +4702,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut r = Renderer {
             faces_of: stack.table(),
             cluster_faces: ClusterMemo::new(Question::Face, FaceIx::PRIMARY),
-            font_faces: std::collections::HashMap::new(),
+            font_faces: crate::seeded::Map::default(),
             cluster_covers: ClusterMemo::new(Question::Cover, Cover::Whole),
             stack,
             scales,
@@ -4718,7 +4718,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             row_unresolved: Vec::new(),
             faces,
             #[cfg(feature = "exceptions")]
-            singles: std::collections::HashMap::new(),
+            singles: crate::seeded::Map::default(),
             digests,
             metrics,
             theme,
@@ -4859,7 +4859,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             bauds: (Argb::default(), BaudCursor::dark()),
             flash_cap: Chan::from_u8(0),
             flash_held: flash::Held::Full,
-            flash_caps: std::collections::HashMap::new(),
+            flash_caps: crate::seeded::Map::default(),
             fade: None,
             last_fade: None,
             faint: None,
