@@ -593,25 +593,24 @@ fn fire(cell: Box4, shape: Box4, u: f32, fill: Argb, out: &mut Vec<Instance>) {
 mod drawn {
     use std::cell::Cell;
 
+    use crate::Digest;
+
     std::thread_local! {
-        static BITS: Cell<u64> = const { Cell::new(0) };
+        static BITS: Cell<Digest> = Cell::new(Digest::start());
     }
 
     pub(super) fn fold(vs: &[f32]) {
         BITS.with(|h| {
-            let mut d = h.get();
-            for v in vs {
-                for b in v.to_bits().to_le_bytes() {
-                    d = (d ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
-                }
-            }
+            let d = vs
+                .iter()
+                .fold(h.get(), |d, v| d.fold_bytes(&v.to_bits().to_le_bytes()));
             h.set(d);
         });
     }
 
     /// The digest of what `f` drew.
-    pub(super) fn of(f: impl FnOnce()) -> u64 {
-        BITS.with(|h| h.set(0xcbf2_9ce4_8422_2325));
+    pub(super) fn of(f: impl FnOnce()) -> Digest {
+        BITS.with(|h| h.set(Digest::start()));
         f();
         BITS.with(Cell::get)
     }
@@ -884,6 +883,7 @@ mod tests {
             // The positive control: the arms drew solids.
             assert!(out.len() > 4 * 255, "{w}x{h}: {} solids", out.len());
         }
+        let got: Vec<u64> = got.iter().map(|d| d.value()).collect();
         // And every arm folded something.
         assert!(got.iter().all(|&d| d != 0xcbf2_9ce4_8422_2325), "{got:x?}");
         let table: String = got

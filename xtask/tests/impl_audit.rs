@@ -118,3 +118,55 @@ fn a_typed_generic_fn_counts_nothing() {
         assert_eq!(n.sum(Sum::Total), Sites(0), "{src:?}");
     }
 }
+
+/// A parenthesised group in a parameter list is read whole, so the
+/// parameters after it are counted: a closure bound, a tuple type, a tuple
+/// pattern, a tuple inside a generic, a closure taking a tuple, and a
+/// `&mut self` operation.
+#[test]
+fn a_parameter_after_a_parenthesised_type_is_counted() {
+    let closure = concat!("fn f(g: impl Fn(u8) -> bool, at:", " u16) {}");
+    assert_eq!(Counts::of(closure).0[2], Sites(1), "{closure:?}");
+    let tuple = concat!("fn f(p: (Col, Row), n:", " u32) {}");
+    assert_eq!(Counts::of(tuple).0[2], Sites(1), "{tuple:?}");
+    let pattern = concat!("fn f((x, y): (Col, Row), n:", " u64) {}");
+    assert_eq!(Counts::of(pattern).0[2], Sites(1), "{pattern:?}");
+    let inside = concat!("fn f(at: Option<(Col, Col)>, i:", " usize) {}");
+    assert_eq!(Counts::of(inside).0[2], Sites(1), "{inside:?}");
+    let nested = concat!(
+        "fn f<F: Fn(Col)>(\n    g: F,\n    h: impl FnMut((Col, Row)),\n    n:",
+        " i64,\n) {\n}\n"
+    );
+    assert_eq!(Counts::of(nested).0[2], Sites(1), "{nested:?}");
+    let flag = concat!("fn f(g: &dyn Fn(Col) -> Row, on:", " bool) {}");
+    assert_eq!(Counts::of(flag).0[4], Sites(1), "{flag:?}");
+    let operation = concat!("fn put(&mut self, g: impl Fn(Col), n:", " usize) {}");
+    let n = Counts::of(operation);
+    assert_eq!((n.0[1], n.0[2]), (Sites(1), Sites(1)), "{operation:?}");
+}
+
+/// The fn's return is read after its whole parameter list, so a raw return
+/// after a closure bound is counted and the closure's own return is not
+/// the fn's.
+#[test]
+fn a_return_is_read_past_a_parenthesised_type() {
+    let after = concat!("fn f(g: impl Fn(Col) -> Row, x: Col) ->", " u32 {}");
+    assert_eq!(Counts::of(after).0[3], Sites(1), "{after:?}");
+    let closure = concat!("fn f(g: impl Fn(Col) ->", " u32) -> Row {}");
+    assert_eq!(Counts::of(closure).0[3], Sites(0), "{closure:?}");
+}
+
+/// A parameter list of typed parameters and parenthesised types counts
+/// nothing, generic or not.
+#[test]
+fn typed_parameters_beside_a_parenthesised_type_count_nothing() {
+    for src in [
+        "fn f(g: impl Fn(Col) -> Row, p: (Col, Row), (x, y): (Col, Row)) -> Row {}",
+        "fn f<F: Fn(Col) -> Row>(g: F, at: Option<(Col, Col)>, i: Col) -> Option<Row> {}",
+        "fn f(\n    g: &dyn Fn((Col, Row)) -> Row,\n    on: Turned,\n) -> Row {\n}\n",
+    ] {
+        let n = Counts::of(src);
+        assert_eq!(n.sum(Sum::Signature), Sites(0), "{src:?}");
+        assert_eq!(n.sum(Sum::Total), Sites(0), "{src:?}");
+    }
+}

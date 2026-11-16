@@ -1245,7 +1245,8 @@ pub(crate) mod tests {
                         lit += usize::from(v > 0.0)
                     });
                 }
-            });
+            })
+            .value();
             assert!(lit > 500, "the positive control: {effect:?} lit {lit}");
             assert!(
                 taken <= most * u64::try_from(bands.len()).unwrap(),

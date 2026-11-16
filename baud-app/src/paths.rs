@@ -4458,7 +4458,8 @@ impl Reader for Links<'_> {
                 .uris
                 .read_marking(text, found, &origin, &session, &|t| {
                     Some(paths.target_mark(t))
-                });
+                })
+                .0;
         }
         match self.paths.reads {
             Reads::Yes => {

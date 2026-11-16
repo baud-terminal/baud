@@ -1576,7 +1576,8 @@ mod tests {
                 let mut target = Target::new(&mut px, Px::of(w), Px::of(w), Px::of(h)).unwrap();
                 let measured = crate::det::tally::counted(&crate::det::tally::COVERAGES, || {
                     target.quad(&s, Argb(0xFFE0_E0E0), Blend::Native, Page::Opaque, band);
-                });
+                })
+                .value();
                 let rows = u64::from(y1.value().min(h) - y0.value());
                 assert!(covered > 1_000, "the positive control: {shape:?} at {t}");
                 assert!(

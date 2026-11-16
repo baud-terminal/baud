@@ -342,8 +342,8 @@ mod tests {
 
     /// The closed polygon `points`, stroked `width` wide on a `side`
     /// square canvas: its coverage, row by row.
-    fn stroked(points: &[(f32, f32)], width: f32, side: u32) -> Vec<u8> {
-        let extent = Extent::new(Px::of(side), Px::of(side));
+    fn stroked(points: &[(f32, f32)], width: f32, side: Px) -> Vec<u8> {
+        let extent = Extent::new(side, side);
         let mut scratch = vec![0f32; extent.scratch().unwrap()];
         let canvas = Canvas::new(extent, &mut scratch).unwrap();
         let mut s = Stroker::new(canvas, IDENTITY, width);
@@ -382,7 +382,7 @@ mod tests {
         let m = stroked(
             &[(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)],
             2.0,
-            20,
+            Px::of(20),
         );
         let at = |x: usize, y: usize| m[y * 20 + x];
         let area: u32 = m.iter().map(|&c| u32::from(c)).sum();
@@ -434,7 +434,7 @@ mod tests {
             (10.0, 15.0),
             (5.0, 15.0),
         ];
-        let m = stroked(&l, 2.0, 20);
+        let m = stroked(&l, 2.0, Px::of(20));
         let area: u32 = m.iter().map(|&c| u32::from(c)).sum();
         assert_eq!(area, 80 * 255);
         assert_eq!(m[10 * 20 + 10], 255, "the inner corner's miter");
@@ -469,12 +469,12 @@ mod tests {
         let one = stroked(
             &[(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)],
             2.0,
-            20,
+            Px::of(20),
         );
         let other = stroked(
             &[(5.0, 5.0), (5.0, 15.0), (15.0, 15.0), (15.0, 5.0)],
             2.0,
-            20,
+            Px::of(20),
         );
         assert_eq!(one, other);
     }

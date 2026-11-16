@@ -391,7 +391,7 @@ struct TrailDraw {
 /// The records a trail draws with its own pipeline, a contiguous run of
 /// them: the quad's one, or an effect's bands and particles. `None` before one
 /// is seen; `at` extends it by record `i`.
-fn widen(at: Option<(At, At)>, i: usize) -> Option<(At, At)> {
+fn widen(at: Option<(At, At)>, At(i): At) -> Option<(At, At)> {
     Some(match at {
         None => (At(i), At(i + 1)),
         Some((a, _)) => (a, At(i + 1)),
@@ -2751,7 +2751,7 @@ impl Gpu {
                 .enumerate()
             {
                 if matches!(inst.kind, Kind::Quad | Kind::Band | Kind::Particle) {
-                    trail_at = widen(trail_at, i);
+                    trail_at = widen(trail_at, At(i));
                 }
                 chunk.copy_from_slice(&inst.to_bytes());
             }
@@ -3422,7 +3422,7 @@ impl Gpu {
                         .enumerate()
                     {
                         if matches!(inst.kind, Kind::Quad | Kind::Band | Kind::Particle) {
-                            trail_at = widen(trail_at, i);
+                            trail_at = widen(trail_at, At(i));
                         }
                         chunk.copy_from_slice(&inst.to_bytes());
                     }

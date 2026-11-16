@@ -84,8 +84,8 @@ fn differing(
     (x0, y0): (usize, usize),
     (w, h): (usize, usize),
     rgb: &[u8],
-) -> usize {
-    (0..h)
+) -> Pixels {
+    let n = (0..h)
         .flat_map(|y| (0..w).map(move |x| (x, y)))
         .filter(|&(x, y)| {
             let o = 3 * (y * w + x);
@@ -95,7 +95,8 @@ fn differing(
                 | u32::from(rgb[o + 2]);
             frame[(y0 + y) * fw + x0 + x] != want
         })
-        .count()
+        .count();
+    Pixels(n)
 }
 
 /// **mpv's in-stream video draws exactly what mpv sent, and its two
@@ -309,7 +310,11 @@ fn mpvs_kitty_video_draws_what_mpv_sent() {
                     "upload {k}: of {lit} bright pixels, {dim} drawn faint"
                 );
                 let wrong = differing(&frame, fw, xy, (s, v), rgb);
-                assert_eq!(wrong, 0, "upload {k}: pixels not the newest frame's RGB");
+                assert_eq!(
+                    wrong,
+                    Pixels(0),
+                    "upload {k}: pixels not the newest frame's RGB"
+                );
             }
             (true, _) => assert_eq!(store.placements().count(), 0, "upload {k}: drawn none"),
             (false, None) => panic!("upload {k}: a frame drawn before any was sent"),
@@ -424,7 +429,7 @@ fn under_a_two_frame_quota_every_upload_shows_its_own_frame() {
         };
         let xy = (usize::try_from(p.x).unwrap(), usize::try_from(p.y).unwrap());
         let wrong = differing(&frame, fw, xy, (s, v), rgb);
-        assert_eq!(wrong, 0, "upload {k}: not the newest frame's RGB");
+        assert_eq!(wrong, Pixels(0), "upload {k}: not the newest frame's RGB");
         drawn += 1;
     }
     assert!(

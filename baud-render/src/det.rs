@@ -134,29 +134,38 @@ pub(crate) mod tally {
     use std::cell::Cell;
     use std::thread::LocalKey;
 
+    use crate::Tally;
+
     std::thread_local! {
-        pub(crate) static SERIES: Cell<u64> = const { Cell::new(0) };
-        pub(crate) static DISTANCES: Cell<u64> = const { Cell::new(0) };
-        pub(crate) static COVERAGES: Cell<u64> = const { Cell::new(0) };
-        pub(crate) static VERTICES: Cell<u64> = const { Cell::new(0) };
-        pub(crate) static POSES: Cell<u64> = const { Cell::new(0) };
-        pub(crate) static STATES: Cell<u64> = const { Cell::new(0) };
+        pub(crate) static SERIES: Cell<Tally> = const { Cell::new(Tally::ZERO) };
+        pub(crate) static DISTANCES: Cell<Tally> = const { Cell::new(Tally::ZERO) };
+        pub(crate) static COVERAGES: Cell<Tally> = const { Cell::new(Tally::ZERO) };
+        pub(crate) static VERTICES: Cell<Tally> = const { Cell::new(Tally::ZERO) };
+        pub(crate) static POSES: Cell<Tally> = const { Cell::new(Tally::ZERO) };
+        pub(crate) static STATES: Cell<Tally> = const { Cell::new(Tally::ZERO) };
     }
 
-    pub(crate) fn count(c: &'static LocalKey<Cell<u64>>) {
-        c.with(|v| v.set(v.get() + 1));
+    pub(crate) fn count(c: &'static LocalKey<Cell<Tally>>) {
+        c.with(|v| v.set(v.get().inc()));
     }
 
     /// How many times `f` counted `c`.
-    pub(crate) fn counted(c: &'static LocalKey<Cell<u64>>, f: impl FnOnce()) -> u64 {
+    pub(crate) fn counted(c: &'static LocalKey<Cell<Tally>>, f: impl FnOnce()) -> Tally {
         let before = c.with(Cell::get);
         f();
-        c.with(Cell::get) - before
+        let mut n = c.with(Cell::get);
+        n.remove(before);
+        n
     }
 
     /// What `f` ran: its series and its distances.
     pub(crate) fn of(f: impl FnOnce()) -> (u64, u64) {
-        let read = || (SERIES.with(Cell::get), DISTANCES.with(Cell::get));
+        let read = || {
+            (
+                SERIES.with(Cell::get).value(),
+                DISTANCES.with(Cell::get).value(),
+            )
+        };
         let before = read();
         f();
         let after = read();

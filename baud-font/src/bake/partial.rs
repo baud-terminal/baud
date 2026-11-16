@@ -280,10 +280,15 @@ fn opt(p: &BakePoint) -> Opt {
     }
 }
 
+/// A place in the optimiser's working list, or the list's length, or a
+/// count of places back from one: -1 names the list's last.
+#[derive(Clone, Copy)]
+struct Work(i64);
+
 /// fontTools' test of a gap: whether the points strictly between working
 /// positions `i` and `j` (`i` may be -1, the list's last) infer within the
 /// tolerance from those two.
-fn can_iup(at: &impl Fn(i64) -> Opt, len: i64, i: i64, j: i64) -> bool {
+fn can_iup(at: &impl Fn(i64) -> Opt, Work(len): Work, Work(i): Work, Work(j): Work) -> bool {
     let a = at(if i < 0 { len - 1 } else { i });
     let b = at(j);
     let mut m = i + 1;
@@ -304,8 +309,8 @@ fn can_iup(at: &impl Fn(i64) -> Opt, len: i64, i: i64, j: i64) -> bool {
 fn dp(
     at: &impl Fn(i64) -> Opt,
     forced: &impl Fn(i64) -> bool,
-    len: i64,
-    lookback: i64,
+    Work(len): Work,
+    Work(lookback): Work,
     steps: &mut [IupStep],
 ) -> Option<()> {
     let cell = |i: i64| usize::try_from(i + 1).ok();
@@ -328,7 +333,7 @@ fn dp(
         let mut j = i - 2;
         while j > stop {
             let cost = steps.get(cell(j)?)?.cost + 1;
-            if cost < best && can_iup(at, len, j, i) {
+            if cost < best && can_iup(at, Work(len), Work(j), Work(i)) {
                 best = cost;
                 *steps.get_mut(cell(i)?)? = IupStep {
                     cost,
@@ -433,7 +438,7 @@ fn optimize_contour(c: &mut [BakePoint], steps: &mut [IupStep]) -> Result<(), Re
         let ro: &[BakePoint] = c;
         let at = |m: i64| opt(&ro[orig(m)]);
         let forced = |m: i64| last_forced.is_some() && ro[orig(m)].forced == Forced::Yes;
-        dp(&at, &forced, work, len, steps).ok_or(Refused::Scratch)?;
+        dp(&at, &forced, Work(work), Work(len), steps).ok_or(Refused::Scratch)?;
     }
     let cell = |i: i64| usize::try_from(i + 1).map_err(|_| Refused::Scratch);
     let chain = |i: i64| -> Result<i64, Refused> {

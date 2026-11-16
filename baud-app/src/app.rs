@@ -6503,12 +6503,17 @@ mod alt_window_tests {
     /// a line behind the screen has a number of its own rather than the
     /// floor's.
     fn drops(setup: &[u8], reads: &[&[u8]], at: (usize, usize)) -> bool {
-        drops_to(setup, reads, at, at.1)
+        drops_to(setup, reads, at, baud_domain::Row::from_index(at.1))
     }
 
     /// [`drops`], for a selection from screen row `y` to screen row `last`
     /// of the view `back` lines up.
-    fn drops_to(setup: &[u8], reads: &[&[u8]], (back, y): (usize, usize), last: usize) -> bool {
+    fn drops_to(
+        setup: &[u8],
+        reads: &[&[u8]],
+        (back, y): (usize, usize),
+        last: baud_domain::Row,
+    ) -> bool {
         use baud_domain::{Col, Row};
         use baud_render::{Grain, Selection, Span};
         let mut dropped = false;
@@ -6524,15 +6529,14 @@ mod alt_window_tests {
             // where it entered it.
             let rec = t.take_record();
             scrolled = counts.numbered(t, Some(&rec)).scrolled();
-            let span = |t: &Term<'_>, y: usize| {
-                let r = Row::from_index(y);
+            let span = |t: &Term<'_>, r: Row| {
                 Span::cell(
                     t.row(r).expect("a row on the grid"),
                     scrolled.line(Rows::of_count(back), r),
                     Col::ZERO,
                 )
             };
-            let mut sel = Selection::at(span(t, y), Grain::Cell);
+            let mut sel = Selection::at(span(t, Row::from_index(y)), Grain::Cell);
             sel.extend(span(t, last));
             for bytes in reads {
                 let _ = Before::watched(t, Some(&sel), scrolled);

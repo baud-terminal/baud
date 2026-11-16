@@ -2,7 +2,7 @@
 //!
 //! Each pattern is counted over the whole file in multi-line mode, as
 //! non-overlapping matches from the left, which is what `re.findall` did
-//! and what `Regex::find_iter` does. `[^)]*?` crosses newlines in both, and
+//! and what `Regex::find_iter` does. `[^()]` crosses newlines in both, and
 //! `\b`, `\w` and `\s` are Unicode classes in both. Their sets are not
 //! identical -- this crate's `\w` also takes combining marks, connector
 //! punctuation and the joiners, and Python's took the other numerics -- so
@@ -55,9 +55,15 @@ pub struct Category {
 /// `{` or `;` inside it, so the parameters and the return after it are
 /// counted as they are on a fn with no list. A const generic's own type is
 /// inside the list and is not a parameter: the language requires it to be a
-/// primitive. A parameter list that holds a parenthesised type, such as a
-/// closure bound or a tuple, still ends the scan at its first `)`, generic
-/// or not.
+/// primitive.
+///
+/// **A parenthesised group in a parameter list is read whole**, to two
+/// levels of nesting: a closure bound, a tuple type, a tuple pattern, a
+/// tuple inside a generic, or a closure taking a tuple. The parameters after
+/// it are counted, and the return is read after the whole list, so a
+/// closure bound's own return is not taken for the fn's. A primitive inside
+/// the group is the closure's or the tuple's, not a parameter's type, and
+/// is not counted.
 pub const CATEGORIES: [Category; 9] = [
     Category {
         name: "raw index arithmetic  (y * MAX_COLS + x)",
@@ -66,22 +72,22 @@ pub const CATEGORIES: [Category; 9] = [
     },
     Category {
         name: "usize params on operations",
-        pattern: r"fn \w+(?:<[^{;]*?>)?\(&mut self[^)]*: usize",
+        pattern: r"fn \w+(?:<[^{;]*?>)?\(&mut self(?:[^()]|\((?:[^()]|\([^()]*\))*\))*: usize",
         sum: Sum::Total,
     },
     Category {
         name: "raw primitive fn params",
-        pattern: r"fn \w+(?:<[^{;]*?>)?\([^)]*?\b\w+: (u8|u16|u32|u64|usize|i8|i16|i32|i64|isize)\b",
+        pattern: r"fn \w+(?:<[^{;]*?>)?\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*?\b\w+: (u8|u16|u32|u64|usize|i8|i16|i32|i64|isize)\b",
         sum: Sum::Signature,
     },
     Category {
         name: "raw primitive fn returns",
-        pattern: r"fn \w+(?:<[^{;]*?>)?\([^)]*\)\s*->\s*(?:Option<)?(u8|u16|u32|u64|usize)\b",
+        pattern: r"fn \w+(?:<[^{;]*?>)?\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s*->\s*(?:Option<)?(u8|u16|u32|u64|usize)\b",
         sum: Sum::Signature,
     },
     Category {
         name: "bool as a fn param",
-        pattern: r"fn \w+(?:<[^{;]*?>)?\([^)]*?\b\w+: bool\b",
+        pattern: r"fn \w+(?:<[^{;]*?>)?\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*?\b\w+: bool\b",
         sum: Sum::Signature,
     },
     Category {

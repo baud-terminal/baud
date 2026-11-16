@@ -312,16 +312,25 @@ enum Rule {
     Residue,
 }
 
+/// Which of a word's two sides a reach is read on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Flank {
+    /// The side toward the row's start.
+    Start,
+    /// The side toward the row's end.
+    End,
+}
+
 /// How far a word's ink may reach past its cells on one side: `k` blank
-/// cells, `side` past them, `right` the row's end side.
-fn allowance((k, side): (Blanks, Side), right: bool, grid: Grid, rule: Rule) -> f32 {
+/// cells, `side` past them, on `flank` of the word.
+fn allowance((k, side): (Blanks, Side), flank: Flank, grid: Grid, rule: Rule) -> f32 {
     let room = grid.cell * k.0 as f32;
     match (side, rule) {
         (Side::Word, Rule::Shared) => ((room - grid.gap) / 2.0).max(0.0),
         (Side::Word, Rule::Residue) => ((room - grid.gap / 2.0) / 2.0).max(0.0),
         (Side::Wall, Rule::Shared) => (room - grid.gap).max(0.0),
         (Side::Wall, Rule::Residue) => room,
-        (Side::Edge, Rule::Shared) if right => room.min(grid.cell),
+        (Side::Edge, Rule::Shared) if flank == Flank::End => room.min(grid.cell),
         (Side::Edge, _) => room,
     }
 }
@@ -357,13 +366,13 @@ pub(crate) fn lay(
     let span = grid.cell * cells.index() as f32;
     let fit = |m: Measure, rule: Rule| {
         let want = wanted(span, m.advance, room);
-        let mut lo = -allowance(room.left, false, grid, rule);
+        let mut lo = -allowance(room.left, Flank::Start, grid, rule);
         // The residue closes on the word before it by that word's ink, down
         // to half a word space, and never into its cells.
         if let (Rule::Residue, (k, Side::Word), Some(p)) = (rule, room.left, prev) {
             lo = (p + grid.gap / 2.0).max(-grid.cell * k.0 as f32);
         }
-        let hi = span + allowance(room.right, true, grid, rule);
+        let hi = span + allowance(room.right, Flank::End, grid, rule);
         let (il, ir) = (m.ink.left, m.ink.right);
         if want + il >= lo - SLACK && want + ir <= hi + SLACK {
             let inside = want + il >= -SLACK && want + ir <= span + SLACK;

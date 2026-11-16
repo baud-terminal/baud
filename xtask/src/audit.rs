@@ -207,12 +207,12 @@ pub const CRATES: [Crate; 10] = [
     // until the lengths took a type; set at the count, and it does not move
     // to fit a change.
     krate("baud-wayland", &["baud-wayland/src"], Sites(7), Sites(7)),
-    // baud-xkb: 10 raw sites and 6 signature primitives, and they are the
+    // baud-xkb: 10 raw sites and 5 signature primitives, and they are the
     // keymap's own numbers -- keycode ranges, level and group indices, the
     // 32-bit modifier mask the Wayland protocol serialises (a type alias,
     // since it is the wire's encoding and not an index) -- plus the byte
     // cursor the lexer carries. The keysym and the keycode are newtypes.
-    krate("baud-xkb", &["baud-xkb/src"], Sites(10), Sites(6)),
+    krate("baud-xkb", &["baud-xkb/src"], Sites(10), Sites(5)),
     // baud-present-wayland: 5 raw sites and 10 signature primitives, the
     // kernel's ABI in `sys.rs` (`mmap`, `munmap`, `ftruncate`,
     // `memfd_create` and the `fcntl` a clipboard pipe is made non-blocking

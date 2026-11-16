@@ -388,9 +388,7 @@ impl Reader for Uris {
 
     fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> crate::paths::Looked {
         let local = |_| crate::paths::LinkOrigin::given(crate::paths::Origin::Local);
-        crate::paths::Looked(
-            self.read_marking(text, found, &local, &|_| None, &|_| Some(Mark::Line)),
-        )
+        self.read_marking(text, found, &local, &|_| None, &|_| Some(Mark::Line))
     }
 
     fn marked(&mut self, uri: &[u8], _: At<'_>) -> Option<Mark> {
@@ -425,7 +423,7 @@ impl Uris {
         origin: &dyn Fn((AbsLine, AbsLine)) -> crate::paths::LinkOrigin,
         session: &dyn Fn(crate::paths::LinkOrigin) -> Option<&'s crate::ssh::Session>,
         mark: &dyn Fn(&Target<'_>) -> Option<Mark>,
-    ) -> usize {
+    ) -> crate::paths::Looked {
         let Text {
             units, head, tail, ..
         } = text;
@@ -498,7 +496,7 @@ impl Uris {
                 q = end;
             }
         }
-        candidates
+        crate::paths::Looked(candidates)
     }
 }
 
