@@ -15,6 +15,9 @@
 //! line with no label, a list with no pattern and a file that cannot be read
 //! also exit 1.
 //!
+//! `cargo xtask forbidden --git GIT_DIR PATTERNS CONTROLS` searches a
+//! repository instead, with the same list and the same controls: [`git`].
+//!
 //! **A pattern is compiled by `regex::bytes` with `unicode(false)`**, so
 //! `\w`, `\d`, `\s`, `\b` and `(?i)` are ASCII, as they are on a Python
 //! bytes pattern, and `\xHH` is that byte. One that does not compile exits
@@ -55,6 +58,8 @@
 //! byte, a hit starting at offset 1 that needs byte 0 as its look-behind is
 //! not reported. That takes a one-byte hit, or an exclusion with a look-behind
 //! on a pattern that matches at both offsets.
+
+pub mod git;
 
 use std::borrow::Cow;
 use std::fs;
@@ -284,19 +289,15 @@ fn controls(path: &Path) -> io::Result<Vec<(String, Vec<u8>)>> {
     Ok(out)
 }
 
-/// The search over `files`, printing as the command prints. An error is a
-/// file that could not be read or a label that is not UTF-8: the command
-/// exits 1, having printed no hit and no summary.
-pub fn search(
-    list: &Path,
-    ctl: &Path,
-    files: &[PathBuf],
-    out: &mut impl Write,
-    err: &mut impl Write,
-) -> io::Result<Verdict> {
+/// The list's patterns, and the same patterns joined.
+type Armed = (Vec<Pattern>, RegexSet);
+
+/// The list compiled, alone and joined, once every label's control is found
+/// by both; or the verdict to give having said why not.
+fn armed(list: &Path, ctl: &Path, err: &mut impl Write) -> io::Result<Result<Armed, Verdict>> {
     let pats = match patterns(list, err)? {
         Ok(p) => p,
-        Err(refused) => return Ok(refused),
+        Err(refused) => return Ok(Err(refused)),
     };
     // A set rather than `(?:p1)|(?:p2)` in text, since every pattern may
     // have its own group named `hit`. A pattern's own hit is always a match
@@ -309,7 +310,7 @@ pub fn search(
         Ok(set) => set,
         Err(_) => {
             writeln!(err, "readme-forbidden: the patterns joined do not compile")?;
-            return Ok(Verdict::Refused(Exit(2)));
+            return Ok(Err(Verdict::Refused(Exit(2))));
         }
     };
     let ctl = controls(ctl)?;
@@ -329,8 +330,25 @@ pub fn search(
         for b in &bad {
             writeln!(err, "readme-forbidden: {b}")?;
         }
-        return Ok(Verdict::Refused(Exit(2)));
+        return Ok(Err(Verdict::Refused(Exit(2))));
     }
+    Ok(Ok((pats, joined)))
+}
+
+/// The search over `files`, printing as the command prints. An error is a
+/// file that could not be read or a label that is not UTF-8: the command
+/// exits 1, having printed no hit and no summary.
+pub fn search(
+    list: &Path,
+    ctl: &Path,
+    files: &[PathBuf],
+    out: &mut impl Write,
+    err: &mut impl Write,
+) -> io::Result<Verdict> {
+    let (pats, joined) = match armed(list, ctl, err)? {
+        Ok(armed) => armed,
+        Err(refused) => return Ok(refused),
+    };
     let mut hits: Vec<(&str, &Path)> = Vec::new();
     for path in files {
         let data = read(path)?;
@@ -363,9 +381,11 @@ pub fn search(
     })
 }
 
-/// `cargo xtask forbidden PATTERNS CONTROLS FILE...`.
+/// `cargo xtask forbidden PATTERNS CONTROLS FILE...`, and with `--git` first
+/// the repository search of [`git`].
 pub fn run(args: &[&str], out: &mut impl Write, err: &mut impl Write) -> io::Result<Exit> {
     match args {
+        ["--git", rest @ ..] => git::run(rest, out, err),
         [list, ctl, files @ ..] if !files.is_empty() => {
             let files: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
             let verdict = search(Path::new(list), Path::new(ctl), &files, out, err)?;
