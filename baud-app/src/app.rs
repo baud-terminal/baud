@@ -857,6 +857,9 @@ struct App {
     trail_pick: crate::config::TrailPick,
     motion: crate::config::SystemMotion,
     motion_source: MotionSource,
+    /// Where `poll_motion` asks the system's Reduce Motion: `reduce_motion`,
+    /// asked again on every read and never kept between them.
+    motion_read: fn() -> bool,
     /// Whether Dim Flashing Lights is on: blinking text's off phase is
     /// drawn faint while it is (`dim_off_phases`). Read at launch and when
     /// its notification arrives (`follow_settings`).
@@ -1403,7 +1406,7 @@ impl App {
         startup_mark("reduce motion");
         let trail_pick = cursor_trail;
         let cursor_trail = trail_pick.effective(motion);
-        crate::info!("motion: {motion:?}; trail: {cursor_trail:?}");
+        crate::info!("{}", motion_line(motion, cursor_trail));
         // The process's first scroller-style read is not the 5 ns a wheel
         // pays: AppKit loads the answer the first time, and this is where
         // the launch path makes it. Its own mark, so it is a number.
@@ -1819,6 +1822,7 @@ impl App {
             trail_pick,
             motion,
             motion_source,
+            motion_read: reduce_motion,
             flashing,
             activity: baud_render::Activity::new(),
             activity_lights,
@@ -11825,10 +11829,14 @@ mod ride_tests {
 #[cfg(test)]
 mod motion_tests {
     //! Reduce Motion: no trail, unless the config names one, and blinking
-    //! text held shown. The decisions are pure and gated here;
-    //! `poll_motion`, the heard turn and the launch read are AppKit-bound, held
-    //! by the source gates at the end.
-    use super::{MotionSource, Owes, motion_change, motion_override, retrail, system_motion};
+    //! text held shown. The decisions are pure and gated here, the read
+    //! included (`motion_turn` over a source the test sets); `poll_motion`,
+    //! the heard turn and the launch read are AppKit-bound, held by
+    //! `poll_motion_reads_the_apps_source_and_logs_motion_lines_one_way`.
+    use super::{
+        MotionSource, MotionTurn, Owes, display_settings, motion_change, motion_line,
+        motion_override, motion_turn, retrail, system_motion,
+    };
     use crate::config::{CursorTrail as T, SystemMotion as M, TrailPick as P};
     use crate::trail::Chase;
     use baud_domain::{Col, HostTime, Row};
@@ -11890,6 +11898,90 @@ mod motion_tests {
                 assert_eq!(motion_change(P::Named(t), t, m), None, "{t:?} under {m:?}");
             }
         }
+    }
+
+    /// **A Reduce Motion toggle between two reads is decided from the new
+    /// answer on the next**: a source at Full makes no turn, the same
+    /// source turned on makes the next read's line `motion: Reduced;
+    /// trail: Off` and turns the default trail off, and turned off again
+    /// `motion: Full; trail: Plasma` and back. Every read asks the source
+    /// once. Perturbation: decide from the answer the window took instead
+    /// of the source's (`read` replaced by `was == M::Reduced` in
+    /// `motion_turn`), a cached read, and the second read makes no turn.
+    #[test]
+    fn a_motion_toggle_between_two_reads_names_the_new_value() {
+        let on = Cell::new(false);
+        let asked = Cell::new(0);
+        let read = || {
+            asked.set(asked.get() + 1);
+            on.get()
+        };
+        let mut took = (M::Full, T::Plasma);
+        let mut poll = || {
+            let turn = motion_turn(MotionSource::System, read, took.0, P::Default, took.1)?;
+            took.0 = turn.motion;
+            let next = turn.trail?;
+            took.1 = next;
+            Some(motion_line(turn.motion, next))
+        };
+        assert_eq!(poll(), None, "at rest");
+        on.set(true);
+        assert_eq!(poll().as_deref(), Some("motion: Reduced; trail: Off"));
+        assert_eq!(poll(), None, "read again, unchanged");
+        on.set(false);
+        assert_eq!(poll().as_deref(), Some("motion: Full; trail: Plasma"));
+        assert_eq!(took, (M::Full, T::Plasma));
+        assert_eq!(asked.get(), 4, "one ask a read");
+    }
+
+    /// **Only a change of motion makes a motion turn, and only a change of
+    /// trail a motion line.** The display options' notification wakes one
+    /// turn for all of them, which reads Reduce Motion beside Increase
+    /// Contrast: toggling contrast changes the display settings
+    /// (`poll_display`'s `display: ...` line) while the motion read finds
+    /// the preference taken, both ways, and makes no turn. A named trail
+    /// keeps through a change of motion, so that turn has no trail and no
+    /// line. Under `BAUD_MOTION` the source is never asked. Perturbation:
+    /// return a turn whatever the preference read (`then` without the
+    /// `motion != was` test), and the contrast rows make one.
+    #[test]
+    fn only_a_change_of_motion_makes_a_motion_line() {
+        let contrast = Cell::new(false);
+        let display = || display_settings(|| false, || contrast.get());
+        let standard = display();
+        contrast.set(true);
+        assert_ne!(display(), standard, "Increase Contrast reads as a change");
+        for (on, was, trail) in [(false, M::Full, T::Plasma), (true, M::Reduced, T::Off)] {
+            assert_eq!(
+                motion_turn(MotionSource::System, || on, was, P::Default, trail),
+                None,
+                "{was:?}"
+            );
+        }
+        assert_eq!(
+            motion_turn(
+                MotionSource::System,
+                || true,
+                M::Full,
+                P::Named(T::Fire),
+                T::Fire
+            ),
+            Some(MotionTurn {
+                motion: M::Reduced,
+                trail: None
+            })
+        );
+        let asked = Cell::new(0);
+        let read = || {
+            asked.set(asked.get() + 1);
+            true
+        };
+        let fixed = MotionSource::Fixed(M::Full);
+        assert_eq!(
+            motion_turn(fixed, read, M::Full, P::Default, T::Plasma),
+            None
+        );
+        assert_eq!(asked.get(), 0, "BAUD_MOTION asks nothing");
     }
 
     /// **A switch mid-fire owes one frame, to clear it, and then none**:
@@ -18074,19 +18166,27 @@ impl Driver {
         });
     }
 
-    /// Whether the system asks for reduced motion, read on the tick like
-    /// focus: one message send and a cached byte, about 0.04 us. **Polled,
-    /// not observed**: AppKit registers its own observer of the
-    /// display-options notification in `sharedApplication`, and its handler
-    /// invalidates the cached answer before anything is posted, so a toggle
-    /// reads fresh here within a frame (the design's probes; the live
-    /// toggle is checked by hand, not by a test). Under `BAUD_MOTION`
-    /// nothing is read.
+    /// Whether the system asks for reduced motion, read on the turn the
+    /// display options' notification woke and once after launch: one
+    /// message send and a cached byte. AppKit registers its own observer of
+    /// the display-options notification in `sharedApplication`, and its
+    /// handler invalidates the cached answer before anything is posted, so
+    /// the read on that turn is fresh. Every call asks the app's source
+    /// (`motion_read`) again and decides through `motion_turn`, which
+    /// `a_motion_toggle_between_two_reads_names_the_new_value` holds to
+    /// the new answer; the line it logs is `motion_line`'s. Under
+    /// `BAUD_MOTION` nothing is read.
     fn poll_motion(&mut self) {
-        let m = system_motion(self.app.motion_source, reduce_motion);
-        if m == self.app.motion {
+        let Some(turn) = motion_turn(
+            self.app.motion_source,
+            self.app.motion_read,
+            self.app.motion,
+            self.app.trail_pick,
+            self.app.cursor_trail,
+        ) else {
             return;
-        }
+        };
+        let m = turn.motion;
         self.app.motion = m;
         // What the frame rig counts, under the probe only.
         #[cfg(feature = "effect-probe")]
@@ -18096,10 +18196,10 @@ impl Driver {
         self.app
             .caret
             .set_animation(self.app.blink_animation.effective(m));
-        let Some(next) = motion_change(self.app.trail_pick, self.app.cursor_trail, m) else {
+        let Some(next) = turn.trail else {
             return;
         };
-        crate::info!("motion: {m:?}; trail: {next:?}");
+        crate::info!("{}", motion_line(m, next));
         let now = self.app.effects_now();
         let owes = retrail(
             &mut self.app.chase,
@@ -21531,6 +21631,47 @@ mod tests {
         assert!(body("apply_style").contains("show_theme("), "the flip");
     }
 
+    /// **`poll_motion` reads the app's source and decides through
+    /// `motion_turn`**, the read and the decision
+    /// `a_motion_toggle_between_two_reads_names_the_new_value` drives with
+    /// a source it sets; the app's source is the system's getter; and
+    /// every motion line, the launch's and the turn's, is `motion_line`'s,
+    /// the text that test pins. It keeps what the turn decided, as that
+    /// test's poll does: the preference, and the trail it switched to.
+    /// Break: `poll_motion` reading `reduce_motion` itself, or logging its
+    /// own `motion: ` text.
+    #[test]
+    fn poll_motion_reads_the_apps_source_and_logs_motion_lines_one_way() {
+        let app = include_str!("app.rs")
+            .rsplit_once("#[cfg(test)]\nmod tests {")
+            .map(|(c, _)| c)
+            .expect("the code before the tests");
+        let at = app.find("fn poll_motion(").expect("poll_motion");
+        let poll = &app[at..at + app[at..].find("\n    }\n").expect("its end")];
+        assert!(poll.contains("motion_turn(\n"), "{poll}");
+        assert!(poll.contains("self.app.motion_read,"), "{poll}");
+        assert!(!poll.contains("reduce_motion"), "{poll}");
+        assert!(poll.contains("motion_line(m, next)"), "{poll}");
+        assert!(poll.contains("let m = turn.motion;"), "{poll}");
+        assert!(poll.contains("self.app.motion = m;"), "{poll}");
+        assert!(poll.contains("let Some(next) = turn.trail else"), "{poll}");
+        assert!(poll.contains("self.app.cursor_trail = next;"), "{poll}");
+        assert!(
+            app.contains("motion_read: reduce_motion,"),
+            "the system's getter"
+        );
+        let said = concat!("info!(\"", "motion: ");
+        assert_eq!(
+            app.matches(said).count(),
+            0,
+            "a motion line not motion_line's"
+        );
+        assert!(
+            app.contains("motion_line(motion, cursor_trail)"),
+            "the launch's"
+        );
+    }
+
     /// **One place a driver drops.** `Overrides::Drop` appears once in the
     /// macOS driver's code outside its tests, in `apply_style`, behind
     /// `palette_switch`, and the flip takes its theme from the prebuilt
@@ -24304,6 +24445,40 @@ fn motion_change(
 ) -> Option<crate::config::CursorTrail> {
     let next = pick.effective(motion);
     (next != current).then_some(next)
+}
+
+/// A motion preference that differs from the one the window took, and the
+/// trail it switches to: `None` when the trail stays, as a named one does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct MotionTurn {
+    motion: crate::config::SystemMotion,
+    trail: Option<crate::config::CursorTrail>,
+}
+
+/// **The motion preference, read now and decided against what the window
+/// took** (`was`, the trail `current` drawn under `pick`): `source`'s
+/// preference, asking the system through `read` on this call, and, when
+/// it differs from `was`, the turn it makes. `None` when the answer is
+/// the one taken, so a turn the display options' notification woke for
+/// another setting changes nothing here and logs no motion line.
+fn motion_turn(
+    source: MotionSource,
+    read: impl FnOnce() -> bool,
+    was: crate::config::SystemMotion,
+    pick: crate::config::TrailPick,
+    current: crate::config::CursorTrail,
+) -> Option<MotionTurn> {
+    let motion = system_motion(source, read);
+    (motion != was).then(|| MotionTurn {
+        motion,
+        trail: motion_change(pick, current, motion),
+    })
+}
+
+/// The line the log carries for a motion preference and the trail drawn
+/// under it, at launch and on a turn that switches the trail.
+fn motion_line(motion: crate::config::SystemMotion, trail: crate::config::CursorTrail) -> String {
+    format!("motion: {motion:?}; trail: {trail:?}")
 }
 
 /// Switch the trail to `next` now, cutting any trail in flight -- a fire
