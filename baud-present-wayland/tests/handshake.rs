@@ -2331,10 +2331,22 @@ fn a_title_set_before_the_role_is_the_one_it_is_created_with() {
 /// A session through its first configure, `width` x `height` with `states`:
 /// the toplevel and its xdg surface, the `Configured` event drained.
 fn configured(states: &[u32]) -> (Connection, Server, Window, ObjectId, ObjectId) {
+    let (mut conn, mut server, mut w, top, xdg) = opened(|_| {});
+    configure(&mut server, top, xdg, 640, 480, states);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert!(matches!(w.next_event(), Some(Event::Configured { .. })));
+    (conn, server, w, top, xdg)
+}
+
+/// A session up to its first configure, `before` run on the window as soon
+/// as it is open: the toplevel and its xdg surface, nothing configured.
+fn opened(before: impl FnOnce(&mut Window)) -> (Connection, Server, Window, ObjectId, ObjectId) {
     let (c, s) = UnixStream::pair().unwrap();
     let mut conn = Connection::over(c);
     let mut server = Server::new(s);
     let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+    before(&mut w);
     conn.flush().unwrap();
     let r = server.expect("wl_display", "get_registry");
     let Val::New(registry) = r.args[0] else {
@@ -2370,11 +2382,34 @@ fn configured(states: &[u32]) -> (Connection, Server, Window, ObjectId, ObjectId
         }
     }
     let (xdg, top) = (xdg.expect("xdg surface"), top.expect("toplevel"));
-    configure(&mut server, top, xdg, 640, 480, states);
-    pump(&mut conn, &mut w);
-    server.expect("xdg_surface", "ack_configure");
-    assert!(matches!(w.next_event(), Some(Event::Configured { .. })));
     (conn, server, w, top, xdg)
+}
+
+/// **A size preferred before the first configure is the window's size when
+/// that configure leaves it to the client** (`0 x 0`), as a floating
+/// window's is; with none preferred, 800 x 600. A configure that names a
+/// size is the window's size whatever was preferred.
+#[test]
+fn a_preferred_size_is_taken_where_the_client_chooses() {
+    let first = |before: fn(&mut Window), w: i32, h: i32| {
+        let (mut conn, mut server, mut win, top, xdg) = opened(before);
+        configure(&mut server, top, xdg, w, h, &[]);
+        pump(&mut conn, &mut win);
+        server.expect("xdg_surface", "ack_configure");
+        win.next_event()
+    };
+    let at = |width, height| {
+        Some(Event::Configured {
+            width: Px(width),
+            height: Px(height),
+        })
+    };
+    assert_eq!(first(|w| w.prefer(Px(1234), Px(567)), 0, 0), at(1234, 567));
+    assert_eq!(first(|_| {}, 0, 0), at(800, 600), "none preferred");
+    assert_eq!(
+        first(|w| w.prefer(Px(1234), Px(567)), 640, 480),
+        at(640, 480)
+    );
 }
 
 fn configure(server: &mut Server, top: ObjectId, xdg: ObjectId, w: i32, h: i32, states: &[u32]) {

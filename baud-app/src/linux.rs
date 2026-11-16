@@ -139,6 +139,14 @@ const FIRST: WinSize = WinSize {
     ws_row: 24,
 };
 
+/// Whose size the first window takes where its first configure leaves the
+/// size to the client: the grid `--grid` asked for, or the window's own.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FirstSize {
+    Grid,
+    Compositor,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Pending {
     Clean,
@@ -549,9 +557,10 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     // `baud --grid COLSxROWS -e`: a link's window opens at the grid of the
     // window it was asked from, within the grid baud provisions; else the
     // grid before the compositor has said how large the window is.
-    let (given, first) = match given {
-        Some((run, grid)) => (Some(run), grid.map_or(FIRST, |g| g.within(&MAX_GRID))),
-        None => (None, FIRST),
+    let (given, first, sized) = match given {
+        Some((run, Some(g))) => (Some(run), g.within(&MAX_GRID), FirstSize::Grid),
+        Some((run, None)) => (Some(run), FIRST, FirstSize::Compositor),
+        None => (None, FIRST, FirstSize::Compositor),
     };
     crate::warn!(
         "baud on Wayland is not ready for everyday use; docs/guide/status.md says what has run where"
@@ -720,6 +729,46 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     // The window starts without the keyboard, until `wl_keyboard.enter`.
     renderer.set_cursor_look(crate::caret::look(Focus::Lost, cfg.unfocused_cursor));
     let term = crate::host::set_up_term(term, &cfg, &renderer, &fonts);
+    // **A window asked for a grid opens at it** (`--grid`): the surface
+    // that grid fills at the first cell, by the arithmetic a program's
+    // resize in cells takes (`winops::wayland`). The first configure may
+    // have come already, during the outputs' round trips: with no size yet
+    // the window prefers this one for a configure that leaves the size to
+    // the client; with one, a floating window takes it as a program's
+    // resize would, and a tiled, maximised or full-screen one keeps the
+    // compositor's.
+    if sized == FirstSize::Grid {
+        use crate::winops::{Shown, WaylandAction, WaylandWindow};
+        let m = renderer.metrics();
+        let at = WaylandWindow {
+            size: (0, 0),
+            bounds: None,
+            shown: Shown::Floating,
+            cell: (m.cell_w.value(), m.cell_h.value()),
+            scale: crate::surface::Scale120(window.scale().0),
+            grid: crate::width::Grid::of(&term),
+            status: term.status_rows(),
+            line: renderer.lights_height(),
+            marks: renderer.status_marks(),
+            pad: crate::origin::gutter(
+                cfg.padding,
+                crate::typesize::px_per_point(type_size, 1.0).0,
+            ),
+        };
+        let ask = baud_core::WindowRequest::ResizeCells {
+            rows: baud_core::SizeAsk::Exactly(first.ws_row),
+            cols: baud_core::SizeAsk::Exactly(first.ws_col),
+        };
+        if let WaylandAction::Resize(w, h) = crate::winops::wayland(ask, &at) {
+            let (w, h) = (baud_present_wayland::Px(w), baud_present_wayland::Px(h));
+            match window.size() {
+                None => window.prefer(w, h),
+                Some(_) => {
+                    let _ = window.resize(w, h);
+                }
+            }
+        }
+    }
     startup_mark("renderer");
     let pty = Pty::spawn_polled(
         &first,

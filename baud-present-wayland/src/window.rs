@@ -1184,6 +1184,18 @@ impl Window {
         }
     }
 
+    /// **The size the window takes when its first configure leaves the size
+    /// to the client** (`0 x 0`, "the client should decide its own window
+    /// dimension"), in the surface's points; until a configure, 800 x 600.
+    /// A configure that names a size is the window's size whatever was
+    /// preferred, and once the window has a size this does nothing:
+    /// [`Window::resize`] changes it then.
+    pub fn prefer(&mut self, width: Px, height: Px) {
+        if self.size.is_none() {
+            self.pending = (Px(width.0.max(1)), Px(height.0.max(1)));
+        }
+    }
+
     /// **A size the client chooses**, in the surface's points, which a
     /// floating toplevel may: the
     /// configure's size is then "a hint", and zero means "the client should
