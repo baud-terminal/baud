@@ -156,11 +156,19 @@ impl Paint<'_, '_> {
     /// After a rectangle operation: the selection watch told of the rows
     /// written, and the cursor's row read again, since its cells changed
     /// under it.
+    ///
+    /// Marking the scroll area's top again (`baud_domain::RegionTop`) is
+    /// reached by no rectangle operation, which writes per cell and keeps
+    /// each row's mark; it is kept as a defence held by
+    /// `decera_over_the_region_top_keeps_it_writing_to_the_margin`,
+    /// `decfra_over_the_region_top_keeps_it_writing_to_the_margin` and
+    /// `deccra_onto_the_region_top_keeps_it_writing_to_the_margin`
+    /// (`tests/outside_rows.rs`) and by
+    /// `the_screen_does_not_depend_on_where_the_reads_fell`
+    /// (`tests/properties.rs`).
     fn area_written(&mut self, top: Row, bottom: Row) {
         self.wrote_rows(top, bottom);
         self.row_changed_to(self.cy);
-        // A rectangle that ran to a row's end left it a fresh mark, the
-        // scroll area's top among them (`baud_domain::RegionTop`).
         self.region_top_again();
     }
 

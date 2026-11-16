@@ -418,7 +418,8 @@ impl RowExtent {
     /// `reached`'s bare `max` keeps it. A fill to the row's end builds a
     /// fresh mark and drops it; the core sets it again where that matters.
     const REGION_TOP: u16 = 0x1000;
-    /// Twelve bits: 4095 columns, past `MAX_COLS`' widest pitch, 2096.
+    /// Twelve bits: 4095 columns, past `MAX_COLS`' widest pitch, 2144 cells
+    /// on a 256-byte line (`widest_stride_cells`).
     const MARK: u16 = 0x0fff;
     /// The widest mark a row can carry: a pitch past it would not fit
     /// beside the wrap, the rendition and the region-top bit, and
