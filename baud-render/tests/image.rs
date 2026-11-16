@@ -932,12 +932,13 @@ fn clear_pixels_under(blend: Blend) {
     }
 }
 
-/// **The CPU compositor draws a ReGIS input cursor**: the crosshair a
-/// one-shot `R(P(I))` shows, its stroke in the VT340's map entry 0 and its
-/// border in entry 15 (`baud-core`'s `regis_input` tests hold the page's
-/// own pixels), over the text, and gone from the frame once a key has
-/// ended the input. The page is the VT300's 800 by 480 here, no cell size
-/// being set, drawn a pixel to a pixel from the grid's corner.
+/// **The CPU compositor draws a ReGIS input cursor**: the crosshair
+/// `S(C(I2))` selects for a one-shot `R(P(I))`, its stroke in the VT340's
+/// map entry 0 and its border in entry 15 (`baud-core`'s `regis_input`
+/// tests hold the page's own pixels), over the text, and gone from the
+/// frame once a key has ended the input. The page is the VT300's 800 by
+/// 480 here, no cell size being set, drawn a pixel to a pixel from the
+/// grid's corner.
 #[test]
 fn a_regis_input_cursor_is_drawn_and_taken_away() {
     let data = font("JetBrainsMono-Regular.ttf");
@@ -947,7 +948,7 @@ fn a_regis_input_cursor_is_drawn_and_taken_away() {
     let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4 << 20));
     let mut t = Term::new(owned.storage(), &WS);
     t.set_regis_hold(baud_core::RegisHold::On);
-    feed(&mut t, b"\x1bPpP[100,50]R(P(I))\x1b\\");
+    feed(&mut t, b"\x1bPpS(C(I2))P[100,50]R(P(I))\x1b\\");
     {
         let mut target = c.target();
         r.render(&mut t, &mut target, Damage::Full);

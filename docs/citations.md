@@ -9754,7 +9754,6 @@ vt340test, locator/locator.md -- the VT340's ReGIS locator observed: fine crossh
 - **sha256:** `c0489b9e733a2b788684a69cd8bca57136aa302e64f4edbce30b5450af7a6dbe` (12813 bytes)
 - **Copy:** [docs/research/sources/vt340test-locator.md](research/sources/vt340test-locator.md)
 - **Read:** 2026-10-21
-- **Cited in:** `baud-domain/src/regis/cursor.rs`
 
 <a id="vt340test-locator1shot"></a>
 ### vt340test-locator1shot

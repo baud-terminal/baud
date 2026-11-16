@@ -43,20 +43,17 @@ pub enum RegisInput {
     Multiple,
 }
 
-/// A cursor's shape. **The input cursor is numbered as the VT330/VT340 manual's
-/// table numbers it** (`[[source: vt3xx-screen-control]]`): omitted and 0 the
-/// crosshair, 0 marked "(default)", 1 the diamond, 2 the crosshair, 3 and 4 the
-/// rubber band line and rectangle, and the crosshair is what power-up and a valid
-/// `S(A)` select; 070-13 § 5.1 says of one-shot input "a cross hair cursor
-/// appears", and a real VT340 (`[[source: vt340test-locator]]`) shows "fine
-/// crosshairs". **An open departure from 070-8 § 8.8.1.4.2**
+/// A cursor's shape, numbered as 070-8 § 8.8.1.4.2 numbers it
 /// (`[[source: dec-std-070]]`), whose selection syntax "has the force of a
-/// standard": "A value of zero or 1 for <n> selects a the diamond cursor ... This
-/// too is the default cursor, and is selected after a valid S(A) has been
-/// executed", so `I0`, an omitted number and `S(A)` select the crosshair here where
-/// 070-8 selects the diamond, and `S(A)` is not § 8.8.1.4.1 g's "S(C(H1)(I1)1)",
-/// `I1` being the diamond. The output cursor's numbers, `H`, are the same in both
-/// texts.
+/// standard". The output cursor, `S(C(H<n>))`: "A value of zero or one for
+/// <n> selects a diamond shaped cursor with a small crosshair inscribed.
+/// This is the default cursor shape", and 2 "a full screen cross hair
+/// cursor". The input cursor, `S(C(I<n>))`: "A value of zero or 1 for <n>
+/// selects a the diamond cursor identical to the diamond output cursor.
+/// This too is the default cursor, and is selected after a valid S(A) has
+/// been executed", 2 "a full screen cross hair cursor", 3 "a rubber band
+/// line" and 4 "a rubber band rectangle". An omitted number selects the
+/// default for both.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegisCursorStyle {
     /// "A 21 x 21 pixel diamond" (`[[source: vt3xx-regis-intro]]`) "with a
@@ -86,12 +83,12 @@ impl RegisCursorStyle {
         }
     }
 
-    /// `S(C(I<n>))`, the VT340's numbers: 0, 2 and omitted the crosshair,
-    /// 1 the diamond, 3 and 4 the rubber bands.
+    /// `S(C(I<n>))`: 0, 1 and omitted the diamond, 2 the crosshair, 3 and
+    /// 4 the rubber bands.
     fn input(n: Option<i64>) -> Option<RegisCursorStyle> {
         match n {
-            Some(1) => Some(RegisCursorStyle::Diamond),
-            None | Some(0) | Some(2) => Some(RegisCursorStyle::Crosshair),
+            None | Some(0) | Some(1) => Some(RegisCursorStyle::Diamond),
+            Some(2) => Some(RegisCursorStyle::Crosshair),
             Some(3) => Some(RegisCursorStyle::RubberLine),
             Some(4) => Some(RegisCursorStyle::RubberRect),
             _ => None,
@@ -159,10 +156,12 @@ pub(crate) enum Shown {
 
 impl Cursors {
     /// What a valid `S(A)` and power-up select: "Cursor visibility is set
-    /// to ON, and the default cursors are selected" (070-8 § 8.8.1.4.1 g).
+    /// to ON, and the default cursors are selected", whose "Equivalent
+    /// explicit command" is "S(C(H1)(I1)1)" (070-8 § 8.8.1.4.1 g): the
+    /// diamond for both.
     pub(crate) const DEFAULT: Cursors = Cursors {
         output: RegisCursorStyle::Diamond,
-        input: RegisCursorStyle::Crosshair,
+        input: RegisCursorStyle::Diamond,
         output_pair: RegisCursorPair::NONE,
         input_pair: RegisCursorPair::NONE,
         shown: Shown::Yes,

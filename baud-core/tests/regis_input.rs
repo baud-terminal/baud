@@ -124,7 +124,7 @@ fn a_drawn_cursor_keeps_the_page_s_lit_count_exact() {
         assert_eq!(imgs.lit(p.image), Some(u32::try_from(n).unwrap()), "{step}");
     }
     term(|t| {
-        read(t, b"\x1bPpF(V[0,0][96,0][96,48][0,48])");
+        read(t, b"\x1bPpS(C(I2))F(V[0,0][96,0][96,48][0,48])");
         kept(t, "the output cursor");
         read(t, b"P[200,100]");
         kept(t, "the output cursor moved");
@@ -393,15 +393,51 @@ fn ris_ends_graphics_input() {
 // The cursors, pixel for pixel.
 // ---------------------------------------------------------------------------
 
-/// **The input cursor is a crosshair by default**, its lines across the
-/// screen through the position in map entry 0 with a one-pixel border in
-/// entry 15, drawn into the page shown, and taken away when the input
-/// ends. The crosshair is the VT340's default, an open departure from
-/// 070-8's numbering, whose default is the diamond.
+/// Whether the diamond round `(x, y)` is drawn: its four vertices ten
+/// pixels from the position, its centre, and a point on its upper-left
+/// edge, each in map entry 0.
+fn diamond_at(p: &(Vec<u32>, usize), x: usize, y: usize) -> bool {
+    [
+        (x - 10, y),
+        (x + 10, y),
+        (x, y - 10),
+        (x, y + 10),
+        (x, y),
+        (x - 5, y - 5),
+    ]
+    .iter()
+    .all(|&(x, y)| px(p, x, y) == BLACK)
+}
+
+/// **The input cursor is the diamond by default**: "A value of zero or 1
+/// for <n> selects a the diamond cursor identical to the diamond output
+/// cursor. This too is the default cursor" (`[[source: dec-std-070]]`
+/// 070-8 § 8.8.1.4.2 b). Taken away when the input ends, the output
+/// diamond at the same position staying while ReGIS waits on the held
+/// `ST`, and going with it.
 #[test]
-fn the_default_input_cursor_is_a_two_tone_crosshair() {
+fn the_default_input_cursor_is_the_diamond() {
     term(|t| {
-        read(t, b"\x1bPpP[100,200]R(P(I))\x1b\\");
+        let (_, rest) = read(t, b"\x1bPpP[0,0]V[1,0]P[100,200]R(P(I))\x1b\\");
+        let p = page(t);
+        assert!(diamond_at(&p, 100, 200), "the input diamond");
+        assert_eq!(px(&p, 300, 200), Pixel::CLEAR.bits(), "no crosshair");
+        assert_eq!(px(&p, 100, 300), Pixel::CLEAR.bits(), "no vertical");
+        key(t, letter('a'), Modifiers::NONE);
+        assert!(diamond_at(&page(t), 100, 200), "the output diamond");
+        read(t, &rest.unwrap());
+        assert_eq!(painted(&page(t)).len(), 2, "the vector alone");
+    });
+}
+
+/// **`S(C(I2))` selects the crosshair**, "a full screen cross hair cursor"
+/// (070-8 § 8.8.1.4.2 b), its lines across the screen through the position
+/// in map entry 0 with a one-pixel border in entry 15, drawn into the page
+/// shown, and taken away when the input ends.
+#[test]
+fn s_c_i2_selects_a_two_tone_crosshair() {
+    term(|t| {
+        read(t, b"\x1bPpS(C(I2))P[100,200]R(P(I))\x1b\\");
         let p = page(t);
         assert!((0..800).all(|x| x == 100 || px(&p, x, 200) == BLACK));
         assert!((0..480).all(|y| y == 200 || px(&p, 100, y) == BLACK));
@@ -432,7 +468,7 @@ fn the_default_input_cursor_is_a_two_tone_crosshair() {
 #[test]
 fn a_moved_cursor_leaves_no_trail() {
     term(|t| {
-        read(t, b"\x1bPpP[100,200]R(P(I))\x1b\\");
+        read(t, b"\x1bPpS(C(I2))P[100,200]R(P(I))\x1b\\");
         key(t, KeyCode::Down, Modifiers::SHIFT);
         pointer(t, LocatorKind::Moved, 500, 50);
         let p = page(t);
@@ -448,7 +484,10 @@ fn a_moved_cursor_leaves_no_trail() {
 #[test]
 fn the_cursor_is_not_drawn_into_the_plane() {
     term(|t| {
-        let (_, rest) = read(t, b"\x1bPpP[0,100]R(P(I))W(C)P[50,90]V[50,110]\x1b\\");
+        let (_, rest) = read(
+            t,
+            b"\x1bPpS(C(I2))P[0,100]R(P(I))W(C)P[50,90]V[50,110]\x1b\\",
+        );
         key(t, letter('a'), Modifiers::NONE);
         read(t, &rest.unwrap());
         let p = page(t);
@@ -459,67 +498,68 @@ fn the_cursor_is_not_drawn_into_the_plane() {
     });
 }
 
-/// **The input cursor's numbers are the VT340's**: `S(C(I0))`, `S(C(I2))`
-/// and an omitted number the crosshair, `S(C(I1))` the diamond, 21 by 21
-/// with its diagonals, its vertices ten pixels from the position
-/// (`[[source: vt3xx-screen-control]]`; an open departure from 070-8
-/// § 8.8.1.4.2 b, where 0 is the diamond too).
+/// **The input cursor's numbers are 070-8's**, whose selection syntax "has
+/// the force of a standard": `S(C(I0))`, `S(C(I1))` and an omitted number
+/// the diamond, "A value of zero or 1 for <n> selects a the diamond
+/// cursor", 21 by 21 with its diagonals, its vertices ten pixels from the
+/// position; `S(C(I2))` "a full screen cross hair cursor" (§ 8.8.1.4.2 b).
 #[test]
-fn s_c_i1_selects_the_diamond_and_i0_i2_and_omitted_the_crosshair() {
+fn s_c_i0_i1_and_omitted_select_the_diamond_and_i2_the_crosshair() {
     for c in [
         &b"S(C(I0))"[..],
-        b"S(C(I2))",
+        b"S(C(I1))",
         b"S(C(I))",
-        b"S(C(I1))S(C(I))",
+        b"S(C(I2))S(C(I))",
     ] {
         term(|t| {
             let mut bytes = b"\x1bPp".to_vec();
             bytes.extend_from_slice(c);
-            bytes.extend_from_slice(b"P[100,100]R(P(I))\x1b\\");
+            bytes.extend_from_slice(b"P[200,200]R(P(I))\x1b\\");
             read(t, &bytes);
             let p = page(t);
             let what = String::from_utf8_lossy(c);
-            assert_eq!(px(&p, 300, 100), BLACK, "{what}: the crosshair");
-            assert_eq!(px(&p, 100, 300), BLACK, "{what}: its vertical");
-            assert_eq!(px(&p, 95, 95), Pixel::CLEAR.bits(), "{what}: no diamond");
+            assert!(diamond_at(&p, 200, 200), "{what}: the diamond");
+            assert_eq!(
+                px(&p, 300, 200),
+                Pixel::CLEAR.bits(),
+                "{what}: no crosshair"
+            );
         });
     }
     term(|t| {
-        read(t, b"\x1bPpS(C(I1))P[200,200]R(P(I))\x1b\\");
+        read(t, b"\x1bPpS(C(I2))P[100,100]R(P(I))\x1b\\");
         let p = page(t);
-        for (x, y) in [
-            (190, 200),
-            (210, 200),
-            (200, 190),
-            (200, 210),
-            (200, 200),
-            (195, 195),
-        ] {
-            assert_eq!(px(&p, x, y), BLACK, "({x},{y})");
-        }
-        assert_eq!(px(&p, 300, 200), Pixel::CLEAR.bits(), "no crosshair");
+        assert_eq!(px(&p, 300, 100), BLACK, "the crosshair");
+        assert_eq!(px(&p, 100, 300), BLACK, "its vertical");
+        assert_eq!(px(&p, 95, 95), Pixel::CLEAR.bits(), "no diamond");
     });
 }
 
-/// **A valid `S(A)` selects the crosshair again**, the VT340's default,
-/// after `S(C(I1))` chose the diamond; 070-8 § 8.8.1.4.1 g's written
-/// equivalent, `S(C(H1)(I1)1)`, selects the diamond, `I1` being the
-/// diamond in the VT340's numbers (the open departure above).
+/// **A valid `S(A)` selects the diamond again**, after `S(C(I2))` chose
+/// the crosshair: the default input cursor "is selected after a valid S(A)
+/// has been executed" (070-8 § 8.8.1.4.2 b), and § 8.8.1.4.1 g's
+/// "Equivalent explicit command", "S(C(H1)(I1)1)", draws the same page.
 #[test]
-fn a_valid_s_a_selects_the_crosshair_and_s_c_i1_the_diamond() {
-    term(|t| {
-        read(
-            t,
-            b"\x1bPpS(C(I1))S(A[0,0][799,479])P[100,200]R(P(I))\x1b\\",
-        );
-        assert_eq!(px(&page(t), 300, 200), BLACK, "S(A): the crosshair");
-    });
-    term(|t| {
-        read(t, b"\x1bPpS(C(I3))S(C(H1)(I1)1)P[100,200]R(P(I))\x1b\\");
-        let p = page(t);
-        assert_eq!(px(&p, 300, 200), Pixel::CLEAR.bits(), "I1: no crosshair");
-        assert_eq!(px(&p, 90, 200), BLACK, "I1: the diamond's vertex");
-    });
+fn a_valid_s_a_selects_the_diamond_as_its_written_equivalent_does() {
+    let mut pages = Vec::new();
+    for c in [&b"S(C(I2))S(A[0,0][799,479])"[..], b"S(C(I2))S(C(H1)(I1)1)"] {
+        term(|t| {
+            let mut bytes = b"\x1bPp".to_vec();
+            bytes.extend_from_slice(c);
+            bytes.extend_from_slice(b"P[100,200]R(P(I))\x1b\\");
+            read(t, &bytes);
+            let p = page(t);
+            let what = String::from_utf8_lossy(c);
+            assert!(diamond_at(&p, 100, 200), "{what}: the diamond");
+            assert_eq!(
+                px(&p, 300, 200),
+                Pixel::CLEAR.bits(),
+                "{what}: no crosshair"
+            );
+            pages.push(p);
+        });
+    }
+    assert_eq!(pages[0], pages[1], "S(A) and S(C(H1)(I1)1) draw one page");
 }
 
 /// **A rubber band line runs from the drawing position at the start of the
@@ -626,7 +666,7 @@ fn the_indicator_shows_the_input_position() {
 fn a_cancelled_envelope_takes_its_cursors_away() {
     for cancel in [&b"\x18"[..], b"\x1a", b"\x1b[0m", b"\x18\x1bP$qm\x1b\\"] {
         term(|t| {
-            read(t, b"\x1bPpP[0,0]V[1,0]P[100,200]R(I1)");
+            read(t, b"\x1bPpS(C(I2))P[0,0]V[1,0]P[100,200]R(I1)");
             let what = String::from_utf8_lossy(cancel);
             assert_eq!(px(&page(t), 95, 195), BLACK, "{what}: the diamond drawn");
             assert_eq!(px(&page(t), 300, 200), BLACK, "{what}: the crosshair drawn");
