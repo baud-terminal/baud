@@ -157,6 +157,21 @@ fn a_quotation_from_a_specification_passes_the_public_rules() {
 }
 
 #[test]
+fn a_blockquote_from_a_specification_passes_the_public_rules() {
+    assert_eq!(
+        one("//! > intermediate and final characters of the SCS escape sequence used to"),
+        NONE
+    );
+    assert_eq!(one("// > since 2031, the text says"), NONE);
+    assert_ne!(
+        one("//! the SCS escape sequence used to"),
+        NONE,
+        "the control: the same words outside a blockquote are found"
+    );
+    assert_eq!(one("// > as quillterm does"), [Found::Term(TermLine(2))]);
+}
+
+#[test]
 fn a_private_term_is_found_and_named_by_its_line() {
     assert_eq!(one("// As quillterm draws it."), [Found::Term(TermLine(2))]);
     assert_eq!(one("// As MossVT draws it."), [Found::Term(TermLine(3))]);

@@ -354,6 +354,9 @@ pub fn check(diff: &str, terms: &Terms) -> Vec<Hit> {
         }
         let cited = CITATION.replace_all(text, " ");
         let unquoted = QUOTED.replace_all(&cited, " ");
+        // A Markdown blockquote (`> `) quotes a source as quotation marks
+        // do: the public rules pass it, the private terms still read it.
+        let blockquote = text.trim_start().starts_with('>');
         let mut hit = |found| {
             hits.push(Hit {
                 path: a.path.clone(),
@@ -362,7 +365,7 @@ pub fn check(diff: &str, terms: &Terms) -> Vec<Hit> {
             })
         };
         for r in RULES {
-            if r.finds(&unquoted) {
+            if !blockquote && r.finds(&unquoted) {
                 hit(Found::Public(r));
             }
         }
