@@ -14,7 +14,7 @@
 //! A pure function of its inputs: `main` reads them and writes what
 //! [`build`] returns.
 
-use baud_tablegen::{Check, Emit, Errors, Input, Kind, Source};
+use baud_tablegen::{Check, Emit, Errors, Input, Kind, PerLine, Source};
 use std::collections::HashMap;
 
 /// Line 1 names the parent and its sha256, so a list read from another
@@ -119,7 +119,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             cps.len()
         )],
         &cps,
-        8,
+        PerLine(8),
         |v| format!("0x{v:05X}"),
     );
     out.code(&format!(
@@ -137,7 +137,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             ),
         ],
         &index,
-        16,
+        PerLine(16),
         usize::to_string,
     );
     let flat: Vec<u16> = blocks.concat();
@@ -152,7 +152,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "zero for a codepoint that is not a diacritic. Block 0 is all zeros.",
         ],
         &flat,
-        16,
+        PerLine(16),
         u16::to_string,
     );
     errs.or(out)

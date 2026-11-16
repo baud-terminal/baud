@@ -1824,9 +1824,7 @@ impl Orders {
     ) -> RowSource<'t> {
         let back = term.looking_back(back);
         match self.maps.display() {
-            Some(d) => {
-                RowSource::Runs(d.line_sources(term, back, isize::try_from(y.index()).unwrap_or(0)))
-            }
+            Some(d) => RowSource::Runs(d.line_sources(term, back, WindowLine::of(y))),
             None => RowSource::One(term.view(back).styles(y)),
         }
     }
@@ -2820,13 +2818,24 @@ impl Reorder {
     /// counted from the window's top, negative above it: a stored row
     /// through `vp`'s own table for it (`Viewport::styles`), a display line
     /// of the window through each run's.
-    fn row_source<'v>(&self, term: &'v Term<'_>, vp: &Viewport<'v>, y: isize) -> RowSource<'v> {
+    fn row_source<'v>(
+        &self,
+        term: &'v Term<'_>,
+        vp: &Viewport<'v>,
+        y: WindowLine,
+    ) -> RowSource<'v> {
         match &self.sourced {
             Sourced::Window(d, back) => RowSource::Runs(d.line_sources(term, *back, y)),
-            Sourced::Rows => match usize::try_from(y) {
-                Ok(y) => RowSource::One(vp.styles(Row::from_index(y))),
-                Err(_) => RowSource::One(vp.back(y.unsigned_abs()).styles(Row::ZERO)),
-            },
+            Sourced::Rows => {
+                let top = WindowLine::of(Row::ZERO);
+                match y.since(top) {
+                    Some(down) => RowSource::One(vp.styles(Row::from_index(down.index()))),
+                    None => {
+                        let up = top.since(y).map_or(usize::MAX, Rows::index);
+                        RowSource::One(vp.back(up).styles(Row::ZERO))
+                    }
+                }
+            }
         }
     }
 
@@ -2972,7 +2981,7 @@ impl Reorder {
                 if joins == Joins::Unseen || r.index() >= n {
                     continue;
                 }
-                let src = self.row_source(term, &vp, isize::try_from(r.index()).unwrap_or(0));
+                let src = self.row_source(term, &vp, WindowLine::of(r));
                 let h = self.test_row(term, src.words(), row_of(r));
                 self.orders.keep_syllables(r, written, h);
                 if h.joins == Opens::Yes {
@@ -3335,7 +3344,7 @@ impl Reorder {
         for y in first.index()..=last.index() {
             let r = Row::from_index(y);
             let cells = written.row(r).unwrap_or_else(|| vp.row(r));
-            let src = self.row_source(term, vp, isize::try_from(y).unwrap_or(0));
+            let src = self.row_source(term, vp, WindowLine::of(Row::from_index(y)));
             if self.test_row(term, src.words(), cells).joins == Opens::Yes {
                 self.join_shown(term, (r, src.words()), cells);
             }
@@ -3408,7 +3417,7 @@ impl Reorder {
         let mut drawn_strung = false;
         // Where each drawn row names its cells' ids (`crate::frozen`).
         let sources: Vec<RowSource<'v>> = (first.index()..=last.index())
-            .map(|y| self.row_source(term, vp, isize::try_from(y).unwrap_or(0)))
+            .map(|y| self.row_source(term, vp, WindowLine::of(Row::from_index(y))))
             .collect();
         for y in first.index()..=last.index() {
             let r = Row::from_index(y);
@@ -3437,7 +3446,8 @@ impl Reorder {
                 if v.wrapped(Row::ZERO) != Wrap::Continues {
                     break;
                 }
-                let src = self.row_source(term, vp, -isize::try_from(k).unwrap_or(0));
+                let src =
+                    self.row_source(term, vp, WindowLine::of(Row::ZERO).up(Rows::of_count(k)));
                 above.push((v.row(Row::ZERO), v.margins(Row::ZERO), src));
                 k += 1;
             }
@@ -3470,7 +3480,7 @@ impl Reorder {
                 && below.len() < budget
             {
                 let at = Row::from_index(nrows - 1 + k);
-                let src = self.row_source(term, vp, isize::try_from(nrows - 1 + k).unwrap_or(0));
+                let src = self.row_source(term, vp, WindowLine::of(at));
                 below.push((vp.row(at), vp.margins(at), src));
                 k += 1;
             }
@@ -4768,7 +4778,7 @@ impl Reorder {
     /// reads the drawn cell.
     fn vary_swaps(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
-        let src = self.row_source(term, vp, isize::try_from(r.index()).unwrap_or(0));
+        let src = self.row_source(term, vp, WindowLine::of(r));
         let mut found: Vec<(Col, Content)> = Vec::new();
         for (x, &cell) in cells.iter().enumerate() {
             let around = (
@@ -4809,7 +4819,7 @@ impl Reorder {
     /// italic leans right, as the italic face draws it.
     fn vary_slants(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
-        let src = self.row_source(term, vp, isize::try_from(r.index()).unwrap_or(0));
+        let src = self.row_source(term, vp, WindowLine::of(r));
         let words = src.words();
         let Some(order) = self.orders.maps.row_mut(r) else {
             return;
@@ -4837,7 +4847,7 @@ impl Reorder {
     /// draws it in.
     fn vary_joins(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
-        let src = self.row_source(term, vp, isize::try_from(r.index()).unwrap_or(0));
+        let src = self.row_source(term, vp, WindowLine::of(r));
         let words = src.words();
         let cols = cells.len();
         // Read, not written: the row is stamped below only where a

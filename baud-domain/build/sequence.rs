@@ -18,7 +18,7 @@
 
 use crate::ucd;
 use baud_tablegen::{
-    Buckets, Check, Emit, Errors, Input, Kind, Slot, Slots, Source, ValueSet, place,
+    Buckets, Check, Emit, Errors, Input, Kind, PerLine, Slot, Slots, Source, ValueSet, place,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -298,7 +298,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "codepoints above them.",
         ],
         &packed,
-        8,
+        PerLine(8),
         |v| format!("{v:#08x}"),
     );
     out.array(
@@ -309,7 +309,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "its span.",
         ],
         &flat,
-        8,
+        PerLine(8),
         |v| format!("{v:#07x}"),
     );
     out.array(
@@ -317,7 +317,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
         "u16",
         &["Each bucket's seed."],
         &hash.seeds,
-        16,
+        PerLine(16),
         u16::to_string,
     );
     out.array(
@@ -328,7 +328,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "each -- above the child node plus one; zero where no edge lands.",
         ],
         &edges,
-        4,
+        PerLine(4),
         |v| format!("{v:#x}"),
     );
     out.array(
@@ -339,7 +339,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "with a codepoint of that block.",
         ],
         &continues,
-        16,
+        PerLine(16),
         |v| format!("{v:#04x}"),
     );
     errs.or(out)

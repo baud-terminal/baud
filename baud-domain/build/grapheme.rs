@@ -24,7 +24,9 @@
 //! [`build`] returns.
 
 use crate::ucd::{self, GC, at, index};
-use baud_tablegen::{CODE_POINTS, Check, CodepointMap, Emit, Errors, Input, Kind, Source, Trie};
+use baud_tablegen::{
+    CODE_POINTS, Check, CodepointMap, Emit, Errors, Input, Kind, PerLine, Source, Trie,
+};
 
 pub const BREAK_PROPERTY: Input = Input {
     file: "unicode-graphemebreakproperty.txt",
@@ -309,7 +311,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "cold side of a join.",
         ],
         &spacing,
-        1,
+        PerLine(1),
         |&(lo, hi)| format!("(0x{lo:04x}, 0x{hi:04x})"),
     );
     let variants: Vec<&str> = CLASSES.iter().map(|&(n, _)| n).collect();

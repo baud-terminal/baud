@@ -969,9 +969,9 @@ impl<'a> Glyf<'a> {
         let x = self.origin(g, hmtx)? as f32;
         if x != 0.0 {
             let mut shifted = Shifted { sink, x };
-            self.outline_into(data, Transform::IDENTITY, 0, &mut shifted)?;
+            self.outline_into(data, Transform::IDENTITY, Count::ZERO, &mut shifted)?;
         } else {
-            self.outline_into(data, Transform::IDENTITY, 0, sink)?;
+            self.outline_into(data, Transform::IDENTITY, Count::ZERO, sink)?;
         }
         Some(Streamed::Drawn)
     }
@@ -1555,17 +1555,22 @@ impl<'a> Glyf<'a> {
         &self,
         data: Bytes<'a>,
         transform: Transform,
-        depth: u8,
+        depth: Count,
         sink: &mut S,
     ) -> Option<()> {
-        if depth >= MAX_DEPTH {
+        if depth.value() >= u32::from(MAX_DEPTH) {
             return None;
         }
         let contours: i16 = data.read(Offset::ZERO)?;
         // numberOfContours, then the bounding box, which is not trusted.
         let body = data.tail(Offset::of(10u32))?;
         if contours > 0 {
-            self.simple(body, u16::try_from(contours).ok()?, transform, sink)
+            self.simple(
+                body,
+                Count::of(u16::try_from(contours).ok()?),
+                transform,
+                sink,
+            )
         } else if contours < 0 {
             self.composite(body, transform, depth, sink)
         } else {
@@ -1576,11 +1581,11 @@ impl<'a> Glyf<'a> {
     fn simple<S: Sink>(
         &self,
         body: Bytes<'a>,
-        contours: u16,
+        contours: Count,
         transform: Transform,
         sink: &mut S,
     ) -> Option<()> {
-        let glyph = Simple::parse(body, Count::of(contours))?;
+        let glyph = Simple::parse(body, contours)?;
         if glyph.points == Count::of(1u32) {
             // A contour of one point draws nothing and is not an error.
             return Some(());
@@ -1600,7 +1605,7 @@ impl<'a> Glyf<'a> {
         &self,
         body: Bytes<'a>,
         transform: Transform,
-        depth: u8,
+        depth: Count,
         sink: &mut S,
     ) -> Option<()> {
         let mut comps = Comps {
@@ -1612,7 +1617,7 @@ impl<'a> Glyf<'a> {
                 // [`Glyf::outline`] streams no tree that matches points, so
                 // every record here is placed by its offset.
                 let combined = Transform::combine(transform, c.offset_transform());
-                self.outline_into(data, combined, depth + 1, sink)?;
+                self.outline_into(data, combined, Count::of(depth.value() + 1), sink)?;
             }
         }
         Some(())

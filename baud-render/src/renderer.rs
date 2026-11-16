@@ -3360,14 +3360,13 @@ mod row_target {
     }
 
     impl Renderer<'_, '_> {
-        /// `target` over what dirty row `r` repaints ([`Repaint`]), with
+        /// `target` over what dirty row `row` repaints ([`Repaint`]), with
         /// the row and its band: the one place a [`RowTarget`] is made.
-        pub(super) fn repainted<'t>(&self, target: &'t mut Target<'_>, r: usize) -> RowTarget<'t> {
-            let target = match self.repaint.get(r) {
+        pub(super) fn repainted<'t>(&self, target: &'t mut Target<'_>, row: Row) -> RowTarget<'t> {
+            let target = match self.repaint.get(row.index()) {
                 Some(&Repaint::Cols { left, right }) => target.within(left, right),
                 _ => target.within(Px::of(0), Px::of(u32::MAX)),
             };
-            let row = Row::from_index(r);
             RowTarget {
                 target,
                 row,
@@ -11781,7 +11780,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             let band = self.band(row);
             let margin = self.clear_color();
-            let mut target = self.repainted(target, r);
+            let mut target = self.repainted(target, row);
             let target = &mut target;
             target.fill_band(
                 band,
@@ -11877,7 +11876,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let hole = self.fireworks_hole();
                 for r in dirty {
                     let band = self.band(Row::from_index(r));
-                    let mut target = self.repainted(target, r);
+                    let mut target = self.repainted(target, Row::from_index(r));
                     match (trail, hole) {
                         (Some(Drawn::Fireworks(..)), Some(hole)) => {
                             target.fireworks(&self.trail_inst, hole, self.blend, page, band)
@@ -11895,7 +11894,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.splash_layers_over(target, splash::Depth::Behind, page);
         for r in (0..self.rows.index()).filter(|&r| self.dirty[r]) {
             let band = self.band(Row::from_index(r));
-            let mut target = self.repainted(target, r);
+            let mut target = self.repainted(target, Row::from_index(r));
             for inst in &self.glow_inst {
                 target.over(inst, &self.atlas, self.blend, page, band);
             }
@@ -11906,13 +11905,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // row drew again and an overlay a row kept stays uncovered.
         if let Some(imgs) = over {
             for r in (0..self.rows.index()).filter(|&r| self.dirty[r]) {
-                let mut row = self.repainted(target, r);
+                let mut row = self.repainted(target, Row::from_index(r));
                 self.paint_over(imgs, &mut row, page);
             }
         }
         for r in (0..self.rows.index()).filter(|&r| self.dirty[r]) {
             let band = self.band(Row::from_index(r));
-            let mut target = self.repainted(target, r);
+            let mut target = self.repainted(target, Row::from_index(r));
             for inst in self
                 .bell_inst
                 .iter()

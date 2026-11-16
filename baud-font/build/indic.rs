@@ -23,7 +23,7 @@
 //! `crate::syllabic`'s `Category` and `Position`. A pure function of its
 //! inputs: `main` reads them and writes what [`build`] returns.
 
-use baud_tablegen::{Check, CpRange, Emit, Errors, Input, Kind, Source};
+use baud_tablegen::{Check, CpRange, Emit, Errors, Input, Kind, PerLine, Source};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const SYLLABIC_CATEGORY: Input = Input {
@@ -560,7 +560,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "in none of them is unclassed without a search.",
         ],
         &sparse_blocks,
-        8,
+        PerLine(8),
         |b| format!("0x{b:03X}"),
     );
     let records: Vec<u8> = sparse

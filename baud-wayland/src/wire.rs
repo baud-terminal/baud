@@ -267,13 +267,12 @@ fn bytes<'a>(buf: &'a [u8], at: &mut usize) -> Result<&'a [u8], WireError> {
     Ok(out)
 }
 
-fn string<'a>(buf: &'a [u8], at: &mut usize, nullable: bool) -> Result<Option<&'a str>, WireError> {
+/// The string at `at`; `None` for the null string, length 0, which each
+/// caller allows or refuses by its argument's kind.
+fn string<'a>(buf: &'a [u8], at: &mut usize) -> Result<Option<&'a str>, WireError> {
     let b = bytes(buf, at)?;
     if b.is_empty() {
-        return match nullable {
-            true => Ok(None),
-            false => Err(WireError::NullForbidden),
-        };
+        return Ok(None);
     }
     match b.split_last() {
         Some((0, body)) => core::str::from_utf8(body)
@@ -317,7 +316,13 @@ pub fn read<'a>(
             ArgKind::Fixed => Read::Fixed(Fixed(i32::from_ne_bytes(
                 word(body, &mut at)?.to_ne_bytes(),
             ))),
-            ArgKind::Str { nullable } => Read::Str(string(body, &mut at, nullable)?),
+            ArgKind::Str { nullable } => {
+                let s = string(body, &mut at)?;
+                if s.is_none() && !nullable {
+                    return Err(WireError::NullForbidden);
+                }
+                Read::Str(s)
+            }
             ArgKind::Object { nullable } => {
                 let o = ObjectId(word(body, &mut at)?);
                 if o.is_null() && !nullable {
@@ -327,7 +332,7 @@ pub fn read<'a>(
             }
             ArgKind::NewId { interface: Some(_) } => Read::NewId(ObjectId(word(body, &mut at)?)),
             ArgKind::NewId { interface: None } => {
-                let interface = string(body, &mut at, false)?.unwrap_or("");
+                let interface = string(body, &mut at)?.ok_or(WireError::NullForbidden)?;
                 let version = word(body, &mut at)?;
                 let id = ObjectId(word(body, &mut at)?);
                 Read::NewIdWith {

@@ -4,6 +4,11 @@ use crate::Source;
 use std::fmt::Write as _;
 use std::path::Path;
 
+/// How many values [`Emit::array`] writes on a line of the generated Rust;
+/// zero writes one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PerLine(pub usize);
+
 /// One generated module, `<name>.rs`, and the `.bin` files its byte
 /// statics include, held in memory: the build script's `main` alone writes
 /// them to `OUT_DIR` ([`Emit::write`]), so a build module stays a function
@@ -75,12 +80,12 @@ impl Emit {
         ty: &str,
         doc: &[&str],
         data: &[T],
-        per_line: usize,
+        per_line: PerLine,
         fmt: impl Fn(&T) -> String,
     ) {
         self.doc(doc);
         let _ = writeln!(self.rs, "pub static {ident}: [{ty}; {}] = [", data.len());
-        for chunk in data.chunks(per_line.max(1)) {
+        for chunk in data.chunks(per_line.0.max(1)) {
             let line: Vec<String> = chunk.iter().map(&fmt).collect();
             let _ = writeln!(self.rs, "    {},", line.join(", "));
         }

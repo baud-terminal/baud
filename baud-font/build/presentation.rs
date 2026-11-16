@@ -10,7 +10,7 @@
 //! A pure function of its inputs: `main` reads them and writes what
 //! [`build`] returns.
 
-use baud_tablegen::{Check, Emit, Errors, Input, Kind, Source};
+use baud_tablegen::{Check, Emit, Errors, Input, Kind, PerLine, Source};
 use std::collections::{BTreeMap, HashMap};
 
 pub const UNICODE_DATA: Input = Input {
@@ -153,7 +153,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "3 medial), and the presentation form.",
         ],
         &keys,
-        4,
+        PerLine(4),
         |(k, p)| format!("(0x{k:06X}, 0x{p:04X})"),
     );
     out.array(
@@ -164,7 +164,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "and the ligature's `<isolated>` and `<final>` forms.",
         ],
         &ligatures,
-        1,
+        PerLine(1),
         |(a, n, j)| format!("(0x{a:04X}, 0x{n:04X}, 0x{j:04X})"),
     );
     errs.or(out)

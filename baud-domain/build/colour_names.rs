@@ -26,7 +26,9 @@
 //! A pure function of its inputs: `main` reads them and writes what
 //! [`kitty`] and [`x`] return.
 
-use baud_tablegen::{Buckets, Emit, Error, Errors, Input, Kind, Pos, Slots, Source, perfect_hash};
+use baud_tablegen::{
+    Buckets, Emit, Error, Errors, Input, Kind, PerLine, Pos, Slots, Source, perfect_hash,
+};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
@@ -274,7 +276,7 @@ fn table(
             "The seed of each of the {BUCKETS} buckets the first hash picks."
         )],
         &hash.seeds,
-        16,
+        PerLine(16),
         u16::to_string,
     );
     out.array(
@@ -285,7 +287,7 @@ fn table(
             "colour; a length of 0 is an empty slot.",
         ],
         &slots,
-        1,
+        PerLine(1),
         |(at, len, [r, g, b])| {
             format!(
                 "crate::colour_name::ColourSlot {{ at: {at}, len: {len}, rgb: [{r}, {g}, {b}] }}"

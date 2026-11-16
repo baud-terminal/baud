@@ -27,7 +27,7 @@
 //! [`build`] returns.
 
 use crate::ucd::{self, at};
-use baud_tablegen::{CODE_POINTS, Check, Emit, Errors, Input, Kind, LAST, Source, Trie};
+use baud_tablegen::{CODE_POINTS, Check, Emit, Errors, Input, Kind, LAST, PerLine, Source, Trie};
 use std::collections::{BTreeMap, HashMap};
 
 pub const UNICODE_DATA: Input = Input {
@@ -311,7 +311,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             trie.distinct
         )],
         &trie.index,
-        24,
+        PerLine(24),
         u8::to_string,
     );
     out.array(
@@ -326,7 +326,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "[`SEARCH_PROPS`].",
         ],
         &trie.blocks,
-        16,
+        PerLine(16),
         u16::to_string,
     );
     out.array(
@@ -338,7 +338,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "canonical combining class.",
         ],
         &props,
-        6,
+        PerLine(6),
         |p| format!("({}, {}, {})", p.0, p.1, p.2),
     );
     out.array(
@@ -346,7 +346,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
         "u32",
         &["The sequences: at an index, a length and then that many code points."],
         &pool,
-        10,
+        PerLine(10),
         |v| format!("0x{v:04X}"),
     );
     errs.or(out)

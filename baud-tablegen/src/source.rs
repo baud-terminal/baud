@@ -99,7 +99,7 @@ impl Source {
         self.text
             .lines()
             .enumerate()
-            .filter_map(move |(i, l)| row(&self.path, i + 1, l, 0, Comments::Strip))
+            .filter_map(move |(i, l)| row(&self.path, Line(i + 1), l, l, Comments::Strip))
     }
 
     /// The `# @missing: <range>; <value>` lines, in the file's order, each a
@@ -109,7 +109,7 @@ impl Source {
         const AT: &str = "# @missing: ";
         self.text.lines().enumerate().filter_map(move |(i, l)| {
             l.strip_prefix(AT)
-                .and_then(|_| row(&self.path, i + 1, l, AT.len(), Comments::Strip))
+                .and_then(|rest| row(&self.path, Line(i + 1), l, rest, Comments::Strip))
         })
     }
 
@@ -124,7 +124,7 @@ impl Source {
             .text
             .lines()
             .enumerate()
-            .filter_map(|(i, l)| row(&self.path, i + 1, l, 0, Comments::Keep));
+            .filter_map(|(i, l)| row(&self.path, Line(i + 1), l, l, Comments::Keep));
         for r in rows {
             if let Err(e) = r.spaces().and_then(|()| r.expect(15)) {
                 out.push(Err(e));
@@ -190,19 +190,23 @@ pub struct Entry<'a> {
     pub row: Row<'a>,
 }
 
-/// The row of line `n`, the fields starting at byte `from`; `None` for a
-/// line with no data.
+/// A line of a file, counted from 1.
+#[derive(Clone, Copy)]
+struct Line(usize);
+
+/// The row of line `n`, its fields starting where `rest`, the end of
+/// `line`, does; `None` for a line with no data.
 fn row<'a>(
     path: &'a str,
-    n: usize,
+    n: Line,
     line: &'a str,
-    from: usize,
+    rest: &'a str,
     comments: Comments,
 ) -> Option<Row<'a>> {
-    let body = &line[from..];
+    let from = line.len() - rest.len();
     let body = match comments {
-        Comments::Strip => body.split('#').next().unwrap_or(""),
-        Comments::Keep => body,
+        Comments::Strip => rest.split('#').next().unwrap_or(""),
+        Comments::Keep => rest,
     };
     if body.trim().is_empty() {
         return None;
@@ -221,7 +225,7 @@ fn row<'a>(
     }
     Some(Row {
         path,
-        line: n,
+        line: n.0,
         text: line,
         fields,
     })

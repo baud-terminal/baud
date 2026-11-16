@@ -28,7 +28,7 @@ mod source;
 mod trie;
 mod values;
 
-pub use emit::Emit;
+pub use emit::{Emit, PerLine};
 pub use error::{Check, Error, Errors, Kind, Pos};
 pub use hash::{Buckets, PerfectHash, Slot, Slots, fnv1a, perfect_hash, place};
 pub use map::CodepointMap;

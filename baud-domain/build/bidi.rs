@@ -31,8 +31,8 @@
 //! [`build`] returns.
 
 use baud_tablegen::{
-    CODE_POINTS, Check, CodepointMap, CpRange, Emit, Entry, Errors, Input, Kind, Source, Trie,
-    ValueSet,
+    CODE_POINTS, Check, CodepointMap, CpRange, Emit, Entry, Errors, Input, Kind, PerLine, Source,
+    Trie, ValueSet,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -411,7 +411,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             &stage1(mirror_trie.distinct),
         ],
         &mirror_trie.index,
-        24,
+        PerLine(24),
         u8::to_string,
     );
     out.array(
@@ -423,7 +423,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "with U+2329 and U+232A in U+3008 and U+3009's pair.",
         ],
         &mirror_trie.blocks,
-        16,
+        PerLine(16),
         u16::to_string,
     );
     out.array(
@@ -434,7 +434,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             glyphs.len() - 1
         )],
         &glyphs,
-        10,
+        PerLine(10),
         |v| format!("0x{v:04X}"),
     );
     out.array(
@@ -446,7 +446,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "(UnicodeData.txt), itself where the name has no side.",
         ],
         &box_,
-        16,
+        PerLine(16),
         |v| format!("0x{v:02X}"),
     );
     out.enum_order("crate::bidi::BidiClass", &TABLE_4);

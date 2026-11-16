@@ -693,10 +693,10 @@ impl Display {
         &self,
         term: &'t Term<'_>,
         back: Rows,
-        y: isize,
+        y: WindowLine,
     ) -> Vec<(core::ops::Range<usize>, RowStyles<'t>)> {
-        let k = y + isize::try_from(self.above.index()).unwrap_or(0);
-        let Some(runs) = usize::try_from(k).ok().and_then(|k| self.sources.get(k)) else {
+        let first = WindowLine::of(Row::ZERO).up(self.above);
+        let Some(runs) = y.since(first).and_then(|k| self.sources.get(k.index())) else {
             return Vec::new();
         };
         runs.iter()

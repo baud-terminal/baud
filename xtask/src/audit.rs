@@ -133,7 +133,7 @@ const fn krate(name: &'static str, root: &'static [&'static str], t: Sites, s: S
 /// each change that adds code sets the limit to the count it ends at, never
 /// above it.
 pub const CRATES: [Crate; 10] = [
-    // **baud-font: six raw-integer sites and forty signature primitives,
+    // **baud-font: three raw-integer sites and forty signature primitives,
     // every one enumerated, and the limit follows the count downward.** The
     // signature sites are the newtype surface of a parser over a byte
     // format -- the same exemption `baud-domain` has for the same reason:
@@ -147,11 +147,10 @@ pub const CRATES: [Crate; 10] = [
     // charstring and a DICT are made of: `OffSize::parse(u8)`,
     // `dict_number`'s first byte, `sid_to_gid(u16)` on a string id,
     // `usize_of -> u32` on an offset operand, `subr_index`'s bias as `i32`,
-    // `f2dot14(i16) -> f32`, the composite depth as `u8` against a cap of
-    // 32, and `Delta::of(bool, bool)` built from two flag bits. A DICT
-    // operator is a `DictOp`, a call depth a `Depth`, and the path operators
-    // CFF and CFF2 share take their operands as a slice, so no width slot is
-    // passed as a `usize`. The PNG decoder was the third interpreter, with
+    // `f2dot14(i16) -> f32`, and `Delta::of(bool, bool)` built from two
+    // flag bits. A DICT operator is a `DictOp`, a call depth a `Depth`, and
+    // the path operators CFF and CFF2 share take their operands as a slice,
+    // so no width slot is passed as a `usize`. The PNG decoder was the third interpreter, with
     // twenty signature sites and six raw ones; it moved to `baud-domain` for
     // V19 step 2 and took them with it, and the limits fell from 12 and 60.
     // The rasteriser carries eight more, all pixel arithmetic: `Px::of(u32)`
@@ -159,7 +158,7 @@ pub const CRATES: [Crate; 10] = [
     // `Scale::placing`'s two pixel offsets, `Point::new`'s two coordinates,
     // `Point::lerp`'s parameter, `distance_to`'s length, `row(f32) -> usize`
     // -- the one place a pixel coordinate becomes a row index, spelled once
-    // -- and `splat`'s row start as `usize`, which is also the sixth raw
+    // -- and `splat`'s row start as `usize`, which is also the third raw
     // site: the reference's own index arithmetic, kept in its shape so the
     // byte-exact differential has one algorithm to compare rather than two.
     // The shaper adds three signature sites and no raw ones: `same(GlyphId,
@@ -169,15 +168,15 @@ pub const CRATES: [Crate; 10] = [
     // Buffer positions are `Index`, lengths are `Count`, table glyph ids are
     // `GlyphId`, classes are `Class`, lookup types are `Kind` and flags are
     // `LookupFlags`, so a position and a count cannot be added and a class
-    // and a glyph cannot be confused. The other five raw sites are the
+    // and a glyph cannot be confused. The other two raw sites are the
     // interpreters' state: the charstring stack length and the stem count
     // that sizes `hintmask` (CFF's; CFF2 keeps its stems as a `Count` and
-    // shares the stack), the composite recursion depth (twice) and the
-    // contour count in `glyf`. Every `bool` field became a two-state enum
+    // shares the stack); `glyf` carries its recursion depth and contour
+    // count as `Count`. Every `bool` field became a two-state enum
     // before this count was taken (`Path`, `Moveto`, `Width`, `End`, `Axis`,
     // `Delta`, `Sign`, `IndexFormat`, `ImageFormat`, and CFF2's `Variation`
     // and `Regions`).
-    krate("baud-font", &["baud-font/src"], Sites(6), Sites(40)),
+    krate("baud-font", &["baud-font/src"], Sites(3), Sites(40)),
     // baud-render: 0 raw sites and 11 signature primitives, every one a unit
     // type's own edge -- `Tally::of(usize)` and `Tally::value -> u64`,
     // `Digest::fold(u64)` and `Digest::value -> u64`, `slots -> usize` (the
@@ -251,19 +250,20 @@ pub const CRATES: [Crate; 10] = [
     // `u16`: the platform's widths, which a newtype would misrepresent
     // rather than document.
     krate("baud", &["baud-app/src"], Sites(1), Sites(4)),
-    // baud-tablegen: 7 raw sites and 25 signature primitives, and they are
+    // baud-tablegen: 4 raw sites and 25 signature primitives, and they are
     // the text it reads: a code point as the `u32` the UCD's hex is
     // (`CpRange::lo`/`hi`, `get`, `code_point`), a line and a field index as
     // `usize` (`Row::field`, `get`, `error`, `expect`, `Source::line`, the
     // value sets' `check`), the FNV-1a hash's `u32` seed and value and the
-    // `u16` seeds it finds, a trie's `shift`, the counts `Errors::count`
-    // compares and `Emit::array`'s `per_line`, plus `From<bool> for Check`,
+    // `u16` seeds it finds, a trie's `shift` and the counts `Errors::count`
+    // compares, plus `From<bool> for Check`,
     // the one bridge into the two-state enum, and the cast the generated
     // const pin carries as text. It is a build-dependency with no
     // dependencies, so `baud-domain`'s types are not there to take. The
     // perfect hash's bucket and slot counts are `Buckets` and `Slots`,
-    // which `place` takes too, so the two cannot be swapped.
-    krate("baud-tablegen", &["baud-tablegen/src"], Sites(7), Sites(25)),
+    // which `place` takes too, so the two cannot be swapped, and the values
+    // a line of `Emit::array` holds are a `PerLine`.
+    krate("baud-tablegen", &["baud-tablegen/src"], Sites(4), Sites(25)),
     // xtask: 5 raw sites and no signature primitives, and every one is the
     // audit's own text matching itself -- the category names it prints,
     // which the table must spell as it always has (the cast category's

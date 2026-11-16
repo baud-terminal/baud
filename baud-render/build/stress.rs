@@ -35,7 +35,8 @@
 //! [`build`] returns.
 
 use baud_tablegen::{
-    CODE_POINTS, Check, CodepointMap, Emit, Error, Errors, Input, Kind, Source, Trie, ValueSet,
+    CODE_POINTS, Check, CodepointMap, Emit, Error, Errors, Input, Kind, PerLine, Source, Trie,
+    ValueSet,
 };
 use std::collections::HashMap;
 
@@ -216,7 +217,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
             "takes the mark when a combining character attaches.",
         ],
         &separators,
-        12,
+        PerLine(12),
         |c| format!("0x{c:04X}"),
     );
     out.bytes(
