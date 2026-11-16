@@ -248,6 +248,90 @@ fn a_row_erased_whole_is_no_longer_one_decrlm_wrote() {
     }
 }
 
+/// Row 1's mark and path after a row DECRLM wrote, SCP `scp` before it,
+/// then `erase` with DECRLM reset.
+fn mark_after(scp: &str, erase: &str) -> (RowWritten, baud_domain::CharacterPath) {
+    support::with_term(&WS, |t| {
+        support::feed(
+            t,
+            format!("{scp}{RLM}\x1b[1;8Hab\x1b[?34l{erase}").as_bytes(),
+        );
+        let line = t.view(Rows::ZERO).bidi(Row::ZERO);
+        (line.written(), line.path())
+    })
+}
+
+/// A DECSCA-protected `*` in row 1's first column.
+const PROTECTED: &str = "\x1b[1;1H\x1b[1\"q*\x1b[0\"q";
+
+/// **DECERA over the whole row ends the mark**, as `DECSED 2`'s spaces
+/// do: every occupied position becomes an unprotected space ("All
+/// characters are replaced with the Space character", `[[source:
+/// dec-std-070]]` p. 5-171), so the row is erased whole, and a line
+/// written on it is drawn by UAX #9 again. A protected character does not
+/// stand in its way, as DECERA erases it too. The path survives.
+#[test]
+fn decera_over_the_whole_row_ends_the_leftward_mark() {
+    use baud_domain::CharacterPath::{Default as NoPath, RightToLeft as Rtl};
+    let protected = format!("{PROTECTED}\x1b[1;1;1;10$z");
+    for (scp, path) in [("", NoPath), ("\x1b[2 k", Rtl)] {
+        assert_eq!(
+            mark_after(scp, ""),
+            (RowWritten::RightToLeft, path),
+            "the control"
+        );
+        for erase in ["\x1b[1;1;1;10$z", "\x1b[$z", protected.as_str()] {
+            assert_eq!(
+                mark_after(scp, erase),
+                (RowWritten::InOrder, path),
+                "{scp:?} {erase:?}"
+            );
+        }
+    }
+}
+
+/// **DECSERA over the whole row ends the mark when it leaves no character
+/// standing**, as DECSED does: its unprotected characters become spaces
+/// (`[[source: dec-std-070]]` p. 5-172), and a protected one stands where
+/// it was written, so the mark stays.
+#[test]
+fn decsera_over_the_whole_row_ends_the_leftward_mark() {
+    use baud_domain::CharacterPath::{Default as NoPath, RightToLeft as Rtl};
+    for (scp, path) in [("", NoPath), ("\x1b[2 k", Rtl)] {
+        for erase in ["\x1b[1;1;1;10${", "\x1b[${"] {
+            assert_eq!(
+                mark_after(scp, erase),
+                (RowWritten::InOrder, path),
+                "{scp:?} {erase:?}"
+            );
+        }
+        assert_eq!(
+            mark_after(scp, &format!("{PROTECTED}\x1b[1;1;1;10${{")),
+            (RowWritten::RightToLeft, path),
+            "{scp:?} a protected character stands"
+        );
+    }
+}
+
+/// **A rectangle over part of the row keeps the mark**: DECERA and
+/// DECSERA from the second column, or stopping short of the last, leave
+/// the row not erased whole.
+#[test]
+fn a_rectangle_over_part_of_the_row_keeps_the_leftward_mark() {
+    for erase in [
+        "\x1b[1;2;1;10$z",
+        "\x1b[1;1;1;9$z",
+        "\x1b[1;2;1;10${",
+        "\x1b[1;1;1;9${",
+    ] {
+        assert_eq!(
+            mark_after("", erase).0,
+            RowWritten::RightToLeft,
+            "{erase:?}"
+        );
+    }
+}
+
 /// **A row whose cells reach past a narrower screen's edge, erased whole,
 /// is no longer one DECRLM wrote**: the erase that runs on to the row's
 /// mark past the edge ends the mark too.

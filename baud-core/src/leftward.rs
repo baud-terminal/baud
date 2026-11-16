@@ -158,10 +158,12 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// **A selective erase over row `r`'s whole line ends DECRLM's mark
-    /// when it left no character standing**: a protected one DECSCA kept
-    /// stands where it was written, and the row is not erased whole; a row
-    /// of spaces is (drawn as its cells hold "until it is erased whole").
+    /// **A selective or rectangle erase over row `r`'s whole line ends
+    /// DECRLM's mark when it left no character standing**: a protected one
+    /// DECSCA kept from DECSED, DECSEL or DECSERA stands where it was
+    /// written, and the row is not erased whole; a row of spaces is (drawn
+    /// as its cells hold "until it is erased whole"), as DECERA leaves one,
+    /// its spaces unprotected. `to` is one past the last column erased.
     /// ED and EL's fills end it in the grid
     /// ([`baud_domain::RowExtent::erased`]).
     pub(crate) fn selectively_erased_whole(&mut self, r: Row, from: Col, to: Col) {

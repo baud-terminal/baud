@@ -203,6 +203,7 @@ impl Paint<'_, '_> {
             }
             self.erase_images(r, rect.left, right.after());
             self.cells = self.cells.plus(right.index() + 1 - rect.left.index());
+            self.selectively_erased_whole(r, rect.left, right.after());
         }
         self.area_written(rect.top, rect.bottom);
     }
@@ -242,6 +243,7 @@ impl Paint<'_, '_> {
             self.erase_images_where(r, rect.left, right.after(), |c| {
                 c.is_protected() || c.content.is_empty()
             });
+            self.selectively_erased_whole(r, rect.left, right.after());
         }
         self.area_written(rect.top, rect.bottom);
     }
