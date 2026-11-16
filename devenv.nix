@@ -82,16 +82,10 @@ let
     if pkgs.stdenv.hostPlatform.isLinux
     then "${pkgs.binutils-unwrapped}/bin/objdump"
     else "objdump";
-  # **nextest 0.9.152, over the pinned nixpkgs' 0.9.146**, on every host.
-  # Before 0.9.151 (nextest-rs/nextest#3697) a test waiting for slots in its
-  # test group, as `pty::tests::terminals_spawned_at_once_hold_none_of_each_others_ends`
-  # (16 of `pty`'s 32) and `terminals_opened_at_once_all_open` (12) do, was
-  # not started when the threads it waited for were freed by a test outside
-  # the group; with no other test of the group still running, the run ended
-  # with it and every `pty` test queued behind it not run. A full workspace
-  # run with no test failing left 94 of them not run, and passed all 8307
-  # with those two overrides taken out. Drop this once the pinned nixpkgs
-  # carries 0.9.151 or later.
+  # **nextest 0.9.152, over the pinned nixpkgs' 0.9.146**, on every host: it
+  # starts a test waiting for slots in its test group, as `pty`'s two wide
+  # tests do, when a test outside the group frees them. Drop it once the
+  # pinned nixpkgs carries 0.9.151 or later.
   nextest = pkgs.cargo-nextest.overrideAttrs (finalAttrs: _: {
     version = "0.9.152";
     src = pkgs.fetchzip {
