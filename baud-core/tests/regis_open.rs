@@ -192,14 +192,15 @@ fn a_diagonal_boundary_closes_the_flood() {
 #[test]
 fn f1_floods_the_seed_s_index_and_f0_the_seed_s_state() {
     // A red line on row 5 and a blue one under it on row 6, both
-    // foreground. F1, the default, floods the red alone; F0 every
-    // foreground joined to the seed, and neither the background.
+    // foreground. F1, the default, floods the red and the background
+    // joined to it, up to the blue; F0 every foreground joined to the
+    // seed, and not the background.
     let lines: &[u8] = b"W(I2)P[0,5]V[9,5]W(I1)P[0,6]V[9,6]W(I3)";
     let bytes = regis(&[lines, b"F[0,5]"]);
     run(&bytes, |t| {
         assert_eq!(row(t, 5, 0, 10), n_of(10, GREEN));
         assert_eq!(row(t, 6, 0, 10), n_of(10, BLUE));
-        assert_eq!(at(t, 0, 4), CLEAR);
+        assert_eq!(at(t, 0, 4), GREEN);
     });
     let bytes = regis(&[lines, b"F(B(F0))[0,5]"]);
     run(&bytes, |t| {
@@ -215,6 +216,32 @@ fn f1_floods_the_seed_s_index_and_f0_the_seed_s_state() {
         assert_eq!(at(t, 22, 20), BLUE, "a foreground line inside stays");
         assert_eq!(at(t, 10, 10), GRAY50);
         assert_eq!(at(t, 5, 5), CLEAR);
+    });
+}
+
+#[test]
+fn f1_from_a_foreground_seed_floods_the_background_up_to_another_foreground() {
+    // A red line inside a gray square. Seeded on the red, F1 is "bounded
+    // by any foreground value different from the seed value": the red and
+    // the background inside the square fill, the gray outline bounds them.
+    let line: &[u8] = b"W(I2)P[20,20]V[25,20]W(I1)";
+    let bytes = regis(&[BOX, line, b"F[22,20]"]);
+    run(&bytes, |t| {
+        assert_eq!(at(t, 22, 20), BLUE, "the seed's red");
+        assert_eq!(at(t, 12, 12), BLUE, "the background inside");
+        assert_eq!(at(t, 28, 28), BLUE, "the background inside");
+        assert_eq!(at(t, 10, 10), GRAY50, "the outline bounds it");
+        assert_eq!(at(t, 20, 10), GRAY50, "the outline bounds it");
+        assert_eq!(at(t, 5, 5), CLEAR, "outside");
+        assert_eq!(at(t, 35, 35), CLEAR, "outside");
+    });
+    // From a background seed, "any foreground" bounds it: the red stays.
+    let bytes = regis(&[BOX, line, b"F[12,12]"]);
+    run(&bytes, |t| {
+        assert_eq!(at(t, 12, 12), BLUE, "the seed's background");
+        assert_eq!(at(t, 22, 20), RED, "a foreground line inside stays");
+        assert_eq!(at(t, 10, 10), GRAY50);
+        assert_eq!(at(t, 5, 5), CLEAR, "outside");
     });
 }
 

@@ -419,14 +419,11 @@ pub enum RegisBound {
     /// background, as § 8.8.6.4 has the third way, "any change between the
     /// foreground and the background state".
     Background,
-    /// `F(B(F1))`, the default: "any foreground setting different from the
-    /// seed value": the flood spreads over pixels holding the seed's index,
-    /// § 8.8.6.4's second way, "any change in attribute with respect to the
-    /// seed location attribute value". **An open departure**: § 8.8.6.3.1.1
-    /// bounds `F1` "by any foreground value different from the seed value,
-    /// or any foreground if the seed location has the background
-    /// attribute", which leaves the background open from a foreground seed;
-    /// this follows § 8.8.6.4 against that sentence.
+    /// `F(B(F1))`, the default: "bounded by any foreground value different
+    /// from the seed value, or any foreground if the seed location has the
+    /// background attribute" (§ 8.8.6.3.1.1): the flood spreads over pixels
+    /// holding the seed's index and over the background, so from a
+    /// background seed it spreads over the background alone.
     Seed,
     /// `F(B(I<n>))`: "bounded by parts of the image with the attribute so
     /// specified".

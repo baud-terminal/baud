@@ -523,7 +523,7 @@ impl<'a> RegisCanvas<'a> {
         let s = self.plane[self.at(seed.x, seed.y)] & 0x0f;
         let bg = pen.bg.raw();
         let inside = |v: u8| match bound {
-            RegisBound::Seed => v == s,
+            RegisBound::Seed => v == s || v == bg,
             RegisBound::Background => (v == bg) == (s == bg),
             RegisBound::Index(n) => v != n.raw(),
         };
