@@ -29,11 +29,19 @@ fn padded(millis: u16, force: Force) -> Flash {
 
 #[test]
 fn every_pinned_entry_reads_as_the_flash_it_carries() {
-    let cases: [(&str, &[u8], Flash); 13] = [
+    let cases: [(&str, &[u8], Flash); 14] = [
         ("xterm", pinned!("xterm"), padded(100, Force::Mandatory)),
         (
             "xterm-256color",
             pinned!("xterm-256color"),
+            padded(100, Force::Mandatory),
+        ),
+        // The same name from ncurses 6.6's database on Linux: its flash is
+        // the padding the app compiles in from the macOS entry, mandatory
+        // too, so `bell::LENGTH` is what a Linux `tput flash` waits.
+        (
+            "xterm-256color-ncurses66",
+            pinned!("xterm-256color-ncurses66"),
             padded(100, Force::Mandatory),
         ),
         // Note AM's capture, the same bytes as `xterm-256color` since

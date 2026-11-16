@@ -8864,6 +8864,15 @@ terminfo entry: xterm-256color, with user-defined capabilities. ncurses 6.0.2015
 - **Copy:** [docs/research/sources/terminfo/xterm-256color.ti](research/sources/terminfo/xterm-256color.ti)
 - **Cited in:** `baud-core/tests/vt420/erase_colour.rs`, `baud-core/tests/xterm_keyboards.rs`, `baud-domain/build/termcap_keys.rs`, `baud-domain/src/vt/key/keyboards.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
+<a id="terminfo-xterm-256color-ncurses66"></a>
+### terminfo-xterm-256color-ncurses66
+
+terminfo entry: xterm-256color, ncurses 6.6. ncurses 6.6.20251230 (infocmp -x -1), 2025, ncurses terminfo database, share/terminfo/x/xterm-256color on NixOS.
+
+- **URL:** <https://invisible-island.net/ncurses/>
+- **sha256:** `3c032a500e3fddaac68076e3f229735fa4094dad2e0079eaeb16b1c9a1d5505b` (4703 bytes)
+- **Copy:** [docs/research/sources/terminfo/xterm-256color-ncurses66.ti](research/sources/terminfo/xterm-256color-ncurses66.ti)
+
 <a id="terminfo-xterm-256color-x"></a>
 ### terminfo-xterm-256color-x
 
@@ -11341,7 +11350,7 @@ cursor-shape-v1 -- named cursor shapes. Wayland contributors, 2026, wayland-prot
 - **URL:** <https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/cursor-shape/cursor-shape-v1.xml>
 - **sha256:** `bb57d91e53a79dadab7c612dab87c233393cee73673feefa7442cfbfdd9aed2f` (9142 bytes)
 - **Copy:** [docs/research/sources/wp-cursor-shape-v1.xml](research/sources/wp-cursor-shape-v1.xml)
-- **Cited in:** `baud-present-wayland/src/cursor.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `baud-present-wayland/src/cursor.rs`, `baud-present-wayland/tests/handshake.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="wp-fifo-v1"></a>
 ### wp-fifo-v1

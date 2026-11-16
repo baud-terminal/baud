@@ -1368,6 +1368,23 @@ bytes  = 4148
 status = "retrieved"
 group  = "C"
 
+# Captured 2026-11-15 on x86_64 NixOS as `infocmp -x -1 xterm-256color`,
+# from ncurses 6.6.20251230's database: the Linux entry beside the macOS one
+# the app compiles in, for the flash's padding, which reads the same
+# (`\E[?5h$<100/>\E[?5l`).
+[sources.terminfo-xterm-256color-ncurses66]
+key    = "terminfo-xterm-256color-ncurses66"
+title  = "terminfo entry: xterm-256color, ncurses 6.6"
+author = "ncurses 6.6.20251230 (infocmp -x -1)"
+year   = 2025
+venue  = "ncurses terminfo database, share/terminfo/x/xterm-256color on NixOS"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/xterm-256color-ncurses66.ti"
+sha256 = "3c032a500e3fddaac68076e3f229735fa4094dad2e0079eaeb16b1c9a1d5505b"
+bytes  = 4703
+status = "retrieved"
+group  = "C"
+
 # Recaptured 2026-10-18 on macOS 27.0 (26A5425a) as
 # `infocmp -x -1 xterm-256color`, from /usr/share/terminfo/78/xterm-256color.
 # The first capture was `infocmp -1`, which leaves out the user-defined

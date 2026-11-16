@@ -820,6 +820,7 @@ files   = [
   "terminfo/vt102.ti",
   "terminfo/vt52.ti",
   "terminfo/xterm-16color.ti",
+  "terminfo/xterm-256color-ncurses66.ti",
   "terminfo/xterm-256color-x.ti",
   "terminfo/xterm-256color.ti",
   "terminfo/xterm.ti",

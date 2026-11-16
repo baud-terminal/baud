@@ -1957,9 +1957,9 @@ THIS SOFTWARE.
 | status | research sources | other entries | meaning |
 |---|---|---|---|
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 338 | 69 | redistributable, and its notice is satisfied |
+| kept | 339 | 69 | redistributable, and its notice is satisfied |
 | own | 10 | 8 | the work of baud's author |
-| total | 349 | 77 | |
+| total | 350 | 77 | |
 
 ## Licence texts in LICENSES/
 
@@ -3231,7 +3231,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11
 - **Notice:** [LICENSES/ncurses-COPYING.txt](LICENSES/ncurses-COPYING.txt)
-- **Files:** 13
+- **Files:** 14
 
 | file | copied from |
 |---|---|
@@ -3245,6 +3245,7 @@ notice is, and the URL each file was copied from.
 | [terminfo/vt102.ti](docs/research/sources/terminfo/vt102.ti) | https://invisible-island.net/ncurses/ |
 | [terminfo/vt52.ti](docs/research/sources/terminfo/vt52.ti) | https://invisible-island.net/ncurses/ |
 | [terminfo/xterm-16color.ti](docs/research/sources/terminfo/xterm-16color.ti) | https://invisible-island.net/ncurses/ |
+| [terminfo/xterm-256color-ncurses66.ti](docs/research/sources/terminfo/xterm-256color-ncurses66.ti) | https://invisible-island.net/ncurses/ |
 | [terminfo/xterm-256color-x.ti](docs/research/sources/terminfo/xterm-256color-x.ti) | https://invisible-island.net/ncurses/ |
 | [terminfo/xterm-256color.ti](docs/research/sources/terminfo/xterm-256color.ti) | https://invisible-island.net/ncurses/ |
 | [terminfo/xterm.ti](docs/research/sources/terminfo/xterm.ti) | https://invisible-island.net/ncurses/ |
