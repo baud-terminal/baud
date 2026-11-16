@@ -174,6 +174,12 @@ impl crate::probe::Fs for SessionFs {
     fn path_var(&mut self) -> Option<std::ffi::OsString> {
         self.path.clone()
     }
+    fn argv(&mut self, group: crate::sys::Pid) -> Option<Vec<std::ffi::OsString>> {
+        self.system.argv(group)
+    }
+    fn resolve(&mut self, group: crate::sys::Pid, asked: &[std::ffi::OsString]) -> Option<Vec<u8>> {
+        self.system.resolve(group, asked)
+    }
 }
 
 /// **The link layer of one take.**
@@ -912,6 +918,16 @@ mod tests {
         concat!("OsEffect", "::"),
     ];
 
+    /// **The link worker's `ssh -G`**, allowed wherever a walk reaches the
+    /// worker: the ssh in front asked for its configuration, which prints
+    /// it and ends, connecting nowhere and opening nothing.
+    const SSH_G: (&[&str], &str, &str) = (
+        &["probe"],
+        concat!("let out = cmd.", "output().ok()?;"),
+        "the link worker's ssh -G, which prints the configuration of the ssh in front and \
+         ends, connecting nowhere and opening nothing",
+    );
+
     /// **The tap's worker looks a rule's program up along the session's
     /// `PATH`**, not the process's: a program only the session's `PATH`
     /// holds is found, as a window started with that `PATH` would find it.
@@ -1290,7 +1306,7 @@ mod tests {
             reached.parts[&file(&["paths"])].contains(concat!("fn res", "ult(")),
             "the control: the test-only items the tap calls are walked"
         );
-        let found = hits(&reached, &OPENS, &[crate::no_appkit::LINK_WORKER]);
+        let found = hits(&reached, &OPENS, &[crate::no_appkit::LINK_WORKER, SSH_G]);
         assert_eq!(found, Vec::<String>::new());
     }
 }

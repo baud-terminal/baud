@@ -238,6 +238,9 @@ pub enum NotSession {
     NoTerminal,
     /// The configuration asks no shell (`SessionType none` or `subsystem`).
     NoShell,
+    /// `ssh -G` printed nothing: no ssh to ask, or one that refuses its
+    /// own configuration, as the session's would.
+    Unresolved,
 }
 
 /// **The argv of the ssh in front, read by ssh's grammar**: `argv[0]`
@@ -389,6 +392,41 @@ pub fn resolved(printout: &[u8]) -> Result<Resolved, NotSession> {
         Some(why) => Err(why),
         None => Ok(Resolved { hostname }),
     }
+}
+
+/// **The ssh in front, as a file link of its session opens through it**:
+/// its argv read by ssh's grammar and what `ssh -G` resolved for it. Read
+/// once per process, on the paths worker (`probe.rs`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Session {
+    ssh: SshDest,
+    resolved: Resolved,
+}
+
+impl Session {
+    /// Its argv, read.
+    pub fn ssh(&self) -> &SshDest {
+        &self.ssh
+    }
+
+    /// What `ssh -G` resolved.
+    pub fn resolved(&self) -> &Resolved {
+        &self.resolved
+    }
+}
+
+/// **The session an ssh's `argv` runs**: the argv read ([`read`]), then
+/// `ssh -G` asked through `resolve` with [`resolve_argv`]'s argv and its
+/// printout read ([`resolved`]). `resolve` is never asked for an argv that
+/// is no session; one that answers nothing is [`NotSession::Unresolved`].
+pub fn session(
+    argv: &[OsString],
+    resolve: impl FnOnce(&[OsString]) -> Option<Vec<u8>>,
+) -> Result<Session, NotSession> {
+    let ssh = read(argv)?;
+    let printout = resolve(&resolve_argv(&ssh)).ok_or(NotSession::Unresolved)?;
+    let got = resolved(&printout)?;
+    Ok(Session { ssh, resolved: got })
 }
 
 /// How a link of the session's names the session's machine.
@@ -998,6 +1036,49 @@ mod tests {
         assert_eq!(
             resolve_argv(&s),
             os(&["ssh", "-G", "-p", "2222", "jordan@demo"])
+        );
+    }
+
+    /// **A session is its argv read and `ssh -G` asked once with the
+    /// identity options only**; an argv that is no session asks nothing,
+    /// and a printout that is none, or that refuses, is no session. Named
+    /// breaks: ask `ssh -G` with the argv whole -- the forward reaches it;
+    /// ask before reading the argv -- `ssh demo ls` asks.
+    #[test]
+    fn a_session_is_its_argv_and_one_ssh_g() {
+        let mut asked: Vec<Vec<OsString>> = Vec::new();
+        let argv = os(&["ssh", "-p", "2222", "-L", "1:h:1", "demo"]);
+        let s = session(&argv, |a| {
+            asked.push(a.to_vec());
+            Some(G_PLAIN.as_bytes().to_vec())
+        })
+        .expect("a session");
+        assert_eq!(asked, [os(&["ssh", "-G", "-p", "2222", "demo"])]);
+        assert_eq!(s.ssh().dest().arg(), "demo");
+        assert_eq!(
+            s.resolved().hostname().map(HostName::as_str),
+            Some("demo"),
+            "what ssh -G resolved"
+        );
+        let mut none = 0;
+        let refused = session(&os(&["ssh", "demo", "ls"]), |_| {
+            none += 1;
+            Some(G_PLAIN.as_bytes().to_vec())
+        });
+        assert_eq!(
+            (refused, none),
+            (Err(NotSession::Command), 0),
+            "nothing asked"
+        );
+        assert_eq!(
+            session(&argv, |_| None),
+            Err(NotSession::Unresolved),
+            "no printout"
+        );
+        assert_eq!(
+            session(&argv, |_| Some(G_T.as_bytes().to_vec())),
+            Err(NotSession::Command),
+            "the configuration's own command"
         );
     }
 

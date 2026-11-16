@@ -84,12 +84,62 @@ fn c_string(buf: &[u8]) -> &[u8] {
     &buf[..end]
 }
 
-/// argv[0] of `pid`: `KERN_PROCARGS2` asked twice, once for the size it
+/// **Every argument out of a `KERN_PROCARGS2` answer**: the `argc`
+/// strings after the executable path and the NULs that align it, each
+/// ended by its own NUL, an empty one kept, and nothing of the environment
+/// after them (`[[source: xnu-kern-sysctl]]` 1619-1640, 1706-1709). None
+/// when the answer holds fewer than `argc`.
+#[cfg(any(target_os = "macos", test))]
+pub fn procargs2_argv(buf: &[u8]) -> Option<Vec<std::ffi::OsString>> {
+    let (argc, rest) = buf.split_first_chunk::<4>()?;
+    let argc = usize::try_from(core::ffi::c_int::from_ne_bytes(*argc))
+        .ok()
+        .filter(|n| *n >= 1)?;
+    let path_end = rest.iter().position(|&b| b == 0)?;
+    let after = &rest[path_end..];
+    let mut args = &after[after.iter().position(|&b| b != 0)?..];
+    let mut out = Vec::new();
+    while out.len() < argc {
+        let end = args.iter().position(|&b| b == 0)?;
+        out.push(std::ffi::OsStr::from_bytes(&args[..end]).to_owned());
+        args = &args[end + 1..];
+    }
+    Some(out)
+}
+
+/// **Every argument out of `/proc/pid/cmdline`**: its strings, each ended
+/// by a NUL, an empty one kept (`[[source: linux-man-proc-pid-cmdline]]`).
+/// None for a process that rewrote its arguments as one line with no NUL
+/// at its end (sshd's `sshd: user@pts/0`), or that has none.
+#[cfg(any(target_os = "linux", test))]
+pub fn cmdline_argv(all: &[u8]) -> Option<Vec<std::ffi::OsString>> {
+    let body = all.strip_suffix(b"\0")?;
+    Some(
+        body.split(|&b| b == 0)
+            .map(|a| std::ffi::OsStr::from_bytes(a).to_owned())
+            .collect(),
+    )
+}
+
+/// argv[0] of `pid`, out of its `KERN_PROCARGS2` answer.
+#[cfg(target_os = "macos")]
+fn argv0(pid: Pid) -> Option<Vec<u8>> {
+    procargs2_argv0(&procargs2(pid)?).map(<[u8]>::to_vec)
+}
+
+/// **Every argument of `pid`**, out of its `KERN_PROCARGS2` answer; none
+/// for a process gone or one the user may not read.
+#[cfg(target_os = "macos")]
+pub fn argv(pid: Pid) -> Option<Vec<std::ffi::OsString>> {
+    procargs2_argv(&procargs2(pid)?)
+}
+
+/// **`pid`'s `KERN_PROCARGS2` answer**: asked twice, once for the size it
 /// needs and once with a buffer that size, because a shorter buffer gets
 /// "copied out `buflen` bytes from the end" -- the environment's end, not
 /// argv's (`[[source: xnu-kern-sysctl]]` 1532-1536 and 1661-1693).
 #[cfg(target_os = "macos")]
-fn argv0(pid: Pid) -> Option<Vec<u8>> {
+fn procargs2(pid: Pid) -> Option<Vec<u8>> {
     use crate::sys::{CTL_KERN, KERN_PROCARGS2, MapLen, sysctl};
     let mut mib = [CTL_KERN, KERN_PROCARGS2, pid];
     let mut len = MapLen(0);
@@ -115,7 +165,7 @@ fn argv0(pid: Pid) -> Option<Vec<u8>> {
         return None;
     }
     buf.truncate(len.0);
-    procargs2_argv0(&buf).map(<[u8]>::to_vec)
+    Some(buf)
 }
 
 /// argv[0] of `pid`: `/proc/pid/cmdline`'s "set of strings separated by
@@ -129,10 +179,17 @@ fn argv0(pid: Pid) -> Option<Vec<u8>> {
     Some(c_string(&all).to_vec())
 }
 
+/// **Every argument of `pid`**, out of `/proc/pid/cmdline`; none for a
+/// process gone, or one whose arguments are not NUL-ended strings.
+#[cfg(target_os = "linux")]
+pub fn argv(pid: Pid) -> Option<Vec<std::ffi::OsString>> {
+    cmdline_argv(&std::fs::read(format!("/proc/{pid}/cmdline")).ok()?)
+}
+
 /// The executable `pid` runs: `proc_pidpath`, which still answers for a
 /// root process, pid 1 included.
 #[cfg(target_os = "macos")]
-fn exe(pid: Pid) -> Option<PathBuf> {
+pub(crate) fn exe(pid: Pid) -> Option<PathBuf> {
     use crate::sys::{PROC_PIDPATHINFO_MAXSIZE, PathSize, proc_pidpath};
     let mut buf = vec![0u8; PROC_PIDPATHINFO_MAXSIZE];
     let size = PathSize(u32::try_from(buf.len()).ok()?);
@@ -146,7 +203,7 @@ fn exe(pid: Pid) -> Option<PathBuf> {
 /// the actual pathname of the executed command" (`[[source:
 /// linux-man-proc-pid-exe]]`).
 #[cfg(target_os = "linux")]
-fn exe(pid: Pid) -> Option<PathBuf> {
+pub(crate) fn exe(pid: Pid) -> Option<PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/exe")).ok()
 }
 
@@ -1209,5 +1266,67 @@ mod tests {
         none.extend_from_slice(b"/bin/x\0\0y\0");
         assert_eq!(procargs2_argv0(&none), None, "no argc, no argv");
         assert_eq!(procargs2_argv0(&[1, 0]), None, "short");
+    }
+
+    fn os(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
+    }
+
+    /// **`KERN_PROCARGS2` gives `argc` arguments, an empty one kept, and no
+    /// environment**: `ssh demo ''` is three, its last empty, which ssh
+    /// reads as a command for the other machine. Named break: skip the NULs
+    /// between arguments as the padding after the path is skipped -- the
+    /// empty one vanishes and `PATH=/bin` reads as the third.
+    #[test]
+    fn procargs2_gives_every_argument_and_no_environment() {
+        let answer = |argc: i32, rest: &[u8]| {
+            let mut buf = argc.to_ne_bytes().to_vec();
+            buf.extend_from_slice(rest);
+            buf
+        };
+        let buf = answer(3, b"/usr/bin/ssh\0\0\0ssh\0demo\0\0PATH=/bin\0");
+        assert_eq!(procargs2_argv(&buf), Some(os(&["ssh", "demo", ""])));
+        let buf = answer(2, b"/usr/bin/ssh\0\0\0ssh\0demo\0PATH=/bin\0");
+        assert_eq!(
+            procargs2_argv(&buf),
+            Some(os(&["ssh", "demo"])),
+            "the control"
+        );
+        let buf = answer(4, b"/usr/bin/ssh\0ssh\0demo\0");
+        assert_eq!(procargs2_argv(&buf), None, "fewer than argc");
+        assert_eq!(
+            procargs2_argv(&answer(0, b"/bin/x\0\0y\0")),
+            None,
+            "no argc"
+        );
+        assert_eq!(procargs2_argv(&[1, 0]), None, "short");
+    }
+
+    /// **`/proc/pid/cmdline` gives every argument, an empty one kept**, and
+    /// a line rewritten with no NUL at its end is none. Named break: drop
+    /// every empty string -- `ssh demo ''` reads as a session.
+    #[test]
+    fn cmdline_gives_every_argument_and_an_empty_one() {
+        assert_eq!(
+            cmdline_argv(b"ssh\0demo\0\0"),
+            Some(os(&["ssh", "demo", ""]))
+        );
+        assert_eq!(
+            cmdline_argv(b"ssh\0-p\x002222\0demo\0"),
+            Some(os(&["ssh", "-p", "2222", "demo"]))
+        );
+        assert_eq!(cmdline_argv(b"sshd: user@pts/0"), None, "rewritten");
+        assert_eq!(cmdline_argv(b""), None, "none");
+    }
+
+    /// **This process's own argv reads as the one it was started with**:
+    /// the kernel's copy, read back through [`argv`]. Named break: read one
+    /// argument fewer.
+    #[test]
+    fn a_processs_argv_is_the_one_it_was_started_with() {
+        let me = Pid::try_from(std::process::id()).expect("a pid");
+        let started: Vec<std::ffi::OsString> = std::env::args_os().collect();
+        assert_eq!(argv(me), Some(started));
+        assert_eq!(argv(Pid::MAX), None, "no such process");
     }
 }

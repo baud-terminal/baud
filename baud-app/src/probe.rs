@@ -202,6 +202,68 @@ pub const LINKS: usize = 32;
 /// started, and its names.
 type Named = std::collections::HashMap<Pid, (Option<StartTime>, Vec<String>)>;
 
+/// **The ssh session the worker last read in front**, by its leader's pid
+/// and start: read once while that process leads the group in front, its
+/// `ssh -G` run once, and dropped when any other group is. A leader whose
+/// start cannot be read has none, so a pid another process took never
+/// reads as the session it had.
+#[derive(Default)]
+struct Sessions(Option<Kept>);
+
+/// A session read, by the leader it was read for.
+struct Kept {
+    group: Pid,
+    at: StartTime,
+    session: Option<Arc<crate::ssh::Session>>,
+}
+
+impl Sessions {
+    /// **The session of the ssh leading `group`**, read through `fs`
+    /// unless it was for this process.
+    fn of(
+        &mut self,
+        fs: &mut dyn Fs,
+        group: Pid,
+        calls: &mut u64,
+        beat: &dyn Fn(),
+    ) -> Option<Arc<crate::ssh::Session>> {
+        let started = fs.started(group);
+        *calls += 1;
+        let Some(at) = started else {
+            self.0 = None;
+            return None;
+        };
+        match &self.0 {
+            Some(k) if k.group == group && k.at == at => return k.session.clone(),
+            _ => {}
+        }
+        let argv = fs.argv(group);
+        *calls += 1;
+        beat();
+        let read = argv.and_then(|argv| {
+            let mut asked = 0;
+            let read = crate::ssh::session(&argv, |a| {
+                asked += 1;
+                fs.resolve(group, a)
+            });
+            *calls += asked;
+            read.ok().map(Arc::new)
+        });
+        beat();
+        self.0 = Some(Kept {
+            group,
+            at,
+            session: read.clone(),
+        });
+        read
+    }
+
+    /// Another program in front, or none: the session read goes.
+    fn drop_kept(&mut self) {
+        self.0 = None;
+    }
+}
+
 /// What one `lstat` found.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stat {
@@ -250,6 +312,17 @@ pub trait Fs: Send {
     }
     /// `PATH`, which a command's program is looked up along.
     fn path_var(&mut self) -> Option<std::ffi::OsString> {
+        None
+    }
+    /// **Every argument of `group`'s leader** (`fg::argv`), or none when
+    /// they cannot be read: what the ssh in front connects with.
+    fn argv(&mut self, _group: Pid) -> Option<Vec<std::ffi::OsString>> {
+        None
+    }
+    /// **`ssh -G`'s printout for `asked`** ([`crate::ssh::resolve_argv`]),
+    /// run as `group`'s leader's own program; none when it does not run, or
+    /// ends in a failure.
+    fn resolve(&mut self, _group: Pid, _asked: &[std::ffi::OsString]) -> Option<Vec<u8>> {
         None
     }
 }
@@ -1273,6 +1346,10 @@ pub struct Answer {
     /// the key main compares, with no call of its own.
     pub folder: Option<ProgramDir>,
     pub started: Option<StartTime>,
+    /// **The session of the ssh leading the group in front**, as the
+    /// worker read it ([`Sessions`]): none when no ssh leads it, or one
+    /// that is no session a file can be opened in.
+    pub session: Option<Arc<crate::ssh::Session>>,
     pub calls: u64,
 }
 
@@ -1291,6 +1368,7 @@ fn left(ask: &Ask) -> Answer {
         programs: None,
         folder: None,
         started: None,
+        session: None,
         calls: 0,
     }
 }
@@ -1398,6 +1476,7 @@ fn run(
     let mut clicks: std::collections::VecDeque<Ask> = std::collections::VecDeque::new();
     let mut groups: std::collections::VecDeque<Pid> = std::collections::VecDeque::new();
     let mut named: Named = Named::new();
+    let mut sessions = Sessions::default();
     // The calls naming groups made, carried into the next answer's count.
     let mut naming = 0;
     // Where an ask goes; false once the driver is gone.
@@ -1483,7 +1562,7 @@ fn run(
                 Err(_) => return false,
             }
         };
-        let mut got = answer(&mut *fs, ask, &mut named, &beat, &mut stop);
+        let mut got = answer(&mut *fs, ask, &mut named, &mut sessions, &beat, &mut stop);
         got.calls += core::mem::take(&mut naming);
         if gone || answers.send(got).is_err() {
             return;
@@ -1499,6 +1578,7 @@ fn answer(
     fs: &mut dyn Fs,
     ask: Ask,
     named: &mut Named,
+    sessions: &mut Sessions,
     beat: &dyn Fn(),
     stop: &mut dyn FnMut() -> bool,
 ) -> Answer {
@@ -1548,9 +1628,22 @@ fn answer(
         })
         .collect();
     seen.extend(ask.unnamed.map(|l| (None, crate::paths::Seen::NotNamed, l)));
-    let front = match ask.group {
-        Some(g) => front_of(&names_of_group(g, &mut calls)),
+    let front_names = ask.group.map(|g| names_of_group(g, &mut calls));
+    let front = match &front_names {
+        Some(n) => front_of(n),
         None => Front::Elsewhere,
+    };
+    // The ssh leading the group in front, by its names: its argv and
+    // `ssh -G` are read here, on the worker's thread, and nowhere else.
+    let ssh = front_names
+        .as_ref()
+        .is_some_and(|n| n.iter().any(|n| spelled(n) == "ssh"));
+    let session = match ask.group {
+        Some(g) if front == Front::Elsewhere && ssh => sessions.of(fs, g, &mut calls, beat),
+        _ => {
+            sessions.drop_kept();
+            None
+        }
     };
     for (g, _) in &ask.seen {
         if Some(*g) != ask.group {
@@ -1624,6 +1717,7 @@ fn answer(
         programs: None,
         folder,
         started,
+        session,
         calls,
     }
 }
@@ -2163,6 +2257,9 @@ pub struct Probes<T> {
     click: Option<Id>,
     /// The group in front when the worker last named it not local.
     elsewhere: Option<Pid>,
+    /// **The session of the ssh in front**, as the worker's last answer
+    /// read it: none once another program is in front.
+    session: Option<Arc<crate::ssh::Session>>,
     /// The group last seen in front, at a read or a batch, and the group
     /// the program's folder in [`Paths`] was read for: a folder answered
     /// for another group than the one in front is not taken, and one kept
@@ -2281,6 +2378,7 @@ impl<T: Moment> Probes<T> {
             answered: Id::default(),
             click: None,
             elsewhere: None,
+            session: None,
             front_group: None,
             dir_key: None,
             dir_dropped: Owed::No,
@@ -2337,6 +2435,14 @@ impl<T: Moment> Probes<T> {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn started(&self) -> baud_render::Tally {
         self.started
+    }
+
+    /// **The session of the ssh in front**, as the worker last read it:
+    /// none while no ssh leads the group in front, for one that is no
+    /// session a file can be opened in, and once marks close.
+    #[expect(dead_code, reason = "read by the click on a remote file link")]
+    pub fn session(&self) -> Option<&crate::ssh::Session> {
+        self.session.as_deref()
     }
 
     /// **A drain of reads was taken**, the cursor on `began` before the first
@@ -3412,6 +3518,8 @@ impl<T: Moment> Probes<T> {
                     Front::Elsewhere => self.elsewhere = a.group,
                     Front::Local | Front::Multiplexer => self.elsewhere = None,
                 }
+                // Moved, as the worker read it for the group it named.
+                self.session = a.session;
                 #[cfg(feature = "effect-probe")]
                 {
                     self.elsewhere_fronts += u64::from(front == Front::Elsewhere);
@@ -3745,6 +3853,7 @@ impl<T: Moment> Probes<T> {
         }
         self.slot = Slot::Closed;
         self.flight = None;
+        self.session = None;
         // Lines whose writer is still to be named never will be.
         for span in self.pending() {
             paths.written_under(crate::paths::Seen::NotNamed, span);
@@ -3836,6 +3945,27 @@ impl Fs for System {
     fn folder(&mut self, group: Pid) -> Option<Vec<u8>> {
         use std::os::unix::ffi::OsStringExt;
         crate::fg::dir(group).map(|p| p.into_os_string().into_vec())
+    }
+
+    fn argv(&mut self, group: Pid) -> Option<Vec<std::ffi::OsString>> {
+        crate::fg::argv(group)
+    }
+
+    /// The leader's own executable, so the ssh asked is the one in front
+    /// and not the one `PATH` finds first, in the leader's folder, so a
+    /// relative `-F` or `-i` reads as the session's did; with no input,
+    /// its errors dropped.
+    fn resolve(&mut self, group: Pid, asked: &[std::ffi::OsString]) -> Option<Vec<u8>> {
+        let (_, args) = asked.split_first()?;
+        let mut cmd = crate::sys::child(crate::fg::exe(group)?);
+        cmd.args(args)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        if let Some(dir) = crate::fg::dir(group) {
+            cmd.current_dir(dir);
+        }
+        let out = cmd.output().ok()?;
+        out.status.success().then_some(out.stdout)
     }
 
     /// On macOS, no File Provider placeholder fetched by this thread's
@@ -3948,7 +4078,17 @@ mod tests {
         live: Live,
         /// Whether a group not in `live` has a start time that reads.
         starts: Starts,
+        /// Each group leader's argv, where it has one, and every group
+        /// whose argv was asked.
+        argvs: HashMap<Pid, Vec<std::ffi::OsString>>,
+        argv_asked: Arc<Mutex<Vec<Pid>>>,
+        /// What `ssh -G` prints, and every argv it was run with, by group.
+        printout: Option<Vec<u8>>,
+        resolves: Resolves,
     }
+
+    /// Every `ssh -G` a [`Fake`] ran, as the group and its argv.
+    type Resolves = Arc<Mutex<Vec<(Pid, Vec<std::ffi::OsString>)>>>;
 
     /// What a group's leader is now and when it started, if that reads, by
     /// group.
@@ -4069,6 +4209,16 @@ mod tests {
                 .get(address)
                 .copied()
                 .unwrap_or(Handler::Unknown)
+        }
+
+        fn argv(&mut self, group: Pid) -> Option<Vec<std::ffi::OsString>> {
+            self.argv_asked.lock().unwrap().push(group);
+            self.argvs.get(&group).cloned()
+        }
+
+        fn resolve(&mut self, group: Pid, asked: &[std::ffi::OsString]) -> Option<Vec<u8>> {
+            self.resolves.lock().unwrap().push((group, asked.to_vec()));
+            self.printout.clone()
         }
     }
 
@@ -4197,6 +4347,170 @@ mod tests {
         assert!(!darwin_refuses(Storage::Local, b"apfs"));
     }
 
+    fn os_args(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
+    }
+
+    /// One screen batch with `group` in front, answered on `f` with the
+    /// worker's `sessions`.
+    fn answered_for(f: &mut Fake, group: Pid, sessions: &mut Sessions) -> Answer {
+        answer(
+            f,
+            Ask {
+                id: Id::default(),
+                kind: Kind::Screen,
+                group: Some(group),
+                cursor: LineOn {
+                    surface: crate::paths::Surface::Primary,
+                    line: AbsLine::at(Rows::ZERO),
+                },
+                paths: Vec::new(),
+                seen: Vec::new(),
+                unnamed: None,
+                programs: Vec::new(),
+            },
+            &mut HashMap::new(),
+            sessions,
+            &|| {},
+            &mut || false,
+        )
+    }
+
+    /// An ssh leading group 7, to `demo` on port 2222 with a forward, and
+    /// what its `ssh -G` prints.
+    fn ssh_in_front() -> Fake {
+        let mut f = Fake::with(&[]);
+        f.groups.insert(7, vec!["ssh".into()]);
+        f.argvs
+            .insert(7, os_args(&["ssh", "-p", "2222", "-L", "1:h:1", "demo"]));
+        f.printout = Some(b"host demo\nhostname demo.example\nport 2222\n".to_vec());
+        f
+    }
+
+    /// The `ssh -G` runs `f` made, each as the group and its argv.
+    fn resolves(f: &Fake) -> Vec<(Pid, Vec<std::ffi::OsString>)> {
+        f.resolves.lock().unwrap().clone()
+    }
+
+    /// **The ssh in front is read once, on the worker**: its argv, and
+    /// `ssh -G` with its identity options only, and every answer while it
+    /// leads the group in front carries its session. Named break: no cache
+    /// -- the second batch runs `ssh -G` again.
+    #[test]
+    fn the_ssh_in_front_is_read_once_on_the_worker() {
+        let mut f = ssh_in_front();
+        let mut sessions = Sessions::default();
+        for n in 0..2 {
+            let a = answered_for(&mut f, 7, &mut sessions);
+            assert_eq!(a.front, Some(Front::Elsewhere), "batch {n}");
+            let s = a.session.expect("its session");
+            assert_eq!(s.ssh().dest().arg(), "demo");
+            assert_eq!(
+                s.resolved().hostname().map(crate::ssh::HostName::as_str),
+                Some("demo.example"),
+                "what ssh -G resolved"
+            );
+        }
+        assert_eq!(
+            resolves(&f),
+            [(7, os_args(&["ssh", "-G", "-p", "2222", "demo"]))],
+            "one ssh -G, with no forward"
+        );
+        assert_eq!(*f.argv_asked.lock().unwrap(), [7], "one argv read");
+    }
+
+    /// **A group number another process took is read again**: the session
+    /// is kept by the leader's pid and its start, and a leader whose start
+    /// cannot be read has none and asks nothing. Named breaks: key the
+    /// session by the pid alone -- the second leader's `ssh -G` never runs;
+    /// keep a session with no start -- the unread one answers a session.
+    #[test]
+    fn a_reused_group_number_is_read_again() {
+        let mut f = ssh_in_front();
+        let live = |f: &Fake, at| {
+            f.live
+                .lock()
+                .unwrap()
+                .insert(7, (vec!["ssh".to_string()], at));
+        };
+        let mut sessions = Sessions::default();
+        live(&f, Some(StartTime::AT[0]));
+        assert!(answered_for(&mut f, 7, &mut sessions).session.is_some());
+        live(&f, Some(StartTime::AT[1]));
+        assert!(answered_for(&mut f, 7, &mut sessions).session.is_some());
+        assert_eq!(resolves(&f).len(), 2, "read again for the new leader");
+        live(&f, None);
+        assert!(
+            answered_for(&mut f, 7, &mut sessions).session.is_none(),
+            "no start, no session"
+        );
+        assert_eq!(resolves(&f).len(), 2, "and nothing asked");
+    }
+
+    /// **Only an ssh leading the group in front is read, and its session
+    /// goes when another program is in front**: a kitten, also not local,
+    /// has its argv asked by no one, a local shell has no session, and the
+    /// ssh in front again is read again. Named breaks: read every program
+    /// named not local -- the kitten's argv is asked; keep the session
+    /// across another program in front -- the third batch runs no `ssh -G`.
+    #[test]
+    fn only_the_ssh_in_front_is_read_and_its_session_goes_with_it() {
+        let mut f = ssh_in_front();
+        f.groups.insert(8, vec!["kitten".into()]);
+        f.argvs.insert(8, os_args(&["kitten", "ssh", "demo"]));
+        f.groups.insert(9, vec!["zsh".into()]);
+        let mut sessions = Sessions::default();
+        let kitten = answered_for(&mut f, 8, &mut sessions);
+        assert_eq!(
+            kitten.front,
+            Some(Front::Elsewhere),
+            "the control: not local"
+        );
+        assert!(kitten.session.is_none());
+        assert!(answered_for(&mut f, 7, &mut sessions).session.is_some());
+        let shell = answered_for(&mut f, 9, &mut sessions);
+        assert_eq!(shell.front, Some(Front::Local));
+        assert!(shell.session.is_none());
+        assert!(answered_for(&mut f, 7, &mut sessions).session.is_some());
+        assert_eq!(*f.argv_asked.lock().unwrap(), [7, 7], "the ssh's only");
+        assert_eq!(resolves(&f).len(), 2, "read again once back in front");
+    }
+
+    /// **An ssh whose argv is no session has none, and asks `ssh -G`
+    /// nothing**: one that runs a command of its own. Named break: run
+    /// `ssh -G` before reading the argv.
+    #[test]
+    fn an_ssh_that_is_no_session_has_none() {
+        let mut f = ssh_in_front();
+        f.argvs.insert(7, os_args(&["ssh", "demo", "uptime"]));
+        let a = answered_for(&mut f, 7, &mut Sessions::default());
+        assert!(a.session.is_none());
+        assert!(resolves(&f).is_empty(), "nothing asked");
+    }
+
+    /// **Main reads no argv and runs no ssh**: `answers` takes the session
+    /// from the worker's answer and calls nothing of its own. Named break:
+    /// read the session in `answers`.
+    #[test]
+    fn main_takes_the_session_with_no_call_of_its_own() {
+        let src = include_str!("probe.rs");
+        let from = src.find("    pub fn answers(").expect("answers");
+        let to = from + src[from..].find("\n    }\n").expect("its end");
+        let body = &src[from..to];
+        for call in [
+            concat!("ssh", "::"),
+            concat!("resolve", "("),
+            concat!("argv", "("),
+            concat!("child", "("),
+        ] {
+            assert!(!body.contains(call), "answers calls {call}");
+        }
+        assert!(
+            body.contains(concat!("a.", "session")),
+            "the positive control: the session is taken"
+        );
+    }
+
     /// **The program in front is named first, and under ssh nothing is
     /// looked up**, its folder included; a local one's folder is read
     /// before its paths; under a multiplexer only `./` is left out. Perturbation:
@@ -4235,6 +4549,7 @@ mod tests {
                     programs: Vec::new(),
                 },
                 &mut HashMap::new(),
+                &mut Sessions::default(),
                 &|| {},
                 &mut || false,
             );
@@ -6972,6 +7287,7 @@ mod tests {
                             programs: Vec::new(),
                         },
                         named,
+                        &mut Sessions::default(),
                         &|| {},
                         &mut || false,
                     );
