@@ -130,3 +130,60 @@ fn storage_is_made_from_a_provision() {
         assert!(sig.contains("size: impl Into<Provision>"), "{sig}");
     }
 }
+
+/// **A banded provision admits the 8K grid that a single table refuses**,
+/// and says it is banded with the band size asked; a size with no row or
+/// no column, or past `MAX_COLS` x `MAX_ROWS`, is refused either way.
+#[test]
+fn a_banded_provision_admits_what_one_table_cannot() {
+    let band = BandRows::of(ws!(1, 32).geometry().1);
+    assert!(Provision::of(&ws!(960, 254)).is_err(), "single refuses 8K");
+    let p = Provision::banded(&ws!(960, 254), band).expect("banded admits 8K");
+    assert_eq!(p.mode(), Mode::Banded(Banding::Forced(band)));
+    assert_eq!(
+        Provision::of(&ws!(80, 24)).map(|p| p.mode()),
+        Ok(Mode::Single)
+    );
+    assert!(Provision::banded(&ws!(960, 0), band).is_err(), "no rows");
+    assert!(Provision::banded(&ws!(0, 24), band).is_err(), "no columns");
+    let past = u16::try_from(MAX_ROWS + 1).unwrap();
+    assert!(
+        Provision::banded(&ws!(80, past), band).is_err(),
+        "past MAX_ROWS"
+    );
+    assert_eq!(
+        BandRows::of(ws!(1, 0).geometry().1).rows().index(),
+        1,
+        "a band has a row"
+    );
+}
+
+/// **Storage says what band it gave**: never more rows than it holds and
+/// never none, whatever was asked.
+#[test]
+fn storage_reports_the_band_it_gave() {
+    for (c, r, band) in [(80u16, 24u16, 1u16), (200, 50, 7), (960, 254, 32)] {
+        let p = Provision::banded(&ws!(c, r), BandRows::of(ws!(1, band).geometry().1)).unwrap();
+        let mut owned = Owned::new(p);
+        let given = owned.band_rows().rows().index();
+        let held = owned.storage().row_capacity().index();
+        assert!(
+            (1..=held).contains(&given),
+            "{c}x{r} band {band}: gave {given} of {held}"
+        );
+    }
+}
+
+/// **A banded shape is refused when not one of its rows fits a band**, at
+/// the widest pitch any cache line gives its columns: with bands of 2,048
+/// slots a 2048-wide row can't fit and an 80-wide one can. At
+/// `BAND_SLOTS` every width up to `MAX_COLS` fits, so 2048x510 is admitted.
+#[test]
+fn a_band_that_holds_no_row_is_refused() {
+    let band = BandRows::of(ws!(1, 1).geometry().1);
+    assert!(Provision::banded_in(&ws!(2048, 10), band, BandSlots(2048)).is_err());
+    assert!(Provision::banded_in(&ws!(80, 10), band, BandSlots(2048)).is_ok());
+    assert!(Provision::banded(&ws!(2048, 510), band).is_ok());
+    // The control: a default band holds the widest row.
+    const { assert!(BAND_SLOTS.0 > MAX_COLS) };
+}

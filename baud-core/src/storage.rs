@@ -721,6 +721,9 @@ impl<'b> StrBuf<'b> {
 pub struct Owned {
     stride: Stride,
     depth: Depth,
+    /// The rows each band's table covers: all of them, in one band, until
+    /// banded storage is built ([`Mode`]).
+    band_rows: Rows,
     arena: alloc::vec::Vec<u8>,
     vp: alloc::vec::Vec<PackedCell>,
     used: alloc::vec::Vec<RowMeta>,
@@ -799,7 +802,13 @@ impl Owned {
     /// of scrollback costs a row of the pitch.
     pub fn with_history(size: impl Into<Provision>, geom: &CacheGeometry, depth: Depth) -> Owned {
         use alloc::vec;
-        let ws = &size.into().size();
+        // A banded provision is stored as single, its rows clamped to what
+        // one table holds, until banded storage is built ([`Mode`]).
+        let p = size.into();
+        let ws = &match p.mode() {
+            Mode::Single => p.size(),
+            Mode::Banded(_) => Provision::clamped(&p.size()).size(),
+        };
         let (cols, rows) = ws.geometry();
         let stride = grid_stride(geom, cols);
         let span = RowBlock::leading(rows, stride);
@@ -834,6 +843,7 @@ impl Owned {
         Owned {
             stride,
             depth,
+            band_rows: rows,
             arena: vec![0u8; ARENA],
             vp: vec![PackedCell::EMPTY; ring.len()],
             // A row's mark and its write generation, one 16-byte entry a
@@ -992,6 +1002,13 @@ impl Owned {
     /// The pitch this storage lays its grids out at.
     pub fn stride(&self) -> Stride {
         self.stride
+    }
+
+    /// **The rows each band's table covers**, as storage gave them: a
+    /// forced band size is clamped to what fits, so a caller that asked for
+    /// one reads here what it got.
+    pub fn band_rows(&self) -> BandRows {
+        BandRows::of(self.band_rows)
     }
 
     /// Physical rows in the primary ring: the screen's capacity plus the
@@ -1285,6 +1302,14 @@ pub const NSTYLE: usize = 1024;
 /// it; a 200x50 screen sizes to 16,384 slots, ~384 KB.
 pub const NSTYLE_MAX: usize = 1 << 16;
 
+/// **The slots a band's table holds** in banded mode (design-grid-8k): a
+/// band of rows is as many as fit, `band_rows x stride < BAND_SLOTS - 1`.
+pub const BAND_SLOTS: BandSlots = BandSlots(1 << 15);
+
+/// How many slots a band's table holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BandSlots(pub usize);
+
 /// **The slots a table holds that no cell of the screen has to name**: slot
 /// 0, the default every blank cell names; the current rendition; and the
 /// parked display's while the status line is written. A table sized to a
@@ -1307,6 +1332,43 @@ pub const RESERVED_SLOTS: usize = 3;
 pub struct Provision {
     cols: Cols,
     rows: Rows,
+    mode: Mode,
+}
+
+/// **How many rows each band of a banded table covers.**
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BandRows(Rows);
+
+impl BandRows {
+    /// `rows` a band, at least one.
+    pub fn of(rows: Rows) -> BandRows {
+        BandRows(Rows::of_index(rows.index().max(1)))
+    }
+
+    pub fn rows(self) -> Rows {
+        self.0
+    }
+}
+
+/// How a banded provision's band size is chosen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Banding {
+    /// The most rows a band's table holds at the storage's pitch.
+    Auto,
+    /// This many, as the oracle and the forced-band measurement ask
+    /// ([`Provision::banded`]); storage clamps it to what fits.
+    Forced(BandRows),
+}
+
+/// **One rendition table for the screen, or a table for each band of
+/// rows.** Single is every provision [`Provision::of`] admits; banded is
+/// the 8K grid's (design-grid-8k), and until its storage is built a banded
+/// provision is stored as single with its rows clamped, one band of all of
+/// them ([`Owned::band_rows`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    Single,
+    Banded(Banding),
 }
 
 /// A size [`Provision::of`] refused, as its columns and rows: no rows or no
@@ -1328,7 +1390,11 @@ impl Provision {
         match (ws.ws_col, ws.ws_row, within) {
             (1.., 1.., true) => {
                 let (cols, rows) = ws.geometry();
-                Ok(Provision { cols, rows })
+                Ok(Provision {
+                    cols,
+                    rows,
+                    mode: Mode::Single,
+                })
             }
             _ => {
                 let (cols, rows) = ws.geometry();
@@ -1363,7 +1429,52 @@ impl Provision {
             ws_row: ws.ws_row.clamp(1, most.max(1)),
         }
         .geometry();
-        Provision { cols, rows }
+        Provision {
+            cols,
+            rows,
+            mode: Mode::Single,
+        }
+    }
+
+    /// **`ws` banded, `band` rows a band**: the oracle's and the forced-band
+    /// measurement's entry. Admits any size from 1x1 to `MAX_COLS` x
+    /// `MAX_ROWS`; storage clamps `band` to what a band's table holds at its
+    /// pitch and says what it gave ([`Owned::band_rows`]).
+    pub fn banded(ws: &WinSize, band: BandRows) -> Result<Provision, OverBudget> {
+        Provision::banded_in(ws, band, BAND_SLOTS)
+    }
+
+    /// [`Provision::banded`] with bands of `band_slots` slots: a shape is
+    /// refused when not one of its rows fits a band at the widest pitch any
+    /// cache line gives its columns, so no geometry can make it unbandable.
+    pub fn banded_in(
+        ws: &WinSize,
+        band: BandRows,
+        band_slots: BandSlots,
+    ) -> Result<Provision, OverBudget> {
+        // The raw sides: `geometry` makes a zero side one.
+        let (cols, rows) = ws.geometry();
+        let within = (1..=MAX_COLS).contains(&usize::from(ws.ws_col))
+            && (1..=MAX_ROWS).contains(&usize::from(ws.ws_row));
+        let widest = LineSize::PLAUSIBLE
+            .iter()
+            .map(|&l| grid_stride(&CacheGeometry::new(Some(l), None, None, None), cols).index())
+            .max()
+            .unwrap_or(usize::MAX);
+        let within = within && widest < band_slots.0.saturating_sub(1);
+        match within {
+            true => Ok(Provision {
+                cols,
+                rows,
+                mode: Mode::Banded(Banding::Forced(band)),
+            }),
+            false => Err(OverBudget { cols, rows }),
+        }
+    }
+
+    /// One table or banded tables.
+    pub fn mode(&self) -> Mode {
+        self.mode
     }
 
     /// The size, as a terminal's window size.
