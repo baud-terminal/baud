@@ -526,13 +526,12 @@ fn inflate_grows_past_its_first_guess() {
     assert_eq!(pdf::inflate(&z).map(|o| o.len()), Some(180_000));
 }
 
-/// A dynamic block whose literal code `(a)` is incomplete: the one place the
-/// port reads what the script could not. zlib allows an incomplete set only
-/// for a single distance code; `baud_domain::zlib` allows any it can decode.
-/// No pinned document has one, and each one's text is byte-equal. This holds
-/// the record's line true: if the inflater tightens, so does `pdf-search`.
+/// A dynamic block whose literal code `(a)` is incomplete is refused:
+/// `baud_domain::zlib` allows an incomplete code set only for a single
+/// one-bit distance code, as RFC 1951 3.2.7 and zlib do, so `pdf-search`
+/// extracts nothing from such a stream. No pinned document has one.
 #[test]
-fn an_incomplete_code_set_inflates_where_zlib_refused_it() {
+fn an_incomplete_code_set_is_refused() {
     let hex = concat!(
         "780105e001902449922449020000000000000000000000000000000000000010",
         "0300000000000000000000000000000000000000000000000000000001000000",
@@ -547,7 +546,7 @@ fn an_incomplete_code_set_inflates_where_zlib_refused_it() {
         .iter()
         .map(|p| u8::from_str_radix(std::str::from_utf8(p).expect("ascii"), 16).expect("hex"))
         .collect();
-    assert_eq!(pdf::inflate(&stream), Some(b"(a)".to_vec()));
+    assert_eq!(pdf::inflate(&stream), None);
 }
 
 // ----------------------------------------------------- the Flate extractor

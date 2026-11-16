@@ -3794,8 +3794,8 @@ run says one line for a traceback.
 
 **Inputs no pinned document holds.** `baud_domain::zlib`'s `Code::build` allows
 any incomplete code set and zlib only a single distance code, so 6 of the 14 read
-a stream the script skipped; `an_incomplete_code_set_inflates_where_zlib_refused_it`
-holds it. Non-ASCII digits are refused in `pmc` and `vt-table`, a counter past
+a stream the script skipped, and a test held that. Since 195bd1d6 `baud_domain::zlib` refuses such a set as zlib does, and
+`an_incomplete_code_set_is_refused` holds that. Non-ASCII digits are refused in `pmc` and `vt-table`, a counter past
 `i128` leaves its row out of `pmc`, and with a `nan` in a cell of 64 or more runs
 `sorted` keeps inserting where CPython merges.
 
