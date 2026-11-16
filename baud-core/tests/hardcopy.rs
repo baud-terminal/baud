@@ -6,8 +6,9 @@
 
 use baud_core::*;
 use baud_domain::{
-    Chan, GraphicsPrint, ImageBudget, ImagePx, Pixel, PrintBackground, PrintColour, PrintRotation,
-    PrintSyntax, Sixel, SixelAspect, SixelCanvas, SixelPx,
+    Chan, DecodeBudget, DecodeProgress, GraphicsPrint, ImageBudget, ImagePx, Pixel,
+    PrintBackground, PrintColour, PrintRotation, PrintSyntax, Sixel, SixelAspect, SixelCanvas,
+    SixelPx,
 };
 
 mod support;
@@ -602,5 +603,160 @@ fn a_hard_copy_prints_the_surface_displayed() {
         assert_eq!(ink_box(w, &px), Some((100, 100, 201, 101)), "the second");
         let (w, _, px) = decode(&j[1]);
         assert_eq!(ink_box(w, &px), Some((100, 50, 201, 51)), "the first");
+    });
+}
+
+const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+fn b64(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for q in data.chunks(3) {
+        let mut b = [0u8; 3];
+        b[..q.len()].copy_from_slice(q);
+        let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+        for k in 0..4 {
+            if k <= q.len() {
+                out.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]);
+            } else {
+                out.push(b'=');
+            }
+        }
+    }
+    out
+}
+
+/// A picture of the terminal graphics protocol (APC G), `size` pixels
+/// across and down of the one RGBA colour, under `ctrl`'s keys, the cursor
+/// left where it is and nothing answered; its decode finished.
+fn kitty(t: &mut Term<'_>, size: (usize, usize), rgba: [u8; 4], ctrl: &str) {
+    let (w, h) = size;
+    let px: Vec<u8> = (0..w * h).flat_map(|_| rgba).collect();
+    let mut v = format!("\x1b_Gf=32,s={w},v={h},C=1,q=2,{ctrl};").into_bytes();
+    v.extend_from_slice(&b64(&px));
+    v.extend_from_slice(b"\x1b\\");
+    support::feed(t, &v);
+    while t.decode_step(DecodeBudget::ALL) == DecodeProgress::More {}
+}
+
+/// Hard copies in colour from here on.
+fn in_colour(t: &mut Term<'_>) {
+    t.set_graphics_print(GraphicsPrint {
+        colour: PrintColour::Colour,
+        ..GraphicsPrint::DEFAULT
+    });
+}
+
+/// The whole screen's hard copy, decoded.
+fn hard_copy(t: &mut Term<'_>) -> (usize, Vec<Pixel>) {
+    support::feed(t, b"\x1bPpS(H)\x1b\\");
+    let j = jobs(t);
+    assert_eq!(j.len(), 1, "one job");
+    let (w, _, px) = decode(&j[0]);
+    (w, px)
+}
+
+/// **A picture of the terminal graphics protocol prints in the layer the
+/// screen draws it in**: the hard copy is "the visible image on the
+/// display surface" (`[[source: dec-std-070]]` 070-8 § 8.8.1.4.4), and
+/// "Negative z-index values mean that the images will be drawn under the
+/// text ... Negative z-index values below INT32_MIN/2 (-1,073,741,824)
+/// will be drawn under cells with non-default background colors"
+/// (`[[source: kitty-graphics]]`). A green picture three cells wide over a
+/// solid A, a blue space and an empty cell: at `z` 0 all three are green;
+/// at -1 the A stays and the blue cell is green; below the backgrounds the
+/// blue cell stays blue too, the empty cell green each time. Red before:
+/// the picture was not printed.
+#[test]
+fn a_kitty_picture_prints_in_its_layer() {
+    let green = Pixel::opaque(Chan::from_u8(0), Chan::from_u8(255), Chan::from_u8(0));
+    for z in ["0", "-1", "-1073741825"] {
+        run(1 << 20, b"A\x1b[44m \x1b[m\x1b[H", |t| {
+            in_colour(t);
+            let (w, plain) = hard_copy(t);
+            let at = |px: &[Pixel], c: usize| px[10 * w + 10 * c + 5];
+            let (glyph, blue) = (at(&plain, 0), at(&plain, 1));
+            assert_eq!(at(&plain, 2), Pixel::CLEAR, "the empty cell prints nothing");
+            assert!(glyph != green && blue != green && glyph != blue);
+            kitty(t, (30, 20), [0, 255, 0, 255], &format!("a=T,i=1,z={z}"));
+            let (_, px) = hard_copy(t);
+            let want = match z {
+                "0" => [green, green, green],
+                "-1" => [glyph, green, green],
+                _ => [glyph, blue, green],
+            };
+            assert_eq!([at(&px, 0), at(&px, 1), at(&px, 2)], want, "z={z}");
+        });
+    }
+}
+
+/// **A pixel is laid over what is under it by its alpha**, as the screen
+/// mixes it: red at an alpha of 128 over the white default background
+/// prints as `(255, 127, 127)`, to the registers' percent, and inks in
+/// black and white; a clear pixel prints nothing.
+#[test]
+fn a_kitty_pixel_prints_mixed_by_its_alpha() {
+    run(1 << 20, b"", |t| {
+        kitty(t, (10, 20), [255, 0, 0, 128], "a=T,i=1");
+        support::feed(t, b"\x1b[1;3H");
+        kitty(t, (10, 20), [255, 0, 0, 0], "a=T,i=2");
+        let (w, px) = hard_copy(t);
+        assert!(px[10 * w + 5] != Pixel::CLEAR, "the mixed pixel inks");
+        assert_eq!(px[10 * w + 25], Pixel::CLEAR, "the clear pixel");
+        in_colour(t);
+        let (w, px) = hard_copy(t);
+        let (r, g, b) = px[10 * w + 5].rgb();
+        let near = |v: Chan, want: u8| v.get().abs_diff(want) <= 3;
+        assert!(
+            near(r, 255) && near(g, 127) && near(b, 127),
+            "({}, {}, {})",
+            r.get(),
+            g.get(),
+            b.get()
+        );
+        assert_eq!(px[10 * w + 25], Pixel::CLEAR, "the clear pixel");
+    });
+}
+
+/// **A virtual placement prints where its placeholders are**, a strip a
+/// run, and not at the cell it was made at; U+10EEEE draws no character
+/// ("Unicode placeholders"). The picture is under the text, at `z` -1, so
+/// a character drawn in the placeholder's cell would cover it. Red before:
+/// the placeholder printed as a solid character.
+#[test]
+fn a_placeholder_prints_its_strip_and_a_virtual_placement_nothing() {
+    let green = Pixel::opaque(Chan::from_u8(0), Chan::from_u8(255), Chan::from_u8(0));
+    run(1 << 20, b"\x1b[5;5H", |t| {
+        in_colour(t);
+        kitty(t, (10, 20), [0, 255, 0, 255], "a=T,U=1,i=9,c=1,r=1,z=-1");
+        support::feed(
+            t,
+            "\x1b[1;1H\x1b[38;5;9m\u{10EEEE}\u{0305}\u{0305}\x1b[39m".as_bytes(),
+        );
+        let (w, px) = hard_copy(t);
+        assert_eq!(px[10 * w + 5], green, "the placeholder's cell");
+        assert_eq!(px[10 * w + 15], Pixel::CLEAR, "the cell after it");
+        assert_eq!(
+            px[(4 * 20 + 10) * w + 45],
+            Pixel::CLEAR,
+            "where it was made"
+        );
+    });
+}
+
+/// **A relative placement prints where its parent puts it**, hanging off
+/// the screen's edge by what its anchor was clamped by: a green picture
+/// three cells wide placed two columns left of its parent at column 0
+/// shows its last cell alone. Red before: nothing printed.
+#[test]
+fn a_relative_placement_prints_where_its_parent_puts_it() {
+    let green = Pixel::opaque(Chan::from_u8(0), Chan::from_u8(255), Chan::from_u8(0));
+    run(1 << 20, b"\x1b[H", |t| {
+        in_colour(t);
+        kitty(t, (1, 1), [255, 0, 0, 0], "a=T,i=1,p=1");
+        kitty(t, (30, 20), [0, 255, 0, 255], "a=t,i=2");
+        support::feed(t, b"\x1b_Ga=p,i=2,p=1,P=1,Q=1,H=-2,q=2\x1b\\");
+        let (w, px) = hard_copy(t);
+        assert_eq!(px[10 * w + 5], green, "its last cell");
+        assert_eq!(px[10 * w + 15], Pixel::CLEAR, "past it");
     });
 }

@@ -11,10 +11,21 @@
 //! background, its character drawn by the embedder's face at the cell's
 //! size -- the face ReGIS's built-in alphabet uses
 //! (`Term::set_regis_font`), a pixel half covered or more set -- in its
-//! foreground, an underline along its last pixel row, and over them the
-//! Sixel images and the ReGIS page, in their drawing order. Reverse video
-//! swaps a cell's colours, and an invisible character is not drawn.
-//! kitty's images are not printed.
+//! foreground, an underline along its last pixel row, and the pictures
+//! in their drawing order. Reverse video swaps a cell's colours, an
+//! invisible character is not drawn, and a placeholder cell, U+10EEEE,
+//! draws no character.
+//!
+//! **The pictures take the layers the screen draws them in**: those of the
+//! terminal graphics protocol (APC G) with a negative `z` under the text,
+//! "Negative z-index values below INT32_MIN/2 (-1,073,741,824) will be
+//! drawn under cells with non-default background colors"
+//! (`[[source: kitty-graphics]]`, "Controlling displayed image layout"),
+//! and the rest over it, the Sixel images and the ReGIS page among them.
+//! Each pixel is laid over what is under it by its alpha, in encoded sRGB,
+//! as the screen mixes it. A placement shows at its anchor, a relative one
+//! where its chain of parents puts it, and a virtual one where its
+//! placeholder cells are, a strip a run of them.
 //!
 //! **A print screen stays text**: 070-7 § 7.6.2 says its contents "may be
 //! transmitted as sixels", a guideline, and a picture is printed by `S(H)`.
@@ -28,21 +39,72 @@ use crate::paint::Paint;
 use crate::print::Status;
 use baud_domain::*;
 
-/// The most pictures a dump draws; past it the later ones in drawing order
-/// are left out.
-const PICTURES: usize = 64;
+/// The most pictures a dump draws, a strip of placeholders each; past it
+/// the ones found later are left out.
+const PICTURES: usize = 256;
 
-/// A picture on the page: which image, where its drawn rectangle starts in
-/// page pixels, how it maps to the image, and which of its drawn rows show.
+/// The most virtual placements whose placeholders a dump finds, to place
+/// the relative placements under them; past it those under the later
+/// ones are left out.
+const ROOTS: usize = 32;
+
+/// **Which layer a picture is drawn in against the text**: below, over
+/// the default backgrounds and under every other; under, over the
+/// backgrounds and under the characters; over, after the text.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Layer {
+    Below,
+    Under,
+    Over,
+}
+
+impl Layer {
+    /// `INT32_MIN/2`: a `z` strictly below it is drawn under the cells'
+    /// non-default backgrounds.
+    const BELOW_BACKGROUNDS: i32 = i32::MIN / 2;
+
+    /// The layer a draw order puts a picture in.
+    fn of(z: ZIndex) -> Layer {
+        match z.raw() {
+            z if z < Layer::BELOW_BACKGROUNDS => Layer::Below,
+            z if z < 0 => Layer::Under,
+            _ => Layer::Over,
+        }
+    }
+}
+
+/// **Where a picture comes in the drawing order**: by `z`, then by the
+/// client's id, then by when the image was stored, then by when it was
+/// placed, the order the screen draws them in.
+type Order = (ZIndex, KittyId, ImageAge, PlaceSerial);
+
+/// A picture on the page: which image, its layer and order, where its
+/// drawn rectangle starts in page pixels, how it maps to the image, and
+/// which of its drawn columns and rows show.
 #[derive(Clone, Copy)]
 struct Picture {
     image: ImageId,
     owner: ImageOwner,
-    z: ZIndex,
+    layer: Layer,
+    order: Order,
     x0: i64,
     y0: i64,
     draw: ImageDraw,
+    cols: (i64, i64),
     rows: (i64, i64),
+}
+
+/// **`top` laid over `under` by `top`'s alpha**, each channel
+/// `(t a + u (255 - a) + 127) / 255` in encoded sRGB, the screen's mix;
+/// opaque, as `under` is.
+fn over(top: Pixel, under: Pixel) -> Pixel {
+    let a = u32::from(top.alpha().get());
+    let ((tr, tg, tb), (ur, ug, ub)) = (top.rgb(), under.rgb());
+    let mix = |t: Chan, u: Chan| {
+        let v = (u32::from(t.get()) * a + u32::from(u.get()) * (255 - a) + 127) / 255;
+        Chan::from_u8(u8::try_from(v).unwrap_or(u8::MAX))
+    };
+    Pixel::opaque(mix(tr, ur), mix(tg, ug), mix(tb, ub))
 }
 
 /// A pixel of the page, which may lie off it.
@@ -148,72 +210,88 @@ impl Visible<'_, '_, '_> {
         }
     }
 
-    /// **The topmost picture's pixel at `at`**. A Sixel's is ink where it
-    /// is not clear. A ReGIS page's is read from its plane: a pixel never
-    /// written misses, and one written with index 0 is clear, "no bits set
-    /// in any plane" (070-7 § 7.8.2.1), and covers the text, as the page
-    /// shows its colour over it. A page left behind keeps no plane, so a
-    /// pixel of it showing index 0's colour is taken for index 0.
-    /// Magnified, a page pixel reads the plane pixel `S(S)` shows there.
-    fn picture_at(&self, at: PagePx) -> Hit {
-        let PagePx { x: gx, y: gy } = at;
-        let imgs = &*self.paint.images;
-        for p in self.pictures.iter().rev().flatten() {
-            let (dx, dy) = (gx - p.x0, gy - p.y0);
-            let d = p.draw.dest;
-            if dx < 0 || dx >= i64::from(d.w) || dy < p.rows.0 || dy >= p.rows.1 {
+    /// **The pictures of `layer` at `at`, laid over `under` in drawing
+    /// order**: a pixel with ink over what is under it by its alpha, the
+    /// default background, `None`, read as its colour; a clear one, index
+    /// 0 or a Sixel's fill, making it the default background again.
+    fn layer(&self, at: PagePx, layer: Layer, mut under: Option<Pixel>) -> Option<Pixel> {
+        for p in self.pictures.iter().flatten() {
+            if p.layer != layer {
                 continue;
             }
-            let Some(view) = imgs.image(p.image) else {
-                continue;
-            };
-            let at = |v: i64| u32::try_from(v).unwrap_or(0);
-            let sx = ImageDraw::nearest(at(dx), d.w, p.draw.src.x, p.draw.src.w);
-            let sy = ImageDraw::nearest(at(dy), d.h, p.draw.src.y, p.draw.src.h);
-            let i = usize::try_from(sy)
-                .unwrap_or(usize::MAX)
-                .saturating_mul(view.width.index())
-                .saturating_add(usize::try_from(sx).unwrap_or(usize::MAX));
-            let Some(&px) = view.pixels.get(i) else {
-                continue;
-            };
-            // A Sixel's fill is "set to the current background color"
-            // (`[[source: vt3xx-sixel]]`): the background, over the text;
-            // and so is a shared Sixel's pixel drawn in a clear ink there,
-            // which draws as the fill (`Pixel::UNSAID`).
-            if (px == Pixel::FILL || px == Pixel::UNSAID) && view.ground != ImageGround::Clear {
-                return Hit::Clear;
-            }
-            if p.owner == ImageOwner::Regis {
-                let at = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
-                let (x, y) = self.zoom.plane_of(at(sx), at(sy));
-                let plane = match self.second {
-                    Some((page, plane)) if page == p.image => imgs.regis_bytes(plane),
-                    _ => imgs.page_indices(p.image),
-                };
-                let index = |plane| RegisCanvas::index_at(plane, view.width, x, y);
-                // A blinking pixel prints its own colour in either phase.
-                let blinks = plane.is_some_and(|pl| RegisCanvas::blinks_at(pl, view.width, x, y));
-                match plane.map(index) {
-                    Some(None) => continue,
-                    Some(Some(RegisIndex::ZERO)) => return Hit::Clear,
-                    Some(Some(i)) if blinks => {
-                        let (r, g, b) = self.map[i.slot()].rgb();
-                        return Hit::Ink(Pixel::opaque(r, g, b));
-                    }
-                    Some(Some(_)) => {}
-                    None if px.alpha().get() != 0 && px == self.map[RegisIndex::ZERO.slot()] => {
-                        return Hit::Clear;
-                    }
-                    None => {}
-                }
-            }
-            if px.alpha().get() != 0 {
-                let (r, g, b) = px.rgb();
-                return Hit::Ink(Pixel::opaque(r, g, b));
+            match self.picture_at(p, at) {
+                Hit::Miss => {}
+                Hit::Clear => under = None,
+                Hit::Ink(px) => under = Some(over(px, under.unwrap_or(self.bg))),
             }
         }
-        Hit::Miss
+        under
+    }
+
+    /// **Picture `p`'s pixel at `at`**. A Sixel's is ink where it is not
+    /// clear, and a picture of the terminal graphics protocol's where its
+    /// alpha is above zero. A ReGIS page's is read from its plane: a pixel
+    /// never written misses, and one written with index 0 is clear, "no
+    /// bits set in any plane" (070-7 § 7.8.2.1), and covers the text, as
+    /// the page shows its colour over it. A page left behind keeps no
+    /// plane, so a pixel of it showing index 0's colour is taken for index
+    /// 0. Magnified, a page pixel reads the plane pixel `S(S)` shows there.
+    fn picture_at(&self, p: &Picture, at: PagePx) -> Hit {
+        let PagePx { x: gx, y: gy } = at;
+        let imgs = &*self.paint.images;
+        let (dx, dy) = (gx - p.x0, gy - p.y0);
+        let d = p.draw.dest;
+        if dx < p.cols.0 || dx >= p.cols.1 || dy < p.rows.0 || dy >= p.rows.1 {
+            return Hit::Miss;
+        }
+        let Some(view) = imgs.image(p.image) else {
+            return Hit::Miss;
+        };
+        let at = |v: i64| u32::try_from(v).unwrap_or(0);
+        let sx = ImageDraw::nearest(at(dx), d.w, p.draw.src.x, p.draw.src.w);
+        let sy = ImageDraw::nearest(at(dy), d.h, p.draw.src.y, p.draw.src.h);
+        let i = usize::try_from(sy)
+            .unwrap_or(usize::MAX)
+            .saturating_mul(view.width.index())
+            .saturating_add(usize::try_from(sx).unwrap_or(usize::MAX));
+        let Some(&px) = view.pixels.get(i) else {
+            return Hit::Miss;
+        };
+        // A Sixel's fill is "set to the current background color"
+        // (`[[source: vt3xx-sixel]]`): the background, over the text;
+        // and so is a shared Sixel's pixel drawn in a clear ink there,
+        // which draws as the fill (`Pixel::UNSAID`).
+        if (px == Pixel::FILL || px == Pixel::UNSAID) && view.ground != ImageGround::Clear {
+            return Hit::Clear;
+        }
+        if p.owner == ImageOwner::Regis {
+            let at = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
+            let (x, y) = self.zoom.plane_of(at(sx), at(sy));
+            let plane = match self.second {
+                Some((page, plane)) if page == p.image => imgs.regis_bytes(plane),
+                _ => imgs.page_indices(p.image),
+            };
+            let index = |plane| RegisCanvas::index_at(plane, view.width, x, y);
+            // A blinking pixel prints its own colour in either phase.
+            let blinks = plane.is_some_and(|pl| RegisCanvas::blinks_at(pl, view.width, x, y));
+            match plane.map(index) {
+                Some(None) => return Hit::Miss,
+                Some(Some(RegisIndex::ZERO)) => return Hit::Clear,
+                Some(Some(i)) if blinks => {
+                    let (r, g, b) = self.map[i.slot()].rgb();
+                    return Hit::Ink(Pixel::opaque(r, g, b));
+                }
+                Some(Some(_)) => {}
+                None if px.alpha().get() != 0 && px == self.map[RegisIndex::ZERO.slot()] => {
+                    return Hit::Clear;
+                }
+                None => {}
+            }
+        }
+        match px.alpha().get() {
+            0 => Hit::Miss,
+            _ => Hit::Ink(px),
+        }
     }
 }
 
@@ -223,24 +301,26 @@ impl DumpCanvas for Visible<'_, '_, '_> {
             x: self.x0 + i64::from(x.raw()),
             y: self.y0 + i64::from(y.raw()),
         };
-        match self.picture_at(at) {
-            Hit::Ink(p) => return Some(p),
-            Hit::Clear => return None,
-            Hit::Miss => {}
-        }
-        let (r, c) = self.cell_at(at)?;
-        let (fg, bg) = self.colours(r, c);
+        let cell = self.cell_at(at);
+        let (fg, bg) = cell.map_or((None, None), |(r, c)| self.colours(r, c));
         let bit = usize::from(y.raw())
             .saturating_mul(usize::try_from(self.w).unwrap_or(0))
             .saturating_add(usize::from(x.raw()));
-        match self
-            .bits
-            .get(bit / 8)
-            .is_some_and(|b| b & (1 << (bit % 8)) != 0)
-        {
+        let glyph = cell.is_some()
+            && self
+                .bits
+                .get(bit / 8)
+                .is_some_and(|b| b & (1 << (bit % 8)) != 0);
+        // The default background, the pictures below the backgrounds, a
+        // cell's own background over them, the pictures under the text,
+        // the character, and the pictures over it.
+        let below = self.layer(at, Layer::Below, None);
+        let under = self.layer(at, Layer::Under, bg.or(below));
+        let text = match glyph {
             true => fg,
-            false => bg,
-        }
+            false => under,
+        };
+        self.layer(at, Layer::Over, text)
     }
 }
 
@@ -366,7 +446,8 @@ impl Paint<'_, '_> {
     /// each cell's character drawn by the embedder's face at the cell's
     /// size, twice as wide for a wide character or a double-width line and
     /// twice as tall, its half shown, on a double-height one; an underline
-    /// along each underlined cell's last row.
+    /// along each underlined cell's last row; no character for a
+    /// placeholder cell.
     fn raster_text(&self, region: (i64, i64, i64, i64), cell: (i64, i64), bits: &mut [u8]) {
         let (x0, y0, x1, y1) = region;
         let (cw, ch) = cell;
@@ -409,7 +490,12 @@ impl Paint<'_, '_> {
                 if base.is_wide_tail() {
                     continue;
                 }
-                let cp = base.as_codepoint().map(|c| c.value());
+                // A placeholder, U+10EEEE, draws no character: its cell
+                // shows a strip of a picture or its background.
+                let cp = base
+                    .as_codepoint()
+                    .filter(|c| !is_placeholder(*c))
+                    .map(|c| c.value());
                 let span = match cp.and_then(char::from_u32) {
                     Some(c)
                         if Width::of(Codepoint::from_char(c), AmbiguousWidth::Narrow).cells()
@@ -442,31 +528,48 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// **The Sixel images and the ReGIS page on the live screen**, in
-    /// drawing order: by `z`, then by image, as the renderer orders them;
-    /// where each is drawn from its anchor cell (`KittyPlace::draw`) and
-    /// which of its drawn rows a margin scroll left shown.
+    /// **The pictures on the live screen**, in drawing order ([`Order`]):
+    /// each placement where it is drawn from its anchor cell
+    /// (`KittyPlace::draw`), a relative one hanging off the edge by what
+    /// its anchor was clamped by, with the drawn rows a margin scroll left
+    /// shown; and, while a virtual placement is live, a strip for each run
+    /// of placeholder cells, drawn as a placement anchored where the
+    /// virtual placement's top-left cell would be and shown over the run's
+    /// cells alone, and the relative placements under each virtual one, at
+    /// the least row and column of its runs plus the offsets down the chain.
     fn pictures(&self, cell: (i64, i64)) -> [Option<Picture>; PICTURES] {
         let (cw, ch) = cell;
         let imgs = &*self.images;
-        let (screen, top) = match self.cold.screen {
-            crate::term::Screen::Normal => (ImageScreen::Primary, self.book.top),
-            crate::term::Screen::Alternate => (ImageScreen::Alternate, self.book.alt_top),
-        };
+        let (screen, top) = self.image_top();
         let size = |v: i64| ImagePx::of(u16::try_from(v).unwrap_or(0));
+        let n64 = |v: usize| i64::try_from(v).unwrap_or(0);
+        let order = |image: ImageId, z: ZIndex, serial: PlaceSerial| -> Order {
+            (
+                z,
+                imgs.kitty_names(image).map_or(KittyId::NONE, |(k, _)| k),
+                imgs.born(image).unwrap_or(ImageAge::ZERO),
+                serial,
+            )
+        };
         let mut out = [None; PICTURES];
         let mut n = 0;
-        for (_, p) in imgs.placements() {
-            if p.screen != screen || n == PICTURES {
+        let mut push = |p: Picture| {
+            if let Some(slot) = out.get_mut(n) {
+                *slot = Some(p);
+                n += 1;
+            }
+        };
+        for (pid, p) in imgs.placements() {
+            if p.screen != screen {
                 continue;
             }
-            if !matches!(
-                imgs.owner(p.image),
-                Some(ImageOwner::Local | ImageOwner::Regis | ImageOwner::Iterm)
-            ) {
+            // Under a virtual parent: placed below, from its placeholders.
+            if p.kitty.parent.is_relative()
+                && !matches!(imgs.kitty_root(pid), KittyRoot::Screen { .. })
+            {
                 continue;
             }
-            let Some(view) = imgs.image(p.image) else {
+            let (Some(owner), Some(view)) = (imgs.owner(p.image), imgs.image(p.image)) else {
                 continue;
             };
             let draw = p.kitty.draw(view.width, view.height, size(cw), size(ch));
@@ -474,11 +577,13 @@ impl Paint<'_, '_> {
             if d.is_empty() {
                 continue;
             }
-            let rows_px = |r: Rows| i64::try_from(r.index()).unwrap_or(0) * ch;
+            let rows_px = |r: Rows| n64(r.index()) * ch;
             let (cut_top, cut_bottom) = (rows_px(p.kitty.cut_top), rows_px(p.kitty.cut_bottom));
             let line = i64::try_from(p.line.value()).unwrap_or(0)
-                - i64::try_from(top.value()).unwrap_or(0);
-            let x0 = i64::try_from(p.col.index()).unwrap_or(0) * cw + i64::from(d.x);
+                - i64::try_from(top.value()).unwrap_or(0)
+                - n64(p.kitty.over_rows.index());
+            let col = n64(p.col.index()) - n64(p.kitty.over_cols.index());
+            let x0 = col * cw + i64::from(d.x);
             let y0 = line * ch - cut_top + i64::from(d.y);
             let mut rows = (0, i64::from(d.h));
             if cut_top > 0 {
@@ -489,21 +594,159 @@ impl Paint<'_, '_> {
                     .1
                     .min(rows_px(p.kitty.rows) - cut_bottom - i64::from(d.y));
             }
-            let Some(owner) = imgs.owner(p.image) else {
-                continue;
-            };
-            out[n] = Some(Picture {
+            push(Picture {
                 image: p.image,
                 owner,
-                z: p.z,
+                layer: Layer::of(p.z),
+                order: order(p.image, p.z, p.serial),
                 x0,
                 y0,
                 draw,
+                cols: (0, i64::from(d.w)),
                 rows,
             });
-            n += 1;
         }
-        out[..n].sort_unstable_by_key(|p| p.map(|p| (p.z, p.image)));
+        if self.strs.kitty.has_virtuals() {
+            let at = KittyAt {
+                screen,
+                top,
+                row: Rows::ZERO,
+                col: Col::ZERO,
+                span: Cols::of_index(1),
+                rows: self.rows,
+                cols: self.cols,
+                cell_w: self.cell_width,
+                cell_h: self.cell_height,
+            };
+            // Each virtual placement shown: the least row and column of
+            // its runs.
+            let mut roots: [Option<(PlaceSerial, i64, i64)>; ROOTS] = [None; ROOTS];
+            let (vw, clusters, live) = (&self.view, &*self.clusters, self.tmpl.live());
+            for r in 0..self.rows.index() {
+                let row = Row::from_index(r);
+                let rendition = vw.rendition(row);
+                // A line not single-width draws its cells twice as wide, and
+                // a double-height one twice as tall.
+                let (ux, uy): (u32, u32) = match rendition {
+                    LineRendition::Single => (1, 1),
+                    LineRendition::DoubleWidth => (2, 1),
+                    LineRendition::DoubleTop | LineRendition::DoubleBottom => (2, 2),
+                };
+                let (sx, sy) = (i64::from(ux), i64::from(uy));
+                let ri = n64(r);
+                let cells = (0..self.cols.index()).map(|c| {
+                    crate::kitty::placeholder_cell(
+                        clusters,
+                        RowStyles::Live(live),
+                        vw.get(row, Col::at_index(c)),
+                    )
+                });
+                for run in PlaceholderRuns::new(cells) {
+                    let Some(v) = self
+                        .strs
+                        .kitty
+                        .virtual_of(run.image, run.placement, &at, imgs)
+                    else {
+                        continue;
+                    };
+                    let col = n64(run.at.index()) * sx;
+                    match roots.iter_mut().flatten().find(|e| e.0 == v.serial) {
+                        Some(e) => (e.1, e.2) = (e.1.min(ri), e.2.min(col)),
+                        None => {
+                            if let Some(slot) = roots.iter_mut().find(|e| e.is_none()) {
+                                *slot = Some((v.serial, ri, col));
+                            }
+                        }
+                    }
+                    let (Some(owner), Some(view)) = (imgs.owner(v.image), imgs.image(v.image))
+                    else {
+                        continue;
+                    };
+                    let mut draw = v.place.draw(view.width, view.height, size(cw), size(ch));
+                    draw.dest = PxRect {
+                        x: draw.dest.x.saturating_mul(ux),
+                        y: draw.dest.y.saturating_mul(uy),
+                        w: draw.dest.w.saturating_mul(ux),
+                        h: draw.dest.h.saturating_mul(uy),
+                    };
+                    let d = draw.dest;
+                    if d.is_empty() {
+                        continue;
+                    }
+                    // The top of the boxes on this row: a row above it for
+                    // the bottom half of a double-height line.
+                    let box_top = match rendition {
+                        LineRendition::DoubleBottom => (ri - 1) * ch,
+                        _ => ri * ch,
+                    };
+                    let x0 =
+                        (n64(run.at.index()) - n64(run.col.index())) * cw * sx + i64::from(d.x);
+                    let y0 = box_top - n64(run.row.index()) * ch * sy + i64::from(d.y);
+                    let left = n64(run.at.index()) * cw * sx;
+                    let right = left + n64(run.cells.index()) * cw * sx;
+                    let cols = ((left - x0).max(0), (right - x0).min(i64::from(d.w)));
+                    let rows = (
+                        (ri * ch - y0).max(0),
+                        (ri * ch + ch - y0).min(i64::from(d.h)),
+                    );
+                    if cols.0 >= cols.1 || rows.0 >= rows.1 {
+                        continue;
+                    }
+                    // Never below its own cells' backgrounds: "The
+                    // background color is interpreted as the background
+                    // color, visible if the image is transparent"
+                    // (`[[source: kitty-graphics]]`, "Unicode placeholders").
+                    let z = v.z.max(ZIndex::of(Layer::BELOW_BACKGROUNDS));
+                    push(Picture {
+                        image: v.image,
+                        owner,
+                        layer: Layer::of(z),
+                        order: order(v.image, z, v.serial),
+                        x0,
+                        y0,
+                        draw,
+                        cols,
+                        rows,
+                    });
+                }
+            }
+            for (pid, p) in imgs.placements() {
+                if p.screen != screen || !p.kitty.parent.is_relative() {
+                    continue;
+                }
+                let KittyRoot::Virtual { serial, h, v } = imgs.kitty_root(pid) else {
+                    continue;
+                };
+                let Some((r, c)) = roots
+                    .iter()
+                    .flatten()
+                    .find(|e| e.0 == serial)
+                    .map(|e| (e.1, e.2))
+                else {
+                    continue;
+                };
+                let (Some(owner), Some(view)) = (imgs.owner(p.image), imgs.image(p.image)) else {
+                    continue;
+                };
+                let draw = p.kitty.draw(view.width, view.height, size(cw), size(ch));
+                let d = draw.dest;
+                if d.is_empty() {
+                    continue;
+                }
+                push(Picture {
+                    image: p.image,
+                    owner,
+                    layer: Layer::of(p.z),
+                    order: order(p.image, p.z, p.serial),
+                    x0: (c + h) * cw + i64::from(d.x),
+                    y0: (r + v) * ch + i64::from(d.y),
+                    draw,
+                    cols: (0, i64::from(d.w)),
+                    rows: (0, i64::from(d.h)),
+                });
+            }
+        }
+        out[..n].sort_unstable_by_key(|p| p.map(|p| p.order));
         out
     }
 }
