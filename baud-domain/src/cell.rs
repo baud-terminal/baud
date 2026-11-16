@@ -29,9 +29,9 @@ impl Content {
     /// ([`Content::drawn`]).
     pub const DEFECTIVE: Content = Content(0x0011_0002);
 
-    /// A decoded codepoint. Full range — no truncation, so astral-plane
-    /// characters survive. `U+1F680 & 0xffff` was `U+F680`, a private-use
-    /// codepoint, which is what the differential test caught.
+    /// A decoded codepoint, over the full range, so an astral-plane
+    /// character keeps every bit: `U+1F680` cut to 16 bits would be
+    /// `U+F680`, a private-use codepoint.
     pub fn codepoint(c: Codepoint) -> Content {
         Content(c.value())
     }
@@ -59,11 +59,9 @@ impl Content {
     ///
     /// **A cell with continuations holds its cluster's index here, not its
     /// base**: the base is in the slot, with the marks ([`ClusterSlot`]).
-    /// That is the id space of 1024 slots and 8 probes, measured flat on
-    /// plain text because a cell with no continuations is written and read
-    /// as it was: the range above U+10FFFF had two words in use and room
-    /// for any slot count a `u16` names, where `CellFlags` had six bits
-    /// left.
+    /// The range above U+10FFFF has room for any slot index a `u16` names,
+    /// and a cell with no continuations is written and read as its
+    /// codepoint, with nothing added.
     const CLUSTERS: u32 = 0x0012_0000;
     /// The word a cell holds when its continuations live in slot `id`.
     pub fn cluster(id: ClusterId) -> Content {
@@ -176,9 +174,8 @@ impl Default for Content {
 
 /// One materialised cell: content plus a style index.
 ///
-/// Eight bytes rather than four. Measured cost of that width: 8-byte cells hit
-/// 48% of the kernel ceiling against 50% for 4-byte — two points, for holding a
-/// full codepoint instead of a truncated one.
+/// Eight bytes: four for the content, so a full codepoint fits, two for the
+/// style index and two for the flags.
 #[repr(C)]
 #[derive(
     Clone, Copy, Default, PartialEq, Eq, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,
@@ -191,16 +188,14 @@ pub struct PackedCell {
 
 /// Per-cell state that is **not** a rendition.
 ///
-/// Lives in what used to be `PackedCell::_pad`, so the cell is still eight
-/// bytes and the measurement behind that width still holds.
+/// Lives in the cell's last two bytes, so the cell stays eight bytes.
 ///
 /// The distinction is the point. A rendition is interned: many cells share one
-/// [`StyleId`], and the table behind it is a direct-mapped cache that evicts.
-/// That is tolerable for colour -- an evicted bucket renders wrong until it is
-/// rewritten -- and not tolerable for DECSCA protection, where eviction would
-/// silently expose text an application asked to keep. Anything whose loss is a
-/// correctness bug rather than a cosmetic one belongs here, per cell, where
-/// nothing can evict it.
+/// [`StyleId`], and a table with no slot to give refuses a new rendition, so
+/// the text after it takes the default. That is tolerable for colour and not
+/// for DECSCA protection, where a refusal would silently expose text an
+/// application asked to keep. Anything whose loss is a correctness bug rather
+/// than a cosmetic one belongs here, per cell, where no table can refuse it.
 #[repr(transparent)]
 #[derive(
     Clone, Copy, Default, PartialEq, Eq, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,
@@ -233,9 +228,8 @@ impl LinkId {
     /// Which slot an `OSC 8` link hashes to.
     ///
     /// The twin of [`StyleId::bucket`], and it takes the **high** bits for the
-    /// same measured reason: the low bits of a multiplicative hash are the ones
-    /// that collide, and this codebase has already lost a whole style table to
-    /// masking the wrong end.
+    /// same reason: the low bits of a multiplicative hash are the ones that
+    /// collide.
     ///
     /// Slot 0 is reserved for "no link", so the range is `1..buckets`.
     ///
@@ -376,10 +370,9 @@ impl CellFlags {
     /// **Both, because they are different questions.** The advance is one
     /// column or two -- never zero, since without a cluster machine a
     /// zero-width character still takes a cell. The width is 0, 1 or 2 and is
-    /// what a cluster machine will read. Dropping the width and keeping only
-    /// the advance made `the_cell_table_is_what_the_write_path_writes` fail on `E0 A0 96`
-    /// (U+0816 SAMARITAN MARK IN), which is the test saying the entry no longer
-    /// carried enough.
+    /// what a cluster machine will read. They differ on `E0 A0 96` (U+0816
+    /// SAMARITAN MARK IN), an advance of one and a width of 0, which
+    /// `the_cell_table_is_what_the_write_path_writes` holds the entry to.
     ///
     /// Low two bits the advance, next two the width, and bit 4 whether the
     /// character is one the table may write without asking the cluster
@@ -426,17 +419,14 @@ impl CellFlags {
     /// The cell holds the *translated* codepoint (`with_dec_graphics`) and this
     /// flag besides, so it keeps where the character came from: a copy of `─`
     /// is `─`, and the cell still says it was written under the line-drawing
-    /// set. In this core `refresh_flags` sets it and nothing outside the tests
-    /// tests the bit; `Charset::from_flags` would, through
-    /// `PackedCell::from_wire`, which has no caller.
+    /// set. `refresh_flags` sets it and nothing outside the tests tests the
+    /// bit; `Charset::from_flags` would, through `PackedCell::from_wire`,
+    /// which has no caller.
     ///
-    /// This said the cell keeps the byte rather than a translated codepoint,
-    /// because `MANIFEST.toml` recorded `dec-special-graphics` as `gated`.
-    /// Neither holds. The table is translated, and the DEC pages are pinned:
     /// `[[source: vt100-ug-ch3]]` Table 3-9 names the set's 32 positions,
     /// `0x5F..0x7E`, in text. None of the DEC texts read gives a codepoint, so
     /// the 31 the table has are `[[source: foot-vt100-0]]`'s, and `0x5F`
-    /// "Blank" is still `_`: an open departure, U+0020 or U+00A0 still to be
+    /// "Blank" stays `_`: an open departure, U+0020 or U+00A0 still to be
     /// chosen.
     pub const GRAPHICS: CellFlags = CellFlags(2);
     pub fn is_graphics(self) -> bool {
@@ -451,42 +441,32 @@ impl CellFlags {
     /// and the bit is set and cleared with it.
     ///
     /// **The flag is in the cell so that overwriting the cell clears it.**
-    /// Marks live in a side table keyed on cell identity, and a key alone
-    /// cannot see a cell being rewritten *in place*: no scroll, no blank, no
-    /// generation bump, so a space written over `e`-plus-acute inherited the
-    /// accent and a renderer drew it on a blank. Every write builds a fresh
-    /// `PackedCell` from the terminal's current flags, which never include
-    /// this bit, so the stale marks become unreachable without the write path
-    /// doing anything at all.
+    /// A cell rewritten *in place* has no scroll, no blank and no generation
+    /// bump to say so, and a space written over `e`-plus-acute must not keep
+    /// the accent. Every write builds a fresh `PackedCell` from the terminal's
+    /// current flags, which never include this bit, so the stale marks become
+    /// unreachable without the write path doing anything at all.
     ///
-    /// It also takes the hash off the read path: a cell without this bit has
-    /// no marks, and that is the overwhelming majority of cells, answered by
-    /// a bit that is already in cache rather than by a probe into 22 KB.
-    /// `[[source: ghostty-page]]` reaches the same shape from the other
-    /// direction: `appendGrapheme` tests `Cell.content_tag` before touching
-    /// `grapheme_map`, so the map is consulted only for cells that have one.
+    /// It also takes the store off the read path: a cell without this bit
+    /// has no marks, and that is the overwhelming majority of cells, answered
+    /// by a bit that is already in cache rather than by a probe into the
+    /// store.
     pub const MARKED: CellFlags = CellFlags(4);
 
     /// Bits 3..10 carry the [`LinkId`] (`LINK_BITS`); bit 10 is
     /// [`CellFlags::GUARDED`] and 11..15 the set a code was received under
-    /// ([`CellFlags::received`]); none is free. The
-    /// [`ClusterId`] took them until it moved into the cell's [`Content`],
-    /// whose range above U+10FFFF names 1024 slots where six bits named 63.
+    /// ([`CellFlags::received`]); none is free. The [`ClusterId`] rides in
+    /// the cell's [`Content`] instead.
     ///
-    /// **The link rides in the spare bits of this word rather than in a field
-    /// of its own, and that is a measured constraint, not a packing game.**
+    /// **The link rides in this word rather than in a field of its own.**
     /// `PackedCell` is 8 bytes, the width a codepoint needs, and a ninth and
-    /// tenth byte would round the cell to twelve. Three flag bits are in use
-    /// and thirteen are not, so a link index fits with 13 bits of room,
-    /// against `NLINK` of 128.
+    /// tenth byte would round the cell to twelve.
     const LINK_SHIFT: u16 = 3;
     /// The link takes exactly the bits `NLINK = 128` needs, and no more.
     ///
-    /// **It used to take all thirteen**, which was harmless while nothing else
-    /// wanted them and became a bug the moment something did: `link()` read
-    /// `self.0 >> 3` unmasked, so any bit above the link's own range came back
-    /// as part of the link index. Bounding it here is what makes the top six
-    /// bits above it free rather than a hazard.
+    /// **Masked on every read**: `link()` takes `self.0 >> 3` through
+    /// `LINK_MASK`, so the bits above the link's range -- the guard and the
+    /// received set -- never come back as part of the link index.
     const LINK_BITS: u16 = 7;
     const LINK_MASK: u16 = (1 << CellFlags::LINK_BITS) - 1;
 
@@ -555,8 +535,7 @@ impl CellFlags {
     ///
     /// **A bit apart from [`CellFlags::PROTECTED`]**: DECSCA's attribute is
     /// DEC's and decides DECSED and DECSEL alone, where the guard is
-    /// ECMA-48's and decides the erasures ERM names. xterm and ghostty keep
-    /// one bit and a mode naming whichever control set it last.
+    /// ECMA-48's and decides the erasures ERM names.
     ///
     /// **A write replaces it**: a host write builds a fresh cell from the
     /// terminal's flags, which never carry it, so the write path reads no
@@ -588,8 +567,8 @@ impl CellFlags {
     /// It is rarely needed, because every ordinary write builds a fresh
     /// `PackedCell` from the terminal's current flags, which never carry the
     /// mark -- so **overwriting a cell un-records its continuations without
-    /// the write path doing anything**, which is the same property
-    /// `CellFlags::MARKED` was introduced for.
+    /// the write path doing anything**, the property `CellFlags::MARKED`
+    /// states.
     pub fn without_cluster(self) -> CellFlags {
         CellFlags(self.0 & !CellFlags::MARKED.0)
     }
@@ -655,9 +634,7 @@ impl PackedCell {
     }
     /// An ASCII byte under whatever character set `flags` says is invoked.
     ///
-    /// Written (f10c5ed) for the core since retired as `baud-core2`, whose
-    /// `promote` replayed stored runs with their flags. Nothing in this core
-    /// calls it. The bulk path translates through `with_charset` in
+    /// Nothing calls it. The bulk path translates through `with_charset` in
     /// `View::put_ascii_run` and the per-byte path through `translate`, both
     /// with the set `Term` has invoked. The flags name the sets that replace
     /// a code (`Charset::from_flags`), not the UK set or the DEC sets that
@@ -673,32 +650,25 @@ impl PackedCell {
 
     /// The codepoint an ASCII byte stands for under a designated set.
     ///
-    /// **Extracted so the two write paths translate through one rule.** The
-    /// bulk path went through `with_charset` and the per-byte path did not
-    /// translate at all, so a byte that reached `ground_uncommon` -- printable
+    /// **The per-byte path translates through the bulk path's rule**,
+    /// `with_charset`, so a byte that reaches `ground_uncommon` -- printable
     /// ASCII recovered after an ill-formed UTF-8 sequence, the case
-    /// `[[source: unicode-ch3]]` § 3.9.5 names -- rendered untranslated. With
-    /// DEC Special Graphics designated, `<C2 71>` put a `q` on the screen where
-    /// every other route puts `─`
-    /// (`ascii_recovered_after_a_bad_sequence_is_still_translated`). This read
-    /// `<C2 41>` and `A`, a byte outside the set, which is `A` on every route.
+    /// `[[source: unicode-ch3]]` § 3.9.5 names -- is translated as on every
+    /// other route: with DEC Special Graphics designated, `<C2 71>` puts `─`
+    /// on the screen (`ascii_recovered_after_a_bad_sequence_is_still_translated`).
     ///
     /// **Inlined for ASCII, called for a set.** The ASCII answer is a compare
-    /// and a return in the caller, as it was; a designated set goes through
-    /// `translate_designated`, out of line. Built with `with_charset` forced
-    /// inline once it gained the DEC sets' arm, this function went out of line
-    /// whole, and every short run and every run's `REP` record called it, ASCII
-    /// ones included.
+    /// and a return in the caller; a designated set goes through
+    /// `translate_designated`, out of line, so `with_charset`, forced inline
+    /// there, never makes this function too large to inline into every short
+    /// run and every run's `REP` record.
     #[inline(always)]
     pub fn translate(b: StreamByte, set: Charset) -> Codepoint {
-        // **ASCII is the answer, not a case of the general one.** Without this
-        // the common path builds a throwaway `PackedCell`, runs the charset
-        // map that has nothing to do, and then round-trips the content back
-        // through `Codepoint::new`'s range-and-surrogate check -- on a byte the
-        // caller has already proven printable ASCII -- after which the caller
-        // builds a *second* cell from the result. Two cell constructions and a
-        // validity check per byte, on the path `cat-cjk.raw` takes for 39% of
-        // its characters.
+        // **ASCII is the answer, not a case of the general one.** The general
+        // path builds a throwaway `PackedCell`, runs a charset map with
+        // nothing to do and checks the content back through
+        // `Codepoint::new`'s range-and-surrogate test, on a byte the caller
+        // has already proven printable ASCII; this is one compare.
         if matches!(set, Charset::Ascii) {
             return Codepoint::from_ascii(b);
         }
@@ -719,14 +689,12 @@ impl PackedCell {
     ///
     /// **Every set that substitutes anything goes through here**, from
     /// `View::put_ascii_run` and from `translate`, so a path cannot honour DEC
-    /// graphics and forget Finnish -- the shape `baud-core2`'s `promote` had
-    /// before `from_wire` existed. This doc sat on `translate` from c1f9670,
-    /// which inserted `translate` between the two.
+    /// graphics and forget Finnish.
     ///
     /// **`#[inline(always)]`, into the two out-of-line callers on the
     /// designated path**, `put_designated_run` and `translate_designated`, so a
-    /// designated byte is a match and a table read, not a call, as it was
-    /// before the DEC sets' arm; the ASCII path reaches neither caller.
+    /// designated byte is a match and a table read, not a call; the ASCII path
+    /// reaches neither caller.
     #[inline(always)]
     pub fn with_charset(self, b: StreamByte, set: Charset) -> PackedCell {
         match set {
@@ -807,12 +775,10 @@ impl PackedCell {
     }
     /// This cell's style and flags with a different character in it.
     ///
-    /// The whole point is that the tail is *already assembled*. `PackedCell` is
-    /// `{u32, u16, u8, u8}`, and building one field-by-field inside a per-cell
-    /// loop let the compiler emit four narrow stores instead of one 8-byte one
-    /// -- measured at ~8% of the cells path when the flags byte was carved out
-    /// of the old `_pad`. Hoisting the invariant tail out of the loop and only
-    /// replacing `content` puts it back.
+    /// The whole point is that the tail is *already assembled*. A cell built
+    /// field by field inside a per-cell loop can compile to narrow stores
+    /// instead of one 8-byte one; hoisting the invariant tail out of the loop
+    /// and replacing only `content` keeps the one store.
     #[inline(always)]
     pub fn with_ascii(self, b: StreamByte) -> PackedCell {
         PackedCell {
@@ -825,28 +791,14 @@ impl PackedCell {
     ///
     /// Each set replaces a handful of ASCII positions and leaves the rest
     /// alone, so an unlisted byte is itself.
-    /// **A linear search, and it should be an index.** The national tables
-    /// are compiled by `build/nrcs.rs` and their pair arrays are private, so
-    /// spreading them into direct-indexed rows is a change to the build,
-    /// not to a table.
     ///
-    /// **The reason it was left alone has expired, and the new one is a
-    /// prediction rather than an excuse.** That reason read "a charset is not on
-    /// the ingest path: the new core never leaves `Charset::Ascii`", and it
-    /// does now -- the G0-G3 slots and the locking shifts landed, so
-    /// `ESC ( % 6` puts this search on the per-character path for as long as the
-    /// set is designated. `every_national_replacement_renders_as_its_table_says`
-    /// drives the fourteen `Nrcs` sets' 164 replacements through `Term` and
-    /// proves it. This said "all 163", counting UK's, which is a `Charset` of
-    /// its own and which that test never drives.
-    ///
-    /// What replaces it: the tables are **8 to 10 pairs** over a `const` array,
-    /// and this project has measured a table against a short predictable chain
-    /// twice and lost both times -- `SgrAttr::one` at flat to -3%, the
-    /// single-parameter fold table at -7.5%. So the index is predicted to be
-    /// flat at best, and **no recording designates a national set**, so there is
-    /// nothing in the corpus to measure it on. Building it means writing a
-    /// payload first and quoting the number against that payload only.
+    /// **A linear search over 8 to 10 pairs**, a `const` array compiled by
+    /// `build/nrcs.rs`, on the per-character path for as long as a national
+    /// set is designated (`ESC ( % 6`, for one). The pair arrays are
+    /// private, so direct-indexed rows would be a change to the build, not
+    /// to a table. `every_national_replacement_renders_as_its_table_says`
+    /// drives the fourteen `Nrcs` sets' 164 replacements through `Term`; UK
+    /// is a `Charset` of its own, which that test does not drive.
     pub fn with_nrcs(self, b: StreamByte, table: &[(u8, u32)]) -> PackedCell {
         let v = b.raw_byte();
         let cp = match table.iter().find(|(k, _)| *k == v) {
@@ -891,13 +843,10 @@ impl PackedCell {
 /// FNV-1a's 64-bit offset basis and prime, and the 64-bit Fibonacci
 /// multiplier that finalizes a hash before its high bits pick a slot.
 ///
-/// **Named once, because a copy of the prime was mistyped.** The cluster
-/// store spelled it `0x1000_0000_01b3`, 2^44 + 0x1b3, where the prime is
-/// 2^40 + 0x1b3, and took its slot from the unfinalized hash: below bit 44
-/// its state was only ever multiplied by 0x1b3, so at a power-of-two size a
-/// change in the last code point never reached the bits that chose the slot.
-/// At 1024 slots that store refused 142 of Genesis 1:1-5's 146 points; this
-/// construction, [`LinkId::bucket`]'s, refuses none.
+/// **Named once, so the link table and the cluster store hash alike**: the
+/// prime is 2^40 + 0x1b3, and both take their slot from the high bits of the
+/// state finalized by `FIBONACCI`, [`LinkId::bucket`]'s construction, since
+/// the high bits of an unfinalized FNV state carry little of its last input.
 pub(crate) const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 pub(crate) const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 pub(crate) const FIBONACCI: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -906,17 +855,13 @@ pub(crate) const FIBONACCI: u64 = 0x9E37_79B9_7F4A_7C15;
 ///
 /// Zero is "no continuations", so a zeroed grid has none and there is no
 /// parallel validity array to keep in step -- the same trick [`LinkId`] and
-/// `ColorWord` already use.
+/// `ColorWord` use.
 ///
 /// **It rides in the cell's [`Content`]**, in the range above U+10FFFF
 /// ([`Content::cluster`]), so it moves when the cell moves: rotation, a
-/// frame's read, the alternate screen and a reflow carry it for free.
-/// `baud-core2` keyed its marks on *where the cell is* -- surface, physical
-/// row, column, generation -- and an adversarial review reproduced what that
-/// costs: its `Term::viewport` un-rotated the grid in place and did not move
-/// the table with it, so a renderer reading one frame lost a cell's marks
-/// and the next write to that address inherited a stranger's. Six bits of
-/// `CellFlags` carried it before, which named 63 slots.
+/// frame's read, the alternate screen and a reflow carry it for free, and
+/// nothing keyed on *where the cell is* has to move with them, or can leave
+/// one cell's marks at an address the next write inherits.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct ClusterId(u16);
@@ -958,19 +903,15 @@ impl ClusterSlot {
     /// A base plus this many continuations.
     ///
     /// **Eight, because a ZWJ family is seven codepoints.** `U+1F468 ZWJ
-    /// U+1F469 ZWJ U+1F467 ZWJ U+1F466` is a base and six attachments, and a
-    /// capacity of three -- justified once as "a base plus two accents, past
-    /// which no normal orthography stacks further" -- dropped three of them.
-    /// That reasoning was true of Latin, Devanagari and kana and false of
-    /// emoji, which are not orthography.
+    /// U+1F469 ZWJ U+1F467 ZWJ U+1F466` is a base and six attachments, more
+    /// than the accents Latin, Devanagari or kana stack on one base.
     ///
     /// It still does not cover every RGI sequence: a four-person family with a
     /// skin tone on each member is eleven codepoints, and those lose their tail.
     /// That is a bounded table behaving as one, stated rather than implied by a
     /// number, and a departure: the Unicode Standard's grapheme cluster is a
     /// base "together with any number of nonspacing marks applied to it"
-    /// (`[[source: unicode18-ch3]]`, D60). The cap was left open on 2026-10-13
-    /// when the slot count and the sweep were set, so it stays eight and
+    /// (`[[source: unicode18-ch3]]`, D60). The cap is an open departure, and
     /// `docs/vt-coverage.md` states it.
     pub const CAPACITY: usize = 8;
 
@@ -1017,8 +958,8 @@ impl ClusterSlot {
 /// the slot's index, so a slot a sweep freed and the next cluster took
 /// gives a cell the same word for a different cluster -- and a renderer
 /// that repaints only the rows whose words changed draws the old one. The
-/// rendition table's eviction is the same hazard for colours and forces a
-/// full pass the same way (`baud-render`'s `Evicted`).
+/// rendition table's sweep is the same hazard for colours and forces a full
+/// pass the same way (`Reclaims::recolours_since`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct ClusterEpoch(u32);
 
@@ -1105,11 +1046,9 @@ impl Default for ClusterLive {
 
 /// A bounded, content-addressed store of clusters, indexed from the cell.
 ///
-/// **It refuses rather than evicts, and that is the whole difference from the
-/// rendition table.** `StyleId` into `StyleWord` evicts once full because a
-/// wrong colour renders wrong and is rewritten next frame; a wrong *cluster*
-/// puts somebody else's accent on your character and is unrecoverable by a
-/// renderer, a selection or a copy. So a collision is refused and counted, the
+/// **It refuses rather than evicts.** A wrong *cluster* puts another cell's
+/// accent on a character, which no renderer, selection or copy can
+/// recover. So a collision is refused and counted, the
 /// way `OSC 52` clipboard reads are refused and counted: the answer is never
 /// wrong, and how often it is missing is a number.
 ///
@@ -1123,10 +1062,10 @@ impl Default for ClusterLive {
 ///
 /// **That bounds what is refused only once the store has filled.** Before
 /// it, a cluster whose eight slots are taken is refused while other slots
-/// are free, as it was with no sweep; after a sweep, what is left is what
-/// cells name, and a cluster is refused when its eight slots hold those.
-/// Neither is a bound on what is on a cell at once: with 300 one-mark
-/// clusters on cells, 2,905 of 4,000 more were refused.
+/// are free; after a sweep, what is left is what cells name, and a cluster
+/// is refused when its eight slots hold those. Neither is a bound on what
+/// is on a cell at once: a cluster can be refused while far fewer clusters
+/// are on cells than the store has slots.
 pub struct ClusterStore<'b> {
     slots: &'b mut [ClusterSlot],
     /// Clusters that did not fit. Never silent.
@@ -1174,9 +1113,9 @@ impl<'b> ClusterStore<'b> {
     /// **A sweep at most once every `SLOTS_MAX / 16` interns that wanted a
     /// slot**, so a store whose every slot is named by a live cell -- where a
     /// sweep frees nothing and the store stays full -- does not walk the grid
-    /// on every mark. The colour table's scratch prototype bounds its sweep
-    /// at the same rate, a sixteenth of its table, counted in rendition
-    /// writes (`scratch-rendition-r2`, `SweepBook::due`). Counted here in
+    /// on every mark. The rendition table bounds its sweep at the same rate,
+    /// a sixteenth of its table, counted in rendition writes
+    /// (`SweepBook::due`). Counted here in
     /// interns, never in reads or time, so where the reads fall cannot move
     /// it.
     const DUE: u32 = (ClusterStore::SLOTS_MAX / 16) as u32;
@@ -1267,12 +1206,9 @@ impl<'b> ClusterStore<'b> {
     /// intern it twice. The probe length is fixed, so no tombstone is
     /// needed for a lookup to find what lies past a hole.
     ///
-    /// **`#[inline]`, into `attach_before`, which is out of line already.**
-    /// Called across the crate boundary it was not inlined, and the call
-    /// cost `cat-cjk` 2.15% more instructions and the two pointed Hebrew
-    /// texts 7.41% and 12.33% against the store it replaced; inlined, as
-    /// built, 0.29%, 3.14% and 6.84%, against the prototype's +0.39%,
-    /// +3.38% and +6.97% for 1024 slots and 8 probes.
+    /// **`#[inline]`, into `attach_before`, which is out of line already**:
+    /// without the attribute a call across the crate boundary is not
+    /// inlined, and an intern is on the path a cell's mark takes.
     #[inline]
     pub fn try_intern(&mut self, base: Content, cps: &[u32]) -> Result<ClusterId, Refused> {
         let n = self.len();
@@ -1281,11 +1217,10 @@ impl<'b> ClusterStore<'b> {
         }
         // FNV-1a over the base and the continuations, then finalized, and the
         // slot taken from the **high** bits: [`LinkId::bucket`]'s construction.
-        // The high bits are the correction this codebase already paid for
-        // once: `StyleId::bucket` masked the low bits and collided every SGR
-        // colour, because they are multiples of 0x101010. The finalizer is the
-        // second one: without it the high bits of an FNV state carry little of
-        // its last input (`FNV_PRIME`).
+        // The low bits of a multiplicative hash collide on structured input,
+        // SGR colours being multiples of 0x101010, and without the finalizer
+        // the high bits of an FNV state carry little of its last input
+        // (`FNV_PRIME`).
         let mut h: u64 = FNV_OFFSET;
         h ^= u64::from(base.0);
         h = h.wrapping_mul(FNV_PRIME);

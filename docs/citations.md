@@ -3405,16 +3405,6 @@ ghostty v1.3.1, src/terminal/osc/parsers/osc9.zig -- every ConEmu form first, th
 - **sha256:** `8a72b5294ad8870e8dc219fd0cd62b95ddf9c4ac1f3c322fc9d91dd5b317a758` (34984 bytes)
 - **Copy:** [docs/research/sources/ghostty-osc9.zig](research/sources/ghostty-osc9.zig)
 
-<a id="ghostty-page"></a>
-### ghostty-page
-
-ghostty d9840f3, terminal/page.zig -- Row's conservative per-row summary flags. Mitchell Hashimoto and the Ghostty contributors, 2026, Ghostty terminal emulator.
-
-- **URL:** <https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/page.zig>
-- **sha256:** `b589082c22ccd3ec771cbbc23a8b6c6f1b582dc33b3ab69f5ffd5962aa3c1991` (164580 bytes)
-- **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/cell.rs`
-
 <a id="ghostty-screen"></a>
 ### ghostty-screen
 
