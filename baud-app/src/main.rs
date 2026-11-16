@@ -395,6 +395,11 @@ mod credits;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod held;
 mod run_arg;
+// The ssh in front, read by its own grammar, and the window that opens a
+// file on its host: pure, its tests on every platform; built only for the
+// tests.
+#[cfg(test)]
+mod ssh;
 // The wheel's travel and its reports to a tracking application: pure, so its
 // tests run on every platform, and both drivers scroll through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

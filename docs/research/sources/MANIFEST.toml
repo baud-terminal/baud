@@ -40663,3 +40663,66 @@ status = "external"
 group  = "J"
 # Read 2026-11-14 for Linux point sizing (baud-app/src/typesize.rs); hash-verified, not committed -- a
 # source file at a pinned tag. Re-fetch the url and compare.
+
+[sources.openssh-9_9p2-ssh-c]
+key    = "openssh-9_9p2-ssh-c"
+title  = "OpenSSH portable 9.9p2, ssh.c -- the client's command line: its getopt string, the destination, getopt again after it, the remote command"
+author = "the OpenSSH developers"
+year   = 2025
+venue  = "openssh/openssh-portable at d76b267 (tag V_9_9_P2)"
+url    = "https://raw.githubusercontent.com/openssh/openssh-portable/d76b2675116617394cd355a3437b4963a562b64d/ssh.c"
+file   = ""
+sha256 = "7dcdd99a7ff66ec0386f1aea76e30cf9914ac84d7bba8eca83cd6c0ec8c47c0d"
+bytes  = 73830
+status = "external"
+group  = "BU"
+# Read 2026-11-08 for baud-app/src/ssh.rs. Line 747-748: `again: while ((opt
+# = getopt(ac, av, "1246ab:c:e:fgi:kl:m:no:p:qstvx" "AB:CD:E:F:GI:J:KL:MNO:
+# P:Q:R:S:TVw:W:XYy")) != -1)`. 1106-1107: `if (optind > 1 &&
+# strcmp(av[optind - 1], "--") == 0) opt_terminated = 1;`. 1112: with
+# no host yet, `parse_ssh_uri(*av, ...)` or `[user@]host` by `strrchr(p,
+# '@')`, then `if (ac > 1 && !opt_terminated) { optind = optreset = 1; goto
+# again; }`, else `ac--, av++` (1112-1150). 630-643, valid_hostname: no leading `-`, and
+# none of "'`\"$\\;&<>|(){}", whitespace or a control. What is left in av
+# after that is the command; none, "execute shell on a tty" (1171-1172).
+
+[sources.openssh-9_9p2-misc-c]
+key    = "openssh-9_9p2-misc-c"
+title  = "OpenSSH portable 9.9p2, misc.c -- parse_uri, the ssh:// destination"
+author = "the OpenSSH developers"
+year   = 2025
+venue  = "openssh/openssh-portable at d76b267 (tag V_9_9_P2)"
+url    = "https://raw.githubusercontent.com/openssh/openssh-portable/d76b2675116617394cd355a3437b4963a562b64d/misc.c"
+file   = ""
+sha256 = "2651aa713ec62ac16b8e476703331581a41fb9b9e75bf7eda6a1a707e5175878"
+bytes  = 68571
+status = "external"
+group  = "BU"
+# Read 2026-11-08 for baud-app/src/ssh.rs. parse_uri, 1033-1121:
+# `scheme://`, then an optional user before `@` with `;` connection
+# parameters ignored and an empty user refused ("Empty username"), then
+# the mandatory host by hpdelim2 (`[...]` for an IPv6 literal), then
+# `:port` up to a `/`, then an optional path.
+
+[sources.openssh-9_9p2-readconf-c]
+key    = "openssh-9_9p2-readconf-c"
+title  = "OpenSSH portable 9.9p2, readconf.c -- what ssh -G prints: dump_client_config, its keywords and their values' spellings"
+author = "the OpenSSH developers"
+year   = 2025
+venue  = "openssh/openssh-portable at d76b267 (tag V_9_9_P2)"
+url    = "https://raw.githubusercontent.com/openssh/openssh-portable/d76b2675116617394cd355a3437b4963a562b64d/readconf.c"
+file   = ""
+sha256 = "bbfab46d48504011514f1cae51a7821663a599fbc41e11453d350b9ccd720878"
+bytes  = 108374
+status = "external"
+group  = "BU"
+# Read 2026-11-08 for baud-app/src/ssh.rs. dump_client_config, 3548-:
+# "Most interesting options first: user, host, port", then each keyword as
+# `printf("%s %s\n", lookup_opcode_name(code), ...)` (dump_cfg_string,
+# 3480-3485, which prints nothing for an unset string, so `remotecommand`
+# appears only when one is set; dump_cfg_fmtint, 3474-3477). A multistate
+# value prints its first spelling, fmt_multistate_int 3394-3403:
+# requesttty's are "true", "yes", "false", "no", "force", "auto"
+# (1018-1026), so `-T`'s REQUEST_TTY_NO prints "false"; sessiontype's are
+# "none", "subsystem", "default" (1027-1032), the default "default"
+# (fill_default_options, 2872-2875).
