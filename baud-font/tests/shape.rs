@@ -11,7 +11,7 @@
 //! its base's cell, so the fixture and the shaper agree on what a cluster
 //! is without translation.
 
-use baud_domain::{Classified, Codepoint, GlyphId, GraphemeClass, Width};
+use baud_domain::{Bidi, BidiParagraph, Classified, Codepoint, GlyphId, GraphemeClass, Width};
 use baud_font::{
     Buffer, Cluster, Digest, Face, FaceIndex, Features, Glyph, Ignorable, MAX_LOOKUPS, Script,
     Shaper, Sink, Unresolved, resolve,
@@ -428,6 +428,62 @@ fn fnv64(data: &[u8]) -> u64 {
     })
 }
 
+/// A `morx.txt` row whose text hb-shape shapes against the standard, and
+/// which holds the standard's glyphs instead.
+struct Departure {
+    path: &'static str,
+    text: &'static str,
+    /// The glyph hb-shape forms, which the row must never hold.
+    hb_shape: GlyphId,
+    why: &'static str,
+}
+
+/// The rows `morx.txt` holds against hb-shape.
+fn departures() -> [Departure; 1] {
+    [Departure {
+        path: "/System/Library/Fonts/Apple Color Emoji.ttc",
+        text: "05D0 1F1EC 1F1E7",
+        hb_shape: GlyphId::from_shaper(398),
+        why: "hb-shape shapes the line as one right-to-left buffer, so the chain walks \
+          the regional indicators B then G and forms BG; the pair is Bidi_Class L \
+          after an R letter, level 2 by I2, a level run of its own (BD7), and \
+          shaping stays within a level run (3.5, [[source: uax9-bidi]]), so the \
+          pair is G then B, the flag of GB (ED-14, [[source: uts51-emoji]])",
+    }]
+}
+
+/// Shapes `cps` as its level runs (`[[source: uax9-bidi]]` BD7 and 3.5,
+/// the paragraph level from its first strong character), each run as
+/// [`shape`] shapes a line, its clusters offset to the line's: the glyphs
+/// in logical order, as `id, cluster, dx, dy`.
+fn shape_level_runs(face: &Face<'_>, cps: &[u32]) -> Vec<(u16, u16, i32, i32)> {
+    let text: Vec<char> = cps.iter().map(|&v| char::from_u32(v).unwrap()).collect();
+    let mut bidi = Bidi::<64>::new();
+    bidi.resolve(&text, BidiParagraph::FirstStrong).unwrap();
+    let levels = bidi.levels();
+    let mut got = Vec::new();
+    let mut start = 0usize;
+    while start < cps.len() {
+        let end = (start..cps.len())
+            .find(|&i| levels[i] != levels[start])
+            .unwrap_or(cps.len());
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
+        let (buf, shaped) = shape(face, &cps[start..end], &mut storage);
+        assert!(shaped.declined.is_zero(), "{cps:04X?}: subtables declined");
+        let offset = u16::try_from(start).unwrap();
+        got.extend(buf.as_slice().iter().map(|g| {
+            (
+                u16::try_from(g.id.index()).unwrap(),
+                g.cluster.0 + offset,
+                i32::from(g.dx),
+                i32::from(g.dy),
+            )
+        }));
+        start = end;
+    }
+    got
+}
+
 #[test]
 fn every_morx_fixture_shapes_as_harfbuzz_does() {
     // The AAT faces are the ones macOS ships, so this runs there and is
@@ -445,6 +501,8 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
     let mut fixtures = 0usize;
     let mut ligated = 0usize;
     let mut rtl = 0usize;
+    let mut departed = 0usize;
+    let known = departures();
     let mut faces = std::collections::HashSet::new();
     for line in text
         .lines()
@@ -487,24 +545,41 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
             placed.reverse();
             rtl += 1;
         }
-        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
-        let (buf, shaped) = shape(&face, &cps, &mut storage);
-        assert!(
-            shaped.declined.is_zero(),
-            "{path} {cps:04X?}: subtables declined"
-        );
-        let got: Vec<(u16, u16, i32, i32)> = buf
-            .as_slice()
-            .iter()
-            .map(|g| {
-                (
-                    u16::try_from(g.id.index()).unwrap(),
-                    g.cluster.0,
-                    i32::from(g.dx),
-                    i32::from(g.dy),
-                )
-            })
-            .collect();
+        // A departure is shaped as its level runs, each alone; every other
+        // row is one run.
+        let departure = known.iter().find(|d| d.path == path && d.text == f[4]);
+        let got: Vec<(u16, u16, i32, i32)> = match departure {
+            Some(d) => {
+                departed += 1;
+                let got = shape_level_runs(&face, &cps);
+                assert!(
+                    got.iter().all(|g| usize::from(g.0) != d.hb_shape.index()),
+                    "{path} {cps:04X?}: baud {got:?} holds hb-shape's {}: {}",
+                    d.hb_shape.index(),
+                    d.why
+                );
+                got
+            }
+            None => {
+                let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
+                let (buf, shaped) = shape(&face, &cps, &mut storage);
+                assert!(
+                    shaped.declined.is_zero(),
+                    "{path} {cps:04X?}: subtables declined"
+                );
+                buf.as_slice()
+                    .iter()
+                    .map(|g| {
+                        (
+                            u16::try_from(g.id.index()).unwrap(),
+                            g.cluster.0,
+                            i32::from(g.dx),
+                            i32::from(g.dy),
+                        )
+                    })
+                    .collect()
+            }
+        };
         let mut left = std::collections::HashMap::new();
         for &(e, pen) in &placed {
             let l = left.entry(e.cluster).or_insert(pen);
@@ -533,6 +608,8 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
     assert!(fixtures >= 150, "{fixtures}");
     assert!(ligated >= 30, "{ligated}");
     assert!(rtl == 8, "{rtl}");
+    // Every departure named a row the fixture holds.
+    assert_eq!(departed, known.len());
 }
 
 /// Fixtures where CoreText's output is not hb-shape's, keyed by face file

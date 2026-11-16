@@ -9253,7 +9253,7 @@ UAX #9: Unicode Bidirectional Algorithm, revision 51 (Unicode 17.0.0). Unicode C
 - **URL:** <https://www.unicode.org/reports/tr9/tr9-51.html>
 - **sha256:** `25ebbc5bc05ec302677ace0e3118e454e12da5e1e7ebec386aabd6e585c8cebe` (187487 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-bench/benches/bidi_rows.rs`, `baud-domain/build/bidi.rs`, `baud-domain/src/bidi.rs`, `baud-domain/src/bidi/algorithm.rs`, `baud-domain/src/joining.rs`, `baud-domain/src/store.rs`, `baud-font/build/script.rs`, `baud-font/src/script.rs`, `baud-font/tests/script.rs`, `baud-present-macos/tests/cells.rs`, `baud-render/src/bidi.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/bidi_order.rs`, `baud-render/tests/image_direction.rs`, `baud-render/tests/side_margins.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
+- **Cited in:** `baud-bench/benches/bidi_rows.rs`, `baud-domain/build/bidi.rs`, `baud-domain/src/bidi.rs`, `baud-domain/src/bidi/algorithm.rs`, `baud-domain/src/joining.rs`, `baud-domain/src/store.rs`, `baud-font/build/script.rs`, `baud-font/src/script.rs`, `baud-font/tests/script.rs`, `baud-font/tests/shape.rs`, `baud-present-macos/tests/cells.rs`, `baud-render/src/bidi.rs`, `baud-render/src/renderer.rs`, `baud-render/tests/bidi_order.rs`, `baud-render/tests/image_direction.rs`, `baud-render/tests/rtl_flag.rs`, `baud-render/tests/side_margins.rs`, `docs/bidi.md`, `docs/vt-coverage.md`
 
 <a id="uax9-tr9-52"></a>
 ### uax9-tr9-52
@@ -9707,7 +9707,7 @@ UTS #51: Unicode Emoji -- sequence classes (modifier, ZWJ, flag, keycap, tag) an
 - **URL:** <https://www.unicode.org/reports/tr51/tr51-29.html>
 - **sha256:** `3b648142de7a17bd66e4263c2ad584c826a893cd39083a41d9549c4c659279e1` (207556 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/build/sequence.rs`, `baud-domain/build/ucd.rs`
+- **Cited in:** `baud-domain/build/sequence.rs`, `baud-domain/build/ucd.rs`, `baud-font/tests/shape.rs`, `baud-render/tests/rtl_flag.rs`
 
 <a id="vello-fine"></a>
 ### vello-fine
