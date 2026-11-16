@@ -752,32 +752,18 @@ impl<'a> Stamped<'a> {
         *m = f(*m);
     }
 
-    /// Columns `at` of row `src` copied to the same columns of row `dst`,
-    /// two different rows. Stamps `dst`.
-    pub fn copy_row(&mut self, src: usize, dst: usize, at: Range<usize>) {
-        assert_ne!(src, dst, "copy_row between two different rows");
-        let s = self.s();
-        stamp(self.meta, dst, self.now);
-        let (lo, hi) = (src.min(dst), src.max(dst));
-        let (a, b) = self.cells.split_at_mut(hi * s);
-        let (low, high) = (&mut a[lo * s..(lo + 1) * s], &mut b[..s]);
-        match src < dst {
-            true => high[at.clone()].copy_from_slice(&low[at]),
-            false => low[at.clone()].copy_from_slice(&high[at]),
-        }
-    }
-
     /// **Row `src` to read and row `dst` to write, one stamp**: `src`'s cells
     /// and mark, and `dst`'s cells and mark, two different rows. What a row
     /// copy that reads the source while it writes the destination takes, so
-    /// the region repair's per-scroll copy stamps once.
+    /// the region repair's per-scroll copy stamps once. Private to the grid
+    /// module, whose movers translate what they copy ([`super::CrossBand`]).
     #[inline(always)]
-    pub fn from_into(
+    pub(super) fn read_write(
         &mut self,
         src: usize,
         dst: usize,
     ) -> (&[PackedCell], RowExtent, RowMut<'_>, MarkMut<'_>) {
-        assert_ne!(src, dst, "from_into between two different rows");
+        assert_ne!(src, dst, "read_write between two different rows");
         let s = self.s();
         let from = self.meta[src].used;
         let mark = stamp(self.meta, dst, self.now);
@@ -792,12 +778,21 @@ impl<'a> Stamped<'a> {
     }
 
     /// Columns `at` of row `src` moved to columns starting at `to` of row
-    /// `dst`, rows that may be the same. Stamps `dst`.
-    pub fn copy_within_rows(&mut self, src: usize, at: Range<usize>, dst: usize, to: usize) {
+    /// `dst`, rows that may be the same, and the cells written. Stamps
+    /// `dst`. Private to the grid module, as [`Stamped::read_write`] is.
+    pub(super) fn copy_within_rows(
+        &mut self,
+        src: usize,
+        at: Range<usize>,
+        dst: usize,
+        to: usize,
+    ) -> RowMut<'_> {
         let s = self.s();
         stamp(self.meta, dst, self.now);
+        let n = at.len();
         self.cells
             .copy_within(src * s + at.start..src * s + at.end, dst * s + to);
+        RowMut(&mut self.cells[dst * s + to..dst * s + to + n])
     }
 
     /// Row `src`'s mark copied to row `dst`. Stamps `dst`.
@@ -886,6 +881,15 @@ impl DerefMut for RowMut<'_> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut [PackedCell] {
         self.0
+    }
+}
+
+impl RowMut<'_> {
+    /// Cells `at` of this row, as a row of their own: what a mover hands
+    /// its [`super::CrossBand`] when it wrote part of a row.
+    #[inline(always)]
+    pub fn part(&mut self, at: Range<usize>) -> RowMut<'_> {
+        RowMut(&mut self.0[at])
     }
 }
 

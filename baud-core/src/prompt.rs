@@ -449,8 +449,13 @@ impl Paint<'_, '_> {
         if self.past_edge() {
             self.clear_swept();
         }
-        self.view
-            .insert_lines_in(from, n, bot, PackedCell::empty_with(StyleId::DEFAULT));
+        self.view.insert_lines_in(
+            from,
+            n,
+            bot,
+            PackedCell::empty_with(StyleId::DEFAULT),
+            &mut OneTable,
+        );
         if self.past_edge() {
             self.lines_moved_past_edge(from, n, bot, BandMove::Down);
         }
@@ -565,7 +570,7 @@ impl Paint<'_, '_> {
             if self.past_edge() {
                 self.clear_swept();
             }
-            self.view.retreat_rot(above);
+            self.view.retreat_rot(above, &mut OneTable);
             // The rows taken back are erased below, and the rows given up
             // show nothing: neither holds a frozen line (`crate::freeze`).
             if self.any_frozen() {

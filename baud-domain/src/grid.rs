@@ -1,7 +1,9 @@
 use crate::*;
 
+mod cross;
 mod reflow;
 mod store;
+pub use cross::{CrossBand, OneTable, PhysRow};
 pub use reflow::{Follow, Recut, Reflowed};
 pub use store::*;
 
@@ -1100,8 +1102,9 @@ impl<'a> View<'a> {
     /// more than the writes do -- has to be able to scroll without dropping
     /// it. Returns the new rotation so the caller can keep its own copy in
     /// step.
-    pub fn advance_rot(&mut self, n: usize) -> RowRot {
+    pub fn advance_rot(&mut self, n: usize, x: &mut impl CrossBand) -> RowRot {
         self.rot = self.rot.advance(n, self.ring);
+        x.rotated(PhysRow::of(self.phys(Row::ZERO)));
         self.rot
     }
 
@@ -1109,8 +1112,9 @@ impl<'a> View<'a> {
     /// side. The counterpart of [`View::advance_rot`], and it exists for the
     /// same reason: a scroll that moves an index costs one row of blanking
     /// where one that moves the rows costs the whole screen.
-    pub fn retreat_rot(&mut self, n: usize) -> RowRot {
+    pub fn retreat_rot(&mut self, n: usize, x: &mut impl CrossBand) -> RowRot {
         self.rot = self.rot.retreat(n, self.ring);
+        x.rotated(PhysRow::of(self.phys(Row::ZERO)));
         self.rot
     }
 
@@ -1119,8 +1123,9 @@ impl<'a> View<'a> {
     /// **For entering the alternate screen**, whose buffer is about to be
     /// cleared: a rotation left over from the last visit describes rows that
     /// are about to stop existing.
-    pub fn reset_rot(&mut self) {
+    pub fn reset_rot(&mut self, x: &mut impl CrossBand) {
         self.rot = RowRot::NONE;
+        x.rotated(PhysRow::of(self.phys(Row::ZERO)));
     }
 
     /// Erase every row of the ring at the whole pitch, and every mark: the
@@ -1215,7 +1220,7 @@ impl<'a> View<'a> {
     /// out of line: the log pane over a dashboard read 6.5% down, on the
     /// widest screen's loop, which is the one every recording runs.
     #[inline(always)]
-    pub fn copy_row(&mut self, from: Row, to: Row) -> usize {
+    pub fn copy_row(&mut self, from: Row, to: Row, x: &mut impl CrossBand) -> usize {
         let (a, b) = (self.phys(from), self.phys(to));
         if a == b {
             return 0;
@@ -1225,11 +1230,13 @@ impl<'a> View<'a> {
             .index()
             .max(self.store.used()[b].index())
             .min(w);
-        let (src, from, mut row, mut m) = self.store.from_into(a, b);
+        let (src, from, mut row, mut m) = self.store.read_write(a, b);
         let (src, dst) = (&src[..w], &mut row[..w]);
+        let (pa, pb) = (PhysRow::of(a), PhysRow::of(b));
         dst[..n].copy_from_slice(&src[..n]);
         *m = from;
         if n == w {
+            x.translate(pa, pb, row.part(0..n));
             return n;
         }
         let last = src[w - 1];
@@ -1238,9 +1245,11 @@ impl<'a> View<'a> {
             "a row is not uniform past its mark"
         );
         if dst[w - 1] == last {
+            x.translate(pa, pb, row.part(0..n));
             return n;
         }
         dst[n..].fill(last);
+        x.translate(pa, pb, row.part(0..w));
         w
     }
 
@@ -1278,6 +1287,7 @@ impl<'a> View<'a> {
         bottom: Row,
         reach: Cols,
         past: &mut PastRows<'_>,
+        x: &mut impl CrossBand,
     ) -> usize {
         let s = self.stride().index();
         let (w, end) = (self.cols.index(), reach.index().min(s));
@@ -1290,7 +1300,7 @@ impl<'a> View<'a> {
                 self.phys(Row::from_index(y - 1)),
                 self.phys(Row::from_index(y)),
             );
-            n += self.move_past_edge(a, b, w, end, past);
+            n += self.move_past_edge(a, b, w, end, past, x);
         }
         n
     }
@@ -1305,12 +1315,14 @@ impl<'a> View<'a> {
         w: usize,
         end: usize,
         past: &mut PastRows<'_>,
+        x: &mut impl CrossBand,
     ) -> usize {
         let from = past.get(a);
         if a == b || (from == PastEdge::Clear && past.get(b) == PastEdge::Clear) {
             return 0;
         }
-        self.store.copy_within_rows(a, w..end, b, w);
+        let cells = self.store.copy_within_rows(a, w..end, b, w);
+        x.translate(PhysRow::of(a), PhysRow::of(b), cells);
         past.set(b, from);
         end - w
     }
@@ -1333,6 +1345,7 @@ impl<'a> View<'a> {
         bottom: Row,
         reach: Cols,
         past: &mut PastRows<'_>,
+        x: &mut impl CrossBand,
     ) -> usize {
         let (cy, bot) = (at.index(), bottom.index().min(self.rows.index() - 1));
         let (w, end) = (self.cols.index(), reach.index().min(self.stride().index()));
@@ -1346,7 +1359,7 @@ impl<'a> View<'a> {
                 self.phys(Row::from_index(y - n)),
                 self.phys(Row::from_index(y)),
             );
-            written += self.move_past_edge(a, b, w, end, past);
+            written += self.move_past_edge(a, b, w, end, past, x);
         }
         for y in cy..cy + n {
             written += self.clear_past_edge(Row::from_index(y), reach, past);
@@ -1368,6 +1381,7 @@ impl<'a> View<'a> {
         bottom: Row,
         reach: Cols,
         past: &mut PastRows<'_>,
+        x: &mut impl CrossBand,
     ) -> usize {
         let (cy, bot) = (at.index(), bottom.index().min(self.rows.index() - 1));
         let (w, end) = (self.cols.index(), reach.index().min(self.stride().index()));
@@ -1381,7 +1395,7 @@ impl<'a> View<'a> {
                 self.phys(Row::from_index(y + n)),
                 self.phys(Row::from_index(y)),
             );
-            written += self.move_past_edge(a, b, w, end, past);
+            written += self.move_past_edge(a, b, w, end, past, x);
         }
         for y in bot + 1 - n..=bot {
             written += self.clear_past_edge(Row::from_index(y), reach, past);
@@ -2964,15 +2978,6 @@ impl<'a> View<'a> {
         }
     }
 
-    /// Scroll rows down from `at`, blanking the opened region. `CSI L`.
-    ///
-    /// Bounded by the last row of the screen. `CSI L` inside a scrolling region
-    /// must stop at the region's bottom instead -- see [`Grid::insert_lines_in`].
-    pub fn insert_lines(&mut self, at: Row, n: Count, blank: PackedCell) {
-        let last = Row::from_index(self.rows.index() - 1);
-        self.insert_lines_in(at, n, last, blank);
-    }
-
     /// Scroll rows down from `at`, stopping at `bottom` inclusive.
     ///
     /// Rows below `bottom` are outside the scrolling region and must not move:
@@ -2996,7 +3001,14 @@ impl<'a> View<'a> {
     /// never overlap, so `split_at_mut` plus `copy_from_slice` says that and
     /// gets a `memcpy`: 27.0/27.0/26.5/26.9 against the loop's
     /// 26.9/27.6/27.0/27.0, which is even.
-    pub fn insert_lines_in(&mut self, at: Row, n: Count, bottom: Row, blank: PackedCell) {
+    pub fn insert_lines_in(
+        &mut self,
+        at: Row,
+        n: Count,
+        bottom: Row,
+        blank: PackedCell,
+        x: &mut impl CrossBand,
+    ) {
         let (cy, bot) = (at.index(), bottom.index().min(self.rows.index() - 1));
         if cy > bot {
             return;
@@ -3019,10 +3031,11 @@ impl<'a> View<'a> {
             // **The rotation is why the order is tested.** `phys` maps screen
             // rows onto physical ones, so `y - n` can sit *after* `y` in the
             // buffer, and a split taken on the wrong side panics.
-            // [`Stamped::from_into`] takes the split on the right side and
+            // [`Stamped::read_write`] takes the split on the right side and
             // stamps the destination once, for its cells and its mark.
-            let (src, from, mut row, mut m) = self.store.from_into(ps, pd);
+            let (src, from, mut row, mut m) = self.store.read_write(ps, pd);
             row[..cols].copy_from_slice(&src[..cols]);
+            x.translate(PhysRow::of(ps), PhysRow::of(pd), row.part(0..cols));
             // **The mark travels with the row**, in the same loop and under
             // the same `phys`. Kept here rather than in a second pass because a
             // second pass over the same indices is a second chance to compute
@@ -3047,7 +3060,14 @@ impl<'a> View<'a> {
     /// Scroll rows up from `at`, stopping at `bottom` inclusive, blanking the
     /// rows exposed at the bottom. `CSI M` (DL), and the engine of SU and of a
     /// line feed on the last row of a scrolling region.
-    pub fn delete_lines_in(&mut self, at: Row, n: Count, bottom: Row, blank: PackedCell) {
+    pub fn delete_lines_in(
+        &mut self,
+        at: Row,
+        n: Count,
+        bottom: Row,
+        blank: PackedCell,
+        x: &mut impl CrossBand,
+    ) {
         let (cy, bot) = (at.index(), bottom.index().min(self.rows.index() - 1));
         if cy > bot {
             return;
@@ -3067,8 +3087,9 @@ impl<'a> View<'a> {
                 self.phys(Row::from_index(y + n)),
                 self.phys(Row::from_index(y)),
             );
-            let (src, from, mut row, mut m) = self.store.from_into(ps, pd);
+            let (src, from, mut row, mut m) = self.store.read_write(ps, pd);
             row[..cols].copy_from_slice(&src[..cols]);
+            x.translate(PhysRow::of(ps), PhysRow::of(pd), row.part(0..cols));
             *m = from;
         }
         for y in bot + 1 - n..=bot {
@@ -3125,6 +3146,7 @@ impl<'a> View<'a> {
         n: Count,
         way: BandMove,
         blank: PackedCell,
+        x: &mut impl CrossBand,
     ) -> usize {
         let cols = self.cols.index();
         let (cy, bot) = (top.index(), bottom.index().min(self.rows.index() - 1));
@@ -3154,10 +3176,11 @@ impl<'a> View<'a> {
         let w = r - l;
         let inside = crate::WrapMargins::of(left, Col::at_index(r - 1));
         let ours = move |e: RowExtent| e.margins() == Some(inside);
-        let copy = |v: &mut Self, from: usize, to: usize| {
+        let mut copy = |v: &mut Self, from: usize, to: usize| {
             let (ps, pd) = (v.phys(Row::from_index(from)), v.phys(Row::from_index(to)));
             let (src, dst) = (v.store.mark_at(ps), v.store.mark_at(pd));
-            v.store.copy_within_rows(ps, l..l + w, pd, l);
+            let cells = v.store.copy_within_rows(ps, l..l + w, pd, l);
+            x.translate(PhysRow::of(ps), PhysRow::of(pd), cells);
             let moved = match (ours(src), ours(dst)) {
                 (true, _) => dst.wrapping(cols).with_margins(inside),
                 (false, true) => dst.ended().at_edge(),

@@ -3013,7 +3013,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             "only a full-screen region rotates the whole screen"
         );
         self.retire();
-        let rot = self.view.advance_rot(1);
+        let rot = self.view.advance_rot(1, &mut OneTable);
         #[cfg(feature = "probe-warm-scroll")]
         self.warm_incoming();
         // **Ceiling arm: the blank behind a scroll.** The ring still advances

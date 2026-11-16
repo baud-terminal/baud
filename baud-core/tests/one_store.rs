@@ -748,8 +748,10 @@ fn calls_stamp(code: &str) -> bool {
 /// * In [`HOME`], a fn that builds a token ([`CALL_TOKENS`], or the
 ///   [`TOKEN`] by its literal) calls `stamp` or `stamp_all` on that line or
 ///   an earlier one of the same fn: a way to store handed out before the
-///   stamp is a store the stamp may not cover. `RowWrite::mark` builds its
-///   mark from a `RowWrite`, already stamped, and is the one exception.
+///   stamp is a store the stamp may not cover. A token built from a token
+///   already stamped is the exception: `RowWrite::mark` builds its mark
+///   from a `RowWrite`, and `RowMut::part` a narrower `RowMut` from a
+///   `RowMut`.
 /// * In the `View`'s module, a `cols` field is written only in
 ///   `set_geometry`, after an `assert!` in it, and a `View {` literal is
 ///   built only in a fn `new`, after an `assert!` in that fn: a column at
@@ -817,9 +819,9 @@ fn rule_d(lines: &[Line]) -> Vec<String> {
                 .copied()
                 .find(|k| calls(t, k))
                 .or_else(|| builds(t, TOKEN.0).then_some(TOKEN.0));
-            let from_token = enclosing
-                .iter()
-                .any(|h| h.starts_with(&format!("impl {}", TOKEN.0)));
+            let from_token = enclosing.iter().any(|h| {
+                h.starts_with(&format!("impl {}", TOKEN.0)) || h.starts_with("impl RowMut<")
+            });
             if let Some(k) = token {
                 if f.is_some() && !from_token && (stamped_in.is_none() || stamped_in != header) {
                     bad.push(format!(

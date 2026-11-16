@@ -962,7 +962,7 @@ impl Paint<'_, '_> {
         let b = self.blank();
         let w = self
             .view
-            .scroll_rect(at, bot, left, right.after(), n, way, b);
+            .scroll_rect(at, bot, left, right.after(), n, way, b, &mut OneTable);
         self.cells = self.cells.plus(w);
         self.cold.moved_in_place(at, bot, self.book.top);
         if self.images.any_placed() {
@@ -1149,7 +1149,7 @@ impl Paint<'_, '_> {
             }
             for _ in 0..k {
                 self.retire();
-                self.view.advance_rot(1);
+                self.view.advance_rot(1, &mut OneTable);
                 #[cfg(feature = "probe-warm-scroll")]
                 self.warm_incoming();
                 self.fill_row_counted(Row::from_index(last));
@@ -1272,7 +1272,7 @@ impl Paint<'_, '_> {
                 self.clear_swept();
             }
             let b = self.blank();
-            self.view.delete_lines_in(top, n, bot, b);
+            self.view.delete_lines_in(top, n, bot, b, &mut OneTable);
             if self.past_edge() {
                 self.lines_moved_past_edge(top, n, bot, BandMove::Up);
             }
@@ -1329,14 +1329,14 @@ impl Paint<'_, '_> {
         let mut moved = 0;
         for _ in 0..n.index() {
             self.retire();
-            self.view.advance_rot(1);
+            self.view.advance_rot(1, &mut OneTable);
             #[cfg(feature = "probe-warm-scroll")]
             self.warm_incoming();
             // **Descending, so a row is read before it is overwritten.**
             for y in (bot.index() + 1..=last).rev() {
-                moved += self
-                    .view
-                    .copy_row(Row::from_index(y - 1), Row::from_index(y));
+                moved +=
+                    self.view
+                        .copy_row(Row::from_index(y - 1), Row::from_index(y), &mut OneTable);
             }
             // Past the live edge, before the blank below can write past
             // it on the row the first copy read.
@@ -1345,9 +1345,13 @@ impl Paint<'_, '_> {
                     flags: &mut *self.book.past,
                     held: &mut self.book.held,
                 };
-                moved += self
-                    .view
-                    .copy_past_edge(bot, Row::from_index(last), reach, &mut past);
+                moved += self.view.copy_past_edge(
+                    bot,
+                    Row::from_index(last),
+                    reach,
+                    &mut past,
+                    &mut OneTable,
+                );
             }
             self.fill_row_counted(bot);
             // The line the scroll opens is on the row the first row under
@@ -1541,12 +1545,14 @@ impl Paint<'_, '_> {
             held: &mut self.book.held,
         };
         let w = match way {
-            BandMove::Down => self
-                .view
-                .insert_lines_past_edge(at, n, bottom, reach, &mut past),
-            BandMove::Up => self
-                .view
-                .delete_lines_past_edge(at, n, bottom, reach, &mut past),
+            BandMove::Down => {
+                self.view
+                    .insert_lines_past_edge(at, n, bottom, reach, &mut past, &mut OneTable)
+            }
+            BandMove::Up => {
+                self.view
+                    .delete_lines_past_edge(at, n, bottom, reach, &mut past, &mut OneTable)
+            }
         };
         self.cells = self.cells.plus(w);
         self.settle_reach();
@@ -1576,7 +1582,7 @@ impl Paint<'_, '_> {
     fn scroll_down_past_edge(&mut self, k: Rows) {
         self.clear_swept();
         for _ in 0..k.index() {
-            self.view.retreat_rot(1);
+            self.view.retreat_rot(1, &mut OneTable);
             self.unretire();
             self.watch_taken_back();
             self.fill_row_counted(Row::ZERO);
@@ -1640,7 +1646,7 @@ impl Paint<'_, '_> {
                 return;
             }
             for _ in 0..k {
-                self.view.retreat_rot(1);
+                self.view.retreat_rot(1, &mut OneTable);
                 self.unretire();
                 self.watch_taken_back();
                 self.fill_row_counted(Row::ZERO);
@@ -1665,7 +1671,7 @@ impl Paint<'_, '_> {
             self.clear_swept();
         }
         let b = self.blank();
-        self.view.insert_lines_in(top, n, bot, b);
+        self.view.insert_lines_in(top, n, bot, b, &mut OneTable);
         if self.past_edge() {
             self.lines_moved_past_edge(top, n, bot, BandMove::Down);
         }
@@ -1810,7 +1816,7 @@ impl Paint<'_, '_> {
             self.clear_swept();
         }
         let b = self.blank();
-        self.view.insert_lines_in(at, n, bot, b);
+        self.view.insert_lines_in(at, n, bot, b, &mut OneTable);
         self.lines_bounded(at, bot, Rows::of_count(k), BandMove::Down);
         self.path_rows(at, Row::from_index(at.index() + k - 1));
         if self.past_edge() {
@@ -1881,7 +1887,7 @@ impl Paint<'_, '_> {
             self.clear_swept();
         }
         let b = self.blank();
-        self.view.delete_lines_in(at, n, bot, b);
+        self.view.delete_lines_in(at, n, bot, b, &mut OneTable);
         self.lines_bounded(at, bot, Rows::of_count(k), BandMove::Up);
         self.path_rows(Row::from_index(bot.index() + 1 - k), bot);
         if self.past_edge() {
@@ -5333,7 +5339,7 @@ impl Paint<'_, '_> {
                 // stays the sentinel, as `goto` places nothing; a placed
                 // cursor keeps its tag.
                 if how == AltSwitch::SaveAndClear {
-                    self.view.reset_rot();
+                    self.view.reset_rot(&mut OneTable);
                     self.clear_screen();
                     if self.any_frozen() {
                         self.frozen_alt_cleared();
