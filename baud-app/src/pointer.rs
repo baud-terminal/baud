@@ -4,10 +4,10 @@
 //! cursors.
 //!
 //! **Nearest, not the same.** X's cursor font draws all 77; AppKit offers a
-//! handful, and the resize cursors among them are deprecated, so a name
-//! with no counterpart -- a "gumby", a "watch", a resize arrow -- shows the
-//! arrow. A shape the program never set is the system's own pointer, and
-//! nothing is set for it.
+//! few cursors and resize cursors for a frame's edges and corners and for a
+//! column's or a row's divider, so a name with no counterpart -- a "gumby",
+//! a "watch" -- shows the arrow. A shape the program never set is the
+//! system's own pointer, and nothing is set for it.
 
 use baud_core::PointerShape;
 
@@ -22,12 +22,33 @@ pub enum SystemPointer {
     Crosshair,
     NotAllowed,
     ContextualMenu,
+    /// A frame resized from one edge or corner, inward or outward.
+    FrameResize(Edge),
+    /// A column's divider moved left or right.
+    ColumnResize,
+    /// A row's divider moved up or down.
+    RowResize,
+}
+
+/// The edge or corner of a frame a resize cursor moves.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Edge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
 }
 
 /// The system cursor nearest to `shape`: xterm's text pointer is the I-beam,
 /// the hands point, the crosses are the crosshair, the "fleur" (move) is
 /// the open hand and "sizing" the closed one, "X_cursor" and "pirate" refuse,
-/// "question_arrow" asks; every other name is the arrow.
+/// "question_arrow" asks, a side or a corner resizes the frame from it,
+/// "sb_h_double_arrow" moves a column's divider and "sb_v_double_arrow" and
+/// "double_arrow" a row's; every other name is the arrow.
 pub fn system_pointer(shape: PointerShape) -> SystemPointer {
     use PointerShape as S;
     match shape {
@@ -40,6 +61,16 @@ pub fn system_pointer(shape: PointerShape) -> SystemPointer {
         }
         S::XCursor | S::Pirate => SystemPointer::NotAllowed,
         S::QuestionArrow => SystemPointer::ContextualMenu,
+        S::TopSide => SystemPointer::FrameResize(Edge::Top),
+        S::BottomSide => SystemPointer::FrameResize(Edge::Bottom),
+        S::LeftSide => SystemPointer::FrameResize(Edge::Left),
+        S::RightSide => SystemPointer::FrameResize(Edge::Right),
+        S::TopLeftCorner => SystemPointer::FrameResize(Edge::TopLeft),
+        S::TopRightCorner => SystemPointer::FrameResize(Edge::TopRight),
+        S::BottomLeftCorner => SystemPointer::FrameResize(Edge::BottomLeft),
+        S::BottomRightCorner => SystemPointer::FrameResize(Edge::BottomRight),
+        S::SbHDoubleArrow => SystemPointer::ColumnResize,
+        S::SbVDoubleArrow | S::DoubleArrow => SystemPointer::RowResize,
         _ => SystemPointer::Arrow,
     }
 }
@@ -87,10 +118,83 @@ mod tests {
             SystemPointer::NotAllowed
         );
         assert_eq!(system_pointer(PointerShape::Gumby), SystemPointer::Arrow);
-        assert_eq!(
-            system_pointer(PointerShape::SbHDoubleArrow),
-            SystemPointer::Arrow
-        );
+        assert_eq!(system_pointer(PointerShape::Watch), SystemPointer::Arrow);
+    }
+
+    /// **Each side, corner and double-arrow name is AppKit's resize
+    /// cursor for it**: a side or a corner resizes the frame from that edge
+    /// either way, the horizontal double arrow moves a column's divider and
+    /// the vertical ones a row's. With the fourteen other names that have a
+    /// cursor, twenty-five of the 77 are not the arrow.
+    #[test]
+    fn each_side_corner_and_double_arrow_is_appkits_resize_cursor() {
+        use PointerShape as S;
+        use SystemPointer as P;
+        let resize = [
+            (S::TopSide, P::FrameResize(Edge::Top)),
+            (S::BottomSide, P::FrameResize(Edge::Bottom)),
+            (S::LeftSide, P::FrameResize(Edge::Left)),
+            (S::RightSide, P::FrameResize(Edge::Right)),
+            (S::TopLeftCorner, P::FrameResize(Edge::TopLeft)),
+            (S::TopRightCorner, P::FrameResize(Edge::TopRight)),
+            (S::BottomLeftCorner, P::FrameResize(Edge::BottomLeft)),
+            (S::BottomRightCorner, P::FrameResize(Edge::BottomRight)),
+            (S::SbHDoubleArrow, P::ColumnResize),
+            (S::SbVDoubleArrow, P::RowResize),
+            (S::DoubleArrow, P::RowResize),
+        ];
+        for (name, cursor) in resize {
+            assert_eq!(system_pointer(name), cursor, "{name:?}");
+        }
+        let own = PointerShape::ALL
+            .iter()
+            .filter(|s| system_pointer(**s) != P::Arrow)
+            .count();
+        assert_eq!(own, 25);
+    }
+
+    /// **The resize cursors are AppKit's current ones**: none of the six
+    /// deprecated `resize...Cursor` properties is named here or where the
+    /// app sets a cursor, and the frame, column and row cursors are.
+    #[test]
+    fn no_deprecated_resize_cursor_is_named() {
+        const APP: &str = include_str!("app.rs");
+        const OWN: &str = include_str!("pointer.rs");
+        for old in [
+            concat!("resize", "Left", "Cursor"),
+            concat!("resize", "Right", "Cursor"),
+            concat!("resize", "LeftRight", "Cursor"),
+            concat!("resize", "Up", "Cursor"),
+            concat!("resize", "Down", "Cursor"),
+            concat!("resize", "UpDown", "Cursor"),
+        ] {
+            assert!(!APP.contains(old), "app.rs names {old}");
+            assert!(!OWN.contains(old), "pointer.rs names {old}");
+        }
+        for new in [
+            concat!("NSCursor::", "frameResizeCursorFromPosition_inDirections("),
+            concat!("NSCursor::", "columnResizeCursor()"),
+            concat!("NSCursor::", "rowResizeCursor()"),
+        ] {
+            assert!(APP.contains(new), "app.rs does not call {new}");
+        }
+    }
+
+    /// **Every system the app runs on has the resize cursors**: AppKit
+    /// gives them from macOS 15, and the bundle's minimum system is at or
+    /// past it, as is the binary's own (`tests/macos_floor.rs` holds the two
+    /// equal), so no system that loads the app takes an availability branch
+    /// and the cursors are called with none.
+    #[test]
+    fn the_bundles_minimum_system_has_the_resize_cursors() {
+        const PLIST: &str = include_str!("../../packaging/macos/Info.plist");
+        let key = "<key>LSMinimumSystemVersion</key>";
+        let major = PLIST
+            .split_once(key)
+            .and_then(|(_, rest)| rest.split_once("<string>"))
+            .and_then(|(_, rest)| rest.split(['.', '<']).next())
+            .and_then(|m| m.parse::<u32>().ok());
+        assert!(major.is_some_and(|m| m >= 15), "{major:?}");
     }
 
     /// **A session that never names a shape never sets a cursor**, and a

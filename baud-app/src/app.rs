@@ -66,9 +66,10 @@ use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{MainThreadOnly, Message};
 use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
-    NSAutoresizingMaskOptions, NSColor, NSCursor, NSEvent, NSEventModifierFlags, NSImage, NSScreen,
-    NSScroller, NSScrollerStyle, NSView, NSWindow, NSWindowAnimationBehavior,
-    NSWindowOcclusionState, NSWindowStyleMask,
+    NSAutoresizingMaskOptions, NSColor, NSCursor, NSCursorFrameResizeDirections,
+    NSCursorFrameResizePosition, NSEvent, NSEventModifierFlags, NSImage, NSScreen, NSScroller,
+    NSScrollerStyle, NSView, NSWindow, NSWindowAnimationBehavior, NSWindowOcclusionState,
+    NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
@@ -21097,9 +21098,13 @@ fn window_facts(p: &Placed) -> baud_core::WindowFacts {
 /// `NSCursor.pointingHand`, "Returns the pointing-hand system cursor"
 /// (`[[source: apple-nscursor-pointinghand]]`), the pointer the HIG gives
 /// to "a URL link to a webpage, document, or other item"
-/// (`[[source: apple-hig-pointing-devices-2026-10-29]]`).
+/// (`[[source: apple-hig-pointing-devices-2026-10-29]]`). A side or a
+/// corner is `+[NSCursor frameResizeCursorFromPosition:inDirections:]` from
+/// that edge in both directions, a column's divider `columnResizeCursor` and
+/// a row's `rowResizeCursor`, each "in either direction" (AppKit's
+/// `NSCursor.h`, macOS 15 and later).
 fn system_cursor(p: crate::pointer::SystemPointer) -> Retained<NSCursor> {
-    use crate::pointer::SystemPointer;
+    use crate::pointer::{Edge, SystemPointer};
     match p {
         SystemPointer::Arrow => NSCursor::arrowCursor(),
         SystemPointer::IBeam => NSCursor::IBeamCursor(),
@@ -21109,6 +21114,21 @@ fn system_cursor(p: crate::pointer::SystemPointer) -> Retained<NSCursor> {
         SystemPointer::Crosshair => NSCursor::crosshairCursor(),
         SystemPointer::NotAllowed => NSCursor::operationNotAllowedCursor(),
         SystemPointer::ContextualMenu => NSCursor::contextualMenuCursor(),
+        SystemPointer::FrameResize(e) => NSCursor::frameResizeCursorFromPosition_inDirections(
+            match e {
+                Edge::Top => NSCursorFrameResizePosition::Top,
+                Edge::Bottom => NSCursorFrameResizePosition::Bottom,
+                Edge::Left => NSCursorFrameResizePosition::Left,
+                Edge::Right => NSCursorFrameResizePosition::Right,
+                Edge::TopLeft => NSCursorFrameResizePosition::TopLeft,
+                Edge::TopRight => NSCursorFrameResizePosition::TopRight,
+                Edge::BottomLeft => NSCursorFrameResizePosition::BottomLeft,
+                Edge::BottomRight => NSCursorFrameResizePosition::BottomRight,
+            },
+            NSCursorFrameResizeDirections::All,
+        ),
+        SystemPointer::ColumnResize => NSCursor::columnResizeCursor(),
+        SystemPointer::RowResize => NSCursor::rowResizeCursor(),
     }
 }
 
