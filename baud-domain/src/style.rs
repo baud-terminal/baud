@@ -502,6 +502,11 @@ impl ColorWord {
             Self::TAG_RGB | ((r.get() as u32) << 16) | ((g.get() as u32) << 8) | b.get() as u32,
         )
     }
+    /// The RGB triple an embedder gives, packed: the inverse of
+    /// [`ColorWord::as_rgb`].
+    pub fn from_rgb((r, g, b): (u8, u8, u8)) -> ColorWord {
+        ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+    }
     pub fn bits(self) -> u32 {
         self.0
     }

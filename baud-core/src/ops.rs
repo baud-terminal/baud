@@ -3400,10 +3400,10 @@ impl Paint<'_, '_> {
             }
         } else if self.wraps_back() {
             let (to, x) = self.reverse_walk(Count::ONE);
-            if to != y {
-                self.set_row(Row::from_index(to));
+            if to.index() != y {
+                self.set_row(to);
             }
-            self.set_col(CursorCol::moved(Col::at_index(x)));
+            self.set_col(CursorCol::moved(x));
         }
     }
 
@@ -3423,14 +3423,10 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn back_reverse_wrapping(&mut self, n: Count) {
         let (y, x) = self.reverse_walk(n);
-        if y != self.cy.index() {
-            self.set_row(Row::from_index(y));
+        if y != self.cy {
+            self.set_row(y);
         }
-        self.set_col(CursorCol::placed(
-            Col::at_index(x),
-            self.cold.right,
-            self.cols,
-        ));
+        self.set_col(CursorCol::placed(x, self.cold.right, self.cols));
     }
 
     /// **Where `?45`'s walk back of `n` columns ends**, as `(line, column)`,
@@ -3450,7 +3446,7 @@ impl Paint<'_, '_> {
     /// first column, as xterm lets it go there; within a line a pending wrap
     /// is its first step, as `?1045`'s walk takes it
     /// ([`Paint::back_wrapping`]).
-    fn reverse_walk(&self, n: Count) -> (usize, usize) {
+    fn reverse_walk(&self, n: Count) -> (Row, Col) {
         let start = self.cx.col().index();
         let left = match start < self.cold.left.index() {
             true => 0,
@@ -3492,7 +3488,7 @@ impl Paint<'_, '_> {
             )
             .index();
         }
-        (y, x)
+        (Row::from_index(y), Col::at_index(x))
     }
 
     /// Whether `?1045` reverse-wraps: set, with `?7` set, as xterm's

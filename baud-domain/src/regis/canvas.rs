@@ -36,6 +36,13 @@ pub struct RegisRect {
 }
 
 impl RegisRect {
+    /// Held to its page, as the `(x0, y0, x1, y1)` a repaint takes
+    /// ([`crate::ImageStore::repaint_page`]).
+    pub fn page_px(self) -> (usize, usize, usize, usize) {
+        let at = |v: i32| usize::try_from(v.max(0)).unwrap_or(0);
+        (at(self.x0), at(self.y0), at(self.x1), at(self.y1))
+    }
+
     fn union(self, o: RegisRect) -> RegisRect {
         RegisRect {
             x0: self.x0.min(o.x0),

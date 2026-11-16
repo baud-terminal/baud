@@ -7605,17 +7605,16 @@ impl<'b> Term<'b> {
     /// **A change of dark/light class reports**, like [`Term::set_theme`]: one
     /// `CSI ? 997 ; 1|2 n` while `?2031` is set.
     pub fn set_default_colors(&mut self, fg: (u8, u8, u8), bg: (u8, u8, u8)) {
-        self.reporting_scheme(|t| t.write_defaults(fg, bg));
+        self.reporting_scheme(|t| {
+            t.write_defaults(ColorWord::from_rgb(fg), ColorWord::from_rgb(bg))
+        });
     }
 
     /// Indices 0 and 1 only: the cursor's configured colour comes with the
     /// whole theme ([`Term::set_theme`]). Reports nothing.
-    fn write_defaults(&mut self, fg: (u8, u8, u8), bg: (u8, u8, u8)) {
-        let word = |(r, g, b): (u8, u8, u8)| {
-            ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
-        };
-        self.cold.defaults[DynamicColor::Foreground.index()] = word(fg);
-        self.cold.defaults[DynamicColor::Background.index()] = word(bg);
+    fn write_defaults(&mut self, fg: ColorWord, bg: ColorWord) {
+        self.cold.defaults[DynamicColor::Foreground.index()] = fg;
+        self.cold.defaults[DynamicColor::Background.index()] = bg;
     }
 
     /// The cursor's configured colour, `DEFAULT` for none: what the cursor
@@ -7623,11 +7622,8 @@ impl<'b> Term<'b> {
     /// answers then, and what `OSC 112` returns to, the resource xterm's
     /// `ResetColorsRequest` allocates again (`[[source: xterm-misc]]`
     /// 3718-3750).
-    fn write_cursor(&mut self, c: Option<(u8, u8, u8)>) {
-        self.cold.defaults[DynamicColor::Cursor.index()] = c
-            .map_or(ColorWord::DEFAULT, |(r, g, b)| {
-                ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
-            });
+    fn write_cursor(&mut self, c: ColorWord) {
+        self.cold.defaults[DynamicColor::Cursor.index()] = c;
     }
 
     /// The selection's configured colours, `DEFAULT` for one the theme does
@@ -7639,17 +7635,14 @@ impl<'b> Term<'b> {
     /// after [`Term::write_defaults`], whose colours it reads.
     fn write_selection(
         &mut self,
-        bg: Option<CellPaint<(u8, u8, u8)>>,
-        fg: Option<CellPaint<(u8, u8, u8)>>,
+        bg: Option<CellPaint<ColorWord>>,
+        fg: Option<CellPaint<ColorWord>>,
     ) {
         let text = self.cold.defaults[DynamicColor::Foreground.index()];
         let page = self.cold.defaults[DynamicColor::Background.index()];
-        let word = |c: Option<CellPaint<(u8, u8, u8)>>| match c {
+        let word = |c: Option<CellPaint<ColorWord>>| match c {
             None => (ColorWord::DEFAULT, ColorWord::DEFAULT),
-            Some(CellPaint::Colour((r, g, b))) => (
-                ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)),
-                ColorWord::DEFAULT,
-            ),
+            Some(CellPaint::Colour(c)) => (c, ColorWord::DEFAULT),
             Some(CellPaint::Text) => (text, ColorWord::AUTOMATIC),
             Some(CellPaint::Page) => (page, ColorWord::AUTOMATIC),
         };
@@ -7691,15 +7684,16 @@ impl<'b> Term<'b> {
     /// **One call, one report at most**; see [`Term::reporting_scheme`].
     pub fn set_theme(&mut self, theme: &ThemeColors<'_>, overrides: Overrides) {
         self.reporting_scheme(|t| {
-            t.write_defaults(theme.fg, theme.bg);
-            t.write_selection(theme.selection, theme.selection_text);
+            t.write_defaults(ColorWord::from_rgb(theme.fg), ColorWord::from_rgb(theme.bg));
+            let painted =
+                |p: Option<CellPaint<(u8, u8, u8)>>| p.map(|p| p.map(ColorWord::from_rgb));
+            t.write_selection(painted(theme.selection), painted(theme.selection_text));
             t.cold.unset_selection_text = theme.unset_selection_text;
             t.cold.cursor_text_under = theme.cursor_text_under;
-            t.write_cursor(theme.cursor);
-            t.store.strs.palette[crate::storage::CURSOR_TEXT_CONFIGURED] =
-                theme.cursor_text.map_or(ColorWord::DEFAULT, |(r, g, b)| {
-                    ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
-                });
+            t.write_cursor(theme.cursor.map_or(ColorWord::DEFAULT, ColorWord::from_rgb));
+            t.store.strs.palette[crate::storage::CURSOR_TEXT_CONFIGURED] = theme
+                .cursor_text
+                .map_or(ColorWord::DEFAULT, ColorWord::from_rgb);
             t.set_default_palette(theme.palette);
             if overrides == Overrides::Drop {
                 crate::osc::clear_palette(t.store.strs.palette, &mut t.store.style_log);

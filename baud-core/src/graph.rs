@@ -601,19 +601,35 @@ pub struct Hist {
 #[cfg(feature = "diag")]
 const EDGE_WORDS: usize = 2 * NNODE * 256 / 64;
 
-/// Where an edge's bit lies: its word and its place in the word.
+/// An edge's place among [`Hist::took`]'s bits.
 #[cfg(feature = "diag")]
-fn edge_bit(enc: InputEncoding, node: Node, b: StreamByte) -> (usize, u64) {
-    let e = match enc {
-        InputEncoding::Utf8 => 0,
-        InputEncoding::Latin1 => 1,
-    };
-    let n = Node::FROM_INDEX
-        .iter()
-        .position(|m| *m == node)
-        .unwrap_or(0);
-    let i = (e * NNODE + n) * 256 + b.index();
-    (i / 64, 1 << (i % 64))
+#[derive(Clone, Copy)]
+struct EdgeBit(usize);
+
+#[cfg(feature = "diag")]
+impl EdgeBit {
+    /// The bit of the edge `b` leads out of `node` under `enc`.
+    fn of(enc: InputEncoding, node: Node, b: StreamByte) -> EdgeBit {
+        let e = match enc {
+            InputEncoding::Utf8 => 0,
+            InputEncoding::Latin1 => 1,
+        };
+        let n = Node::FROM_INDEX
+            .iter()
+            .position(|m| *m == node)
+            .unwrap_or(0);
+        EdgeBit((e * NNODE + n) * 256 + b.index())
+    }
+
+    /// Set its bit in `edges`.
+    fn set(self, edges: &mut [u64; EDGE_WORDS]) {
+        edges[self.0 / 64] |= 1 << (self.0 % 64);
+    }
+
+    /// Whether its bit is set in `edges`.
+    fn is_set(self, edges: &[u64; EDGE_WORDS]) -> bool {
+        edges[self.0 / 64] & (1 << (self.0 % 64)) != 0
+    }
 }
 
 /// A node's name, from the same file the node is declared in.
@@ -834,15 +850,13 @@ impl Hist {
 
     /// A step took the edge `b` leads out of `node` under `enc`.
     pub(crate) fn take(&mut self, enc: InputEncoding, node: Node, b: StreamByte) {
-        let (w, bit) = edge_bit(enc, node, b);
-        self.edges[w] |= bit;
+        EdgeBit::of(enc, node, b).set(&mut self.edges);
     }
 
     /// **Whether a step took the edge `b` leads out of `node` under
     /// `enc`**: the check that a corpus reaches each edge it was built to.
     pub fn took(&self, enc: InputEncoding, node: Node, b: StreamByte) -> bool {
-        let (w, bit) = edge_bit(enc, node, b);
-        self.edges[w] & bit != 0
+        EdgeBit::of(enc, node, b).is_set(&self.edges)
     }
 }
 

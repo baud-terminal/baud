@@ -55,6 +55,15 @@ pub(crate) enum CharEdit {
     Insert,
 }
 
+/// Whether a PRECEDING part ran on past the cursor to take in the tail of
+/// the wide character whose lead the cursor is on
+/// ([`Paint::preceding_part`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Tail {
+    Taken,
+    Left,
+}
+
 /// The writer for a character whose gap is open already: a SAPV form's
 /// step, and no gap.
 pub(crate) struct Gapless;
@@ -293,7 +302,7 @@ impl Paint<'_, '_> {
                 // wide character's tail takes its lead, as
                 // `Grid::delete_cells` widens one.
                 let len = end.index() - left.index();
-                let mut k = (n.at_least_one() + usize::from(took)).min(len);
+                let mut k = (n.at_least_one() + usize::from(took == Tail::Taken)).min(len);
                 let last = Col::at_index(end.index() - k);
                 if last > left && self.is_tail(last) {
                     k += 1;
@@ -384,20 +393,20 @@ impl Paint<'_, '_> {
         c: Col,
         zone: PrecedingZone,
         blank: PackedCell,
-    ) -> (Col, Col, bool) {
+    ) -> (Col, Col, Tail) {
         let left = zone.lo();
         if left.index() > 0 && self.is_tail(left) {
             self.erase_whole(left.before(), blank);
         }
         let after = c.after();
         if !self.is_tail(after) {
-            return (left, after, false);
+            return (left, after, Tail::Left);
         }
         if after <= zone.hi() {
-            return (left, after.after(), true);
+            return (left, after.after(), Tail::Taken);
         }
         self.erase_whole(c, blank);
-        (left, after, false)
+        (left, after, Tail::Left)
     }
 
     /// Whether column `x` of the cursor's line holds a wide character's

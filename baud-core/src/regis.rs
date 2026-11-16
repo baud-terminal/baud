@@ -455,7 +455,7 @@ impl Paint<'_, '_> {
             let map = *self.strs.regis.colors();
             let blink = self.strs.regis.blink_show();
             self.images
-                .repaint_page(page.shown, plane, px_of(rect), |shown, plane| {
+                .repaint_page(page.shown, plane, rect.page_px(), |shown, plane| {
                     RegisCanvas::show(plane, page.w, &map, rect, shown, zoom, blink);
                 });
         }
@@ -570,7 +570,7 @@ pub(crate) fn erase(images: &mut ImageStore<'_>, regis: &mut Regis) {
     for m in d.marks.iter().flatten() {
         m.cover(&mut |r| {
             let r = clip(r, d.w, d.h);
-            images.repaint_page(d.shown, d.plane, px_of(r), |shown, plane| {
+            images.repaint_page(d.shown, d.plane, r.page_px(), |shown, plane| {
                 RegisCanvas::show(plane, d.w, map, r, shown, zoom, blink);
             });
             if meets(r, band) {
@@ -616,7 +616,7 @@ fn paint_display(
     let zoom = regis.zoom();
     let blink = regis.blink_show();
     let (pw, ph) = (i32::from(w.raw()), i32::from(h.raw()));
-    images.repaint_page(shown, plane, px_of(band), |px, pl| {
+    images.repaint_page(shown, plane, band.page_px(), |px, pl| {
         RegisCanvas::show(pl, w, &map, band, px, zoom, blink);
         regis.display_glyphs(&mut |g, pen| {
             let Some(cell) = cell_of(g) else {
@@ -661,12 +661,6 @@ fn cell_of<'a>(g: &RegisGlyph<'a>) -> Option<CellDraw<'a>> {
     })
 }
 
-/// `r`, held to its page, as the `(x0, y0, x1, y1)` a repaint takes.
-fn px_of(r: RegisRect) -> (usize, usize, usize, usize) {
-    let at = |v: i32| usize::try_from(v.max(0)).unwrap_or(0);
-    (at(r.x0), at(r.y0), at(r.x1), at(r.y1))
-}
-
 /// **Draw `marks` into the page's shown image**, the page placed where the
 /// next drawing needs it if it is not, and keep what was drawn. What was
 /// drawn before is the caller's to have taken away. With no room for a
@@ -697,7 +691,7 @@ pub(crate) fn draw(
     for m in marks.iter().flatten() {
         m.cover(&mut |r| {
             let r = clip(r, p.w, p.h);
-            images.repaint_page(p.shown, plane, px_of(r), |shown, _| {
+            images.repaint_page(p.shown, plane, r.page_px(), |shown, _| {
                 m.paint(&mut |x, y, tone| {
                     if x < r.x0 || y < r.y0 || x >= r.x1 || y >= r.y1 {
                         return;
@@ -759,7 +753,7 @@ fn repaint_blink(
     let zoom = regis.zoom();
     let shown = clip(zoom.shown(r), p.w, p.h);
     let mut left = Blinks::No;
-    images.repaint_page(p.shown, plane, px_of(shown), |px, plane| {
+    images.repaint_page(p.shown, plane, shown.page_px(), |px, plane| {
         if RegisCanvas::blinks(plane, p.w, r) {
             left = Blinks::Yes;
         }
@@ -809,7 +803,7 @@ fn repaint_first(images: &mut ImageStore<'_>, page: Page, regis: &mut Regis) {
     erase(images, regis);
     let (map, zoom, blink) = (*regis.colors(), regis.zoom(), regis.blink_show());
     let r = page.whole();
-    images.repaint_page(page.shown, page.plane, px_of(r), |px, plane| {
+    images.repaint_page(page.shown, page.plane, r.page_px(), |px, plane| {
         RegisCanvas::show(plane, page.w, &map, r, px, zoom, blink);
     });
     if zoom != RegisZoom::ONE {
