@@ -1591,8 +1591,7 @@ fn the_rules_build_the_cluster_tables() {
 /// dropped is refused, by the control written for that rule. GB999 is
 /// not among them: without it nothing matches, and that breaks, as GB999
 /// does, so the table is the same by construction. None moves
-/// the reachable state count, which the rules' decisions reach only
-/// through a regional indicator's parity.
+/// the reachable state count, which no rule's decision reaches.
 #[test]
 fn a_rule_dropped_from_the_cluster_rules_is_refused() {
     use cluster::Rule;

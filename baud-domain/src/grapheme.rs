@@ -168,6 +168,20 @@ enum RiParity {
     Odd,
 }
 
+impl RiParity {
+    /// The parity after a character of class `cur`: an indicator after an
+    /// even run opens a pair and one after an odd run closes it, whatever
+    /// joined the run to the character before it (`÷ 0600 × 1F1E6 × 1F1E6 ÷`,
+    /// GB9b then GB13), and anything else ends the run.
+    #[inline(always)]
+    fn after(self, cur: GraphemeClass) -> RiParity {
+        match (cur, self) {
+            (GraphemeClass::RegionalIndicator, RiParity::Even) => RiParity::Odd,
+            _ => RiParity::Even,
+        }
+    }
+}
+
 /// GB11's lookback: `Extended_Pictographic Extend* ZWJ × Extended_Pictographic`.
 ///
 /// Three states, not two flags. As `{pict_run, pict_zwj}` bools it was possible
@@ -612,8 +626,7 @@ impl ClusterBreak {
     ///
     /// A character that parts takes the successor a boundary before it
     /// would leave ([`ClusterBreak::restart`]), which is the variant's own
-    /// state: the two differ only in a regional indicator's parity after a
-    /// Prepend.
+    /// state.
     pub fn parts(self, cells: ClusterCells, cur: GraphemeClass, lb: Lookback) -> bool {
         let table = match cells {
             ClusterCells::Extended => return false,
@@ -788,8 +801,8 @@ impl ClusterRules {
         // inside `advance`, that cheap case would pay for the emoji and Indic
         // arms it never reaches.
         match lb.is_none() {
-            false => self.advance(cur, brk, lb),
-            true => self.advance_plain(cur, brk),
+            false => self.advance(cur, lb),
+            true => self.advance_plain(cur),
         }
         brk
     }
@@ -800,13 +813,10 @@ impl ClusterRules {
     /// pictographic, not a consonant, not a linker, not an extend -- with the
     /// `in_run` arms kept because they depend on state rather than on a lookup.
     #[inline(always)]
-    fn advance_plain(&mut self, cur: GraphemeClass, brk: bool) {
+    fn advance_plain(&mut self, cur: GraphemeClass) {
         use GraphemeClass::*;
         self.prev = Some(cur);
-        self.ri = match cur == RegionalIndicator && brk {
-            true => RiParity::Odd,
-            false => RiParity::Even,
-        };
+        self.ri = self.ri.after(cur);
         let in_run = self.pict == PictLookback::Pictographic;
         self.pict = if in_run && cur == Extend {
             PictLookback::Pictographic
@@ -896,8 +906,8 @@ impl ClusterRules {
             Some(j) => !j.kept_by(cells) && !self.later_rule_joins(cur, lb),
         };
         match lb.is_none() {
-            false => self.advance(cur, brk, lb),
-            true => self.advance_plain(cur, brk),
+            false => self.advance(cur, lb),
+            true => self.advance_plain(cur),
         }
         brk
     }
@@ -910,7 +920,7 @@ impl ClusterRules {
     }
 
     #[inline(always)]
-    fn advance(&mut self, cur: GraphemeClass, brk: bool, lb: Lookback) {
+    fn advance(&mut self, cur: GraphemeClass, lb: Lookback) {
         use GraphemeClass::*;
         self.prev = Some(cur);
 
@@ -920,17 +930,7 @@ impl ClusterRules {
         // `advance_plain` handles everything they used to send home early, and
         // it is inlined.
 
-        // A boundary resets the parity, so a third indicator starts a new pair
-        // rather than extending the flag before it.
-        // An indicator that *paired* (no boundary before it) closes the pair
-        // and leaves the parity even, so a third starts a fresh one. Both arms
-        // returning `Odd` is what broke `RI RI RI`: the third indicator joined
-        // the flag before it instead of beginning the next.
-        self.ri = if cur == RegionalIndicator && brk {
-            RiParity::Odd
-        } else {
-            RiParity::Even
-        };
+        self.ri = self.ri.after(cur);
 
         let in_run = self.pict == PictLookback::Pictographic;
         self.pict = if lb.pictographic() || (in_run && cur == Extend) {

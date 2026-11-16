@@ -235,6 +235,85 @@ fn a_prepend_parts_from_what_follows_it() {
     assert!(!parts_after(&[0x0600], '\u{0661}', ClusterCells::Extended));
 }
 
+/// **A Prepend before regional indicators leaves their pairs as GB13
+/// counts them**: `[[source: uax29]]` § 3.1.1, "do not break between
+/// regional indicator (RI) symbols if there is an odd number of RI
+/// characters before the break point. GB12 sot (RI RI)* RI × RI GB13 [^RI]
+/// (RI RI)* RI × RI". U+0600 is `[^RI]`, so the extended rules give
+/// `÷ 0600 × 1F1E6 × 1F1E6 ÷` (GB9b, then GB13) and a third indicator a
+/// cluster of its own; the legacy variants, without GB9b, give
+/// `÷ 0600 ÷ 1F1E6 × 1F1E6 ÷`. Walked through the table, the rule form, and
+/// each variant both as its own rules and as the core runs it, the
+/// extended table parted and started again where a part falls.
+#[test]
+fn a_prepend_before_regional_indicators_keeps_their_pairs() {
+    let (p, a, b, c, d) = (0x0600, 0x1F1E6, 0x1F1E7, 0x1F1E8, 0x1F1E9);
+    for (text, extended, legacy) in [
+        (
+            vec![p, a, b],
+            vec![true, false, false],
+            vec![true, true, false],
+        ),
+        (
+            vec![p, a, b, c],
+            vec![true, false, false, true],
+            vec![true, true, false, true],
+        ),
+        (
+            vec![p, a, b, c, d],
+            vec![true, false, false, true, false],
+            vec![true, true, false, true, false],
+        ),
+    ] {
+        let classed: Vec<(GraphemeClass, Lookback, Codepoint)> = text
+            .iter()
+            .map(|&v| {
+                let cp = Codepoint::new(v).expect("a scalar value");
+                let cl = Classified::of(cp);
+                (cl.class, cl.lookback, cp)
+            })
+            .collect();
+        let mut table = ClusterBreak::new();
+        let by_table: Vec<bool> = classed
+            .iter()
+            .map(|&(cl, lb, _)| table.is_break_classified(cl, lb))
+            .collect();
+        assert_eq!(by_table, extended, "the table, {text:X?}");
+        let mut rules = ClusterRules::new();
+        let by_rules: Vec<bool> = classed
+            .iter()
+            .map(|&(cl, lb, _)| rules.is_break_by_rules(cl, lb))
+            .collect();
+        assert_eq!(by_rules, extended, "the rules, {text:X?}");
+        for cells in CELLS {
+            let want = match cells {
+                ClusterCells::Extended => &extended,
+                _ => &legacy,
+            };
+            let mut own = ClusterRules::new();
+            let by_own: Vec<bool> = classed
+                .iter()
+                .map(|&(cl, lb, _)| own.is_break_in(cells, cl, lb))
+                .collect();
+            assert_eq!(&by_own, want, "{cells:?}'s rules, {text:X?}");
+            let mut m = ClusterBreak::new();
+            let parted: Vec<bool> = classed
+                .iter()
+                .map(|&(cl, lb, cp)| {
+                    let before = m;
+                    let joins = !m.is_break_classified(cl, lb);
+                    let part = joins && before.parts_at(cells, cl, lb, cp);
+                    if part {
+                        m = ClusterBreak::restart(cl, lb);
+                    }
+                    !joins || part
+                })
+                .collect();
+            assert_eq!(&parted, want, "{cells:?} parted, {text:X?}");
+        }
+    }
+}
+
 /// The setting and the mode choose the cells.
 #[test]
 fn the_mode_and_the_setting_choose_the_cells() {

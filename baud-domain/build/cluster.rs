@@ -231,17 +231,14 @@ fn breaks(c: &Classes, rules: &[Rule], s: &State, cur: u8, lb: u8) -> bool {
         .is_none_or(|r| !r.joins())
 }
 
-/// The state after the character, which the extended rules broke before
-/// or not (`brk`).
-fn advance(c: &Classes, s: &State, cur: u8, lb: u8, brk: bool) -> State {
-    // An indicator a boundary precedes opens a pair, and one joined to the
-    // character before closes it. GB9b's join of a Prepend and an
-    // indicator is the one join that is not a pair's, and it leaves the run
-    // even, where GB13 counts one indicator before the next:
-    // `÷ 0600 × 1F1E6 ÷ 1F1E6 ÷` here and in the crate's `ClusterRules`,
-    // which this mirrors, and `÷ 0600 × 1F1E6 × 1F1E6 ÷` by the rule.
-    // GraphemeBreakTest.txt has no such line.
-    let odd = cur == c.regional && brk;
+/// The state after the character. No rule's decision moves it: GB12 and
+/// GB13 count the regional indicators since the last character that is
+/// not one, whatever joined them to it.
+fn advance(c: &Classes, s: &State, cur: u8, lb: u8) -> State {
+    // An indicator after an even run opens a pair and one after an odd run
+    // closes it, a Prepend before the run included:
+    // `÷ 0600 × 1F1E6 × 1F1E6 ÷` by GB9b then GB13.
+    let odd = cur == c.regional && !s.odd;
     // `Extend` does not end the run: GB11 looks back through it.
     let in_run = s.pict == Pictographic::Run;
     let pict = if lb & PICTOGRAPHIC != 0 || (in_run && cur == c.extend) {
@@ -308,10 +305,10 @@ pub fn the_ready_state(ready: &[bool]) -> Result<u8, Error> {
     }
 }
 
-/// The states reachable from the start of text under `rules`, in the order
-/// a breadth-first walk first reaches them, and the id of each. The map
-/// is only looked up, never iterated.
-fn reachable(c: &Classes, rules: &[Rule]) -> (Vec<State>, HashMap<State, usize>) {
+/// The states reachable from the start of text, in the order a
+/// breadth-first walk first reaches them, and the id of each. The map is
+/// only looked up, never iterated.
+fn reachable(c: &Classes) -> (Vec<State>, HashMap<State, usize>) {
     let mut order = vec![State::START];
     let mut id = HashMap::from([(State::START, 0)]);
     let mut i = 0;
@@ -320,7 +317,7 @@ fn reachable(c: &Classes, rules: &[Rule]) -> (Vec<State>, HashMap<State, usize>)
         i += 1;
         for b in inputs() {
             let (cur, lb) = (b & 0xf, b >> 4);
-            let next = advance(c, &s, cur, lb, breaks(c, rules, &s, cur, lb));
+            let next = advance(c, &s, cur, lb);
             if let std::collections::hash_map::Entry::Vacant(v) = id.entry(next) {
                 v.insert(order.len());
                 order.push(next);
@@ -349,7 +346,7 @@ pub fn build_with(extended: &[Rule]) -> Result<Emit, Errors> {
             .collect()
     };
     let (legacy, marks) = (without(&LEGACY_EXCLUDES), without(&MARKS_JOINED_EXCLUDES));
-    let (order, id) = reachable(&c, extended);
+    let (order, id) = reachable(&c);
     let Some(n) = check_states(order.len(), &mut errs) else {
         return Err(errs);
     };
@@ -361,7 +358,7 @@ pub fn build_with(extended: &[Rule]) -> Result<Emit, Errors> {
         for b in inputs() {
             let (cur, lb) = (b & 0xf, b >> 4);
             let brk = breaks(&c, extended, s, cur, lb);
-            let to = id[&advance(&c, s, cur, lb, brk)];
+            let to = id[&advance(&c, s, cur, lb)];
             let i = si * 256 + usize::from(b);
             next[i] = (u8::from(brk) << 7) | u8::try_from(to).expect("a state id");
             for (rules, bits) in [(&legacy, &mut parts_legacy), (&marks, &mut parts_marks)] {
@@ -445,6 +442,11 @@ pub fn build_with(extended: &[Rule]) -> Result<Emit, Errors> {
             "GB12 and GB13, RI RI RI",
             vec![ri, ri, ri],
             vec![true, false, true],
+        ),
+        (
+            "GB13, Prepend RI RI RI",
+            vec![c.prepend, ri, ri, ri],
+            vec![true, false, false, true],
         ),
         (
             "GB999, Other Other",

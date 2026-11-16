@@ -1521,6 +1521,51 @@ fn a_carriage_return_ends_a_regional_indicator_pair() {
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
+/// **A flag after a Prepend is still a flag**: `[[source: uax29]]`
+/// § 3.1.1, "do not break between regional indicator (RI) symbols if there
+/// is an odd number of RI characters before the break point. GB12 sot
+/// (RI RI)* RI × RI GB13 [^RI] (RI RI)* RI × RI". U+0600 ARABIC NUMBER
+/// SIGN is `[^RI]`. While `?2027` is set the sign and the flag are one
+/// cluster, `÷ 0600 × 1F1E6 × 1F1E7 ÷` (GB9b, then GB13), so one cell holds
+/// all three, and a third indicator takes a cell of its own; while it is
+/// reset the legacy rules, without GB9b, give `÷ 0600 ÷ 1F1E6 × 1F1E7 ÷`,
+/// the sign in one cell and the flag in the next. At every read size.
+#[test]
+fn a_flag_after_a_prepend_is_one_cluster() {
+    let scalar = |v: u32| Codepoint::new(v).expect("a scalar value");
+    let (p, a, b, c) = (
+        scalar(0x0600),
+        scalar(0x1f1e6),
+        scalar(0x1f1e7),
+        scalar(0x1f1e8),
+    );
+    let mut wrong = Vec::new();
+    for (cells, clusters) in [
+        (Cells::Extended, vec![vec![p, a, b]]),
+        (Cells::Extended, vec![vec![p, a, b], vec![c]]),
+        (Cells::Legacy, vec![vec![p], vec![a, b]]),
+        (Cells::Legacy, vec![vec![p], vec![a, b], vec![c]]),
+    ] {
+        let (want, at) = policy_screen(&clusters);
+        let bytes: Vec<u8> = clusters
+            .iter()
+            .flatten()
+            .map(|cp| char::from_u32(cp.value()).expect("a scalar value"))
+            .collect::<String>()
+            .into_bytes();
+        for read in 1..=bytes.len() {
+            let (got, cursor, _) = through_term_in(cells, &bytes, ReadLen::from_index(read));
+            if (got[0].clone(), cursor) != (want[0].clone(), at) {
+                wrong.push(format!(
+                    "{cells:?} {clusters:X?}, read {read}: got {:?} at {cursor:?}",
+                    &got[0][..6]
+                ));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
 /// **A replacement character is class Other to the cluster after it**, after
 /// a control as much as anywhere. `U+FFFD` is `Grapheme_Cluster_Break` Other
 /// and not `Extended_Pictographic`, so GB9a joins a `U+0903` to it, GB999
