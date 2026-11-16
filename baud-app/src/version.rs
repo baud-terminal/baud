@@ -202,7 +202,8 @@ mod tests {
 
     /// **A start that is not `--version` or `--credits` prints none of
     /// it**: the version text and the notices are printed only from
-    /// `main`'s two early answers, each of which returns, and nothing else
+    /// `main`'s three early answers, version, credits and usage, each of
+    /// which returns, and nothing else
     /// in the app names them to print. In the source, as the early answers
     /// are held, since a normal start opens a window. Perturbation: print
     /// `version::text` after `log::init()`, or call `credits::print`
@@ -227,8 +228,8 @@ mod tests {
         assert_eq!(early.matches(concat!("credits::", "print(")).count(), 1);
         assert_eq!(
             early.matches(concat!("        ", "return;")).count(),
-            2,
-            "both answers return"
+            3,
+            "each early answer returns"
         );
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut stack = vec![dir.clone()];

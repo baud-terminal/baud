@@ -387,6 +387,8 @@ mod version;
 // `baud --credits`: the third-party notices the build embeds. Pure, and on
 // every platform.
 mod credits;
+// `baud --help`: the usage summary. Pure, and on every platform.
+mod help;
 // `baud -e PROGRAM [ARGS...]`: the arguments read, pure, and on every
 // platform.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
@@ -417,6 +419,13 @@ fn main() {
     if credits::asks(std::env::args_os().skip(1)) {
         if let Err(e) = credits::print(&mut std::io::stdout().lock()) {
             eprintln!("baud: --credits: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if help::asks(std::env::args_os().skip(1)) {
+        if let Err(e) = help::print(&mut std::io::stdout().lock()) {
+            eprintln!("baud: --help: {e}");
             std::process::exit(1);
         }
         return;

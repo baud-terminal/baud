@@ -87,6 +87,8 @@ window or touching your configuration.
 macOS, baud > About baud > Acknowledgements opens that page on GitHub, at
 the build's own commit.
 
+`baud --help` lists the arguments baud reads and exits the same way.
+
 ## Make it yours
 
 baud works with no configuration at all. To change the font, colours,
