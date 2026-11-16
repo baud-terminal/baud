@@ -535,7 +535,7 @@ impl Paint<'_, '_> {
             // has no prefix parser yet. **Consumed is the part that matters**:
             // a body that reached the screen as text would render an
             // application's private protocol as glyphs.
-            StrKind::Kitty => self.kitty_end(),
+            StrKind::Kitty => self.kitty_end(node),
             StrKind::RestoreCursor => {
                 // A copy of the head of the body: the data string is at most
                 // `CIR_DATA_MAX` bytes, and anything past the four

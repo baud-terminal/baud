@@ -785,6 +785,21 @@ pub enum KittyMediums {
     Direct,
     /// The file mediums too, read by the embedder at the terminator.
     Local,
+    /// The file mediums too, read by the embedder off the parse: the
+    /// terminator holds the read with the command owed
+    /// ([`KittyStream::file_asked`]) until the embedder hands over the
+    /// bytes ([`KittyStream::file_piece`]) and the read's end
+    /// ([`KittyStream::file_end`]).
+    Held,
+}
+
+/// **Whether a file medium's read is owed to the embedder**, under
+/// [`KittyMediums::Held`]: the command waits at its terminator, its reply
+/// and its placement not yet made.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KittyFileOwed {
+    No,
+    Yes,
 }
 
 /// What a read does with a file longer than the transmission can use.
@@ -869,7 +884,10 @@ impl KittyFileRequest<'_> {
 /// support the graphics protocol, must reply to query actions immediately
 /// without processing other input" ("Querying support") -- and a placement
 /// moves the cursor before the text after it. The core never opens a file:
-/// it hands out the request and takes the bytes.
+/// it hands out the request and takes the bytes. Under
+/// [`KittyMediums::Held`] no reader is called: the read is held at the
+/// terminator and the embedder reads [`KittyStream::file_asked`] off the
+/// parse.
 pub trait KittyFiles {
     /// Read what `req` names, handing the bytes to `sink` in order, as many
     /// calls as the embedder likes, and stopping when `sink` answers
@@ -1142,6 +1160,11 @@ pub struct KittyStream {
     /// lifetime of its own; an embedder leaks the reader as it leaks the
     /// storage.
     files: Option<&'static mut dyn KittyFiles>,
+    /// Whether the file mediums are read off the parse
+    /// ([`KittyMediums::Held`]).
+    hold: FileHold,
+    /// A held file medium's read, owed to the embedder.
+    owed_read: KittyFileOwed,
     /// A file medium's payload, decoded: the path or the name.
     path: [u8; KITTY_PATH_MAX],
     path_len: usize,
@@ -1181,6 +1204,13 @@ pub enum KittyByte {
     Separator,
 }
 
+/// Whether the file mediums are read off the parse.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FileHold {
+    Off,
+    On,
+}
+
 /// Whether a chunk continues a transmission.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Continues {
@@ -1213,6 +1243,8 @@ impl KittyStream {
         out_len: 0,
         feed: KittyFeed { runs: 0 },
         files: None,
+        hold: FileHold::Off,
+        owed_read: KittyFileOwed::No,
         path: [0; KITTY_PATH_MAX],
         path_len: 0,
         scratch_hi: 0,
@@ -1237,12 +1269,13 @@ impl KittyStream {
     pub fn reset(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
         self.give_back(store, scratch);
         let (counts, next_id, feed) = (self.counts, self.next_id, self.feed);
-        let files = self.files.take();
+        let (files, hold) = (self.files.take(), self.hold);
         *self = KittyStream::NEW;
         self.counts = counts;
         self.next_id = next_id;
         self.feed = feed;
         self.files = files;
+        self.hold = hold;
     }
 
     /// **Lend the reader for the file mediums**: from here `t=f`, `t=t`
@@ -1254,10 +1287,99 @@ impl KittyStream {
 
     /// Which mediums are served: the file mediums once a reader is lent.
     pub fn mediums(&self) -> KittyMediums {
-        match self.files {
-            Some(_) => KittyMediums::Local,
-            None => KittyMediums::Direct,
+        match (self.hold, &self.files) {
+            (FileHold::On, _) => KittyMediums::Held,
+            (FileHold::Off, Some(_)) => KittyMediums::Local,
+            (FileHold::Off, None) => KittyMediums::Direct,
         }
+    }
+
+    /// **Read the file mediums off the parse** ([`KittyMediums::Held`]):
+    /// from here a file medium's terminator leaves its command owed, for
+    /// the embedder to read [`KittyStream::file_asked`] wherever it likes
+    /// and hand the bytes and the end over. An embedder setting, which
+    /// `RIS` keeps.
+    pub fn hold_files(&mut self) {
+        self.hold = FileHold::On;
+    }
+
+    /// Whether a file medium's read is owed to the embedder.
+    pub fn file_owed(&self) -> KittyFileOwed {
+        self.owed_read
+    }
+
+    /// **What the owed read is to read**, as a lent reader is asked it:
+    /// the medium, the path, `O`, `S` and the most bytes the transmission
+    /// can use, `scratch` being the core's PNG scratch. None while no read
+    /// is owed.
+    pub fn file_asked<'a>(&'a self, scratch: &[u8]) -> Option<KittyFileRequest<'a>> {
+        match self.owed_read {
+            KittyFileOwed::Yes => self.file_request(scratch).map(|r| KittyFileRequest {
+                path: &self.path[..self.path_len],
+                ..r
+            }),
+            KittyFileOwed::No => None,
+        }
+    }
+
+    /// **The owed read's next bytes**, in order, where a direct payload's
+    /// decoded octets go: [`KittyFlow::Stop`] once the transmission is
+    /// refused, and while no read is owed.
+    pub fn file_piece(
+        &mut self,
+        bytes: &[u8],
+        store: &mut ImageStore,
+        scratch: &mut [u8],
+    ) -> KittyFlow {
+        if self.owed_read == KittyFileOwed::No {
+            return KittyFlow::Stop;
+        }
+        self.octets(bytes, store, scratch);
+        match self.load {
+            Load::Refused(_) => KittyFlow::Stop,
+            _ => KittyFlow::More,
+        }
+    }
+
+    /// **The owed read ended**: the command runs from where its
+    /// terminator left it -- the one file error for a failed read, else
+    /// the image the bytes made, replied and placed at `at` -- and the
+    /// cursor's move is returned, as [`KittyStream::end`] returns it.
+    /// Nothing while no read is owed.
+    pub fn file_end(
+        &mut self,
+        read: Result<(), KittyFileFailed>,
+        at: &KittyAt,
+        store: &mut ImageStore,
+        scratch: &mut [u8],
+    ) -> Option<KittyMove> {
+        if self.owed_read == KittyFileOwed::No {
+            return None;
+        }
+        self.owed_read = KittyFileOwed::No;
+        if read.is_err() && !matches!(self.load, Load::Refused(_)) {
+            self.refuse_load(KittyError::FILE, store);
+        }
+        let cmd = self.start;
+        let moved = self.conclude(cmd, at, store, scratch);
+        self.settle(store, scratch);
+        moved
+    }
+
+    /// **An owed read given up**, by a command or another stream that came
+    /// before the embedder ended it: the one file error, as a failed read
+    /// answers, so the command is never left unanswered.
+    fn give_up_read(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
+        if self.owed_read == KittyFileOwed::No {
+            return;
+        }
+        self.owed_read = KittyFileOwed::No;
+        let cmd = self.start;
+        self.refuse_load(KittyError::FILE, store);
+        self.load = Load::Idle;
+        self.counts.commands += 1;
+        self.reply(&cmd, Err(KittyError::FILE));
+        self.settle(store, scratch);
     }
 
     /// **The replies owed since [`KittyStream::clear_replies`]**, each a
@@ -1287,6 +1409,7 @@ impl KittyStream {
     /// ([`KittyStream::replies`]), and a PNG still loading across chunks is
     /// abandoned, as a cancelled chunk's upload is, and counted cancelled.
     pub fn yield_scratch(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
+        self.give_up_read(store, scratch);
         self.drain(store, scratch);
         if matches!(self.load, Load::Png { .. } | Load::PngZ { .. }) {
             self.counts.cancelled += 1;
@@ -1308,6 +1431,7 @@ impl KittyStream {
     /// client sent. Inside a command every byte but its terminator is its
     /// payload, as kitty reads it, so none leaves a chunk open.
     pub fn begin(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
+        self.give_up_read(store, scratch);
         if self.chunk != Chunk::Closed {
             self.counts.cancelled += 1;
             self.abort(store);
@@ -1617,7 +1741,10 @@ impl KittyStream {
         // is reserved; a served one is checked and reserved as `t=d` is,
         // its payload being the path.
         self.path_len = 0;
-        if cmd.error.is_none() && cmd.medium != KittyMedium::Direct && self.files.is_none() {
+        if cmd.error.is_none()
+            && cmd.medium != KittyMedium::Direct
+            && self.mediums() == KittyMediums::Direct
+        {
             cmd.error = Some(KittyError::FILE);
         }
         if cmd.error.is_none() && !query {
@@ -1664,7 +1791,10 @@ impl KittyStream {
         self.stage_len = 0;
         self.z = Inflate::NEW;
         self.path_len = 0;
-        if cmd.error.is_none() && cmd.medium != KittyMedium::Direct && self.files.is_none() {
+        if cmd.error.is_none()
+            && cmd.medium != KittyMedium::Direct
+            && self.mediums() == KittyMediums::Direct
+        {
             cmd.error = Some(KittyError::FILE);
         }
         if cmd.error.is_none() && cmd.id.is_none() && cmd.number.is_none() {
@@ -1865,25 +1995,13 @@ impl KittyStream {
     /// the two sentences about `S` meet there, and the compressed size is
     /// not the PNG's.
     fn read_file(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
-        let (limit, past, size) = match self.load {
-            Load::Raw { .. } => (self.raw_bytes(), KittyPastLimit::Stop, self.start.size),
-            Load::RawZ { .. } => (
-                zlib_bound(self.raw_bytes()),
-                KittyPastLimit::Refuse,
-                self.start.size,
-            ),
-            Load::Png { .. } => (scratch.len(), KittyPastLimit::Refuse, self.start.size),
-            Load::PngZ { need } => (zlib_bound(need), KittyPastLimit::Refuse, 0),
-            Load::Idle | Load::Refused(_) => return,
-        };
         let path = self.path;
+        let Some(asked) = self.file_request(scratch) else {
+            return;
+        };
         let req = KittyFileRequest {
-            medium: self.start.medium,
             path: &path[..self.path_len],
-            offset: self.start.offset,
-            size,
-            limit,
-            past,
+            ..asked
         };
         // Taken for the read, whose sink needs the stream, and put back
         // with nothing between that can return.
@@ -1901,6 +2019,31 @@ impl KittyStream {
         if read.is_err() && !matches!(self.load, Load::Refused(_)) {
             self.refuse_load(KittyError::FILE, store);
         }
+    }
+
+    /// **The request a file medium's load makes**, `scratch` being the
+    /// PNG scratch, with its path left for the caller to name: none for a
+    /// load not open.
+    fn file_request(&self, scratch: &[u8]) -> Option<KittyFileRequest<'static>> {
+        let (limit, past, size) = match self.load {
+            Load::Raw { .. } => (self.raw_bytes(), KittyPastLimit::Stop, self.start.size),
+            Load::RawZ { .. } => (
+                zlib_bound(self.raw_bytes()),
+                KittyPastLimit::Refuse,
+                self.start.size,
+            ),
+            Load::Png { .. } => (scratch.len(), KittyPastLimit::Refuse, self.start.size),
+            Load::PngZ { need } => (zlib_bound(need), KittyPastLimit::Refuse, 0),
+            Load::Idle | Load::Refused(_) => return None,
+        };
+        Some(KittyFileRequest {
+            medium: self.start.medium,
+            path: b"",
+            offset: self.start.offset,
+            size,
+            limit,
+            past,
+        })
     }
 
     /// Decoded octets, to where the load puts them.
@@ -2054,8 +2197,28 @@ impl KittyStream {
         if cmd.medium != KittyMedium::Direct && !matches!(self.load, Load::Idle | Load::Refused(_))
         {
             cmd.read = KittyFileRead::Asked;
+            if self.hold == FileHold::On {
+                // The command waits at its terminator for the embedder's
+                // read, kept as it would be read on.
+                self.start = cmd;
+                self.owed_read = KittyFileOwed::Yes;
+                return None;
+            }
             self.read_file(store, scratch);
         }
+        self.conclude(cmd, at, store, scratch)
+    }
+
+    /// **The command after its file is read**, or after its last chunk
+    /// for `t=d`: the inflate's end, the size the data came to, the reply,
+    /// and the image placed or its decode deferred.
+    fn conclude(
+        &mut self,
+        cmd: KittyCommand,
+        at: &KittyAt,
+        store: &mut ImageStore,
+        scratch: &mut [u8],
+    ) -> Option<KittyMove> {
         if matches!(self.load, Load::RawZ { .. } | Load::PngZ { .. }) {
             self.flush(store, scratch);
             if matches!(self.load, Load::RawZ { .. } | Load::PngZ { .. })

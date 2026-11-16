@@ -5,7 +5,7 @@
 
 use baud_core::{BytePos, NoticeAsked, PrinterAsked, ReadLen, Rest, Term};
 use baud_domain::RegisInput;
-use baud_domain::{DecodeBudget, DecodeProgress};
+use baud_domain::{DecodeBudget, DecodeProgress, KittyFileFailed, KittyFileOwed};
 use std::time::{Duration, Instant};
 
 /// [`paced`] with no delay to hold: what a test feeds, its terminal's
@@ -86,6 +86,14 @@ pub fn feed_parts<'r, T: Part>(
 /// answers it through `Term::answer_notices_alive`, or at [`NOTICE_WAIT`]
 /// are answered from the live table as it stands.
 ///
+/// **And the reads behind a file medium the core holds**
+/// (`Term::kitty_file_owed`, under `Term::hold_kitty_files`): the file is
+/// read on a thread of its own (`kitty_files::FileReader`), its pieces
+/// handed to the core a turn's worth at a time as they come, and the reads
+/// wait until the read ends, or at [`KITTY_FILE_WAIT`] or [`HELD_MAX`] the
+/// read is given up with the one file error and its thread left to end on
+/// its own.
+///
 /// **Each read held keeps its tag**, `T`, with its bytes: what the driver
 /// took the read with (`probe::Writers`), so the read is filed under its own
 /// verdict when its bytes are fed, not under the read that released it
@@ -95,6 +103,12 @@ pub struct Pace<T = ()> {
     until: Option<Instant>,
     input: Input,
     why: Why,
+    /// What reads a held file medium.
+    files: crate::kitty_files::FileReader,
+    /// The held file medium's read, while it runs.
+    reading: Option<crate::kitty_files::Reading>,
+    /// What the reading thread wakes the driver with.
+    wake: Option<crate::kitty_files::Wake>,
     /// Delays ended early by [`HELD_MAX`].
     pub cut: DelaysCut,
     /// **What each re-cut of the primary a call's parts asked for moved**
@@ -170,6 +184,7 @@ enum Why {
     Delay,
     Printer,
     Notices,
+    KittyFile,
 }
 
 /// How long a held DSR `?15` waits for the driver's look at its printers
@@ -184,6 +199,13 @@ pub const PRINTER_WAIT: Duration = Duration::from_millis(100);
 /// the platform's answer to an asynchronous ask, its time unmeasured here,
 /// and this is the most a program's wait for its answer costs.
 pub const NOTICE_WAIT: Duration = Duration::from_millis(250);
+
+/// **How long a held file medium's read may run** before it is given up
+/// with the one file error: a path on a mount that never answers would
+/// otherwise hold its window's output for good, and an `a=q` through a
+/// file is answered within it ("reply to query actions immediately",
+/// `[[source: kitty-graphics]]`, "Querying support").
+pub const KITTY_FILE_WAIT: Duration = Duration::from_secs(2);
 
 /// How many delays [`HELD_MAX`] ended early.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -204,6 +226,9 @@ impl<T: Copy> Pace<T> {
             until: None,
             input: Input::Free,
             why: Why::Delay,
+            files: crate::kitty_files::FileReader::new(),
+            reading: None,
+            wake: None,
             cut: DelaysCut::NONE,
             recuts: crate::paths::Recuts::default(),
             #[cfg(all(feature = "effect-probe", target_os = "macos"))]
@@ -494,6 +519,7 @@ pub fn paced<'r, T: Part>(
     }
     printer_wait(term, pace, now);
     notice_wait(term, pace, now);
+    kitty_wait(term, pace, now);
     owed(term, &mut sink);
     log.follow(term);
     if pace.input != Input::Free {
@@ -589,6 +615,72 @@ fn notice_wait<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) {
     if term.notices_alive_asked() == NoticeAsked::No {
         pace.until = None;
     }
+}
+
+/// **A held file medium's read goes on**: what its thread has read so far
+/// to the core, a turn's worth, and its end; at [`KITTY_FILE_WAIT`] or
+/// past [`HELD_MAX`] everything queued is taken and a read still running
+/// is given up with the one file error, its thread left to end on its own.
+fn kitty_wait<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) {
+    let Some(t) = pace.until.filter(|_| pace.why == Why::KittyFile) else {
+        return;
+    };
+    let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
+    let due = now >= t || waiting > HELD_MAX;
+    let drain = match due {
+        true => crate::kitty_files::Drain::All,
+        false => crate::kitty_files::Drain::Step,
+    };
+    let took = match pace.reading.as_mut() {
+        Some(r) => r.take(drain, &mut |b| term.kitty_file_piece(b)),
+        None => crate::kitty_files::Took::Ended(Err(KittyFileFailed)),
+    };
+    match took {
+        crate::kitty_files::Took::Ended(read) => term.kitty_file_end(read),
+        crate::kitty_files::Took::Running if due => {
+            crate::warn!("kitty graphics: a file read given up at its deadline");
+            term.kitty_file_end(Err(KittyFileFailed));
+        }
+        crate::kitty_files::Took::Running => return,
+    }
+    pace.reading = None;
+    pace.until = None;
+}
+
+/// **A file medium the core holds is read**: on a thread of its own, the
+/// rest of the read and the reads after it held until it ends -- or, ended
+/// at once, refused unread, the one file error owed now and the rest fed
+/// on in this call.
+fn kitty_read<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) -> FileRead {
+    let started = term
+        .kitty_file_asked()
+        .map(|req| pace.files.start(&req, pace.wake.clone()));
+    let Some(mut reading) = started else {
+        term.kitty_file_end(Err(KittyFileFailed));
+        return FileRead::Ended;
+    };
+    let took = reading.take(crate::kitty_files::Drain::Step, &mut |b| {
+        term.kitty_file_piece(b)
+    });
+    match took {
+        crate::kitty_files::Took::Ended(read) => {
+            term.kitty_file_end(read);
+            FileRead::Ended
+        }
+        crate::kitty_files::Took::Running => {
+            pace.reading = Some(reading);
+            pace.until = Some(now + KITTY_FILE_WAIT);
+            pace.why = Why::KittyFile;
+            FileRead::Running
+        }
+    }
+}
+
+/// Whether [`kitty_read`] left the reads held.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FileRead {
+    Ended,
+    Running,
 }
 
 /// One read for [`paced`]: held behind a delay this call met, or fed, its
@@ -788,6 +880,21 @@ fn paced_one<T: Part>(
                     &bytes[r.at.index()..r.at.index() + r.len.index()],
                     tag.rest(r.at),
                 );
+            }
+        } else if term.kitty_file_owed() == KittyFileOwed::Yes {
+            // The terminator stopped the read with its file owed.
+            match kitty_read(term, pace, now) {
+                FileRead::Running => {
+                    if let Some(r) = next.take() {
+                        pace.keep(
+                            &bytes[r.at.index()..r.at.index() + r.len.index()],
+                            tag.rest(r.at),
+                        );
+                    }
+                }
+                // Ended at once: its answer goes out ahead of the rest,
+                // and in this call when no rest follows.
+                FileRead::Ended => owed(term, sink),
             }
         } else if pace.until.is_none() && term.regis_input() == RegisInput::OneShot {
             // A delay taken in this feed holds the reads first.
@@ -1674,6 +1781,236 @@ mod tests {
         assert_eq!((fed, child.as_slice()), (Fed::Some, &b"\r"[..]));
         assert_eq!(t.regis_counts().inputs_abandoned, 1);
         assert_eq!(row0(&t).len(), usize::from(WS.ws_col), "the output fed");
+    }
+
+    /// An `APC G` with `ctrl` and `payload` in base64.
+    fn kitty_apc(ctrl: &str, payload: &[u8]) -> Vec<u8> {
+        const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut v = b"\x1b_G".to_vec();
+        v.extend_from_slice(ctrl.as_bytes());
+        v.push(b';');
+        for q in payload.chunks(3) {
+            let mut b = [0u8; 3];
+            b[..q.len()].copy_from_slice(q);
+            let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+            for k in 0..4 {
+                match k <= q.len() {
+                    true => v.push(A[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]),
+                    false => v.push(b'='),
+                }
+            }
+        }
+        v.extend_from_slice(b"\x1b\\");
+        v
+    }
+
+    /// **A held file medium holds the reads behind it, never the feed**:
+    /// the file is read on a thread a stalled mount holds, so the call that
+    /// met the terminator returns with nothing answered and the text after
+    /// it unparsed; at [`KITTY_FILE_WAIT`] the one file error goes out
+    /// ahead of that text -- for `a=T`, and for `a=q`, answered within the
+    /// wait. A file after it, on a thread nothing holds, is answered when
+    /// its thread ends, the text after it drawn after the reply.
+    #[test]
+    fn a_held_file_read_holds_the_reads_behind_it_never_the_feed() {
+        use std::os::unix::ffi::OsStrExt;
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let dir = std::fs::canonicalize(std::env::temp_dir())
+            .unwrap()
+            .join(format!(
+                "baud-kfh-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rgba = [7u8; 3 * 2 * 4];
+        let stalled = dir.join("stalled.raw");
+        let good = dir.join("good.raw");
+        std::fs::write(&stalled, rgba).unwrap();
+        std::fs::write(&good, rgba).unwrap();
+        for act in ['T', 'q'] {
+            let (release, gate) = std::sync::mpsc::channel::<()>();
+            let gate = std::sync::Mutex::new(gate);
+            let at = stalled.clone();
+            let stall: crate::kitty_files::Stall =
+                std::sync::Arc::new(move |p: &std::path::Path| {
+                    if p == at {
+                        let _ = gate.lock().unwrap().recv();
+                    }
+                });
+            let running: &'static crate::kitty_files::Running =
+                Box::leak(Box::new(crate::kitty_files::Running::new()));
+            let mut s = Owned::new(&WS).with_images(baud_domain::ImageBudget::of(4096));
+            let mut t = Term::new(s.storage(), &WS);
+            t.set_cell_size(baud_domain::ImagePx::of(10), baud_domain::ImagePx::of(20));
+            t.hold_kitty_files();
+            let mut pace = Pace::new();
+            pace.files = crate::kitty_files::FileReader::for_test(
+                std::slice::from_ref(&dir),
+                running,
+                Some(stall),
+            );
+            let mut out = Vec::new();
+            let t0 = Instant::now();
+            let mut first = kitty_apc(
+                &format!("a={act},i=1,t=f,f=32,s=3,v=2"),
+                stalled.as_os_str().as_bytes(),
+            );
+            first.extend_from_slice(b"AB");
+            let reads: [&[u8]; 2] = [&first, b"CD"];
+            paced(
+                &mut t,
+                &mut pace,
+                t0,
+                reads,
+                |b| out.extend_from_slice(b),
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
+            assert_eq!((out.as_slice(), row0(&t).as_str()), (&b""[..], ""), "{act}");
+            assert_eq!(pace.deadline(), Some(t0 + KITTY_FILE_WAIT), "{act}");
+            paced(
+                &mut t,
+                &mut pace,
+                t0 + KITTY_FILE_WAIT / 2,
+                [],
+                |b| out.extend_from_slice(b),
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
+            assert_eq!((out.as_slice(), row0(&t).as_str()), (&b""[..], ""), "{act}");
+            let fed = paced(
+                &mut t,
+                &mut pace,
+                t0 + KITTY_FILE_WAIT,
+                [],
+                |b| out.extend_from_slice(b),
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
+            let err: &[u8] = b"\x1b_Gi=1;EBADF:Failed to read image file\x1b\\";
+            assert_eq!((fed, out.as_slice()), (Fed::Some, err), "{act}");
+            assert_eq!(row0(&t), "ABCD", "{act}");
+            assert_eq!(pace.deadline(), None, "{act}");
+            drop(release);
+            let later = t0 + KITTY_FILE_WAIT;
+            let mut second = kitty_apc(
+                &format!("a={act},i=2,t=f,f=32,s=3,v=2"),
+                good.as_os_str().as_bytes(),
+            );
+            second.extend_from_slice(b"E");
+            paced(
+                &mut t,
+                &mut pace,
+                later,
+                [second.as_slice()],
+                |b| out.extend_from_slice(b),
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
+            let end = Instant::now() + Duration::from_secs(10);
+            while pace.reading.is_some() {
+                assert!(Instant::now() < end, "{act}: the read never ended");
+                std::thread::yield_now();
+                paced(
+                    &mut t,
+                    &mut pace,
+                    later,
+                    [],
+                    |b| out.extend_from_slice(b),
+                    |_| {},
+                    &mut crate::hostlog::NoLog,
+                );
+            }
+            let ok: &[u8] = b"\x1b_Gi=2;OK\x1b\\";
+            assert_eq!(out, [err, ok].concat(), "{act}");
+            assert_eq!(row0(&t), "ABCDE", "{act}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **Past the readers a file medium is answered in the call that met
+    /// it**: with every reader held by a stalled read, a `t=f` with
+    /// nothing after it is refused unread, the one file error goes out
+    /// before the call returns, and nothing waits behind it.
+    #[test]
+    fn past_the_readers_the_one_error_goes_out_in_the_call_that_met_it() {
+        use std::os::unix::ffi::OsStrExt;
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let dir = std::fs::canonicalize(std::env::temp_dir())
+            .unwrap()
+            .join(format!(
+                "baud-kfc-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rgba = [7u8; 3 * 2 * 4];
+        let stalled = dir.join("stalled.raw");
+        let good = dir.join("good.raw");
+        std::fs::write(&stalled, rgba).unwrap();
+        std::fs::write(&good, rgba).unwrap();
+        let (release, gate) = std::sync::mpsc::channel::<()>();
+        let gate = std::sync::Mutex::new(gate);
+        let at = stalled.clone();
+        let stall: crate::kitty_files::Stall = std::sync::Arc::new(move |p: &std::path::Path| {
+            if p == at {
+                let _ = gate.lock().unwrap().recv();
+            }
+        });
+        let running: &'static crate::kitty_files::Running =
+            Box::leak(Box::new(crate::kitty_files::Running::new()));
+        let files = crate::kitty_files::FileReader::for_test(
+            std::slice::from_ref(&dir),
+            running,
+            Some(stall),
+        );
+        let req = baud_domain::KittyFileRequest {
+            medium: baud_domain::KittyMedium::File,
+            path: stalled.as_os_str().as_bytes(),
+            offset: 0,
+            size: 0,
+            limit: 1 << 20,
+            past: baud_domain::KittyPastLimit::Refuse,
+        };
+        let readings: Vec<crate::kitty_files::Reading> = (0..crate::kitty_files::READERS)
+            .map(|_| files.start(&req, None))
+            .collect();
+        let mut s = Owned::new(&WS).with_images(baud_domain::ImageBudget::of(4096));
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_cell_size(baud_domain::ImagePx::of(10), baud_domain::ImagePx::of(20));
+        t.hold_kitty_files();
+        let mut pace = Pace::new();
+        pace.files = files;
+        let cmd = kitty_apc("a=T,i=1,t=f,f=32,s=3,v=2", good.as_os_str().as_bytes());
+        let mut out = Vec::new();
+        let t0 = Instant::now();
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            t0,
+            [cmd.as_slice()],
+            |b| out.extend_from_slice(b),
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        let err: &[u8] = b"\x1b_Gi=1;EBADF:Failed to read image file\x1b\\";
+        assert_eq!((fed, out.as_slice()), (Fed::Some, err));
+        assert_eq!(pace.deadline(), None, "nothing waits");
+        assert!(pace.reading.is_none(), "no read runs");
+        paced(
+            &mut t,
+            &mut pace,
+            t0,
+            [&b"X"[..]],
+            |b| out.extend_from_slice(b),
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((out.as_slice(), row0(&t).as_str()), (err, "X"));
+        drop(readings);
+        drop(release);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// **A held DSR `?15` waits for the driver's printer, and the reads

@@ -32,11 +32,17 @@
 //!
 //! The length is decided from that `fstat` before reading
 //! ([`KittyFileRequest::read_len`]), so no object is read past what the
-//! image store was given, and the read is `pread` in 64 KiB pieces on the
-//! thread that feeds the core: bounded by the store's budget, a local
-//! disk's few milliseconds, and the decode after it is stepped as `t=d`'s
-//! is. A file on a network mount that stalls stalls that thread; this does
-//! not answer that.
+//! image store was given, and the read is `pread` in 64 KiB pieces.
+//!
+//! **Where the read runs.** [`LocalFiles`] reads where it is called: lent
+//! to a terminal, at the command's terminator, inside the read. A terminal
+//! that holds the file mediums (`Term::hold_kitty_files`) stops its read at
+//! the terminator instead, and [`FileReader`] runs every check and the
+//! read on a thread of its own -- resolving the path is the first call a
+//! stalled mount holds -- handing the pieces over through a channel the
+//! thread feeding the terminal takes from without waiting
+//! (`reads::paced`), which gives the read up past its deadline. At most
+//! [`READERS`] reads run at once in a process.
 //!
 //! **Every failure is one error**, kitty's `EBADF:Failed to read image
 //! file`, so "the responses ... learn [nothing] about files it cannot read
@@ -74,6 +80,9 @@ use std::fs::{File, Metadata};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileExt, MetadataExt};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, TryRecvError};
 
 /// The piece a file is read and handed to the core in.
 const PIECE: usize = 1 << 16;
@@ -125,7 +134,7 @@ pub enum Refusal {
 /// **The reader both drivers lend the core**: the temporary directories it
 /// may delete in, resolved once, and the buffer a file is read through.
 pub struct LocalFiles {
-    temp: Vec<PathBuf>,
+    temp: Arc<[PathBuf]>,
     buf: Vec<u8>,
     /// Run between the check and the open, so a test can swap the file
     /// there and need no race.
@@ -153,22 +162,20 @@ impl LocalFiles {
     /// platform's own (Darwin's per-user directory under `TMPDIR`), each
     /// resolved, those that do not resolve left out.
     pub fn new() -> LocalFiles {
-        let mut dirs = vec![PathBuf::from("/tmp"), PathBuf::from("/dev/shm")];
-        if let Some(t) = std::env::var_os("TMPDIR") {
-            dirs.push(PathBuf::from(t));
-        }
-        dirs.push(std::env::temp_dir());
-        LocalFiles::with_temp(&dirs)
+        LocalFiles::of(resolved(&temp_dirs()))
     }
 
     /// The reader with `dirs` as the temporary directories.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the drivers name the temporary directories")
+    )]
     pub fn with_temp(dirs: &[PathBuf]) -> LocalFiles {
-        let mut temp: Vec<PathBuf> = dirs
-            .iter()
-            .filter_map(|d| std::fs::canonicalize(d).ok())
-            .collect();
-        temp.sort();
-        temp.dedup();
+        LocalFiles::of(resolved(dirs))
+    }
+
+    /// The reader with `temp`, resolved, as the temporary directories.
+    fn of(temp: Arc<[PathBuf]>) -> LocalFiles {
         LocalFiles {
             temp,
             buf: Vec::new(),
@@ -434,6 +441,300 @@ impl crate::notify::PictureReader for LocalFiles {
         })
         .map(|()| out)
         .map_err(|why| format!("{why:?}"))
+    }
+}
+
+/// The temporary directories from this process's environment, unresolved.
+fn temp_dirs() -> Vec<PathBuf> {
+    let mut dirs = vec![PathBuf::from("/tmp"), PathBuf::from("/dev/shm")];
+    if let Some(t) = std::env::var_os("TMPDIR") {
+        dirs.push(PathBuf::from(t));
+    }
+    dirs.push(std::env::temp_dir());
+    dirs
+}
+
+/// `dirs` resolved, sorted and each once, those that do not resolve left
+/// out.
+fn resolved(dirs: &[PathBuf]) -> Arc<[PathBuf]> {
+    let mut temp: Vec<PathBuf> = dirs
+        .iter()
+        .filter_map(|d| std::fs::canonicalize(d).ok())
+        .collect();
+    temp.sort();
+    temp.dedup();
+    temp.into()
+}
+
+/// **The most file medium reads running at once in a process.** A window
+/// has one at most while its read is owed, and a read given up past its
+/// deadline keeps its place until its thread ends -- which, on a mount
+/// that never answers, it never does. Past it a file medium is refused at
+/// once, unread, with the one file error, and counted
+/// (`FileReader::refused`), for as long as those reads run; a `t=t` file
+/// refused there is never opened, so it is left where it is.
+pub const READERS: usize = 4;
+
+/// The pieces a read queues ahead of the terminal taking them.
+const QUEUE: usize = 4;
+
+/// The pieces one turn of the feeding thread hands the core: 4 MiB.
+const STEP: usize = 64;
+
+/// **What wakes the thread that feeds the terminal** when a read has a
+/// piece or its end for it.
+pub type Wake = Arc<dyn Fn() + Send + Sync>;
+
+/// **The file medium reads running**, counted against [`READERS`], and
+/// those refused at it.
+pub struct Running {
+    now: AtomicUsize,
+    refused: AtomicUsize,
+}
+
+impl Running {
+    pub const fn new() -> Running {
+        Running {
+            now: AtomicUsize::new(0),
+            refused: AtomicUsize::new(0),
+        }
+    }
+}
+
+/// The process's own count, which every [`FileReader::new`] shares.
+static PROCESS: Running = Running::new();
+
+/// A read's place among the [`READERS`], given back when its thread ends.
+struct Seat(&'static Running);
+
+impl Seat {
+    /// A place, if fewer than [`READERS`] reads run.
+    fn take(running: &'static Running) -> Option<Seat> {
+        let took = running
+            .now
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < READERS).then_some(n + 1)
+            });
+        match took {
+            Ok(_) => Some(Seat(running)),
+            Err(_) => {
+                running.refused.fetch_add(1, Ordering::AcqRel);
+                None
+            }
+        }
+    }
+}
+
+impl Drop for Seat {
+    fn drop(&mut self) {
+        self.0.now.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// How many file mediums were refused at [`READERS`].
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RefusedAtCap(usize);
+
+/// **The reader that runs off the thread feeding the terminal**: each read
+/// on a thread of its own, with every check [`LocalFiles`] makes, its
+/// pieces through a channel of [`QUEUE`] pieces, and the deletion `t=t`
+/// and the unlink `t=s` ask for made on that thread on every path -- read
+/// whole, refused, or given up by dropping its [`Reading`], when the next
+/// piece goes unsent and the read stops where it is.
+pub struct FileReader {
+    temp: Arc<[PathBuf]>,
+    running: &'static Running,
+    /// Run on the read's thread once the path is resolved, so a test can
+    /// hold the read there as a stalled mount does.
+    #[cfg(test)]
+    stall: Option<Stall>,
+}
+
+/// What a test runs where a read stalls.
+#[cfg(test)]
+pub type Stall = Arc<dyn Fn(&Path) + Send + Sync>;
+
+/// One piece of a read, or its end.
+enum Piece {
+    Bytes(Vec<u8>),
+    End(Result<(), KittyFileFailed>),
+}
+
+/// **A file medium's read under way**: dropped, its thread stops at its
+/// next piece, and a thread a stalled mount holds ends on its own.
+pub struct Reading {
+    rx: Option<Receiver<Piece>>,
+    ended: Option<Result<(), KittyFileFailed>>,
+}
+
+/// What a turn found of a [`Reading`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Took {
+    /// More is to come.
+    Running,
+    /// Read whole, or failed; or refused, its pieces past the refusal not
+    /// taken.
+    Ended(Result<(), KittyFileFailed>),
+}
+
+/// How much of what a read queued a turn takes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Drain {
+    /// [`STEP`] pieces at most.
+    Step,
+    /// Everything queued.
+    All,
+}
+
+impl FileReader {
+    /// The reader for this process's temporary directories, counted in
+    /// the process's [`READERS`].
+    pub fn new() -> FileReader {
+        FileReader {
+            temp: resolved(&temp_dirs()),
+            running: &PROCESS,
+            #[cfg(test)]
+            stall: None,
+        }
+    }
+
+    /// A reader with `dirs` as the temporary directories, counted in
+    /// `running`, a read held at `stall` once its path is resolved.
+    #[cfg(test)]
+    pub fn for_test(
+        dirs: &[PathBuf],
+        running: &'static Running,
+        stall: Option<Stall>,
+    ) -> FileReader {
+        FileReader {
+            temp: resolved(dirs),
+            running,
+            stall,
+        }
+    }
+
+    /// The file mediums refused at [`READERS`].
+    #[cfg(test)]
+    pub fn refused(&self) -> RefusedAtCap {
+        RefusedAtCap(self.running.refused.load(Ordering::Acquire))
+    }
+
+    /// **Start reading what `req` names** on a thread of its own, `wake`
+    /// called at each piece and at the end. Past [`READERS`], or with no
+    /// thread to be had, the read has already ended in the one file error,
+    /// nothing opened.
+    pub fn start(&self, req: &KittyFileRequest<'_>, wake: Option<Wake>) -> Reading {
+        let Some(seat) = Seat::take(self.running) else {
+            crate::warn!(
+                "kitty graphics: refused to read {:?} ({:?}): {READERS} reads still running, {} refused so far",
+                String::from_utf8_lossy(req.path),
+                req.medium,
+                self.running.refused.load(Ordering::Acquire)
+            );
+            return Reading::ended(Err(KittyFileFailed));
+        };
+        let (medium, offset, size, limit, past) =
+            (req.medium, req.offset, req.size, req.limit, req.past);
+        let path = req.path.to_vec();
+        let temp = self.temp.clone();
+        #[cfg(test)]
+        let stall = self.stall.clone();
+        let (tx, rx) = std::sync::mpsc::sync_channel(QUEUE);
+        let spawned = std::thread::Builder::new()
+            .name("kitty-file".into())
+            .spawn(move || {
+                let mut files = LocalFiles::of(temp);
+                #[cfg(test)]
+                if let Some(s) = stall {
+                    files.canonical = Some(Box::new(move |p: &Path| s(p)));
+                }
+                let req = KittyFileRequest {
+                    medium,
+                    path: &path,
+                    offset,
+                    size,
+                    limit,
+                    past,
+                };
+                let woken = |w: &Option<Wake>| {
+                    if let Some(w) = w {
+                        w();
+                    }
+                };
+                let mut sink = |b: &[u8]| {
+                    let sent = tx.send(Piece::Bytes(b.to_vec()));
+                    woken(&wake);
+                    match sent {
+                        Ok(()) => KittyFlow::More,
+                        Err(_) => KittyFlow::Stop,
+                    }
+                };
+                let read = files.read(&req, &mut sink);
+                // The place is given back before the end is told, so a
+                // read the end was taken from is no longer counted.
+                drop(seat);
+                let _ = tx.send(Piece::End(read));
+                woken(&wake);
+            });
+        match spawned {
+            Ok(_) => Reading {
+                rx: Some(rx),
+                ended: None,
+            },
+            Err(e) => {
+                crate::warn!("kitty graphics: no thread to read a file medium on: {e}");
+                Reading::ended(Err(KittyFileFailed))
+            }
+        }
+    }
+}
+
+impl Reading {
+    /// A read that ended before it began.
+    fn ended(read: Result<(), KittyFileFailed>) -> Reading {
+        Reading {
+            rx: None,
+            ended: Some(read),
+        }
+    }
+
+    /// **The pieces queued, to `piece`, in order, never waiting**: as
+    /// `drain` allows, and until `piece` refuses one, which ends the read
+    /// and lets its thread stop.
+    pub fn take(&mut self, drain: Drain, piece: &mut dyn FnMut(&[u8]) -> KittyFlow) -> Took {
+        if let Some(read) = self.ended {
+            return Took::Ended(read);
+        }
+        let mut left = match drain {
+            Drain::Step => STEP,
+            Drain::All => usize::MAX,
+        };
+        while left > 0 {
+            let got = match self.rx.as_ref() {
+                Some(rx) => rx.try_recv(),
+                None => Err(TryRecvError::Disconnected),
+            };
+            match got {
+                Ok(Piece::Bytes(b)) => {
+                    left -= 1;
+                    if piece(&b) == KittyFlow::Stop {
+                        return self.end(Ok(()));
+                    }
+                }
+                Ok(Piece::End(read)) => return self.end(read),
+                Err(TryRecvError::Empty) => return Took::Running,
+                Err(TryRecvError::Disconnected) => return self.end(Err(KittyFileFailed)),
+            }
+        }
+        Took::Running
+    }
+
+    /// The read ended in `read`, its channel let go.
+    fn end(&mut self, read: Result<(), KittyFileFailed>) -> Took {
+        self.rx = None;
+        self.ended = Some(read);
+        Took::Ended(read)
     }
 }
 
@@ -1413,5 +1714,165 @@ mod tests {
         d.put("tmp/kitty-tty-graphics-protocol-4057690545", &[1, 2, 3]);
         let own = replies_in_reads(d.files(), &burst(&path, 3), &[]);
         assert_eq!(String::from_utf8_lossy(&own), ok, "claimed at its size");
+    }
+
+    /// A count of the test's own, so no other test's reads fill it.
+    fn running() -> &'static Running {
+        Box::leak(Box::new(Running::new()))
+    }
+
+    /// **A stall a test holds**: a read of a path holding `marker` waits
+    /// once its path is resolved until the sender is dropped.
+    fn stall(marker: &'static str) -> (std::sync::mpsc::Sender<()>, Stall) {
+        let (release, gate) = std::sync::mpsc::channel::<()>();
+        let gate = std::sync::Mutex::new(gate);
+        let held: Stall = Arc::new(move |p: &Path| {
+            if contains(p.as_os_str().as_bytes(), marker.as_bytes()) {
+                let _ = gate.lock().unwrap().recv();
+            }
+        });
+        (release, held)
+    }
+
+    /// Wait for `running`'s reads to end; ten seconds only turn a hang into
+    /// a failure.
+    fn settled(running: &'static Running) {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while running.now.load(Ordering::Acquire) > 0 {
+            assert!(std::time::Instant::now() < end, "the reads never ended");
+            std::thread::yield_now();
+        }
+    }
+
+    /// `r` taken to its end, and what it handed over; ten seconds only
+    /// turn a hang into a failure.
+    fn finish(r: &mut Reading) -> (Took, Vec<u8>) {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut got = Vec::new();
+        loop {
+            let took = r.take(Drain::All, &mut |b| {
+                got.extend_from_slice(b);
+                KittyFlow::More
+            });
+            if took != Took::Running {
+                return (took, got);
+            }
+            assert!(std::time::Instant::now() < end, "the read never ended");
+            std::thread::yield_now();
+        }
+    }
+
+    /// **A read off the feed hands over what the reader reads**, and ends
+    /// in the one error where the reader refuses: a file, a missing one, a
+    /// FIFO, and a temporary file, deleted.
+    #[test]
+    fn a_read_off_the_feed_hands_over_what_the_reader_reads() {
+        let d = Dir::new();
+        let data: Vec<u8> = (0..200_000u32)
+            .map(|i| u8::try_from(i % 251).unwrap())
+            .collect();
+        let file = d.put("home/a.raw", &data);
+        let temp = d.put("tmp/tty-graphics-protocol-r", &data[..24]);
+        let fifo = d.at("home/fifo");
+        let made = std::process::Command::new("mkfifo").arg(&fifo).status();
+        assert!(made.unwrap().success(), "mkfifo");
+        let missing = d.at("home/missing");
+        let r = FileReader::for_test(&[d.at("tmp")], running(), None);
+        let mut big = r.start(&whole(KittyMedium::File, bytes_of(&file)), None);
+        assert_eq!(finish(&mut big), (Took::Ended(Ok(())), data.clone()));
+        let t = KittyFileRequest {
+            medium: KittyMedium::TempFile,
+            ..whole(KittyMedium::TempFile, bytes_of(&temp))
+        };
+        assert_eq!(
+            finish(&mut r.start(&t, None)),
+            (Took::Ended(Ok(())), data[..24].to_vec())
+        );
+        assert!(!temp.exists(), "t=t is deleted on the read's thread");
+        for p in [&missing, &fifo] {
+            let got = finish(&mut r.start(&whole(KittyMedium::File, bytes_of(p)), None));
+            assert_eq!(
+                got,
+                (Took::Ended(Err(KittyFileFailed)), Vec::new()),
+                "{p:?}"
+            );
+        }
+    }
+
+    /// **A read given up still cleans up**: a `t=t` file whose read a
+    /// stall holds, its `Reading` dropped, is deleted once the stall lets
+    /// the thread go on, and a `t=s` object whose `Reading` is dropped at
+    /// once is unlinked -- the thread stops at its next piece, unsent.
+    #[test]
+    fn a_reading_given_up_still_deletes_and_unlinks() {
+        let d = Dir::new();
+        let running = running();
+        let (release, held) = stall("tty-graphics-protocol-held");
+        let r = FileReader::for_test(&[d.at("tmp")], running, Some(held));
+        let temp = d.put("tmp/tty-graphics-protocol-held", &[5u8; 24]);
+        let t = KittyFileRequest {
+            medium: KittyMedium::TempFile,
+            ..whole(KittyMedium::TempFile, bytes_of(&temp))
+        };
+        let mut reading = r.start(&t, None);
+        assert_eq!(
+            reading.take(Drain::All, &mut |_| KittyFlow::More),
+            Took::Running,
+            "held"
+        );
+        drop(reading);
+        assert!(temp.exists(), "not read yet");
+        drop(release);
+        settled(running);
+        assert!(!temp.exists(), "deleted after its reading was dropped");
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let name = format!(
+            "/bkg{}-{}",
+            std::process::id() % 100_000,
+            N.fetch_add(1, Ordering::Relaxed)
+        );
+        make_shm(&name, &[9u8; 24]);
+        drop(r.start(&whole(KittyMedium::SharedMemory, name.as_bytes()), None));
+        settled(running);
+        assert!(!shm_exists(&name), "unlinked after its reading was dropped");
+    }
+
+    /// **Past [`READERS`] a file medium is refused at once, unread, and
+    /// counted**: with that many reads held by a stall, the next ends in
+    /// the one error before any thread runs, its `t=t` file not opened and
+    /// so not deleted; once the stalled reads end, it is read and deleted.
+    #[test]
+    fn past_the_readers_a_file_medium_is_refused_unread_and_counted() {
+        let d = Dir::new();
+        let running = running();
+        let (release, held) = stall("stalled");
+        let r = FileReader::for_test(&[d.at("tmp")], running, Some(held));
+        let stalled = d.put("home/stalled.raw", &[1u8; 24]);
+        let readings: Vec<Reading> = (0..READERS)
+            .map(|_| r.start(&whole(KittyMedium::File, bytes_of(&stalled)), None))
+            .collect();
+        assert_eq!(running.now.load(Ordering::Acquire), READERS);
+        let temp = d.put("tmp/tty-graphics-protocol-cap", &[3u8; 24]);
+        let t = KittyFileRequest {
+            medium: KittyMedium::TempFile,
+            ..whole(KittyMedium::TempFile, bytes_of(&temp))
+        };
+        let mut refused = r.start(&t, None);
+        assert_eq!(
+            refused.take(Drain::Step, &mut |_| KittyFlow::More),
+            Took::Ended(Err(KittyFileFailed)),
+            "refused at once"
+        );
+        assert_eq!(r.refused(), RefusedAtCap(1));
+        assert!(temp.exists(), "refused unopened, so not deleted");
+        drop(readings);
+        drop(release);
+        settled(running);
+        assert_eq!(
+            finish(&mut r.start(&t, None)),
+            (Took::Ended(Ok(())), vec![3u8; 24])
+        );
+        assert!(!temp.exists(), "read and deleted once a place is free");
+        assert_eq!(r.refused(), RefusedAtCap(1));
     }
 }

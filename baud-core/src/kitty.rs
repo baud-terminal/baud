@@ -56,18 +56,41 @@ impl Paint<'_, '_> {
     }
 
     /// The chunk's terminator: the command runs, and the cursor moves past
-    /// what it placed.
+    /// what it placed. **A file medium's read owed to the embedder**
+    /// ([`KittyMediums::Held`]) stops the read here, the command waiting
+    /// for [`Term::kitty_file_end`] before the rest is parsed.
     #[cold]
     #[inline(never)]
-    pub(crate) fn kitty_end(&mut self) {
+    pub(crate) fn kitty_end(&mut self, node: &mut crate::graph::Node) {
         let at = self.kitty_at();
         if self.strs.kitty.wants_drawn(self.images) {
             self.kitty_mark_drawn(&at);
         }
         let s = &mut *self.strs;
         let moved = s.kitty.end(&at, self.images, s.kitty_scratch);
+        let owed = s.kitty.file_owed();
         // A placement text later in this read may land on (`Paint::hooks`),
         // as after each call above that hands the stream the store.
+        self.rehook();
+        self.kitty_replies();
+        if let Some(m) = moved {
+            self.kitty_move(m);
+        }
+        if owed == KittyFileOwed::Yes {
+            self.hold_read(node);
+        }
+    }
+
+    /// **The owed file read's end**, outside a read: the command runs
+    /// where the terminal is now, as one parsed at this moment would, and
+    /// the cursor moves past what it placed.
+    fn kitty_file_done(&mut self, read: Result<(), KittyFileFailed>) {
+        let at = self.kitty_at();
+        if self.strs.kitty.wants_drawn(self.images) {
+            self.kitty_mark_drawn(&at);
+        }
+        let s = &mut *self.strs;
+        let moved = s.kitty.file_end(read, &at, self.images, s.kitty_scratch);
         self.rehook();
         self.kitty_replies();
         if let Some(m) = moved {
@@ -233,6 +256,82 @@ impl Term<'_> {
     /// (`lent::Screen` in baud-app).
     pub fn set_kitty_files(&mut self, files: &'static mut dyn KittyFiles) {
         self.store.strs.kitty.set_files(files);
+    }
+
+    /// **Read the file mediums off the parse** ([`KittyMediums::Held`]):
+    /// from here a `t=f`, `t=t` or `t=s` terminator stops the read
+    /// ([`Term::take_held`]) with the command owed, its reply and placement
+    /// not yet made, and no lent reader is called. The embedder reads
+    /// [`Term::kitty_file_asked`] where it likes, hands the bytes to
+    /// [`Term::kitty_file_piece`] and the read's end to
+    /// [`Term::kitty_file_end`], and then feeds the rest: "reply to query
+    /// actions immediately without processing other input"
+    /// (`[[source: kitty-graphics]]`, "Querying support") holds, since no
+    /// byte after the terminator is parsed before the reply. An embedder
+    /// setting, which `RIS` keeps.
+    pub fn hold_kitty_files(&mut self) {
+        self.store.strs.kitty.hold_files();
+    }
+
+    /// **What the owed file read is to read**: the medium, the path, `O`,
+    /// `S` and the most bytes the transmission can use, as a lent reader
+    /// is asked them. None while no read is owed.
+    pub fn kitty_file_asked(&self) -> Option<KittyFileRequest<'_>> {
+        let s = &self.store.strs;
+        s.kitty.file_asked(&s.kitty_scratch[..])
+    }
+
+    /// **The owed file read's next bytes**, in order: [`KittyFlow::Stop`]
+    /// once the transmission is refused, when the rest need not be read,
+    /// and while no read is owed.
+    pub fn kitty_file_piece(&mut self, bytes: &[u8]) -> KittyFlow {
+        let s = &mut self.store.strs;
+        s.kitty
+            .file_piece(bytes, &mut self.store.images, s.kitty_scratch)
+    }
+
+    /// **The owed file read ended**, read whole or failed: the command
+    /// runs -- the one file error for a failure, else the image replied
+    /// and placed at the cursor as it is now -- and the reply is in
+    /// [`Term::reply`]. Nothing while no read is owed. The rest of the
+    /// read [`Term::take_held`] handed out is fed after this.
+    pub fn kitty_file_end(&mut self, read: Result<(), KittyFileFailed>) {
+        if self.store.strs.kitty.file_owed() == KittyFileOwed::No {
+            return;
+        }
+        let mut p = crate::paint::Paint::new(
+            &mut self.store,
+            self.cy,
+            self.cx,
+            self.rows,
+            self.cols,
+            self.cell_height,
+            self.cell_width,
+            self.rot,
+            self.style,
+            self.style_raw,
+            self.flags,
+            self.charset,
+            self.cluster,
+            self.last_cp,
+            &mut self.cold,
+            self.title_len,
+            self.icon_len,
+            self.link,
+        );
+        p.kitty_file_done(read);
+        self.cy = p.cy;
+        self.cx = p.cx;
+        let rots = (p.view.rot(), p.other.rot());
+        self.cells_written += p.cells.index();
+        p.strs.link_book.read_ends(p.cells, ReadLen::ZERO);
+        drop(p);
+        self.set_rots(rots);
+    }
+
+    /// Whether a file medium's read is owed to the embedder.
+    pub fn kitty_file_owed(&self) -> KittyFileOwed {
+        self.store.strs.kitty.file_owed()
     }
 
     /// **Lend the way freed image pages go back to the operating system**
