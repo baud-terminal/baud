@@ -1727,6 +1727,9 @@ pub struct ImageStore<'b> {
     /// overwrite check (does this write land on an image, so free it) costs
     /// one comparison on the common path where no image is on screen.
     placed: usize,
+    /// How many of them are on each screen, by [`ImageScreen::slot`]
+    /// ([`ImageStore::any_placed_on`]).
+    placed_on: [usize; 2],
     /// **One past the highest placement slot that can be live**: every
     /// slot at or above it is free, so every walk of the table stops here
     /// and costs the placements a client made, not the table's length. A
@@ -1868,6 +1871,7 @@ impl<'b> ImageStore<'b> {
             epoch: ImageGen::ZERO,
             stored: ImageAge::ZERO,
             placed: 0,
+            placed_on: [0; 2],
             live: 0,
             free_from: 0,
             local_placed: 0,
@@ -3151,6 +3155,10 @@ impl<'b> ImageStore<'b> {
                 continue;
             }
             if let Some((screen, line, col, oc, ol)) = self.kitty_anchor(s.kitty.parent) {
+                if s.screen != screen {
+                    self.placed_on[s.screen.slot()] -= 1;
+                    self.placed_on[screen.slot()] += 1;
+                }
                 let t = &mut self.placements[q];
                 t.screen = screen;
                 t.line = line;
@@ -3412,6 +3420,7 @@ impl<'b> ImageStore<'b> {
         };
         self.slots[i].placements = Count::of(self.slots[i].placements.index() + 1);
         self.placed += 1;
+        self.placed_on[screen.slot()] += 1;
         self.live = self.live.max(p + 1);
         self.free_from = p + 1;
         if matches!(
@@ -3923,8 +3932,8 @@ impl<'b> ImageStore<'b> {
     /// Forget every image and placement. `RIS`, not a clear -- an image is
     /// content a program may redraw over, and a placement outliving one erase
     /// is the correct behaviour, the link-table call. Leaving the alternate
-    /// screen drops only that screen's, through
-    /// [`ImageStore::expire_screen`].
+    /// screen drops only that screen's placements, its kitty placements
+    /// apart, through [`ImageStore::expire_screen`].
     pub fn reset(&mut self) {
         for i in 0..self.slots.len() {
             if !self.slots[i].is_empty() {
@@ -3936,6 +3945,7 @@ impl<'b> ImageStore<'b> {
             self.placements[p] = PlacementSlot::EMPTY;
         }
         self.placed = 0;
+        self.placed_on = [0; 2];
         self.live = 0;
         self.free_from = 0;
         self.local_placed = 0;
@@ -3954,6 +3964,12 @@ impl<'b> ImageStore<'b> {
     /// overwrite check, so a stream with no image on screen pays one compare.
     pub fn any_placed(&self) -> bool {
         self.placed > 0
+    }
+
+    /// Whether any placement is live on `screen`, one kept below it
+    /// included.
+    pub fn any_placed_on(&self, screen: ImageScreen) -> bool {
+        self.placed > 0 && self.placed_on[screen.slot()] > 0
     }
 
     /// The whole arena, in pixels: the most any one image can hold, which
@@ -4061,13 +4077,25 @@ impl<'b> ImageStore<'b> {
         n
     }
 
-    /// Drop every placement on `screen`, counted as expired: the alternate
-    /// screen being left, whose rows go with it, a kitty picture kept below
-    /// it included.
+    /// **Drop every placement on `screen` but a kitty picture's**, each
+    /// counted as expired: the alternate screen being left. A Sixel's, a
+    /// ReGIS page's, an iTerm image's and an embedder's go with the
+    /// screen; a kitty placement stays with it, one kept below it
+    /// included, drawn again when the screen is up again, as the screen
+    /// keeps its text.
     pub fn expire_screen(&mut self, screen: ImageScreen) -> usize {
+        let mut n = 0;
+        for p in 0..self.live {
+            let s = self.placements[p];
+            if s.is_empty() || s.screen != screen || self.is_kitty(s) {
+                continue;
+            }
+            self.unplace(PlacementId::from_index(p));
+            self.placements_expired += 1;
+            n += 1;
+        }
         self.rescan(screen);
-        let none = LineIdx::FIRST;
-        self.expire(screen, none, none, None, BelowWindow::Goes)
+        n
     }
 
     /// **Move `screen`'s placements with rows that moved inside a band**:
@@ -4978,6 +5006,8 @@ impl<'b> ImageStore<'b> {
         if self.placements[p].kitty.parent.is_relative() {
             self.relatives = self.relatives.saturating_sub(1);
         }
+        let on = &mut self.placed_on[self.placements[p].screen.slot()];
+        *on = on.saturating_sub(1);
         self.index_remove(p);
         self.placements[p] = PlacementSlot::EMPTY;
         self.placed = self.placed.saturating_sub(1);

@@ -1283,12 +1283,15 @@ fn a_decode_whose_image_was_cleared_frees_nothing_else() {
         settle(t, &mut r);
         assert_eq!(visible(t), vec![(1, 1)], "the embedder's image survives");
     });
-    // A nameless image whose screen is left goes with it, the same way.
+    // A nameless image the alternate screen keeps when it is left goes
+    // with the clear of the next `?1049 h`, the same way.
     with(4096, |t| {
         let mut r = Vec::new();
         feed(t, b"\x1b[?1049h", &mut r);
         feed(t, &apc("a=T,f=100", &b64(&p)), &mut r);
         feed(t, b"\x1b[?1049l", &mut r);
+        assert_eq!(t.images().placements().count(), 1, "kept with its screen");
+        feed(t, b"\x1b[?1049h\x1b[?1049l", &mut r);
         feed(t, SIXEL, &mut r);
         settle(t, &mut r);
         assert_eq!(visible(t), vec![(2, 12)], "the Sixel survives");
@@ -1914,45 +1917,94 @@ fn a_resize_to_the_same_size_keeps_a_picture_below_the_alternate_screen() {
     });
 }
 
-/// **Leaving the alternate screen takes its kitty pictures, one kept below
-/// it included**, by `?1049 l`, `?47 l` and `?1047 l` alike, each
-/// counted, and nothing comes back on a return and a line feed: the
-/// editor's images go with the editor's screen. Kitty keeps them with
-/// the screen's text, so its `?47 h` shows them again
-/// (`screen_toggle_screen_buffer()` in `[[source: kitty-screen-c]]`), the
-/// open in docs/vt-coverage.md's `APC G a=p` row.
+/// **Leaving the alternate screen keeps its kitty pictures with it**, one
+/// kept below it included, by `?1049 l`, `?47 l` and `?1047 l`'s switch
+/// alike: each screen keeps its own pictures, and a switch changes which
+/// screen's pictures are live and deletes nothing.
+/// So `?47 h` and `?1047 h`, which show the text as it was left, show
+/// the pictures over it again, the one below the screen included, which
+/// a line feed at the bottom brings back; after that line feed, a second
+/// trip shows them on the rows it left them on. `?1049 h` clears the screen on
+/// entry and `?1047 l` before it leaves, and each clear takes the
+/// pictures as `ED 2` does. The primary's picture is drawn where it
+/// was throughout, and is the only one drawn while the primary is up.
+/// Nothing is counted as expired.
 #[test]
-fn leaving_the_alternate_screen_takes_its_kitty_pictures_one_kept_below_too() {
-    let trips: [(&[u8], &[u8]); 3] = [
-        (b"\x1b[?1049l", b"\x1b[?1049h"),
-        (b"\x1b[?47l", b"\x1b[?47h"),
-        (b"\x1b[?1047l", b"\x1b[?1047h"),
+fn leaving_the_alternate_screen_keeps_its_kitty_pictures_with_it() {
+    let trips: [(&[u8], &[u8], bool); 5] = [
+        (b"\x1b[?1049l", b"\x1b[?47h", true),
+        (b"\x1b[?47l", b"\x1b[?47h", true),
+        (b"\x1b[?47l", b"\x1b[?1047h", true),
+        (b"\x1b[?1047l", b"\x1b[?47h", false),
+        (b"\x1b[?47l", b"\x1b[?1049h", false),
     ];
-    for (leave, back) in trips {
+    for (leave, back, kept) in trips {
         with_history(4096, |t| {
             let mut r = Vec::new();
+            feed(t, b"\x1b[3;1H", &mut r);
+            feed(
+                t,
+                &apc("a=T,f=24,s=10,v=20,i=2,q=2,C=1", &b64(&[9u8; 600])),
+                &mut r,
+            );
+            assert_eq!(live_rows(t), (vec![2], 1), "the primary's picture");
             push_below(t, b"\x1b[?47h", &mut r);
             feed(t, b"\x1b[5;1H", &mut r);
             feed(t, &apc("a=p,i=1,p=3,q=2,C=1", b""), &mut r);
-            assert_eq!(live_rows(t), (vec![4, 24], 2), "the premise");
+            assert_eq!(live_rows(t), (vec![4, 24], 3), "the premise");
             let trip = String::from_utf8_lossy(&[leave, back].concat()).into_owned();
             let expired = t.images().placements_expired;
+            let stored = match kept {
+                true => 3,
+                false => 1,
+            };
             feed(t, leave, &mut r);
-            assert_eq!(live_rows(t), (vec![], 0), "{trip:?}: gone with the screen");
-            let counted = match leave == b"\x1b[?1047l" {
-                // `?1047 l` clears first, as `ED 2` does, and the clear's
-                // deletes are not expiries.
-                true => 0,
-                false => 2,
+            let left = match leave == b"\x1b[?1047l" {
+                true => 1,
+                false => 3,
             };
             assert_eq!(
-                t.images().placements_expired,
-                expired + counted,
-                "{trip:?}: counted"
+                live_rows(t),
+                (vec![2], left),
+                "{trip:?}: the primary's alone drawn, the screen's kept"
             );
             feed(t, back, &mut r);
+            let shown = match kept {
+                true => vec![4, 24],
+                false => vec![],
+            };
+            assert_eq!(
+                live_rows(t),
+                (shown, stored),
+                "{trip:?}: back with the screen"
+            );
             feed(t, b"\x1b[24;1H\n", &mut r);
-            assert_eq!(live_rows(t), (vec![], 0), "{trip:?}: nothing back");
+            let moved = match kept {
+                true => vec![3, 23],
+                false => vec![],
+            };
+            assert_eq!(
+                live_rows(t),
+                (moved.clone(), stored),
+                "{trip:?}: a line feed brings the one below back"
+            );
+            feed(t, b"\x1b[?47l", &mut r);
+            assert_eq!(
+                live_rows(t),
+                (vec![2], stored),
+                "{trip:?}: the primary's where it was"
+            );
+            feed(t, b"\x1b[?47h", &mut r);
+            assert_eq!(
+                live_rows(t),
+                (moved, stored),
+                "{trip:?}: back on the rows the line feed left them on"
+            );
+            assert_eq!(
+                t.images().placements_expired,
+                expired,
+                "{trip:?}: nothing expired"
+            );
         });
     }
 }

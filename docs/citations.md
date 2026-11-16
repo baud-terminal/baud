@@ -2781,7 +2781,7 @@ foot 1.21.0, csi.c -- the 47/1047/1049 switch between the normal and alternate g
 - **sha256:** `45e1a839714c7670bd6a1a924dd8e8d8e8e55916f10f9aaf17c8a558a542d969` (73284 bytes)
 - **Copy:** [docs/research/sources/foot-csi.c](research/sources/foot-csi.c)
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/src/ops.rs`, `baud-domain/src/vt/charset.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-domain/src/vt/charset.rs`, `docs/vt-coverage.md`
 
 <a id="foot-csi-2027"></a>
 ### foot-csi-2027
@@ -12244,7 +12244,7 @@ xterm 411, graphics.c -- scroll\_displayed\_graphics, and the slot a new graphic
 - **sha256:** `447846c4a6120d24962f97b653538794df888a88b25b4c74a1c5ac5a5d0019c0` (51358 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/src/sixel.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/line_rendition.rs`, `baud-domain/src/image.rs`, `baud-domain/src/sixel.rs`, `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-core/src/sixel.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/line_rendition.rs`, `baud-domain/src/image.rs`, `baud-domain/src/sixel.rs`, `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
 
 <a id="xterm-graphics-regis"></a>
 ### xterm-graphics-regis

@@ -5379,10 +5379,15 @@ impl Paint<'_, '_> {
                     }
                     self.record_rows(self.cy, self.cy);
                 }
-                // Its image numbering starts again with the screen. No image
-                // can be on it: leaving is the only way off it, and leaving
-                // deletes them.
-                self.book.alt_top = LineIdx::FIRST;
+                // **Its image numbering starts again with the screen while
+                // no picture is on it.** A kitty picture the screen kept
+                // when it was left is anchored in the numbering it was left
+                // with, so that numbering stays, and the picture comes back
+                // on the row it was on. `?1049`'s clear above has taken
+                // every picture by here.
+                if !self.images.any_placed_on(ImageScreen::Alternate) {
+                    self.book.alt_top = LineIdx::FIRST;
+                }
             }
             (false, Screen::Alternate) => {
                 // **`?1047 l` clears the alternate screen before it leaves**,
@@ -5397,16 +5402,15 @@ impl Paint<'_, '_> {
                 }
                 #[cfg(feature = "read-record")]
                 self.record_rows(self.cy, self.cy);
-                // **The editor's images go with the editor's screen**, a
-                // kitty picture kept below it included. foot deletes its
-                // Sixels here (`[[source: foot-csi]]`), and also clears the
-                // alternate screen's text on every entry; kitty, xterm and
-                // ghostty keep each screen's pictures with it, so their
-                // `?47 h` shows them again, where baud's shows the text
-                // without them: `screen_toggle_screen_buffer()` in
-                // `[[source: kitty-screen-c]]`, a graphic's `bufferid` in
-                // `[[source: xterm-graphics-c]]`, and `switchScreen` in
-                // `[[source: ghostty-d9840f3-terminal]]`.
+                // **A kitty picture stays with the screen it is on**, one
+                // kept below it included: the screen keeps a set of
+                // pictures as it keeps its text, and a switch changes which
+                // set is drawn and deletes none of them
+                // (`screen_toggle_screen_buffer()` in
+                // `[[source: kitty-screen-c]]`), so the next `?47 h` or
+                // `?1047 h` shows them again over the text it shows. A
+                // Sixel's, a ReGIS page's, an iTerm image's and an
+                // embedder's go here, each counted as expired.
                 if self.images.any_placed() {
                     self.images.expire_screen(ImageScreen::Alternate);
                 }

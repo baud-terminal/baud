@@ -197,7 +197,8 @@ fn an_image_still_placed_keeps_its_pages() {
 
 /// **Every way an image is freed gives its pages back**: a delete, the
 /// delete of an image only a virtual placement held, an eviction for
-/// space, `RIS`, `ED 2`, and its screen being left. Each
+/// space, `RIS`, `ED 2`, and the clear of the alternate screen it was
+/// kept on when the screen was left. Each
 /// starts from a placed 64x4 image (1024 bytes, at least fifteen whole
 /// double pages) and counts what went back.
 #[test]
@@ -227,16 +228,17 @@ fn every_free_gives_its_pages_back() {
         ("eviction", b"", &evicting, 512),
         ("RIS", &placed, b"\x1bc", 4096),
         ("ED 2", &placed, b"\x1b[2J", 4096),
-        ("leaving the alternate screen", b"", b"", 4096),
+        ("the alternate screen's next clear", b"", b"", 4096),
     ];
     for (what, setup, act, arena) in cases {
         let mut owned = Owned::new(&WS).with_images(ImageBudget::of(arena));
         let mut t = term(&mut owned, Lend::Yes);
         let (setup, act): (Vec<u8>, Vec<u8>) = match what {
-            "leaving the alternate screen" => {
+            "the alternate screen's next clear" => {
                 let mut s = b"\x1b[?1049h".to_vec();
                 s.extend(&unnamed);
-                (s, b"\x1b[?1049l".to_vec())
+                s.extend(b"\x1b[?1049l");
+                (s, b"\x1b[?1049h".to_vec())
             }
             _ => (setup.to_vec(), act.to_vec()),
         };
