@@ -244,6 +244,16 @@ pub enum ConfigureBounds {
     Never,
 }
 
+/// **The window's frames as the compositor accounted for them**: each
+/// `wp_presentation_feedback` ends in one `presented` or one `discarded`,
+/// and these count them, so a reader that looks once a turn can tell how
+/// many it did not see.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Frames {
+    pub presented: Count,
+    pub discarded: Count,
+}
+
 /// How the compositor last configured the toplevel, from the states its
 /// `xdg_toplevel.configure` carries (`[[source: wp-xdg-shell]]`, the
 /// `state` enum): full screen, where "the window geometry specified in the
@@ -489,6 +499,10 @@ pub struct Window {
     /// compositor said it showed (`timing.rs`).
     clock: Option<ClockId>,
     presented: Option<Presentation>,
+    /// Every `presented` and `discarded` the compositor has sent of this
+    /// window's frames, for a reader that counts frames between turns
+    /// ([`Window::frames`]).
+    frames: Frames,
     /// The feedback object of the last frame committed, until the
     /// compositor says it showed or discarded it, and the refresh it could
     /// first reach where that was known when it was committed: a frame
@@ -613,6 +627,7 @@ impl Window {
             callback: None,
             clock: None,
             presented: None,
+            frames: Frames::default(),
             unseen: None,
             fifo: None,
             timer: None,
@@ -1989,6 +2004,12 @@ impl Window {
         self.presented
     }
 
+    /// How many of the window's frames the compositor has said it presented
+    /// and discarded, from the window's first frame on.
+    pub fn frames(&self) -> Frames {
+        self.frames
+    }
+
     /// The rows the last frame shown copied into its buffer: what it
     /// changed and what the buffer had missed, none when it changed nothing.
     pub fn rows_copied(&self) -> Px {
@@ -2741,6 +2762,7 @@ impl Handler for Window {
                     ..,
                 ],
             ) => {
+                self.frames.presented.0 += 1;
                 if self.unseen.is_some_and(|(fb, _)| fb == ev.object) {
                     self.unseen = None;
                 }
@@ -2754,10 +2776,11 @@ impl Handler for Window {
                 }
             }
             // A frame not shown holds no refresh.
-            ("wp_presentation_feedback", "discarded", _)
-                if self.unseen.is_some_and(|(fb, _)| fb == ev.object) =>
-            {
-                self.unseen = None;
+            ("wp_presentation_feedback", "discarded", _) => {
+                self.frames.discarded.0 += 1;
+                if self.unseen.is_some_and(|(fb, _)| fb == ev.object) {
+                    self.unseen = None;
+                }
             }
             // The token asked for: `activate` with it, and the token's
             // object let go -- "The received token stays valid".

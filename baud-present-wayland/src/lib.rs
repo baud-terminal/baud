@@ -45,6 +45,6 @@ pub use scale::BufferScale;
 pub use shm::{Pool, Px};
 pub use timing::{ClockId, Presentation, Stamp, Unseen};
 pub use window::{
-    Activated, ConfigureBounds, DmabufShown, Event, OutputPx, Presented, Resize, Rung, Shaped,
-    Shown, Tearing, Toggle, Window,
+    Activated, ConfigureBounds, DmabufShown, Event, Frames, OutputPx, Presented, Resize, Rung,
+    Shaped, Shown, Tearing, Toggle, Window,
 };

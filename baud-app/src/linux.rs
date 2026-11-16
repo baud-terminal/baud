@@ -462,6 +462,9 @@ struct Driver {
     /// when `wp_presentation` says its frame turned into light.
     latency: crate::latency::Latency,
     last_presented: Option<baud_present_wayland::Stamp>,
+    /// The presented-frame log, on under `BAUD_PRESENTED=1`
+    /// ([`PresentedLog`]).
+    presented_log: PresentedLog,
     /// Whether a link's window is held open after its program failed
     /// (`held.rs`), with its line, until a key closes it.
     holding: crate::held::Holding,
@@ -919,6 +922,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         report: crate::report::Polled::new(Instant::now(), crate::report::Logged::now()),
         latency: crate::latency::Latency::from_env(),
         last_presented: None,
+        presented_log: PresentedLog::from_env(),
         holding: crate::held::Holding::No,
         quit: Quit::No,
     };
@@ -1371,6 +1375,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         d.present();
         // The frames the compositor has shown up to now, for the instrument.
         d.presentation_tick();
+        d.log_presented();
         if let Err(e) = d.conn.flush() {
             crate::warn!("wayland: {e}");
             break 'run;
@@ -3057,6 +3062,20 @@ impl Driver {
             .tick(|| Some(baud_domain::HostTime::of_nanos(at)));
     }
 
+    /// **A line for each turn in which the compositor accounted for
+    /// frames**, under `BAUD_PRESENTED=1`: nothing is read with it off.
+    fn log_presented(&mut self) {
+        let PresentedLog::On(seen) = &mut self.presented_log else {
+            return;
+        };
+        let now = self.window.frames();
+        if now == *seen {
+            return;
+        }
+        *seen = now;
+        eprintln!("{}", presented_line(self.window.presented(), now));
+    }
+
     fn route_key(&mut self, route: crate::pressed::Route) {
         // A key takes a copy's words down, and still goes on (`copied.rs`).
         if route.typed() && self.copied.dismiss() == crate::copied::Owes::Frame {
@@ -4272,9 +4291,83 @@ fn program_copy(
     took
 }
 
+/// **The presented-frame log** (`BAUD_PRESENTED=1`): a line on stderr each
+/// turn the compositor has said it presented or discarded a frame after
+/// the last, for a pacing check on a compositor whose own log cannot be
+/// read. Off, nothing is read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PresentedLog {
+    Off,
+    /// The counts the last line gave.
+    On(baud_present_wayland::Frames),
+}
+
+impl PresentedLog {
+    fn from_env() -> PresentedLog {
+        match std::env::var("BAUD_PRESENTED").as_deref() {
+            Ok("1") => PresentedLog::On(baud_present_wayland::Frames::default()),
+            _ => PresentedLog::Off,
+        }
+    }
+}
+
+/// `presented: at=<ns> refresh=<ns> presented=<n> discarded=<n>`: the
+/// latest frame's stamp on the presentation clock and the refresh it
+/// predicts (0 where the compositor predicts none), and the frames the
+/// compositor has accounted for so far, so frames presented within one
+/// turn are counted though only the last is stamped. `at=None` before a
+/// frame has been presented.
+fn presented_line(
+    p: Option<baud_present_wayland::Presentation>,
+    f: baud_present_wayland::Frames,
+) -> String {
+    let (at, refresh) = match p {
+        Some(p) => (
+            p.at.0.as_nanos().to_string(),
+            p.refresh.as_nanos().to_string(),
+        ),
+        None => ("None".to_string(), "None".to_string()),
+    };
+    format!(
+        "presented: at={at} refresh={refresh} presented={} discarded={}",
+        f.presented.0, f.discarded.0
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A presented line gives the latest stamp, the refresh and the counts**,
+    /// so a reader can tell frames presented within one turn; before any
+    /// frame, the stamp is `None`.
+    #[test]
+    fn a_presented_line_carries_the_stamp_and_the_counts() {
+        use baud_present_wayland::dmabuf::Count;
+        use baud_present_wayland::{ClockId, Frames, Presentation, Stamp};
+        let f = Frames {
+            presented: Count(7),
+            discarded: Count(1),
+        };
+        let p = Presentation {
+            clock: ClockId(1),
+            at: Stamp(std::time::Duration::new(2, 5)),
+            refresh: std::time::Duration::from_nanos(4_166_822),
+        };
+        assert_eq!(
+            presented_line(Some(p), f),
+            "presented: at=2000000005 refresh=4166822 presented=7 discarded=1"
+        );
+        assert_eq!(
+            presented_line(None, Frames::default()),
+            "presented: at=None refresh=None presented=0 discarded=0"
+        );
+        assert_eq!(
+            PresentedLog::from_env(),
+            PresentedLog::Off,
+            "off unless asked"
+        );
+    }
 
     /// **The wait ends at once while the window holds events read
     /// already**: with no deadline and with one five seconds out, events

@@ -659,6 +659,9 @@ fn print_header(args: &Args, arms: &[(String, String)], window: Ms) -> Quotable 
             .take(2)
             .map(str::to_string)
             .collect(),
+        // No pmset: on Linux the kernel's power supplies say it
+        // ([`linux_power`]), in the words the check below reads.
+        Err(_) if cfg!(target_os = "linux") => vec![linux_power(&power_supplies())],
         Err(_) => vec!["pmset: unavailable".to_string()],
     };
     for line in &pm {
@@ -958,4 +961,97 @@ pub fn sweep(args: &Args) -> Result<i32, String> {
         return Ok(1);
     }
     Ok(0)
+}
+/// One power supply as `/sys/class/power_supply/<name>` gives it: its
+/// `type`, `online` and `status`, each trimmed, empty where absent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Supply {
+    pub kind: String,
+    pub online: String,
+    pub status: String,
+}
+
+/// Every power supply the kernel lists, in name order.
+fn power_supplies() -> Vec<Supply> {
+    let read = |p: &Path| {
+        std::fs::read_to_string(p)
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default()
+    };
+    let mut dirs: Vec<_> = std::fs::read_dir("/sys/class/power_supply")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    dirs.sort();
+    dirs.iter()
+        .map(|d| Supply {
+            kind: read(&d.join("type")),
+            online: read(&d.join("online")),
+            status: read(&d.join("status")),
+        })
+        .collect()
+}
+
+/// **The power line on Linux, in the words the quotable check reads**:
+/// "Battery Power" when a battery is discharging, "AC Power" when a mains
+/// supply is online or there is no battery at all (a desktop), and neither
+/// otherwise, which is not quotable.
+pub fn linux_power(supplies: &[Supply]) -> String {
+    let battery = |s: &&Supply| s.kind == "Battery";
+    if supplies
+        .iter()
+        .filter(battery)
+        .any(|s| s.status == "Discharging")
+    {
+        return "Battery Power (a battery is discharging)".to_string();
+    }
+    if supplies
+        .iter()
+        .any(|s| s.kind == "Mains" && s.online == "1")
+    {
+        return "AC Power (a mains supply is online)".to_string();
+    }
+    if !supplies.iter().any(|s| battery(&s)) {
+        return "AC Power (no battery: a desktop on mains)".to_string();
+    }
+    "power source unknown (a battery, and no mains supply online)".to_string()
+}
+
+#[cfg(test)]
+mod power_tests {
+    use super::*;
+
+    fn s(kind: &str, online: &str, status: &str) -> Supply {
+        Supply {
+            kind: kind.into(),
+            online: online.into(),
+            status: status.into(),
+        }
+    }
+
+    /// **The Linux power line says what the quotable check reads**: a
+    /// discharging battery is battery power, a mains supply online or no
+    /// battery at all is AC, and a battery with no mains online is neither.
+    #[test]
+    fn linux_power_reads_the_supplies() {
+        assert!(
+            linux_power(&[]).starts_with("AC Power"),
+            "a desktop with no supply listed"
+        );
+        assert!(
+            linux_power(&[s("Mains", "1", ""), s("Battery", "", "Charging")])
+                .starts_with("AC Power")
+        );
+        assert!(
+            linux_power(&[s("Mains", "0", ""), s("Battery", "", "Discharging")])
+                .starts_with("Battery Power")
+        );
+        let neither = linux_power(&[s("Mains", "0", ""), s("Battery", "", "Full")]);
+        assert!(
+            !neither.contains("AC Power") && !neither.contains("Battery Power"),
+            "{neither}"
+        );
+    }
 }
