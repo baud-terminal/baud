@@ -71,7 +71,7 @@ fn the_standard_material_over_black_and_white_within_the_window() {
         MTLTextureUsage,
     };
     use objc2_quartz_core::{
-        CACurrentMediaTime, CARenderer, CATransaction, kCARendererMetalCommandQueue,
+        CACurrentMediaTime, CALayer, CARenderer, CATransaction, kCARendererMetalCommandQueue,
     };
     use std::ffi::c_void;
     use std::ptr::NonNull;
@@ -81,35 +81,11 @@ fn the_standard_material_over_black_and_white_within_the_window() {
     let queue = device.newCommandQueue().expect("a command queue");
     let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(SIDE_PT, SIDE_PT));
 
-    // One render of `grey` with the material over it (or hidden), under
-    // `dark` or light; the centre texel, as (red, green, blue).
-    let render = |grey: f64, dark: bool, shown: bool| -> (u8, u8, u8) {
-        let page = NSView::initWithFrame(NSView::alloc(mtm), frame);
-        page.setWantsLayer(true);
-        let base = page.layer().expect("a layer-backed view has a layer");
-        base.setBackgroundColor(Some(&CGColor::new_generic_gray(grey, 1.0)));
-        let material = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), frame);
-        material.setMaterial(NSVisualEffectMaterial::UnderWindowBackground);
-        material.setBlendingMode(NSVisualEffectBlendingMode::WithinWindow);
-        material.setState(NSVisualEffectState::Active);
-        // SAFETY: the two names are AppKit's constants, read once.
-        let name = unsafe {
-            if dark {
-                NSAppearanceNameDarkAqua
-            } else {
-                NSAppearanceNameAqua
-            }
-        };
-        let look = NSAppearance::appearanceNamed(name).expect("a named system appearance");
-        material.setAppearance(Some(&look));
-        page.setAppearance(Some(&look));
-        material.setWantsLayer(true);
-        material.setHidden(!shown);
-        page.addSubview(&material);
-        page.layoutSubtreeIfNeeded();
-        page.displayIfNeeded();
-        CATransaction::flush();
-
+    // The centre texel of one offscreen render of `layer`, as (red, green,
+    // blue). The layer is handed to the renderer inside a transaction that
+    // is committed and flushed before the frame begins, so the frame reads
+    // the tree as set.
+    let draw = |layer: &CALayer| -> (u8, u8, u8) {
         // SAFETY: the descriptor constructor takes plain values.
         let desc = unsafe {
             MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
@@ -134,8 +110,11 @@ fn the_standard_material_over_black_and_white_within_the_window() {
         // texture's device.
         let renderer =
             unsafe { CARenderer::rendererWithMTLTexture_options(&texture, Some(&options)) };
-        renderer.setLayer(Some(&base));
+        CATransaction::begin();
+        renderer.setLayer(Some(layer));
         renderer.setBounds(frame);
+        CATransaction::commit();
+        CATransaction::flush();
         // SAFETY: a null timestamp is the documented "none given".
         unsafe { renderer.beginFrameAtTime_timeStamp(CACurrentMediaTime(), std::ptr::null_mut()) };
         renderer.addUpdateRect(frame);
@@ -170,7 +149,51 @@ fn the_standard_material_over_black_and_white_within_the_window() {
         (r, g, b)
     };
 
-    // The control: the material hidden, the backdrop comes back as given.
+    // One render of `grey` with the material over it (or hidden), under
+    // `dark` or light; the centre texel, as (red, green, blue).
+    let render = |grey: f64, dark: bool, shown: bool| -> (u8, u8, u8) {
+        let page = NSView::initWithFrame(NSView::alloc(mtm), frame);
+        page.setWantsLayer(true);
+        let base = page.layer().expect("a layer-backed view has a layer");
+        base.setBackgroundColor(Some(&CGColor::new_generic_gray(grey, 1.0)));
+        let material = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), frame);
+        material.setMaterial(NSVisualEffectMaterial::UnderWindowBackground);
+        material.setBlendingMode(NSVisualEffectBlendingMode::WithinWindow);
+        material.setState(NSVisualEffectState::Active);
+        // SAFETY: the two names are AppKit's constants, read once.
+        let name = unsafe {
+            if dark {
+                NSAppearanceNameDarkAqua
+            } else {
+                NSAppearanceNameAqua
+            }
+        };
+        let look = NSAppearance::appearanceNamed(name).expect("a named system appearance");
+        material.setAppearance(Some(&look));
+        page.setAppearance(Some(&look));
+        material.setWantsLayer(true);
+        material.setHidden(!shown);
+        page.addSubview(&material);
+        page.layoutSubtreeIfNeeded();
+        page.displayIfNeeded();
+        CATransaction::flush();
+        draw(&base)
+    };
+
+    // The first control: a bare layer, no view, filled white. If this
+    // comes back black the renderer drew nothing into the texture, and no
+    // view or material reading below can mean anything.
+    let bare = CALayer::new();
+    bare.setBounds(frame);
+    bare.setBackgroundColor(Some(&CGColor::new_generic_gray(1.0, 1.0)));
+    let got = draw(&bare);
+    println!("control: a bare layer filled white -> {got:?}");
+    assert!(
+        [got.0, got.1, got.2].iter().all(|&c| c >= 254),
+        "the renderer drew nothing into the texture: {got:?} for a bare white layer"
+    );
+    // The second control: the material hidden, the backdrop comes back as
+    // given, so the view's own layer is drawn.
     for (grey, want) in [(0.0, 0u8), (1.0, 255u8)] {
         let got = render(grey, true, false);
         println!("control: backdrop {grey:.0}, material hidden -> {got:?}");
