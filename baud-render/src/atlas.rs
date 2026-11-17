@@ -187,6 +187,41 @@ pub struct Slot {
     pub top: i32,
 }
 
+/// **A slot's place in the atlas's slot table** ([`Rects`]): what the
+/// glyph memo holds in place of the rectangle, so an entry is a word and
+/// the rectangles are kept once. One past the index, so `None` beside it
+/// still fits the word.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct SlotId(core::num::NonZeroU32);
+
+/// **Every rectangle the glyph memos name, by [`SlotId`].** Only added to:
+/// no slot is freed on its own, so an id names the same rectangle until
+/// [`Atlas::reset`] voids every one and empties the table with the memos
+/// that held them.
+#[derive(Default)]
+struct Rects(Vec<Slot>);
+
+impl Rects {
+    /// `s` kept, and the id it is kept under; `None` once the table holds
+    /// as many as an id can name.
+    fn push(&mut self, s: Slot) -> Option<SlotId> {
+        let n = u32::try_from(self.0.len()).ok()?.checked_add(1)?;
+        let id = SlotId(core::num::NonZeroU32::new(n)?);
+        self.0.push(s);
+        Some(id)
+    }
+
+    /// The rectangle kept under `id`.
+    fn get(&self, id: SlotId) -> Option<Slot> {
+        let ix = usize::try_from(id.0.get().checked_sub(1)?).ok()?;
+        self.0.get(ix).copied()
+    }
+
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+}
+
 /// A scale's pixels a unit, its bits, hashable: the key a glyph drawn at
 /// a size of its own is kept under.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -524,7 +559,8 @@ pub enum Rescaled {
 struct Memo {
     size: SizeKey,
     /// `None` records a glyph with no ink, so a space is looked up once.
-    map: Map<GlyphKey, Option<Slot>>,
+    /// The rectangle itself is in the atlas's [`Rects`], under the id.
+    map: Map<GlyphKey, Option<SlotId>>,
     /// The procedural glyphs -- box drawing, block elements, braille --
     /// by codepoint, drawn once per size the way a font glyph is: a cell
     /// mask is a function of the cell, which is a function of the size.
@@ -615,6 +651,9 @@ pub struct Atlas {
     /// their slots still on the sheets: a rescale back to one of them
     /// takes its memo up again and draws nothing.
     kept: Vec<Memo>,
+    /// The rectangles every memo's `map` names, held's and kept's alike,
+    /// by id.
+    rects: Rects,
     /// Glyphs drawn at a size of their own, the badge's, by face, glyph and
     /// scale -- the scale is in the key, so they stand at every cell size --
     /// and voided with the rest.
@@ -662,6 +701,7 @@ impl Atlas {
             color_replaced: Replaced::No,
             held: Memo::new(SizeKey::NONE),
             kept: Vec::new(),
+            rects: Rects::default(),
             sized: Map::default(),
             stroked: Map::default(),
             faded: Map::default(),
@@ -686,14 +726,11 @@ impl Atlas {
         self.pixels.resize(n * n, 0);
         self.mask_replaced = Replaced::Yes;
         self.dirty.mask = None;
-        let other = |s: &Option<Slot>| {
-            !matches!(
-                s,
-                Some(Slot {
-                    kind: Kind::Mask,
-                    ..
-                })
-            )
+        let rects = &self.rects;
+        // An id the table no longer holds names nothing, and goes too.
+        let other = |s: &Option<SlotId>| match s {
+            Some(id) => rects.get(*id).is_some_and(|r| r.kind != Kind::Mask),
+            None => true,
         };
         for memo in core::iter::once(&mut self.held).chain(&mut self.kept) {
             memo.map.retain(|_, s| other(s));
@@ -707,14 +744,11 @@ impl Atlas {
         self.argb.resize(n * n, 0);
         self.color_replaced = Replaced::Yes;
         self.dirty.color = None;
-        let other = |s: &Option<Slot>| {
-            !matches!(
-                s,
-                Some(Slot {
-                    kind: Kind::Color,
-                    ..
-                })
-            )
+        let rects = &self.rects;
+        // An id the table no longer holds names nothing, and goes too.
+        let other = |s: &Option<SlotId>| match s {
+            Some(id) => rects.get(*id).is_some_and(|r| r.kind != Kind::Color),
+            None => true,
         };
         for memo in core::iter::once(&mut self.held).chain(&mut self.kept) {
             memo.map.retain(|_, s| other(s));
@@ -781,6 +815,7 @@ impl Atlas {
         self.inks.clear();
         self.clear_mask(mask);
         self.clear_color(color);
+        self.rects.clear();
         self.generation = Generation(self.generation.0.wrapping_add(1));
         self.stats.grown.bump();
     }
@@ -1073,15 +1108,15 @@ impl Atlas {
             stretch,
             phase,
         };
-        if let Some(known) = self.held.map.get(&key) {
-            return *known;
+        if let Some(&known) = self.held.map.get(&key) {
+            return known.and_then(|k| self.rects.get(k));
         }
         let before = self.stats.refused;
         if let Some(s) = self
             .bitmap(face, id, scale, phase, stretch)
             .or_else(|| self.layered(face, id, scale, phase, stretch))
         {
-            self.held.map.insert(key, Some(s));
+            self.remember(key, Some(s));
             return Some(s);
         }
         let slot = self.rasterise(face, id, scale, phase, stretch);
@@ -1110,17 +1145,33 @@ impl Atlas {
                 stretch,
                 phase,
             };
-            if self.held.map.contains_key(&own) {
-                self.held.map.insert(key, notdef);
+            if let Some(&same) = self.held.map.get(&own) {
+                self.held.map.insert(key, same);
             }
             return notdef;
         }
         // An image that would not fit even after growing is not recorded,
         // so a later, larger atlas may take it.
         if slot.is_some() || self.fits_nothing_anyway(face, id, scale, phase, stretch) {
-            self.held.map.insert(key, slot);
+            self.remember(key, slot);
         }
         slot
+    }
+
+    /// `slot` recorded under `key` at the size held: its rectangle kept in
+    /// the table and the memo given the id. A table with no id left to give
+    /// records nothing, so the glyph is drawn again when next asked.
+    fn remember(&mut self, key: GlyphKey, slot: Option<Slot>) {
+        let entry = match slot {
+            Some(s) => {
+                let Some(id) = self.rects.push(s) else {
+                    return;
+                };
+                Some(id)
+            }
+            None => None,
+        };
+        self.held.map.insert(key, entry);
     }
 
     /// **[`Atlas::slot_at`]'s image flipped left to right**, for a
@@ -2133,6 +2184,20 @@ fn over_straight(src: Argb, dst: Argb, cov: Coverage) -> Argb {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The glyph memo's values are at most a word: what a lookup touches
+    /// is the key and an id, and the rectangle is kept once, in the table.
+    #[test]
+    fn a_glyph_memo_entry_is_at_most_a_word() {
+        fn fits_a_word<K, V>(_: &Map<K, V>) {
+            assert!(
+                core::mem::size_of::<V>() <= core::mem::size_of::<u32>(),
+                "a memo value is {} bytes",
+                core::mem::size_of::<V>()
+            );
+        }
+        fits_a_word(&Memo::new(SizeKey::NONE).map);
+    }
 
     /// A slot's texel is its index times its band's width, on its band's
     /// row. It is arithmetic, not a search, and it does not depend on
