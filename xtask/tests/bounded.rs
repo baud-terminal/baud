@@ -335,10 +335,9 @@ mod libproc {
     }
 }
 
-/// **Clean file pages count in resident size and not in footprint**, so this is
-/// over the bound by the wrong number and under it by the right one. Compression
-/// cannot show the same difference on demand: this Mac refused `MADV_PAGEOUT` and
-/// `VM_BEHAVIOR_PAGEOUT`, and on an idle machine nothing compresses.
+/// **A file mapped past the bound and read through**: clean file pages count in
+/// resident size and not in footprint, so its resident size can pass the bound
+/// while its footprint stays under it.
 #[cfg(target_os = "macos")]
 fn resident_not_footprint() -> i32 {
     use std::os::fd::AsRawFd;
@@ -370,15 +369,7 @@ fn resident_not_footprint() -> i32 {
     for at in (0..size).step_by(4096) {
         sum += u64::from(std::hint::black_box(pages[at]));
     }
-    let mut info = libproc::RusageInfoV0::default();
-    // SAFETY: this process, and a live struct of the flavour's shape.
-    let rc = unsafe { libproc::proc_pid_rusage(getpid(), 0, &raw mut info) };
-    assert_eq!(rc, 0, "reading this process");
-    fs::write(
-        dir.join("sizes"),
-        format!("{} {} {sum}", info.resident, info.footprint),
-    )
-    .expect("the sizes");
+    std::hint::black_box(sum);
     std::thread::sleep(Duration::from_millis(800));
     0
 }
@@ -994,24 +985,72 @@ mod watcher {
         assert_killed_near_the_bound(&ended, &scratch);
     }
 
+    /// **A mapped file past the bound runs to its end.** Its resident size is
+    /// the machine's to keep or evict, so this asserts only that the watcher
+    /// let it finish; the rule is held on given sizes by the verdict tests.
     #[test]
-    fn the_bound_is_on_footprint_and_not_resident_size() {
+    fn a_file_mapped_past_the_bound_is_not_killed() {
         let _one = one_hog_at_a_time();
         let scratch = Scratch::new();
         let ended = Running::start(in_role(runner(), "resident", &scratch), &scratch).end(LIMIT);
         assert_eq!(ended.status.code(), Some(0), "{}", ended.err_text());
-        let sizes = fs::read_to_string(scratch.0.join("sizes")).expect("the sizes");
-        let mut words = sizes
-            .split(' ')
-            .map(|w| w.parse::<u64>().expect("a number"));
-        let resident = words.next().expect("resident");
-        let footprint = words.next().expect("footprint");
-        // The control: the role did what it is for.
-        assert!(
-            resident > 1 << 30,
-            "resident {resident}: not over the bound"
+    }
+
+    /// The watcher's verdict on a tree of these sizes at this bound, in bytes.
+    fn verdict(watcher: &Path, bound: u64, footprint: u64, resident: u64) -> String {
+        let out = Command::new(watcher)
+            .args([
+                "--over".to_owned(),
+                bound.to_string(),
+                footprint.to_string(),
+                resident.to_string(),
+            ])
+            .output()
+            .expect("the watcher");
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
         );
-        assert!(footprint < 1 << 30, "footprint {footprint}: not under it");
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    }
+
+    const GIB: u64 = 1 << 30;
+
+    #[test]
+    fn resident_size_past_the_bound_with_footprint_under_it_is_not_killed() {
+        let watcher = the_watcher();
+        for resident in [GIB + 1, 2 * GIB, 64 * GIB, u64::MAX] {
+            assert_eq!(
+                verdict(&watcher, GIB, GIB / 2, resident),
+                "under",
+                "resident {resident}"
+            );
+        }
+        assert_eq!(verdict(&watcher, GIB, 0, 64 * GIB), "under");
+    }
+
+    #[test]
+    fn footprint_past_the_bound_is_killed_whatever_resident_size_is() {
+        let watcher = the_watcher();
+        for footprint in [GIB + 1, 2 * GIB, u64::MAX] {
+            for resident in [0, GIB / 2, GIB, footprint, 64 * GIB, u64::MAX] {
+                assert_eq!(
+                    verdict(&watcher, GIB, footprint, resident),
+                    "over",
+                    "footprint {footprint}, resident {resident}"
+                );
+            }
+        }
+    }
+
+    /// Over is past the bound: a tree at it exactly runs on.
+    #[test]
+    fn footprint_at_the_bound_is_not_over_it() {
+        let watcher = the_watcher();
+        assert_eq!(verdict(&watcher, GIB, GIB, 64 * GIB), "under");
+        assert_eq!(verdict(&watcher, GIB, GIB + 1, 0), "over");
     }
 
     /// The program's end returns the status, and what it left stays alive and

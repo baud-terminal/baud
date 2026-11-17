@@ -250,9 +250,35 @@ fn say(text: &str) {
     unsafe { write(2, line.as_ptr().cast(), line.len()) };
 }
 
+/// A process's memory, or a tree's summed.
+#[derive(Default, Clone, Copy)]
+struct Sizes {
+    footprint: u64,
+    resident: u64,
+}
+
+impl Sizes {
+    fn add(&mut self, other: Self) {
+        self.footprint += other.footprint;
+        self.resident += other.resident;
+    }
+
+    /// **The bound is on footprint, and resident size is not consulted:**
+    /// clean file pages count in resident size and the compressor takes pages
+    /// out of it, so it is over a bound the tree is not over and under one it
+    /// is. Over is past the bound.
+    fn over(self, bound: u64) -> bool {
+        let Self {
+            footprint,
+            resident: _,
+        } = self;
+        footprint > bound
+    }
+}
+
 /// What reading a process found.
 enum Seen {
-    Alive { footprint: u64, start: u64 },
+    Alive { sizes: Sizes, start: u64 },
     Gone,
     Unreadable,
 }
@@ -272,7 +298,10 @@ fn look(pid: Pid) -> Seen {
         return Seen::Gone;
     }
     Seen::Alive {
-        footprint: info.phys_footprint,
+        sizes: Sizes {
+            footprint: info.phys_footprint,
+            resident: info.resident_size,
+        },
         start: info.proc_start_abstime,
     }
 }
@@ -303,7 +332,7 @@ const HANDED_OVER: i64 = -2;
 
 /// What one pass over the tree found.
 struct Pass {
-    footprint: u64,
+    sizes: Sizes,
     blind: bool,
 }
 
@@ -355,7 +384,7 @@ impl Tree {
     /// start time has changed is another process now, and is dropped unkilled.
     fn pass(&mut self) -> Pass {
         let mut pass = Pass {
-            footprint: 0,
+            sizes: Sizes::default(),
             blind: false,
         };
         let mut at = 0;
@@ -366,7 +395,7 @@ impl Tree {
                     self.members.swap_remove(at);
                     continue;
                 }
-                Seen::Alive { footprint, start } => {
+                Seen::Alive { sizes, start } => {
                     let known = self.members[at].start;
                     if known != 0 && known != start {
                         self.members.swap_remove(at);
@@ -374,7 +403,7 @@ impl Tree {
                     }
                     self.members[at].start = start;
                     self.members[at].blind = 0;
-                    pass.footprint += footprint;
+                    pass.sizes.add(sizes);
                 }
                 Seen::Unreadable => {
                     self.members[at].blind += 1;
@@ -449,12 +478,9 @@ impl Tree {
             let member = &self.members[at];
             let pid = member.pid;
             let running = match look(pid) {
-                Seen::Alive {
-                    footprint: f,
-                    start,
-                } if member.start == 0 || member.start == start => {
+                Seen::Alive { sizes, start } if member.start == 0 || member.start == start => {
                     alive = true;
-                    footprint += f;
+                    footprint += sizes.footprint;
                     true
                 }
                 // Another user's process, or this one: the kill is refused if
@@ -585,13 +611,13 @@ fn sentinel(from_watcher: c_int, ready: c_int, bound: u64, log: Option<&Log>) ->
     let mut peak = 0;
     loop {
         let pass = tree.pass();
-        peak = pass.footprint.max(peak);
+        peak = pass.sizes.footprint.max(peak);
         if tree.members.is_empty() {
             // SAFETY: ending this process.
             unsafe { _exit(0) };
         }
-        if pass.footprint > bound {
-            tree.kill_all(pass.footprint);
+        if pass.sizes.over(bound) {
+            tree.kill_all(pass.sizes.footprint);
             if let Some(log) = log {
                 log.line("(what a finished program left running)", peak, 0);
             }
@@ -735,9 +761,9 @@ fn watch(kq: c_int, tree: &mut Tree, ctx: &Watch, peak: &mut u64) -> End {
             next_poll = now + POLL;
             let pass = tree.pass();
             tree.tell(ctx.to_sentinel);
-            *peak = pass.footprint.max(*peak);
-            if pass.footprint > ctx.bound {
-                return End::Over(pass.footprint);
+            *peak = pass.sizes.footprint.max(*peak);
+            if pass.sizes.over(ctx.bound) {
+                return End::Over(pass.sizes.footprint);
             }
             if pass.blind {
                 return End::Blind;
@@ -886,6 +912,22 @@ fn print_layouts() {
     println!("exit.timed_out={EXIT_TIMED_OUT}");
 }
 
+/// `--over BOUND FOOTPRINT RESIDENT`, in bytes: `over` if a tree of these
+/// sizes is past the bound and killed, `under` if it runs on.
+fn print_verdict(args: &[*const c_char]) -> c_int {
+    let numbers: Vec<Option<u64>> = args.iter().map(|a| cstr_lossy(*a).parse().ok()).collect();
+    let [Some(bound), Some(footprint), Some(resident)] = numbers[..] else {
+        say("--over wants a bound, a footprint and a resident size, in bytes");
+        return EXIT_REFUSED;
+    };
+    let sizes = Sizes {
+        footprint,
+        resident,
+    };
+    println!("{}", if sizes.over(bound) { "over" } else { "under" });
+    0
+}
+
 /// `bounded MIB TIMEOUT_SECS PROGRAM ARGS...`, from the script, which has
 /// checked the numbers' spelling. A timeout of 0 is the runner.
 #[unsafe(no_mangle)]
@@ -895,6 +937,9 @@ pub extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int {
     if args.len() == 2 && cstr_lossy(args[1]) == "--layouts" {
         print_layouts();
         return 0;
+    }
+    if args.len() == 5 && cstr_lossy(args[1]) == "--over" {
+        return print_verdict(&args[2..]);
     }
     if args.len() < 4 {
         return refuse("the watcher wants a bound, a timeout and a program");
@@ -1125,7 +1170,7 @@ pub extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int {
             // SAFETY: live out-parameters; our own child, already ended.
             unsafe { wait4(program, &raw mut status, 0, &raw mut usage) };
             let pass = tree.pass();
-            peak = peak.max(pass.footprint);
+            peak = peak.max(pass.sizes.footprint);
             write_log(peak, usage.ru_maxrss);
             if timeout.is_some() {
                 tree.kill_all(bound);
