@@ -21,6 +21,7 @@ rather than a decoder workout.
 | `ascii/git-log.raw` | `git --no-pager log --stat --color`, 50x200 | 501185 | 0.1% | 0 | many | colour over scrolling text, an SGR every 141 bytes |
 | `ascii/less-pager.raw` | `less -R` paged with space/`b`/`G`/`g` | 30146 | 0.1% | 0 | 5104 | full-screen repaint in the **alternate screen** |
 | `ascii/pipes.raw` | pipes.sh 1.3.0, 45x160 | 536908 | 0.0% | 0 | 0 | an animation: a cursor move, a bold and a colour `SGR` before every character, an `SGR` every 9.1 bytes |
+| `ascii/tmux-logpane.raw` | tmux 3.6a, a pane printing `seq 1 200000` over a pane holding a fixed screen, 50x200 | 2887514 | 0.1% | 0 | many | a **scroll region anchored at the top over rows that stay**, on the alternate screen: `DECSTBM 1;24` set and reset around every burst |
 | `utf8/btop.raw` | btop 1.4.7, cpu and mem boxes, 45x160 | 459870 | 21.5% | **0** | 0 | truecolour `38;2`, box drawing, braille graphs, dense full-screen repaint, SGR mouse modes |
 | `utf8/vim-unicode.raw` | vim on a generated UTF-8 file, paged with `^F`/`^B`, 45x160 | 138583 | 28.2% | 3740 | 0 | scroll regions (DECSTBM), CJK, emoji, ZWJ, RTL, combining marks |
 | `utf8/cat-cjk.raw` | `cat` of `cjk-corpus.txt` x3, 50x200 | 327351 | 81.2% | 69741 | 125951 | **wide characters while scrolling**, with no escapes at all |
@@ -223,6 +224,33 @@ status thread writes falls by its clock, so the capture does not
 regenerate. `mpvs_status_line_inside_a_chunk_is_payload_and_the_frame_comes_up_short`
 (`baud-core/tests/kitty_string_end.rs`) frames it in a first and a last
 chunk of its own and holds it to kitty's reading.
+
+## `ascii/tmux-logpane.raw`
+
+tmux 3.6a (nixpkgs) at 50x200 on macOS 27.3 (Apple silicon), captured with
+`capture-tui`, its whole output committed. `HOME`, `ZDOTDIR` and `TMUX_TMPDIR`
+were empty scratch folders, the environment held only
+`PATH=/usr/bin:/bin`, `TERM=xterm-256color`, `LANG=C.UTF-8` and
+`SHELL=/bin/sh`, and the server ran on a private socket, killed after. The
+config, given with `-f`, was two lines, so the status line names no machine
+and no time:
+
+```text
+set -g status-right ""
+set -g automatic-rename off
+```
+
+```sh
+capture-tui --seconds 12 --rows 50 --cols 200 --out tmux-logpane.raw -- \
+  tmux -S <socket> -f tmux.conf new-session -n log \
+    "sleep 1; seq 1 200000; exec cat" \; \
+  split-window -v -d "printf 'fixed pane: %s\n' one two three four five; exec cat"
+```
+
+The top pane is rows 1-24 and the pane under it 26-49, with the status line
+on 50. tmux draws on the alternate screen, and each burst of the log is
+`DECSTBM 1;24`, the lines, and `DECSTBM 1;50`: 23,237 regions set over the
+run, every scroll inside one.
 
 ## Provenance
 
