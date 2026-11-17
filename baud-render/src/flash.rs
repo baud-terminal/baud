@@ -37,6 +37,7 @@
 use crate::color::Argb;
 use crate::composite::Mix;
 use crate::det::Det;
+use crate::instance::Instance;
 use baud_domain::Chan;
 
 /// **How a trail's frame is drawn**: as the trail draws it, or with each
@@ -372,6 +373,13 @@ pub fn under_threshold_over_by(ink: Argb, text: Argb, page: Argb, mix: Mix) -> C
 pub fn capped(a: Chan, k: Chan) -> Chan {
     let v = (u16::from(a.get()) * u16::from(k.get()) + 127) / 255;
     Chan::from_u8(u8::try_from(v).unwrap_or(u8::MAX))
+}
+
+/// Every record's alpha in `recs` scaled by `k` of 255 ([`capped`]).
+pub fn cap_alpha(recs: &mut [Instance], k: Chan) {
+    for r in recs {
+        r.color = r.color.with_alpha(capped(r.color.a(), k));
+    }
 }
 
 #[cfg(test)]

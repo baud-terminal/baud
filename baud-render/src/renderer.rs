@@ -7117,27 +7117,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
             splash::yielded(&mut self.trail_inst, &self.splash_holes);
         }
         if self.strength() == Strength::UnderThreshold {
-            let k = self.flash_cap;
-            for r in &mut self.trail_inst {
-                r.color = r.color.with_alpha(flash::capped(r.color.a(), k));
-            }
+            flash::cap_alpha(&mut self.trail_inst, self.flash_cap);
         }
         // What is left of the splash's plasma fades out as the logo goes:
         // every record's alpha scaled, as a cap scales it.
         if let Some((_, glow)) = splash.filter(|&(_, g)| g < 1.0) {
-            let k = Chan::from_unit(glow);
-            for r in &mut self.trail_inst {
-                r.color = r.color.with_alpha(flash::capped(r.color.a(), k));
-            }
+            flash::cap_alpha(&mut self.trail_inst, Chan::from_unit(glow));
         }
         // A hidden cursor's trail fading out (`Smear::opacity`): every
         // record's alpha scaled by it, as the glow scales them, so each GPU
         // path draws the fade from the records it already reads.
         let k = self.opacity();
         if k != Smear::OPAQUE {
-            for r in &mut self.trail_inst {
-                r.color = r.color.with_alpha(flash::capped(r.color.a(), k));
-            }
+            flash::cap_alpha(&mut self.trail_inst, k);
         }
     }
 
@@ -12006,17 +11998,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         l.vfx.instances(self.pixel_size(), ink, recs);
         if l.vfx.emitter.strength == Strength::UnderThreshold {
             recs.retain(|r| r.kind == Kind::Band);
-            for r in recs.iter_mut() {
-                r.color = r
-                    .color
-                    .with_alpha(flash::capped(r.color.a(), self.flash_cap));
-            }
+            flash::cap_alpha(recs, self.flash_cap);
         }
         let k = l.vfx.emitter.opacity;
         if k != Smear::OPAQUE {
-            for r in recs.iter_mut() {
-                r.color = r.color.with_alpha(flash::capped(r.color.a(), k));
-            }
+            flash::cap_alpha(recs, k);
         }
     }
 
