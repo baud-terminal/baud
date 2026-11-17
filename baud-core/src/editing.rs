@@ -100,8 +100,10 @@ impl Paint<'_, '_> {
 
     /// **One graphic character under IRM while [`ModeBit::InsertShifted`]
     /// is set**: under PRECEDING at the cursor, which stays; under
-    /// FOLLOWING at the cursor's presentation position, the cursor going on
-    /// as after any write.
+    /// FOLLOWING at the cursor's presentation position, in the string the
+    /// gap opens in when the pen has none open, the cursor going on to the
+    /// presentation position after the character, along the line's path;
+    /// from the line's last position, on by the cells.
     #[cold]
     #[inline(never)]
     pub(crate) fn glyph_shifted(&mut self, cp: Codepoint, w: Width, pen: Pen) {
@@ -149,7 +151,23 @@ impl Paint<'_, '_> {
                 let at = self.open_following_drawn(&m, p, Count::of(need), end);
                 self.row_changed_to(self.cy);
                 self.set_col(baud_domain::CursorCol::moved(at));
+                // A pen with no string open writes into the string the gap
+                // opened in, so the character is drawn at `p`: "inserted at
+                // the active presentation position" (7.2.10).
+                let gap = self.string_of(self.view.get(self.cy, at).style);
+                let joins = self.style_raw.string().is_none() && !gap.is_none();
+                if joins {
+                    self.style = self.intern_style(self.style_raw.with_string(gap));
+                }
                 self.glyph_by::<Gapless>(cp, w, pen);
+                if joins {
+                    self.style = self.intern_style(self.style_raw);
+                }
+                let next = p.index() + need;
+                let edge = self.line_fence().index() + 1;
+                if next < edge {
+                    self.keep_presented(Some(Col::at_index(next)));
+                }
             }
             None => self.glyph_by::<Gapped>(cp, w, pen),
         }

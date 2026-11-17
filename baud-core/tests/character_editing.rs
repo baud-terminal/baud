@@ -222,16 +222,161 @@ const DATA: &str = "\x1b[9h";
 /// to be shifted in the direction of the character path"): at `b`, drawn
 /// at position 1, `X` goes after it in the cells, so it is drawn at 1 and
 /// `b` at 2; under DATA before it in the cells, drawn at 2. The cursor
-/// then moves on by the cells, to `c`, so a second character goes in at
-/// `c`'s position, 0, and is drawn apart from the first.
+/// then moves to the next presentation position, 2, `b`'s (7.3.3 b: "the
+/// implicit movement of the active position is performed normally";
+/// 6.1.6: for the active presentation position "the same as the direction
+/// of the character path"), so a second character goes in there and is
+/// drawn after the first.
 #[test]
 fn irm_under_presentation_inserts_at_the_presentation_position() {
     let (cells, shown, _) = reversed(PRESENTATION, "\x1b[1;2f\x1b[4hX");
     assert_eq!((cells.as_str(), shown.as_str()), ("abXc..", "cXba.."));
     let (cells, shown, _) = reversed(PRESENTATION, "\x1b[1;2f\x1b[4hXY");
-    assert_eq!((cells.as_str(), shown.as_str()), ("abXcY.", "YcXba."));
+    assert_eq!((cells.as_str(), shown.as_str()), ("abYXc.", "cXYba."));
     let (cells, shown, _) = reversed(DATA, "\x1b[1;2f\x1b[4hX");
     assert_eq!((cells.as_str(), shown.as_str()), ("aXbc..", "cbXa.."));
+}
+
+/// Row 0 as stored and as drawn, row 1, and the reply to a `CPR` sent
+/// after `bytes`, on the ten-column line. Under PRESENTATION the report
+/// names the presentation column.
+fn typed(bytes: &str) -> (String, String, String, String) {
+    support::with_term(&WS, |t| {
+        support::feed(t, format!("{bytes}\x1b[6n").as_bytes());
+        let next: String = t.viewport().row(Row::from_index(1))[..10]
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or('.')
+            })
+            .collect();
+        let reply = String::from_utf8_lossy(t.reply()).into_owned();
+        (row(t, 10), drawn(t, 10), next, reply)
+    })
+}
+
+/// **Under PRESENTATION and FOLLOWING the cursor moves on by the
+/// presentation position after a character written under IRM** (7.3.3 b:
+/// "If the HEM is set to FOLLOWING, the implicit movement of the active
+/// position is performed normally ... Whether the active position referred
+/// to above is the active data position in the data component or the
+/// active presentation position in the presentation component, depends on
+/// the setting of the DEVICE COMPONENT SELECT MODE (DCSM)"; 6.1.6: the
+/// implicit movement of the active presentation position is "the same as
+/// the direction of the character path"). On the reversed string `abc`,
+/// drawn `cba`, from `b` at position 1: `X` is drawn at 1, `Y` at 2 and
+/// `Z` at 3, side by side in the order typed, `b` and `a` pushed on, and
+/// the cursor at the position after the last, which `CPR` names. The same
+/// in a Hebrew run, `אבג` drawn `גבא`, `ד` and `ה` typed at `ב`. Under
+/// DATA the active data position moves, by the cells.
+#[test]
+fn irm_under_presentation_and_following_moves_the_presentation_position() {
+    let rtl = |text: &str, then: &str| {
+        typed(&format!(
+            "\x1b[8l\x1b[1[{text}{PRESENTATION}\x1b[10l\x1b[1;2f\x1b[4h{then}"
+        ))
+    };
+    let (cells, shown, _, reply) = rtl("abc", "XY");
+    assert_eq!(
+        (cells.as_str(), shown.as_str(), reply.as_str()),
+        ("abYXc.....", "cXYba.....", "\x1b[1;4R")
+    );
+    let (cells, shown, _, reply) = rtl("abc", "XYZ");
+    assert_eq!(
+        (cells.as_str(), shown.as_str(), reply.as_str()),
+        ("abZYXc....", "cXYZba....", "\x1b[1;5R")
+    );
+    let (cells, shown, _, reply) = rtl("\u{5d0}\u{5d1}\u{5d2}", "\u{5d3}\u{5d4}");
+    assert_eq!(
+        (cells.as_str(), shown.as_str(), reply.as_str()),
+        (
+            "\u{5d0}\u{5d1}\u{5d4}\u{5d3}\u{5d2}.....",
+            "\u{5d2}\u{5d3}\u{5d4}\u{5d1}\u{5d0}.....",
+            "\x1b[1;4R"
+        )
+    );
+    let (cells, shown, at) = reversed(DATA, "\x1b[10l\x1b[1;2f\x1b[4hXY");
+    assert_eq!(
+        (cells.as_str(), shown.as_str(), at),
+        ("aXYbc.", "cbYXa.", (Row::ZERO, Col::at_index(3)))
+    );
+}
+
+/// **And at the line's edge the second character goes in after the first,
+/// on the line** (7.3.3 b; 6.1.6; 8.3.64: "the contents of n character
+/// positions at the other end of the shifted part are removed"), with
+/// autowrap set or reset. `abcdefg` then the reversed string `xyz`, drawn
+/// `zyx` at positions 7, 8 and 9; from `z`, at 7, `Q` is drawn at 7 and
+/// `x` leaves, the cursor moves to 8, `z`'s, and `R` is drawn there and
+/// `y` leaves: `QRz`, row 1 untouched, the cursor at position 9, still on
+/// the line. The same in a Hebrew run, `אבג` drawn `גבא`, `ד` and `ה` typed
+/// at `ג`.
+#[test]
+fn irm_under_presentation_and_following_at_the_line_edge_stays_on_the_line() {
+    let blank = ".".repeat(10);
+    for wrap in ["\x1b[?7h", "\x1b[?7l"] {
+        let edge = |text: &str, then: &str| {
+            typed(&format!(
+                "\x1b[8labcdefg\x1b[1[{text}{wrap}{PRESENTATION}\x1b[10l\x1b[1;10f\x1b[4h{then}"
+            ))
+        };
+        let (cells, shown, next, reply) = edge("xyz", "QR");
+        assert_eq!(
+            (
+                cells.as_str(),
+                shown.as_str(),
+                next.as_str(),
+                reply.as_str()
+            ),
+            ("abcdefgzRQ", "abcdefgQRz", blank.as_str(), "\x1b[1;10R"),
+            "{wrap:?}"
+        );
+        let (cells, shown, next, reply) = edge("\u{5d0}\u{5d1}\u{5d2}", "\u{5d3}\u{5d4}");
+        assert_eq!(
+            (
+                cells.as_str(),
+                shown.as_str(),
+                next.as_str(),
+                reply.as_str()
+            ),
+            (
+                "abcdefg\u{5d2}\u{5d4}\u{5d3}",
+                "abcdefg\u{5d3}\u{5d4}\u{5d2}",
+                blank.as_str(),
+                "\x1b[1;10R"
+            ),
+            "{wrap:?}"
+        );
+    }
+}
+
+/// **With the string ended before it, a character written under IRM goes
+/// in at the presentation position too** (7.2.10: "is inserted at the
+/// active presentation position"): it goes into the string the gap opens
+/// in, the pen having none open. The reversed string `abc`, ended by
+/// `SRS 0`, drawn `cba`; from `c`, at position 0 and the string's end in
+/// the cells, `X` goes in at cell 3 and is drawn at 0, `cba` pushed on, and
+/// the cursor moves to position 1 (7.3.3 b); from `b`, at position 1, `X`
+/// goes in at cell 2 and is drawn at 1, the cursor at 2.
+#[test]
+fn irm_with_no_string_open_goes_in_at_the_presentation_position() {
+    let ended = |then: &str| {
+        typed(&format!(
+            "\x1b[8l\x1b[1[abc\x1b[0[{PRESENTATION}\x1b[10l\x1b[4h{then}"
+        ))
+    };
+    let (cells, shown, _, reply) = ended("\x1b[1;3fX");
+    assert_eq!(
+        (cells.as_str(), shown.as_str(), reply.as_str()),
+        ("abcX......", "Xcba......", "\x1b[1;2R")
+    );
+    let (cells, shown, _, reply) = ended("\x1b[1;2fX");
+    assert_eq!(
+        (cells.as_str(), shown.as_str(), reply.as_str()),
+        ("abXc......", "cXba......", "\x1b[1;3R")
+    );
 }
 
 /// **And under PRECEDING the positions before it move toward the line's

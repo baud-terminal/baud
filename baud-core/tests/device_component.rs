@@ -685,7 +685,11 @@ const MARGINS: &str = "\x1b[2;3r\x1b[?69h\x1b[2;6s";
 /// insertion "at the active presentation position" names no margin. On
 /// `h`, drawn against the line's path, the gap opens after it in the data,
 /// the empty column 10 leaves the line, the cells inside the margins stay,
-/// and the row is the one the same write leaves with no margins set; under
+/// and the row is the one the same write leaves with no margins set. `X`,
+/// written with the string ended, goes into `h`'s string at cell 8, so the
+/// cells 0 to 8 are drawn at positions 8 to 0: `X` at `h`'s position, 0,
+/// as it is "inserted at the active presentation position" (7.2.10), and
+/// the cursor moves on to position 1, `h`'s now, cell 7 (7.3.3 b). Under
 /// DATA the `X` goes in at `h`'s column. Until now the shift under
 /// PRESENTATION ended at the right margin, before the gap: a debug build
 /// panicked subtracting the gap's column from the margin's, and a release
@@ -694,7 +698,7 @@ const MARGINS: &str = "\x1b[2;3r\x1b[?69h\x1b[2;6s";
 #[test]
 fn irm_right_of_the_right_margin_shifts_to_the_line_end_under_presentation() {
     for r in [0, 1] {
-        let want = ("abcdefghX.".into(), (Row::from_index(r), Col::at_index(9)));
+        let want = ("abcdefghX.".into(), (Row::from_index(r), Col::at_index(7)));
         assert_eq!(irm_on_h(PRESENTATION, MARGINS, r), want, "row {r}");
         assert_eq!(irm_on_h(PRESENTATION, "", r), want, "row {r}, no margins");
         assert_eq!(
