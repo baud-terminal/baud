@@ -65,6 +65,9 @@ baud-present-macos = { path = ".", features = ["suite-archive", "gpu-fault"] }
 # frame did through them, and fails to compile without them rather than
 # reading zeros.
 baud-render = { workspace = true, features = ["counters"] }
+# `tests/material_probe.rs` fills a layer with one grey: `CALayer`'s
+# background takes a `CGColor`.
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGColor"] }
 
 # AppKit's views are main-thread-only and libtest runs each test on a thread
 # of its own: this test's `main` is the process's main thread.
@@ -120,3 +123,12 @@ suite-archive = []
 # error. Enabled only by dev-dependencies (`tests/commit_gates.rs`); never
 # in a build that ships.
 gpu-fault = []
+
+# **What the standard material draws within the window**
+# (`tests/material_probe.rs`): views on the main thread, never a window;
+# run only with `--ignored`. `tests/material_probe_gate.rs` holds it to
+# naming no window.
+[[test]]
+name = "material_probe"
+path = "tests/material_probe.rs"
+harness = false
