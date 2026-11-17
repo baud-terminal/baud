@@ -330,6 +330,23 @@ pub enum TransferEnd {
     All,
 }
 
+/// **FETM, the format effector transfer mode**, `CSI 14 h` and `l`
+/// (`[[source: ecma48]]` 7.2.6): reset, INSERT, "Formator functions may be
+/// inserted in a data stream to be transmitted or in data to be transferred
+/// to an auxiliary input/output device"; set, EXCLUDE, "No formator
+/// functions other than those received while the FORMAT EFFECTOR ACTION
+/// MODE (FEAM) is set to STORE are included". A formator function is a
+/// format effector or a presentation control function (4.2.42), so under
+/// EXCLUDE a print of screen contents carries no `SGR`, `CR`, `LF`, `VT` or
+/// `FF`; baud stores none under FEAM, so none is kept. INSERT at power-on
+/// and after `RIS`, Table 6's reset state, which 7.1 recommends as the
+/// initial one; kept by `DECSTR`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FormatorTransfer {
+    Insert,
+    Exclude,
+}
+
 /// The three modes 7.3.1 reads together to choose what a transfer takes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct AreaTransfer {

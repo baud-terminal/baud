@@ -610,3 +610,189 @@ fn decrqm_answers_gatm_and_ris_resets_it_and_decstr_keeps_it() {
     );
     assert_eq!(t.reply(), b"\x1b[1;2$y\x1b[1;1$y\x1b[1;1$y\x1b[1;2$y");
 }
+
+/// A bold `B`, an `HT` the screen performs, so the cells it passes print as
+/// spaces, an `x` at the stop, and a second line.
+const FORMATTED: &[u8] = b"\x1b[1mB\x1b[0m\tx\r\ny";
+
+/// A job with its DEC line sizes, `ESC # 3`, `4`, `5` and `6`, taken out:
+/// the FETM tests below assert nothing about them.
+fn without_line_sizes(job: &str) -> String {
+    let mut out = String::new();
+    let mut rest = job;
+    while let Some(i) = rest.find("\x1b#") {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 2..];
+        rest = match after.strip_prefix(['3', '4', '5', '6']) {
+            Some(r) => r,
+            None => {
+                out.push_str("\x1b#");
+                after
+            }
+        };
+    }
+    out.push_str(rest);
+    out
+}
+
+/// No formator function in `job`: no `SGR` or other control sequence, no
+/// `CR`, `LF`, `VT` or `FF`.
+fn assert_no_formator(job: &str) {
+    for (name, b) in [("CR", '\r'), ("LF", '\n'), ("VT", '\x0b'), ("FF", '\x0c')] {
+        assert!(!job.contains(b), "no {name}: {job:?}");
+    }
+    assert!(!job.contains("\x1b["), "no SGR: {job:?}");
+}
+
+/// **Under FETM's INSERT, its reset state, a print carries its formator
+/// functions**: "Formator functions may be inserted in a data stream to be
+/// transmitted or in data to be transferred to an auxiliary input/output
+/// device" (`[[source: ecma48]]` 7.2.6), formator functions being format
+/// effectors and presentation control functions (4.2.42): the `SGR`s, each
+/// line's `CR LF` and DECPFF's `FF`. `CSI 14 l` is FETM and not counted.
+#[test]
+fn under_fetm_insert_a_print_carries_its_formator_functions() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(&mut t, FORMATTED);
+    support::feed(&mut t, b"\x1b[14l\x1b[?18h\x1b[i");
+    assert_eq!(
+        jobs(&mut t),
+        [format!(
+            "\x1b[0m\x1b#5\x1b[0;1mB\x1b[0m       x\r\n\x1b#5y\r\n{}\x0c\x1b[0m",
+            empty(2)
+        )]
+    );
+    assert_eq!(t.unsupported_param, 0, "FETM is not counted");
+}
+
+/// **Under FETM's EXCLUDE a print carries no formator function, and its
+/// lines run together**: "No formator functions other than those received
+/// while the FORMAT EFFECTOR ACTION MODE (FEAM) is set to STORE are
+/// included in a transmitted data stream or in data transferred to an
+/// auxiliary input/output device" (`[[source: ecma48]]` 7.2.6). Nothing is
+/// received under FEAM's STORE, so none is kept: no `SGR` (8.2.5), no `CR`,
+/// `LF` or DECPFF's `FF` (8.2.4). The characters stay, the spaces the `HT`
+/// left among them too, and the screen is unchanged: "No control functions
+/// are affected".
+#[test]
+fn under_fetm_exclude_a_print_carries_no_formator_function() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(&mut t, FORMATTED);
+    support::feed(&mut t, b"\x1b[14h\x1b[?18h\x1b[i");
+    let printed = jobs(&mut t);
+    assert_eq!(printed.len(), 1, "one job");
+    assert_no_formator(&printed[0]);
+    assert_eq!(without_line_sizes(&printed[0]), "B       xy");
+    assert_eq!(row(&t, 0), "B       x", "the screen keeps its line");
+    assert_eq!(row(&t, 1), "y");
+    assert_eq!(t.unsupported_param, 0, "FETM is not counted");
+}
+
+/// **EXCLUDE governs every print of screen contents**: print screen, all
+/// pages and print line as well as print page, and autoprint, whose line
+/// ends, `LF`, `VT` and `FF` with the `CR` before each, are format effectors
+/// too. Each job carries the characters alone.
+#[test]
+fn under_fetm_exclude_every_screen_print_carries_no_formator_function() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(&mut t, FORMATTED);
+    support::feed(&mut t, b"\x1b[14h\x1b[?18h\x1b[?10i\x1b[?11i\x1b[?1i");
+    support::feed(&mut t, b"\x1b[?5i\na\x0bb\x0c\x1b[?4i");
+    let printed = jobs(&mut t);
+    for job in &printed {
+        assert_no_formator(job);
+    }
+    assert_eq!(
+        printed
+            .iter()
+            .map(String::as_str)
+            .map(without_line_sizes)
+            .collect::<Vec<_>>(),
+        ["B       xy", "B       xy", "y", "y a  b"]
+    );
+}
+
+/// **A full queue joins the next print to the last with nothing between**
+/// under EXCLUDE, the form feed that joins it under INSERT being a format
+/// effector too.
+#[test]
+fn under_fetm_exclude_a_full_queue_joins_a_print_with_no_form_feed() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(&mut t, b"z\x1b[14h");
+    for _ in 0..PRINT_QUEUE + 2 {
+        support::feed(&mut t, b"\x1b[?1i");
+    }
+    let got = jobs(&mut t);
+    assert_eq!(got.len(), PRINT_QUEUE);
+    for job in &got {
+        assert_no_formator(job);
+    }
+    assert_eq!(without_line_sizes(&got[0]), "z");
+    assert_eq!(without_line_sizes(&got[PRINT_QUEUE - 1]), "zzz");
+    assert_eq!(t.print_refusals().merged, 2);
+}
+
+/// **`CSI 14 l` restores INSERT**: a print after it carries its formator
+/// functions again, the same job as before `CSI 14 h`.
+#[test]
+fn fetm_reset_restores_the_formator_functions_to_a_print() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(&mut t, FORMATTED);
+    let inserted = format!(
+        "\x1b[0m\x1b#5\x1b[0;1mB\x1b[0m       x\r\n\x1b#5y\r\n{}\x1b[0m",
+        empty(2)
+    );
+    support::feed(&mut t, b"\x1b[i");
+    assert_eq!(jobs(&mut t), std::slice::from_ref(&inserted));
+    support::feed(&mut t, b"\x1b[14h\x1b[i");
+    let excluded = jobs(&mut t);
+    assert_eq!(excluded.len(), 1, "one job");
+    assert_eq!(without_line_sizes(&excluded[0]), "B       xy");
+    support::feed(&mut t, b"\x1b[14l\x1b[i");
+    assert_eq!(jobs(&mut t), [inserted]);
+    assert_eq!(t.unsupported_param, 0, "FETM is not counted");
+}
+
+/// **DECRQM answers FETM**, `2`, reset (INSERT), at power-on and `1` once
+/// set (EXCLUDE); `RIS` resets it, as 8.3.105 has RIS "set the modes into
+/// the reset state".
+#[test]
+fn decrqm_answers_fetm_and_ris_resets_it() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(&mut t, b"\x1b[14$p\x1b[14h\x1b[14$p\x1bc\x1b[14$p");
+    assert_eq!(t.reply(), b"\x1b[14;2$y\x1b[14;1$y\x1b[14;2$y");
+}
+
+/// **`DECSTR` keeps FETM**, as it keeps GATM and ERM: its table names no
+/// FETM. A print after it still carries no formator function.
+#[test]
+fn decstr_keeps_fetm() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(&mut t, b"\x1b[14h\x1b[!p\x1b[14$p");
+    assert_eq!(t.reply(), b"\x1b[14;1$y");
+    support::feed(&mut t, b"z\x1b[i");
+    let printed = jobs(&mut t);
+    assert_eq!(printed.len(), 1, "one job");
+    assert_no_formator(&printed[0]);
+    assert_eq!(without_line_sizes(&printed[0]), "z");
+}
+
+/// **Printer controller mode relays its bytes as they come under EXCLUDE**:
+/// a controller run is the host's bytes passed to the printer, not a
+/// transfer of screen contents, and FETM leaves its `SGR`, `CR`, `LF` and
+/// `FF` in it.
+#[test]
+fn under_fetm_exclude_printer_controller_mode_relays_its_bytes() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(&mut t, b"\x1b[14h\x1b[5i\x1b[1mhi\r\n\x0c\x1b[4i");
+    assert_eq!(jobs(&mut t), ["\x1b[1mhi\r\n\x0c"]);
+    assert_eq!(t.unsupported_param, 0, "FETM is not counted");
+}

@@ -133,6 +133,8 @@ pub enum AnsiMode {
     TransferTermination,
     /// SATM, mode 17, 7.2.14 ([`AreaSelection`]).
     SelectedAreaTransfer,
+    /// FETM, mode 14, 7.2.6 ([`FormatorTransfer`]).
+    FormatEffectorTransfer,
     Other(Param),
 }
 
@@ -204,6 +206,7 @@ impl AnsiMode {
             15 => AnsiMode::MultipleAreaTransfer,
             16 => AnsiMode::TransferTermination,
             17 => AnsiMode::SelectedAreaTransfer,
+            14 => AnsiMode::FormatEffectorTransfer,
             n => AnsiMode::Other(Param(n)),
         }
     }

@@ -5563,6 +5563,14 @@ impl Paint<'_, '_> {
                     false => AreaSelection::Select,
                 }
             }
+            // FETM: whether a print carries formator functions
+            // (`crate::print`).
+            AnsiMode::FormatEffectorTransfer => {
+                self.strs.print.formators = match on {
+                    true => FormatorTransfer::Exclude,
+                    false => FormatorTransfer::Insert,
+                }
+            }
             _ => self.unsupported_param += 1,
         }
     }
@@ -6430,6 +6438,10 @@ impl Paint<'_, '_> {
                 AnsiMode::SelectedAreaTransfer => match self.strs.print.transfer.selection {
                     AreaSelection::All => ModeState::Set,
                     AreaSelection::Select => ModeState::Reset,
+                },
+                AnsiMode::FormatEffectorTransfer => match self.strs.print.formators {
+                    FormatorTransfer::Exclude => ModeState::Set,
+                    FormatorTransfer::Insert => ModeState::Reset,
                 },
                 _ => ModeState::NotRecognized,
             };

@@ -498,6 +498,7 @@ impl AnsiMode {
             | AnsiMode::MultipleAreaTransfer
             | AnsiMode::TransferTermination
             | AnsiMode::SelectedAreaTransfer
+            | AnsiMode::FormatEffectorTransfer
             | AnsiMode::Other(_) => return None,
         })
     }

@@ -36,7 +36,7 @@
 //! for prints nothing and is counted.
 
 use crate::paint::Paint;
-use crate::print::Status;
+use crate::print::{JobKind, Status};
 use baud_domain::*;
 
 /// The most pictures a dump draws, a strip of placeholders each; past it
@@ -390,7 +390,7 @@ impl Paint<'_, '_> {
             index0: bg,
         };
         self.end_run_job();
-        self.begin_job();
+        self.begin_job(JobKind::Other);
         let w = spec.width.index();
         let bits_len = (w * spec.height.index()).div_ceil(8);
         let scratch = bits_len + dump_room(&spec);

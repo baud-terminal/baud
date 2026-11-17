@@ -50,6 +50,14 @@
 //! cases a and d "not defined" there, and baud prints as it did before any
 //! area. [`Eligible`].
 //!
+//! **FETM decides whether a print of screen contents carries formator
+//! functions** (`[[source: ecma48]]` 7.2.6): under INSERT, the reset state,
+//! the stream above; under EXCLUDE, no `ESC [ 0 m`, no rendition, no `CR`
+//! and line end, no DECPFF `FF` and no form feed joining it to the last job,
+//! so the lines run together. The DEC line sizes, `ESC # 5`, `6`, `3` and
+//! `4`, stay. A controller run's bytes and a hard copy are not screen text
+//! and FETM leaves them as they are ([`JobKind`]).
+//!
 //! **Printer controller mode is a node of the graph** (`Node::Printing`),
 //! every byte `Act::Printer`, whose step takes the rest of the read here: no
 //! other byte's path tests anything. Autoprint is one bit of the mode word
@@ -91,6 +99,8 @@ pub(crate) struct Printer {
     pub(crate) asked: PrinterAsked,
     /// SATM, MATM and TTM.
     pub(crate) transfer: AreaTransfer,
+    /// FETM.
+    pub(crate) formators: FormatorTransfer,
     /// The selected areas SSA and ESA marked.
     pub(crate) areas: SelectedAreas,
 }
@@ -323,11 +333,22 @@ enum Collecting {
 }
 
 /// Whether a job finishes as one of its own or joins the last finished,
-/// the queue being full when it began.
+/// the queue being full when it began: after a form feed, or, a print of
+/// screen contents under FETM's EXCLUDE, with nothing between.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Join {
     Own,
     Last,
+    LastRunOn,
+}
+
+/// What a job carries: screen contents, whose formator functions FETM
+/// governs, or the bytes of a controller run or a hard copy, which it
+/// leaves as they are.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum JobKind {
+    ScreenText,
+    Other,
 }
 
 /// A finished job: where it ends in the area, its start being the end of
@@ -377,6 +398,7 @@ impl Printer {
         hold: PrinterHold::Off,
         asked: PrinterAsked::No,
         transfer: AreaTransfer::RESET,
+        formators: FormatorTransfer::Insert,
         areas: SelectedAreas::NONE,
     };
 
@@ -461,7 +483,7 @@ impl Printer {
         };
         self.open = Collecting::Nothing;
         let empty = match join {
-            Join::Own => len.is_zero(),
+            Join::Own | Join::LastRunOn => len.is_zero(),
             Join::Last => len.index() <= 1,
         };
         if empty {
@@ -474,7 +496,7 @@ impl Printer {
                     *slot = Some(Done { end, cut });
                 }
             }
-            Join::Last => {
+            Join::Last | Join::LastRunOn => {
                 if let Some(last) = self.done.iter_mut().rev().find_map(|d| d.as_mut()) {
                     last.end = end;
                     if cut == PrintCut::Cut {
@@ -562,14 +584,14 @@ impl Paint<'_, '_> {
             MediaCopy::PrintScreen => self.print_page(PageRows::Screen),
             MediaCopy::PrintLine => {
                 self.end_run_job();
-                self.begin_job();
+                self.begin_job(JobKind::ScreenText);
                 let span = match self.strs.print.extent {
                     PrintExtent::Page => Span::Line,
                     PrintExtent::ScrollingRegion => Span::Margins,
                 };
-                self.put(b"\x1b[0m");
+                self.put_formator(b"\x1b[0m");
                 self.print_rows(self.cy, self.cy, span, LineEnd::LineFeed);
-                self.put(b"\x1b[0m");
+                self.put_formator(b"\x1b[0m");
                 self.finish_job();
                 self.resume_run_job();
             }
@@ -577,7 +599,7 @@ impl Paint<'_, '_> {
                 if self.strs.print.run == PrintRun::Idle {
                     self.strs.print.run = PrintRun::AutoPrint;
                     self.cold.modes.set(ModeBit::AutoPrint);
-                    self.begin_job();
+                    self.begin_job(JobKind::ScreenText);
                 }
             }
             MediaCopy::AutoPrintOff => {
@@ -597,7 +619,7 @@ impl Paint<'_, '_> {
                 }
                 self.strs.print.run = PrintRun::Controller;
                 self.strs.print.matcher = Matcher::IDLE;
-                self.begin_job();
+                self.begin_job(JobKind::Other);
                 *node = crate::graph::Node::Printing;
             }
             // Outside a run, reached only from the screen: inside one the
@@ -618,13 +640,13 @@ impl Paint<'_, '_> {
             _ => (Row::ZERO, Row::from_index(self.rows.index() - 1)),
         };
         self.end_run_job();
-        self.begin_job();
-        self.put(b"\x1b[0m");
+        self.begin_job(JobKind::ScreenText);
+        self.put_formator(b"\x1b[0m");
         self.print_rows(top, bottom, Span::Line, LineEnd::LineFeed);
         if self.strs.print.form_feed == PrintFormFeed::On {
-            self.put(b"\x0c");
+            self.put_formator(b"\x0c");
         }
-        self.put(b"\x1b[0m");
+        self.put_formator(b"\x1b[0m");
         self.finish_job();
         self.resume_run_job();
     }
@@ -639,7 +661,7 @@ impl Paint<'_, '_> {
     /// And the run goes on into a job of its own after the print.
     pub(crate) fn resume_run_job(&mut self) {
         if self.strs.print.run == PrintRun::AutoPrint {
-            self.begin_job();
+            self.begin_job(JobKind::ScreenText);
         }
     }
 
@@ -653,9 +675,9 @@ impl Paint<'_, '_> {
         if self.strs.print.run != PrintRun::AutoPrint {
             return;
         }
-        self.put(b"\x1b[0m");
+        self.put_formator(b"\x1b[0m");
         self.print_rows(self.cy, self.cy, Span::Line, end);
-        self.put(b"\x1b[0m");
+        self.put_formator(b"\x1b[0m");
     }
 
     /// Rows `top` to `bottom` of the screen shown, each with its line
@@ -737,7 +759,7 @@ impl Paint<'_, '_> {
                     _ => self.put(b" "),
                 }
             }
-            self.put(&[b'\r', end.byte().raw_byte()]);
+            self.put_formator(&[b'\r', end.byte().raw_byte()]);
         }
     }
 
@@ -966,8 +988,12 @@ impl Paint<'_, '_> {
     }
 
     /// `ESC [ 0 ; Ps ... m` for the attributes now in force, 070-7's SEND
-    /// GRAPHIC RENDITION.
+    /// GRAPHIC RENDITION; nothing under FETM's EXCLUDE, `SGR` being a
+    /// formator function.
     fn put_rendition(&mut self, a: Attrs) {
+        if self.strs.print.formators == FormatorTransfer::Exclude {
+            return;
+        }
         self.put(b"\x1b[0");
         if a.has(Attrs::BOLD) {
             self.put(b";1");
@@ -984,18 +1010,29 @@ impl Paint<'_, '_> {
         self.put(b"m");
     }
 
+    /// A formator function the print stream inserts, `SGR` or a format
+    /// effector: put under FETM's INSERT, left out under EXCLUDE.
+    fn put_formator(&mut self, bytes: &[u8]) {
+        if self.strs.print.formators == FormatorTransfer::Insert {
+            self.put(bytes);
+        }
+    }
+
     fn put_char(&mut self, c: char) {
         let mut b = [0u8; 4];
         self.put(c.encode_utf8(&mut b).as_bytes());
     }
 
     /// A job begins where the last finished one ends; with the queue full
-    /// it will join that one, after a form feed.
-    pub(crate) fn begin_job(&mut self) {
+    /// it will join that one, after a form feed, which a print of screen
+    /// contents under FETM's EXCLUDE leaves out.
+    pub(crate) fn begin_job(&mut self, kind: JobKind) {
         let p = &mut self.strs.print;
-        let join = match p.done.iter().all(Option::is_some) {
-            true => Join::Last,
-            false => Join::Own,
+        let full = p.done.iter().all(Option::is_some);
+        let join = match (full, kind, p.formators) {
+            (false, _, _) => Join::Own,
+            (true, JobKind::ScreenText, FormatorTransfer::Exclude) => Join::LastRunOn,
+            (true, _, _) => Join::Last,
         };
         p.open = Collecting::Job {
             len: ReadLen::ZERO,
@@ -1181,11 +1218,13 @@ impl Paint<'_, '_> {
         p.matcher = Matcher::IDLE;
         p.seen = Seen::Never;
         p.set_port(p.port);
-        // SATM, MATM and TTM to their reset states and no area selected:
-        // `RIS` returns the device "to its initial state" (`[[source:
-        // ecma48]]` 8.3.105), and 7.1 recommends the reset states as the
-        // initial ones. `DECSTR` keeps them, as its table names none.
+        // SATM, MATM, TTM and FETM to their reset states and no area
+        // selected: `RIS` returns the device "to its initial state"
+        // (`[[source: ecma48]]` 8.3.105), and 7.1 recommends the reset
+        // states as the initial ones. `DECSTR` keeps them, as its table
+        // names none.
         p.transfer = AreaTransfer::RESET;
+        p.formators = FormatorTransfer::Insert;
         p.areas = SelectedAreas::NONE;
         self.cold.modes.reset(ModeBit::AutoPrint);
     }
