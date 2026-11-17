@@ -847,6 +847,70 @@ fn the_unfinished_check_fails_each_way_a_file_is_wrong() {
     }
 }
 
+/// **No row under "Out of scope, with reasons" is `done` or `partial`.**
+///
+/// That section holds the refusals and the rows in scope and unbuilt. A built
+/// operation's row sits in its tier's table, beside its siblings, so a reader
+/// looking for what baud does finds it there. A status is the word `done`
+/// however it is punctuated (`done.`, `done —`) or `partial` in any spelling,
+/// in any cell after the sequence.
+#[test]
+fn no_row_out_of_scope_is_done_or_partial() {
+    let doc = fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/vt-coverage.md"
+    ))
+    .expect("docs/vt-coverage.md must be readable from the test");
+    let heading = "## Out of scope, with reasons";
+    let start = doc
+        .find(heading)
+        .expect("vt-coverage.md has the out-of-scope section");
+    let body = &doc[start + heading.len()..];
+    let section = &body[..body.find("\n## ").unwrap_or(body.len())];
+    let mut rows = 0usize;
+    let mut out = 0usize;
+    let mut built = Vec::new();
+    for line in section.lines() {
+        let l = line.trim();
+        if !l.starts_with('|') || l.starts_with("|---") {
+            continue;
+        }
+        rows += 1;
+        let row = l.replace("\\|", "");
+        let cells: Vec<&str> = row.trim_matches('|').split('|').map(str::trim).collect();
+        if cells.iter().any(|c| c.starts_with("**out**")) {
+            out += 1;
+        }
+        let status = cells.iter().skip(1).find_map(|c| {
+            if matches!(unfinished(c), Some((Unfinished::Partial, _))) {
+                Some("partial")
+            } else if c.split(|ch: char| !ch.is_alphanumeric()).next() == Some("done") {
+                Some("done")
+            } else {
+                None
+            }
+        });
+        if let Some(status) = status {
+            built.push(format!("{status}: {}", cells[0]));
+        }
+    }
+    // The floors guard the reading: the section and its `out` rows are found.
+    assert!(
+        rows > 30,
+        "only {rows} rows read under {heading:?} -- the scan stopped matching"
+    );
+    assert!(
+        out > 20,
+        "only {out} `out` rows read under {heading:?} -- the scan stopped matching"
+    );
+    assert!(
+        built.is_empty(),
+        "{} row(s) under {heading:?} are built -- move each into its tier's table:\n  {}",
+        built.len(),
+        built.join("\n  ")
+    );
+}
+
 /// **Every `out` row gives a reason, in the row.**
 ///
 /// `out` is the only status that means "not implemented", and it is what keeps
