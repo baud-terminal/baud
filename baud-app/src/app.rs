@@ -13360,6 +13360,154 @@ enum Sent {
     Bytes,
 }
 
+/// **The key [`key_owes`] decides for**: its text, the modifiers held
+/// with it, its code, and the keypad mode in force when it was typed.
+#[derive(Clone, Copy)]
+struct KeyTyped {
+    text: Option<Codepoint>,
+    held: Modifiers,
+    code: KeyCode,
+    keypad: KeypadMode,
+}
+
+/// Whether the cell a prediction is drawn at already holds something.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Underneath {
+    Empty,
+    Occupied,
+}
+
+/// **Where a key's echo is drawn before the pty answers** ([`key_owes`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Guessed {
+    /// Not asked: nothing was sent, the key carries no text, or its text
+    /// is not what it sends ([`predicts`]).
+    Unasked,
+    /// Refused, for the reason the latency record takes.
+    Refused(&'static str),
+    /// Drawn at this cell of the live screen.
+    At {
+        row: Row,
+        col: Col,
+        cp: Codepoint,
+        under: Underneath,
+    },
+}
+
+/// **What a typed key owes** ([`key_owes`]): where its echo stands,
+/// whether a frame is owed now, and where its echo is predicted.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct KeyOwes {
+    echo: Echo,
+    frame: Pending,
+    guessed: Guessed,
+}
+
+/// **What a key `Driver::typed` sent owes**, read from the terminal after
+/// the key reached it. Under SRM reset the core drew the key itself, so
+/// its frame is owed now, as a read's echo is. A key sent otherwise waits
+/// for its echo, and a printable typed at the shell's prompt is predicted:
+/// drawn before the pty answers, as an overlay the next read judges, which
+/// owes its frame now.
+///
+/// The prediction's gates: the cell path, the core's prompt zone, the
+/// primary screen, the live view, no synchronised update, a visible cursor
+/// that is not in the last column, an ASCII printable, and no
+/// contradiction since the prompt opened (`hold`). A second key before the
+/// first echo is predicted after the first, `last`. An occupied cell is
+/// predicted over: at a prompt the occupant is the shell's own suggestion
+/// of what comes next.
+fn key_owes(
+    echo: Echo,
+    sent: Sent,
+    key: KeyTyped,
+    hold: Hold,
+    path: Path,
+    last: Option<(Row, Col)>,
+    term: &Term<'_>,
+) -> KeyOwes {
+    let guessed = 'guess: {
+        let c = match (sent, key.text) {
+            (Sent::Bytes, Some(c)) if predicts(key.code, key.keypad) => c,
+            _ => break 'guess Guessed::Unasked,
+        };
+        // Only the cell path draws a prediction: on the instance or CPU
+        // path a record would be stamped and committed on a frame that
+        // never drew the glyph.
+        if path != Path::Cells {
+            break 'guess Guessed::Refused("path");
+        }
+        let printable =
+            char::from_u32(c.value()).is_some_and(|ch| ch == ' ' || ch.is_ascii_graphic());
+        let refused = if is_chord(key.held) {
+            // A control or option chord carries text -- the unmodified
+            // character -- and `send` writes the *chord*, so the glyph
+            // would not be the byte. Only the input manager's `text` path
+            // predicts, whose events carry Shift at most. Shift's capital
+            // is the text the base layer sends below `modifyOtherKeys` 2; at
+            // 2 and 3 it is `CSI 27 ; 2 ; N ~`, and the next read judges the
+            // overlay, as it does for a plain key at level 3 or with every
+            // key reported as an escape code.
+            Some("mods")
+        } else if hold != Hold::Open {
+            Some("hold")
+        } else if term.zone() != Zone::Prompt {
+            Some("zone")
+        } else if term.screen() != Screen::Normal {
+            Some("screen")
+        } else if term.window_back().index() != 0 {
+            Some("back")
+        } else if term.synchronized_output() {
+            Some("sync")
+        } else if term.local_echo() {
+            // SRM reset: the terminal drew the key itself, and the child's
+            // echo, if it echoes too, is not one to predict.
+            Some("srm")
+        } else if !term.cursor_visible() {
+            Some("cursor")
+        } else if !printable {
+            Some("printable")
+        } else {
+            None
+        };
+        if let Some(why) = refused {
+            break 'guess Guessed::Refused(why);
+        }
+        let view = term.view(Rows::ZERO);
+        let (row, col) = match last {
+            Some((row, col)) => (row, col.after()),
+            None => term.cursor(),
+        };
+        if col.index() + 1 >= view.cols().index() {
+            break 'guess Guessed::Refused("edge");
+        }
+        let Some(cell) = view.row(row).get(col.index()) else {
+            break 'guess Guessed::Refused("edge");
+        };
+        let under = match cell.content.is_empty() {
+            true => Underneath::Empty,
+            false => Underneath::Occupied,
+        };
+        Guessed::At {
+            row,
+            col,
+            cp: c,
+            under,
+        }
+    };
+    let (echo, frame) = match (term.local_echo(), sent, guessed) {
+        (true, _, _) => (Echo::Fed, Pending::Dirty),
+        (false, Sent::Bytes, Guessed::At { .. }) => (Echo::Wanted, Pending::Dirty),
+        (false, Sent::Bytes, _) => (Echo::Wanted, Pending::Clean),
+        (false, Sent::Nothing, _) => (echo, Pending::Clean),
+    };
+    KeyOwes {
+        echo,
+        frame,
+        guessed,
+    }
+}
+
 /// **Whose action a reply in the core's buffer answers**, for AA: one the
 /// user's key, click, wheel or paste brought, or one the terminal queued
 /// on its own -- a focus report, a size report after a resize, a colour
@@ -14236,31 +14384,53 @@ impl Driver {
         }
         self.app.latency.key(current_event_time, host_now);
         self.app.take.key(&e);
-        let (text, held) = (e.text, e.mods);
-        let typed = predicts(e.code, self.app.term.keypad());
-        match self.app.send(e) {
+        let key = KeyTyped {
+            text: e.text,
+            held: e.mods,
+            code: e.code,
+            keypad: self.app.term.keypad(),
+        };
+        let path = match (
+            self.app.presenter.as_ref().map(Presenter::mode),
+            self.app.cell.as_ref(),
+        ) {
+            (Some(Mode::Gpu), Some(_)) => Path::Cells,
+            (Some(Mode::Gpu), None) => Path::Instances,
+            (Some(Mode::Cpu) | None, _) => Path::Cpu,
+        };
+        let sent = self.app.send(e);
+        let last = self.app.predictions.last().map(|p| (p.row, p.col));
+        let owes = key_owes(
+            self.app.echo,
+            sent,
+            key,
+            self.app.hold,
+            path,
+            last,
+            &self.app.term,
+        );
+        match sent {
             Sent::Bytes => {
                 // A key can start a job that prints nothing (`title.rs`).
                 self.derive.owe();
                 let act = self.hiding.key(&self.app.term);
                 hide_pointer(act);
                 self.app.latency.written(host_now);
-                self.app.echo = Echo::Wanted;
-                if let Some(c) = text.filter(|_| typed) {
-                    self.predict(c, held);
-                }
+                self.app.echo = owes.echo;
+                self.predict(owes.guessed);
             }
             Sent::Nothing => self.app.latency.unsent(),
         }
-        // SRM reset: the core drew the key itself, so its frame is owed now,
-        // as a read's echo is, and nothing else pumps the loop for it.
-        if self.app.term.local_echo() {
+        // The key's frame, owed now: under SRM reset the core drew the key
+        // itself, as a read's echo is drawn, or its echo is predicted; the
+        // keystroke is the event, and nothing else pumps the loop for it.
+        if owes.frame == Pending::Dirty {
             self.app.owe_frame();
-            self.app.echo = Echo::Fed;
+            self.app.echo = owes.echo;
             self.pump(Trigger::Wake);
         } else if self.app.guess == Guess::Owed {
-            // A prediction is owed its frame now, not at the next wake: the
-            // keystroke is the event, and nothing else pumps the loop for it.
+            // An earlier key's prediction is owed its frame now, not at the
+            // next wake.
             self.pump(Trigger::Wake);
         }
     }
@@ -14276,86 +14446,29 @@ impl Driver {
         }
     }
 
-    /// Row 9: a printable typed at the shell's prompt is drawn before the
-    /// pty answers, as an overlay the next read judges. The gates: the
-    /// core's prompt zone, the primary screen, the live view, no synchronised update, a
-    /// visible cursor that is not in the last column, an ASCII printable,
-    /// and no contradiction since the prompt opened. A second key before
-    /// the first echo is predicted after the first. An occupied cell is
-    /// predicted over, the way Mosh inserts over one: at a prompt the
-    /// occupant is the shell's own suggestion of what comes next, and
-    /// refusing it refused a third of a sweep's keys.
-    fn predict(&mut self, c: Codepoint, held: Modifiers) {
-        // Only the cell path draws a prediction. Predicting on the
-        // instance or CPU path would stamp a record and commit it on a
-        // frame that never drew the glyph -- an instrument reporting a
-        // gain nobody can see, which is the probe-that-lies failure this
-        // repo keeps finding.
-        let draws = matches!(
-            (
-                self.app.presenter.as_ref().map(Presenter::mode),
-                self.app.cell.as_ref()
-            ),
-            (Some(Mode::Gpu), Some(_))
-        );
-        if !draws {
-            self.app.latency.refused("path");
-            return;
-        }
+    /// Row 9: what [`key_owes`] decided of a key's prediction, done: the
+    /// refusal or the note the latency record takes, and the prediction
+    /// stamped and kept for the next read to judge. `typed` owes its frame.
+    fn predict(&mut self, guessed: Guessed) {
         let app = &mut self.app;
-        let printable =
-            char::from_u32(c.value()).is_some_and(|ch| ch == ' ' || ch.is_ascii_graphic());
-        let refused = if is_chord(held) {
-            // A control or option chord carries text -- the unmodified
-            // character -- and `send` writes the *chord*, so the glyph
-            // would not be the byte. Only the input manager's `text` path
-            // predicts, whose events carry Shift at most. Shift's capital
-            // is the text the base layer sends below `modifyOtherKeys` 2; at
-            // 2 and 3 it is `CSI 27 ; 2 ; N ~`, and the next read judges the
-            // overlay, as it does for a plain key at level 3 or under
-            // kitty's report-all-keys.
-            Some("mods")
-        } else if app.hold != Hold::Open {
-            Some("hold")
-        } else if app.term.zone() != Zone::Prompt {
-            Some("zone")
-        } else if app.term.screen() != Screen::Normal {
-            Some("screen")
-        } else if app.term.window_back().index() != 0 {
-            Some("back")
-        } else if app.term.synchronized_output() {
-            Some("sync")
-        } else if app.term.local_echo() {
-            // SRM reset: the terminal drew the key itself, and the child's
-            // echo, if it echoes too, is not one to predict.
-            Some("srm")
-        } else if !app.term.cursor_visible() {
-            Some("cursor")
-        } else if !printable {
-            Some("printable")
-        } else {
-            None
+        let (row, col, c) = match guessed {
+            Guessed::Unasked => return,
+            Guessed::Refused(why) => {
+                app.latency.refused(why);
+                return;
+            }
+            Guessed::At {
+                row,
+                col,
+                cp,
+                under,
+            } => {
+                if under == Underneath::Occupied {
+                    app.latency.noted("over-occupied");
+                }
+                (row, col, cp)
+            }
         };
-        if let Some(why) = refused {
-            app.latency.refused(why);
-            return;
-        }
-        let view = app.term.view(Rows::ZERO);
-        let (row, col) = match app.predictions.last() {
-            Some(p) => (p.row, p.col.after()),
-            None => app.term.cursor(),
-        };
-        if col.index() + 1 >= view.cols().index() {
-            app.latency.refused("edge");
-            return;
-        }
-        let Some(cell) = view.row(row).get(col.index()) else {
-            app.latency.refused("edge");
-            return;
-        };
-        if !cell.content.is_empty() {
-            app.latency.noted("over-occupied");
-        }
         let seq = app.latency.predicted(host_now);
         app.predictions.push(Prediction {
             row,
@@ -14365,7 +14478,6 @@ impl Driver {
             at: Instant::now(),
             rot: app.term.rotation(),
         });
-        app.owe_frame();
         app.guess = Guess::Owed;
     }
 
@@ -22694,6 +22806,77 @@ mod tests {
         assert!(!predicts(KeyCode::Keypad(Digit5), KeypadMode::Application));
         let five = KeyCode::Char(Codepoint::new(u32::from('5')).unwrap());
         assert!(predicts(five, KeypadMode::Application));
+    }
+
+    /// **What a key typed at a marked prompt owes** ([`key_owes`]): a
+    /// printable key at the shell's prompt (`OSC 133`), sent, on the cell
+    /// path, owes a frame now and is predicted at the cursor, its echo
+    /// wanted. The control is SRM reset, under which the core draws the key
+    /// itself: the key owes its frame now, its echo is fed, and its
+    /// prediction is refused.
+    #[test]
+    fn what_a_key_typed_at_a_marked_prompt_owes() {
+        fn read(t: &mut Term<'_>, bytes: &[u8]) {
+            t.write_at(baud_domain::BytePos::ZERO, bytes);
+            t.feed(
+                baud_domain::BytePos::ZERO,
+                baud_domain::ReadLen::from_index(bytes.len()),
+            );
+        }
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 4,
+        };
+        let cp = Codepoint::from_char('l');
+        let l = KeyEvent {
+            text: Some(cp),
+            ..KeyEvent::press(KeyCode::Char(cp), Modifiers::NONE)
+        };
+        // SRM set, the power-on state, and the control, SRM reset.
+        for (modes, local) in [(&b"\x1b[12h"[..], false), (&b"\x1b[12l"[..], true)] {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            read(&mut t, modes);
+            read(&mut t, b"\x1b]133;A\x07$ \x1b]133;B\x07");
+            assert!(t.zone() == Zone::Prompt, "{modes:?}: a marked prompt");
+            let (row, col) = t.cursor();
+            let key = KeyTyped {
+                text: l.text,
+                held: l.mods,
+                code: l.code,
+                keypad: t.keypad(),
+            };
+            let mut sent = Vec::new();
+            crate::reads::input(&mut t, |t| t.key(l), |b| sent.extend_from_slice(b));
+            assert_eq!(sent, b"l", "{modes:?}: the key goes to the host");
+            let owes = key_owes(
+                Echo::Drawn,
+                Sent::Bytes,
+                key,
+                Hold::Open,
+                Path::Cells,
+                None,
+                &t,
+            );
+            assert!(
+                owes.frame == Pending::Dirty,
+                "{modes:?}: the key owes a frame now"
+            );
+            if local {
+                // The control: the core drew the key, and its echo is fed.
+                assert!(owes.echo == Echo::Fed, "{modes:?}: the echo is fed");
+                assert_eq!(owes.guessed, Guessed::Refused("srm"), "{modes:?}");
+                continue;
+            }
+            assert!(owes.echo == Echo::Wanted, "the key waits for its echo");
+            let at_cursor = Guessed::At {
+                row,
+                col,
+                cp,
+                under: Underneath::Empty,
+            };
+            assert_eq!(owes.guessed, at_cursor, "predicted at the cursor");
+        }
     }
 
     /// **A Mac keypad key sends what the layout types on it**: the decimal
