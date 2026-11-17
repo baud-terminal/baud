@@ -861,6 +861,22 @@ fn solid(x: Screen, y: Screen, w: Px, h: Px, color: Argb) -> Instance {
     }
 }
 
+/// The pixel rows `recs` cover, top inclusive and bottom exclusive, each
+/// clamped at zero; `(0, 0)` when they cover none.
+fn row_span(recs: &[Instance]) -> (Px, Px) {
+    let (mut lo, mut hi) = (i32::MAX, i32::MIN);
+    for inst in recs {
+        lo = lo.min(i32::from(inst.y.0));
+        hi = hi.max(i32::from(inst.y.0) + i32::from(inst.h.0));
+    }
+    let row = |v: i32| Px::of(u32::try_from(v.max(0)).unwrap_or(0));
+    if lo < hi {
+        (row(lo), row(hi))
+    } else {
+        (Px::of(0), Px::of(0))
+    }
+}
+
 /// The first word of a word piece's run-cache key (`crate::word`): a
 /// word's run is laid end to end, never a grid run's.
 const WORD_KEY: u32 = 0x5744_0000;
@@ -7070,17 +7086,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 for s in self.fireworks.iter().flatten() {
                     crate::fireworks::records(s, frame, &mut self.trail_inst);
                 }
-                let (mut lo, mut hi) = (i32::MAX, i32::MIN);
-                for inst in &self.trail_inst {
-                    lo = lo.min(i32::from(inst.y.0));
-                    hi = hi.max(i32::from(inst.y.0) + i32::from(inst.h.0));
-                }
-                let row = |v: i32| Px::of(u32::try_from(v.max(0)).unwrap_or(0));
-                (*top, *bottom) = if lo < hi {
-                    (row(lo), row(hi))
-                } else {
-                    (Px::of(0), Px::of(0))
-                };
+                (*top, *bottom) = row_span(&self.trail_inst);
             }
             Some(Drawn::Ghost(g)) => self.trail_inst.push(trail::instance(*g, self.cursor_fill)),
             Some(Drawn::Smear(s)) => self
@@ -7095,17 +7101,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 if v.emitter.strength == Strength::UnderThreshold {
                     self.trail_inst.retain(|r| r.kind == Kind::Band);
                 }
-                let (mut lo, mut hi) = (i32::MAX, i32::MIN);
-                for inst in &self.trail_inst {
-                    lo = lo.min(i32::from(inst.y.0));
-                    hi = hi.max(i32::from(inst.y.0) + i32::from(inst.h.0));
-                }
-                let row = |v: i32| Px::of(u32::try_from(v.max(0)).unwrap_or(0));
-                (*top, *bottom) = if lo < hi {
-                    (row(lo), row(hi))
-                } else {
-                    (Px::of(0), Px::of(0))
-                };
+                (*top, *bottom) = row_span(&self.trail_inst);
             }
             None => {}
         }
