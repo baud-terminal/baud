@@ -2562,6 +2562,12 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
             p.cold.bell.set_margin(v);
             p.rehook();
         }
+        // DECLL: each parameter in its order, and one no text gives a light
+        // for is ignored and counted (`baud_domain::LedLoad`).
+        DomCsi::LoadLeds => csi.for_each_param(|q| match baud_domain::LedLoad::from_param(q) {
+            Some(l) => p.cold.lights = p.cold.lights.load(l),
+            None => p.unsupported_param += 1,
+        }),
         // MC (`print.rs`).
         DomCsi::MediaCopy(m) => {
             p.media_copy(m, node);
@@ -2740,6 +2746,7 @@ fn writes_no_cell(op: &DomCsi) -> bool {
         | DomCsi::CursorStyle(..)
         | DomCsi::WarningBellVolume(..)
         | DomCsi::MarginBellVolume(..)
+        | DomCsi::LoadLeds
         | DomCsi::SelectCharacterPath { .. }
         | DomCsi::SelectPresentationDirections { .. }
         | DomCsi::SelectPresentationVariants

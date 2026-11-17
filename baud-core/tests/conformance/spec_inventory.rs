@@ -227,6 +227,8 @@ struct Snapshot {
     /// DECSWBV's and DECSMBV's volumes and `?44`, which only the
     /// embedder's bell reads.
     bell_volumes: (BellVolume, BellVolume, MarginBell),
+    /// DECLL's keyboard lights, which only the embedder draws.
+    keyboard_lights: KeyLeds,
     cursor_keys: bool,
     keypad: KeypadMode,
     screen: Screen,
@@ -369,6 +371,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
             t.margin_bell_volume(),
             t.margin_bell(),
         ),
+        keyboard_lights: t.keyboard_lights(),
         cursor_keys: t.cursor_keys_application(),
         keypad: t.keypad(),
         screen: t.screen(),

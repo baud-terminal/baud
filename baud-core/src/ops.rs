@@ -5909,6 +5909,11 @@ impl Paint<'_, '_> {
         self.fold_bells();
         self.cold.bell.reset();
         self.rehook();
+        // **And DECLL's lights go out**: `RIS` returns the terminal to "the
+        // state it has after it is powered on" (`[[source: vt100-ug-ch3]]`),
+        // none lit. `DECSTR` keeps them: its list (`[[source:
+        // vt510-rm-b]]`) names no light.
+        self.cold.lights = baud_domain::KeyLeds::NONE;
         // **And the conformance level and the C1 transmission**: DEC STD
         // 070's Device Initialization takes both from NVM (`host_state_init`,
         // "conformance level = LEVEL 4"), which here is the power-up state,

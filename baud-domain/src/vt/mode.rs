@@ -1229,6 +1229,103 @@ impl BellVolume {
     }
 }
 
+/// **One of the keyboard's three lights DECLL loads**: Num Lock, Caps Lock
+/// and Scroll Lock, its `Ps` 1, 2 and 3 (`[[source: ctlseqs]]`, "Load LEDs
+/// (DECLL), VT100"), the VT100's L1, L2 and L3 (`[[source: vt100-ug-ch3]]`).
+/// They are drawn, and never the keyboard's own lock lights.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KeyLed {
+    Num,
+    Caps,
+    Scroll,
+}
+
+impl KeyLed {
+    /// Every light, in `Ps` order.
+    pub const ALL: [KeyLed; 3] = [KeyLed::Num, KeyLed::Caps, KeyLed::Scroll];
+
+    /// The light's place in [`KeyLeds`].
+    const fn mask(self) -> u8 {
+        match self {
+            KeyLed::Num => 1,
+            KeyLed::Caps => 2,
+            KeyLed::Scroll => 4,
+        }
+    }
+}
+
+/// Whether a [`KeyLed`] is lit.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LedState {
+    Off,
+    On,
+}
+
+/// **The keyboard lights lit**, a set of [`KeyLed`]: none at power-on and
+/// after `RIS`, which returns the terminal to "the state it has after it is
+/// powered on" (`[[source: vt100-ug-ch3]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct KeyLeds(u8);
+
+impl KeyLeds {
+    /// Every light off.
+    pub const NONE: KeyLeds = KeyLeds(0);
+
+    /// Whether `led` is lit.
+    pub const fn state(self, led: KeyLed) -> LedState {
+        match self.0 & led.mask() {
+            0 => LedState::Off,
+            _ => LedState::On,
+        }
+    }
+
+    /// The set with `led` lit or not.
+    pub const fn with(self, led: KeyLed, s: LedState) -> KeyLeds {
+        match s {
+            LedState::On => KeyLeds(self.0 | led.mask()),
+            LedState::Off => KeyLeds(self.0 & !led.mask()),
+        }
+    }
+
+    /// The set after one DECLL parameter.
+    pub const fn load(self, l: LedLoad) -> KeyLeds {
+        match l {
+            LedLoad::AllOff => KeyLeds::NONE,
+            LedLoad::Light(led) => self.with(led, LedState::On),
+            LedLoad::Extinguish(led) => self.with(led, LedState::Off),
+        }
+    }
+}
+
+/// **One DECLL parameter.** `[[source: vt100-ug-ch3]]`, "Programmable
+/// LEDs": `ESC [ Ps;Ps;...Ps q`, whose "Ps are selective parameters ...
+/// executed in order", "0 or None All LEDs Off", and "Any other parameter
+/// values are ignored"; `[[source: ctlseqs]]` gives 1-3 lighting Num Lock,
+/// Caps Lock and Scroll Lock and 21-23 extinguishing them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LedLoad {
+    AllOff,
+    Light(KeyLed),
+    Extinguish(KeyLed),
+}
+
+impl LedLoad {
+    /// The parameter `p`, an omitted one 0; `None` for a value neither
+    /// text gives a light for, the VT100's L4 among them, which is ignored.
+    pub fn from_param(p: Option<Param>) -> Option<LedLoad> {
+        Some(match p.map_or(0, |x| x.0) {
+            0 => LedLoad::AllOff,
+            1 => LedLoad::Light(KeyLed::Num),
+            2 => LedLoad::Light(KeyLed::Caps),
+            3 => LedLoad::Light(KeyLed::Scroll),
+            21 => LedLoad::Extinguish(KeyLed::Num),
+            22 => LedLoad::Extinguish(KeyLed::Caps),
+            23 => LedLoad::Extinguish(KeyLed::Scroll),
+            _ => return None,
+        })
+    }
+}
+
 /// **How many bells rang at each volume**, each counted at the volume set
 /// when it rang: a reader that took the volume when it heard the count
 /// would sound a `BEL` sent before a DECSWBV in the same read at the

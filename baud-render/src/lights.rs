@@ -89,7 +89,7 @@ use crate::atlas::outline;
 use crate::color::Argb;
 use crate::color::Backdrop;
 use crate::units::slots;
-use baud_domain::{Chan, Codepoint, HostTime};
+use baud_domain::{Chan, Codepoint, HostTime, KeyLed, LedState};
 use baud_font::{Canvas, Extent, Face, Point, Px, Rasterizer, Scale, VarPoint};
 use core::time::Duration;
 
@@ -901,7 +901,12 @@ fn advance(face: &Face<'_>, text: &str, px: f32) -> f32 {
 
 /// **A light's own width, in points**: its letters, the gap, the light.
 pub fn cell_width(face: &Face<'_>, led: Led) -> f32 {
-    advance(face, led.letters(), TEXT) + GAP + DOT
+    labelled_width(face, led.letters())
+}
+
+/// **A labelled lamp's own width, in points**: `text`, the gap, the light.
+fn labelled_width(face: &Face<'_>, text: &str) -> f32 {
+    advance(face, text, TEXT) + GAP + DOT
 }
 
 /// **A light's picture's width, in points**: the light and the halo's
@@ -1246,7 +1251,7 @@ pub fn draw_panel_led(
         out,
         extent,
         look,
-        led,
+        *look.lit.get(led),
         light,
         centre,
         HALO.min(PANEL_LAMP_Y + off - DOT / 2.0),
@@ -1405,16 +1410,82 @@ pub fn draw_led(
     height: f32,
     out: &mut LightsImage,
 ) -> Option<()> {
-    let w = Px::of(u32::try_from((picture_width(face, led) * scale).ceil() as i64).ok()?);
+    let lamp_of = Labelled {
+        letters: led.letters(),
+        lit: *look.lit.get(led),
+        light,
+    };
+    draw_labelled(face, look, lamp_of, scale, height, out)
+}
+
+/// **One keyboard light DECLL loads, drawn** as [`draw_led`] draws a light
+/// of the strip: its letters ([`key_letters`]), then the lamp, lit in SYN's
+/// colour of the set, the other light a program sets, and dark a dot half
+/// that diameter in the unlit entry. `None` for a size no canvas holds.
+pub fn draw_key_led(
+    face: &Face<'_>,
+    look: &LightsLook,
+    led: KeyLed,
+    state: LedState,
+    scale: f32,
+    height: f32,
+    out: &mut LightsImage,
+) -> Option<()> {
+    let lamp_of = Labelled {
+        letters: key_letters(led),
+        lit: *look.lit.get(Led::Syn),
+        light: match state {
+            LedState::On => Light::Lit,
+            LedState::Off => Light::Dark,
+        },
+    };
+    draw_labelled(face, look, lamp_of, scale, height, out)
+}
+
+/// **A keyboard light's letters**: the lock key each is named for.
+pub const fn key_letters(led: KeyLed) -> &'static str {
+    match led {
+        KeyLed::Num => "NUM",
+        KeyLed::Caps => "CAPS",
+        KeyLed::Scroll => "SCROLL",
+    }
+}
+
+/// **A keyboard light's picture's width, in points**, as
+/// [`picture_width`] is a strip light's.
+pub fn key_picture_width(face: &Face<'_>, led: KeyLed) -> f32 {
+    labelled_width(face, key_letters(led)) + HALO
+}
+
+/// What one labelled lamp shows: its letters, its lit colour and its state.
+#[derive(Clone, Copy)]
+struct Labelled<'s> {
+    letters: &'s str,
+    lit: Argb,
+    light: Light,
+}
+
+/// **A labelled lamp, drawn**: [`draw_led`]'s and [`draw_key_led`]'s
+/// picture, the letters at the left and the lamp after them.
+fn draw_labelled(
+    face: &Face<'_>,
+    look: &LightsLook,
+    l: Labelled<'_>,
+    scale: f32,
+    height: f32,
+    out: &mut LightsImage,
+) -> Option<()> {
+    let wide = labelled_width(face, l.letters) + HALO;
+    let w = Px::of(u32::try_from((wide * scale).ceil() as i64).ok()?);
     let h = Px::of(u32::try_from((height * scale).round() as i64).ok()?);
     let extent = Extent::new(w, h);
     let r = DOT * scale / 2.0;
     let mid = height * scale / 2.0;
     let px = TEXT * scale;
-    let run = advance(face, led.letters(), TEXT) * scale;
+    let run = advance(face, l.letters, TEXT) * scale;
     let pen = Point::new(0.0, mid + CAP * px / 2.0);
     let centre = Point::new(run + GAP * scale + r, mid);
-    let text = coverage(extent, |c| letters(face, c, led.letters(), px, pen))?;
+    let text = coverage(extent, |c| letters(face, c, l.letters, px, pen))?;
     out.width = w;
     out.height = h;
     out.pixels.clear();
@@ -1426,30 +1497,30 @@ pub fn draw_led(
         out,
         extent,
         look,
-        led,
-        light,
+        l.lit,
+        l.light,
         centre,
         HALO.min(height / 2.0 - DOT / 2.0),
         scale,
     )
 }
 
-/// **A lamp over what `out` already holds**, about `centre`: while lit and
-/// not under Dim Flashing Lights the halo, reaching `reach` points past
-/// the dot, then the dot, the smaller dot or the ring its state is.
+/// **A lamp over what `out` already holds**, about `centre`, `lit` its lit
+/// colour: while lit and not under Dim Flashing Lights the halo, reaching
+/// `reach` points past the dot, then the dot, the smaller dot or the ring
+/// its state is.
 #[allow(clippy::too_many_arguments)]
 fn lamp(
     out: &mut LightsImage,
     extent: Extent,
     look: &LightsLook,
-    led: Led,
+    lit: Argb,
     light: Light,
     centre: Point,
     reach: f32,
     scale: f32,
 ) -> Option<()> {
     let r = DOT * scale / 2.0;
-    let lit = *look.lit.get(led);
     if light == Light::Lit && look.glow == Glow::Full && look.halo.alpha().get() > 0 {
         halo(out, lit, look.halo, centre, r, reach, scale);
     }

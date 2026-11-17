@@ -1195,6 +1195,10 @@ pub struct Cold {
     /// path's hook, the moves of rows in place and a top region's scroll,
     /// and the counts credited at DECSWBV, `RIS` and a read's end.
     pub(crate) bell: crate::margin::BellState,
+    /// DECLL's keyboard lights ([`KeyLeds`](baud_domain::KeyLeds)): set
+    /// by DECLL, off at power-on and after `RIS`, kept by `DECSTR`. Read by
+    /// the embedder ([`Term::keyboard_lights`]), never here.
+    pub(crate) lights: baud_domain::KeyLeds,
     /// XTSHIFTESCAPE, `CSI > Ps s`: back to `Override` on `RIS`, kept by
     /// `DECSTR` ([`ShiftEscape`]). Read by the embedder's pointer, never
     /// here.
@@ -1748,6 +1752,8 @@ pub struct Cold {
 // The held count as the latest update opened (`held_at_opening`) took it to
 // 1024, and to 1832 with `read-record` on: a `u32` written by an opening of
 // `?2026` and read by the embedder after a read, never by a glyph.
+// DECLL's lights (`lights`), one byte, landed in its padding: written by
+// DECLL and `RIS`, read by the embedder, never by a glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it
 // more.
 #[cfg(all(not(feature = "sgr-table"), not(feature = "read-record")))]
@@ -2270,6 +2276,7 @@ impl Cold {
             alternate_scroll: AlternateScroll::On,
             more_fix: baud_domain::MoreFix::Off,
             bell: crate::margin::BellState::POWER_ON,
+            lights: baud_domain::KeyLeds::NONE,
             scrollbar: baud_domain::ScrollbarShown::Shown,
             shift_escape: ShiftEscape::Override,
             pointer_mode: PointerMode::UnlessTracking,
@@ -6967,6 +6974,14 @@ impl<'b> Term<'b> {
     /// power-on and after `RIS`, kept by `DECSTR`.
     pub fn margin_bell_volume(&self) -> baud_domain::BellVolume {
         self.cold.bell.margin
+    }
+
+    /// **The keyboard lights DECLL lit** (`[[source: vt100-ug-ch3]]`, and
+    /// `[[source: ctlseqs]]`'s Num Lock, Caps Lock and Scroll Lock): none at
+    /// power-on and after `RIS`, kept by `DECSTR`. Drawn by the embedder,
+    /// never the keyboard's own lock lights.
+    pub fn keyboard_lights(&self) -> baud_domain::KeyLeds {
+        self.cold.lights
     }
 
     /// **The `BEL`s rung, by the warning volume each rang at**: what a

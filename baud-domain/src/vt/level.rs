@@ -153,6 +153,8 @@ functions! {
     Decxcpr "DECXCPR" Since(Three), Field(310);
     // VT100 operation, the VT100's own report.
     Decreqtparm "DECREQTPARM" Since(One), Manual(Vt100);
+    // The VT100's keyboard lights, its own control.
+    Decll "DECLL" Since(One), Manual(Vt100);
     // Character cell display, 070-5.
     Dectcem "DECTCEM" Since(Two), Field(276);
     Decstbm "DECSTBM" Since(One), Field(280);
@@ -348,6 +350,7 @@ impl Csi {
             DeviceStatus(Some(StatusKind::CursorPosition)) => Function::Cpr,
             DeviceStatus(_) => Function::Dsr,
             Query(QueryOp::TerminalParameters) => Function::Decreqtparm,
+            LoadLeds => Function::Decll,
             Query(QueryOp::PreferredSupplemental) => Function::Decrqupss,
             Query(QueryOp::DisplayedExtent) => Function::Decrqde,
             Locator(LocatorOp::Enable) => Function::Decelr,

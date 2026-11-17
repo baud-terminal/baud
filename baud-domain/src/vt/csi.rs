@@ -819,6 +819,10 @@ pub enum Csi {
     WarningBellVolume(BellVolume),
     /// DECSMBV, `CSI Ps SP u`: the margin bell's volume (p. 5-138).
     MarginBellVolume(BellVolume),
+    /// DECLL, `CSI Ps q`: the keyboard lights ([`KeyLeds`]). The list is
+    /// every parameter, executed in order ([`LedLoad`]), which the caller
+    /// walks, as it walks [`Csi::Mode`]'s.
+    LoadLeds,
     /// SCP, `CSI Ps1 ; Ps2 SP k` (`[[source: ecma48]]` 8.3.111): the
     /// character path "for the active line ... and subsequent lines".
     /// `Ps1` 1 or 2, and nothing else: SCP has "No parameter default
@@ -1549,6 +1553,10 @@ impl Csi {
                 bottom: p.far_margin(ParamIdx::SECOND),
             },
             b'm' => Csi::Sgr,
+            // DECLL (`[[source: vt100-ug-ch3]]`): the standard namespace's
+            // bare `q`, apart from DECSCUSR's `SP q`, DECSCA's `" q` and
+            // XTVERSION's `> q`, each returned above.
+            b'q' => Csi::LoadLeds,
             // DECREQTPARM (`[[source: vt100-ug-ch3]]`); a `<sol>` of 2 or 3
             // is a report, sent to baud rather than asked of it, and is told
             // apart where the parameter is read.
@@ -1945,7 +1953,8 @@ impl Csi {
             | Sgr
             | Repeat(_)
             | DeviceAttributes
-            | DeviceStatus(_) => Level::Vt100,
+            | DeviceStatus(_)
+            | LoadLeds => Level::Vt100,
             // "Levels: 1X, 2X, 3X" (070-7, each MC page): the Printer Port
             // Extension at every level.
             MediaCopy(_) => Level::Vt100,

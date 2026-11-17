@@ -218,6 +218,8 @@ pub use baud_domain::{
     WindowManipulation, WindowOps, WindowRequest,
 };
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
+/// What [`Term::keyboard_lights`] returns: the lights DECLL lit.
+pub use baud_domain::{KeyLed, KeyLeds, LedState};
 /// DEC's text locator's vocabulary: what [`Term::locator`] and
 /// [`Term::set_locator_device`] take.
 pub use baud_domain::{

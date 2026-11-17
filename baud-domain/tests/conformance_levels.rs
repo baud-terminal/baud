@@ -260,6 +260,7 @@ fn the_parsed_forms_name_their_rows() {
         (csi(S, None, &[5], b'n'), "DSR"),
         (csi(S, None, &[6], b'n'), "CPR"),
         (csi(S, None, &[0], b'x'), "DECREQTPARM"),
+        (csi(S, None, &[1], b'q'), "DECLL"),
         (csi(S, Some(b'&'), &[], b'u'), "DECRQUPSS"),
         (csi(S, Some(b'"'), &[], b'v'), "DECRQDE"),
         (csi(S, None, &[2], b'U'), "NP"),
