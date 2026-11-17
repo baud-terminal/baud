@@ -42,7 +42,9 @@ baud-fontbuild/src/stage/text.rs describes the format). The glyphs are
 drawn from Cascadia Mono and the name records carry JetBrains Mono's and
 Cascadia Mono's notices: data read out of both fonts, under each font's
 SIL Open Font License 1.1 (CascadiaMono-OFL.txt and JetBrainsMono-OFL.txt
-beside this file).";
+beside this file).
+The two geometric-shape glyphs, U+25D0 and U+25D1, are JetBrains Mono's
+own circle points rearranged, under its licence beside this file.";
 
 /// The source of `stage` against `base`, for the style named `style`.
 /// It is checked before it is returned: the source is built again and the
