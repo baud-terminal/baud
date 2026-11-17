@@ -494,6 +494,7 @@ impl AnsiMode {
             | AnsiMode::BiDirectionalSupport
             | AnsiMode::DeviceComponentSelect
             | AnsiMode::CharacterEditing
+            | AnsiMode::LineEditing
             | AnsiMode::GuardedAreaTransfer
             | AnsiMode::MultipleAreaTransfer
             | AnsiMode::TransferTermination

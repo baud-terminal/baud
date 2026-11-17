@@ -1820,23 +1820,30 @@ impl Paint<'_, '_> {
         if self.lines_in_line() {
             return;
         }
-        if let Some(last) = self.area_last_line() {
-            return self.lines_to(last, |p| p.insert_lines_in_region(n));
+        // VEM's PRECEDING shifts toward the top margin, out of line.
+        if self.cold.modes.is_set(ModeBit::LinePreceding) {
+            return self.lines_preceding(n, BandMove::Up);
         }
-        self.insert_lines_in_region(n);
+        if let Some(last) = self.area_last_line() {
+            return self.lines_to(last, |p| p.insert_lines_in_region(p.cy, n));
+        }
+        self.insert_lines_in_region(self.cy, n);
     }
 
-    /// `IL` from the cursor's line to the bottom margin.
-    fn insert_lines_in_region(&mut self, n: Count) {
+    /// **Lines opened at `at`**, the band from it to the bottom margin
+    /// moving down `n` lines and the last `n` leaving it: `IL` from the
+    /// cursor's line, and `DL` under VEM's PRECEDING from the shifted
+    /// part's first line ([`Paint::lines_preceding`]).
+    fn insert_lines_in_region(&mut self, at: Row, n: Count) {
         if self.fenced() {
-            self.scroll_rect(self.cy, n, BandMove::Down);
+            self.scroll_rect(at, n, BandMove::Down);
             return;
         }
         if self.on_status() {
             self.status_scrolled();
             return;
         }
-        let (at, bot) = (self.cy, self.cold.bot);
+        let bot = self.cold.bot;
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
         self.cold
             .lines_inserted((at, bot), Rows::of_count(k), self.book.top);
@@ -1880,14 +1887,36 @@ impl Paint<'_, '_> {
         if self.lines_in_line() {
             return;
         }
-        if let Some(last) = self.area_last_line() {
-            return self.lines_to(last, |p| p.delete_lines_in_region(n));
+        if self.cold.modes.is_set(ModeBit::LinePreceding) {
+            return self.lines_preceding(n, BandMove::Down);
         }
-        self.delete_lines_in_region(n);
+        if let Some(last) = self.area_last_line() {
+            return self.lines_to(last, |p| p.delete_lines_in_region(p.cy, n));
+        }
+        self.delete_lines_in_region(self.cy, n);
+    }
+
+    /// **`IL` or `DL` under VEM's PRECEDING** (`[[source: ecma48]]`
+    /// 7.2.19): the shifted part runs from the top margin, or SEE 3's
+    /// area's first line, to the active line, and moves `way`. `IL`'s moves
+    /// up, the first `n` lines leaving it and the active line and the
+    /// `n - 1` before it erased (8.3.67); `DL`'s moves down, the active line
+    /// and the `n - 1` before it removed and the first `n` erased (8.3.32).
+    /// So each is the other's shift run from the part's first line, with
+    /// the bottom margin at the active line.
+    #[cold]
+    #[inline(never)]
+    fn lines_preceding(&mut self, n: Count, way: BandMove) {
+        let first = self.area_first_line().unwrap_or(self.cold.top).min(self.cy);
+        self.lines_to(self.cy, |p| match way {
+            BandMove::Up => p.delete_lines_in_region(first, n),
+            BandMove::Down => p.insert_lines_in_region(first, n),
+        });
     }
 
     /// **`IL` or `DL` with the bottom margin at `last`** for the shift, SEE
-    /// 3's area's last line, and put back after.
+    /// 3's area's last line or VEM's PRECEDING's active line, and put back
+    /// after.
     #[cold]
     #[inline(never)]
     fn lines_to(&mut self, last: Row, f: impl FnOnce(&mut Self)) {
@@ -1897,17 +1926,20 @@ impl Paint<'_, '_> {
         self.cold.bot = bot;
     }
 
-    /// `DL` from the cursor's line to the bottom margin.
-    fn delete_lines_in_region(&mut self, n: Count) {
+    /// **Lines removed at `at`**, the band from it to the bottom margin
+    /// moving up `n` lines and the last `n` erased: `DL` from the cursor's
+    /// line, and `IL` under VEM's PRECEDING from the shifted part's first
+    /// line ([`Paint::lines_preceding`]).
+    fn delete_lines_in_region(&mut self, at: Row, n: Count) {
         if self.fenced() {
-            self.scroll_rect(self.cy, n, BandMove::Up);
+            self.scroll_rect(at, n, BandMove::Up);
             return;
         }
         if self.on_status() {
             self.status_scrolled();
             return;
         }
-        let (at, bot) = (self.cy, self.cold.bot);
+        let bot = self.cold.bot;
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
         self.cold
             .lines_deleted((at, bot), Rows::of_count(k), self.book.top);
@@ -5544,6 +5576,8 @@ impl Paint<'_, '_> {
                 self.cold.modes.apply(ModeBit::EditPreceding, on);
                 self.refresh_insert();
             }
+            // VEM: set PRECEDING, reset FOLLOWING (`Paint::insert_lines`).
+            AnsiMode::LineEditing => self.cold.modes.apply(ModeBit::LinePreceding, on),
             // MATM, TTM and SATM: what a print takes (`crate::print`).
             AnsiMode::MultipleAreaTransfer => {
                 self.strs.print.transfer.count = match on {
@@ -6215,7 +6249,8 @@ impl Paint<'_, '_> {
         ] {
             self.cold.modes.apply(m, power_on.is_set(m));
         }
-        // IRM reset, so a write under it shifts nothing; HEM is kept.
+        // IRM reset, so a write under it shifts nothing; HEM and VEM are
+        // kept.
         self.refresh_insert();
         // The keypad and the key-modifier resources, in `ReallyReset`'s
         // common path -- `MODE_DECKPAM` cleared and `modify_now = modify_1st`
@@ -6424,6 +6459,7 @@ impl Paint<'_, '_> {
                     (BidiSupport::Explicit, DeviceComponent::Presentation) => ModeState::Reset,
                 },
                 AnsiMode::CharacterEditing => bit_state(self.cold.modes, ModeBit::EditPreceding),
+                AnsiMode::LineEditing => bit_state(self.cold.modes, ModeBit::LinePreceding),
                 AnsiMode::GuardedAreaTransfer => {
                     bit_state(self.cold.modes, ModeBit::TransferGuarded)
                 }

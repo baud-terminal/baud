@@ -87,7 +87,8 @@ pub(crate) enum EditRows {
     /// from the top margin to the cursor under HEM's PRECEDING and from the
     /// cursor to the bottom margin under FOLLOWING (`crate::extent`).
     Chars,
-    /// `IL`'s and `DL`'s: the cursor's line through the bottom margin.
+    /// `IL`'s and `DL`'s: the cursor's line through the bottom margin, or
+    /// under VEM's PRECEDING the top margin through the cursor's line.
     Lines,
     /// ED's and DECSED's: below the cursor and its line, above it and its
     /// line, or the page.
@@ -249,7 +250,10 @@ impl Paint<'_, '_> {
                 (_, m) if m.is_set(ModeBit::EditPreceding) => (self.cold.top, self.cy),
                 _ => (self.cy, self.cold.bot),
             },
-            EditRows::Lines => (self.cy, self.cold.bot.max(self.cy)),
+            EditRows::Lines => match self.cold.modes.is_set(ModeBit::LinePreceding) {
+                true => (self.cold.top.min(self.cy), self.cy),
+                false => (self.cy, self.cold.bot.max(self.cy)),
+            },
             EditRows::Display(EraseExtent::ToEnd) => (self.cy, last),
             EditRows::Display(EraseExtent::ToStart) => (Row::ZERO, self.cy),
             EditRows::Display(EraseExtent::All) => (Row::ZERO, last),

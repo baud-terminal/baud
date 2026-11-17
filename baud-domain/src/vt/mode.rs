@@ -125,6 +125,8 @@ pub enum AnsiMode {
     DeviceComponentSelect,
     /// HEM, mode 10, `[[source: ecma48]]` 7.2.9 ([`ModeBit::EditPreceding`]).
     CharacterEditing,
+    /// VEM, mode 7, `[[source: ecma48]]` 7.2.19 ([`ModeBit::LinePreceding`]).
+    LineEditing,
     /// GATM, mode 1, `[[source: ecma48]]` 7.2.7 ([`ModeBit::TransferGuarded`]).
     GuardedAreaTransfer,
     /// MATM, mode 15, `[[source: ecma48]]` 7.2.12 ([`AreaCount`]).
@@ -202,6 +204,7 @@ impl AnsiMode {
             8 => AnsiMode::BiDirectionalSupport,
             9 => AnsiMode::DeviceComponentSelect,
             10 => AnsiMode::CharacterEditing,
+            7 => AnsiMode::LineEditing,
             1 => AnsiMode::GuardedAreaTransfer,
             15 => AnsiMode::MultipleAreaTransfer,
             16 => AnsiMode::TransferTermination,
@@ -496,6 +499,15 @@ pub enum ModeBit {
     /// joins a character to the cell before it, never on the text path's
     /// bulk writers.
     GraphemeClusters,
+    /// **VEM, `SM 7`, set: PRECEDING** (`[[source: ecma48]]` 7.2.19): a
+    /// line insertion shifts "the contents of the active line ... and of
+    /// the preceding lines" toward the top margin, the first `n` leaving
+    /// the shifted part, and a deletion closes the gap from it; the shifted
+    /// part runs from the top margin, or SEE's qualified area's first line,
+    /// to the active line. `IL` and `DL` read it. Reset, FOLLOWING, at
+    /// power-on and by `RIS`, the reset state 7.1 recommends as the initial
+    /// one; kept by `DECSTR`, whose table names no VEM. `DECRQM` answers it.
+    LinePreceding,
 }
 
 impl ModeBit {

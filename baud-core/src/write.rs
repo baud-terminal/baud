@@ -2817,6 +2817,7 @@ fn ansi_mode_writes_no_cell(mode: AnsiMode) -> bool {
         | AnsiMode::BiDirectionalSupport
         | AnsiMode::DeviceComponentSelect
         | AnsiMode::CharacterEditing
+        | AnsiMode::LineEditing
         | AnsiMode::GuardedAreaTransfer
         | AnsiMode::MultipleAreaTransfer
         | AnsiMode::TransferTermination

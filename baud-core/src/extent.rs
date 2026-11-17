@@ -518,4 +518,15 @@ impl Paint<'_, '_> {
         let run = self.extent_ends(&mut Drawn::of(self.cold.modes))?;
         Some(run.to.0.min(self.cold.bot))
     }
+
+    /// **The first line `IL` and `DL` shift from under SEE 3 and VEM's
+    /// PRECEDING**: the active qualified area's, within the scrolling
+    /// region; `None` under any other extent.
+    pub(crate) fn area_first_line(&self) -> Option<Row> {
+        if self.cold.extent != Some(EditExtent::QualifiedArea) {
+            return None;
+        }
+        let run = self.extent_ends(&mut Drawn::of(self.cold.modes))?;
+        Some(run.from.0.max(self.cold.top))
+    }
 }
