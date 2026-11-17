@@ -240,6 +240,34 @@ fn parse_positioned(body: &str) -> Vec<HbGlyph> {
         .collect()
 }
 
+/// A glyph as `(id, cluster, x, dy)`, x measured from its cluster's left
+/// edge.
+type Placed = (u16, u16, i32, i32);
+
+/// Each glyph of an `hb-shape`-style line where its pen puts it, in
+/// logical order: a right-to-left run, written last cluster first, is
+/// reversed, and each glyph is taken from its cluster's left edge.
+fn from_cluster_left(glyphs: &[HbGlyph]) -> Vec<(&HbGlyph, Placed)> {
+    let mut placed: Vec<(&HbGlyph, i32)> = Vec::new();
+    let mut pen = 0i32;
+    for g in glyphs {
+        placed.push((g, pen));
+        pen += g.ax;
+    }
+    if glyphs.first().map(|g| g.cluster) > glyphs.last().map(|g| g.cluster) {
+        placed.reverse();
+    }
+    let mut left = std::collections::HashMap::new();
+    for &(g, pen) in &placed {
+        let l = left.entry(g.cluster).or_insert(pen);
+        *l = (*l).min(pen);
+    }
+    placed
+        .iter()
+        .map(|&(g, pen)| (g, (g.id, g.cluster, pen + g.dx - left[&g.cluster], g.dy)))
+        .collect()
+}
+
 /// Whether to rename the face's `GPOS` table away before parsing, so
 /// the shaper takes the same fallback path HarfBuzz took for the fixture.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -614,68 +642,75 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
 
 /// Fixtures where CoreText's output is not hb-shape's, keyed by face file
 /// and codepoints; baud follows hb-shape there, which the test above pins.
+/// Each differs in what is drawn or where: the hidden glyphs of
+/// default-ignorables, which hb-shape writes and CoreText omits, are
+/// dropped before comparing, so none differs by those alone.
 const CORETEXT_DEPARTS: &[&str] = &[
-    "Apple Color Emoji.ttc 0031 FE0F 20E3",
-    "Apple Color Emoji.ttc 0023 FE0F 20E3",
-    "Apple Color Emoji.ttc 2764 FE0F",
-    "Apple Color Emoji.ttc 00A9 FE0F",
-    "Apple Color Emoji.ttc 1F469 1F3FB 200D 1F91D 200D 1F468 1F3FF",
-    "Apple Color Emoji.ttc 1F3F3 FE0F 200D 1F308",
-    "Apple Color Emoji.ttc 1F3F3 FE0F 200D 26A7 FE0F",
-    "Apple Color Emoji.ttc 1F3F4 200D 2620 FE0F",
+    // CoreText draws a codepoint the face does not map from another font
+    // (`fb:` in its column), where hb-shape writes the face's notdef.
+    "Apple Color Emoji.ttc 0041 1F600 0042", // A and B from Helvetica
+    "Apple Color Emoji.ttc 05D0 1F468 200D 1F469 200D 1F467", // U+05D0 from Lucida Grande
+    "Apple Color Emoji.ttc 05D0 1F468 200D 1F469 200D 1F467 200D 1F466", // U+05D0 likewise
+    // U+05D0 likewise; and the flag: the hb-shape column draws 398, the face's
+    // `u1F1E7_u1F1EC`, the pair reversed, where CoreText draws 454,
+    // `u1F1EC_u1F1E7`, the pair as written.
+    "Apple Color Emoji.ttc 05D0 1F1EC 1F1E7",
+    "Apple Color Emoji.ttc 05D0 1F3F4 E0067 E0062 E0073 E0063 E0074 E007F", // U+05D0 likewise
+    "Apple Color Emoji.ttc 05D0 1F44B 1F3FD",                               // U+05D0 likewise
+    "Apple Color Emoji.ttc 05D0 0031 FE0F 20E3",                            // U+05D0 likewise
+    "Apple Color Emoji.ttc 05D0 1F3F3 FE0F 200D 1F308",                     // U+05D0 likewise
+    "Apple Color Emoji.ttc 05D0 1F3C3 1F3FD 200D 2642 FE0F",                // U+05D0 likewise
+    "Apple Color Emoji.ttc 05BE 1F1EC 1F1E7", // U+05BE from Lucida Grande
+    "Apple Color Emoji.ttc 05BE 1F1FA 1F1F8", // U+05BE likewise
+    "Apple Color Emoji.ttc 05BE 0031 FE0F 20E3", // U+05BE likewise
+    "Menlo.ttc 0031 2044 0034",               // U+2044 from Monaco
+    // The same glyphs at the same x and y: hb-shape merges them into
+    // cluster 0, CoreText keeps each glyph's own cluster.
     "Apple Color Emoji.ttc 1F468 200D 1F469",
+    // As above, and hb-shape puts the advance on the first glyph where
+    // CoreText puts it on the last.
+    "Apple Color Emoji.ttc 1F469 1F3FB 200D 1F91D 200D 1F468 1F3FF",
     "Apple Color Emoji.ttc 1F468 200D 2764 FE0F 200D 1F468",
     "Apple Color Emoji.ttc 1F469 200D 2764 FE0F 200D 1F48B 200D 1F468",
-    "Apple Color Emoji.ttc 1F3C3 200D 2640 FE0F",
-    "Apple Color Emoji.ttc 1F3C3 1F3FD 200D 2642 FE0F",
-    "Apple Color Emoji.ttc 1F441 FE0F 200D 1F5E8 FE0F",
-    "Apple Color Emoji.ttc 1F636 200D 1F32B FE0F",
-    "Apple Color Emoji.ttc 0041 1F600 0042",
-    "Apple Color Emoji.ttc 26A0 FE0F",
-    "Apple Color Emoji.ttc 05D0 1F468 200D 1F469 200D 1F467",
-    "Apple Color Emoji.ttc 05D0 1F468 200D 1F469 200D 1F467 200D 1F466",
-    "Apple Color Emoji.ttc 05D0 1F1EC 1F1E7",
-    "Apple Color Emoji.ttc 05D0 1F3F4 E0067 E0062 E0073 E0063 E0074 E007F",
-    "Apple Color Emoji.ttc 05D0 1F44B 1F3FD",
-    "Apple Color Emoji.ttc 05D0 0031 FE0F 20E3",
-    "Apple Color Emoji.ttc 05D0 1F3F3 FE0F 200D 1F308",
-    "Apple Color Emoji.ttc 05D0 1F3C3 1F3FD 200D 2642 FE0F",
-    "Apple Color Emoji.ttc 05BE 1F1EC 1F1E7",
-    "Apple Color Emoji.ttc 05BE 1F1FA 1F1F8",
-    "Apple Color Emoji.ttc 05BE 0031 FE0F 20E3",
-    "Menlo.ttc 0078 0301",
-    "Menlo.ttc 0061 0323 0301",
-    "Menlo.ttc 0031 2044 0034",
-    "Menlo.ttc 006F 0308 0301",
-    "Menlo.ttc 0061 0300 0323",
-    "Monaco.ttf 0078 0301",
-    "Monaco.ttf 0061 0323 0301",
-    "Monaco.ttf 006F 0308 0301",
-    "Monaco.ttf 0061 0300 0323",
-    "Courier.ttc 0078 0301",
-    "Courier.ttc 0061 0323 0301",
-    "Courier.ttc 006F 0308 0301",
-    "Courier.ttc 0061 0300 0323",
-    "Helvetica.ttc 0078 0301",
-    "Helvetica.ttc 0061 0323 0301",
-    "Helvetica.ttc 006F 0308 0301",
-    "Helvetica.ttc 0061 0300 0323",
-    "Geneva.ttf 0078 0301",
-    "Geneva.ttf 0061 0323 0301",
-    "Geneva.ttf 006F 0308 0301",
-    "Geneva.ttf 0061 0300 0323",
-    "Times.ttc 0078 0301",
-    "Times.ttc 0061 0323 0301",
-    "Times.ttc 006F 0308 0301",
-    "Times.ttc 0061 0300 0323",
+    // The mark after the base: hb-shape merges it into the base's cluster,
+    // CoreText keeps its own, and CoreText places it elsewhere. Each row
+    // gives CoreText's mark and total advance less hb-shape's.
+    "Menlo.ttc 0078 0301",          // mark y +89
+    "Menlo.ttc 0061 0323 0301",     // mark y +96
+    "Menlo.ttc 006F 0308 0301",     // mark y +59
+    "Menlo.ttc 0061 0300 0323",     // mark y -2288
+    "Monaco.ttf 0078 0301",         // mark x +1, y +74; advance +1
+    "Monaco.ttf 0061 0323 0301",    // mark x +1, y +82; advance +1
+    "Monaco.ttf 006F 0308 0301",    // mark x +1, y +95; advance +1
+    "Monaco.ttf 0061 0300 0323",    // mark x +1, y -2196; advance +1
+    "Courier.ttc 0078 0301",        // mark x +1, y +59; advance +1
+    "Courier.ttc 0061 0323 0301",   // mark x +1, y +59; advance +1
+    "Courier.ttc 006F 0308 0301",   // mark x +1, y +22; advance +1
+    "Courier.ttc 0061 0300 0323",   // mark y -1977
+    "Helvetica.ttc 0078 0301",      // mark x +1, y +79; advance +58
+    "Helvetica.ttc 0061 0323 0301", // mark y +86
+    "Helvetica.ttc 006F 0308 0301", // mark y +86
+    "Helvetica.ttc 0061 0300 0323", // mark y -2063
+    "Geneva.ttf 0078 0301",         // mark y +74; advance +47
+    "Geneva.ttf 0061 0323 0301",    // mark x +1, y +90; advance +24
+    "Geneva.ttf 006F 0308 0301",    // mark x +1, y +95; advance +1
+    "Geneva.ttf 0061 0300 0323",    // mark x +1, y -2146; advance +24
+    "Times.ttc 0078 0301",          // mark x +1, y +58; advance +1
+    "Times.ttc 0061 0323 0301",     // mark y +58
+    "Times.ttc 006F 0308 0301",     // mark x +1, y +58; advance +1
+    "Times.ttc 0061 0300 0323",     // mark x +1, y -2165; advance +1
 ];
 
 #[test]
 fn every_morx_fixture_shapes_as_coretext_does() {
     // CoreText is the OS's own AAT shaper, recorded by
     // scripts/morx-coretext.swift into morx-coretext.txt's seventh column.
-    // A listed departure must still differ from hb-shape, so the list cannot
-    // outlive a regeneration that closed it.
+    // Both sides drop the hidden glyph of a default-ignorable: the face's
+    // space glyph at zero advance and no offset, which hb-shape and baud
+    // write and CoreText omits. It has no ink and moves no pen, so what is
+    // drawn and where is unchanged. A listed departure must still differ
+    // from hb-shape once they are dropped, so the list cannot outlive a
+    // regeneration that closed it.
     if !cfg!(target_os = "macos") {
         eprintln!("skipped: the morx fixtures name macOS system faces");
         return;
@@ -688,6 +723,8 @@ fn every_morx_fixture_shapes_as_coretext_does() {
     let mut files = std::collections::HashMap::new();
     let mut fixtures = 0usize;
     let mut departed = 0usize;
+    let mut hidden_dropped = 0usize;
+    let mut hidden_in_coretext = 0usize;
     let mut ligated = 0usize;
     let mut rtl = 0usize;
     let mut faces = std::collections::HashSet::new();
@@ -698,11 +735,6 @@ fn every_morx_fixture_shapes_as_coretext_does() {
         let f: Vec<&str> = line.split('\t').collect();
         let (path, index, digest, cps, hb, shaped) = (f[0], f[1], f[2], f[4], f[5], f[6]);
         let key = format!("{} {cps}", path.rsplit('/').next().unwrap());
-        if CORETEXT_DEPARTS.contains(&key.as_str()) {
-            assert_ne!(hb, shaped, "{key} is listed as a departure and agrees");
-            departed += 1;
-            continue;
-        }
         let data = files.entry(path.to_string()).or_insert_with(|| {
             let d = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
             assert_eq!(
@@ -715,31 +747,62 @@ fn every_morx_fixture_shapes_as_coretext_does() {
         });
         let face = Face::parse_index(data, FaceIndex::of(index.parse().unwrap())).unwrap();
         assert!(face.morx().is_some() && face.gsub().is_none(), "{path}");
+        let space = face.glyph(Codepoint::from_char(' ')).unwrap();
+        let hidden =
+            |g: &HbGlyph| usize::from(g.id) == space.index() && g.ax == 0 && g.dx == 0 && g.dy == 0;
+        let drawn = |glyphs: &[HbGlyph]| -> Vec<Placed> {
+            from_cluster_left(glyphs)
+                .into_iter()
+                .filter(|&(g, _)| !hidden(g))
+                .map(|(_, p)| p)
+                .collect()
+        };
+        if CORETEXT_DEPARTS.contains(&key.as_str()) {
+            // A glyph from another font (`fb:`) always departs, and
+            // `parse_positioned` cannot read one.
+            let differs = shaped.contains("fb:")
+                || drawn(&parse_positioned(hb)) != drawn(&parse_positioned(shaped));
+            assert!(
+                differs,
+                "{key} is listed as a departure and agrees once hidden glyphs are dropped"
+            );
+            departed += 1;
+            continue;
+        }
         faces.insert((path.to_string(), index.to_string()));
         let cps: Vec<u32> = cps
             .split_whitespace()
             .map(|h| u32::from_str_radix(h, 16).unwrap())
             .collect();
         let expected = parse_positioned(shaped);
-        let mut placed: Vec<(&HbGlyph, i32)> = Vec::new();
-        let mut pen = 0i32;
-        for e in &expected {
-            placed.push((e, pen));
-            pen += e.ax;
-        }
         if expected.first().map(|e| e.cluster) > expected.last().map(|e| e.cluster) {
-            placed.reverse();
             rtl += 1;
         }
+        let want = drawn(&expected);
+        hidden_in_coretext += expected.len() - want.len();
         let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
         let (buf, shaped) = shape(&face, &cps, &mut storage);
         assert!(
             shaped.declined.is_zero(),
             "{path} {cps:04X?}: subtables declined"
         );
-        let got: Vec<(u16, u16, i32, i32)> = buf
+        // baud places a default-ignorable at zero advance and writes it as
+        // the space glyph, hb-shape's hidden glyph.
+        let got: Vec<Placed> = buf
             .as_slice()
             .iter()
+            .filter(|g| {
+                let ignorable = g.ignorable == Ignorable::Yes;
+                if ignorable {
+                    assert_eq!(
+                        g.id, space,
+                        "{path} {cps:04X?}: a hidden glyph is not the space"
+                    );
+                    assert_eq!(g.dy, 0, "{path} {cps:04X?}: a hidden glyph is offset");
+                    hidden_dropped += 1;
+                }
+                !ignorable
+            })
             .map(|g| {
                 (
                     u16::try_from(g.id.index()).unwrap(),
@@ -749,32 +812,30 @@ fn every_morx_fixture_shapes_as_coretext_does() {
                 )
             })
             .collect();
-        let mut left = std::collections::HashMap::new();
-        for &(e, pen) in &placed {
-            let l = left.entry(e.cluster).or_insert(pen);
-            *l = (*l).min(pen);
-        }
-        let want: Vec<(u16, u16, i32, i32)> = placed
-            .iter()
-            .map(|&(e, pen)| (e.id, e.cluster, pen + e.dx - left[&e.cluster], e.dy))
-            .collect();
         assert_eq!(
             got, want,
             "{path} {cps:04X?}: baud {got:?} against CoreText {want:?}"
         );
-        if got.len() < cps.len() {
+        if buf.as_slice().len() < cps.len() {
             ligated += 1;
         }
         fixtures += 1;
     }
     eprintln!(
         "{fixtures} morx fixtures as CoreText over {} faces, {departed} departures, \
-         {ligated} formed a ligature, {rtl} right to left",
+         {hidden_dropped} hidden glyphs dropped, {ligated} formed a ligature, {rtl} right to left",
         faces.len()
     );
-    // Positive controls: every listed departure was met, and the agreeing
-    // rows still span every face and Apple Color Emoji's ligatures.
+    // Positive controls: every listed departure was met, the agreeing rows
+    // dropped exactly the hidden glyphs hb-shape writes on them and CoreText
+    // wrote none, and the agreeing rows still span every face and Apple
+    // Color Emoji's ligatures.
     assert_eq!(departed, CORETEXT_DEPARTS.len());
+    assert_eq!(
+        hidden_dropped, 14,
+        "hidden glyphs dropped from baud's output"
+    );
+    assert_eq!(hidden_in_coretext, 0, "CoreText wrote a hidden glyph");
     assert!(faces.len() >= 7, "{}", faces.len());
     assert!(fixtures >= 150, "{fixtures}");
     assert!(ligated >= 30, "{ligated}");
