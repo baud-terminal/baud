@@ -18,6 +18,7 @@
 
 pub mod damage;
 pub mod frames;
+pub mod keypixel;
 pub mod pixels;
 pub mod pointer;
 pub mod text;

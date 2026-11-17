@@ -159,6 +159,9 @@ fn fixed(v: f64) -> Result<Fixed, Stop> {
     Ok(Fixed(int32(scaled)?))
 }
 
+/// What sending a request gave.
+pub(crate) type Sent = Result<(), Stop>;
+
 /// The socket, the objects' numbers and what the compositor has said.
 #[derive(Debug)]
 pub struct Wire {
@@ -169,6 +172,9 @@ pub struct Wire {
     registry: ObjectId,
     waiting: HashSet<u32>,
     done: HashSet<u32>,
+    /// The events nothing here reads, oldest first, for a tool that binds
+    /// more than the two devices (`super::keypixel`).
+    others: Vec<(u32, u16, Vec<u8>)>,
 }
 
 impl Wire {
@@ -182,16 +188,17 @@ impl Wire {
             registry: ObjectId(0),
             waiting: HashSet::new(),
             done: HashSet::new(),
+            others: Vec::new(),
         }
     }
 
-    fn new_id(&mut self) -> ObjectId {
+    pub(crate) fn new_id(&mut self) -> ObjectId {
         let n = self.next;
         self.next.0 += 1;
         n
     }
 
-    fn send(&self, obj: ObjectId, op: u16, sig: &[ArgKind], args: &[Arg<'_>]) -> Result<(), Stop> {
+    pub(crate) fn send(&self, obj: ObjectId, op: u16, sig: &[ArgKind], args: &[Arg<'_>]) -> Sent {
         let mut buf = [0u8; 512];
         let mut fds = Vec::new();
         let n = wire::write(&mut buf, &mut fds, obj, Opcode(op), sig, args)
@@ -206,7 +213,7 @@ impl Wire {
         Ok(())
     }
 
-    fn read(&mut self) -> Result<(), Stop> {
+    pub(crate) fn read(&mut self) -> Result<(), Stop> {
         let mut buf = [0u8; 65536];
         let mut fds: Vec<OwnedFd> = Vec::new();
         let n =
@@ -256,11 +263,13 @@ impl Wire {
         } else if op == 0 && self.waiting.contains(&obj) {
             // wl_callback.done
             self.done.insert(obj);
+        } else {
+            self.others.push((obj, op, body.to_vec()));
         }
         Ok(())
     }
 
-    fn roundtrip(&mut self) -> Result<(), Stop> {
+    pub(crate) fn roundtrip(&mut self) -> Result<(), Stop> {
         let cb = self.new_id();
         self.waiting.insert(cb.0);
         self.send(DISPLAY, DISPLAY_SYNC, &[NEW_ID], &[Arg::NewId(cb)])?;
@@ -270,7 +279,7 @@ impl Wire {
         Ok(())
     }
 
-    fn bind(&mut self, iface: &str, version: u32) -> Result<ObjectId, Stop> {
+    pub(crate) fn bind(&mut self, iface: &str, version: u32) -> Result<ObjectId, Stop> {
         let Some(&(name, offered)) = self.globals.get(iface) else {
             return Err(format!("linux-pointer: the compositor offers no {iface}").into());
         };
@@ -292,6 +301,42 @@ impl Wire {
     }
 }
 
+impl Wire {
+    /// Whether the compositor has written within `within`.
+    pub(crate) fn readable(&self, within: Duration) -> Result<bool, Stop> {
+        use std::os::fd::AsRawFd;
+        let mut pfd = libc::pollfd {
+            fd: self.sock.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let ms = libc::c_int::try_from(within.as_millis()).unwrap_or(libc::c_int::MAX);
+        // SAFETY: one pollfd that outlives the call.
+        let n = unsafe { libc::poll(&mut pfd, 1, ms) };
+        if n < 0 {
+            return Err(format!("poll: {}", std::io::Error::last_os_error()).into());
+        }
+        Ok(n > 0)
+    }
+
+    /// The events nothing here read, oldest first; taking them empties the list.
+    pub(crate) fn take_others(&mut self) -> Vec<(u32, u16, Vec<u8>)> {
+        std::mem::take(&mut self.others)
+    }
+
+    /// The registry, read through.
+    pub(crate) fn open_registry(&mut self) -> Result<(), Stop> {
+        self.registry = self.new_id();
+        self.send(
+            DISPLAY,
+            DISPLAY_GET_REGISTRY,
+            &[NEW_ID],
+            &[Arg::NewId(self.registry)],
+        )?;
+        self.roundtrip()
+    }
+}
+
 /// The bytes that pad a string of `n` to four.
 fn wire_pad(n: usize) -> usize {
     n.wrapping_neg() % 4
@@ -301,7 +346,7 @@ fn wire_pad(n: usize) -> usize {
 /// file, which is what the keymap goes in on Linux, the one place this runs
 /// against a compositor.
 #[cfg(target_os = "linux")]
-fn anonymous_file() -> Result<std::fs::File, Stop> {
+pub(crate) fn anonymous_file() -> Result<std::fs::File, Stop> {
     use std::os::fd::FromRawFd;
     // SAFETY: the name is NUL-terminated and outlives the call.
     let fd = unsafe { libc::memfd_create(c"keymap".as_ptr(), libc::MFD_CLOEXEC) };
@@ -315,7 +360,7 @@ fn anonymous_file() -> Result<std::fs::File, Stop> {
 /// The same off Linux, where only this crate's tests reach it: a file with
 /// no name left.
 #[cfg(not(target_os = "linux"))]
-fn anonymous_file() -> Result<std::fs::File, Stop> {
+pub(crate) fn anonymous_file() -> Result<std::fs::File, Stop> {
     use std::sync::atomic::{AtomicU32, Ordering};
     static NEXT: AtomicU32 = AtomicU32::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -333,7 +378,7 @@ fn anonymous_file() -> Result<std::fs::File, Stop> {
 
 /// The two devices and what the script has moved.
 #[derive(Debug)]
-struct Devices {
+pub(crate) struct Devices {
     seat: ObjectId,
     vpm: ObjectId,
     vkm: ObjectId,
@@ -419,7 +464,7 @@ impl Devices {
         self.frame(w)
     }
 
-    fn key(&mut self, w: &Wire, code: u32, state: u32) -> Result<(), Stop> {
+    pub(crate) fn key(&mut self, w: &Wire, code: u32, state: u32) -> Result<(), Stop> {
         let time = self.at();
         w.send(
             self.keyboard,
@@ -622,16 +667,25 @@ pub fn script(
     input: &mut dyn BufRead,
     out: &mut dyn Write,
 ) -> Result<(), Stop> {
+    w.open_registry()?;
+    let mut d = devices(&mut w, keymap)?;
+    d.extent = vec![int(size.0)?, int(size.1)?];
+    while let Some(raw) = next_line(input)? {
+        let line = py::strip(&raw);
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (cmd, rest) = line.split_once(' ').unwrap_or((line, ""));
+        command(&mut w, &mut d, cmd, rest, line, out)?;
+    }
+    Ok(())
+}
+
+/// **The pointer and the keyboard**, on the seat, with `keymap` (a NUL
+/// is added, as the compositor reads it): the registry must be open.
+pub(crate) fn devices(w: &mut Wire, keymap: &[u8]) -> Result<Devices, Stop> {
     let mut map = keymap.to_vec();
     map.push(0);
-    w.registry = w.new_id();
-    w.send(
-        DISPLAY,
-        DISPLAY_GET_REGISTRY,
-        &[NEW_ID],
-        &[Arg::NewId(w.registry)],
-    )?;
-    w.roundtrip()?;
     let seat = w.bind("wl_seat", 1)?;
     let vpm = w.bind("zwlr_virtual_pointer_manager_v1", 1)?;
     let vkm = w.bind("zwp_virtual_keyboard_manager_v1", 1)?;
@@ -646,17 +700,8 @@ pub fn script(
         keymap: map,
         posted: Posted(0),
     };
-    d.make(&mut w)?;
-    d.extent = vec![int(size.0)?, int(size.1)?];
-    while let Some(raw) = next_line(input)? {
-        let line = py::strip(&raw);
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let (cmd, rest) = line.split_once(' ').unwrap_or((line, ""));
-        command(&mut w, &mut d, cmd, rest, line, out)?;
-    }
-    Ok(())
+    d.make(w)?;
+    Ok(d)
 }
 
 /// The compositor's socket: `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY`.
@@ -707,10 +752,10 @@ struct Posted(u64);
 /// A moment on CLOCK_MONOTONIC, in nanoseconds: the clock the compositor's
 /// presentation feedback names here, so a post and a frame are one clock.
 #[derive(Clone, Copy, Debug)]
-struct Monotonic(u128);
+pub(crate) struct Monotonic(pub(crate) u128);
 
 /// Now, on CLOCK_MONOTONIC.
-fn monotonic() -> Result<Monotonic, Stop> {
+pub(crate) fn monotonic() -> Result<Monotonic, Stop> {
     let mut ts = libc::timespec {
         tv_sec: 0,
         tv_nsec: 0,

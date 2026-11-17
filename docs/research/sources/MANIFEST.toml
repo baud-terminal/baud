@@ -37718,6 +37718,23 @@ group  = "BE"
 # Committed under docs/research/sources/ -- a protocol file. The requests
 # baud-bench/src/linux/pointer.rs spells: keymap, key, modifiers, destroy.
 
+[sources.wlr-screencopy-unstable-v1]
+key    = "wlr-screencopy-unstable-v1"
+title  = "wlr-screencopy-unstable-v1 -- a client's copy of an output's frames: capture_output_region, copy_with_damage, buffer, ready, buffer_done"
+author = "Simon Ser and Andri Yngvason"
+year   = 2018
+venue  = "wlroots/wlr-protocols 4264185d unstable/, freedesktop.org GitLab (MIT)"
+url    = "https://gitlab.freedesktop.org/wlroots/wlr-protocols/-/raw/4264185db3b7e961e7f157e1cc4fd0ab75137568/unstable/wlr-screencopy-unstable-v1.xml"
+file   = "wlr-screencopy-unstable-v1.xml"
+sha256 = "0f50f6187965b02782a12ba346ad950d6031454f6af6e1ac5b341a279ef16d56"
+bytes  = 10166
+status = "retrieved"
+group  = "BE"
+# Committed under docs/research/sources/ -- a protocol file, version 3. What
+# baud-bench/src/linux/keypixel.rs spells: the manager's capture_output_region
+# (1), the frame's destroy (1) and copy_with_damage (2), and its events buffer
+# (0), ready (2), failed (3) and buffer_done (6).
+
 [sources.apple-hig-pointing-devices-2026-10-29]
 key    = "apple-hig-pointing-devices-2026-10-29"
 title  = "Human Interface Guidelines, Pointing devices, as fetched 2026-10-29 -- the macOS pointer table: 'Pointing hand: The content beneath the pointer is a URL link to a webpage, document, or other item'; 'Operation not allowed: A dragged item can't be dropped in the current location'; SwiftUI's link style, 'appropriate for content opens a URL link ... when clicked'"
