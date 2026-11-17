@@ -500,6 +500,17 @@ impl Vfx {
         });
     }
 
+    /// **A repeat pass's records** out of [`Vfx::instances`]: under the
+    /// flash threshold, the bands alone, a cell row each, and not the
+    /// particles that stack over them, whose alphas would compound past the
+    /// cap. The bands tile the pixel rows, so each pixel is under one
+    /// record. A full pass keeps every record.
+    pub(crate) fn repeat_pass(&self, recs: &mut Vec<Instance>) {
+        if self.emitter.strength == Strength::UnderThreshold {
+            recs.retain(|r| r.kind == Kind::Band);
+        }
+    }
+
     /// **How this frame's bands meet their records' alpha**: clamped at it
     /// on the plasma's repeat pass, scaled by it on any other.
     pub fn cap(&self) -> Cap {

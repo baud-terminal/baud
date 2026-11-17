@@ -7094,13 +7094,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .push(trail::quad_instance(s, self.cursor_fill)),
             Some(Drawn::Vfx(v, top, bottom)) => {
                 v.instances(frame, effect_fill, &mut self.trail_inst);
-                // A repeat pass keeps the bands, a cell row each, and not
-                // the particles that stack over them, whose alphas would
-                // compound past the cap. The bands tile the pixel rows
-                // (`Vfx::instances`), so each pixel is under one record.
-                if v.emitter.strength == Strength::UnderThreshold {
-                    self.trail_inst.retain(|r| r.kind == Kind::Band);
-                }
+                v.repeat_pass(&mut self.trail_inst);
                 (*top, *bottom) = row_span(&self.trail_inst);
             }
             None => {}
@@ -11992,8 +11986,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn layer_records(&self, l: &splash::Layer, ink: Argb, recs: &mut Vec<Instance>) {
         recs.clear();
         l.vfx.instances(self.pixel_size(), ink, recs);
+        l.vfx.repeat_pass(recs);
         if l.vfx.emitter.strength == Strength::UnderThreshold {
-            recs.retain(|r| r.kind == Kind::Band);
             flash::cap_alpha(recs, self.flash_cap);
         }
         let k = l.vfx.emitter.opacity;
