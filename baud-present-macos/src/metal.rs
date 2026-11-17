@@ -37,7 +37,8 @@
 //! nothing at all. An image is copied twice: the renderer snapshots it out
 //! of the store with its fill words resolved to the ground
 //! ([`baud_render::Renderer::image_uploads`]), and the snapshot is copied
-//! into a texture of its own, once per image within a store epoch.
+//! into a texture of its own ([`baud_render::ImageTextures`]), once for
+//! each change to that image's pixels, frame or ground.
 //!
 //! The shaders are Metal Shading Language compiled at first use, because a
 //! `.metallib` needs Xcode's toolchain at build time and the source is
@@ -87,16 +88,14 @@ use crate::slots;
 use baud_core::Term;
 use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
-use baud_domain::{
-    Col, Cols, CursorStyle, FrameNo, ImageGen, ImageId, PackedCell, Row, RowRot, Rows, Stride,
-};
+use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, RowRot, Rows, Stride};
 use baud_font::Px;
 use baud_render::effect::{self, Effect};
 use baud_render::{
     Argb, Atlas, CursorLook, Decorations, Dirty, Generation, Ground, Highlight, ImageComposite,
-    ImageLayer, ImagePlacement, Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, Mix,
-    Reach, Redraw, Region, Renderer, Replaced, Resolved, RowSet, Screen, Side, StyleStamp, Tally,
-    Tex, TexRect,
+    ImageLayer, ImagePlacement, ImageTextures, Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry,
+    MapGeneration, Mix, Reach, Redraw, Region, Renderer, Replaced, Resolved, RowSet, Screen, Side,
+    StyleStamp, Tally, Tex, TexRect,
 };
 use core::ffi::c_void;
 use core::ptr::NonNull;
@@ -792,17 +791,16 @@ pub struct Gpu {
     color: Option<Sheet>,
     /// The atlas generation the sheets were last brought up to.
     uploaded: Option<Generation>,
-    /// Per-image textures, valid for `image_gen`. Each image uploads once per
-    /// store epoch to its own texture -- images are not glyph-sized and do
-    /// not belong in the shared atlas -- and the cache is cleared whole when
-    /// the store's epoch changes, so every visible image uploads again and an
-    /// image slot reused after a `reset` cannot return the old texture. Keyed
-    /// by [`ImageId`] within an epoch, by the word a Sixel's background fill
-    /// was drawn as, so a change of the default background uploads a filled
-    /// image again, and by the frame of a kitty animation, so a frame shown in
-    /// another's place uploads.
-    images: Vec<((ImageId, u32, FrameNo), Texture)>,
-    image_gen: ImageGen,
+    /// Per-image textures, one an image -- images are not glyph-sized and
+    /// do not belong in the shared atlas -- each made from the renderer's
+    /// snapshot it names and kept while the renderer keeps that snapshot
+    /// ([`ImageTextures`]). An image uploads again when its own pixels are
+    /// written, when another of its kitty frames is shown, and when the
+    /// word a Sixel's background fill is drawn as changes; another image's
+    /// store, edit or free uploads nothing, and an image stored under a
+    /// freed image's id is a new snapshot, so it cannot take the old
+    /// texture.
+    images: ImageTextures<Texture>,
     /// Frames committed and not yet completed -- zero or one -- and what
     /// every completion's handler counted ([`commit`]).
     flight: Flight,
@@ -1538,8 +1536,7 @@ impl Gpu {
             mask: None,
             color: None,
             uploaded: None,
-            images: Vec::new(),
-            image_gen: ImageGen::ZERO,
+            images: ImageTextures::default(),
             flight: Flight::new(),
             failed_seen: (Tally::ZERO, Tally::ZERO),
             kept: Kept::No,
@@ -1936,62 +1933,51 @@ impl Gpu {
     }
 
     /// Ensures every visible image has a GPU texture -- uploading each one
-    /// once per store epoch, into its own texture rather than the shared
-    /// atlas, because an image is not glyph-sized -- and returns the
-    /// placements to draw, in the renderer's order, each with the texture to
-    /// bind. The cache is dropped whole when the store's epoch moves, so every
-    /// visible image uploads again and a slot reused after a `reset` cannot
-    /// return a stale texture. Called before the encoder, so a
-    /// `replaceRegion` upload never touches a bound texture.
+    /// once for each change to its pixels, its frame or its ground, into its
+    /// own texture rather than the shared atlas, because an image is not
+    /// glyph-sized -- and returns the placements to draw, in the renderer's
+    /// order, each with the texture to bind. A texture whose snapshot the
+    /// renderer no longer holds is dropped ([`ImageTextures::keep`]).
+    /// Called before the encoder, so a `replaceRegion` upload never touches
+    /// a bound texture.
     fn resolve_images(&mut self, renderer: &Renderer<'_, '_>) -> Vec<ImageDraw> {
+        let ups = renderer.image_uploads();
+        self.images.keep(ups);
         let places = renderer.image_placements();
-        let Some(epoch) = places.first().map(|p| p.epoch) else {
-            return Vec::new();
-        };
-        if self.image_gen != epoch {
-            self.images.clear();
-            self.image_gen = epoch;
-        }
         let mut draws = Vec::with_capacity(places.len());
+        let device = &self.device;
         for p in places {
-            let key = (p.id, p.ground.bits(), p.frame);
-            if !self.images.iter().any(|(k, _)| *k == key) {
-                let Some(up) = renderer.image_uploads().iter().find(|u| {
-                    u.id == p.id && u.epoch == epoch && u.frame == p.frame && u.ground == p.ground
-                }) else {
-                    continue;
-                };
+            let Some(up) = ups.iter().find(|u| {
+                u.id == p.id && u.born == p.born && u.frame == p.frame && u.ground == p.ground
+            }) else {
+                continue;
+            };
+            let made = self.images.of(up, |up| {
                 let (w, h) = (Px::of(u32::from(up.w)), Px::of(u32::from(up.h)));
-                let Some(tex) = texture(
-                    &self.device,
+                let tex = texture(
+                    device,
                     MTLPixelFormat::BGRA8Unorm,
                     w,
                     h,
                     MTLTextureUsage::ShaderRead,
-                ) else {
-                    continue;
-                };
+                )?;
                 upload(&tex, w, h, word_bytes(&up.pixels), Texel::Bgra8);
-                // One texture an image: the one drawn in an older fill
-                // colour goes, so the cache keeps no texture per colour,
-                // and an animation's other frame, so it keeps none per
-                // frame.
-                self.images.retain(|((id, _, _), _)| *id != p.id);
-                self.images.push((key, tex));
-            }
-            if let Some((_, tex)) = self.images.iter().find(|(k, _)| *k == key) {
-                let (xs, ys) = renderer.image_map(p);
-                let mut map = Vec::with_capacity(xs.len() + ys.len());
-                map.extend_from_slice(xs);
-                map.extend_from_slice(ys);
-                draws.push(ImageDraw {
-                    inst: image_instance(p),
-                    tex: tex.clone(),
-                    layer: p.layer,
-                    map,
-                    composite: p.composite,
-                });
-            }
+                Some(tex)
+            });
+            let Some(tex) = made else {
+                continue;
+            };
+            let (xs, ys) = renderer.image_map(p);
+            let mut map = Vec::with_capacity(xs.len() + ys.len());
+            map.extend_from_slice(xs);
+            map.extend_from_slice(ys);
+            draws.push(ImageDraw {
+                inst: image_instance(p),
+                tex,
+                layer: p.layer,
+                map,
+                composite: p.composite,
+            });
         }
         draws
     }

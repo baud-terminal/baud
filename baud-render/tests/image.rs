@@ -323,14 +323,19 @@ fn a_static_image_is_snapshotted_once_not_per_frame() {
         "the static image was snapshotted once over five frames, not five times"
     );
 
-    // A new image bumps the store epoch, which drops the snapshot cache, so the
-    // next frame re-snapshots what is referenced -- the count rises.
+    // A new image moves the store epoch, and the next frame snapshots it
+    // alone: the swirl's pixels were not written, so its snapshot stays.
     feed(&mut t, TINY);
     r.set_images(&t, Rows::ZERO);
-    assert!(
-        r.image_snapshots().value() > 1,
-        "a store's epoch change re-snapshots, not {}",
-        r.image_snapshots().value()
+    assert_eq!(
+        r.image_placements().len(),
+        2,
+        "the premise: both images are on screen"
+    );
+    assert_eq!(
+        r.image_snapshots().value(),
+        2,
+        "a store snapshots the new image and not the one already on screen"
     );
     assert!(
         !r.image_uploads().is_empty(),
@@ -1585,6 +1590,82 @@ fn rekey_arm(
     check(equals_a_full_repaint(t, c, faces), || {
         format!("{rekey:?}: equal to a full repaint")
     })
+}
+
+/// **An image is snapshotted and uploaded again only when its own pixels
+/// change**, not whenever the store's epoch moves: two kitty images on
+/// screen, then the second edited in place (`a=f`, `r=1`), a third stored
+/// and never placed, and the first freed and stored again under its id.
+/// Each moves the epoch. The edit snapshots the second image alone, the
+/// store snapshots nothing, and the free and store snapshot the first.
+#[test]
+fn an_image_is_snapshotted_again_only_when_its_own_pixels_change() {
+    with_images(|r, _c, t, _faces| {
+        // What client image `kid`'s snapshot is: its epoch and first word.
+        let snap = |r: &Renderer<'_, '_>, kid| {
+            let p = r.image_placements().iter().find(|p| p.tie.raw() == kid);
+            let p = p.expect("the premise: the image is placed");
+            let u = r.image_uploads().iter().find(|u| u.id == p.id);
+            let u = u.expect("the premise: the image is snapshotted");
+            (u.epoch, u.pixels[0])
+        };
+        feed(t, b"\x1b[1;1H");
+        feed(t, &kitty("a=T,f=32,s=16,v=16,i=1,C=1,q=2", &[RED; 256]));
+        feed(t, b"\x1b[1;20H");
+        feed(t, &kitty("a=T,f=32,s=16,v=16,i=2,C=1,q=2", &[BLUE; 256]));
+        r.set_images(t, Rows::ZERO);
+        assert_eq!(r.image_placements().len(), 2, "the premise: both shown");
+        assert_eq!(r.image_snapshots().value(), 2);
+        let (first, second) = (snap(r, 1), snap(r, 2));
+
+        let was = t.images().generation();
+        feed(
+            t,
+            &kitty("a=f,f=32,s=8,v=8,x=0,y=0,r=1,i=2,q=2", &[GREEN; 64]),
+        );
+        assert_ne!(
+            t.images().generation(),
+            was,
+            "the premise: the edit moved the epoch"
+        );
+        r.set_images(t, Rows::ZERO);
+        assert_eq!(
+            r.image_snapshots().value(),
+            3,
+            "the edited image is snapshotted again, the other is not"
+        );
+        assert_eq!(snap(r, 1), first, "the first image keeps its snapshot");
+        assert_ne!(snap(r, 2).1, second.1, "the second shows the edit");
+
+        let was = t.images().generation();
+        feed(t, &kitty("a=t,f=32,s=4,v=4,i=3,q=2", &[GREEN; 16]));
+        assert_ne!(
+            t.images().generation(),
+            was,
+            "the premise: the store moved the epoch"
+        );
+        for _ in 0..3 {
+            r.set_images(t, Rows::ZERO);
+        }
+        assert_eq!(
+            r.image_snapshots().value(),
+            3,
+            "an image stored off screen snapshots nothing on screen"
+        );
+        assert_eq!(snap(r, 1), first);
+
+        feed(t, &kitty("a=d,d=I,i=1,q=2", &[]));
+        feed(t, b"\x1b[1;1H");
+        feed(t, &kitty("a=T,f=32,s=16,v=16,i=1,C=1,q=2", &[GREEN; 256]));
+        r.set_images(t, Rows::ZERO);
+        assert_eq!(r.image_placements().len(), 2, "the premise: both shown");
+        assert_eq!(
+            r.image_snapshots().value(),
+            4,
+            "an image stored again under a freed one's id is snapshotted"
+        );
+        assert_ne!(snap(r, 1).1, first.1, "in its own pixels");
+    });
 }
 
 /// **A frame edited in place is drawn on the next incremental frame**

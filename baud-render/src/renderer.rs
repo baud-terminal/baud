@@ -3847,16 +3847,23 @@ impl ImagePlacement {
     }
 }
 
-/// One image's pixels to upload once: keyed by `id` and `epoch`, the store's
-/// straight `0xAARRGGBB` words, `w * h` of them, row-major, unconverted. A
-/// clear (unpainted Sixel) pixel is `0x00000000`. **Straight, not
-/// premultiplied**: the fragment that samples the texture premultiplies
+/// One image's pixels to upload once: named by `id`, `born` and `epoch`, the
+/// store's straight `0xAARRGGBB` words, `w * h` of them, row-major,
+/// unconverted. A clear (unpainted Sixel) pixel is `0x00000000`. **Straight,
+/// not premultiplied**: the fragment that samples the texture premultiplies
 /// (`glyph_fragment`'s colour branch, `c.rgb * c.a`), the one premultiply on
 /// the GPU paths, as `blend.over` is the CPU's.
 pub struct ImageUpload {
     /// Which stored image these pixels are.
     pub id: ImageId,
-    /// The store epoch -- the cache key with `id`, `frame` and `ground`.
+    /// When that image was stored ([`ImageAge`]), which tells it from an
+    /// image stored later under the same `id`.
+    pub born: ImageAge,
+    /// The store epoch the pixels were snapshotted at. It stays while the
+    /// image's own pixels are unwritten ([`ImageStore::since`]) whatever
+    /// other images do to the store's epoch, so `id`, `born`, `epoch`,
+    /// `frame` and `ground` together name these pixels
+    /// ([`ImageTextures`]).
     pub epoch: ImageGen,
     /// Which frame of a kitty animation these pixels are.
     pub frame: FrameNo,
@@ -3869,6 +3876,83 @@ pub struct ImageUpload {
     pub h: u16,
     /// The straight pixels, `w * h`, row-major.
     pub pixels: Vec<u32>,
+}
+
+/// **Which snapshot a texture was made from** ([`ImageTextures`]): the
+/// fields of an [`ImageUpload`] that name its pixels.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct SnapshotKey {
+    id: ImageId,
+    born: ImageAge,
+    epoch: ImageGen,
+    frame: FrameNo,
+    ground: Pixel,
+}
+
+impl SnapshotKey {
+    fn of(up: &ImageUpload) -> SnapshotKey {
+        SnapshotKey {
+            id: up.id,
+            born: up.born,
+            epoch: up.epoch,
+            frame: up.frame,
+            ground: up.ground,
+        }
+    }
+}
+
+/// **A GPU's textures of the images on screen, one an image**, each made
+/// from the [`ImageUpload`] it names and kept while the renderer keeps that
+/// snapshot ([`Renderer::image_uploads`]). The renderer keeps a snapshot
+/// while its image's own pixels are unwritten, so an image is uploaded once
+/// for each change to its pixels, its frame or its ground, and never for
+/// another image's store, edit or free. `T` is the texture.
+pub struct ImageTextures<T> {
+    held: Vec<(SnapshotKey, T)>,
+    made: Tally,
+}
+
+impl<T: Clone> Default for ImageTextures<T> {
+    fn default() -> Self {
+        ImageTextures {
+            held: Vec::new(),
+            made: Tally::ZERO,
+        }
+    }
+}
+
+impl<T: Clone> ImageTextures<T> {
+    /// **Drops every texture made from a snapshot `ups` no longer holds**:
+    /// an image redrawn, freed, or off the screen.
+    pub fn keep(&mut self, ups: &[ImageUpload]) {
+        self.held
+            .retain(|(k, _)| ups.iter().any(|u| SnapshotKey::of(u) == *k));
+    }
+
+    /// **The texture of snapshot `up`**: the one made from it before, or
+    /// what `make` makes now, which replaces the texture of any other
+    /// snapshot of the same image. `None` if `make` makes none.
+    pub fn of(
+        &mut self,
+        up: &ImageUpload,
+        make: impl FnOnce(&ImageUpload) -> Option<T>,
+    ) -> Option<T> {
+        let key = SnapshotKey::of(up);
+        if let Some((_, t)) = self.held.iter().find(|(k, _)| *k == key) {
+            return Some(t.clone());
+        }
+        let t = make(up)?;
+        self.made = self.made.inc();
+        self.held.retain(|(k, _)| k.id != key.id);
+        self.held.push((key, t.clone()));
+        Some(t)
+    }
+
+    /// How many textures `make` has made, cumulative: one for each
+    /// snapshot drawn.
+    pub fn made(&self) -> Tally {
+        self.made
+    }
 }
 
 /// **The order a copy of the window holds each row's cells in**
@@ -4444,19 +4528,21 @@ pub struct Renderer<'f, 'a> {
     /// Which placements this CPU frame and the last differ by.
     place_diff: PlaceDiff,
     /// Each referenced image's pixels, straight, for a GPU to upload
-    /// once. Keyed by id and store epoch; the CPU path reads the term's
-    /// pixels directly instead. **Kept across frames** and refreshed only for a
-    /// new `(id, epoch, ground)`, so a static image is snapshotted once rather than
-    /// rebuilt every frame -- a large image's per-frame allocation and
-    /// per-pixel conversion, which the frame path would otherwise pay while it
-    /// is on screen. Cleared whole when the store epoch moves. See
+    /// once, one snapshot an image; the CPU path reads the term's pixels
+    /// directly instead. **Kept across frames and across epochs** while the
+    /// image's own pixels are unwritten ([`ImageStore::since`]), and
+    /// refreshed for a new `(id, born, frame, ground)`, so a still image is
+    /// snapshotted once rather than every frame, or every time another
+    /// image moves the store's epoch -- a large image's allocation and
+    /// per-pixel conversion, and a GPU's texture upload after it. See
     /// [`Renderer::set_images`].
     image_uploads: Vec<ImageUpload>,
     /// What a Sixel's fill draws as in the placements being built
     /// ([`Renderer::fill_pixel`]), read from the term as they are built.
     image_fill: Pixel,
-    /// The store epoch [`Renderer::image_uploads`] is snapshotted at; a change
-    /// drops the whole snapshot cache, the [`baud_domain::ImageGen`] rule.
+    /// The store epoch every snapshot in [`Renderer::image_uploads`] is
+    /// known to show its image's pixels at: when the epoch moves, each
+    /// snapshot whose image was written since, or is gone, is dropped.
     image_epoch: ImageGen,
     /// How many image pixel-snapshots have been built, cumulative -- a static
     /// image bumps it once, not once a frame, which is what the gate checks.
@@ -9352,13 +9438,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.image_fill = self.fill_pixel(term);
         let imgs = term.images();
         let epoch = imgs.generation();
-        // The snapshot cache is kept across frames and dropped whole only when
-        // the store epoch moves -- a `store`, `free` or `reset` -- so a static
-        // image on screen is not re-snapshotted every frame. Within an epoch,
-        // an id names the same pixels, so the `any(id)` check below is the
-        // never-rebuild gate.
+        // The snapshot cache is kept across frames, and when the store epoch
+        // moves -- a store, a write to an image's pixels, a free, a reset --
+        // only the snapshots whose own image was written or freed since go.
+        // Every snapshot kept shows its image's pixels at the epoch now, so
+        // within an epoch an image's `(id, born, frame, ground)` names one
+        // set of pixels, and the `any` check below is the never-rebuild gate.
         if self.image_epoch != epoch {
-            self.image_uploads.clear();
+            let then = self.image_epoch;
+            self.image_uploads
+                .retain(|u| imgs.since(u.id, u.born, then) == ImageSince::Same);
             self.image_epoch = epoch;
         }
         let origin = term.image_origin(back);
@@ -9787,6 +9876,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             _ => (view.alpha, ImageComposite::Over),
         };
+        let age = imgs.born(id).unwrap_or(ImageAge::ZERO);
         self.image_places.push(ImagePlacement {
             id,
             epoch,
@@ -9799,7 +9889,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             z,
             layer: ImageLayer::of(z),
             tie: imgs.kitty_names(id).map_or(KittyId::NONE, |(k, _)| k),
-            born: imgs.born(id).unwrap_or(ImageAge::ZERO),
+            born: age,
             serial,
             draw,
             scale,
@@ -9807,23 +9897,24 @@ impl<'f, 'a> Renderer<'f, 'a> {
             ground,
             composite,
         });
-        // Snapshot the pixels once per referenced `(id, epoch, ground)`:
-        // the GPU reads this to upload, the CPU reads the term itself. The
-        // words are the store's own, straight, but a fill word, which is
-        // drawn as `ground`: the fragment premultiplies, so a clear
-        // (unpainted Sixel) pixel, `0x00000000`, leaves the cell showing
-        // through and a partial one blends by its alpha.
+        // Snapshot the pixels once per referenced `(id, born, frame,
+        // ground)` while the image is unwritten: the GPU reads this to
+        // upload, the CPU reads the term itself. The words are the store's
+        // own, straight, but a fill word, which is drawn as `ground`: the
+        // fragment premultiplies, so a clear (unpainted Sixel) pixel,
+        // `0x00000000`, leaves the cell showing through and a partial one
+        // blends by its alpha.
         if snap == Snapshots::Kept
-            && !self.image_uploads.iter().any(|u| {
-                u.id == id && u.epoch == epoch && u.frame == view.frame && u.ground == ground
-            })
+            && !self
+                .image_uploads
+                .iter()
+                .any(|u| u.id == id && u.born == age && u.frame == view.frame && u.ground == ground)
         {
             // One snapshot an image: the one drawn in an older fill colour
             // goes, so a fill that follows `OSC 11` keeps no copy per colour,
             // and an animation's other frame goes, so it keeps none per
             // frame.
-            self.image_uploads
-                .retain(|u| !(u.id == id && u.epoch == epoch));
+            self.image_uploads.retain(|u| u.id != id);
             let pixels = match view.ground {
                 ImageGround::Clear => view.pixels.iter().map(|p| p.bits()).collect(),
                 ImageGround::Filled { .. } => view
@@ -9834,6 +9925,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             self.image_uploads.push(ImageUpload {
                 id,
+                born: age,
                 epoch,
                 frame: view.frame,
                 ground,
