@@ -46,6 +46,8 @@ mod support;
 
 use baud_core::*;
 use proptest::prelude::*;
+use std::collections::BTreeSet;
+use support::Form;
 
 const ROWS: usize = 50;
 /// Narrow on purpose: a twenty-column screen wraps and scrolls under a
@@ -3618,4 +3620,1688 @@ fn bdsm_reset_on_the_status_line_under_margins_and_a_limit_read_a_byte_at_a_time
     let b = bytes_of(&prog);
     let w = AmbiguousWidth::Narrow;
     assert_eq!(drive_at(&b, 1, w), drive_at(&b, 4096, w));
+}
+
+// The reach check: every done row of docs/vt-coverage.md against the bytes
+// the alphabet can send. The document is read into keys, each atom's bytes
+// are lexed into keys by a parser written here rather than baud's, and a row
+// is reached when every key it names is sent.
+
+/// What a row names and what a byte string sends, in one vocabulary.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Sent {
+    /// A C0 control, executed.
+    C0(u8),
+    /// An 8-bit C1 control, executed under ISO 8859-1.
+    C1(u8),
+    /// An escape sequence: its intermediates, and its final or any final.
+    Esc(Vec<u8>, Option<u8>),
+    /// A control sequence: its form, its parameter count where the row
+    /// spells more than one parameter, and its first parameter where the
+    /// row spells it as a number.
+    Csi(Form, Option<usize>, Option<u16>),
+    /// A mode set or reset, with its marker.
+    Mode(Option<u8>, u16),
+    /// A rendition parameter and what follows it.
+    Sgr(u16, SgrSub),
+    /// An operating system command: its code and its first word.
+    Osc(u32, Option<String>),
+    /// A device control string's form.
+    Dcs(Form),
+    /// A graphics command's key and the first byte of its value.
+    Apc(u8, Option<u8>),
+    /// A parser state entered.
+    State(Phase),
+}
+
+/// What follows a rendition parameter.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum SgrSub {
+    /// Nothing the row names.
+    Bare,
+    /// A selector in the next parameter, after a semicolon: `38;5;n`.
+    Semi(u16),
+    /// A first sub-parameter, after a colon: `4:3`, `38:2::r:g:b`.
+    Colon(u16),
+}
+
+/// The parser states of `[[source: williams]]`, by the names the document
+/// gives them.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Phase {
+    Ground,
+    Escape,
+    EscapeIntermediate,
+    CsiEntry,
+    CsiParam,
+    CsiIntermediate,
+    CsiIgnore,
+    DcsEntry,
+    DcsParam,
+    DcsIntermediate,
+    DcsPassthrough,
+    DcsIgnore,
+    OscString,
+    SosPmApcString,
+}
+
+impl Phase {
+    const ALL: [Phase; 14] = [
+        Phase::Ground,
+        Phase::Escape,
+        Phase::EscapeIntermediate,
+        Phase::CsiEntry,
+        Phase::CsiParam,
+        Phase::CsiIntermediate,
+        Phase::CsiIgnore,
+        Phase::DcsEntry,
+        Phase::DcsParam,
+        Phase::DcsIntermediate,
+        Phase::DcsPassthrough,
+        Phase::DcsIgnore,
+        Phase::OscString,
+        Phase::SosPmApcString,
+    ];
+
+    fn name(self) -> &'static str {
+        match self {
+            Phase::Ground => "ground",
+            Phase::Escape => "escape",
+            Phase::EscapeIntermediate => "escape_intermediate",
+            Phase::CsiEntry => "csi_entry",
+            Phase::CsiParam => "csi_param",
+            Phase::CsiIntermediate => "csi_intermediate",
+            Phase::CsiIgnore => "csi_ignore",
+            Phase::DcsEntry => "dcs_entry",
+            Phase::DcsParam => "dcs_param",
+            Phase::DcsIntermediate => "dcs_intermediate",
+            Phase::DcsPassthrough => "dcs_passthrough",
+            Phase::DcsIgnore => "dcs_ignore",
+            Phase::OscString => "osc_string",
+            Phase::SosPmApcString => "sos_pm_apc_string",
+        }
+    }
+
+    /// The states that collect a control string until `ST`.
+    fn is_string(self) -> bool {
+        matches!(
+            self,
+            Phase::OscString | Phase::SosPmApcString | Phase::DcsPassthrough | Phase::DcsIgnore
+        )
+    }
+}
+
+/// The encoding the bytes are read in, switched by `ESC % @` and `ESC % G`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Enc {
+    Utf8,
+    Latin1,
+}
+
+/// The control string being collected, for what its end dispatches.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Strand {
+    Osc,
+    Apc,
+    Other,
+}
+
+/// Whether an `ESC` inside a control string waits for its `\`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Pending {
+    Nothing,
+    Esc,
+}
+
+/// How a control string ends.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum End {
+    Dispatch,
+    Cancel,
+}
+
+/// The parser, keyed: each dispatch and each state entered becomes a
+/// [`Sent`]. It reads one byte string from power-on, in UTF-8.
+struct Lexer {
+    out: BTreeSet<Sent>,
+    phase: Phase,
+    enc: Enc,
+    inters: Vec<u8>,
+    marker: Option<u8>,
+    params: Vec<u8>,
+    payload: Vec<u8>,
+    strand: Option<Strand>,
+    pending: Pending,
+}
+
+/// Everything `bytes` sends, read from power-on.
+fn lex(bytes: &[u8]) -> BTreeSet<Sent> {
+    let mut l = Lexer::fresh();
+    for &b in bytes {
+        l.byte(b);
+    }
+    l.out
+}
+
+/// The first parameter of a field, before any colon.
+fn head(field: &str) -> &str {
+    field.split(':').next().unwrap_or("")
+}
+
+/// A decimal parameter, held at the ceiling of a `u16`.
+fn saturating(digits: &str) -> u16 {
+    let v = digits
+        .bytes()
+        .filter(u8::is_ascii_digit)
+        .fold(0u32, |v, c| (v * 10 + u32::from(c - b'0')).min(65_535));
+    u16::try_from(v).unwrap_or(u16::MAX)
+}
+
+impl Lexer {
+    fn fresh() -> Self {
+        let mut out = BTreeSet::new();
+        out.insert(Sent::State(Phase::Ground));
+        Self {
+            out,
+            phase: Phase::Ground,
+            enc: Enc::Utf8,
+            inters: Vec::new(),
+            marker: None,
+            params: Vec::new(),
+            payload: Vec::new(),
+            strand: None,
+            pending: Pending::Nothing,
+        }
+    }
+
+    fn enter(&mut self, p: Phase) {
+        self.phase = p;
+        self.out.insert(Sent::State(p));
+    }
+
+    fn clear(&mut self) {
+        self.inters.clear();
+        self.marker = None;
+        self.params.clear();
+    }
+
+    fn start(&mut self, s: Strand) {
+        self.strand = Some(s);
+        self.payload.clear();
+    }
+
+    fn end_string(&mut self, end: End) {
+        if end == End::Dispatch {
+            match self.strand {
+                Some(Strand::Osc) => osc_sent(&self.payload, &mut self.out),
+                Some(Strand::Apc) => apc_sent(&self.payload, &mut self.out),
+                Some(Strand::Other) | None => {}
+            }
+        }
+        self.strand = None;
+        self.payload.clear();
+    }
+
+    /// An 8-bit C1 control under ISO 8859-1, from any state: a control
+    /// string it arrives in is cancelled, or ended by `9C`.
+    fn c1(&mut self, b: u8) {
+        if self.phase.is_string() {
+            self.end_string(if b == 0x9c {
+                End::Dispatch
+            } else {
+                End::Cancel
+            });
+        }
+        self.clear();
+        match b {
+            0x90 => self.enter(Phase::DcsEntry),
+            0x9b => self.enter(Phase::CsiEntry),
+            0x9d => {
+                self.enter(Phase::OscString);
+                self.start(Strand::Osc);
+            }
+            0x98 | 0x9e | 0x9f => {
+                self.enter(Phase::SosPmApcString);
+                self.start(if b == 0x9f {
+                    Strand::Apc
+                } else {
+                    Strand::Other
+                });
+            }
+            0x9c => self.enter(Phase::Ground),
+            _ => {
+                self.out.insert(Sent::C1(b));
+                self.enter(Phase::Ground);
+            }
+        }
+    }
+
+    fn esc_dispatch(&mut self, f: u8) {
+        self.out.insert(Sent::Esc(self.inters.clone(), Some(f)));
+        if !self.inters.is_empty() {
+            self.out.insert(Sent::Esc(self.inters.clone(), None));
+        }
+        if self.inters == b"%" {
+            match f {
+                b'@' => self.enc = Enc::Latin1,
+                b'G' => self.enc = Enc::Utf8,
+                _ => {}
+            }
+        }
+    }
+
+    fn csi_dispatch(&mut self, fin: u8) {
+        let form = Form::of(self.marker, self.inters.last().copied(), fin);
+        let text = String::from_utf8_lossy(&self.params).into_owned();
+        let fields: Vec<&str> = if text.is_empty() {
+            Vec::new()
+        } else {
+            text.split(';').collect()
+        };
+        let first = fields
+            .first()
+            .copied()
+            .map(head)
+            .filter(|h| !h.is_empty())
+            .map(saturating);
+        for arity in [None, Some(fields.len())] {
+            self.out.insert(Sent::Csi(form, arity, None));
+            if first.is_some() {
+                self.out.insert(Sent::Csi(form, arity, first));
+            }
+        }
+        let plain = self.inters.is_empty();
+        if plain && matches!(fin, b'h' | b'l') && matches!(self.marker, None | Some(b'?')) {
+            for f in &fields {
+                let h = head(f);
+                if !h.is_empty() {
+                    self.out.insert(Sent::Mode(self.marker, saturating(h)));
+                }
+            }
+        }
+        if plain && fin == b'm' && self.marker.is_none() {
+            sgr_sent(&fields, &mut self.out);
+        }
+    }
+
+    fn byte(&mut self, input: u8) {
+        let mut b = input;
+        if self.pending == Pending::Esc {
+            self.pending = Pending::Nothing;
+            if b == b'\\' {
+                self.end_string(End::Dispatch);
+                self.out.insert(Sent::Esc(Vec::new(), Some(b'\\')));
+                self.clear();
+                self.enter(Phase::Ground);
+                return;
+            }
+            self.end_string(End::Cancel);
+            self.clear();
+            self.enter(Phase::Escape);
+        }
+        if matches!(b, 0x18 | 0x1a) {
+            if self.phase.is_string() {
+                self.end_string(End::Cancel);
+            }
+            self.out.insert(Sent::C0(b));
+            self.clear();
+            self.enter(Phase::Ground);
+            return;
+        }
+        if b == 0x1b {
+            if self.phase.is_string() {
+                self.pending = Pending::Esc;
+            } else {
+                self.clear();
+                self.enter(Phase::Escape);
+            }
+            return;
+        }
+        if b >= 0x80 {
+            if self.enc == Enc::Latin1 && b <= 0x9f {
+                self.c1(b);
+                return;
+            }
+            if self.phase.is_string() {
+                self.payload.push(b);
+                return;
+            }
+            if self.enc == Enc::Utf8 || self.phase == Phase::Ground {
+                if self.phase != Phase::Ground {
+                    self.clear();
+                    self.enter(Phase::Ground);
+                }
+                return;
+            }
+            b &= 0x7f;
+        }
+        match self.phase {
+            Phase::Ground => {
+                if b < 0x20 {
+                    self.out.insert(Sent::C0(b));
+                }
+            }
+            Phase::Escape | Phase::EscapeIntermediate => self.escape(b),
+            Phase::CsiEntry | Phase::CsiParam | Phase::CsiIntermediate | Phase::CsiIgnore => {
+                self.csi(b)
+            }
+            Phase::DcsEntry | Phase::DcsParam | Phase::DcsIntermediate => self.dcs(b),
+            Phase::OscString => {
+                if b == 0x07 {
+                    self.end_string(End::Dispatch);
+                    self.clear();
+                    self.enter(Phase::Ground);
+                } else if b >= 0x20 {
+                    self.payload.push(b);
+                }
+            }
+            Phase::SosPmApcString | Phase::DcsPassthrough | Phase::DcsIgnore => {
+                self.payload.push(b)
+            }
+        }
+    }
+
+    fn escape(&mut self, b: u8) {
+        if b < 0x20 {
+            self.out.insert(Sent::C0(b));
+            return;
+        }
+        if b == 0x7f {
+            return;
+        }
+        if matches!(b, 0x20..=0x2f) {
+            self.inters.push(b);
+            self.enter(Phase::EscapeIntermediate);
+            return;
+        }
+        if self.phase == Phase::Escape {
+            let next = match b {
+                b'[' => Some((Phase::CsiEntry, None)),
+                b']' => Some((Phase::OscString, Some(Strand::Osc))),
+                b'P' => Some((Phase::DcsEntry, None)),
+                b'X' | b'^' => Some((Phase::SosPmApcString, Some(Strand::Other))),
+                b'_' => Some((Phase::SosPmApcString, Some(Strand::Apc))),
+                _ => None,
+            };
+            if let Some((p, s)) = next {
+                self.clear();
+                self.enter(p);
+                if let Some(s) = s {
+                    self.start(s);
+                }
+                return;
+            }
+        }
+        self.esc_dispatch(b);
+        self.clear();
+        self.enter(Phase::Ground);
+    }
+
+    fn csi(&mut self, b: u8) {
+        if b < 0x20 {
+            self.out.insert(Sent::C0(b));
+            return;
+        }
+        if b == 0x7f {
+            return;
+        }
+        if self.phase == Phase::CsiIgnore {
+            if matches!(b, 0x40..=0x7e) {
+                self.clear();
+                self.enter(Phase::Ground);
+            }
+            return;
+        }
+        if matches!(b, 0x40..=0x7e) {
+            self.csi_dispatch(b);
+            self.clear();
+            self.enter(Phase::Ground);
+            return;
+        }
+        if matches!(b, 0x20..=0x2f) {
+            self.inters.push(b);
+            self.enter(Phase::CsiIntermediate);
+            return;
+        }
+        if self.phase == Phase::CsiIntermediate {
+            self.enter(Phase::CsiIgnore);
+            return;
+        }
+        if matches!(b, 0x3c..=0x3f) {
+            if self.phase == Phase::CsiEntry {
+                self.marker = Some(b);
+                self.enter(Phase::CsiParam);
+            } else {
+                self.enter(Phase::CsiIgnore);
+            }
+            return;
+        }
+        self.params.push(b);
+        self.enter(Phase::CsiParam);
+    }
+
+    fn dcs(&mut self, b: u8) {
+        if b < 0x20 || b == 0x7f {
+            return;
+        }
+        if matches!(b, 0x40..=0x7e) {
+            let form = Form::of(self.marker, self.inters.last().copied(), b);
+            self.out.insert(Sent::Dcs(form));
+            self.enter(Phase::DcsPassthrough);
+            self.start(Strand::Other);
+            return;
+        }
+        if matches!(b, 0x20..=0x2f) {
+            self.inters.push(b);
+            self.enter(Phase::DcsIntermediate);
+            return;
+        }
+        if self.phase == Phase::DcsIntermediate || b == b':' {
+            self.enter(Phase::DcsIgnore);
+            self.start(Strand::Other);
+            return;
+        }
+        if matches!(b, 0x3c..=0x3f) {
+            if self.phase == Phase::DcsEntry {
+                self.marker = Some(b);
+                self.enter(Phase::DcsParam);
+            } else {
+                self.enter(Phase::DcsIgnore);
+                self.start(Strand::Other);
+            }
+            return;
+        }
+        self.params.push(b);
+        self.enter(Phase::DcsParam);
+    }
+}
+
+/// A rendition's parameters: each number, a colon's first sub-parameter,
+/// and the selector after `38`, `48` or `58`, whose operands are skipped.
+fn sgr_sent(fields: &[&str], out: &mut BTreeSet<Sent>) {
+    if fields.is_empty() {
+        out.insert(Sent::Sgr(0, SgrSub::Bare));
+        return;
+    }
+    let mut i = 0;
+    while i < fields.len() {
+        let mut parts = fields[i].split(':');
+        let n = saturating(parts.next().unwrap_or(""));
+        out.insert(Sent::Sgr(n, SgrSub::Bare));
+        if let Some(sub) = parts.next() {
+            if !sub.is_empty() {
+                out.insert(Sent::Sgr(n, SgrSub::Colon(saturating(sub))));
+            }
+            i += 1;
+            continue;
+        }
+        if matches!(n, 38 | 48 | 58) && i + 1 < fields.len() {
+            let s = saturating(head(fields[i + 1]));
+            out.insert(Sent::Sgr(n, SgrSub::Semi(s)));
+            i += match s {
+                5 => 3,
+                2 => 5,
+                _ => 2,
+            };
+            continue;
+        }
+        i += 1;
+    }
+}
+
+/// An operating system command's code, and the word after it up to `;` or
+/// `=`.
+fn osc_sent(payload: &[u8], out: &mut BTreeSet<Sent>) {
+    let text = String::from_utf8_lossy(payload);
+    let (code, rest) = match text.split_once(';') {
+        Some((c, r)) => (c, Some(r)),
+        None => (&*text, None),
+    };
+    if code.is_empty() || !code.bytes().all(|c| c.is_ascii_digit()) {
+        return;
+    }
+    let Ok(code) = code.parse::<u32>() else {
+        return;
+    };
+    out.insert(Sent::Osc(code, None));
+    if let Some(rest) = rest {
+        let word = rest.split(';').next().unwrap_or("");
+        let word = word.split('=').next().unwrap_or("");
+        if !word.is_empty() {
+            out.insert(Sent::Osc(code, Some(word.to_string())));
+        }
+    }
+}
+
+/// A graphics command's control keys, `G` then `k=v,...` up to `;`.
+fn apc_sent(payload: &[u8], out: &mut BTreeSet<Sent>) {
+    let Some(rest) = payload.strip_prefix(b"G") else {
+        return;
+    };
+    let control = rest.split(|&c| c == b';').next().unwrap_or(&[]);
+    for item in control.split(|&c| c == b',') {
+        let (k, v) = match item.iter().position(|&c| c == b'=') {
+            Some(at) => (&item[..at], Some(&item[at + 1..])),
+            None => (item, None),
+        };
+        if let [k] = k {
+            out.insert(Sent::Apc(*k, None));
+            if let Some(&[first, ..]) = v {
+                out.insert(Sent::Apc(*k, Some(first)));
+            }
+        }
+    }
+}
+
+/// Everything the atoms `keep` admits can send, each read from power-on.
+fn emitted(keep: impl Fn(&Atom) -> bool) -> BTreeSet<Sent> {
+    ALPHABET
+        .iter()
+        .filter(|a| keep(a))
+        .flat_map(|a| lex(a.bytes))
+        .collect()
+}
+
+/// A done row: the first cell of its table's header, and its own first cell.
+struct DoneRow {
+    table: String,
+    first: String,
+}
+
+/// The cells of a table line, a `\|` read as a `|` inside a cell.
+fn cells(line: &str) -> Vec<String> {
+    let s = line.trim();
+    let s = s.strip_prefix('|').unwrap_or(s);
+    let s = if s.ends_with("\\|") {
+        s
+    } else {
+        s.strip_suffix('|').unwrap_or(s)
+    };
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c == '\\' && it.peek() == Some(&'|') {
+            it.next();
+            cur.push('|');
+        } else if c == '|' {
+            out.push(cur.trim().to_string());
+            cur.clear();
+        } else {
+            cur.push(c);
+        }
+    }
+    out.push(cur.trim().to_string());
+    out
+}
+
+/// Every done row, each with the table it is in. A row is done when any of
+/// its cells' first word is `done`; the legend row, which defines
+/// `**done**`, is not a row about an operation.
+fn done_rows(doc: &str) -> Vec<DoneRow> {
+    let mut rows = Vec::new();
+    let mut table: Option<String> = None;
+    for line in doc.lines() {
+        let t = line.trim();
+        if !t.starts_with('|') {
+            table = None;
+            continue;
+        }
+        let cs = cells(t);
+        let Some(name) = table.clone() else {
+            table = Some(cs[0].clone());
+            continue;
+        };
+        if t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ')) || cs[0].contains("**done**") {
+            continue;
+        }
+        if cs
+            .iter()
+            .any(|c| c.split_whitespace().next() == Some("done"))
+        {
+            rows.push(DoneRow {
+                table: name,
+                first: cs[0].clone(),
+            });
+        }
+    }
+    rows
+}
+
+/// The done rows `coverage.rs` counts, by its own reading of a line.
+fn done_count(doc: &str) -> usize {
+    doc.lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with('|'))
+        .filter(|l| {
+            let cs: Vec<&str> = l.trim_matches('|').split('|').map(str::trim).collect();
+            cs.len() >= 2
+                && !cs[0].contains("**done**")
+                && cs
+                    .iter()
+                    .any(|c| c.split_whitespace().next() == Some("done"))
+        })
+        .count()
+}
+
+/// A cell's code spans and the text between them.
+enum Spanned {
+    Code(String),
+    Text(String),
+}
+
+/// The code spans of a cell, delimited by equal runs of backticks; an
+/// unclosed span runs to the end of the cell.
+fn spans(cell: &str) -> Vec<Spanned> {
+    let c: Vec<char> = cell.chars().collect();
+    let run = |from: usize| c[from..].iter().take_while(|&&x| x == '`').count();
+    let mut out = Vec::new();
+    let mut txt = String::new();
+    let mut i = 0;
+    while i < c.len() {
+        if c[i] != '`' {
+            txt.push(c[i]);
+            i += 1;
+            continue;
+        }
+        let n = run(i);
+        let open = i + n;
+        let mut close = c.len();
+        let mut k = open;
+        while k < c.len() {
+            if c[k] == '`' {
+                let m = run(k);
+                if m == n {
+                    close = k;
+                    break;
+                }
+                k += m;
+            } else {
+                k += 1;
+            }
+        }
+        if !txt.is_empty() {
+            out.push(Spanned::Text(std::mem::take(&mut txt)));
+        }
+        let body: String = c[open..close].iter().collect();
+        let trimmed = n > 1 && body.len() > 2 && body.starts_with(' ') && body.ends_with(' ');
+        out.push(Spanned::Code(if trimmed {
+            body[1..body.len() - 1].to_string()
+        } else {
+            body
+        }));
+        i = close + n;
+    }
+    if !txt.is_empty() {
+        out.push(Spanned::Text(txt));
+    }
+    out
+}
+
+/// Two hexadecimal digits.
+fn hex_byte(t: &str) -> Option<u8> {
+    if t.len() != 2 || !t.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    u8::from_str_radix(t, 16).ok()
+}
+
+/// A token of a spelling as the byte it names: `SP`, or one character.
+fn spelled_byte(t: &str) -> Option<u8> {
+    match t.as_bytes() {
+        b"SP" => Some(b' '),
+        [b] => Some(*b),
+        _ => None,
+    }
+}
+
+/// `ESC` and what follows: intermediates first, then one final, or several
+/// finals after an intermediate (`ESC ( C 5 H`), or none (`ESC (`).
+fn esc_row(toks: &[&str]) -> Option<Vec<Sent>> {
+    let bs: Vec<u8> = toks
+        .iter()
+        .copied()
+        .map(spelled_byte)
+        .collect::<Option<_>>()?;
+    let inters: Vec<u8> = bs
+        .iter()
+        .copied()
+        .take_while(|b| matches!(b, 0x20..=0x2f))
+        .collect();
+    let rest = &bs[inters.len()..];
+    if rest.iter().any(|b| matches!(b, 0x20..=0x2f)) {
+        return None;
+    }
+    match rest {
+        [] if inters.is_empty() => None,
+        [] => Some(vec![Sent::Esc(inters, None)]),
+        [_, _, ..] if inters.is_empty() => None,
+        _ => Some(
+            rest.iter()
+                .map(|&f| Sent::Esc(inters.clone(), Some(f)))
+                .collect(),
+        ),
+    }
+}
+
+/// `CSI` and what follows: a mode set or reset, or a form with the
+/// parameter count and first value the spelling gives.
+fn csi_row(seq: &str) -> Option<Vec<Sent>> {
+    let toks: Vec<&str> = seq.split_whitespace().skip(1).collect();
+    let (&last, body) = toks.split_last()?;
+    if matches!(last, "h" | "l" | "h/l") {
+        let (marker, modes) = match body.split_first() {
+            Some((&"?", rest)) => (Some(b'?'), rest),
+            _ => (None, body),
+        };
+        if let [only] = modes {
+            let ns: Vec<&str> = only.split('/').collect();
+            if !ns
+                .iter()
+                .all(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()))
+            {
+                return None;
+            }
+            return Some(
+                ns.iter()
+                    .map(|&n| Sent::Mode(marker, saturating(n)))
+                    .collect(),
+            );
+        }
+        if !modes.is_empty() || last == "h/l" {
+            return None;
+        }
+    }
+    let form = support::parse_form(seq)?;
+    let params = match body.split_first() {
+        Some((m, rest)) if matches!(*m, "?" | ">" | "<" | "=") => rest,
+        _ => body,
+    };
+    let joined: String = params
+        .iter()
+        .filter(|t| **t != "SP" && !matches!(t.as_bytes(), [0x20..=0x2f]))
+        .copied()
+        .collect();
+    let fields: Vec<&str> = if joined.is_empty() {
+        Vec::new()
+    } else {
+        joined.split(';').collect()
+    };
+    if fields.iter().any(|f| f.contains("..")) {
+        return Some(vec![Sent::Csi(form, None, None)]);
+    }
+    let first = fields
+        .first()
+        .copied()
+        .filter(|f| !f.is_empty() && f.bytes().all(|c| c.is_ascii_digit()))
+        .map(saturating);
+    let arity = (fields.len() > 1).then_some(fields.len());
+    Some(vec![Sent::Csi(form, arity, first)])
+}
+
+/// Words that stand for a value rather than spell one.
+const PLACEHOLDERS: [&str; 8] = [
+    "Pt", "Ps", "Pv", "metadata", "key", "prop", "payload", "...",
+];
+
+/// `OSC` and what follows: each code, and each first word the row spells.
+fn osc_row(seq: &str) -> Option<Vec<Sent>> {
+    let rest = seq[3..].trim();
+    let (code, tail) = match rest.split_once(';') {
+        Some((c, t)) => (c.trim(), Some(t)),
+        None => (rest, None),
+    };
+    let codes: Vec<u32> = code
+        .split('/')
+        .map(|c| {
+            if c.is_empty() || !c.bytes().all(|b| b.is_ascii_digit()) {
+                None
+            } else {
+                c.parse().ok()
+            }
+        })
+        .collect::<Option<_>>()?;
+    let words: Vec<String> = tail
+        .into_iter()
+        .flat_map(|t| t.split(','))
+        .map(|w| {
+            let w = w.trim().split(';').next().unwrap_or("").trim();
+            w.split('=').next().unwrap_or("").trim().to_string()
+        })
+        .filter(|w| !w.is_empty() && !PLACEHOLDERS.contains(&w.as_str()))
+        .collect();
+    let mut out = Vec::new();
+    for &c in &codes {
+        if words.is_empty() {
+            out.push(Sent::Osc(c, None));
+        }
+        for w in &words {
+            out.push(Sent::Osc(c, Some(w.clone())));
+        }
+    }
+    Some(out)
+}
+
+/// `DCS` and what follows, up to its data: the form.
+fn dcs_row(seq: &str) -> Option<Vec<Sent>> {
+    let mut toks: Vec<&str> = seq.split_whitespace().skip(1).collect();
+    while let Some(&t) = toks.last() {
+        if !(matches!(t, "ST" | "Pt" | "..." | "Dscs") || t.starts_with("D...")) {
+            break;
+        }
+        toks.pop();
+    }
+    let form = support::parse_form(&format!("CSI {}", toks.join(" ")))?;
+    Some(vec![Sent::Dcs(form)])
+}
+
+/// A graphics command's `k=v` items: each key, with its value's first byte
+/// where the row spells one.
+fn apc_items(items: &str) -> Option<Vec<Sent>> {
+    items
+        .split(',')
+        .map(|item| {
+            let (k, v) = match item.split_once('=') {
+                Some((k, v)) => (k, Some(v)),
+                None => (item, None),
+            };
+            let [k] = k.as_bytes() else {
+                return None;
+            };
+            if !k.is_ascii_alphabetic() {
+                return None;
+            }
+            let v = v.and_then(|v| v.bytes().next()).filter(|&b| b != b'.');
+            Some(Sent::Apc(*k, v))
+        })
+        .collect()
+}
+
+/// `APC G` and what follows.
+fn apc_row(seq: &str) -> Option<Vec<Sent>> {
+    apc_items(seq[3..].trim().strip_prefix("G ")?.trim())
+}
+
+/// One spelling: a byte (`0x07`, `8E`), a private mode (`?25`), or a
+/// sequence.
+fn seq_sent(seq: &str) -> Option<Vec<Sent>> {
+    let s = seq.trim();
+    let first = s.split_whitespace().next().unwrap_or("");
+    if let Some(b) = first.strip_prefix("0x").and_then(hex_byte) {
+        return Some(vec![Sent::C0(b)]);
+    }
+    if let Some(b) = hex_byte(s).filter(|b| matches!(b, 0x80..=0x9f)) {
+        return Some(vec![Sent::C1(b)]);
+    }
+    if let Some(d) = s.strip_prefix('?') {
+        if !d.is_empty() && d.bytes().all(|c| c.is_ascii_digit()) {
+            return Some(vec![Sent::Mode(Some(b'?'), saturating(d))]);
+        }
+    }
+    let toks: Vec<&str> = s.split_whitespace().collect();
+    match toks.first().copied() {
+        Some("ESC") => esc_row(&toks[1..]),
+        Some("CSI") => csi_row(s),
+        Some("OSC") => osc_row(s),
+        Some("DCS") => dcs_row(s),
+        Some("APC") => apc_row(s),
+        _ => None,
+    }
+}
+
+/// A span continuing the spelling before it: `l` after `CSI 15 h`, `" >`
+/// after `ESC ( % 6`, `SetMark` after `OSC 1337 ; ...`, `a=T` after
+/// `APC G a=t`.
+fn relative(base: &str, s: &str) -> Option<String> {
+    let s = s.trim();
+    let bt: Vec<&str> = base.split_whitespace().collect();
+    let is_inter = |t: &str| matches!(t.as_bytes().first(), Some(0x20..=0x2f));
+    match bt.first().copied() {
+        Some("ESC") => {
+            let i = bt.get(1).copied().filter(|t| t.len() == 1 && is_inter(t))?;
+            is_inter(s).then(|| format!("ESC {i} {s}"))
+        }
+        Some("CSI") if s.chars().count() == 1 => {
+            let (stem, _) = base.rsplit_once(' ')?;
+            Some(format!("{stem} {s}"))
+        }
+        Some("OSC") => {
+            let code = base[3..].split(';').next().unwrap_or("").trim();
+            (!s.is_empty() && s.chars().all(|c| c.is_ascii_alphabetic()))
+                .then(|| format!("OSC {code} ; {s}"))
+        }
+        Some("APC") => Some(format!("APC G {s}")),
+        _ => None,
+    }
+}
+
+/// A range row, `CSI 1 t` to `CSI 10 t`: every first value between.
+fn range_row(a: &str, b: &str) -> Option<Vec<Sent>> {
+    match (seq_sent(a)?.as_slice(), seq_sent(b)?.as_slice()) {
+        ([Sent::Csi(f, n, Some(lo))], [Sent::Csi(g, m, Some(hi))]) if f == g && n == m => {
+            Some((*lo..=*hi).map(|v| Sent::Csi(*f, *n, Some(v))).collect())
+        }
+        _ => None,
+    }
+}
+
+/// A row of a sequence table: its spellings, joined by `/`, `,` or spaces,
+/// a range by `to`, up to the first other text.
+fn seq_row(cell: &str) -> Option<Vec<Sent>> {
+    let sp = spans(cell);
+    if !matches!(sp.first(), Some(Spanned::Code(_))) {
+        return None;
+    }
+    let mut keys = Vec::new();
+    let mut base: Option<String> = None;
+    let mut i = 0;
+    while i < sp.len() {
+        match &sp[i] {
+            Spanned::Text(t) => {
+                let sep = t.trim();
+                if sep == "to" {
+                    if let (Some(b), Some(Spanned::Code(next))) = (base.clone(), sp.get(i + 1)) {
+                        keys.extend(range_row(&b, next)?);
+                        base = Some(next.clone());
+                        i += 2;
+                        continue;
+                    }
+                }
+                if !matches!(sep, "/" | "," | "") {
+                    break;
+                }
+            }
+            Spanned::Code(t) => {
+                if let Some(k) = seq_sent(t) {
+                    keys.extend(k);
+                    base = Some(t.clone());
+                } else {
+                    let b = base.as_deref()?;
+                    match relative(b, t).and_then(|r| seq_sent(&r)) {
+                        Some(k) => keys.extend(k),
+                        None => break,
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    (!keys.is_empty()).then_some(keys)
+}
+
+/// The numbers of a rendition row's text, each a run of digits and `:`,
+/// `.`, `/`, `-` standing alone: `30-37`, `38/48`, `4:1..4:5`, `4:0`.
+fn number_tokens(text: &str) -> Vec<String> {
+    let c: Vec<char> = text.chars().filter(|&x| x != '*').collect();
+    let in_run = |x: char| x.is_ascii_digit() || matches!(x, ':' | '.' | '/' | '-');
+    let word = |x: char| x.is_alphanumeric() || x == '_';
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < c.len() {
+        let starts = c[i].is_ascii_digit()
+            && (i == 0 || !(word(c[i - 1]) || matches!(c[i - 1], ':' | '.' | '-')));
+        if !starts {
+            i += 1;
+            continue;
+        }
+        let mut j = i;
+        while j < c.len() && in_run(c[j]) {
+            j += 1;
+        }
+        let ends_alone = j == c.len() || !word(c[j]);
+        let tok: String = c[i..j].iter().collect();
+        let tok = tok.trim_end_matches(['.', '/']);
+        if ends_alone && tok.ends_with(|x: char| x.is_ascii_digit()) {
+            out.push(tok.to_string());
+        }
+        i = j;
+    }
+    out
+}
+
+/// A rendition number list: `30-37` or `38/48`.
+fn number_list(tok: &str) -> Option<Vec<u16>> {
+    let digits = |t: &str| !t.is_empty() && t.bytes().all(|c| c.is_ascii_digit());
+    if let Some((a, b)) = tok.split_once('-') {
+        if digits(a) && digits(b) {
+            return Some((saturating(a)..=saturating(b)).collect());
+        }
+        return None;
+    }
+    let ns: Vec<&str> = tok.split('/').collect();
+    ns.iter()
+        .copied()
+        .all(digits)
+        .then(|| ns.iter().copied().map(saturating).collect())
+}
+
+/// A row of the rendition table: each number it names, a colon form
+/// (`4:3`, `4:1..4:5`), and a code span's selector for the numbers before
+/// it (`38/48 `;5;n``).
+fn sgr_row(cell: &str) -> Option<Vec<Sent>> {
+    let mut keys = Vec::new();
+    let mut group: Vec<u16> = Vec::new();
+    for sp in spans(cell) {
+        match sp {
+            Spanned::Code(t) => {
+                let sep = t.chars().next()?;
+                let digits: String = t.chars().skip(1).take_while(char::is_ascii_digit).collect();
+                if digits.is_empty() || group.is_empty() || !matches!(sep, ';' | ':') {
+                    return None;
+                }
+                let v = saturating(&digits);
+                let sub = if sep == ';' {
+                    SgrSub::Semi(v)
+                } else {
+                    SgrSub::Colon(v)
+                };
+                keys.extend(group.iter().map(|&n| Sent::Sgr(n, sub)));
+            }
+            Spanned::Text(t) => {
+                for tok in number_tokens(&t) {
+                    if let Some((n, subs)) = tok.split_once(':') {
+                        let (lo, hi) = match subs.split_once("..") {
+                            Some((lo, hi)) => (lo, hi.split(':').next_back().unwrap_or("")),
+                            None => (subs, subs),
+                        };
+                        let n = saturating(n);
+                        keys.extend(
+                            (saturating(lo)..=saturating(hi))
+                                .map(|v| Sent::Sgr(n, SgrSub::Colon(v))),
+                        );
+                        continue;
+                    }
+                    group = number_list(&tok)?;
+                    keys.extend(group.iter().map(|&n| Sent::Sgr(n, SgrSub::Bare)));
+                }
+            }
+        }
+    }
+    (!keys.is_empty()).then_some(keys)
+}
+
+/// A row of the state table: the state it names.
+fn state_row(cell: &str) -> Option<Vec<Sent>> {
+    match spans(cell).as_slice() {
+        [Spanned::Code(name)] => Phase::ALL
+            .iter()
+            .find(|p| p.name() == name)
+            .map(|&p| vec![Sent::State(p)]),
+        _ => None,
+    }
+}
+
+/// What a done row names, by its table's grammar; `None` for a row in
+/// prose.
+fn row_sent(row: &DoneRow) -> Option<Vec<Sent>> {
+    match row.table.as_str() {
+        "state" => state_row(&row.first),
+        "parameters" => sgr_row(&row.first),
+        "status" => None,
+        _ => seq_row(&row.first),
+    }
+}
+
+/// Why a done row in prose is not keyed.
+enum Why {
+    /// It names what the terminal sends, or a call an embedder makes: no
+    /// byte the host sends reaches it.
+    HostBound,
+    /// It names a behaviour; these atoms send it.
+    Atoms(&'static [&'static str]),
+}
+
+/// A done row and what it names: its keys, or `None` for prose.
+struct Reading {
+    row: DoneRow,
+    keys: Option<Vec<Sent>>,
+}
+
+/// The done rows, each read.
+fn read_rows(doc: &str) -> Vec<Reading> {
+    done_rows(doc)
+        .into_iter()
+        .map(|row| {
+            let keys = row_sent(&row);
+            Reading { row, keys }
+        })
+        .collect()
+}
+
+/// Whether a prose row is named in [`EXEMPT`].
+fn exempt(first: &str) -> bool {
+    EXEMPT.iter().any(|e| e.row == first)
+}
+
+/// The rows the keys `sent` do not reach: a keyed row with a key not sent,
+/// and a prose row [`EXEMPT`] does not name.
+fn unreached(rows: &[Reading], sent: &BTreeSet<Sent>) -> BTreeSet<String> {
+    rows.iter()
+        .filter(|r| match &r.keys {
+            Some(k) => !k.iter().all(|x| sent.contains(x)),
+            None => !exempt(&r.row.first),
+        })
+        .map(|r| r.row.first.clone())
+        .collect()
+}
+
+/// The prose rows neither [`EXEMPT`] nor [`UNREACHED`] names.
+fn unnamed(rows: &[Reading]) -> Vec<String> {
+    rows.iter()
+        .filter(|r| r.keys.is_none())
+        .map(|r| r.row.first.clone())
+        .filter(|f| !exempt(f) && !UNREACHED.contains(&f.as_str()))
+        .collect()
+}
+
+/// `docs/vt-coverage.md`.
+fn coverage_doc() -> String {
+    std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/vt-coverage.md"
+    ))
+    .expect("docs/vt-coverage.md")
+}
+
+/// The list a failing check prints, ready to replace [`UNREACHED`] with.
+fn as_rust(rows: &BTreeSet<String>) -> String {
+    let mut s = String::from("const UNREACHED: &[&str] = &[\n");
+    for r in rows {
+        s += &format!("    {r:?},\n");
+    }
+    s + "];"
+}
+
+// Pins, not tests: every_done_row_is_mentioned_by_a_test skips from here.
+/// A done row in prose the reach check does not key, and why.
+struct Exemption {
+    row: &'static str,
+    why: Why,
+}
+
+/// The done rows in prose the reach check does not key.
+const EXEMPT: &[Exemption] = &[
+    Exemption {
+        row: "UTF-8 decoding, including the `Utf8` parser state williams does not have",
+        why: Why::Atoms(&["latin1x3", "wide-quad", "emoji-pair"]),
+    },
+    Exemption {
+        row: "ill-formed UTF-8 — **one U+FFFD per maximal subpart**",
+        why: Why::Atoms(&["fffd-after-prepend", "fffd-cut-after-prepend", "gr-bytes"]),
+    },
+    Exemption {
+        row: "character width from East Asian Width + general category, generated from pinned Unicode data",
+        why: Why::Atoms(&["narrow-quad", "wide-quad"]),
+    },
+    Exemption {
+        row: "UAX #29 extended grapheme cluster segmentation",
+        why: Why::Atoms(&["zwj-family", "flag", "devanagari-conjunct"]),
+    },
+    Exemption {
+        row: "combining marks stored against their base cell",
+        why: Why::Atoms(&["combining"]),
+    },
+    Exemption {
+        row: "one cluster per cell — ZWJ sequences, flags and Indic conjuncts as a single cluster",
+        why: Why::Atoms(&["zwj-family", "flag", "devanagari-conjunct"]),
+    },
+    Exemption {
+        row: "`Emoji_Presentation=Yes` is two columns",
+        why: Why::Atoms(&["emoji-pair"]),
+    },
+    Exemption {
+        row: "ISO 8859-1 input, switched by `ESC % @` / `ESC % G`",
+        why: Why::Atoms(&["latin1-enter", "utf8-enter"]),
+    },
+    Exemption {
+        row: "encoding detection",
+        why: Why::HostBound,
+    },
+    Exemption {
+        row: "X10 mouse encoding (`ESC [ M Cb Cx Cy`)",
+        why: Why::HostBound,
+    },
+];
+
+/// The done rows the alphabet does not reach, by their first cell: a keyed
+/// row with a key no atom sends, or a row in prose with no atom that sends
+/// all it names.
+const UNREACHED: &[&str] = &[
+    "0 reset",
+    "1, 2 bold/dim · 22 neither",
+    "10-19 fonts",
+    "20 Fraktur",
+    "26, 50 proportional spacing",
+    "3 italic · 23 not",
+    "30-37, 39 foreground · 40-47, 49 background",
+    "38/48 `:5:n` / `:2:Pi:r:g:b` sub-parameter form",
+    "38/48 `;5;n` 256-colour, `;2;r;g;b` truecolour",
+    "4 underline, 21 double, **4:1..4:5** styled · 24 / 4:0 not",
+    "5, 6 blink · 25 steady",
+    "51 framed, 53 overlined, 54, 55",
+    "52 encircled",
+    "58/59 underline colour",
+    "60-63, 65 ideogram lines",
+    "64 ideogram stress marking",
+    "7 reverse · 27 positive",
+    "7-bit `ESC Fe` forms `ESC P`, `ESC [`, `ESC \\`, `ESC ]`, `ESC X`, `ESC ^`, `ESC _`",
+    "8 conceal · 28 reveal",
+    "8-bit `84` IND, `85` NEL, `88` HTS, `8A` VTS, `8D` RI under `ESC % @`",
+    "9 strike · 29 not",
+    "90-97, 100-107 aixterm bright",
+    "C0 in `csi_entry` — execute and **stay**, without consuming the marker position",
+    "C0 in `csi_intermediate`",
+    "C0 in `csi_param` — execute and **stay**, the parameters kept",
+    "SUB additionally displaying the DEC error character `␦`",
+    "`0x00` NUL",
+    "`0x08` BS",
+    "`0x0B` VT",
+    "`0x0C` FF",
+    "`0x0E` SO",
+    "`0x0F` SI",
+    "`18` CAN, `1A` SUB — cancel from any state, control strings included",
+    "`1B` ESC — abandon and begin a new sequence",
+    "`7F` DEL in `csi_entry` or `csi_intermediate`",
+    "`7F` DEL in `csi_param`",
+    "`7F` DEL in ground, ANSI and VT52",
+    "`80-9F` C1 under `ESC % @`, inside a control string — cancel it, then execute, or enter `dcs_entry`, `csi_entry`, `osc_string` or `sos_pm_apc_string`; `9C` ends it as ST",
+    "`80-9F` C1 under `ESC % @`, inside an escape or control sequence — cancel it, then execute, or enter `dcs_entry`, `csi_entry`, `osc_string` or `sos_pm_apc_string`; `9C` goes to ground",
+    "`?1001`",
+    "`?1010`",
+    "`?1011`",
+    "`?1014`",
+    "`?1034`",
+    "`?1035`",
+    "`?1036`",
+    "`?1037`",
+    "`?1039`",
+    "`?1041`",
+    "`?1044`",
+    "`?1045`",
+    "`?1046`",
+    "`?1050`",
+    "`?1051`",
+    "`?1052`",
+    "`?1053`",
+    "`?1060`",
+    "`?1061`",
+    "`?12`",
+    "`?13`",
+    "`?14`",
+    "`?18`",
+    "`?19`",
+    "`?1`",
+    "`?2001`, `?2005`, `?2006`",
+    "`?2`",
+    "`?30`",
+    "`?35`",
+    "`?36`",
+    "`?41`",
+    "`?42`",
+    "`?43`",
+    "`?44`",
+    "`?45`",
+    "`?46`",
+    "`?4`",
+    "`?5`",
+    "`?66`",
+    "`?67`",
+    "`?8`",
+    "`?96`",
+    "`APC G a=d`",
+    "`APC G a=f` / `a=a` / `a=c`, `d=f` / `d=F`",
+    "`APC G a=p,P=...,Q=...`, `H`, `V`",
+    "`APC G a=p,U=1` / `a=T,U=1`, `U+10EEEE`",
+    "`APC G a=t` / `a=T` / `a=q`",
+    "`APC G t=f` / `t=t` / `t=s`",
+    "`CSI \" v`",
+    "`CSI # P`, `CSI # Q`",
+    "`CSI # R`",
+    "`CSI # S`",
+    "`CSI # {`, `CSI # }`",
+    "`CSI # |`",
+    "`CSI $ p`",
+    "`CSI & u`",
+    "`CSI ' }` / `CSI ' ~`",
+    "`CSI 1 t` to `CSI 10 t`",
+    "`CSI 11 t`, `CSI 13 t`, `CSI 13 ; 2 t`, `CSI 14 t`, `CSI 14 ; 2 t`, `CSI 15 t`, `CSI 16 t`, `CSI 18 t`, `CSI 19 t`",
+    "`CSI 12 h` / `CSI 12 l`",
+    "`CSI 18 $ p`",
+    "`CSI 2 ; Pu $ u`",
+    "`CSI 2 h` / `CSI 2 l`",
+    "`CSI 22 ; Ps t`, `CSI 23 ; Ps t`",
+    "`CSI > 0 q`",
+    "`CSI > 2 p`",
+    "`CSI > 4 ; 1 f`",
+    "`CSI > 4 ; 2 m`",
+    "`CSI > t`, `CSI > T`",
+    "`CSI ? 1000/1002/1003 h/l`",
+    "`CSI ? 1001 h/l`",
+    "`CSI ? 1004 h/l`",
+    "`CSI ? 1006 h/l`",
+    "`CSI ? 1007 h/l`",
+    "`CSI ? 1016 $ p` — DECRQM on the mouse modes, `?9`, `?1000`-`?1003`, `?1005`-`?1007`, `?1015`, `?1016`",
+    "`CSI ? 1020 $ p` — DECRQM on xterm's `utf8` resource",
+    "`CSI ? 1021 $ p` — DECRQM on xterm's `cjkWidth` resource",
+    "`CSI ? 1022 $ p` — DECRQM on xterm's `emojiWidth` resource",
+    "`CSI ? 1023 $ p` — DECRQM on xterm's `privateWidth` resource",
+    "`CSI ? 1040 h/l`",
+    "`CSI ? 1070 h/l`",
+    "`CSI ? 1243 h` / `CSI ? 1243 l`",
+    "`CSI ? 2 l`",
+    "`CSI ? 2004 h/l`",
+    "`CSI ? 2026 h/l`",
+    "`CSI ? 2048 h/l`",
+    "`CSI ? 4 m` / `CSI > 4 g`",
+    "`CSI ? 5 W`",
+    "`CSI ? 6 n` to `CSI ? 85 n`",
+    "`CSI ? 80 h/l`",
+    "`CSI ? 8452 h/l`",
+    "`CSI ? 996 n`",
+    "`CSI F`",
+    "`CSI Pe ; Pb ; Pr ; Pc & w`",
+    "`CSI Pl ; Pc \" p`",
+    "`CSI Pm ' {`",
+    "`CSI Pn SP P` / `CSI Pn SP Q` / `CSI Pn SP R`",
+    "`CSI Pn SP b` / `CSI Pn SP a` / ``CSI Pn SP ` `` / `CSI Pn1 ; Pn2 SP c`",
+    "`CSI Pn U` / `CSI Pn V`",
+    "`CSI Pn Y`",
+    "`CSI Ps # y`",
+    "`CSI Ps $ u`",
+    "`CSI Ps ' |`",
+    "`CSI Ps ; Ps ; Ps ; Ps ; Ps T`",
+    "`CSI Ps ; Pu ' z`",
+    "`CSI Ps SP @` / `CSI Ps SP A`",
+    "`CSI Ps W`",
+    "`CSI Ps i` / `CSI ? Ps i`",
+    "`CSI Ps t` with `Ps` 24 and up",
+    "`CSI Ps1 ; Ps2 SP S`",
+    "`CSI Pt ; Pl ; Pb ; Pr ' w`",
+    "`CSI SP q`",
+    "`CSI c`",
+    "`CSI d`",
+    "`CSI e`",
+    "`CSI j`",
+    "`CSI k`",
+    "`CSI n`",
+    "`CSI s` / `CSI u`",
+    "`DCS + Q Pt ST`",
+    "`DCS + q Pt ST`",
+    "`DCS Pa ; Pb ; Ph q ... ST`",
+    "`DCS Pc $ w ... ST`",
+    "`ESC ( \" 4` `\" ?`",
+    "`ESC ( % 6` `\" >` `% 2` `% =`",
+    "`ESC ( <` / `ESC ( % 5`",
+    "`ESC ( A`",
+    "`ESC ( C 5 H 7 K Q 9 R f Y Z 4 = ` E 6`",
+    "`ESC ( I`",
+    "`ESC ( ` / `ESC ) ` / `ESC * ` / `ESC + `",
+    "`ESC - ` / `ESC . ` / `ESC / `",
+    "`ESC 7`",
+    "`ESC =` / `ESC >`",
+    "`ESC D`",
+    "`ESC E`",
+    "`ESC J`",
+    "`ESC N` / `ESC O`, `8E` / `8F` under `ESC % @`",
+    "`ESC SP F` — S7C1T, send 7-bit controls",
+    "`ESC SP G` — S8C1T, send 8-bit controls",
+    "`ESC SP L`, `ESC SP M`, `ESC SP N` — announce ISO 4873 Level 1, 2 or 3",
+    "`ESC Z`",
+    "`OSC 0/1/2`",
+    "`OSC 104`",
+    "`OSC 10` / `OSC 11`",
+    "`OSC 110` / `OSC 111`",
+    "`OSC 117` / `OSC 119`",
+    "`OSC 12` / `OSC 112`",
+    "`OSC 1337 ; Capabilities`",
+    "`OSC 1337 ; ClearScrollback`",
+    "`OSC 1337 ; Copy=:base64`",
+    "`OSC 1337 ; CurrentDir=dir`, `OSC 1337 ; RemoteHost=user@host`",
+    "`OSC 1337 ; CursorShape=N`",
+    "`OSC 1337 ; HighlightCursorLine=yes",
+    "`OSC 1337 ; ReportCellSize`",
+    "`OSC 1337 ; ReportVariable=base64`",
+    "`OSC 1337 ; RequestAttention=Pv`",
+    "`OSC 1337 ; SetBadgeFormat=base64`",
+    "`OSC 1337 ; SetColors=key=value`",
+    "`OSC 1337 ; SetMark`",
+    "`OSC 1337 ; SetUserVar=name=base64`",
+    "`OSC 1337 ; UnicodeVersion=n`",
+    "`OSC 21 ; key=value ; ...`",
+    "`OSC 3 ; prop=value`",
+    "`OSC 46 ; Pt`",
+    "`OSC 4`",
+    "`OSC 50 ; Pt`",
+    "`OSC 5`, `OSC 105`, `OSC 6` / `OSC 106`",
+    "`OSC 60`, `OSC 61 ; Pt`, `OSC 62 ; Pt`",
+    "`OSC 7 ; Pt`",
+    "`OSC 777 ; notify ; title ; body`",
+    "`OSC 9 ; 4 ; st ; pr`",
+    "`OSC 9 ; Pt`",
+    "`OSC 99 ; metadata ; payload`",
+    "`dcs_ignore`",
+    "a byte `80-FF` inside a control sequence, in `csi entry`, `csi param`, `csi intermediate` and `csi ignore`, or after a VT52 `ESC` — **in UTF-8**",
+    "the same introducers under `ESC % @` (ISO 8859-1)",
+    "the same under `ESC % @` (ISO 8859-1)",
+    "the walk: a colon group, an unknown parameter",
+];
+// every_done_row_is_mentioned_by_a_test skips to here.
+
+/// Every done row of `docs/vt-coverage.md` is read, and every row the
+/// alphabet does not reach is named in [`UNREACHED`], in both directions: a
+/// row reached since is taken off the list, and a row that stops being
+/// reached fails.
+#[test]
+fn every_done_row_is_reachable_from_the_generator() {
+    let doc = coverage_doc();
+    let rows = read_rows(&doc);
+    assert_eq!(
+        rows.len(),
+        done_count(&doc),
+        "a done row the reader did not read"
+    );
+    for e in EXEMPT {
+        assert!(
+            rows.iter()
+                .any(|r| r.row.first == e.row && r.keys.is_none()),
+            "EXEMPT names {}, which is not a done row in prose",
+            e.row
+        );
+        if let Why::Atoms(names) = &e.why {
+            for name in *names {
+                atom(name);
+            }
+        }
+    }
+    let named = unnamed(&rows);
+    assert!(
+        named.is_empty(),
+        "done rows in prose that nothing names: {named:#?}"
+    );
+    let gap = unreached(&rows, &emitted(|_| true));
+    let pinned: BTreeSet<String> = UNREACHED.iter().map(|r| r.to_string()).collect();
+    let newly: Vec<&String> = gap.difference(&pinned).collect();
+    let since: Vec<&String> = pinned.difference(&gap).collect();
+    assert!(
+        newly.is_empty() && since.is_empty(),
+        "not reached and not pinned: {newly:#?}\npinned and reached: {since:#?}\n{}",
+        as_rust(&gap)
+    );
+}
+
+/// A done row no atom sends is reported, and only that row.
+#[test]
+fn the_reach_check_fails_on_a_planted_row() {
+    let doc = coverage_doc();
+    let planted = format!(
+        "{doc}\n| seq | name | status |\n|---|---|---|\n| `CSI ? 9999 h` | planted | done |\n"
+    );
+    let sent = emitted(|_| true);
+    let before = unreached(&read_rows(&doc), &sent);
+    let after = unreached(&read_rows(&planted), &sent);
+    let extra: Vec<&String> = after.difference(&before).collect();
+    assert_eq!(extra, ["`CSI ? 9999 h`"]);
+}
+
+/// Without the atom that alone sends `ESC M`, its row is reported, and
+/// only its row.
+#[test]
+fn the_reach_check_fails_without_an_atom() {
+    let rows = read_rows(&coverage_doc());
+    let all = unreached(&rows, &emitted(|_| true));
+    let without = unreached(&rows, &emitted(|a| a.name != "ri"));
+    let extra: Vec<&String> = without.difference(&all).collect();
+    assert_eq!(extra, ["`ESC M`"]);
+}
+
+/// One row of each table shape yields the keys written by hand, and a row
+/// in prose that nothing names is reported.
+#[test]
+fn the_row_parser_reads_every_table() {
+    let fixture = "\
+| state | in baud | note |
+|---|---|---|
+| `csi_ignore` | done | |
+
+| byte | name | status |
+|---|---|---|
+| `0x07` BEL | bell | done |
+
+| seq | name | status |
+|---|---|---|
+| `ESC ( % 6` `\" >` | sets | done |
+| `CSI Ps ; Ps ; Ps ; Ps ; Ps T` | five | done |
+| `CSI 1 t` to `CSI 3 t` | range | done |
+| `CSI 2 h` / `CSI ? 25 h/l`, `l` | modes | done |
+| `CSI Pn $ \\|` | an escaped bar | done |
+| `OSC 1337 ; File=args, FilePart`, `SetMark` | words | done |
+| `DCS $ q Pt ST` | a string | done |
+| `APC G a=p,P=...`, `H` | graphics | done |
+| a row in prose | prose | done |
+
+| mode | name | status |
+|---|---|---|
+| `?2001`, `?2005` | two | done |
+
+| parameters | status |
+|---|---|
+| 4 underline, **4:1..4:2** styled · 24 / 4:0 not | done |
+| 38/48 `;5;n` 256-colour | done |
+";
+    let want: Vec<Option<Vec<Sent>>> = vec![
+        Some(vec![Sent::State(Phase::CsiIgnore)]),
+        Some(vec![Sent::C0(0x07)]),
+        Some(vec![
+            Sent::Esc(b"(%".to_vec(), Some(b'6')),
+            Sent::Esc(b"(\"".to_vec(), Some(b'>')),
+        ]),
+        Some(vec![Sent::Csi(Form::of(None, None, b'T'), Some(5), None)]),
+        Some(
+            [1, 1, 2, 3]
+                .into_iter()
+                .map(|v| Sent::Csi(Form::of(None, None, b't'), None, Some(v)))
+                .collect(),
+        ),
+        Some(vec![
+            Sent::Mode(None, 2),
+            Sent::Mode(Some(b'?'), 25),
+            Sent::Mode(Some(b'?'), 25),
+        ]),
+        Some(vec![Sent::Csi(
+            Form::of(None, Some(b'$'), b'|'),
+            None,
+            None,
+        )]),
+        Some(vec![
+            Sent::Osc(1337, Some("File".to_string())),
+            Sent::Osc(1337, Some("FilePart".to_string())),
+            Sent::Osc(1337, Some("SetMark".to_string())),
+        ]),
+        Some(vec![Sent::Dcs(Form::of(None, Some(b'$'), b'q'))]),
+        Some(vec![
+            Sent::Apc(b'a', Some(b'p')),
+            Sent::Apc(b'P', None),
+            Sent::Apc(b'H', None),
+        ]),
+        None,
+        Some(vec![
+            Sent::Mode(Some(b'?'), 2001),
+            Sent::Mode(Some(b'?'), 2005),
+        ]),
+        Some(vec![
+            Sent::Sgr(4, SgrSub::Bare),
+            Sent::Sgr(4, SgrSub::Colon(1)),
+            Sent::Sgr(4, SgrSub::Colon(2)),
+            Sent::Sgr(24, SgrSub::Bare),
+            Sent::Sgr(4, SgrSub::Colon(0)),
+        ]),
+        Some(vec![
+            Sent::Sgr(38, SgrSub::Bare),
+            Sent::Sgr(48, SgrSub::Bare),
+            Sent::Sgr(38, SgrSub::Semi(5)),
+            Sent::Sgr(48, SgrSub::Semi(5)),
+        ]),
+    ];
+    let rows = read_rows(fixture);
+    assert_eq!(rows.len(), done_count(fixture));
+    let got: Vec<Option<Vec<Sent>>> = rows.iter().map(|r| r.keys.clone()).collect();
+    assert_eq!(got, want);
+    assert_eq!(unnamed(&rows), ["a row in prose"]);
+}
+
+/// The lexer keys a sequence by what was sent: an omitted parameter as its
+/// default, a parameter count, a first value, a cancelled sequence as
+/// nothing, and an 8-bit introducer only under ISO 8859-1.
+#[test]
+fn the_lexer_keys_what_it_lexes() {
+    let has = |bytes: &[u8], want: &[Sent]| {
+        let sent = lex(bytes);
+        for w in want {
+            assert!(sent.contains(w), "{bytes:?} does not send {w:?}: {sent:?}");
+        }
+    };
+    let no_csi = |bytes: &[u8]| {
+        let sent = lex(bytes);
+        assert!(
+            !sent.iter().any(|s| matches!(s, Sent::Csi(..))),
+            "{bytes:?} sends a control sequence: {sent:?}"
+        );
+    };
+    has(
+        b"\x1b[1;;4m",
+        &[
+            Sent::Sgr(1, SgrSub::Bare),
+            Sent::Sgr(0, SgrSub::Bare),
+            Sent::Sgr(4, SgrSub::Bare),
+        ],
+    );
+    has(
+        b"\x1b[1;2;3;4;5T",
+        &[Sent::Csi(Form::of(None, None, b'T'), Some(5), None)],
+    );
+    has(
+        b"\x1b[18$p",
+        &[Sent::Csi(Form::of(None, Some(b'$'), b'p'), None, Some(18))],
+    );
+    no_csi(b"\x1b[\x18");
+    has(
+        b"\x1b%@\x9b2J",
+        &[Sent::Csi(Form::of(None, None, b'J'), None, Some(2))],
+    );
+    no_csi(b"\x9b2J");
+    has(
+        b"\x1b[38;5;1;4:3m",
+        &[
+            Sent::Sgr(38, SgrSub::Semi(5)),
+            Sent::Sgr(4, SgrSub::Colon(3)),
+        ],
+    );
+    has(
+        b"\x1b]1337;SetMark\x07\x1b_Ga=p,i=1;\x1b\\",
+        &[
+            Sent::Osc(1337, Some("SetMark".to_string())),
+            Sent::Apc(b'a', Some(b'p')),
+            Sent::Esc(Vec::new(), Some(b'\\')),
+        ],
+    );
 }

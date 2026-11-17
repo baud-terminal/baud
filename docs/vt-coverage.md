@@ -681,7 +681,7 @@ file, 3459). `3A` ignores the string,
 as both texts say, and `a_colon_in_a_dcs_prefix_ignores_the_string`
 pins it.
 
-### The parameter limit is 35, and it is derived rather than chosen
+### The parameter limit is 39, and it is derived rather than chosen
 
 A CSI may carry more parameters than a fixed array holds, and discarding the
 excess is a legitimate limit -- every terminal has one, and xterm's `NPARAM` is

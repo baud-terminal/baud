@@ -184,6 +184,15 @@ pub struct Form {
 }
 
 impl Form {
+    /// The form with this marker, intermediate and final byte.
+    pub fn of(marker: Option<u8>, inter: Option<u8>, final_byte: u8) -> Self {
+        Self {
+            marker,
+            inter,
+            final_byte,
+        }
+    }
+
     /// The bytes an application would send. `1` stands in for any parameter --
     /// a real value, and the default for every counted operation.
     pub fn wire(self) -> Vec<u8> {

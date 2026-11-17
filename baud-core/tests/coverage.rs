@@ -68,39 +68,25 @@ fn mnemonics(cell: &str) -> BTreeSet<String> {
     out
 }
 
-#[test]
-fn every_done_row_is_mentioned_by_a_test() {
-    let doc = fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../docs/vt-coverage.md"
-    ))
-    .expect("docs/vt-coverage.md must be readable from the test");
+/// The line `properties.rs` puts before its pins: the rows its reach check
+/// pins name operations without testing them, so the mention check skips
+/// from this line to [`PINS_END`].
+const PINS_BEGIN: &str =
+    "// Pins, not tests: every_done_row_is_mentioned_by_a_test skips from here.";
 
-    // All test sources, concatenated once.
-    // **Recursive.** Tests live in per-protocol directories now
-    // (`tests/vt100/`, `tests/xterm/`, ...), so a flat `read_dir` would see
-    // four cross-cutting files and report almost every row uncovered. It did
-    // exactly that when the directories landed — which is the check working:
-    // it failed loudly rather than quietly measuring nothing.
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests");
-    let mut corpus = String::new();
-    let mut stack = vec![std::path::PathBuf::from(dir)];
-    while let Some(d) = stack.pop() {
-        for e in fs::read_dir(&d).unwrap_or_else(|err| panic!("{}: {err}", d.display())) {
-            let p = e.expect("dir entry").path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.extension().is_some_and(|x| x == "rs") {
-                corpus.push_str(&fs::read_to_string(&p).expect("test source"));
-            }
-        }
-    }
-    let corpus = corpus.to_ascii_uppercase();
+/// The line `properties.rs` puts after its pins.
+const PINS_END: &str = "// every_done_row_is_mentioned_by_a_test skips to here.";
 
+/// A done row's identity cell and the mnemonics a test must mention.
+struct DoneRow {
+    cell: String,
+    mnemonics: Vec<String>,
+}
+
+/// The done rows of `doc` that name a mnemonic [`EXEMPT`] does not.
+fn done_rows(doc: &str) -> Vec<DoneRow> {
     let exempt: BTreeSet<&str> = EXEMPT.iter().map(|(m, _)| *m).collect();
-    let mut missing: Vec<String> = Vec::new();
-    let mut checked = 0usize;
-
+    let mut rows = Vec::new();
     for line in doc.lines() {
         let line = line.trim();
         if !line.starts_with('|') {
@@ -132,16 +118,95 @@ fn every_done_row_is_mentioned_by_a_test() {
         if ms.is_empty() {
             continue; // e.g. `ground`, `csi_param` — states, not operations
         }
-        checked += 1;
-        if !ms.iter().any(|m| corpus.contains(m.as_str())) {
-            missing.push(format!("{}  ({})", cells[0], ms.join("/")));
+        rows.push(DoneRow {
+            cell: cells[0].to_string(),
+            mnemonics: ms,
+        });
+    }
+    rows
+}
+
+/// The rows of which `corpus`, upper-cased, mentions no mnemonic.
+fn unmentioned(rows: &[DoneRow], corpus: &str) -> Vec<String> {
+    rows.iter()
+        .filter(|r| !r.mnemonics.iter().any(|m| corpus.contains(m.as_str())))
+        .map(|r| format!("{}  ({})", r.cell, r.mnemonics.join("/")))
+        .collect()
+}
+
+/// `src` without the lines from [`PINS_BEGIN`] to [`PINS_END`], both
+/// included. Each marker must be a line of its own, once, begin first.
+fn without_pins(src: &str) -> Result<String, String> {
+    let lines: Vec<&str> = src.split_inclusive('\n').collect();
+    let at = |marker: &str| -> Result<std::ops::Range<usize>, String> {
+        let mut found = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.trim() == marker)
+            .map(|(i, _)| i);
+        match (found.next(), found.next()) {
+            (Some(i), None) => Ok(i..i + 1),
+            (None, _) => Err(format!("no line `{marker}`")),
+            (Some(_), Some(_)) => Err(format!("more than one line `{marker}`")),
+        }
+    };
+    let (begin, end) = (at(PINS_BEGIN)?, at(PINS_END)?);
+    if end.start < begin.start {
+        return Err(format!("`{PINS_END}` comes before `{PINS_BEGIN}`"));
+    }
+    Ok(lines[..begin.start].concat() + &lines[end.end..].concat())
+}
+
+/// `tests/properties.rs`.
+fn properties_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/properties.rs"))
+}
+
+/// Every test source, concatenated and upper-cased, with `properties.rs`'s
+/// pins left out.
+fn test_corpus() -> String {
+    // All test sources, concatenated once.
+    // **Recursive.** Tests live in per-protocol directories (`tests/vt100/`,
+    // `tests/xterm/`, ...), so the walk reads every directory under `tests/`.
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests");
+    let pins = properties_path();
+    let mut corpus = String::new();
+    let mut stack = vec![std::path::PathBuf::from(dir)];
+    while let Some(d) = stack.pop() {
+        for e in fs::read_dir(&d).unwrap_or_else(|err| panic!("{}: {err}", d.display())) {
+            let p = e.expect("dir entry").path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                let src = fs::read_to_string(&p).expect("test source");
+                if p == pins {
+                    let kept =
+                        without_pins(&src).unwrap_or_else(|err| panic!("{}: {err}", p.display()));
+                    corpus.push_str(&kept);
+                } else {
+                    corpus.push_str(&src);
+                }
+            }
         }
     }
+    corpus.to_ascii_uppercase()
+}
+
+#[test]
+fn every_done_row_is_mentioned_by_a_test() {
+    let doc = fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/vt-coverage.md"
+    ))
+    .expect("docs/vt-coverage.md must be readable from the test");
+    let rows = done_rows(&doc);
+    let missing = unmentioned(&rows, &test_corpus());
 
     assert!(
-        checked > 40,
-        "only {checked} rows checked -- the parser stopped matching the table, \
-         which would make this test vacuous"
+        rows.len() > 40,
+        "only {} rows checked -- the parser stopped matching the table, \
+         which would make this test vacuous",
+        rows.len()
     );
     assert!(
         missing.is_empty(),
@@ -149,6 +214,56 @@ fn every_done_row_is_mentioned_by_a_test() {
         missing.len(),
         missing.join("\n  ")
     );
+}
+
+/// A row named only between `properties.rs`'s pin markers is reported
+/// unmentioned, the same row named before them is not, and the reach
+/// check's two pin lists sit between the markers.
+#[test]
+fn a_row_named_only_in_the_pins_is_unmentioned() {
+    let src = fs::read_to_string(properties_path()).expect("tests/properties.rs");
+    // Built here, so that no test source spells it.
+    let mark = format!("ZQ{}PIN", "X");
+    let rows = done_rows(&format!("| `{mark}` | planted | done |"));
+    assert_eq!(rows.len(), 1, "the planted row is not read");
+    assert_eq!(src.matches(PINS_BEGIN).count(), 1, "the begin marker");
+
+    let inside = src.replacen(PINS_BEGIN, &format!("{PINS_BEGIN}\n// {mark}"), 1);
+    let inside = without_pins(&inside).expect("markers").to_ascii_uppercase();
+    assert_eq!(unmentioned(&rows, &inside), [format!("`{mark}`  ({mark})")]);
+
+    let before = src.replacen(PINS_BEGIN, &format!("// {mark}\n{PINS_BEGIN}"), 1);
+    let before = without_pins(&before).expect("markers").to_ascii_uppercase();
+    assert!(unmentioned(&rows, &before).is_empty());
+
+    let kept = without_pins(&src).expect("markers");
+    for pins in ["const EXEMPT:", "const UNREACHED:"] {
+        assert!(
+            src.lines().any(|l| l.starts_with(pins)),
+            "{pins} is not in properties.rs"
+        );
+        assert!(
+            !kept.lines().any(|l| l.starts_with(pins)),
+            "{pins} is outside the pin markers"
+        );
+    }
+}
+
+/// A marker missing, repeated or out of order is an error, never a text
+/// kept whole or cut to its end.
+#[test]
+fn the_pin_markers_are_checked() {
+    let ok = format!("a\n{PINS_BEGIN}\nb\n{PINS_END}\nc\n");
+    assert_eq!(without_pins(&ok), Ok("a\nc\n".to_string()));
+    for bad in [
+        "a\n".to_string(),
+        format!("a\n{PINS_BEGIN}\nb\n"),
+        format!("a\n{PINS_END}\nb\n"),
+        format!("{PINS_END}\n{PINS_BEGIN}\n"),
+        format!("{PINS_BEGIN}\n{PINS_END}\n{PINS_BEGIN}\n{PINS_END}\n"),
+    ] {
+        assert!(without_pins(&bad).is_err(), "accepted:\n{bad}");
+    }
 }
 
 /// The SM row's list names every mode with a `CSI <n> h` row at done or
