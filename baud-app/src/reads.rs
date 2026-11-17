@@ -2537,7 +2537,7 @@ mod tests {
     #[test]
     fn both_drivers_read_kitty_files_off_the_feeding_thread() {
         let bare = |s: &str| s.split_whitespace().collect::<String>();
-        let app = bare(include_str!("app.rs"));
+        let app = bare(crate::app_source::app_source());
         let linux = bare(include_str!("linux.rs"));
         let hold = concat!("crate::reads::hold_", "kitty_files(&mutterm,&mutpace,");
         let mac = concat!(

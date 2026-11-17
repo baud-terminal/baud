@@ -185,9 +185,10 @@ pub const MUST_SHIP: [&str; 10] = [
 ];
 
 /// **And the includes it must find only in tests**: a guard reading its own
-/// source, and one reading a file a third-party row names, so that test
-/// code is told apart rather than everything being shipped or nothing.
-pub const MUST_TEST: [&str; 2] = ["baud-app/src/app.rs", "baud-render/src/trail.rs"];
+/// source (`take.rs`'s, which reads itself), and one reading a file a
+/// third-party row names, so that test code is told apart rather than
+/// everything being shipped or nothing.
+pub const MUST_TEST: [&str; 2] = ["baud-app/src/take.rs", "baud-render/src/trail.rs"];
 
 /// A `rerun-if-changed` a build script prints from a value it computes,
 /// `{}` and an argument, which the scan cannot read as a path: what it

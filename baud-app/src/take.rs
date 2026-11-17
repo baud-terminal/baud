@@ -458,7 +458,7 @@ mod tests {
         // hooks live in reads it, so it cannot change what is drawn.
         let feature = concat!("feature = ", "\"take\"");
         for (name, src) in [
-            ("app.rs", include_str!("app.rs")),
+            ("app.rs", crate::app_source::app_source()),
             ("fireworks.rs", include_str!("fireworks.rs")),
             ("pty.rs", include_str!("pty.rs")),
         ] {

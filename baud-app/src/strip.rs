@@ -444,6 +444,7 @@ mod tests {
     /// The code of the function `sig` opens in `src`, to the first line
     /// that closes a function at `close`'s indent.
     fn body<'s>(src: &'s str, sig: &str, close: &str) -> &'s str {
+        let src = crate::app_source::within(src, sig);
         let at = src.find(sig).unwrap_or_else(|| panic!("{sig} is there"));
         let end = src[at..].find(close).expect("a body");
         &src[at..at + end]
@@ -492,7 +493,7 @@ mod tests {
         assert_eq!(code.matches(of).count(), 1, "one call of {of}");
         let read = body(code, "pub(crate) fn read_corner(", "\n}\n");
         assert!(read.contains(of), "{read}");
-        let app = include_str!("app.rs");
+        let app = crate::app_source::app_source();
         let call = concat!("crate::strip::", "read_corner(");
         assert_eq!(app.matches(call).count(), 3, "three readings");
         for site in [

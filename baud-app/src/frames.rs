@@ -486,12 +486,12 @@ mod tests {
         for word in ["Unwritten", "outbox", "Outbox", "pty::Owed", "Owed::Bytes"] {
             assert!(!code.contains(word), "frames.rs names {word}");
         }
-        const APP: &str = include_str!("app.rs");
-        let driver = APP
-            .split_once("    fn owes(&self, now: HostTime) -> crate::frames::Owes {")
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .expect("Driver::owes")
-            .0;
+        let driver = crate::app_source::split_once(
+            "    fn owes(&self, now: HostTime) -> crate::frames::Owes {",
+        )
+        .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+        .expect("Driver::owes")
+        .0;
         assert!(
             driver.contains("crate::frames::owes(frame, &deadlines, now, app.interval)"),
             "{driver}"

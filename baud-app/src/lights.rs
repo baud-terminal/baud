@@ -1409,10 +1409,11 @@ mod tests {
     /// stale, and a resize re-places them.
     #[test]
     fn the_driver_ticks_feeds_and_places_the_lights() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let body = |head: &str| {
-            let at = SRC.find(head).unwrap_or_else(|| panic!("{head}"));
-            let rest = &SRC[at..];
+            let src = crate::app_source::within(SRC, head);
+            let at = src.find(head).unwrap_or_else(|| panic!("{head}"));
+            let rest = &src[at..];
             rest.split_once("\n    }\n").map_or(rest, |(b, _)| b)
         };
         let frame = body(concat!("    fn frame(&mut self, ", "target: f64) {"));

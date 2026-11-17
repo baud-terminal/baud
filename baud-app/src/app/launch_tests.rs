@@ -1348,12 +1348,11 @@ fn a_kitty_query_read_on_a_wake_is_answered_on_that_wake() {
     assert!(quiet.handed.is_empty(), "the control: nothing handed");
 
     // The macOS pump: the feed, then the flush, in the one call.
-    let src = include_str!("../app.rs");
-    let pump = src
-        .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-        .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-        .map(|(b, _)| b)
-        .expect("the pump");
+    let pump =
+        crate::app_source::split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(b, _)| b)
+            .expect("the pump");
     let fed = pump.find("crate::reads::paced(").expect("the feed");
     let flushed = pump
         .find("self.app.flush_reply(Asked::Unasked);")

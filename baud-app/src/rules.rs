@@ -2123,7 +2123,7 @@ mod tests {
         for (name, src, write, said) in [
             (
                 "app.rs",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "from: crate::os_effect::CopyFrom::Link,",
                 "self.selection_copied(text.as_str());",
             ),
@@ -2134,9 +2134,11 @@ mod tests {
                 "self.selection_copied(&text);",
             ),
         ] {
-            let (_, body) = src
-                .split_once(concat!("fn link_", "copied(&mut self, text: String) {"))
-                .expect(name);
+            let (_, body) = crate::app_source::split_once_in(
+                src,
+                concat!("fn link_", "copied(&mut self, text: String) {"),
+            )
+            .expect(name);
             let (body, _) = body.split_once("\n    }\n").expect("its end");
             assert!(body.contains(write), "{name}: the write");
             // The words, said once the pasteboard took it: in the copy on

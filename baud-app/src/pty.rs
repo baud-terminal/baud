@@ -5835,7 +5835,7 @@ mod tests {
         // feed's last argument.
         let end = "t.clear_notices();\n            },\n";
         next_after(
-            include_str!("app.rs"),
+            crate::app_source::app_source(),
             &format!("{end}            hostlog,\n            &mut took,\n        );\n"),
             "self.app.pty.follow(self.app.term.input_encoding());",
         );

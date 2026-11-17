@@ -417,14 +417,14 @@ mod tests {
     /// settle's `format!` back, and `owed` taking the `String` again.
     #[test]
     fn the_settle_reports_what_it_owes_in_place() {
-        const APP: &str = include_str!("app.rs");
+        const APP: &str = crate::app_source::app_source();
         const PROBE: &str = include_str!("../../baud-present-macos/src/probe.rs");
         // Spelled apart, so this test's own text is not what it finds.
         const SETTLE: &str = concat!("    fn settle(&mut ", "self) {");
         const CALL: &str = concat!("probe::owed(", "&owes);");
         const OWED: &str = concat!("pub fn owed(what: ", "&dyn core::fmt::Debug) {");
         assert_eq!(APP.matches(SETTLE).count(), 1, "one settle");
-        let settle = APP.split(SETTLE).nth(1).expect("the settle");
+        let settle = crate::app_source::split(SETTLE).nth(1).expect("the settle");
         let settle = &settle[..settle.find("\n    }\n").expect("the settle ends")];
         assert!(settle.contains(CALL), "the settle lends what it owes");
         assert!(

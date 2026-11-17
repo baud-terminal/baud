@@ -726,9 +726,10 @@ pub(crate) mod tests {
     /// takes it after its ride. The control: each anchor reads its file.
     #[test]
     fn both_drivers_take_the_carry() {
-        let app = include_str!("app.rs");
+        let app = crate::app_source::app_source();
         let timed = include_str!("timed.rs");
         let body = |src: &'static str, sig: &str| {
+            let src = crate::app_source::within(src, sig);
             let from = src
                 .find(sig)
                 .unwrap_or_else(|| panic!("the control: {sig}"));

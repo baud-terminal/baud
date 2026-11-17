@@ -591,7 +591,7 @@ mod tests {
         assert!(!code.contains("setShowsPrintPanel(false)"));
         assert!(code.contains("runOperationModalForWindow_delegate_didRunSelector_contextInfo("));
         assert!(!code.contains(".runOperation()"), "never run in place");
-        let app = include_str!("app.rs");
+        let app = crate::app_source::app_source();
         assert_eq!(
             app.matches("baud_present_macos::print::show_panel(")
                 .count(),
@@ -604,7 +604,7 @@ mod tests {
     /// printer, having no print panel.
     #[test]
     fn both_drivers_tell_the_core_and_linux_has_no_printer() {
-        let mac = include_str!("app.rs");
+        let mac = crate::app_source::app_source();
         assert!(mac.contains("crate::print::set_printer(&mut term, printing, printers_listed());"));
         assert!(mac.contains(".with_printer(crate::print::budget(printing))"));
         let linux = &crate::host::linux_driver_src();

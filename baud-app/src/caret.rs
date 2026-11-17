@@ -1766,7 +1766,7 @@ mod tests {
         let plans = [
             (
                 "app.rs",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "self.caret.plan(seen_at, blinks);",
             ),
             (
@@ -1796,7 +1796,7 @@ mod tests {
             );
         }
         for (name, src) in [
-            ("app.rs", include_str!("app.rs")),
+            ("app.rs", crate::app_source::app_source()),
             ("linux.rs", include_str!("linux.rs")),
         ] {
             assert_eq!(

@@ -85,7 +85,7 @@ fn body<'t>(text: &'t str, name: &str) -> &'t str {
 /// takes the measured inset, and the pin fails.
 #[test]
 fn the_title_bar_inset_is_read_from_appkit_not_assumed() {
-    let app = source("app.rs");
+    let app = crate::app_source::app_source();
     let strip = source("strip.rs");
     assert!(
         app.contains("let measured = crate::strip::inset_of(window.ns_window());")
@@ -98,7 +98,11 @@ fn the_title_bar_inset_is_read_from_appkit_not_assumed() {
     });
     assert_eq!(literal, None, "a title bar height written in");
     assert!(
-        body(&app, "predicted_inset").contains("frameRectForContentRect_styleMask"),
+        body(
+            crate::app_source::holding("fn predicted_inset("),
+            "predicted_inset"
+        )
+        .contains("frameRectForContentRect_styleMask"),
         "the prediction is not AppKit's"
     );
     assert!(

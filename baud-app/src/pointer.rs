@@ -158,7 +158,7 @@ mod tests {
     /// app sets a cursor, and the frame, column and row cursors are.
     #[test]
     fn no_deprecated_resize_cursor_is_named() {
-        const APP: &str = include_str!("app.rs");
+        const APP: &str = crate::app_source::app_source();
         const OWN: &str = include_str!("pointer.rs");
         for old in [
             concat!("resize", "Left", "Cursor"),

@@ -692,7 +692,10 @@ mod tests {
     /// indent it opened at.
     fn body<'s>(src: &'s str, sig: &str, indent: &str) -> &'s str {
         assert_eq!(src.matches(sig).count(), 1, "one {sig}");
-        let rest = src.split(sig).nth(1).expect("the fn");
+        let rest = crate::app_source::within(src, sig)
+            .split(sig)
+            .nth(1)
+            .expect("the fn");
         let end = format!("\n{indent}}}\n");
         &rest[..rest.find(&end).expect("the fn ends")]
     }
@@ -708,7 +711,7 @@ mod tests {
     /// title. Spelled apart, so this test's own text is not what it finds.
     #[test]
     fn both_drivers_owe_the_check_and_send_the_derived_title() {
-        const MAC: &str = include_str!("app.rs");
+        const MAC: &str = crate::app_source::app_source();
         const LINUX: &str = include_str!("linux.rs");
         let owe = concat!("self.derive", ".owe();");
         let next = concat!("self.titles", ".next(");
@@ -835,7 +838,7 @@ mod tests {
     /// the one place titles are sent.** AppKit-bound, so the source is held.
     #[test]
     fn macos_sets_the_minimized_title_after_the_title() {
-        const MAC: &str = include_str!("app.rs");
+        const MAC: &str = crate::app_source::app_source();
         let send = body(MAC, concat!("    fn send_title(", "&mut self) {"), "    ");
         let set = send
             .find(concat!("sends::set_title(", "&self.window, t)"))

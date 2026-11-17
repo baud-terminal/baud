@@ -15,7 +15,7 @@ use baud_domain::{BytePos, KeyEvent, KeyEventKind, Modifiers, ReadLen, WinSize};
 use macos_liquid_glass::drawable::{KeyPress, Modifiers as M};
 use macos_liquid_glass::objc2_app_kit::NSEventModifierFlags;
 
-const SRC: &str = include_str!("../app.rs");
+const SRC: &str = crate::app_source::app_source();
 
 /// The registration, as `run()` spells it.
 const REGISTERS: &str = "baud_present_macos::launch::register_defaults();";

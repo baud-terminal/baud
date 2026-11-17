@@ -351,7 +351,7 @@ mod tests {
     /// in the app's driver takes either.
     #[test]
     fn the_app_never_swaps_a_windows_terminal_or_renderer() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         for verb in ["mem::swap(", "mem::replace(", "mem::take("] {
             for (at, _) in SRC.match_indices(verb) {
                 let arg: String = SRC[at + verb.len()..].chars().take(40).collect();

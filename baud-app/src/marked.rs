@@ -389,7 +389,7 @@ mod tests {
     /// composition there is drawn in them as at the cursor.
     #[test]
     fn both_drivers_draw_the_composition_through_this_rule() {
-        let app = include_str!("app.rs");
+        let app = crate::app_source::app_source();
         let linux = include_str!("linux.rs");
         for (name, src) in [("app.rs", app), ("linux.rs", linux)] {
             assert!(

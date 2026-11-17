@@ -348,12 +348,13 @@ mod tests {
     fn the_drivers_hand_the_fireworks_to_the_renderer() {
         let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
         let body = |src: &str, head: &str| {
-            src.split_once(head)
+            crate::app_source::within(src, head)
+                .split_once(head)
                 .map(|(_, rest)| rest.split_once("\n    }\n").map_or(rest, |(b, _)| b))
                 .map(bare)
                 .unwrap_or_else(|| panic!("{head}"))
         };
-        let app = include_str!("app.rs");
+        let app = crate::app_source::app_source();
         assert_eq!(
             app.matches("let fireworks = crate::fireworks::Fireworks::new();")
                 .count(),

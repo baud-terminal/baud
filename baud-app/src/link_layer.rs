@@ -242,9 +242,9 @@ mod tests {
     /// `moved`.
     #[test]
     fn a_turns_link_part_is_the_apps_and_the_taps() {
-        let body = crate::no_appkit::fn_body;
+        let body = crate::app_source::fn_body;
         let pump = body(
-            include_str!("app.rs"),
+            crate::app_source::app_source(),
             concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
         );
         let tap = body(

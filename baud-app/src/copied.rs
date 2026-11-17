@@ -736,6 +736,7 @@ mod tests {
 
     /// The text of the function `head` starts, from `src`.
     fn body<'s>(src: &'s str, head: &str) -> &'s str {
+        let src = crate::app_source::within(src, head);
         let at = src.find(head).unwrap_or_else(|| panic!("{head}"));
         let rest = &src[at..];
         rest.split_once("\n    }\n").map_or(rest, |(b, _)| b)
@@ -748,7 +749,7 @@ mod tests {
     #[test]
     fn the_dismissing_key_reaches_the_program() {
         let mac = body(
-            include_str!("app.rs"),
+            crate::app_source::app_source(),
             concat!("    fn key(&mut self, ", "key: &KeyPress) -> Handled {"),
         );
         let gone = mac.find("self.app.copied.dismiss()").expect("the mac key");
@@ -807,7 +808,7 @@ mod tests {
         // The drivers hand the renderer the preview's bar and this frame
         // nothing, from one reading.
         for (src, reading) in [
-            (include_str!("app.rs"), "self.hover.look()"),
+            (crate::app_source::app_source(), "self.hover.look()"),
             (include_str!("linux.rs"), "self.seat.hover_look()"),
         ] {
             let want = format!("crate::copied::Preview::of({reading})");
@@ -999,7 +1000,7 @@ mod tests {
     /// of its driver.
     #[test]
     fn both_drivers_drive_the_signal() {
-        const MAC: &str = include_str!("app.rs");
+        const MAC: &str = crate::app_source::app_source();
         const LINUX: &str = include_str!("linux.rs");
         let copy = body(MAC, concat!("    fn copy(", "&mut self) {"));
         // Cmd-C asks the effect queue; its outcome, taken, is said.

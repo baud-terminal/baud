@@ -473,12 +473,13 @@ mod tests {
     /// Read off the files, as the lights' wiring is.
     #[test]
     fn both_drivers_drive_the_tip() {
-        const MAC: &str = include_str!("app.rs");
+        const MAC: &str = crate::app_source::app_source();
         const LINUX: &str = include_str!("linux.rs");
         const STRIP: &str = include_str!("lights.rs");
         // The cell path's frame, which the app builds through.
         const FRAME: &str = include_str!("../../baud-render/src/cell_frame.rs");
         let body = |src: &'static str, head: &str| {
+            let src = crate::app_source::within(src, head);
             let at = src.find(head).unwrap_or_else(|| panic!("{head}"));
             let rest = &src[at..];
             rest.split_once("\n    }\n").map_or(rest, |(b, _)| b)

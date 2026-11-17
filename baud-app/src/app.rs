@@ -7678,7 +7678,7 @@ mod alt_window_tests {
     /// back in the pump, or the read asking AppKit again -- each fails here.
     #[test]
     fn the_hover_is_read_only_on_a_turn_that_owes_it() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // Spelled apart, so this test's own text is not what it finds.
         const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
         const TICK: &str = concat!("if let Trigger::", "Tick = trigger {");
@@ -7694,7 +7694,7 @@ mod alt_window_tests {
         const GAINED: &str = concat!("if f == baud_core::Focus::", "Gained {");
         let body = |head: &str| {
             assert_eq!(SRC.matches(head).count(), 1, "one {head}");
-            let b = SRC.split(head).nth(1).expect(head);
+            let b = crate::app_source::split(head).nth(1).expect(head);
             &b[..b.find("\n    }\n").expect("the function ends")]
         };
         let pump = body(PUMP);
@@ -7768,7 +7768,7 @@ mod alt_window_tests {
     /// second time -- each fails here.
     #[test]
     fn output_marks_the_hover_only_in_the_frame_and_the_gate_clock_is_read_once() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // Spelled apart, so this test's own text is not what it finds.
         const COMPARE: &str = concat!(".under_", "moved(");
         const MOVED_FN: &str = concat!("    fn owe_hover_", "if_moved(&mut self) {");
@@ -7784,7 +7784,7 @@ mod alt_window_tests {
         const GATE: &str = concat!("since_commit: self.app.since_", "commit(),");
         let body = |head: &str| {
             assert_eq!(SRC.matches(head).count(), 1, "one {head}");
-            let b = SRC.split(head).nth(1).expect(head);
+            let b = crate::app_source::split(head).nth(1).expect(head);
             &b[..b.find("\n    }\n").expect("the function ends")]
         };
         assert_eq!(SRC.matches(COMPARE).count(), 1, "a compare elsewhere");
@@ -7827,7 +7827,7 @@ mod alt_window_tests {
     /// the feed -- each fails here.
     #[test]
     fn the_title_is_checked_on_a_turn_that_owes_it() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // Spelled apart, so this test's own text is not what it finds.
         const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
         const TICK: &str = concat!("if let Trigger::", "Tick = trigger {");
@@ -7837,7 +7837,7 @@ mod alt_window_tests {
         const WAITS: &str = concat!("self.title_waits == TitleWaits::", "Names");
         let body = |head: &str| {
             assert_eq!(SRC.matches(head).count(), 1, "one {head}");
-            let b = SRC.split(head).nth(1).expect(head);
+            let b = crate::app_source::split(head).nth(1).expect(head);
             &b[..b.find("\n    }\n").expect("the function ends")]
         };
         let pump = body(PUMP);
@@ -7959,17 +7959,18 @@ mod alt_window_tests {
     /// ask back in the scan.
     #[test]
     fn the_paths_turn_runs_every_turn_and_the_hover_asks_on_its_read() {
-        const SRC: &str = include_str!("app.rs");
         let body = |head: &str| {
-            SRC.split_once(head)
+            crate::app_source::split_once(head)
                 .and_then(|(_, rest)| rest.split_once("\n    }\n"))
                 .map(|(body, _)| body)
                 .expect(head)
         };
-        let pump = SRC
-            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .map(|(_, rest)| rest)
-            .expect("the pump");
+        let pump = crate::app_source::split_once(concat!(
+            "    fn pump(&mut self, ",
+            "trigger: Trigger) {"
+        ))
+        .map(|(_, rest)| rest)
+        .expect("the pump");
         let (before, tick) = pump
             .split_once(concat!("if let Trigger::", "Tick = trigger {"))
             .expect("the tick arm");
@@ -8049,11 +8050,13 @@ mod alt_window_tests {
     /// Perturbation: the tick reaping again -- it fails here.
     #[test]
     fn a_started_command_goes_to_the_watch_and_no_tick_reaps() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // Spelled apart, so this test's own text is not what it finds.
         const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
         const TICK: &str = concat!("if let Trigger::", "Tick = trigger {");
-        let pump = SRC.split_once(PUMP).map(|(_, r)| r).expect("the pump");
+        let pump = crate::app_source::split_once(PUMP)
+            .map(|(_, r)| r)
+            .expect("the pump");
         let tick = pump.split(TICK).nth(1).expect("the tick branch");
         let tick = &tick[..tick.find("\n        }\n").expect("the branch ends")];
         assert!(!tick.contains(".reap()"), "the tick reaps: {tick}");
@@ -8079,7 +8082,6 @@ mod alt_window_tests {
     /// frame, as it was -- it fails here.
     #[test]
     fn a_paths_turn_owes_the_hover_only_when_an_answer_moved_it() {
-        const SRC: &str = include_str!("app.rs");
         const MARK: &str = concat!(
             "if answered_of(&app.paths) != answered {\n",
             "            app.hover_owed = crate::link::HoverOwed::Yes;\n        }"
@@ -8088,7 +8090,9 @@ mod alt_window_tests {
             concat!("    fn paths_", "turn(&mut self) {"),
             concat!("    fn paths_", "answered(&mut self) {"),
         ] {
-            let body = SRC.split_once(head).map(|(_, r)| r).expect(head);
+            let body = crate::app_source::split_once(head)
+                .map(|(_, r)| r)
+                .expect(head);
             let body = &body[..body.find("\n    }\n").expect("its end")];
             assert!(
                 body.contains(concat!("let answered = ", "answered_of(&app.paths);")),
@@ -8112,13 +8116,13 @@ mod alt_window_tests {
     /// copy would be lost: the core keeps only the last write it finished.
     #[test]
     fn the_clipboard_is_polled_after_every_read() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // Spelled apart, so this test's own text is not what it finds.
         const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
         const FEED: &str = concat!("crate::reads::", "paced(");
         const POLL: &str = concat!("pasteboard(", "clips.poll(t, osc52), os);");
         assert_eq!(SRC.matches(PUMP).count(), 1, "one pump");
-        let pump = SRC.split(PUMP).nth(1).expect("the pump");
+        let pump = crate::app_source::split(PUMP).nth(1).expect("the pump");
         let pump = &pump[..pump.find("\n    }\n").expect("the pump ends")];
         assert_eq!(pump.matches(FEED).count(), 1, "the pump feeds once");
         let call = pump.split(FEED).nth(1).expect("the feed call");
@@ -8142,7 +8146,7 @@ mod alt_window_tests {
     /// reach -- the exact list, so a new raw reader fails here.
     #[test]
     fn every_reader_of_the_window_asks_the_clamp() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // Spelled apart so this test does not name them itself.
         let stored = [
             concat!("self.", "back"),
@@ -8349,7 +8353,7 @@ mod alt_window_tests {
     /// so the source is held to it, and `erased` to what moves it.
     #[test]
     fn an_erase_settles_the_slide() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         assert!(
             SRC.contains(concat!(
                 "if erased(&self.app.term, before) {\n",
@@ -8620,7 +8624,8 @@ mod drag_tests {
     /// first line that closes at `indent`'s depth.
     fn body<'a>(src: &'a str, head: &str, indent: &str) -> &'a str {
         let close = format!("\n{indent}}}\n");
-        src.split_once(head)
+        crate::app_source::within(src, head)
+            .split_once(head)
             .and_then(|(_, rest)| rest.split_once(close.as_str()))
             .map(|(body, _)| body)
             .unwrap_or_else(|| panic!("{head}"))
@@ -8908,15 +8913,13 @@ mod drag_tests {
     /// `present` is AppKit-bound, so the source is what can fail.
     #[test]
     fn present_asks_the_gate_between_the_surfaces_and_the_build() {
-        const SRC: &str = include_str!("app.rs");
-        let body = SRC
-            .split_once(concat!(
-                "fn present(&mut self, screen: &Drawable",
-                "View, show: Show) {"
-            ))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(body, _)| body)
-            .expect("present's body");
+        let body = crate::app_source::split_once(concat!(
+            "fn present(&mut self, screen: &Drawable",
+            "View, show: Show) {"
+        ))
+        .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+        .map(|(body, _)| body)
+        .expect("present's body");
         let at = |tok: &str| body.find(tok).unwrap_or_else(|| panic!("{tok} in present"));
         let gate = at(concat!(
             "if builds(self.presenter.as_ref().map(Presenter::",
@@ -8953,15 +8956,13 @@ mod drag_tests {
     /// AppKit-bound, so the source is what can fail.
     #[test]
     fn every_frame_on_the_layer_shows_the_window_to_the_splash() {
-        const SRC: &str = include_str!("app.rs");
-        let body = SRC
-            .split_once(concat!(
-                "fn present(&mut self, screen: &Drawable",
-                "View, show: Show) {"
-            ))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(body, _)| body)
-            .expect("present's body");
+        let body = crate::app_source::split_once(concat!(
+            "fn present(&mut self, screen: &Drawable",
+            "View, show: Show) {"
+        ))
+        .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+        .map(|(body, _)| body)
+        .expect("present's body");
         let mark = concat!("self.layer_", "presented();");
         let calls = [
             "p.draw_cells(",
@@ -9003,10 +9004,12 @@ mod drag_tests {
                 "{call} sets the layer's surface and leaves the splash waiting: {arm}"
             );
         }
-        let presented = SRC
-            .split_once(concat!("fn presented(&mut self) {\n        ", "self.app."))
-            .map(|(_, rest)| rest)
-            .expect("the completion");
+        let presented = crate::app_source::split_once(concat!(
+            "fn presented(&mut self) {\n        ",
+            "self.app."
+        ))
+        .map(|(_, rest)| rest)
+        .expect("the completion");
         assert!(
             presented.starts_with("layer_presented();"),
             "the completion leaves the splash waiting"
@@ -9022,7 +9025,7 @@ mod drag_tests {
     /// launch is AppKit-bound, so the source is what can fail.
     #[test]
     fn the_window_opens_whole_before_the_logo_starts() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let launch = launch(SRC).show;
         let set = concat!(
             ".setAnimation",
@@ -9048,16 +9051,14 @@ mod drag_tests {
     /// start back in the tick -- it fails here.
     #[test]
     fn the_splash_starts_only_once_the_window_is_shown() {
-        const SRC: &str = include_str!("app.rs");
-        let tick = SRC
-            .split_once(concat!("fn frame(&mut self, ", "target: f64) {"))
+        const SRC: &str = crate::app_source::app_source();
+        let tick = crate::app_source::split_once(concat!("fn frame(&mut self, ", "target: f64) {"))
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| body)
             .expect("the tick");
         let start = concat!("self.app.splash.", "shown()");
         assert!(!tick.contains(start), "the tick starts nothing");
-        let frame = SRC
-            .split_once(concat!("fn splash_", "check(&mut self) {"))
+        let frame = crate::app_source::split_once(concat!("fn splash_", "check(&mut self) {"))
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| body)
             .expect("the check");
@@ -9087,11 +9088,11 @@ mod drag_tests {
             )),
             "the completion"
         );
-        let presented = SRC
-            .split_once(concat!("fn layer_", "presented(&mut self) {"))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(body, _)| body)
-            .expect("layer_presented");
+        let presented =
+            crate::app_source::split_once(concat!("fn layer_", "presented(&mut self) {"))
+                .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+                .map(|(body, _)| body)
+                .expect("layer_presented");
         assert!(
             presented.contains(concat!("self.layer_", "shown = Done::Yes;"))
                 && presented.contains(concat!("if self.splash.", "waiting() {"))
@@ -9122,17 +9123,15 @@ mod drag_tests {
     /// `decode_turn` -- it fails here.
     #[test]
     fn a_kitty_decode_reads_no_visibility() {
-        const SRC: &str = include_str!("app.rs");
         const READS: &str = include_str!("reads.rs");
         const RIG: &str = include_str!("app/rig.rs");
-        let turn = SRC
-            .split_once(concat!(
-                "fn decode_",
-                "turn(&mut self, trigger: Trigger, read: crate::reads::Fed) {"
-            ))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(body, _)| body)
-            .expect("decode_turn");
+        let turn = crate::app_source::split_once(concat!(
+            "fn decode_",
+            "turn(&mut self, trigger: Trigger, read: crate::reads::Fed) {"
+        ))
+        .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+        .map(|(body, _)| body)
+        .expect("decode_turn");
         let step = READS
             .split_once(concat!(
                 "pub fn decode_",
@@ -9143,12 +9142,11 @@ mod drag_tests {
             .expect("decode_step");
         // The sources with this test and its comment taken out, where the
         // control looks.
-        let (before, rest) = SRC
-            .split_once(concat!(
-                "/// **A kitty decode reads nothing",
-                " of whether the window is on screen**"
-            ))
-            .expect("this test");
+        let (before, rest) = crate::app_source::split_once(concat!(
+            "/// **A kitty decode reads nothing",
+            " of whether the window is on screen**"
+        ))
+        .expect("this test");
         let (_, after) = rest
             .split_once(concat!("fn a_kitty_decode_reads_", "no_visibility() {"))
             .and_then(|(_, body)| body.split_once("\n    }\n"))
@@ -9173,8 +9171,7 @@ mod drag_tests {
         }
         // The rig's witness and the splash's gate read the same facts.
         let squash = |s: &str| s.split_whitespace().collect::<String>();
-        let splash = SRC
-            .split_once(concat!("fn splash_", "check(&mut self) {"))
+        let splash = crate::app_source::split_once(concat!("fn splash_", "check(&mut self) {"))
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| squash(body))
             .expect("splash_check");
@@ -9210,12 +9207,12 @@ mod drag_tests {
     /// launch is AppKit-bound, so the source is what can fail.
     #[test]
     fn the_plasma_is_built_off_the_first_frames_path() {
-        const SRC: &str = include_str!("app.rs");
-        let probe = SRC
-            .split_once(concat!("let probe = std::thread::", "spawn(move || {"))
-            .and_then(|(_, rest)| rest.split_once("\n        });\n"))
-            .map(|(body, _)| body)
-            .expect("the GPU's thread");
+        const SRC: &str = crate::app_source::app_source();
+        let probe =
+            crate::app_source::split_once(concat!("let probe = std::thread::", "spawn(move || {"))
+                .and_then(|(_, rest)| rest.split_once("\n        });\n"))
+                .map(|(body, _)| body)
+                .expect("the GPU's thread");
         assert!(
             probe.contains("gpu pipelines:"),
             "the control: the five pipelines are built there"
@@ -9275,7 +9272,7 @@ mod drag_tests {
     /// launch is AppKit-bound, so the source is what can fail.
     #[test]
     fn the_window_is_shown_once_launched_with_its_first_frame() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let launch = launch(SRC);
         let show = concat!("window.", "show();");
         assert!(
@@ -9312,7 +9309,7 @@ mod drag_tests {
     /// window is built, and nothing turns it back on.
     #[test]
     fn automatic_tabbing_is_off_before_the_first_window() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let off = concat!("NSWindow::setAllowsAutomatic", "WindowTabbing(false, mtm);");
         assert_eq!(SRC.matches(off).count(), 1, "once");
         assert_eq!(
@@ -9345,7 +9342,7 @@ mod drag_tests {
     /// windows are AppKit's, so the source is what can fail.
     #[test]
     fn a_window_closes_alone_and_its_shells_exit_closes_only_it() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let terminate = concat!(".termi", "nate(");
         assert_eq!(
             SRC.matches(terminate).count(),
@@ -9415,14 +9412,13 @@ mod drag_tests {
             "told to quit, the last window's close quits the app: {close}"
         );
         // The close's observer queues it on a later turn of its own.
-        let observer = SRC
-            .split_once(concat!(
-                "closing::when_",
-                "closing(window.ns_window(), move || {"
-            ))
-            .and_then(|(_, rest)| rest.split_once("\n        });\n"))
-            .map(|(b, _)| b)
-            .expect("the close's observer");
+        let observer = crate::app_source::split_once(concat!(
+            "closing::when_",
+            "closing(window.ns_window(), move || {"
+        ))
+        .and_then(|(_, rest)| rest.split_once("\n        });\n"))
+        .map(|(b, _)| b)
+        .expect("the close's observer");
         assert!(
             observer.contains(concat!("on_close(&closer, ", "id);")),
             "the close taken by on_close: {observer}"
@@ -9469,8 +9465,7 @@ mod drag_tests {
         // The queue is given its own window where the window and the
         // driver are made, which the event rig's opening shares, so a raise
         // has a window in every build.
-        let opening = SRC
-            .split_once(concat!("impl ", "Opening {"))
+        let opening = crate::app_source::split_once(concat!("impl ", "Opening {"))
             .map(|(_, rest)| rest)
             .expect("the opening");
         let made = opening
@@ -9513,7 +9508,7 @@ mod drag_tests {
     /// window and its first frame.
     #[test]
     fn the_machines_names_are_read_off_the_launch() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let launch = launch(SRC);
         assert!(
             launch
@@ -9528,7 +9523,7 @@ mod drag_tests {
             );
         }
         let body = |head: &str| {
-            SRC.split_once(head)
+            crate::app_source::split_once(head)
                 .and_then(|(_, rest)| rest.split_once("\n    }\n"))
                 .map(|(body, _)| body)
                 .expect(head)
@@ -9586,7 +9581,7 @@ mod drag_tests {
     /// give-up made a new device.
     #[test]
     fn the_gpu_is_made_only_on_a_gpu_path_wanted() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let makes = [
             concat!("Presenter::", "with_gpu("),
             concat!("Presenter::", "over("),
@@ -9611,8 +9606,7 @@ mod drag_tests {
             );
         }
         assert_eq!(found, 2, "the control: both are called, once each");
-        let probe = SRC
-            .split_once(concat!("fn start_probe(", "request: Request)"))
+        let probe = crate::app_source::split_once(concat!("fn start_probe(", "request: Request)"))
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| body)
             .expect("the probe");
@@ -9623,8 +9617,7 @@ mod drag_tests {
             .find(concat!("Gpu::", "new()"))
             .expect("the probe makes one");
         assert!(cpu < made, "the CPU arm comes first");
-        let wanted = SRC
-            .split_once(concat!("fn wanted() -> ", "Request {"))
+        let wanted = crate::app_source::split_once(concat!("fn wanted() -> ", "Request {"))
             .and_then(|(_, rest)| rest.split_once("\n}\n"))
             .map(|(body, _)| body)
             .expect("wanted");
@@ -9646,7 +9639,7 @@ mod drag_tests {
     /// fail.
     #[test]
     fn the_shell_is_spawned_before_the_launchs_threads() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let launch = launch(SRC).before;
         let spawn = launch
             .find(concat!("Pty::", "spawn("))
@@ -9660,11 +9653,11 @@ mod drag_tests {
                 .unwrap_or_else(|| panic!("{start} in the launch"));
             assert!(spawn < at, "{start} before the shell is spawned");
         }
-        let prepare = SRC
-            .split_once(concat!("fn prepare(scale: ", "CGFloat) -> Boot {"))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(body, _)| body)
-            .expect("the boot");
+        let prepare =
+            crate::app_source::split_once(concat!("fn prepare(scale: ", "CGFloat) -> Boot {"))
+                .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+                .map(|(body, _)| body)
+                .expect("the boot");
         assert!(
             prepare.contains(concat!("Config::", "launch()")),
             "the control: the boot reads the config"
@@ -9695,12 +9688,12 @@ mod drag_tests {
     /// closes unheld.
     #[test]
     fn a_links_window_that_failed_holds_until_a_key() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         const LINUX: &str = include_str!("linux.rs");
-        let closed = SRC
-            .split_once(concat!("if drained.stream == ", "Stream::Closed {"))
-            .expect("the child's end")
-            .1;
+        let closed =
+            crate::app_source::split_once(concat!("if drained.stream == ", "Stream::Closed {"))
+                .expect("the child's end")
+                .1;
         let closed = &closed[..closed.find("\n        }\n").expect("its end")];
         assert!(closed.contains(concat!("self.", "ended();")), "{closed}");
         assert!(
@@ -9809,7 +9802,7 @@ mod drag_tests {
     /// path's click; give the keyboard back inside `closed`, off a turn.
     #[test]
     fn a_links_window_covers_the_clicked_one_and_gives_the_keyboard_back() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let asks = SRC.matches(concat!("OsEffect::", "OpenWindow {")).count();
         let over = SRC.matches(concat!("let over = self.", "over();")).count();
         assert_eq!((asks, over), (2, 2), "both clicks ask over this window");
@@ -9873,7 +9866,7 @@ mod drag_tests {
     /// source is what can fail.
     #[test]
     fn every_window_plays_the_logo_as_the_launchs_does() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let open = body(
             SRC,
             concat!(
@@ -9937,7 +9930,7 @@ mod drag_tests {
     /// so the source is what can fail.
     #[test]
     fn no_key_or_read_waits_on_the_splash() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         for head in [
             concat!("    fn key(&mut self, key: ", "&KeyPress) -> Handled {"),
             concat!(
@@ -10411,15 +10404,13 @@ mod refont_tests {
     /// the relayout, drew the old size first.
     #[test]
     fn refont_draws_once_after_the_damage() {
-        const SRC: &str = include_str!("app.rs");
-        let body = SRC
-            .split_once(concat!(
-                "fn refont(&mut self, face: Option<crate::fonts::Slot>, ",
-                "points: f32) {"
-            ))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(body, _)| body)
-            .expect("refont's body");
+        let body = crate::app_source::split_once(concat!(
+            "fn refont(&mut self, face: Option<crate::fonts::Slot>, ",
+            "points: f32) {"
+        ))
+        .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+        .map(|(body, _)| body)
+        .expect("refont's body");
         let at = |tok: &str| body.find(tok).unwrap_or_else(|| panic!("{tok} in refont"));
         let relayout = at(concat!(
             "if self.relayout(self.view.frame().size, scale) ",
@@ -10441,12 +10432,13 @@ mod refont_tests {
     /// `read_owes` says, measured from after its last part.
     #[test]
     fn the_pump_performs_a_waiting_change_before_it_draws() {
-        const SRC: &str = include_str!("app.rs");
-        let pump = SRC
-            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(body, _)| body)
-            .expect("the pump");
+        let pump = crate::app_source::split_once(concat!(
+            "    fn pump(&mut self, ",
+            "trigger: Trigger) {"
+        ))
+        .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+        .map(|(body, _)| body)
+        .expect("the pump");
         let at = |tok: &str| {
             pump.find(tok)
                 .unwrap_or_else(|| panic!("{tok} in the pump"))
@@ -10458,8 +10450,7 @@ mod refont_tests {
         assert!(at("self.follow_config();") < replay, "the config first");
         assert!(replay < at("let drained = self.app.pty.drain();"));
         assert!(replay < at(concat!("self.app.", "present(&view, Show::Event);")));
-        let config = SRC
-            .split_once(concat!("    fn apply_", "config("))
+        let config = crate::app_source::split_once(concat!("    fn apply_", "config("))
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| body)
             .expect("apply_config");
@@ -11319,11 +11310,11 @@ mod restart_tests {
     /// the clip; and the reveal and the switch's fade follow what it says.
     #[test]
     fn the_pump_restarts_after_the_reads_bookkeeping() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // Spelled apart, so this test's own text is not what it finds.
         const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
         assert_eq!(SRC.matches(PUMP).count(), 1, "one pump");
-        let pump = SRC.split(PUMP).nth(1).expect("the pump");
+        let pump = crate::app_source::split(PUMP).nth(1).expect("the pump");
         let pump = &pump[..pump.find("\n    }\n").expect("the pump ends")];
         let at = |needle: &str| {
             assert_eq!(
@@ -11378,8 +11369,8 @@ mod restart_tests {
     /// count the window had.
     #[test]
     fn a_batchs_lines_are_filed_by_the_count_it_moved() {
-        let pump = crate::no_appkit::fn_body(
-            include_str!("app.rs"),
+        let pump = crate::app_source::fn_body(
+            crate::app_source::app_source(),
             concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
         );
         let fed = &pump[..pump
@@ -11415,9 +11406,8 @@ mod restart_tests {
     /// The pump is AppKit-bound, so the source is held.
     #[test]
     fn the_pump_keeps_a_selections_text_as_the_seat_does() {
-        const SRC: &str = include_str!("app.rs");
         const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
-        let pump = SRC.split(PUMP).nth(1).expect("the pump");
+        let pump = crate::app_source::split(PUMP).nth(1).expect("the pump");
         let pump = &pump[..pump.find("\n    }\n").expect("the pump ends")];
         let at = |needle: &str| {
             assert_eq!(pump.matches(needle).count(), 1, "once: {needle}");
@@ -11447,7 +11437,7 @@ mod restart_tests {
             "the text kept as the scroll carried it and the clip cut it"
         );
         const COPY: &str = concat!("    fn copy(", "&mut self) {");
-        let copy = SRC.split(COPY).nth(1).expect("copy");
+        let copy = crate::app_source::split(COPY).nth(1).expect("copy");
         let copy = &copy[..copy.find("\n    }\n").expect("copy ends")];
         assert!(
             copy.contains("crate::keep::copied(sel, &app.kept, &app.term, app.scrolled, wrap)")
@@ -11457,7 +11447,7 @@ mod restart_tests {
              (`keep::copied`): the text taken when it was made, or the kept text: {copy}"
         );
         const SELECT: &str = concat!("    fn select(", "&mut self, event: &Mouse) {");
-        let select = SRC.split(SELECT).nth(1).expect("select");
+        let select = crate::app_source::split(SELECT).nth(1).expect("select");
         let select = &select[..select.find("\n    }\n").expect("select ends")];
         let told = select
             .find("self.app.kept.gestured(")
@@ -11998,7 +11988,7 @@ mod ride_tests {
     /// and rides on the display link's clock the trail's frame reads.
     #[test]
     fn the_pan_is_read_once_and_the_ride_follows_every_whole_screen_retire() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let pan_read = concat!("self.", "slide.pan()");
         assert_eq!(SRC.matches(pan_read).count(), 1, "one read of the pan");
         let ride = concat!(".chase", ".ride(");
@@ -12302,7 +12292,7 @@ mod motion_tests {
     /// the app's chase -- names the one ledger, and there is such a call.
     #[test]
     fn the_app_weighs_the_ghost_on_the_chases_ledger() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let bare: String = SRC.split_whitespace().collect();
         // Spelled apart, so this test does not match its own source first.
         let calls: Vec<&str> = bare
@@ -12365,12 +12355,13 @@ mod motion_tests {
     /// `self.poll_window();` back in `pump`, and the count of reads fails.
     #[test]
     fn a_turn_reads_the_window_only_when_a_notification_woke_it() {
-        const SRC: &str = include_str!("app.rs");
-        let pump = SRC
-            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .and_then(|(_, rest)| rest.split_once("\n    fn "))
-            .map(|(body, _)| body)
-            .expect("pump");
+        let pump = crate::app_source::split_once(concat!(
+            "    fn pump(&mut self, ",
+            "trigger: Trigger) {"
+        ))
+        .and_then(|(_, rest)| rest.split_once("\n    fn "))
+        .map(|(body, _)| body)
+        .expect("pump");
         assert_eq!(
             pump.matches(concat!("self.poll_", "window()")).count(),
             1,
@@ -12401,14 +12392,12 @@ mod motion_tests {
     /// source is what can fail.
     #[test]
     fn the_cursor_look_follows_the_key_state_on_every_poll() {
-        const SRC: &str = include_str!("app.rs");
-        let focus = SRC
-            .split_once(concat!(
-                "fn set_",
-                "focus(&mut self, f: baud_core::Focus) {"
-            ))
-            .map(|(_, rest)| rest)
-            .expect("set_focus");
+        let focus = crate::app_source::split_once(concat!(
+            "fn set_",
+            "focus(&mut self, f: baud_core::Focus) {"
+        ))
+        .map(|(_, rest)| rest)
+        .expect("set_focus");
         let shown = focus
             .find(concat!("self.app.show_", "focus(f);"))
             .expect("set_focus shows the focus");
@@ -12425,10 +12414,9 @@ mod motion_tests {
     /// palette's early return. AppKit-bound, so the source is what can fail.
     #[test]
     fn the_inactive_selection_follows_the_key_state_and_the_appearance() {
-        const SRC: &str = include_str!("app.rs");
         // Spelled apart, so this test does not match its own source first.
         let body = |name: &str| {
-            SRC.split_once(&format!("fn {name}(&mut self"))
+            crate::app_source::split_once(&format!("fn {name}(&mut self"))
                 .map(|(_, rest)| rest.split_once("\n    }\n").map_or(rest, |(b, _)| b))
                 .unwrap_or_else(|| panic!("{name}"))
         };
@@ -12468,10 +12456,9 @@ mod motion_tests {
     /// fail on a moved call is its source.
     #[test]
     fn the_display_options_are_read_on_the_turn_they_woke() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // Spelled apart, so this test does not match its own source first.
-        let tick = SRC
-            .split_once(concat!("if let Trigger::", "Tick = trigger {"))
+        let tick = crate::app_source::split_once(concat!("if let Trigger::", "Tick = trigger {"))
             .and_then(|(_, rest)| rest.split_once("\n        }\n"))
             .map(|(arm, _)| arm)
             .expect("the tick arm");
@@ -12499,7 +12486,7 @@ mod motion_tests {
     /// AppKit-bound, so the source is what can fail.
     #[test]
     fn the_launch_reads_the_display_settings() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let read = SRC
             .find(concat!("driver.poll_", "display();"))
             .expect("the launch read");
@@ -12546,9 +12533,8 @@ mod motion_tests {
     /// here, and the frame rig's row of the settings heard with no tick.
     #[test]
     fn every_turn_follows_the_settings_heard() {
-        const SRC: &str = include_str!("app.rs");
-        let tick = SRC
-            .split_once(concat!("if let Trigger::", "Tick = trigger {"))
+        const SRC: &str = crate::app_source::app_source();
+        let tick = crate::app_source::split_once(concat!("if let Trigger::", "Tick = trigger {"))
             .and_then(|(_, rest)| rest.split_once("\n        }\n"))
             .map(|(arm, _)| arm)
             .expect("the tick arm");
@@ -12560,11 +12546,13 @@ mod motion_tests {
             !tick.contains(concat!("self.follow_", "settings();")),
             "{tick}"
         );
-        let pump = SRC
-            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .and_then(|(_, rest)| rest.split_once(concat!("if let Trigger::", "Tick = trigger {")))
-            .map(|(before, _)| before)
-            .expect("the pump before its tick arm");
+        let pump = crate::app_source::split_once(concat!(
+            "    fn pump(&mut self, ",
+            "trigger: Trigger) {"
+        ))
+        .and_then(|(_, rest)| rest.split_once(concat!("if let Trigger::", "Tick = trigger {")))
+        .map(|(before, _)| before)
+        .expect("the pump before its tick arm");
         assert_eq!(
             pump.matches(concat!("self.follow_", "settings();")).count(),
             1,
@@ -12594,8 +12582,7 @@ mod motion_tests {
             1,
             "the launch reads Dim Flashing Lights"
         );
-        let follow = SRC
-            .split_once(concat!("fn follow_", "settings(&mut self) {"))
+        let follow = crate::app_source::split_once(concat!("fn follow_", "settings(&mut self) {"))
             .map(|(_, rest)| rest.split_once("\n    }\n").map_or(rest, |(body, _)| body))
             .expect("follow_settings");
         assert!(
@@ -12634,7 +12621,7 @@ mod motion_tests {
     /// minimized window, where `?1042` matters most.
     #[test]
     fn the_pump_rings_the_bell_before_it_can_return() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // A line that is only a `//` comment taken out, so a call written in
         // one is not read as code. A comment after code stays, so a `//`
         // inside a string cannot hide what follows it.
@@ -12656,12 +12643,11 @@ mod motion_tests {
         assert_eq!(SRC.matches(PUMP).count(), 1, "one pump");
         assert_eq!(SRC.matches(SHIM_FN).count(), 1, "one shim");
         // The file without this test: each call the bell makes, once.
-        let (head, rest) = SRC
-            .split_once(concat!(
-                "fn the_pump_rings_the_bell_",
-                "before_it_can_return() {"
-            ))
-            .expect("this test");
+        let (head, rest) = crate::app_source::split_once(concat!(
+            "fn the_pump_rings_the_bell_",
+            "before_it_can_return() {"
+        ))
+        .expect("this test");
         let code = uncommented(&format!(
             "{head}{}",
             rest.split_once("\n    }\n").expect("its end").1
@@ -12704,8 +12690,7 @@ mod motion_tests {
             assert_eq!(made.matches(arm).count(), 1, "the runner makes {arm}");
         }
 
-        let pump = SRC
-            .split_once(PUMP)
+        let pump = crate::app_source::split_once(PUMP)
             .and_then(|(_, rest)| rest.split_once("\n    fn "))
             .map(|(body, _)| bare(&uncommented(body)))
             .expect("the pump");
@@ -12779,8 +12764,7 @@ mod motion_tests {
         assert!(rung < gate, "before the gate, which can draw nothing");
         assert!(rung < held, "before the held update");
 
-        let shim = SRC
-            .split_once(SHIM_FN)
+        let shim = crate::app_source::split_once(SHIM_FN)
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| uncommented(body))
             .expect("the shim");
@@ -12938,7 +12922,7 @@ mod motion_tests {
     /// the tick is AppKit-bound, so its source is what can be checked.
     #[test]
     fn the_tick_takes_the_blink_phase_under_the_motion_preference() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // Spelled apart, so this test does not match its own source.
         let call = concat!(
             "let phase = dim_off_phases(text_",
@@ -12963,7 +12947,7 @@ mod motion_tests {
     /// Linux turn's (`timed.rs`).
     #[test]
     fn the_tick_steps_kitty_animations_under_the_motion_preference() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let motion = concat!(
             "crate::access::image_",
             "motion(\n                self.app.image_animation,\n",
@@ -12979,7 +12963,7 @@ mod motion_tests {
     /// took through the motion preference, and a repaint owes a frame.
     #[test]
     fn the_tick_flips_regis_blink_with_the_slow_phase() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let call = concat!("set_regis_", "blink(regis_phase(phase.slow))");
         assert_eq!(SRC.matches(call).count(), 1, "{call}");
         use crate::effects::regis_phase;
@@ -13722,8 +13706,8 @@ mod moved_tests {
     /// feeds nothing, and its flush is the turn's whole purpose.
     #[test]
     fn the_block_after_the_feed_runs_under_the_turns_gate() {
-        let pump = crate::no_appkit::fn_body(
-            include_str!("app.rs"),
+        let pump = crate::app_source::fn_body(
+            crate::app_source::app_source(),
             concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
         );
         let gate = concat!("\n        if turn == Moved", "::Moved {\n");
@@ -13781,8 +13765,8 @@ mod moved_tests {
     /// immediately before `Moved::of`, which is given it.
     #[test]
     fn the_gate_reads_the_count_after_the_turns_relayouts() {
-        let src = include_str!("app.rs");
-        let pump = crate::no_appkit::fn_body(
+        let src = crate::app_source::app_source();
+        let pump = crate::app_source::fn_body(
             src,
             concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
         );
@@ -13827,7 +13811,7 @@ mod moved_tests {
             "the gate given the re-cut: {}",
             &pump[gate..gate + 240]
         );
-        let relayout = crate::no_appkit::fn_body(
+        let relayout = crate::app_source::fn_body(
             src,
             concat!(
                 "    fn relayout(&mut self, ",
@@ -13941,8 +13925,8 @@ mod moved_tests {
     /// after the relayouts.
     #[test]
     fn the_reads_tops_are_taken_before_the_turns_relayouts() {
-        let pump = crate::no_appkit::fn_body(
-            include_str!("app.rs"),
+        let pump = crate::app_source::fn_body(
+            crate::app_source::app_source(),
             concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
         );
         let once = |needle: &str| {
@@ -14079,8 +14063,8 @@ mod moved_tests {
     /// it and before the clip. Break: the drop on a turn with no re-cut.
     #[test]
     fn the_selection_owes_the_read_its_carry_through_the_turns_relayouts() {
-        let src = include_str!("app.rs");
-        let pump = crate::no_appkit::fn_body(
+        let src = crate::app_source::app_source();
+        let pump = crate::app_source::fn_body(
             src,
             concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
         );
@@ -14120,7 +14104,7 @@ mod moved_tests {
             "== Clip::Cleared);"
         ));
         assert!(carried < relaid && relaid < below && below < clip);
-        let relayout = crate::no_appkit::fn_body(
+        let relayout = crate::app_source::fn_body(
             src,
             concat!(
                 "    fn relayout(&mut self, ",
@@ -14147,8 +14131,8 @@ mod moved_tests {
     /// under `Owed`, as before the row.
     #[test]
     fn a_recut_inside_the_turn_leaves_the_finds_reselection_to_the_pump() {
-        let src = include_str!("app.rs");
-        let relayout = crate::no_appkit::fn_body(
+        let src = crate::app_source::app_source();
+        let relayout = crate::app_source::fn_body(
             src,
             concat!(
                 "    fn relayout(&mut self, ",
@@ -14176,14 +14160,14 @@ mod moved_tests {
             "one setter"
         );
         let matched =
-            crate::no_appkit::fn_body(src, concat!("    fn reselect_", "match(&mut self) {"));
+            crate::app_source::fn_body(src, concat!("    fn reselect_", "match(&mut self) {"));
         assert_eq!(
             src.matches(concat!("f.after_", "resize(")).count(),
             1,
             "the find's match selected again in one place"
         );
         assert!(matched.contains(concat!("f.after_", "resize(")));
-        let pump = crate::no_appkit::fn_body(
+        let pump = crate::app_source::fn_body(
             src,
             concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
         );
@@ -21620,9 +21604,7 @@ mod tests {
         ] {
             assert_eq!(menu_missed("c", held), None, "{held:?}");
         }
-        let src = include_str!("app.rs");
-        let block = src
-            .split(concat!("if key.modifiers.", "command {"))
+        let block = crate::app_source::split(concat!("if key.modifiers.", "command {"))
             .nth(1)
             .expect("the Command block");
         let block = &block[..block.find("return Handled::Consumed;").expect("its end")];
@@ -21875,10 +21857,8 @@ mod tests {
     /// `apply_style`, whose early return would skip a pinned theme.
     #[test]
     fn every_theme_reaches_the_renderer_through_the_display_settings() {
-        let app = include_str!("app.rs")
-            .rsplit_once("#[cfg(test)]\nmod tests {")
-            .map(|(c, _)| c)
-            .expect("the code before the tests");
+        let code = crate::app_source::code();
+        let app = code.as_str();
         let body = |name: &str| {
             let at = app.find(&format!("fn {name}(")).expect(name);
             &app[at..at + app[at..].find("\n    }\n").expect("its end")]
@@ -21909,10 +21889,8 @@ mod tests {
     /// own `motion: ` text.
     #[test]
     fn poll_motion_reads_the_apps_source_and_logs_motion_lines_one_way() {
-        let app = include_str!("app.rs")
-            .rsplit_once("#[cfg(test)]\nmod tests {")
-            .map(|(c, _)| c)
-            .expect("the code before the tests");
+        let code = crate::app_source::code();
+        let app = code.as_str();
         let at = app.find("fn poll_motion(").expect("poll_motion");
         let poll = &app[at..at + app[at..].find("\n    }\n").expect("its end")];
         assert!(poll.contains("motion_turn(\n"), "{poll}");
@@ -21954,7 +21932,7 @@ mod tests {
             src.rsplit_once("#[cfg(test)]\nmod tests {")
                 .map_or(src, |(c, _)| c)
         };
-        let app = code(include_str!("app.rs"));
+        let app = code(crate::app_source::app_source());
         let host = code(include_str!("host.rs"));
         let linux = code(include_str!("linux.rs"));
         let appearance = code(include_str!("appearance.rs"));
@@ -22002,10 +21980,8 @@ mod tests {
     /// and this goes red.
     #[test]
     fn a_flip_of_light_and_dark_swaps_the_title_bars_lockup() {
-        let app = include_str!("app.rs");
-        let app = app
-            .rsplit_once("#[cfg(test)]\nmod tests {")
-            .map_or(app, |(c, _)| c);
+        let code = crate::app_source::code();
+        let app = code.as_str();
         let at = app.find("fn apply_style(").expect("apply_style");
         let body = &app[at..at + app[at..].find("\n    }\n").expect("its end")];
         let follows = body
@@ -22219,7 +22195,7 @@ mod tests {
         assert!(commit.iter().all(|e| e.base_layout.is_none()));
         let same = typed_text("c", Some(&keyed("c", c, Modifiers::NONE, None)));
         assert_eq!(same[0].base_layout, None, "the key's own");
-        let src = include_str!("app.rs");
+        let src = crate::app_source::app_source();
         assert!(src.contains(concat!(
             "let Some(e) = ",
             "chord(key, m, shift_unshifted(KeyLayout::Selected, key)) else"
@@ -22581,14 +22557,12 @@ mod tests {
         assert_eq!(core_sends(b"\x1b[>8u", both), b"\x1b[97;66u");
         assert_eq!(core_sends(b"\x1b[>12u", both), b"\x1b[97:65;66u");
         assert!(is_chord(Modifiers::CTRL.with(on)));
-        let src = include_str!("app.rs");
-        let key = src
-            .split(concat!(
-                "    fn key(&mut self, key: ",
-                "&KeyPress) -> Handled {"
-            ))
-            .nth(1)
-            .expect("key");
+        let key = crate::app_source::split(concat!(
+            "    fn key(&mut self, key: ",
+            "&KeyPress) -> Handled {"
+        ))
+        .nth(1)
+        .expect("key");
         let key = &key[..key.find("\n    }\n").expect("its end")];
         let read = key
             .find(concat!("let flags = ", "current_event_flags();"))
@@ -22918,9 +22892,8 @@ mod tests {
         let gone: Vec<KeyEvent> = downs.let_go().collect();
         assert_eq!(core_sends(all, gone[0]), b"\x1b[57444;1:3u");
         // Every key event's flags are noted: a press, a release, a change.
-        const SRC: &str = include_str!("app.rs");
         let body = |head: &str| {
-            let b = SRC.split(head).nth(1).expect(head);
+            let b = crate::app_source::split(head).nth(1).expect(head);
             b[..b.find("\n    }\n").expect("its end")].to_string()
         };
         let key = body(concat!(
@@ -22967,14 +22940,12 @@ mod tests {
         assert_eq!(downs.modifier(key, down, KeysTo::Program), Some(down));
         assert!(downs.modifier(key, up, KeysTo::FindField).is_some());
         // The source holds the handler to the field's arm.
-        const SRC: &str = include_str!("app.rs");
-        let changed = SRC
-            .split(concat!(
-                "    fn modifiers_changed(&mut self, ",
-                "change: &ModifierChange) {"
-            ))
-            .nth(1)
-            .expect("modifiers_changed");
+        let changed = crate::app_source::split(concat!(
+            "    fn modifiers_changed(&mut self, ",
+            "change: &ModifierChange) {"
+        ))
+        .nth(1)
+        .expect("modifiers_changed");
         let changed = &changed[..changed.find("\n    }\n").expect("its end")];
         assert!(changed.contains(concat!("Some(_) => ", "KeysTo::FindField")));
     }
@@ -22992,9 +22963,7 @@ mod tests {
         assert_eq!(commit_key(Some(a), "ab"), None);
         assert_eq!(commit_key(Some(a), "\u{65e5}\u{672c}"), None);
         assert_eq!(commit_key(None, "a"), None);
-        const SRC: &str = include_str!("app.rs");
-        let body = SRC
-            .split(concat!("    fn text(&mut self, ", "text: &str) {"))
+        let body = crate::app_source::split(concat!("    fn text(&mut self, ", "text: &str) {"))
             .nth(1)
             .expect("text");
         let body = &body[..body.find("\n    }\n").expect("its end")];
@@ -23079,9 +23048,8 @@ mod tests {
         // The handlers keep the order: the key handed at `key`, an empty
         // composition leaving it, the commit taking it, the key-up
         // dropping it.
-        const SRC: &str = include_str!("app.rs");
         let body = |head: &str| {
-            let b = SRC.split(head).nth(1).expect(head);
+            let b = crate::app_source::split(head).nth(1).expect(head);
             b[..b.find("\n    }\n").expect("its end")].to_string()
         };
         let key = body(concat!(
@@ -23177,9 +23145,8 @@ mod tests {
     /// lost, in `set_focus`, which every poll and the crate's hook reach.
     #[test]
     fn a_focus_lost_lets_go_of_the_keys_held() {
-        const SRC: &str = include_str!("app.rs");
         let head = concat!("    fn set_focus(&mut self, ", "f: baud_core::Focus) {");
-        let b = SRC.split(head).nth(1).expect("set_focus");
+        let b = crate::app_source::split(head).nth(1).expect("set_focus");
         let b = &b[..b.find("\n    }\n").expect("its end")];
         let lost = b
             .find(concat!("if f == baud_core::", "Focus::Lost {"))
@@ -23447,9 +23414,8 @@ mod tests {
             assert_eq!(core_sends(all, e), want, "{key:?} {kind:?} {flags:?}");
         }
         // Both handlers hand the dispatched event's flags on.
-        const SRC: &str = include_str!("app.rs");
         let body = |head: &str| {
-            let b = SRC.split(head).nth(1).expect(head);
+            let b = crate::app_source::split(head).nth(1).expect(head);
             b[..b.find("\n    }\n").expect("its end")].to_string()
         };
         let released = body(concat!(
@@ -23538,9 +23504,10 @@ mod tests {
     /// before the caret, the locator or anything that reports a press.
     #[test]
     fn the_mouse_handler_asks_whose_click_before_anything_takes_it() {
-        const SRC: &str = include_str!("app.rs");
         const HEAD: &str = concat!("    fn mouse(&mut self, ", "event: &Mouse) {");
-        let body = SRC.split(HEAD).nth(1).expect("the mouse handler");
+        let body = crate::app_source::split(HEAD)
+            .nth(1)
+            .expect("the mouse handler");
         let body = &body[..body.find("\n    }\n").expect("its end")];
         let at = |s: &str| body.find(s).unwrap_or_else(|| panic!("{s} in mouse"));
         let judged = at(concat!(
@@ -23563,9 +23530,8 @@ mod tests {
     /// instrument nor takes the kind `key` left for `typed`.
     #[test]
     fn a_release_is_sent_alone_and_a_press_recorded_where_it_is_typed() {
-        const SRC: &str = include_str!("app.rs");
         let body = |head: &str| {
-            let b = SRC.split(head).nth(1).expect(head);
+            let b = crate::app_source::split(head).nth(1).expect(head);
             b[..b.find("\n    }\n").expect("its end")].to_string()
         };
         let typed = body(concat!(
@@ -23626,7 +23592,7 @@ mod tests {
     /// nothing.
     #[test]
     fn the_file_menus_new_window_opens_from_the_window_asked() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let menu = SRC
             .find(concat!(
                 "menu::install_main_menu(",
@@ -23647,21 +23613,19 @@ mod tests {
             SRC[kept..].contains(concat!("ns_app.", "run();")),
             "before the run loop"
         );
-        let from_menu = SRC
-            .split(concat!("\nfn new_window_from_", "menu() {"))
+        let from_menu = crate::app_source::split(concat!("\nfn new_window_from_", "menu() {"))
             .nth(1)
             .expect("the hook's body");
         let from_menu = &from_menu[..from_menu.find("\n}\n").expect("its end")];
         assert!(from_menu.contains(concat!("a.ask(", "id)")));
         assert!(from_menu.contains(concat!("waker.", "wake();")));
         assert!(from_menu.contains(concat!("open_window(", "None, None, None)")));
-        let wake = SRC
-            .split(concat!(
-                "    fn wake(&mut self) {\n        startup_first(",
-                "\"run loop\""
-            ))
-            .nth(1)
-            .expect("the driver's wake");
+        let wake = crate::app_source::split(concat!(
+            "    fn wake(&mut self) {\n        startup_first(",
+            "\"run loop\""
+        ))
+        .nth(1)
+        .expect("the driver's wake");
         let wake = &wake[..wake.find("\n    }\n").expect("its end")];
         let taken = wake
             .find(concat!("ASKED.with(|a| a.take(", "self.window_id))"))
@@ -23681,7 +23645,7 @@ mod tests {
     /// windows, so the window's close removes it.
     #[test]
     fn the_command_key_up_monitor_follows_the_responder() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let set = SRC
             .find(concat!(
                 "view.set_responder(",
@@ -23748,9 +23712,10 @@ mod tests {
     /// `composing_first` before `special` names a key for the child.
     #[test]
     fn key_asks_the_composition_before_naming_a_special_key() {
-        const SRC: &str = include_str!("app.rs");
         const KEY: &str = concat!("    fn key(&mut self, ", "key: &KeyPress) -> Handled {");
-        let body = SRC.split(KEY).nth(1).expect("the key handler");
+        let body = crate::app_source::split(KEY)
+            .nth(1)
+            .expect("the key handler");
         let body = &body[..body.find("\n    }\n").expect("its end")];
         let ask = body
             .find(concat!("composing_first(key, ", "&self.app.composing)"))
@@ -23766,9 +23731,8 @@ mod tests {
     /// Without either, a dead key's accent waits for the next tick or read.
     #[test]
     fn a_changed_composition_makes_a_frame_due() {
-        const SRC: &str = include_str!("app.rs");
         let body = |head: &str| {
-            let b = SRC.split(head).nth(1).expect("the function");
+            let b = crate::app_source::split(head).nth(1).expect("the function");
             b[..b.find("\n    }\n").expect("its end")].to_string()
         };
         let marked = body(concat!("    fn marked_text(&mut self, ", "text: &str) {"));
@@ -23781,10 +23745,10 @@ mod tests {
             pump.contains(concat!("marked: self.app.", "marked,")),
             "the pump hands the gate the composition"
         );
-        let gate = SRC
-            .split(concat!("fn frame_gate(g: ", "FrameGate) -> Decided {"))
-            .nth(1)
-            .expect("the gate");
+        let gate =
+            crate::app_source::split(concat!("fn frame_gate(g: ", "FrameGate) -> Decided {"))
+                .nth(1)
+                .expect("the gate");
         let gate = &gate[..gate.find("\n}\n").expect("its end")];
         let due = &gate[gate.find("let due = ").expect("the gate's due")..];
         let due = &due[..due.find(';').expect("its end")];
@@ -24072,10 +24036,8 @@ mod tests {
     #[test]
     fn the_window_is_resized_after_the_callback_that_asked() {
         // The file less its own test module, which code follows.
-        let src = include_str!("app.rs");
-        let (before, rest) = src
-            .split_once("#[cfg(test)]\nmod tests {")
-            .expect("the test module");
+        let (before, rest) =
+            crate::app_source::split_once("#[cfg(test)]\nmod tests {").expect("the test module");
         let code = format!(
             "{before}{}",
             rest.split_once("\n}\n").map_or("", |(_, a)| a)
@@ -24481,7 +24443,7 @@ mod tests {
     #[test]
     fn the_window_operations_run_after_the_callback_that_asked() {
         // The file less every test module, whose strings name the calls.
-        let mut code = include_str!("app.rs").to_string();
+        let mut code = crate::app_source::app_source().to_string();
         while let Some(at) = code.find("#[cfg(test)]\nmod ") {
             let end = code[at..].find("\n}\n").map_or(code.len(), |e| at + e + 3);
             code.replace_range(at..end, "");
@@ -24547,10 +24509,8 @@ mod tests {
         use crate::log::{Level, named, shows};
         // The file less its own test module, which holds these literals
         // too; code follows the module, so both sides are kept.
-        let src = include_str!("app.rs");
-        let (before, rest) = src
-            .split_once("#[cfg(test)]\nmod tests {")
-            .expect("the test module");
+        let (before, rest) =
+            crate::app_source::split_once("#[cfg(test)]\nmod tests {").expect("the test module");
         let after = rest.split_once("\n}\n").map_or("", |(_, a)| a);
         let code = format!("{before}{after}");
         // The macro a literal is the format string of: the nearest `!(`
@@ -25186,7 +25146,7 @@ mod wake_count_tests {
     /// `wake:` posted outside the callback -- each fails here.
     #[test]
     fn a_wake_is_counted_from_its_post_to_its_callback_before_let_go() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // Spelled apart, so this test's own text is not what it finds.
         const HEAD: &str = concat!(
             "fn wake_holding<T: Held>(waker: Waker, ",
@@ -26268,11 +26228,12 @@ mod host_tests {
     /// here.
     #[test]
     fn the_names_are_taken_on_every_turn() {
-        const SRC: &str = include_str!("app.rs");
-        let pump = SRC
-            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .map(|(_, rest)| rest)
-            .expect("the pump");
+        let pump = crate::app_source::split_once(concat!(
+            "    fn pump(&mut self, ",
+            "trigger: Trigger) {"
+        ))
+        .map(|(_, rest)| rest)
+        .expect("the pump");
         let (before, tick) = pump
             .split_once(concat!("if let Trigger::", "Tick = trigger {"))
             .expect("the tick arm");
@@ -26329,9 +26290,7 @@ mod host_tests {
     /// fails here.
     #[test]
     fn the_given_name_is_handed_at_opening() {
-        const SRC: &str = include_str!("app.rs");
-        let opening = SRC
-            .split_once(concat!("let mut driver = ", "Driver {"))
+        let opening = crate::app_source::split_once(concat!("let mut driver = ", "Driver {"))
             .and_then(|(_, rest)| rest.split_once(concat!("startup_mark(", "\"driver\");")))
             .map(|(body, _)| body)
             .expect("the driver's opening");
@@ -26342,14 +26301,13 @@ mod host_tests {
             )),
             "the given name handed at opening"
         );
-        let hand = SRC
-            .split_once(concat!(
-                "fn hand_host_",
-                "names(&mut self, names: Vec<String>) {"
-            ))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(body, _)| body)
-            .expect("the hand");
+        let hand = crate::app_source::split_once(concat!(
+            "fn hand_host_",
+            "names(&mut self, names: Vec<String>) {"
+        ))
+        .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+        .map(|(body, _)| body)
+        .expect("the hand");
         assert!(
             hand.contains(concat!(
                 "crate::link::hand_",
@@ -26357,8 +26315,7 @@ mod host_tests {
             )),
             "{hand}"
         );
-        let check = SRC
-            .split_once(concat!("fn link_host_", "check(&mut self) {"))
+        let check = crate::app_source::split_once(concat!("fn link_host_", "check(&mut self) {"))
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| body)
             .expect("the check");
@@ -26646,7 +26603,7 @@ mod scrollbar_mode_tests {
     /// (`shown_gutter`), never the style's alone.
     #[test]
     fn the_scrollbar_mode_reaches_the_window() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // Spelled apart, so this test's own text is not what it finds.
         let once = |needle: &str| {
             assert_eq!(SRC.matches(needle).count(), 1, "once: {needle}");
@@ -26748,11 +26705,12 @@ mod deferred_tests {
     /// read that owes a frame owes the find too.
     #[test]
     fn the_find_refreshes_after_every_read_fed() {
-        let src = include_str!("app.rs");
-        let pump = src
-            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .expect("the pump")
-            .1;
+        let pump = crate::app_source::split_once(concat!(
+            "    fn pump(&mut self, ",
+            "trigger: Trigger) {"
+        ))
+        .expect("the pump")
+        .1;
         let fed = "if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {";
         let at = pump
             .find("if let Some(f) = self.app.finding.as_mut() {")
@@ -26772,11 +26730,12 @@ mod deferred_tests {
     /// alone.
     #[test]
     fn the_title_and_pointer_follow_every_read_fed() {
-        let src = include_str!("app.rs");
-        let pump = src
-            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .expect("the pump")
-            .1;
+        let pump = crate::app_source::split_once(concat!(
+            "    fn pump(&mut self, ",
+            "trigger: Trigger) {"
+        ))
+        .expect("the pump")
+        .1;
         let fed = "if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {";
         for what in [
             "self.derive.owe();",
@@ -26804,7 +26763,10 @@ mod link_pointer_tests {
     /// closes at its indent; one head of it in the file.
     pub(super) fn body<'a>(src: &'a str, head: &str) -> &'a str {
         assert_eq!(src.matches(head).count(), 1, "one {head}");
-        let b = src.split(head).nth(1).expect(head);
+        let b = crate::app_source::within(src, head)
+            .split(head)
+            .nth(1)
+            .expect(head);
         &b[..b.find("\n    }\n").expect("the function ends")]
     }
 
@@ -26845,7 +26807,7 @@ mod link_pointer_tests {
     fn a_link_a_click_opens_shows_appkits_pointing_hand() {
         use crate::link::{Chord, Hover};
         use crate::pointer::{SystemPointer, system_pointer};
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let cursor = body(
             SRC,
             concat!(
@@ -26913,7 +26875,7 @@ mod link_pointer_tests {
     /// preview reads the exit; each fails here.
     #[test]
     fn every_change_of_the_preview_shows_the_pointer_again() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         // Spelled apart, so this test's own text is not what it finds.
         // The printed paths' forms too, `update_with` and `refresh_with`,
         // which change the preview as the plain ones do.
@@ -26977,7 +26939,7 @@ mod link_pointer_tests {
     /// scrollbar takes, and drop it over a link a click opens.
     #[test]
     fn a_frame_tests_the_press_where_the_preview_read_the_pointer() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let present = body(
             SRC,
             concat!(
@@ -27022,7 +26984,7 @@ mod driver_rule_tests {
     /// the rule, fails this.
     #[test]
     fn a_focus_gain_reads_the_system_caret_through_the_rule() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let focus = body(
             SRC,
             concat!("    fn set_", "focus(&mut self, f: baud_core::Focus) {"),
@@ -27064,7 +27026,8 @@ mod mark_tests {
             "fn show(\n        self,\n        mtm: ",
             "MainThreadMarker,"
         );
-        src.split_once(head)
+        crate::app_source::within(src, head)
+            .split_once(head)
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| body)
             .expect("Opening::show")
@@ -27085,7 +27048,7 @@ mod mark_tests {
     /// update's test dropped, fails it.
     #[test]
     fn the_first_frame_follows_the_opening_turn() {
-        let src = include_str!("app.rs");
+        let src = crate::app_source::app_source();
         let body = show(src);
         let first = concat!(
             "driver.app.present(&v, ",
@@ -27109,11 +27072,13 @@ mod mark_tests {
         assert!(at(owed) < at(shown), "both before the window is on screen");
         assert!(at(shown) < at(woken), "the wake after it, kept");
         // The turn is the pump's whole, which feeds the drained reads.
-        let pump = src
-            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(b, _)| b)
-            .expect("the pump");
+        let pump = crate::app_source::split_once(concat!(
+            "    fn pump(&mut self, ",
+            "trigger: Trigger) {"
+        ))
+        .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+        .map(|(b, _)| b)
+        .expect("the pump");
         let drained = pump
             .find("let drained = self.app.pty.drain();")
             .expect("the drain");
@@ -27156,7 +27121,7 @@ mod mark_tests {
     /// after the body and the second does.
     #[test]
     fn show_puts_the_strip_in_the_title_bar_and_follows_full_screen() {
-        let src = include_str!("app.rs");
+        let src = crate::app_source::app_source();
         let body = show(src);
         assert!(!body.contains(concat!("full", ".height")), "{body}");
         let put = body
@@ -27215,7 +27180,7 @@ mod mark_tests {
     /// Perturbation: a site dropped fails the first loop.
     #[test]
     fn every_link_reaches_the_os_on_a_later_turn() {
-        let src = include_str!("app.rs");
+        let src = crate::app_source::app_source();
         // A window's three go to its effect queue; About's, which has no
         // window, to a one-off turn, whose turn is the only `workspace` here.
         // A printed path's reveal and a link's; a link's open.
@@ -27225,8 +27190,7 @@ mod mark_tests {
         ] {
             assert_eq!(src.matches(asked).count(), n, "{asked}");
         }
-        let about = src
-            .split_once(concat!("fn open_from_", "about(url: &str) {"))
+        let about = crate::app_source::split_once(concat!("fn open_from_", "about(url: &str) {"))
             .and_then(|(_, rest)| rest.split_once("\n}\n"))
             .map(|(body, _)| body)
             .expect("About's open");
@@ -27244,10 +27208,12 @@ mod mark_tests {
         // The answers -- the turns' and the paths worker's -- are drained
         // on a pump that is not the tick, and the tick's paths turn takes
         // no answer.
-        let pump = src
-            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .map(|(_, rest)| rest)
-            .expect("pump");
+        let pump = crate::app_source::split_once(concat!(
+            "    fn pump(&mut self, ",
+            "trigger: Trigger) {"
+        ))
+        .map(|(_, rest)| rest)
+        .expect("pump");
         let gate = pump
             .find(concat!("if !matches!(trigger, ", "Trigger::Tick) {"))
             .expect("the gate");
@@ -27268,7 +27234,7 @@ mod mark_tests {
         // fn: the call made through its arguments, and no answer taken in
         // either, by a method or by the shared `answers`.
         let paths_turn =
-            crate::no_appkit::fn_body(src, concat!("    fn paths_", "turn(&mut self) {"));
+            crate::app_source::fn_body(src, concat!("    fn paths_", "turn(&mut self) {"));
         assert!(
             paths_turn.contains(concat!(
                 "crate::link_layer::tick(",
@@ -27315,9 +27281,8 @@ mod mark_tests {
     /// the guard fails it, and so does a return on an empty drain.
     #[test]
     fn a_close_before_the_window_is_asked_again_after_it() {
-        let src = include_str!("app.rs");
-        let body = src
-            .split_once(concat!("    fn close_later(", "&mut self) {"))
+        let src = crate::app_source::app_source();
+        let body = crate::app_source::split_once(concat!("    fn close_later(", "&mut self) {"))
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(b, _)| b)
             .expect("close_later");
@@ -27346,11 +27311,13 @@ mod mark_tests {
         assert!(turn < given && given < woken);
         // And no turn ends before the closed stream's branch, a drain
         // that found nothing included.
-        let pump = src
-            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(b, _)| b)
-            .expect("the pump");
+        let pump = crate::app_source::split_once(concat!(
+            "    fn pump(&mut self, ",
+            "trigger: Trigger) {"
+        ))
+        .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+        .map(|(b, _)| b)
+        .expect("the pump");
         let drained = pump
             .find(concat!("let drained = ", "self.app.pty.drain();"))
             .expect("the drain");
@@ -27810,12 +27777,14 @@ mod gate_tests {
     /// anchor is asserted present first.
     #[test]
     fn the_pump_calls_the_gate() {
-        let src = include_str!("app.rs");
-        let pump = src
-            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(b, _)| b)
-            .expect("the pump");
+        let src = crate::app_source::app_source();
+        let pump = crate::app_source::split_once(concat!(
+            "    fn pump(&mut self, ",
+            "trigger: Trigger) {"
+        ))
+        .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+        .map(|(b, _)| b)
+        .expect("the pump");
         let call = concat!("let frame = frame_gate(", "FrameGate {");
         let now = concat!(
             "Decided::Now => {\n",
@@ -27848,7 +27817,7 @@ mod clock_tests {
     /// the target again, and a second reader is named.
     #[test]
     fn the_effects_read_one_clock() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let field = concat!(".tick", "_target");
         let lines: Vec<&str> = SRC
             .lines()
@@ -27880,7 +27849,7 @@ mod idle_turn_tests {
     /// source is what can fail. Break: the clock read ahead of the return.
     #[test]
     fn a_flush_with_nothing_owed_reads_no_clock() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let flush = body(
             SRC,
             concat!("    fn flush_", "reply(&mut self, asked: Asked) -> Sent {"),
@@ -27908,7 +27877,7 @@ mod idle_turn_tests {
     /// built again on the turn; the window read ahead of the closure.
     #[test]
     fn a_turns_notices_build_no_prefix_and_read_the_window_only_for_a_post() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let build = concat!("notice_", "prefix(");
         let deliver = body(
             SRC,
@@ -27990,7 +27959,7 @@ mod idle_turn_tests {
     /// to the raw assignment of the key.
     #[test]
     fn the_key_and_the_notice_prefix_have_one_writer() {
-        const APP: &str = include_str!("app.rs");
+        const APP: &str = crate::app_source::app_source();
         const RIG: &str = include_str!("app/rig.rs");
         /// Each code line that writes `field`: an assignment (`=`, `+=`),
         /// a field of a struct's literal or declaration (`:`), a `&mut`, or
@@ -28171,7 +28140,7 @@ mod tips_tests {
     /// tips itself.
     #[test]
     fn a_tick_reads_the_lights_places_only_where_they_may_have_moved() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let show = body(
             SRC,
             concat!("    fn show_", "lights(&mut self, target: f64) {"),
@@ -28240,7 +28209,7 @@ mod tips_tests {
 mod slide_tests {
     use super::link_pointer_tests::body;
 
-    const SRC: &str = include_str!("app.rs");
+    const SRC: &str = crate::app_source::app_source();
 
     /// **The wake turn takes the lights' window's slide before the
     /// crossings** (`hover::Moves`): on every wake, so a slide is never
@@ -28332,7 +28301,7 @@ mod kept_lights_tests {
     /// Red on the base: the tick made the look and read the ends itself.
     #[test]
     fn a_tick_makes_no_look_and_reads_no_strip_ends() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let show = body(
             SRC,
             concat!("    fn show_", "lights(&mut self, target: f64) {"),
@@ -28400,23 +28369,21 @@ mod kept_lights_tests {
         );
         let emptied = concat!("self.look = ", "None;");
         assert!(theme.contains(emptied), "the theme\n{theme}");
-        let colours = SRC
-            .split_once(concat!("Part::Activity", "Lights => {"))
+        let colours = crate::app_source::split_once(concat!("Part::Activity", "Lights => {"))
             .and_then(|(_, rest)| rest.split_once("\n                }\n"))
             .map(|(arm, _)| arm)
             .expect("the colours' arm");
         assert!(colours.contains(emptied), "the colours\n{colours}");
         assert_eq!(SRC.matches(emptied).count(), 2, "emptied at those two");
-        let resized = SRC
-            .split_once(concat!(
-                "crate::strip::read_",
-                "corner(self.window.ns_window());\n",
-                "        // And the strip's ends, which the same events move.\n",
-                "        self.edges = ",
-                "None;\n"
-            ))
-            .map(|(head, _)| head)
-            .expect("the ends emptied beside the corner's reading");
+        let resized = crate::app_source::split_once(concat!(
+            "crate::strip::read_",
+            "corner(self.window.ns_window());\n",
+            "        // And the strip's ends, which the same events move.\n",
+            "        self.edges = ",
+            "None;\n"
+        ))
+        .map(|(head, _)| head)
+        .expect("the ends emptied beside the corner's reading");
         assert!(
             resized.ends_with(
                 "// move, read here rather than on every tick (`strip::read_corner`).\n        "
@@ -28439,7 +28406,7 @@ mod release_tests {
     /// responder method that asked. Perturbations: either call removed.
     #[test]
     fn the_input_funnels_ask_the_release() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let send = body(
             SRC,
             concat!("    fn send(&mut self, e: ", "KeyEvent) -> Sent {"),
@@ -28483,7 +28450,7 @@ mod census_pin_tests {
     /// each fails here.
     #[test]
     fn the_rig_bills_and_releases_through_the_census_judge() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         const RIG: &str = include_str!("app/rig.rs");
         // Spelled apart, so this test's own text is not what it finds.
         const RELEASED: &str = concat!("rig::", "released();");
@@ -28564,7 +28531,7 @@ mod decode_owes_tests {
         );
         assert_eq!(decode_owes(DecodeAt::Tick(Fed::Some)), TurnOwed::Yes);
         assert_eq!(decode_owes(DecodeAt::Tick(Fed::Nothing)), TurnOwed::No);
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let turn = body(
             SRC,
             concat!(
@@ -28592,7 +28559,7 @@ mod decode_owes_tests {
         // Every owed turn in app.rs, outside this module's own needles.
         const MODULE: &str = concat!("\nmod decode_", "owes_tests {");
         assert_eq!(SRC.matches(MODULE).count(), 1, "{MODULE}");
-        let (before, rest) = SRC.split_once(MODULE).expect("this module");
+        let (before, rest) = crate::app_source::split_once(MODULE).expect("this module");
         let (_, after) = rest.split_once("\n}\n").expect("this module ends");
         let count = |needle: &str| before.matches(needle).count() + after.matches(needle).count();
         const W: &str = "the kitty row's owed-turn witness (rig::OWING, Failure::Unowed) is \
@@ -28756,7 +28723,7 @@ mod history_key_tests {
     /// page.
     #[test]
     fn the_macs_key_path_pages_the_history_before_the_snap() {
-        const SRC: &str = include_str!("app.rs");
+        const SRC: &str = crate::app_source::app_source();
         let key = body(
             SRC,
             concat!("    fn key(&mut self, key: ", "&KeyPress) -> Handled {"),

@@ -15824,7 +15824,7 @@ fn no_cursor_covers_an_address_on_any_arm() {
             "{name}, the control: with no bar the cursor reaches the pixels"
         );
     }
-    let app = include_str!("../../baud-app/src/app.rs");
+    let app = concat!(include_str!("../../baud-app/src/app.rs"));
     let frame = include_str!("../../baud-render/src/cell_frame.rs");
     assert!(
         app.contains("baud_render::cell_frame::build(")

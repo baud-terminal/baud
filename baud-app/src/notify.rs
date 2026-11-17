@@ -3267,12 +3267,13 @@ mod tests {
             );
         }
         assert_eq!(asks.matches(concat!("wake_", "listeners();")).count(), 2);
-        let mac = include_str!("app.rs");
-        let pump = mac
-            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(body, _)| body)
-            .expect("the pump");
+        let pump = crate::app_source::split_once(concat!(
+            "    fn pump(&mut self, ",
+            "trigger: Trigger) {"
+        ))
+        .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+        .map(|(body, _)| body)
+        .expect("the pump");
         let tick = pump
             .split_once(concat!("if let Trigger::", "Tick = trigger {"))
             .map_or("", |(_, rest)| {
@@ -3286,8 +3287,7 @@ mod tests {
             !tick.contains(concat!("self.notice_", "turn();")),
             "not the tick's"
         );
-        let turn = mac
-            .split_once(concat!("    fn notice_", "turn(&mut self) {"))
+        let turn = crate::app_source::split_once(concat!("    fn notice_", "turn(&mut self) {"))
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| body)
             .expect("notice_turn");
@@ -3309,14 +3309,14 @@ mod tests {
     /// in `notice_turn` again.
     #[test]
     fn the_list_is_asked_for_only_by_a_held_alive() {
-        let mac = include_str!("app.rs");
+        let mac = crate::app_source::app_source();
         let asks = concat!("OsEffect::", "AskDelivered");
         assert_eq!(mac.matches(asks).count(), 1, "one ask");
-        let check = mac
-            .split_once(concat!("fn notices_alive_", "check(&mut self) {"))
-            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
-            .map(|(body, _)| body)
-            .expect("notices_alive_check");
+        let check =
+            crate::app_source::split_once(concat!("fn notices_alive_", "check(&mut self) {"))
+                .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+                .map(|(body, _)| body)
+                .expect("notices_alive_check");
         assert!(check.contains(asks), "the ask is the held question's");
         for clock in [
             concat!("DELIVERED_", "EVERY"),
@@ -3944,9 +3944,10 @@ mod tests {
     #[test]
     fn a_window_closes_after_its_pictures_are_checked() {
         let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
-        let mac = bare(include_str!("app.rs"));
+        let mac = bare(crate::app_source::app_source());
         let between = |from: &str, to: &str| -> String {
-            mac.split_once(from)
+            crate::app_source::holding_read(bare, from)
+                .split_once(from)
                 .and_then(|(_, rest)| rest.split_once(to))
                 .map(|(b, _)| b.to_owned())
                 .expect(from)
@@ -4171,9 +4172,11 @@ mod tests {
                 "Linux logs {line}"
             );
         }
-        let mac = bare(include_str!("app.rs"));
-        let deliver = mac
-            .split_once("fndeliver_notices(")
+        let mac = bare(crate::app_source::app_source());
+        const DELIVER: &str = "fndeliver_notices(";
+        let delivery = crate::app_source::holding_read(bare, DELIVER);
+        let deliver = delivery
+            .split_once(DELIVER)
             .and_then(|(_, rest)| rest.split_once("fnnotice_turn("))
             .map(|(b, _)| b)
             .expect("the macOS delivery");
@@ -4209,8 +4212,10 @@ mod tests {
         // Every turn of the loop delivers, not the display link's tick
         // alone: the checker's wake is a turn, and a covered window's link
         // is paused.
-        let pump = mac
-            .split_once("fnpump(&mutself,trigger:Trigger){")
+        const PUMP: &str = "fnpump(&mutself,trigger:Trigger){";
+        let pumped = crate::app_source::holding_read(bare, PUMP);
+        let pump = pumped
+            .split_once(PUMP)
             .and_then(|(_, rest)| rest.split_once("fnkey(&mutself,key:&KeyPress)->Handled{"))
             .map(|(b, _)| b)
             .expect("the macOS loop's turn");
@@ -4574,7 +4579,7 @@ mod tests {
     #[test]
     fn both_drivers_read_pictures_off_the_feeding_thread() {
         let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
-        let mac = bare(include_str!("app.rs"));
+        let mac = bare(crate::app_source::app_source());
         assert!(
             mac.contains("pictures:crate::kitty_files::Pictures,"),
             "macOS lends the reader off the thread"
@@ -4585,8 +4590,10 @@ mod tests {
             ),
             "its reads wake the window"
         );
-        let pump = mac
-            .split_once("fnpump(&mutself,trigger:Trigger){")
+        const PUMP: &str = "fnpump(&mutself,trigger:Trigger){";
+        let pumped = crate::app_source::holding_read(bare, PUMP);
+        let pump = pumped
+            .split_once(PUMP)
             .and_then(|(_, rest)| rest.split_once("fnkey(&mutself,key:&KeyPress)->Handled{"))
             .map(|(b, _)| b)
             .expect("the macOS loop's turn");

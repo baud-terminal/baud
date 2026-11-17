@@ -1788,10 +1788,12 @@ mod flow {
     #[test]
     fn both_drivers_rewatch_before_they_apply() {
         for (driver, src) in [
-            ("macOS", include_str!("app.rs")),
+            ("macOS", crate::app_source::app_source()),
             ("Linux", include_str!("linux.rs")),
         ] {
-            let body = &src[src.find("    fn reload_config(").expect(driver)..];
+            const HEAD: &str = "    fn reload_config(";
+            let src = crate::app_source::within(src, HEAD);
+            let body = &src[src.find(HEAD).expect(driver)..];
             let body = &body[..body.find("\n    }\n").expect(driver)];
             let at = |needle: &str| {
                 assert_eq!(body.matches(needle).count(), 1, "{driver}: {needle}");

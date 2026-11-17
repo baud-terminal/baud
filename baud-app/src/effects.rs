@@ -868,7 +868,7 @@ mod tests {
             None,
             "white space alone"
         );
-        let src = [include_str!("app.rs"), include_str!("linux.rs")];
+        let src = [crate::app_source::app_source(), include_str!("linux.rs")];
         for s in src {
             // Read with its white space taken out, so a reflow keeps it.
             let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
@@ -1225,7 +1225,7 @@ mod tests {
         for (name, src, at, owes) in [
             (
                 "app.rs",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "self.app.session",
                 "owe_frame()",
             ),
@@ -1236,7 +1236,9 @@ mod tests {
                 "pending = Pending::Dirty",
             ),
         ] {
-            let send = src.split_once("fn send_title(&mut self) {").expect(name).1;
+            let send = crate::app_source::split_once_in(src, "fn send_title(&mut self) {")
+                .expect(name)
+                .1;
             let body = &send[..send.find("\n    }\n").expect(name)];
             for read in [
                 "pty.child()",
@@ -1261,7 +1263,7 @@ mod tests {
     fn both_apps_draw_a_programs_guide_over_the_setting() {
         let read = concat!("self.term.cursor_guide().", "unwrap_or(self.cursor_guide)");
         for (name, src) in [
-            ("app.rs", include_str!("app.rs")),
+            ("app.rs", crate::app_source::app_source()),
             ("linux.rs", include_str!("linux.rs")),
         ] {
             assert_eq!(src.matches(read).count(), 1, "{name}: {read}");

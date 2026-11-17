@@ -274,6 +274,10 @@ mod palette;
 #[cfg(test)]
 #[allow(dead_code, reason = "shared with the demo's tests; each uses its part")]
 mod no_appkit;
+// The app's source as its tests read it: one list of the files that hold
+// the app's code.
+#[cfg(test)]
+mod app_source;
 // Real programs in a pty under the seat, for the tests only.
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod programs;

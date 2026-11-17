@@ -60,6 +60,41 @@ mod mark;
 #[path = "../src/strip.rs"]
 mod strip;
 
+/// The app's source for the files built here that read it, as
+/// `src/app_source.rs` lists it: the same files, in the same order.
+#[cfg(target_os = "macos")]
+#[allow(dead_code)]
+mod app_source {
+    /// Every listed file's text, joined in the list's order.
+    const APP: &str = concat!(include_str!("../src/app.rs"));
+    /// Each listed file's text, in the same order.
+    const TEXTS: &[&str] = &[include_str!("../src/app.rs")];
+
+    /// The app's whole source.
+    pub(crate) const fn app_source() -> &'static str {
+        APP
+    }
+
+    /// The text a cut from `head` in `src` runs in: the listed file that
+    /// holds `head` when `src` is the whole source, else `src` itself.
+    pub(crate) fn within<'s>(src: &'s str, head: &str) -> &'s str {
+        if src == APP {
+            TEXTS
+                .iter()
+                .copied()
+                .find(|text| text.contains(head))
+                .unwrap_or(APP)
+        } else {
+            src
+        }
+    }
+
+    #[test]
+    fn the_texts_join_to_the_whole() {
+        assert_eq!(TEXTS.concat(), APP);
+    }
+}
+
 #[cfg(target_os = "macos")]
 #[allow(dead_code)]
 #[path = "../src/full_screen_check.rs"]

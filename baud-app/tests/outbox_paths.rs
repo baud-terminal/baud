@@ -14,8 +14,9 @@
 //! a copy carrying its perturbation, which it must refuse: a check that
 //! cannot fire fails here instead of passing.
 
-/// The driver, as compiled into the app.
-const APP: &str = include_str!("../src/app.rs");
+/// The driver, as compiled into the app: every file of its source, in the
+/// order of `APP_SOURCE` in `src/app_source.rs`.
+const APP: &str = concat!(include_str!("../src/app.rs"));
 
 /// The one write of what the child is owed, in `App::flush_reply`.
 const THE_WRITE: &str = "self.room.write(&self.pty, &mut self.outbox)";

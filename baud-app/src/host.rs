@@ -1924,7 +1924,7 @@ mod tests {
         // Spelled apart, so this test's own text is not what it finds.
         const CALL: &str = concat!("crate::host::", "set_checksum(&mut term, ");
         for (driver, src, arg) in [
-            ("macOS", include_str!("app.rs"), "checksum);"),
+            ("macOS", crate::app_source::app_source(), "checksum);"),
             ("Linux", &super::linux_driver_src(), "cfg.checksum);"),
         ] {
             assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
@@ -1935,7 +1935,7 @@ mod tests {
             );
         }
         assert_eq!(
-            include_str!("app.rs")
+            crate::app_source::app_source()
                 .matches("checksum: cfg.checksum,")
                 .count(),
             1,
@@ -1987,7 +1987,7 @@ mod tests {
         for (driver, src, arg, term) in [
             (
                 "macOS",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "set_up);",
                 "app.term.change_set_up(c.set_up),",
             ),
@@ -2009,7 +2009,7 @@ mod tests {
             assert!(rest.starts_with(term), "{driver} hands the new Set-up");
         }
         assert_eq!(
-            include_str!("app.rs")
+            crate::app_source::app_source()
                 .matches("set_up: cfg.set_up,")
                 .count(),
             1,
@@ -2059,7 +2059,7 @@ mod tests {
         }
         const CALL: &str = concat!("crate::host::", "set_substitute(&mut term, ");
         for (driver, src, arg) in [
-            ("macOS", include_str!("app.rs"), "substitute);"),
+            ("macOS", crate::app_source::app_source(), "substitute);"),
             ("Linux", &super::linux_driver_src(), "cfg.substitute);"),
         ] {
             assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
@@ -2100,7 +2100,11 @@ mod tests {
         }
         const CALL: &str = concat!("crate::host::", "set_prompt_at_bottom(&mut term, ");
         for (driver, src, arg) in [
-            ("macOS", include_str!("app.rs"), "prompt_at_bottom);"),
+            (
+                "macOS",
+                crate::app_source::app_source(),
+                "prompt_at_bottom);",
+            ),
             (
                 "Linux",
                 &super::linux_driver_src(),
@@ -2181,7 +2185,7 @@ mod tests {
         for (driver, src, arg, body) in [
             (
                 "macOS",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "window_ops);",
                 "    fn pump(&mut self, trigger: Trigger) {",
             ),
@@ -2199,8 +2203,7 @@ mod tests {
                 "{driver} passes the configured value"
             );
             assert_eq!(src.matches(DRAIN).count(), 1, "{driver} drains once");
-            let feed = src
-                .split_once(body)
+            let feed = crate::app_source::split_once_in(src, body)
                 .expect("the driver's feed")
                 .1
                 .split_once(concat!("crate::reads::", "paced("))
@@ -2210,7 +2213,7 @@ mod tests {
             assert!(call.contains(DRAIN), "{driver} drains inside the feed");
         }
         assert_eq!(
-            include_str!("app.rs")
+            crate::app_source::app_source()
                 .matches("window_ops: cfg.window_ops,")
                 .count(),
             1,
@@ -2261,7 +2264,7 @@ mod tests {
         for (driver, src, policy, osc52) in [
             (
                 "macOS",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "crate::winops::mac_abilities(),",
                 "clipboard.osc52,",
             ),
@@ -2316,7 +2319,7 @@ mod tests {
         for (driver, src, arg) in [
             (
                 "macOS",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "&mut term, baud_domain::LocatorDevice::Present);",
             ),
             (
@@ -2371,7 +2374,7 @@ mod tests {
         // the build's name, and both drivers say it once.
         const VERSION: &str = concat!("crate::host::", "set_version_text(");
         for (driver, src) in [
-            ("macOS", include_str!("app.rs")),
+            ("macOS", crate::app_source::app_source()),
             ("Linux", &super::linux_driver_src()),
         ] {
             assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
@@ -2406,7 +2409,7 @@ mod tests {
         for (driver, src, arg, log) in [
             (
                 "macOS",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "logging);",
                 "            hostlog,\n            &mut took,\n        );",
             ),
@@ -2430,7 +2433,7 @@ mod tests {
             );
         }
         assert_eq!(
-            include_str!("app.rs")
+            crate::app_source::app_source()
                 .matches("logging: cfg.logging,")
                 .count(),
             1,
@@ -2470,7 +2473,7 @@ mod tests {
         for (driver, src, arg, key, read) in [
             (
                 "macOS",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "pointer_mode);",
                 concat!("let act = self.hiding.", "key(&self.app.term);"),
                 concat!("hide_pointer(self.hiding.", "read(&self.app.term));"),
@@ -2524,7 +2527,7 @@ mod tests {
         for (driver, src, setting, told, drain, perform) in [
             (
                 "macOS",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "crate::host::set_font_changes(&mut term, font_changes);",
                 "crate::host::tell_font(&mut term, &fonts, font_size, font_size);",
                 concat!(

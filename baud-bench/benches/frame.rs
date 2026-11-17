@@ -209,6 +209,36 @@ use baud_font::Face;
 use baud_render::{Backdrop, Blend, CursorPhase, Damage, PxSize, Renderer, Stack, Target, Theme};
 use std::time::Duration;
 
+/// The app's source for the files built here that read it, as
+/// `baud-app/src/app_source.rs` lists it: the same files, in the same order.
+#[cfg(test)]
+#[allow(dead_code)]
+mod app_source {
+    /// Every listed file's text, joined in the list's order.
+    const APP: &str = concat!(include_str!("../../baud-app/src/app.rs"));
+    /// Each listed file's text, in the same order.
+    const TEXTS: &[&str] = &[include_str!("../../baud-app/src/app.rs")];
+
+    /// The app's whole source.
+    pub(crate) const fn app_source() -> &'static str {
+        APP
+    }
+
+    /// The text a cut from `head` in `src` runs in: the listed file that
+    /// holds `head` when `src` is the whole source, else `src` itself.
+    pub(crate) fn within<'s>(src: &'s str, head: &str) -> &'s str {
+        if src == APP {
+            TEXTS
+                .iter()
+                .copied()
+                .find(|text| text.contains(head))
+                .unwrap_or(APP)
+        } else {
+            src
+        }
+    }
+}
+
 #[allow(dead_code, unused_imports)]
 #[path = "../../baud-app/src/lined.rs"]
 mod lined;

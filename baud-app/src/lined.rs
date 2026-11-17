@@ -2016,7 +2016,7 @@ mod tests {
             [(0, 0, 20), (1, 0, 8), (2, 0, 17)],
             "this machine's opens, another's does not"
         );
-        let src = include_str!("app.rs");
+        let src = crate::app_source::app_source();
         let layer = include_str!("link_layer.rs");
         // The app's scan and hover, and the shared frame and click the app
         // and the tap run, each read in its own fn.
@@ -2032,24 +2032,23 @@ mod tests {
             (layer, concat!("pub(crate) fn ", "frame(")),
             (layer, concat!("pub(crate) fn ", "decide<'l: 'a, 'a>(")),
         ] {
-            let body = crate::no_appkit::fn_body(src, start);
+            let body = crate::app_source::fn_body(src, start);
             assert!(body.len() > 2, "the control");
             assert!(!body.contains(concat!("host_", "name(")), "{start}");
         }
-        let (_, at_tick) = src
-            .split_once(concat!("fn link_host_", "check(&mut self) {"))
-            .expect("the driver hands the name over");
+        let (_, at_tick) =
+            crate::app_source::split_once(concat!("fn link_host_", "check(&mut self) {"))
+                .expect("the driver hands the name over");
         let (at_tick, _) = at_tick.split_once("\n    }\n").expect("its end");
         assert!(
             at_tick.contains(concat!(".hosts", ".owed()")),
             "the thread's read"
         );
-        let (_, hand) = src
-            .split_once(concat!(
-                "fn hand_host_",
-                "names(&mut self, names: Vec<String>) {"
-            ))
-            .expect("the hand");
+        let (_, hand) = crate::app_source::split_once(concat!(
+            "fn hand_host_",
+            "names(&mut self, names: Vec<String>) {"
+        ))
+        .expect("the hand");
         let (hand, _) = hand.split_once("\n    }\n").expect("its end");
         assert!(hand.contains(concat!("link::", "hand_names(")));
         assert!(hand.contains(concat!("lines.", "forget()")));
@@ -2062,7 +2061,7 @@ mod tests {
         // The click's call, through its last argument: the window's own
         // `uris`, whose host the lines took; and the shared click admits
         // against that host, in its own fn.
-        let open = crate::no_appkit::fn_body(
+        let open = crate::app_source::fn_body(
             src,
             concat!("fn open_", "link(&mut self, link: &crate::link::Under,"),
         );
@@ -2146,9 +2145,9 @@ mod tests {
         // the window's config, and scans nothing of its own; the shared
         // frame and Linux's each scan behind the config's answer, each
         // read in its own fn.
-        let body = crate::no_appkit::fn_body;
+        let body = crate::app_source::fn_body;
         let app = body(
-            include_str!("app.rs"),
+            crate::app_source::app_source(),
             concat!("    fn scan_", "lines(&mut self) {"),
         );
         assert!(
@@ -2699,7 +2698,7 @@ mod tests {
         for (name, src, init) in [
             (
                 "app.rs",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "link_config.rules.clone()",
             ),
             (
@@ -2724,7 +2723,7 @@ mod tests {
     #[test]
     fn both_drivers_draw_the_links() {
         for (name, src) in [
-            ("app.rs", include_str!("app.rs")),
+            ("app.rs", crate::app_source::app_source()),
             ("linux.rs", include_str!("linux.rs")),
         ] {
             for call in [

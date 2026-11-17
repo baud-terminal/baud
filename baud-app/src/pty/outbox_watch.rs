@@ -623,9 +623,7 @@ mod tests {
         assert_eq!(outbox.owed(), Owed::Bytes);
         outbox.let_go();
         assert_eq!(outbox.owed(), Owed::Nothing);
-        const APP: &str = include_str!("../app.rs");
-        let closed = APP
-            .split_once("    fn pump(&mut self, trigger: Trigger) {")
+        let closed = crate::app_source::split_once("    fn pump(&mut self, trigger: Trigger) {")
             .and_then(|(_, pump)| pump.split_once("if drained.stream == Stream::Closed {"))
             .and_then(|(_, arm)| arm.split_once("\n        }\n"))
             .expect("the closed stream's arm")

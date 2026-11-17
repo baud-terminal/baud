@@ -377,9 +377,7 @@ mod tests {
         t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
         assert!(selected_to_pasteboard(&t, On));
         assert!(selected_to_pasteboard(&t, Off), "?1041 is the program's");
-        let src = include_str!("app.rs");
-        let made = src
-            .split("Selected::Made => {")
+        let made = crate::app_source::split("Selected::Made => {")
             .nth(1)
             .expect("the finished selection's arm");
         let arm = &made[..made.find("Selected::").unwrap_or(made.len())];

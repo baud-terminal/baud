@@ -9214,7 +9214,7 @@ mod tests {
         for (name, src, call, resized, told, primary) in [
             (
                 "app.rs",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 concat!("self.app.pace.recuts.", "resize(&mut self.app.term, &ws)"),
                 concat!("self.app.probes.", "resized("),
                 concat!("(&rec, self.app.pace.recuts.", "last())"),
@@ -9229,8 +9229,7 @@ mod tests {
                 concat!("last_line(&self.term, ", "self.seat.counts().primary())"),
             ),
         ] {
-            let (before, after) = src
-                .split_once(call)
+            let (before, after) = crate::app_source::split_once_in(src, call)
                 .unwrap_or_else(|| panic!("{name}: the resize"));
             let opened = before.rfind("\n    fn ").expect("its function");
             let body_before = &before[opened..];

@@ -3366,14 +3366,14 @@ mod tests {
             2,
             "both inside hand_names"
         );
-        let app = include_str!("app.rs");
-        let check = crate::no_appkit::fn_body(app, concat!("fn link_host_", "check(&mut self) {"));
+        let app = crate::app_source::app_source();
+        let check = crate::app_source::fn_body(app, concat!("fn link_host_", "check(&mut self) {"));
         assert!(
             check.contains(concat!("self.hosts.", "owed()"))
                 && check.contains(concat!("self.hand_host_", "names(names)")),
             "the window hands every name it read"
         );
-        let hand = crate::no_appkit::fn_body(
+        let hand = crate::app_source::fn_body(
             app,
             concat!("fn hand_host_", "names(&mut self, names: Vec<String>) {"),
         );
@@ -5621,6 +5621,7 @@ mod tests {
     /// The text of the arm starting at `head`, through the line that closes
     /// it at `head`'s own indent, a `}` or a match arm's `},`.
     fn arm<'a>(src: &'a str, head: &str) -> &'a str {
+        let src = crate::app_source::within(src, head);
         let at = src.find(head).unwrap_or_else(|| panic!("no {head:?}"));
         let line = src[..at].rfind('\n').map_or(0, |n| n + 1);
         let indent = &src[line..at];
@@ -5645,7 +5646,7 @@ mod tests {
         let drivers = [
             (
                 "app.rs",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "OsEffect::OpenWindow",
                 "Then::Window(built) => match built {",
             ),

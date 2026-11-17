@@ -1653,7 +1653,7 @@ mod tests {
         );
         // The two halves the mouse handler tells, each acted on: the
         // seam itself is `the_driver_tells_the_locator_each_half_once`.
-        let app = include_str!("app.rs");
+        let app = crate::app_source::app_source();
         let told = concat!(
             "        let owed = tell_locator(&mut self.app.term, pointer, half, at, self.buttons);\n",
             "        self.locator_owed(owed);\n"

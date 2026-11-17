@@ -1038,7 +1038,7 @@ mod tests {
         for (file, src, hand, yields) in [
             (
                 "app.rs",
-                include_str!("app.rs"),
+                crate::app_source::app_source(),
                 "self.renderer.set_splash(splash);",
                 "self.renderer.splash_yields_to(&self.term, lift);",
             ),
@@ -1057,15 +1057,17 @@ mod tests {
         ] {
             let hands = src.matches(hand).count();
             assert!(hands > 0, "the control: {file} hands the splash");
-            for (_, after) in src.match_indices(hand).map(|(i, _)| src.split_at(i)) {
-                let next = after[hand.len()..]
-                    .find("set_splash(")
-                    .map_or(after.len(), |e| e + hand.len());
-                assert!(
-                    after[..next].contains(yields),
-                    "{file}: a splash handed and not yielded: {}",
-                    &after[..next.min(400)]
-                );
+            for text in crate::app_source::texts(src) {
+                for (_, after) in text.match_indices(hand).map(|(i, _)| text.split_at(i)) {
+                    let next = after[hand.len()..]
+                        .find("set_splash(")
+                        .map_or(after.len(), |e| e + hand.len());
+                    assert!(
+                        after[..next].contains(yields),
+                        "{file}: a splash handed and not yielded: {}",
+                        &after[..next.min(400)]
+                    );
+                }
             }
         }
     }
