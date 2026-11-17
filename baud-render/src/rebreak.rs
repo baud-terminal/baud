@@ -786,6 +786,9 @@ pub(crate) fn line_styles<'t>(
 pub struct Breaker {
     bidi: Box<Bidi<{ crate::CONTEXT }>>,
     last: Option<kept::Laid>,
+    /// Whether the last ask's window had a finished row that wraps, kept
+    /// with the seal its marks were read under.
+    gate: Option<kept::Gate>,
     /// What the asks did, for the tests in this file, which run without the
     /// `counters` feature: counted from the same numbers as the counters.
     #[cfg(test)]
@@ -797,9 +800,20 @@ impl Default for Breaker {
         Breaker {
             bidi: Box::new(Bidi::new()),
             last: None,
+            gate: None,
             #[cfg(test)]
             asked: kept::Asked::default(),
         }
+    }
+}
+
+impl Breaker {
+    /// `n` wrap marks read by the gate, counted for the tests in this file.
+    fn marks_read(&mut self, n: Tally) {
+        #[cfg(test)]
+        self.asked.marks.add(n);
+        #[cfg(not(test))]
+        let _ = n;
     }
 }
 
@@ -904,15 +918,6 @@ pub(crate) fn lay_out(
     if fin_end == 0 {
         return None;
     }
-    let above_wraps = || {
-        let up = Rows::of_index(back.index() + 1);
-        term.looking_back(up) == up && term.view(up).wrapped(Row::ZERO) == Wrap::Continues
-    };
-    let any =
-        (0..fin_end).any(|y| vp.wrapped(Row::from_index(y)) == Wrap::Continues) || above_wraps();
-    if !any {
-        return None;
-    }
     let top_of_history = {
         let up = Rows::of_index(back.index() + 1);
         term.looking_back(up) != up
@@ -933,6 +938,9 @@ pub(crate) fn lay_out(
             false => Top::Below,
         },
     };
+    if finished_wraps(term, &vp, key, Rows::of_index(fin_end), work) == kept::Wraps::No {
+        return None;
+    }
     // **The last layout, where no row it read was written since the seal
     // it was read under** ([`kept::Laid::answer`]): four compares while no
     // surface was written, one generation a row read while one was. A
@@ -969,6 +977,41 @@ pub(crate) fn lay_out(
     };
     work.last = Some(kept::Laid::new(term, key, reach, shown.clone()));
     shown
+}
+
+/// **Whether a finished row of the window `key` names, the first
+/// `fin_end`, or the row above the window, continues onto the next**: the
+/// answer the last ask kept, where it was read for `key` and no surface
+/// was written since the seal it was read under ([`kept::Gate`]), so such
+/// an ask reads no wrap mark. Otherwise the marks are read top down until
+/// one continues, then the row above where the history holds it, and the
+/// answer is kept under `term.sealed()`.
+fn finished_wraps(
+    term: &Term<'_>,
+    vp: &Viewport<'_>,
+    key: kept::Key,
+    fin_end: Rows,
+    work: &mut Breaker,
+) -> kept::Wraps {
+    if let Some(wraps) = work.gate.as_ref().and_then(|g| g.answer(term, &key)) {
+        return wraps;
+    }
+    let fin = fin_end.index();
+    let found = (0..fin).position(|y| vp.wrapped(Row::from_index(y)) == Wrap::Continues);
+    let (wraps, read) = match (found, key.top) {
+        (Some(y), _) => (kept::Wraps::Yes, y + 1),
+        (None, Top::Below) => {
+            let up = Rows::of_index(key.back.index() + 1);
+            match term.view(up).wrapped(Row::ZERO) {
+                Wrap::Continues => (kept::Wraps::Yes, fin + 1),
+                Wrap::Ended => (kept::Wraps::No, fin + 1),
+            }
+        }
+        (None, Top::First) => (kept::Wraps::No, fin),
+    };
+    work.marks_read(Tally::of(read));
+    work.gate = Some(kept::Gate::new(term, key, wraps));
+    wraps
 }
 
 /// **One finished paragraph drawn at its words, alone**: its stored rows,
@@ -1737,6 +1780,45 @@ mod kept {
         Again,
     }
 
+    /// Whether a finished row of the window, or the row above it,
+    /// continues onto the next.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) enum Wraps {
+        Yes,
+        No,
+    }
+
+    /// **The last ask's [`Wraps`]**: the key it was read for, and the seal
+    /// its marks were read under.
+    pub(super) struct Gate {
+        key: Key,
+        under: Seal,
+        wraps: Wraps,
+    }
+
+    impl Gate {
+        /// An answer just read for `key`, its marks read under
+        /// `term.sealed()`.
+        pub(super) fn new(term: &Term<'_>, key: Key, wraps: Wraps) -> Gate {
+            Gate {
+                key,
+                under: term.sealed(),
+                wraps,
+            }
+        }
+
+        /// **The kept answer, where it holds for `key` now**: the same key,
+        /// and no surface written since the seal it was read under. A mark
+        /// is stored only with its row's generation, so a mark set or
+        /// cleared since reads as written. A store since the frame's last
+        /// seal carries the open generation, which that seal does not
+        /// cover, so an answer read before the frame seals is read again
+        /// after it.
+        pub(super) fn answer(&self, term: &Term<'_>, key: &Key) -> Option<Wraps> {
+            (self.key == *key && !term.wrote_since(&self.under)).then_some(self.wraps)
+        }
+    }
+
     /// Whether a row a layout read was written after its seal.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     enum Written {
@@ -1843,12 +1925,14 @@ mod kept {
     /// run without the `counters` feature: the layouts made past the cache
     /// and the rows whose generation a key read, counted from the numbers
     /// [`crate::counters::Counter::DisplaysLaid`] and
-    /// [`crate::counters::Counter::GensRead`] are counted from.
+    /// [`crate::counters::Counter::GensRead`] are counted from, and the
+    /// wrap marks the gate read (`finished_wraps`).
     #[cfg(test)]
     #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
     pub(super) struct Asked {
         pub(super) laid: Tally,
         pub(super) gens: Tally,
+        pub(super) marks: Tally,
     }
 }
 
@@ -1939,6 +2023,19 @@ mod tests {
             b.asked.laid.value() - then.laid.value(),
             b.asked.gens.value() - then.gens.value(),
         )
+    }
+
+    /// The wrap marks `b`'s asks read since `then`.
+    fn marks(b: &Breaker, then: kept::Asked) -> Tally {
+        Tally::of(usize::try_from(b.asked.marks.value() - then.marks.value()).unwrap_or(usize::MAX))
+    }
+
+    /// One ask of `b` for the window `back` lines up: the wrap marks it
+    /// read, and its answer.
+    fn ask_at(t: &Term<'_>, b: &mut Breaker, back: Rows) -> (Tally, Option<Rc<Display>>) {
+        let then = b.asked;
+        let shown = lay_out(t, back, WordWrap::On, b);
+        (marks(b, then), shown)
     }
 
     /// One ask of `b` for the live window, as a frame's readers ask it:
@@ -2101,5 +2198,146 @@ mod tests {
             let after = after.expect("the display is held");
             assert!(Rc::ptr_eq(&before, &after), "the display kept");
         });
+    }
+
+    /// **U6: a frame with nothing written reads no wrap mark**: after the
+    /// held screen's first frame, every frame's four asks answer the gate
+    /// from the seal. The control: a breaker that has asked nothing reads
+    /// the marks down to the first that continues, the paragraph's first
+    /// row, the window's third. Named break: the gate read on every ask,
+    /// three marks an ask, twelve a frame.
+    #[test]
+    fn a_frame_with_nothing_written_reads_no_wrap_mark() {
+        let mut owned = Owned::new(&WS);
+        laid_out(&mut owned, "", |t, b| {
+            for k in 2..=4 {
+                let then = b.asked;
+                let (_, shown) = frame(t, b);
+                assert!(shown.is_some(), "frame {k}: the display is held");
+                assert_eq!(marks(b, then), Tally::ZERO, "frame {k}");
+            }
+            let mut fresh = Breaker::default();
+            let (read, shown) = ask_at(t, &mut fresh, Rows::ZERO);
+            assert!(shown.is_some(), "the control: the display is held");
+            assert_eq!(
+                read,
+                Tally::of(3),
+                "the control: a fresh breaker reads the marks"
+            );
+        });
+    }
+
+    /// **U7: a wrap mark set on a finished row between asks is read**: on
+    /// a screen whose finished rows do not wrap, the first frame reads
+    /// every finished row's mark and holds no display, and the frame after
+    /// reads none; then a line written past a finished row's edge sets its
+    /// mark, and the next ask, before the frame seals, reads the marks
+    /// down to it and lays the display out; the frame after reads them
+    /// once more, under its seal, and the one after that reads none. The
+    /// isolation: the written row continues, and did not before. Named
+    /// break: an answer kept past a write, which holds no display and
+    /// draws the row as stored.
+    #[test]
+    fn a_wrap_mark_set_between_asks_is_read() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"\x1b[2$~\x1b[3;1Hshort\x1b[10;1H\x1b]133;A\x07");
+        let mut b = Breaker::default();
+        let then = b.asked;
+        assert!(frame(&mut t, &mut b).1.is_none(), "no finished row wraps");
+        assert_eq!(
+            marks(&b, then),
+            Tally::of(9),
+            "the first frame reads every finished row's mark"
+        );
+        let then = b.asked;
+        assert!(
+            frame(&mut t, &mut b).1.is_none(),
+            "the frame after: no display"
+        );
+        assert_eq!(
+            marks(&b, then),
+            Tally::ZERO,
+            "the frame after reads no mark"
+        );
+        let row = Row::from_index(4);
+        assert!(
+            t.view(Rows::ZERO).wrapped(row) == Wrap::Ended,
+            "before the write"
+        );
+        feed(
+            &mut t,
+            b"\x1b[5;1Hthe write sets a wrap mark across the finished row",
+        );
+        assert!(
+            t.view(Rows::ZERO).wrapped(row) == Wrap::Continues,
+            "the isolation: the written row continues"
+        );
+        let (read, shown) = ask_at(&t, &mut b, Rows::ZERO);
+        assert!(
+            shown.is_some(),
+            "the ask before the seal lays the display out"
+        );
+        assert_eq!(
+            read,
+            Tally::of(5),
+            "the ask before the seal reads the marks down to the row"
+        );
+        let then = b.asked;
+        assert!(
+            frame(&mut t, &mut b).1.is_some(),
+            "the frame after the write"
+        );
+        assert_eq!(
+            marks(&b, then),
+            Tally::of(5),
+            "the frame after the write reads them under its seal"
+        );
+        let then = b.asked;
+        assert!(frame(&mut t, &mut b).1.is_some(), "the frame after that");
+        assert_eq!(
+            marks(&b, then),
+            Tally::ZERO,
+            "the frame after that reads none"
+        );
+    }
+
+    /// **U8: a window moved reads the marks again**: on the held screen
+    /// with history above it, after the live window's frame, the window
+    /// one line back reads the marks, the next ask of it reads none, and
+    /// the live window asked again reads them again: the gate keeps one
+    /// window's answer. The isolation: the history holds the line above
+    /// the live window. Named break: an answer kept for another window,
+    /// which reads a moved window's wraps as the last one's.
+    #[test]
+    fn a_window_moved_reads_the_marks_again() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, &held(&"\r\n".repeat(12)));
+        let one = Rows::of_index(1);
+        assert!(
+            t.looking_back(one) == one,
+            "the isolation: history above the window"
+        );
+        let mut b = Breaker::default();
+        assert!(
+            frame(&mut t, &mut b).1.is_some(),
+            "the control: the live window is held"
+        );
+        let (read, shown) = ask_at(&t, &mut b, one);
+        assert!(shown.is_some(), "the window one line back is held");
+        assert_ne!(read, Tally::ZERO, "the window moved reads the marks");
+        assert_eq!(
+            ask_at(&t, &mut b, one).0,
+            Tally::ZERO,
+            "the next ask of it reads none"
+        );
+        let (read, shown) = ask_at(&t, &mut b, Rows::ZERO);
+        assert!(shown.is_some(), "the live window is held");
+        assert_eq!(
+            read,
+            Tally::of(3),
+            "the live window asked again reads them again"
+        );
     }
 }
