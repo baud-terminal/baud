@@ -230,6 +230,70 @@ enum Draws {
     Colour,
 }
 
+/// Whether some strike of a face holds an image for a glyph.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Image {
+    Held,
+    Absent,
+}
+
+impl Image {
+    /// The walk over every strike, [`Face::has_bitmap`]: what
+    /// [`Stack::select_presented`] asks, the reference [`Struck`] equals.
+    fn walked(f: &Face<'_>, g: GlyphId) -> Image {
+        match f.has_bitmap(g) {
+            true => Image::Held,
+            false => Image::Absent,
+        }
+    }
+}
+
+/// **Which glyphs of a face some bitmap strike holds an image for**, a bit
+/// per glyph below the face's `maxp` count: [`Face::has_bitmap`] at every
+/// glyph, where an id at or past that count is held by no strike of either
+/// `sbix` or `CBLC`. Built once per [`FaceTable`], strike by strike, each
+/// strike asked only for the glyphs no earlier one holds, so deciding a
+/// block tests a bit where the walk reads every strike that lacks the
+/// glyph. A face with no strikes holds no word and allocates nothing.
+struct Struck {
+    words: Box<[u64]>,
+}
+
+impl Struck {
+    fn of(f: &Face<'_>) -> Struck {
+        let strikes = f.strikes();
+        if !strikes.holds(baud_font::bytes::Index::ZERO) {
+            return Struck {
+                words: Box::default(),
+            };
+        }
+        let glyphs = f.glyph_count().value();
+        let mut words = vec![0u64; usize::from(glyphs).div_ceil(64)].into_boxed_slice();
+        let mut i = baud_font::bytes::Index::ZERO;
+        while strikes.holds(i) {
+            if let Some(baud_font::StrikeState::Read(s)) = f.strike(i) {
+                for g in (0..glyphs).map(GlyphId::from_shaper) {
+                    let (word, bit) = (g.index() / 64, 1u64 << (g.index() % 64));
+                    if let Some(w) = words.get_mut(word) {
+                        if *w & bit == 0 && f.bitmap_in(s, g).is_some() {
+                            *w |= bit;
+                        }
+                    }
+                }
+            }
+            i = i.next();
+        }
+        Struck { words }
+    }
+
+    fn image(&self, g: GlyphId) -> Image {
+        match self.words.get(g.index() / 64) {
+            Some(w) if w & (1u64 << (g.index() % 64)) != 0 => Image::Held,
+            _ => Image::Absent,
+        }
+    }
+}
+
 /// The face every codepoint is drawn from, per style and presentation:
 /// [`Stack::select_presented`] as a lookup (`Stack::table`). Two stages: a
 /// block of 256 codepoints names a row, and identical rows are stored once,
@@ -257,6 +321,9 @@ pub struct FaceTable {
     /// cell drawn with one again pays a bit test: made at the first miss.
     gaps: Vec<Codepoint>,
     met: Vec<u64>,
+    /// Per face, by place, the glyphs its strikes hold images for: what
+    /// deciding a block asks in place of [`Face::has_bitmap`].
+    struck: Vec<Struck>,
 }
 
 impl FaceTable {
@@ -270,7 +337,7 @@ impl FaceTable {
     /// at most 255 faces, so no face is numbered 255.
     const NOBODY: u8 = u8::MAX;
 
-    fn empty(proposed: Vec<Vec<u8>>) -> FaceTable {
+    fn empty(proposed: Vec<Vec<u8>>, struck: Vec<Struck>) -> FaceTable {
         FaceTable {
             blocks: vec![FaceTable::UNFILLED; FaceTable::COMBOS * FaceTable::BLOCKS],
             rows: Vec::new(),
@@ -281,7 +348,15 @@ impl FaceTable {
             refused: Tally::default(),
             gaps: Vec::new(),
             met: Vec::new(),
+            struck,
         }
+    }
+
+    /// Whether a strike of face `ix` holds an image for `g`, by the index.
+    fn image(&self, ix: FaceIx, g: GlyphId) -> Image {
+        self.struck
+            .get(ix.index())
+            .map_or(Image::Absent, |s| s.image(g))
     }
 
     /// **The characters no face draws that cells were drawn with since the
@@ -823,7 +898,7 @@ impl<'f, 'a> Stack<'f, 'a> {
     fn carries(&self, ix: FaceIx, c: Codepoint) -> Draws {
         let f = self.face(ix);
         match f.glyph(c) {
-            Some(g) => drawing(f, g),
+            Some(g) => drawing(f, g, || Image::walked(f, g)),
             None if baud_font::decompose(c).is_some() && Normalised::comes_apart(f, c) => {
                 Draws::Text
             }
@@ -910,7 +985,8 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// of CJK. A character no face draws is entered as no face's, which
     /// the lookup turns into the primary's `.notdef` and lists
     /// ([`FaceTable::take_gaps`]); a block no face proposes and where
-    /// nothing comes apart is all such characters.
+    /// nothing comes apart is all such characters. Each face with bitmap
+    /// strikes has its images indexed here, once (`Struck`).
     pub fn table(&self) -> FaceTable {
         let mut proposed: Vec<Vec<u8>> = vec![Vec::new(); FaceTable::BLOCKS];
         for (i, face) in self.answering() {
@@ -941,7 +1017,8 @@ impl<'f, 'a> Stack<'f, 'a> {
                 }
             }
         });
-        let mut t = FaceTable::empty(proposed);
+        let struck = self.faces.iter().map(Struck::of).collect();
+        let mut t = FaceTable::empty(proposed, struck);
         let row = t.intern([FaceTable::NOBODY; 256]);
         t.idle = [row.0; FaceTable::COMBOS];
         for (blk, decomposes) in decomposing.into_iter().enumerate() {
@@ -986,7 +1063,7 @@ impl<'f, 'a> Stack<'f, 'a> {
                 let (draw, gone) = match cp.and_then(|c| f.glyph(c)) {
                     None => (Draws::No, false),
                     Some(g) => {
-                        let d = drawing(f, g);
+                        let d = drawing(f, g, || t.image(FaceIx(i), g));
                         (d, d == Draws::No)
                     }
                 };
@@ -1023,9 +1100,12 @@ impl<'f, 'a> Stack<'f, 'a> {
                         base = a;
                     }
                     for (i, f) in self.answering() {
-                        d[i] = *leaves
-                            .entry((i, base.value()))
-                            .or_insert_with(|| f.glyph(base).map_or(Draws::No, |g| drawing(f, g)));
+                        d[i] = *leaves.entry((i, base.value())).or_insert_with(|| {
+                            f.glyph(base).map_or(Draws::No, |g| {
+                                let held = || t.struck.get(i).map_or(Image::Absent, |s| s.image(g));
+                                drawing(f, g, held)
+                            })
+                        });
                     }
                 }
                 d
@@ -1109,16 +1189,17 @@ impl<'f, 'a> Stack<'f, 'a> {
 /// whose own outline has data is text: the atlas draws that outline, as
 /// the `COLR` text allows ("If the base glyph ID has an outline, that may
 /// be rendered as a non-color glyph instead",
-/// `[[source: ms-opentype-colr]]`). The layers are looked up first,
-/// so a glyph with none pays the strike walk and the outline test it paid
-/// before a budget was tested.
-fn drawing(f: &Face<'_>, g: GlyphId) -> Draws {
+/// `[[source: ms-opentype-colr]]`). The layers are looked up first, then
+/// `image`, whether a strike holds an image for `g`: the table's index
+/// when a block is decided ([`Struck`]), the walk over every strike for
+/// [`Stack::select_presented`].
+fn drawing(f: &Face<'_>, g: GlyphId, image: impl FnOnce() -> Image) -> Draws {
     let budget = Count::of(VAR_POINTS_MAX);
     match f.layers(g) {
         Some(layers) if layers.into_iter().all(|l| !f.refuses_past(l.glyph, budget)) => {
             Draws::Colour
         }
-        _ if f.has_bitmap(g) => Draws::Colour,
+        _ if image() == Image::Held => Draws::Colour,
         _ if f.refuses_past(g, budget) => Draws::No,
         Some(_) if !f.has_outline(g) => Draws::No,
         _ => Draws::Text,
@@ -1402,5 +1483,144 @@ mod tests {
         for s in FaceStyle::ALL {
             assert_eq!(FaceStyle::from_code(s.code()), s);
         }
+    }
+
+    /// A font of `baud-font`'s test fixtures.
+    fn fixture(name: &str) -> Vec<u8> {
+        std::fs::read(format!(
+            "{}/../baud-font/tests/fonts/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap_or_else(|e| panic!("{name}: {e}"))
+    }
+
+    /// **The table's strike index is [`Face::has_bitmap`] at every glyph
+    /// id** of every face of the stack: a text face with no strikes, a
+    /// `CBLC` face, the `sbix` fixture (whose glyph 16 has only images that
+    /// do not decode, and is held), and, on macOS, Apple Color Emoji, whose
+    /// 20 ppem strike lacks glyphs later strikes hold -- the pink heart
+    /// U+1FA77 among them. Every id to 65,535 is asked, past each face's
+    /// glyph count too.
+    #[test]
+    fn the_strike_index_is_has_bitmap_at_every_glyph() {
+        let mut files = vec![
+            font("jetbrains-mono/JetBrainsMono-Regular.ttf"),
+            fixture("NotoColorEmoji-subset.ttf"),
+            fixture("sbix-strikes.ttf"),
+        ];
+        let apple = cfg!(target_os = "macos");
+        if apple {
+            files.push(std::fs::read("/System/Library/Fonts/Apple Color Emoji.ttc").unwrap());
+        }
+        let faces: Vec<Face<'_>> = files
+            .iter()
+            .map(|d| Face::parse_index(d, baud_font::FaceIndex::FIRST).unwrap())
+            .collect();
+        let s = Stack::new(&faces).unwrap();
+        let t = s.table();
+        assert_eq!(t.struck.len(), faces.len());
+        for (ix, f) in faces.iter().enumerate() {
+            let mut held = 0usize;
+            for g in (0..=u16::MAX).map(GlyphId::from_shaper) {
+                let want = Image::walked(f, g);
+                assert_eq!(
+                    t.struck[ix].image(g),
+                    want,
+                    "face {ix}, glyph {}",
+                    g.index()
+                );
+                held += usize::from(want == Image::Held);
+            }
+            let glyphs = usize::from(f.glyph_count().value());
+            match ix {
+                0 => {
+                    assert_eq!(held, 0, "the text face holds no image");
+                    assert!(t.struck[ix].words.is_empty(), "and no word");
+                }
+                _ => {
+                    assert!(held > 0, "control: face {ix} holds images");
+                    assert!(held <= glyphs, "face {ix}: no image past the glyph count");
+                    assert_eq!(t.struck[ix].words.len(), glyphs.div_ceil(64));
+                }
+            }
+        }
+        assert_eq!(
+            t.struck[2].image(GlyphId::from_shaper(16)),
+            Image::Held,
+            "the sbix glyph whose every image is unreadable"
+        );
+        if apple {
+            let heart = faces[3].glyph(Codepoint::new(0x1FA77).unwrap()).unwrap();
+            assert_eq!(t.struck[3].image(heart), Image::Held, "the heart");
+            assert!(
+                (0..faces[3].glyph_count().value())
+                    .map(GlyphId::from_shaper)
+                    .any(|g| t.struck[3].image(g) == Image::Absent),
+                "control: Apple Color Emoji has glyphs no strike holds"
+            );
+        }
+    }
+
+    /// **Deciding a block reads the strike index and no strike.** Two
+    /// probes, each against an untouched table as its control. A colour
+    /// face whose index is emptied is no longer colour: with two copies of
+    /// the `CBLC` face, colour presentation moves from the first to the
+    /// second, which a decision that also walked the strikes would not do.
+    /// A text face whose index is filled is colour: with two copies of
+    /// JetBrains Mono, colour presentation of `a` moves to the second,
+    /// which a decision that also required a strike's image would not do.
+    #[test]
+    fn deciding_a_block_reads_the_strike_index_and_no_strike() {
+        let jbm = font("jetbrains-mono/JetBrainsMono-Regular.ttf");
+        let noto = fixture("NotoColorEmoji-subset.ttf");
+        let faces = [
+            Face::parse(&jbm).unwrap(),
+            Face::parse(&noto).unwrap(),
+            Face::parse(&noto).unwrap(),
+        ];
+        let c = (0x2300..=0x23FF)
+            .filter_map(Codepoint::new)
+            .find(|&c| {
+                faces[0].glyph(c).is_none()
+                    && faces[1].glyph(c).is_some_and(|g| faces[1].has_bitmap(g))
+            })
+            .expect("control: the subset holds an emoji the text face lacks");
+        let s = Stack::new(&faces).unwrap();
+        let (style, colour) = (FaceStyle::Regular, Presentation::Colour);
+        assert_eq!(
+            s.select_presented(c, style, colour),
+            FaceIx(1),
+            "the reference"
+        );
+        let mut kept = s.table();
+        assert_eq!(kept.face(&s, c, style, colour), FaceIx(1), "control");
+        let mut emptied = s.table();
+        emptied.struck[1] = Struck {
+            words: Box::default(),
+        };
+        assert_eq!(
+            emptied.face(&s, c, style, colour),
+            FaceIx(2),
+            "an emptied index is no image, whatever the strikes hold"
+        );
+
+        let text = [Face::parse(&jbm).unwrap(), Face::parse(&jbm).unwrap()];
+        let s = Stack::new(&text).unwrap();
+        assert_eq!(
+            s.select_presented(cp('a'), style, colour),
+            FaceIx(0),
+            "the reference"
+        );
+        let mut kept = s.table();
+        assert_eq!(kept.face(&s, cp('a'), style, colour), FaceIx(0), "control");
+        let mut filled = s.table();
+        filled.struck[1] = Struck {
+            words: vec![u64::MAX; 1024].into_boxed_slice(),
+        };
+        assert_eq!(
+            filled.face(&s, cp('a'), style, colour),
+            FaceIx(1),
+            "a filled index is an image, though the face has no strike"
+        );
     }
 }
