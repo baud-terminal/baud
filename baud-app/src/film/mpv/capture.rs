@@ -117,8 +117,8 @@ impl Rgb {
 pub fn faint(
     frame: &[u32],
     Pixels(fw): Pixels,
-    (x0, y0): (usize, usize),
-    (w, h): (usize, usize),
+    (Pixels(x0), Pixels(y0)): (Pixels, Pixels),
+    (Pixels(w), Pixels(h)): (Pixels, Pixels),
     rgb: &[u8],
 ) -> (usize, usize) {
     let (mut bright, mut faint) = (0, 0);

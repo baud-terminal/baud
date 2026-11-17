@@ -37,6 +37,7 @@ use crate::programs::{Answered, Shorts, Under};
 use crate::seat::{Geometry, Input};
 use baud_core::Term;
 use baud_domain::{BytePos, HostTime};
+use baud_font::Px;
 use baud_render::{Activity, ByLed, Led, Light, Pace, Shown};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -304,8 +305,8 @@ impl<'a> Player<'a> {
                     let centre = middle(
                         g,
                         (
-                            f64::from(g.grid.1) / 2.0 - 0.5,
-                            f64::from(g.grid.0) / 2.0 - 0.5,
+                            f64::from(g.grid.rows) / 2.0 - 0.5,
+                            f64::from(g.grid.cols) / 2.0 - 0.5,
                         ),
                     );
                     let ms = |d: u64| now + Duration::from_millis(d);
@@ -1088,11 +1089,11 @@ fn the_readme_session_lights_every_light() {
     let mut frame_steps: Vec<Option<usize>> = Vec::new();
     // Each frame's step and whether its cursor was drawn short of whole.
     let mut blinked: Vec<(Option<usize>, bool)> = Vec::new();
-    let mut size = (0, 0);
+    let mut size = (Px::of(0), Px::of(0));
     let mut last: Option<Shot> = None;
     let mut written = 0;
     // The last frame of the hold `i`, named for the step it follows.
-    let mut still = |i: usize, px: &[u32], size: (u32, u32)| {
+    let mut still = |i: usize, px: &[u32], size: (Px, Px)| {
         let (Some(dir), Step::Hold(_)) = (&stills, steps[i]) else {
             return;
         };
@@ -1124,7 +1125,7 @@ fn the_readme_session_lights_every_light() {
             super::chrome::Strip::new(fr.size.0, f64::from(super::SCALE), crate::version::BUILD)
         });
         s.compose(fr.lights, fr.pixels, &mut window);
-        let px = (fr.size.0.value(), fr.size.1.value() + s.height().value());
+        let px = (fr.size.0, Px::of(fr.size.1.value() + s.height().value()));
         if let Some(to) = &film_to {
             let e = encoder.get_or_insert_with(|| {
                 size = px;
@@ -1466,7 +1467,8 @@ fn trail_as(
 /// the fireworks' (their request typed to the `exit` after it) and the
 /// clear's, the saucer's flight among it (to the end), a `name first last`
 /// line each after the film's `size W H` and `rate R`.
-fn shots(steps: &[Step], frames: &[Option<usize>], (w, h): (u32, u32), period: Duration) -> String {
+fn shots(steps: &[Step], frames: &[Option<usize>], size: (Px, Px), period: Duration) -> String {
+    let (w, h) = (size.0.value(), size.1.value());
     let at = |want: Step| steps.iter().position(|s| *s == want);
     let ranges = [
         (
@@ -1721,10 +1723,11 @@ fn a_name_is_found_whatever_its_case() {
 /// An encoder of every frame, lossless, into `to`.
 fn lossless(
     ffmpeg: &std::ffi::OsString,
-    (w, h): (u32, u32),
+    size: (Px, Px),
     period: Duration,
     to: &std::path::Path,
 ) -> std::process::Child {
+    let (w, h) = (size.0.value(), size.1.value());
     let rate = Duration::from_secs(1).as_millis() / period.as_millis();
     std::process::Command::new(ffmpeg)
         .args(["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgra"])
@@ -1738,11 +1741,12 @@ fn lossless(
 }
 
 /// A frame kept for a still: the step it was in, its pixels and its size.
-type Shot = (Option<usize>, Vec<u32>, (u32, u32));
+type Shot = (Option<usize>, Vec<u32>, (Px, Px));
 
 /// One frame of premultiplied `0xAARRGGBB`, opaque, as a PNG at `to`.
-fn png(ffmpeg: &std::ffi::OsString, px: &[u32], (w, h): (u32, u32), to: &std::path::Path) {
+fn png(ffmpeg: &std::ffi::OsString, px: &[u32], size: (Px, Px), to: &std::path::Path) {
     use std::io::Write as _;
+    let (w, h) = (size.0.value(), size.1.value());
     let mut e = std::process::Command::new(ffmpeg)
         .args(["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgra"])
         .args([
@@ -1777,9 +1781,9 @@ fn png(ffmpeg: &std::ffi::OsString, px: &[u32], (w, h): (u32, u32), to: &std::pa
 fn a_cell_is_in_its_place_in_the_grid() {
     use steps::Cell;
     let g = Geometry {
-        pad: (4, 2),
+        pad: (Px::of(4), Px::of(2)),
         cell: (10.0, 20.0),
-        grid: (80, 24),
+        grid: crate::width::Grid { cols: 80, rows: 24 },
         scale: 1.0,
     };
     assert_eq!(

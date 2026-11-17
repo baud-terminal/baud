@@ -75,8 +75,8 @@ pub(crate) fn over_at(
     at: (f64, f64),
     scale: f64,
     cell: (f64, f64),
-    grid: (u16, u16),
-    pad: (u32, u32),
+    grid: crate::width::Grid,
+    pad: (Px, Px),
     status: Rows,
 ) -> Over {
     let index = |p: f64, pad: u32, cell: f64| {
@@ -86,10 +86,13 @@ pub(crate) fn over_at(
             false => None,
         }
     };
-    let (Some(col), Some(row)) = (index(at.0, pad.0, cell.0), index(at.1, pad.1, cell.1)) else {
+    let (Some(col), Some(row)) = (
+        index(at.0, pad.0.value(), cell.0),
+        index(at.1, pad.1.value(), cell.1),
+    ) else {
         return Over::Elsewhere;
     };
-    let (cols, rows) = (usize::from(grid.0), usize::from(grid.1));
+    let (cols, rows) = (usize::from(grid.cols), usize::from(grid.rows));
     match (col < cols, row) {
         (false, _) => Over::Elsewhere,
         (true, r) if r < rows => Over::Main(Row::from_index(r), Col::at_index(col)),
@@ -654,7 +657,14 @@ mod tests {
     fn the_cell_under_a_point_counts_the_lines_row() {
         let (one, none) = (Rows::of_count(1), Rows::ZERO);
         let g = |x: f64, y: f64, status: Rows| {
-            over_at((x, y), 1.0, (8.0, 17.0), (80, 24), (0, 0), status)
+            over_at(
+                (x, y),
+                1.0,
+                (8.0, 17.0),
+                crate::width::Grid { cols: 80, rows: 24 },
+                (Px::of(0), Px::of(0)),
+                status,
+            )
         };
         assert_eq!(
             g(61.0 * 8.0, 23.0 * 17.0, one),
@@ -681,8 +691,8 @@ mod tests {
             (488.0 / 2.0, (4.0 + 24.0 * 34.0) / 2.0),
             2.0,
             (16.0, 34.0),
-            (80, 24),
-            (0, 4),
+            crate::width::Grid { cols: 80, rows: 24 },
+            (Px::of(0), Px::of(4)),
             one,
         );
         assert_eq!(at2, Over::Line(Col::at_index(30)));
@@ -883,8 +893,8 @@ mod tests {
             (p.0 / 2.0, p.1 / 2.0),
             2.0,
             (16.0, 34.0),
-            (80, 24),
-            (0, line.origin.1.value()),
+            crate::width::Grid { cols: 80, rows: 24 },
+            (Px::of(0), line.origin.1),
             t.status_rows(),
         );
         tip.update_at(t, over, Some(p))
@@ -1130,8 +1140,8 @@ mod tests {
                 (p.0 / 2.0, p.1 / 2.0),
                 2.0,
                 (16.0, 34.0),
-                (80, 24),
-                (0, 20),
+                crate::width::Grid { cols: 80, rows: 24 },
+                (Px::of(0), Px::of(20)),
                 t.status_rows(),
             )
         };

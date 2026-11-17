@@ -4527,11 +4527,16 @@ mod named {
         assert_eq!(c.resolve(&jetbrains()).len(), 2);
     }
 
+    /// A `name` record's nameID, as the table stores it.
+    #[derive(Clone, Copy)]
+    #[repr(transparent)]
+    struct NameRecord(u16);
+
     /// JetBrains Mono's file `file` with its `name` table replaced by one
     /// holding `names` (nameID, string) as Windows English (United States)
     /// records, appended and pointed at, as `baud-font/tests/name.rs`
     /// splices one; every other table is the file's own.
-    fn renamed(file: &str, names: &[(u16, &str)]) -> Vec<u8> {
+    fn renamed(file: &str, names: &[(NameRecord, &str)]) -> Vec<u8> {
         let mut f = std::fs::read(format!("{ROOT}/baud-app/fonts/jetbrains-mono/{file}")).unwrap();
         let n = u16::try_from(names.len()).unwrap();
         let mut table = Vec::new();
@@ -4539,7 +4544,7 @@ mod named {
         for v in [0, n, 6 + 12 * n] {
             table.extend_from_slice(&v.to_be_bytes());
         }
-        for &(id, s) in names {
+        for &(NameRecord(id), s) in names {
             let s: Vec<u8> = s.encode_utf16().flat_map(u16::to_be_bytes).collect();
             let len = u16::try_from(s.len()).unwrap();
             let off = u16::try_from(store.len()).unwrap();
@@ -4612,7 +4617,13 @@ mod named {
                 "SplitMono-BoldItalic",
             ),
         ] {
-            let names = [(1, n1), (2, n2), (4, n4), (6, n6), (16, "Split Mono")];
+            let names = [
+                (NameRecord(1), n1),
+                (NameRecord(2), n2),
+                (NameRecord(4), n4),
+                (NameRecord(6), n6),
+                (NameRecord(16), "Split Mono"),
+            ];
             std::fs::write(dir.join(out), renamed(from, &names)).unwrap();
         }
         let cat = Catalogue::scan(std::slice::from_ref(&dir));

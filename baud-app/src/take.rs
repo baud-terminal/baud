@@ -114,7 +114,14 @@ struct Open {
     /// Whether the last frame drew a placement.
     pictures: Drew,
     /// Each lamp's state as last seen, by its letters.
-    lamps: Vec<(&'static str, bool)>,
+    lamps: Vec<(&'static str, Lamp)>,
+}
+
+/// **Whether a lamp is lit**, as a take's row writes it: `on` or `off`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Lamp {
+    Off,
+    On,
 }
 
 /// **Whether a frame drew a thing**: a trail, or a placement.
@@ -264,8 +271,9 @@ impl Take {
         };
     }
 
-    /// The frame was committed; `cursor` is the cursor's centre in it.
-    pub(crate) fn committed(&mut self, cursor: impl FnOnce() -> (i64, i64)) {
+    /// The frame was committed; `cursor` is the cursor's centre in it, a
+    /// [`Pos::At`].
+    pub(crate) fn committed(&mut self, cursor: impl FnOnce() -> Pos) {
         let Some(j) = self.on.as_mut() else { return };
         if j.queued.is_empty() {
             return;
@@ -273,7 +281,7 @@ impl Take {
         let at = cursor();
         for mut n in std::mem::take(&mut j.queued) {
             if n.pos == Pos::Cursor {
-                n.pos = Pos::At(at.0, at.1);
+                n.pos = at;
             }
             j.committed.push(n);
         }
@@ -304,7 +312,7 @@ impl Take {
     /// lit: a lamp that changed is a row at `now`, written at once.
     pub(crate) fn lamps(
         &mut self,
-        lamps: impl FnOnce() -> Vec<(&'static str, bool)>,
+        lamps: impl FnOnce() -> Vec<(&'static str, Lamp)>,
         now: impl FnOnce() -> HostTime,
     ) {
         let Some(j) = self.on.as_mut() else { return };
@@ -312,7 +320,7 @@ impl Take {
         let mut changed = Vec::new();
         for &(name, lit) in &seen {
             let was = j.lamps.iter().find(|(n, _)| *n == name).map(|&(_, l)| l);
-            if was.unwrap_or(false) != lit {
+            if was.unwrap_or(Lamp::Off) != lit {
                 changed.push((name, lit));
             }
         }
@@ -322,7 +330,10 @@ impl Take {
         }
         let t = now();
         for (name, lit) in changed {
-            let state = if lit { "on" } else { "off" };
+            let state = match lit {
+                Lamp::On => "on",
+                Lamp::Off => "off",
+            };
             let _ = writeln!(
                 j.out,
                 "{}\tlight\t{name} {state}\t{}",
@@ -336,7 +347,7 @@ impl Take {
 
 #[cfg(test)]
 mod tests {
-    use super::{Drew, Pos, Take};
+    use super::{Drew, Lamp, Pos, Take};
     use baud_domain::{Codepoint, HostTime, KeyCode, KeyEvent, Modifiers};
     use std::ffi::OsString;
     use std::sync::{Arc, Mutex};
@@ -381,15 +392,15 @@ mod tests {
             Modifiers::NONE,
         ));
         t.frame("plasma", Drew::No, || (10, 20), || None);
-        t.committed(|| (10, 20));
+        t.committed(|| Pos::At(10, 20));
         t.shown(|| at(1_000));
         t.fed();
         t.key(&key(KeyCode::Enter, None, Modifiers::NONE));
         t.frame("plasma", Drew::Yes, || (34, 20), || Some([0, 100, 50, 40]));
-        t.committed(|| (34, 20));
+        t.committed(|| Pos::At(34, 20));
         t.shown(|| at(2_000));
-        t.lamps(|| vec![("CD", true)], || at(2_500));
-        t.lamps(|| vec![("CD", true)], || at(2_600));
+        t.lamps(|| vec![("CD", Lamp::On)], || at(2_500));
+        t.lamps(|| vec![("CD", Lamp::On)], || at(2_600));
         let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
         assert_eq!(
             text,
@@ -424,7 +435,7 @@ mod tests {
         t.key(&key(d, None, Modifiers::CTRL));
         t.key(&key(KeyCode::Enter, None, Modifiers::NONE));
         t.fed();
-        t.committed(|| (5, 6));
+        t.committed(|| Pos::At(5, 6));
         t.shown(|| HostTime::of_nanos(7));
         let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
         let rows: Vec<Vec<&str>> = text.lines().map(|l| l.split('\t').collect()).collect();

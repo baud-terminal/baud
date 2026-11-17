@@ -6986,7 +6986,7 @@ mod tests {
         t: &Term<'_>,
         p: &mut Paths,
         uris: &mut crate::lined::Uris,
-        (row, col): (usize, usize),
+        (row, col): (baud_domain::Row, baud_domain::Col),
     ) -> (bool, bool, bool) {
         let mut l = Lines::default();
         let _ = l.scan(
@@ -7002,8 +7002,8 @@ mod tests {
         let spot = crate::link::Spot {
             scrolled: at(),
             back: Rows::ZERO,
-            row: baud_domain::Row::from_index(row),
-            col: baud_domain::Col::at_index(col),
+            row,
+            col,
         };
         let under = crate::link::hovered(t, spot).expect("the link");
         let click = crate::link::clicked(
@@ -7023,7 +7023,7 @@ mod tests {
         )
         .expect("a preview");
         (
-            lit.iter().any(|r| r.0 == row),
+            lit.iter().any(|r| r.0 == row.index()),
             !preview.starts_with("Won't open"),
             click.is_ok(),
         )
@@ -7059,8 +7059,24 @@ mod tests {
             feed(&mut t, text.as_bytes());
             p.written_under(Seen::Named(Front::Local), LineSpan::of(first, plain));
             p.written_under(seen, LineSpan::of(third, third));
-            let from_first = look_preview_click(&t, &mut p, &mut uris, (0, 1));
-            let from_third = look_preview_click(&t, &mut p, &mut uris, (2, 1));
+            let from_first = look_preview_click(
+                &t,
+                &mut p,
+                &mut uris,
+                (
+                    baud_domain::Row::from_index(0),
+                    baud_domain::Col::at_index(1),
+                ),
+            );
+            let from_third = look_preview_click(
+                &t,
+                &mut p,
+                &mut uris,
+                (
+                    baud_domain::Row::from_index(2),
+                    baud_domain::Col::at_index(1),
+                ),
+            );
             let opens = case == "the control";
             assert_eq!(from_first, (opens, opens, opens), "{case}: row 0");
             assert_eq!(from_third, (opens, opens, opens), "{case}: row 2");
@@ -7096,7 +7112,7 @@ mod tests {
         p: &mut Paths,
         uris: &mut crate::lined::Uris,
         scrolled: Scrolled,
-        (row, col): (usize, usize),
+        (row, col): (baud_domain::Row, baud_domain::Col),
     ) -> (bool, bool) {
         let _ = l.scan(
             t,
@@ -7110,8 +7126,8 @@ mod tests {
         let spot = crate::link::Spot {
             scrolled,
             back: Rows::ZERO,
-            row: baud_domain::Row::from_index(row),
-            col: baud_domain::Col::at_index(col),
+            row,
+            col,
         };
         let under = crate::link::hovered(t, spot).expect("the link");
         let click = crate::link::clicked(
@@ -7121,7 +7137,7 @@ mod tests {
             p.rules(),
             &*p,
         );
-        (runs(l).iter().any(|r| r.0 == row), click.is_ok())
+        (runs(l).iter().any(|r| r.0 == row.index()), click.is_ok())
     }
 
     /// **One slot keeps one look as the rows showing it change, from scan
@@ -7158,11 +7174,31 @@ mod tests {
             format!("{}\r\nplain\r\nplain", marked(uri, "aaa")).as_bytes(),
         );
         p.written_under(Seen::Named(Front::Local), LineSpan::of(first, third));
-        let lit = look_click_kept(&mut l, &t, &mut p, &mut uris, at(), (0, 1));
+        let lit = look_click_kept(
+            &mut l,
+            &t,
+            &mut p,
+            &mut uris,
+            at(),
+            (
+                baud_domain::Row::from_index(0),
+                baud_domain::Col::at_index(1),
+            ),
+        );
         assert_eq!(lit, (true, true), "the local link alone");
         feed(&mut t, format!("\r\n{}", marked(uri, "bbb")).as_bytes());
         p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(fourth, fourth));
-        let joined = look_click_kept(&mut l, &t, &mut p, &mut uris, at(), (0, 1));
+        let joined = look_click_kept(
+            &mut l,
+            &t,
+            &mut p,
+            &mut uris,
+            at(),
+            (
+                baud_domain::Row::from_index(0),
+                baud_domain::Col::at_index(1),
+            ),
+        );
         assert_eq!(joined, (false, false), "a remote row joined the slot");
         // The remote row leaves, erased or scrolled out of the window.
         for leaves in ["erased", "scrolled out"] {
@@ -7177,22 +7213,39 @@ mod tests {
             p.written_under(Seen::Named(Front::Local), LineSpan::of(first, third));
             p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(remote, remote));
             let row = |line: AbsLine| match line == first {
-                true => 0,
-                false => 2,
+                true => baud_domain::Row::ZERO,
+                false => baud_domain::Row::from_index(2),
             };
-            let dark = look_click_kept(&mut l, &t, &mut p, &mut uris, at(), (row(local), 1));
+            let dark = look_click_kept(
+                &mut l,
+                &t,
+                &mut p,
+                &mut uris,
+                at(),
+                (row(local), baud_domain::Col::at_index(1)),
+            );
             assert_eq!(dark, (false, false), "{leaves}: both rows shown");
             let (scrolled, row) = match leaves {
                 "erased" => {
                     feed(&mut t, b"\x1b[3;1H\x1b[2Kplain");
-                    (at(), 0)
+                    (at(), baud_domain::Row::ZERO)
                 }
                 _ => {
                     feed(&mut t, b"\r\n\r\n\r\n\r\n");
-                    (at().advanced(Rows::of_count(1)), 1)
+                    (
+                        at().advanced(Rows::of_count(1)),
+                        baud_domain::Row::from_index(1),
+                    )
                 }
             };
-            let after = look_click_kept(&mut l, &t, &mut p, &mut uris, scrolled, (row, 1));
+            let after = look_click_kept(
+                &mut l,
+                &t,
+                &mut p,
+                &mut uris,
+                scrolled,
+                (row, baud_domain::Col::at_index(1)),
+            );
             assert_eq!(after, (true, true), "{leaves}: the local row alone");
         }
     }
@@ -7221,7 +7274,15 @@ mod tests {
             LineSpan::of(first.below(), first.below()),
         );
         assert_eq!(
-            look_preview_click(&t, &mut p, &mut uris, (1, 3)),
+            look_preview_click(
+                &t,
+                &mut p,
+                &mut uris,
+                (
+                    baud_domain::Row::from_index(1),
+                    baud_domain::Col::at_index(3)
+                )
+            ),
             (true, true, true),
             "lit, previewed and opened"
         );
@@ -9603,7 +9664,7 @@ mod joined_rows {
     use baud_core::{Focus, Owned};
     use baud_domain::{BytePos, Col, Cols, ReadLen, Row, WinSize};
 
-    type Runs = Vec<(usize, usize, usize)>;
+    type Runs = Vec<(Row, Col, Col)>;
 
     fn feed(t: &mut Term<'_>, bytes: &[u8]) {
         for c in bytes.chunks(4096) {
@@ -9651,16 +9712,11 @@ mod joined_rows {
         });
         let _ = p.merge_into(answers, l);
         once(p, l);
-        l.lines()
-            .iter()
-            .map(|s| (s.row.index(), s.from.index(), s.to.index()))
-            .collect()
+        l.lines().iter().map(|s| (s.row, s.from, s.to)).collect()
     }
 
     fn spans(s: &[baud_render::LinkSpan]) -> Runs {
-        s.iter()
-            .map(|s| (s.row.index(), s.from.index(), s.to.index()))
-            .collect()
+        s.iter().map(|s| (s.row, s.from, s.to)).collect()
     }
 
     /// The look under the pointer at `(row, col)`, the chord's preview there,
@@ -9726,10 +9782,10 @@ mod joined_rows {
         (over, chord, opens)
     }
 
-    fn expand(runs: &[(usize, usize, usize)]) -> Vec<(usize, usize)> {
+    fn expand(runs: &[(Row, Col, Col)]) -> Vec<(usize, usize)> {
         let mut v: Vec<_> = runs
             .iter()
-            .flat_map(|&(r, a, b)| (a..=b).map(move |c| (r, c)))
+            .flat_map(|&(r, a, b)| (a.index()..=b.index()).map(move |c| (r.index(), c)))
             .collect();
         v.sort_unstable();
         v
@@ -9768,25 +9824,37 @@ mod joined_rows {
             (
                 "url, soft",
                 URL.as_bytes().to_vec(),
-                vec![(0, 4, 39), (1, 0, 27)],
+                vec![
+                    (Row::from_index(0), Col::at_index(4), Col::at_index(39)),
+                    (Row::from_index(1), Col::at_index(0), Col::at_index(27)),
+                ],
                 b"https://example.com/a/very/long/path/to/some/resource/index.html",
             ),
             (
                 "url, pane",
                 pane(URL, Cols::of_index(40)),
-                vec![(0, 4, 39), (1, 0, 27)],
+                vec![
+                    (Row::from_index(0), Col::at_index(4), Col::at_index(39)),
+                    (Row::from_index(1), Col::at_index(0), Col::at_index(27)),
+                ],
                 b"https://example.com/a/very/long/path/to/some/resource/index.html",
             ),
             (
                 "path, soft",
                 path.as_bytes().to_vec(),
-                vec![(0, 4, 39), (1, 0, 20)],
+                vec![
+                    (Row::from_index(0), Col::at_index(4), Col::at_index(39)),
+                    (Row::from_index(1), Col::at_index(0), Col::at_index(20)),
+                ],
                 b"file:///usr/share/doc/some-package/examples/a-long-file-name.txt",
             ),
             (
                 "path, pane",
                 pane(path, Cols::of_index(40)),
-                vec![(0, 4, 39), (1, 0, 20)],
+                vec![
+                    (Row::from_index(0), Col::at_index(4), Col::at_index(39)),
+                    (Row::from_index(1), Col::at_index(0), Col::at_index(20)),
+                ],
                 b"file:///usr/share/doc/some-package/examples/a-long-file-name.txt",
             ),
         ];
@@ -9824,7 +9892,7 @@ mod joined_rows {
         p.all_written_here();
         let rest = scan(&t, &mut p, &mut l);
         assert!(
-            rest.iter().all(|r| r.0 == 0),
+            rest.iter().all(|r| r.0 == Row::ZERO),
             "a narrower pane is not joined: {rest:?}"
         );
         assert!(
@@ -9887,7 +9955,10 @@ mod joined_rows {
         };
         let whole: &[u8] = b"https://example.com/a/very/long/path/to/some/resource/index.html";
         let cut: &[u8] = b"https://example.com/a/very/long/path";
-        let both = vec![(0, 4, 39), (1, 0, 27)];
+        let both = vec![
+            (Row::from_index(0), Col::at_index(4), Col::at_index(39)),
+            (Row::from_index(1), Col::at_index(0), Col::at_index(27)),
+        ];
         let mut owned = Owned::new(&ws);
         let mut t = Term::new(owned.storage(), &ws);
         feed(&mut t, &pane(URL, Cols::of_index(40)));
@@ -9938,7 +10009,10 @@ mod joined_rows {
         let (over, chord, opens) = pointed(&t, &p, (Row::from_index(0), Col::at_index(10)));
         assert_eq!(
             (over, chord),
-            (vec![], vec![(0, 4, 39)]),
+            (
+                vec![],
+                vec![(Row::from_index(0), Col::at_index(4), Col::at_index(39))]
+            ),
             "off: the chord marks the row, the look nothing"
         );
         assert_eq!(
@@ -9974,7 +10048,11 @@ mod joined_rows {
             bytes.extend_from_slice(chunk);
             bytes.extend_from_slice(b"\x1b]8;;\x1b\\");
         }
-        let want = vec![(0, 0, 19), (1, 0, 19), (2, 0, 1)];
+        let want = vec![
+            (Row::from_index(0), Col::at_index(0), Col::at_index(19)),
+            (Row::from_index(1), Col::at_index(0), Col::at_index(19)),
+            (Row::from_index(2), Col::at_index(0), Col::at_index(1)),
+        ];
         for join in [Turned::On, Turned::Off] {
             let mut owned = Owned::new(&ws);
             let mut t = Term::new(owned.storage(), &ws);
@@ -9999,11 +10077,7 @@ mod joined_rows {
                     paths: &mut p,
                 },
             );
-            let rest: Runs = l
-                .lines()
-                .iter()
-                .map(|s| (s.row.index(), s.from.index(), s.to.index()))
-                .collect();
+            let rest: Runs = l.lines().iter().map(|s| (s.row, s.from, s.to)).collect();
             assert_eq!(rest, want, "{join:?}: at rest");
             for (row, col) in [(0, 3), (1, 7), (2, 1)] {
                 let (over, chord, opens) =
@@ -10053,7 +10127,10 @@ mod joined_rows {
         let over = h.over().map(|o| spans(&o.spans));
         assert_eq!(
             over,
-            Some(vec![(0, 4, 39), (1, 0, 27)]),
+            Some(vec![
+                (Row::from_index(0), Col::at_index(4), Col::at_index(39)),
+                (Row::from_index(1), Col::at_index(0), Col::at_index(27))
+            ]),
             "neither named: joined"
         );
         // Row 1 named local, row 0 still not: their origins part them.
@@ -10111,12 +10188,15 @@ mod joined_rows {
             );
             l.lines()
                 .iter()
-                .map(|s| (s.row.index(), s.from.index(), s.to.index()))
+                .map(|s| (s.row, s.from, s.to))
                 .collect::<Runs>()
         };
         assert_eq!(
             scan(&t, &mut p, &mut l),
-            [(0, 0, 4), (1, 0, 4)],
+            [
+                (Row::from_index(0), Col::at_index(0), Col::at_index(4)),
+                (Row::from_index(1), Col::at_index(0), Col::at_index(4))
+            ],
             "the control: written here, drawn on both rows"
         );
         // Filed local again: no fact moves, and no row is read.

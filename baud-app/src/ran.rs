@@ -1567,12 +1567,12 @@ mod tests {
 
     /// A timeline of marks `(terminator, letter, left)`, as a read that
     /// began with nothing open ended them.
-    fn timeline(each: &[(usize, u8, Left)]) -> Timeline {
+    fn timeline(each: &[(BytePos, StreamByte, Left)]) -> Timeline {
         let mut t = Timeline::begun(Left::Closed);
         for &(at, letter, left) in each {
             t.push(Mark {
-                at: BytePos::from_index(at),
-                letter: StreamByte::from_stream(letter),
+                at,
+                letter,
                 shells: ShellsD::No,
                 left,
             });
@@ -1727,7 +1727,10 @@ mod tests {
     #[test]
     fn a_part_keeps_the_marks_it_fed() {
         let at = BytePos::from_index;
-        let t = timeline(&[(10, b'C', Left::Remote), (20, b'D', Left::Closed)]);
+        let t = timeline(&[
+            (at(10), StreamByte::from_stream(b'C'), Left::Remote),
+            (at(20), StreamByte::from_stream(b'D'), Left::Closed),
+        ]);
         let letters = |t: Timeline| t.marks().map(|m| m.letter().raw_byte()).collect::<Vec<_>>();
         assert_eq!(letters(t.part(at(0), at(30))), [b'C', b'D'], "both");
         assert_eq!(
@@ -1755,7 +1758,9 @@ mod tests {
     #[test]
     fn a_part_past_the_kept_marks_is_overflowed() {
         let at = BytePos::from_index;
-        let each: Vec<(usize, u8, Left)> = (1..=10).map(|k| (k * 10, b'A', Left::Closed)).collect();
+        let each: Vec<(BytePos, StreamByte, Left)> = (1..=10)
+            .map(|k| (at(k * 10), StreamByte::from_stream(b'A'), Left::Closed))
+            .collect();
         let t = timeline(&each);
         assert_eq!(t.marks().count(), MARKS);
         assert!(!t.part(at(0), at(85)).overflowed(), "before the ninth");
@@ -1769,13 +1774,13 @@ mod tests {
     /// (`Timeline::rest`) -- the rest of a rest is a byte off.
     #[test]
     fn the_rest_of_a_rest_is_the_rest_of_the_sum() {
-        let each: Vec<(usize, u8, Left)> = [3, 7, 9, 12, 20, 21, 22, 23, 24, 25]
+        let each: Vec<(BytePos, StreamByte, Left)> = [3, 7, 9, 12, 20, 21, 22, 23, 24, 25]
             .iter()
             .enumerate()
             .map(|(k, &e)| {
                 (
-                    e,
-                    b"ABCDEFGHIJ"[k],
+                    BytePos::from_index(e),
+                    StreamByte::from_stream(b"ABCDEFGHIJ"[k]),
                     [Left::Here, Left::Remote, Left::Closed][k % 3],
                 )
             })

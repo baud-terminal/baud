@@ -9828,22 +9828,29 @@ mod tests {
             b"\x1b]7;file://here.example/home/u\x07",
         ]
         .concat();
-        let mut batches: Vec<Vec<(u64, Vec<u8>, Pid)>> = vec![
-            vec![(0, ran("ssh h", ";cmdline=ssh\\ h"), 1)],
-            vec![(50, b"remote$ exit\r\n".to_vec(), 9)],
+        let mut batches: Vec<Vec<(Duration, Vec<u8>, Pid)>> = vec![
+            vec![(
+                Duration::from_millis(0),
+                ran("ssh h", ";cmdline=ssh\\ h"),
+                1,
+            )],
+            vec![(Duration::from_millis(50), b"remote$ exit\r\n".to_vec(), 9)],
         ];
         match drains {
             Drains::Each => {
-                batches.push(vec![(55, b"logout\r\n".to_vec(), 9)]);
-                batches.push(vec![(58, prompt, 1)]);
+                batches.push(vec![(Duration::from_millis(55), b"logout\r\n".to_vec(), 9)]);
+                batches.push(vec![(Duration::from_millis(58), prompt, 1)]);
             }
             Drains::LastTwo => {
-                batches.push(vec![(55, b"logout\r\n".to_vec(), 9), (58, prompt, 1)]);
+                batches.push(vec![
+                    (Duration::from_millis(55), b"logout\r\n".to_vec(), 9),
+                    (Duration::from_millis(58), prompt, 1),
+                ]);
             }
         }
         for (k, b) in b"./oct-commits.txt".iter().enumerate() {
             let at = 200 + 100 * u64::try_from(k).expect("a key");
-            batches.push(vec![(at, vec![*b], 1)]);
+            batches.push(vec![(Duration::from_millis(at), vec![*b], 1)]);
         }
         lit_on_a_timeline(f, &batches)
     }
@@ -9853,7 +9860,7 @@ mod tests {
     /// time, asking by the pace, a frame after each drain, then frames 10
     /// ms apart to the first batch the pace sends and the frame that takes
     /// its answer ([`typed_after_ssh`]'s run).
-    fn lit_on_a_timeline(f: Fake, batches: &[Vec<(u64, Vec<u8>, Pid)>]) -> Vec<usize> {
+    fn lit_on_a_timeline(f: Fake, batches: &[Vec<(Duration, Vec<u8>, Pid)>]) -> Vec<usize> {
         let (mut pr, _) = probes(f);
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
@@ -9870,8 +9877,8 @@ mod tests {
         for batch in batches {
             let began = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
             let mut tagged = Vec::new();
-            for (ms, bytes, front) in batch {
-                let now = t0 + Duration::from_millis(*ms);
+            for (after, bytes, front) in batch {
+                let now = t0 + *after;
                 last = now;
                 let w = match sampler.read(now, bytes) {
                     Asks::Yes(_) => sampler.writers(Some(*front), Watched::Nothing),
@@ -10670,6 +10677,14 @@ mod tests {
         }
     }
 
+    /// Where [`renumbered_by`]'s count starts: before the history it
+    /// feeds, or after it.
+    #[derive(Clone, Copy)]
+    enum CountFrom {
+        Before,
+        After,
+    }
+
     /// **One part of a drain on a terminal of `ws` in storage of `room`,
     /// filed as the drivers file it**: the history fed first, `lines` of
     /// it, and every line filed local (`Paths::all_written_here`), the
@@ -10679,7 +10694,7 @@ mod tests {
     /// leaves line 0, in the history, to read as.
     fn renumbered_by(
         (ws, room): (&WinSize, &WinSize),
-        (lines, late): (usize, bool),
+        (lines, late): (Rows, CountFrom),
         bytes: &[u8],
     ) -> Origin {
         let (mut pr, _) = probes(named_groups());
@@ -10689,15 +10704,15 @@ mod tests {
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
         let mut counts = crate::keep::Counts::new(&t);
-        for n in 0..lines {
+        for n in 0..lines.index() {
             let line = format!("line {n:02}\r\n");
             t.write_at(BytePos::ZERO, line.as_bytes());
             t.feed(BytePos::ZERO, ReadLen::from_index(line.len()));
         }
         let _ = t.take_record();
         match late {
-            true => counts = crate::keep::Counts::new(&t),
-            false => {
+            CountFrom::After => counts = crate::keep::Counts::new(&t),
+            CountFrom::Before => {
                 let _ = counts.numbered(&t, None);
             }
         }
@@ -10748,17 +10763,25 @@ mod tests {
             ws_row: 6,
         };
         assert_eq!(
-            renumbered_by((&ws, &room), (20, false), b"x"),
+            renumbered_by((&ws, &room), (Rows::of_count(20), CountFrom::Before), b"x"),
             Origin::Local,
             "the control: no request"
         );
         assert_eq!(
-            renumbered_by((&ws, &room), (20, false), b"one\r\n\x1b[132$|two"),
+            renumbered_by(
+                (&ws, &room),
+                (Rows::of_count(20), CountFrom::Before),
+                b"one\r\n\x1b[132$|two"
+            ),
             Origin::Unknown,
             "DECSCPP"
         );
         assert_eq!(
-            renumbered_by((&ws, &room), (20, false), b"one\r\n\x1b[?40h\x1b[?3htwo"),
+            renumbered_by(
+                (&ws, &room),
+                (Rows::of_count(20), CountFrom::Before),
+                b"one\r\n\x1b[?40h\x1b[?3htwo"
+            ),
             Origin::Unknown,
             "DECCOLM"
         );
@@ -10854,12 +10877,20 @@ mod tests {
             ws_row: 6,
         };
         assert_eq!(
-            renumbered_by((&ws, &ws), (10, false), b"\x1b[3T"),
+            renumbered_by(
+                (&ws, &ws),
+                (Rows::of_count(10), CountFrom::Before),
+                b"\x1b[3T"
+            ),
             Origin::Local,
             "followed"
         );
         assert_eq!(
-            renumbered_by((&ws, &ws), (10, true), b"\x1b[3T"),
+            renumbered_by(
+                (&ws, &ws),
+                (Rows::of_count(10), CountFrom::After),
+                b"\x1b[3T"
+            ),
             Origin::Unknown,
             "past the first line"
         );
@@ -11633,15 +11664,15 @@ mod tests {
         let mut f = Fake::with(&[("/etc", Entry::Dir), ("/etc/passwd", Entry::File)]);
         f.groups.insert(1, vec!["zsh".into()]);
         f.groups.insert(2, vec!["ls".into()]);
-        let mut batches: Vec<Vec<(u64, Vec<u8>, Pid)>> = vec![
-            vec![(0, ran("ls", ";cmdline=ls"), 1)],
-            vec![(50, b"out\r\n".to_vec(), 2)],
-            vec![(55, prompt_after(""), 1)],
-            vec![(58, b"\r\x1b[K% ".to_vec(), 1)],
+        let mut batches: Vec<Vec<(Duration, Vec<u8>, Pid)>> = vec![
+            vec![(Duration::from_millis(0), ran("ls", ";cmdline=ls"), 1)],
+            vec![(Duration::from_millis(50), b"out\r\n".to_vec(), 2)],
+            vec![(Duration::from_millis(55), prompt_after(""), 1)],
+            vec![(Duration::from_millis(58), b"\r\x1b[K% ".to_vec(), 1)],
         ];
         for (k, b) in b"/etc/passwd".iter().enumerate() {
             let at = 200 + 100 * u64::try_from(k).expect("a key");
-            batches.push(vec![(at, vec![*b], 1)]);
+            batches.push(vec![(Duration::from_millis(at), vec![*b], 1)]);
         }
         assert_eq!(lit_on_a_timeline(f, &batches), [2]);
     }

@@ -3632,7 +3632,7 @@ impl App {
             return;
         }
         let at = self.take_cursor();
-        self.take.committed(|| at);
+        self.take.committed(|| crate::take::Pos::At(at.0, at.1));
     }
 
     /// **The frame being drawn, to the take's journal**: whether it draws a
@@ -6456,18 +6456,29 @@ mod alt_window_tests {
         let lfs: &[u8] = b"\x1b[5;1H\n\n";
         let mut wrong = Vec::new();
         for (prog, sel, what) in [
-            (scroll, (6, 6), "under it"),
-            (scroll, (2, 2), "in it"),
-            (lfs, (2, 6), "across its bottom, the region's part kept"),
-            (reset, (2, 2), "the region reset after it"),
-            (reset, (6, 6), "and under it"),
+            (scroll, (ViewLine(6), ViewLine(6)), "under it"),
+            (scroll, (ViewLine(2), ViewLine(2)), "in it"),
+            (
+                lfs,
+                (ViewLine(2), ViewLine(6)),
+                "across its bottom, the region's part kept",
+            ),
+            (
+                reset,
+                (ViewLine(2), ViewLine(2)),
+                "the region reset after it",
+            ),
+            (reset, (ViewLine(6), ViewLine(6)), "and under it"),
         ] {
             for w in wrong_feeds(Depth::DEFAULT, setup, &[prog], sel, Want::Kept) {
                 wrong.push(format!("{what}: {w}"));
             }
         }
         let whole: &[&[u8]] = &[b"\x1b[r", b"\x1b[10;1Hz\r\n"];
-        assert!(!drops(setup, whole, (0, 6)), "every row moved");
+        assert!(
+            !drops(setup, whole, (Rows::ZERO, baud_domain::Row::from_index(6))),
+            "every row moved"
+        );
         assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
     }
 
@@ -6496,7 +6507,10 @@ mod alt_window_tests {
             );
         });
         let mut wrong = Vec::new();
-        for (sel, what) in [((8, 8), "under it"), ((2, 2), "in it")] {
+        for (sel, what) in [
+            ((ViewLine(8), ViewLine(8)), "under it"),
+            ((ViewLine(2), ViewLine(2)), "in it"),
+        ] {
             for w in wrong_feeds(Depth::DEFAULT, setup, &[scroll], sel, Want::Kept) {
                 wrong.push(format!("{what}: {w}"));
             }
@@ -6505,7 +6519,7 @@ mod alt_window_tests {
             Depth::DEFAULT,
             setup,
             &[b"\x1b[8;1H\r\n\r\n\r\n"],
-            (0, 1),
+            (ViewLine(0), ViewLine(1)),
             Want::Dropped,
         ));
         assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
@@ -6519,8 +6533,8 @@ mod alt_window_tests {
     /// driver would have it after the thirty-one lines the history holds, so
     /// a line behind the screen has a number of its own rather than the
     /// floor's.
-    fn drops(setup: &[u8], reads: &[&[u8]], at: (usize, usize)) -> bool {
-        drops_to(setup, reads, at, baud_domain::Row::from_index(at.1))
+    fn drops(setup: &[u8], reads: &[&[u8]], at: (Rows, baud_domain::Row)) -> bool {
+        drops_to(setup, reads, at, at.1)
     }
 
     /// [`drops`], for a selection from screen row `y` to screen row `last`
@@ -6528,7 +6542,7 @@ mod alt_window_tests {
     fn drops_to(
         setup: &[u8],
         reads: &[&[u8]],
-        (back, y): (usize, usize),
+        (back, y): (Rows, baud_domain::Row),
         last: baud_domain::Row,
     ) -> bool {
         use baud_domain::{Col, Row};
@@ -6549,11 +6563,11 @@ mod alt_window_tests {
             let span = |t: &Term<'_>, r: Row| {
                 Span::cell(
                     t.row(r).expect("a row on the grid"),
-                    scrolled.line(Rows::of_count(back), r),
+                    scrolled.line(back, r),
                     Col::ZERO,
                 )
             };
-            let mut sel = Selection::at(span(t, Row::from_index(y)), Grain::Cell);
+            let mut sel = Selection::at(span(t, y), Grain::Cell);
             sel.extend(span(t, last));
             for bytes in reads {
                 let _ = Before::watched(t, Some(&sel), scrolled);
@@ -6620,35 +6634,80 @@ mod alt_window_tests {
         let carried: &[u8] = b"\x1b[r\x1b[10;1H\n\n\x1b[4;6r\x1b[6;1H\n";
         let mut wrong = Vec::new();
         for (prog, sel, want, what) in [
-            (copy, (4, 4), Want::Kept, "in the region"),
-            (copy, (4, 5), Want::Kept, "the region's two lower rows"),
-            (copy, (2, 2), Want::Kept, "above it"),
-            (copy, (7, 7), Want::Kept, "under it"),
-            (copy, (-5, -5), Want::Kept, "in the history"),
             (
                 copy,
-                (1, 3),
+                (ViewLine(4), ViewLine(4)),
+                Want::Kept,
+                "in the region",
+            ),
+            (
+                copy,
+                (ViewLine(4), ViewLine(5)),
+                Want::Kept,
+                "the region's two lower rows",
+            ),
+            (copy, (ViewLine(2), ViewLine(2)), Want::Kept, "above it"),
+            (copy, (ViewLine(7), ViewLine(7)), Want::Kept, "under it"),
+            (
+                copy,
+                (ViewLine(-5), ViewLine(-5)),
+                Want::Kept,
+                "in the history",
+            ),
+            (
+                copy,
+                (ViewLine(1), ViewLine(3)),
                 Want::Dropped,
                 "from above it into its first row",
             ),
             (
                 copy,
-                (0, 2),
+                (ViewLine(0), ViewLine(2)),
                 Want::Kept,
                 "one that ends on the row above it",
             ),
-            (reset, (4, 4), Want::Kept, "copied, then the region reset"),
-            (reset, (2, 2), Want::Kept, "and the row above it"),
-            (il, (8, 8), Want::Dropped, "IL, at the cursor's row"),
-            (il, (9, 9), Want::Dropped, "IL, the row it pushes out"),
-            (il, (7, 7), Want::Kept, "IL, the row above the cursor"),
+            (
+                reset,
+                (ViewLine(4), ViewLine(4)),
+                Want::Kept,
+                "copied, then the region reset",
+            ),
+            (
+                reset,
+                (ViewLine(2), ViewLine(2)),
+                Want::Kept,
+                "and the row above it",
+            ),
+            (
+                il,
+                (ViewLine(8), ViewLine(8)),
+                Want::Dropped,
+                "IL, at the cursor's row",
+            ),
+            (
+                il,
+                (ViewLine(9), ViewLine(9)),
+                Want::Dropped,
+                "IL, the row it pushes out",
+            ),
+            (
+                il,
+                (ViewLine(7), ViewLine(7)),
+                Want::Kept,
+                "IL, the row above the cursor",
+            ),
             (
                 carried,
-                (7, 7),
+                (ViewLine(7), ViewLine(7)),
                 Want::Kept,
                 "a row lines retired carried in",
             ),
-            (carried, (3, 3), Want::Kept, "and one they carried above it"),
+            (
+                carried,
+                (ViewLine(3), ViewLine(3)),
+                Want::Kept,
+                "and one they carried above it",
+            ),
         ] {
             for w in wrong_feeds(Depth::DEFAULT, setup, &[prog], sel, want) {
                 wrong.push(format!("{what}: {w}"));
@@ -6667,7 +6726,8 @@ mod alt_window_tests {
     #[test]
     fn a_write_or_an_erase_on_a_selected_row_drops_it() {
         let setup: &[u8] = b"\x1b[1;1Hhello\x1b[5;1Hworld\x1b[3;1H";
-        let (first, other) = ((0, 0), (0, 4));
+        let first = (Rows::ZERO, baud_domain::Row::ZERO);
+        let other = (Rows::ZERO, baud_domain::Row::from_index(4));
         let read: &[u8] = b"\x1b[1;1H\x1b[2K\x1b[10;1H\x1b[L";
         for k in 0..read.len() {
             let reads: Vec<&[u8]> = [&read[..k], &read[k..]]
@@ -6739,9 +6799,9 @@ mod alt_window_tests {
         });
         let mut wrong = Vec::new();
         for (sel, what) in [
-            ((4, 4), "the pane's moved line"),
-            ((2, 2), "the row above it"),
-            ((-5, -5), "the history"),
+            ((ViewLine(4), ViewLine(4)), "the pane's moved line"),
+            ((ViewLine(2), ViewLine(2)), "the row above it"),
+            ((ViewLine(-5), ViewLine(-5)), "the history"),
         ] {
             for w in wrong_feeds(Depth::DEFAULT, setup, &[read], sel, Want::Kept) {
                 wrong.push(format!("{what}: {w}"));
@@ -6766,10 +6826,10 @@ mod alt_window_tests {
         let prog: &[u8] = b"\x1b[4;6r\x1b[6;1H\n\x1b[8;9r";
         let mut wrong = Vec::new();
         for (sel, what) in [
-            ((4, 4), "the pane's moved line"),
-            ((2, 2), "the row above both regions"),
-            ((7, 7), "the end region's first row"),
-            ((-5, -5), "the history"),
+            ((ViewLine(4), ViewLine(4)), "the pane's moved line"),
+            ((ViewLine(2), ViewLine(2)), "the row above both regions"),
+            ((ViewLine(7), ViewLine(7)), "the end region's first row"),
+            ((ViewLine(-5), ViewLine(-5)), "the history"),
         ] {
             for w in wrong_feeds(Depth::DEFAULT, setup, &[prog], sel, Want::Kept) {
                 wrong.push(format!("{what}: {w}"));
@@ -6803,7 +6863,7 @@ mod alt_window_tests {
         r: baud_domain::Row,
     ) -> Option<(String, Option<String>)> {
         let y = i32::try_from(r.index()).expect("a screen row");
-        let mut lines = pump_keeps_lines(Depth::DEFAULT, setup, reads, (y, y))?;
+        let mut lines = pump_keeps_lines(Depth::DEFAULT, setup, reads, (ViewLine(y), ViewLine(y)))?;
         lines.pop()
     }
 
@@ -6978,7 +7038,7 @@ mod alt_window_tests {
         depth: Depth,
         setup: &[u8],
         reads: &[&[u8]],
-        (a, b): (i32, i32),
+        (ViewLine(a), ViewLine(b)): (ViewLine, ViewLine),
     ) -> Option<Vec<(String, Option<String>)>> {
         use baud_domain::{Col, PackedCell, Row};
         use baud_render::{Clip, Grain, Selection, Span};
@@ -7101,6 +7161,12 @@ mod alt_window_tests {
         Kept,
     }
 
+    /// A line a selection is made on: a row of the screen from 0 or, below
+    /// 0, a saved line that many back from its top.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[repr(transparent)]
+    struct ViewLine(i32);
+
     /// The feeds of `progs` on which a selection on lines `a` to `b`, made
     /// after `setup` on a terminal of `depth` saved lines, is not what
     /// `want` says of it.
@@ -7108,7 +7174,7 @@ mod alt_window_tests {
         depth: Depth,
         setup: &[u8],
         progs: &[&[u8]],
-        sel: (i32, i32),
+        sel: (ViewLine, ViewLine),
         want: Want,
     ) -> Vec<String> {
         let mut wrong = Vec::new();
@@ -7135,12 +7201,17 @@ mod alt_window_tests {
     /// `setup`, does not end on exactly the lines `keep` of those it was
     /// made on, each on its own text: [`wrong_feeds`] for a selection a
     /// scroll trims.
-    fn wrong_kept(setup: &[u8], prog: &[u8], sel: (i32, i32), keep: &[i32]) -> Vec<String> {
+    fn wrong_kept(
+        setup: &[u8],
+        prog: &[u8],
+        sel: (ViewLine, ViewLine),
+        keep: &[i32],
+    ) -> Vec<String> {
         let mut wrong = Vec::new();
         for (name, reads) in every_feed(prog) {
             let got = pump_keeps_lines(Depth::DEFAULT, setup, &reads, sel);
             let right = got.as_ref().is_some_and(|lines| {
-                (sel.0..=sel.1)
+                (sel.0.0..=sel.1.0)
                     .zip(lines)
                     .all(|(y, (label, now))| match keep.contains(&y) {
                         true => now.as_ref() == Some(label),
@@ -7180,20 +7251,32 @@ mod alt_window_tests {
                     true => Want::Dropped,
                     false => Want::Kept,
                 };
-                wrong.extend(wrong_feeds(Depth::DEFAULT, &setup, prog, (y, y), want));
+                wrong.extend(wrong_feeds(
+                    Depth::DEFAULT,
+                    &setup,
+                    prog,
+                    (ViewLine(y), ViewLine(y)),
+                    want,
+                ));
             }
             wrong.extend(wrong_feeds(
                 Depth::DEFAULT,
                 &setup,
                 prog,
-                (2, 9),
+                (ViewLine(2), ViewLine(9)),
                 Want::Kept,
             ));
             let want = match screen {
                 Screen::Normal => Want::Dropped,
                 Screen::Alternate => Want::Kept,
             };
-            wrong.extend(wrong_feeds(Depth::DEFAULT, &setup, prog, (1, 9), want));
+            wrong.extend(wrong_feeds(
+                Depth::DEFAULT,
+                &setup,
+                prog,
+                (ViewLine(1), ViewLine(9)),
+                want,
+            ));
         }
         assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
     }
@@ -7213,7 +7296,7 @@ mod alt_window_tests {
         for screen in [Screen::Normal, Screen::Alternate] {
             let plain = labelled(screen);
             let fenced = [plain.as_slice(), region].concat();
-            for (setup, prog, sel, keep, what) in [
+            for (setup, prog, (from, to), keep, what) in [
                 (&plain, &b"\x1b[2T"[..], (5, 9), &[5, 6, 7][..], "SD 2"),
                 (&plain, b"\x1b[1;1H\x1bM", (8, 9), &[8], "RI at the top"),
                 (
@@ -7235,18 +7318,24 @@ mod alt_window_tests {
                 (&fenced, b"\x1b[5;1H\x1b[2L", (5, 6), &[5], "IL 2 above it"),
                 (&fenced, b"\x1b[4;1H\x1b[M", (5, 6), &[5, 6], "DL above it"),
             ] {
-                for w in wrong_kept(setup, prog, sel, keep) {
+                for w in wrong_kept(setup, prog, (ViewLine(from), ViewLine(to)), keep) {
                     wrong.push(format!("{screen:?} {what}: {w}"));
                 }
             }
-            for (setup, prog, sel, what) in [
+            for (setup, prog, (from, to), what) in [
                 (&plain, &b"\x1b[2T"[..], (8, 9), "SD 2, all pushed under"),
                 (&fenced, b"\x1b[8;1H\n", (2, 2), "its top row, out"),
                 (&fenced, b"\x1b[2T", (6, 7), "SD 2, pushed out"),
                 (&fenced, b"\x1b[6;1H\x1b[L", (5, 6), "IL in it"),
                 (&fenced, b"\x1b[6;1H\x1b[M", (5, 6), "DL in it"),
             ] {
-                for w in wrong_feeds(Depth::DEFAULT, setup, &[prog], sel, Want::Dropped) {
+                for w in wrong_feeds(
+                    Depth::DEFAULT,
+                    setup,
+                    &[prog],
+                    (ViewLine(from), ViewLine(to)),
+                    Want::Dropped,
+                ) {
                     wrong.push(format!("{screen:?} {what}: {w}"));
                 }
             }
@@ -7274,20 +7363,25 @@ mod alt_window_tests {
         ];
         let mut wrong = Vec::new();
         for (sel, want) in [
-            ((-1, -1), Want::Dropped),
-            ((-1, 1), Want::Dropped),
-            ((-4, -2), Want::Kept),
-            ((-3, -3), Want::Kept),
+            ((ViewLine(-1), ViewLine(-1)), Want::Dropped),
+            ((ViewLine(-1), ViewLine(1)), Want::Dropped),
+            ((ViewLine(-4), ViewLine(-2)), Want::Kept),
+            ((ViewLine(-3), ViewLine(-3)), Want::Kept),
         ] {
             let progs = match sel {
-                (-4, -2) => &progs[..1],
+                (ViewLine(-4), ViewLine(-2)) => &progs[..1],
                 _ => progs,
             };
             wrong.extend(wrong_feeds(Depth::DEFAULT, &setup, progs, sel, want));
         }
         // The control: the saved line held its text before the read.
         assert_eq!(
-            pump_keeps_lines(Depth::DEFAULT, &setup, &[b"x"], (-1, -1)),
+            pump_keeps_lines(
+                Depth::DEFAULT,
+                &setup,
+                &[b"x"],
+                (ViewLine(-1), ViewLine(-1))
+            ),
             Some(vec![("line 30".into(), Some("line 30".into()))])
         );
         assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
@@ -7310,7 +7404,11 @@ mod alt_window_tests {
         let lf = |n: usize| [&b"\x1b[10;1H"[..], &b"\n".repeat(n)].concat();
         let (short, long) = (lf(21), lf(41));
         let mut wrong = Vec::new();
-        for sel in [(9, 9), (-3, -3), (-3, 9)] {
+        for sel in [
+            (ViewLine(9), ViewLine(9)),
+            (ViewLine(-3), ViewLine(-3)),
+            (ViewLine(-3), ViewLine(9)),
+        ] {
             wrong.extend(wrong_feeds(depth, &setup, &[&short], sel, Want::Kept));
             wrong.extend(wrong_feeds(depth, &setup, &[&long], sel, Want::Dropped));
         }
@@ -7318,7 +7416,7 @@ mod alt_window_tests {
         // row 9's text in the history, where the selection still names it.
         with_history(|t| assert!(t.ring().index() > 40, "the default ring is longer"));
         assert_eq!(
-            pump_keeps_lines(depth, &setup, &[&short], (9, 9)),
+            pump_keeps_lines(depth, &setup, &[&short], (ViewLine(9), ViewLine(9))),
             Some(vec![("P9".into(), Some("P9".into()))])
         );
         assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
@@ -7344,9 +7442,9 @@ mod alt_window_tests {
         .concat();
         let mut wrong = Vec::new();
         for (prog, sel) in [
-            (&b"\x1b[6S\x1b[5T"[..], (8, 8)),
-            (&back[..], (8, 9)),
-            (&b"\x1b[6T\x1b[6S"[..], (1, 1)),
+            (&b"\x1b[6S\x1b[5T"[..], (ViewLine(8), ViewLine(8))),
+            (&back[..], (ViewLine(8), ViewLine(9))),
+            (&b"\x1b[6T\x1b[6S"[..], (ViewLine(1), ViewLine(1))),
         ] {
             wrong.extend(wrong_feeds(
                 Depth::DEFAULT,
@@ -7361,7 +7459,7 @@ mod alt_window_tests {
             Depth::DEFAULT,
             &setup,
             &[b"\x1b[6T\x1b[6S"],
-            (9, 9),
+            (ViewLine(9), ViewLine(9)),
             Want::Dropped,
         ));
         assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
@@ -10421,7 +10519,7 @@ mod resize_selection_tests {
     /// selection from screen row `a` to row `b` numbered as the driver's
     /// count would have it, then each resize as `relayout` makes it: what
     /// the selection's text is after the last, or `None` when it went.
-    fn across(setup: &[u8], (a, b): (usize, usize), sizes: &[(u16, u16)]) -> Option<String> {
+    fn across(setup: &[u8], (a, b): (Row, Row), sizes: &[WinSize]) -> Option<String> {
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
         let lines: Vec<u8> = (0..40)
@@ -10434,8 +10532,7 @@ mod resize_selection_tests {
             Scrolled::START.advanced(Rows::of_count(t.scrollback().len())),
         );
         let mut scrolled = counts.primary();
-        let span = |t: &Term<'_>, y: usize, s: Scrolled| {
-            let r = Row::from_index(y);
+        let span = |t: &Term<'_>, r: Row, s: Scrolled| {
             Span::cell(
                 t.row(r).expect("a row on the grid"),
                 s.line(Rows::ZERO, r),
@@ -10446,12 +10543,9 @@ mod resize_selection_tests {
         sel.extend(span(&t, b, scrolled));
         let want = sel.text(&t, scrolled);
         let mut kept = Some(sel);
-        for &(c, r) in sizes {
+        for size in sizes {
             let was = (t.geometry().0, t.screen());
-            let _ = t.resize(&WinSize {
-                ws_col: c,
-                ws_row: r,
-            });
+            let _ = t.resize(size);
             let rec = t.take_record();
             (kept, scrolled) = kept_across_resize(&t, was, kept, &mut counts, &rec);
         }
@@ -10471,12 +10565,41 @@ mod resize_selection_tests {
     #[test]
     fn a_height_only_resize_keeps_the_selection_on_its_lines() {
         for sizes in [
-            &[(20u16, 6u16)][..],
-            &[(20, 6), (20, 10)],
-            &[(20, 16)],
-            &[(20, 4), (20, 3), (20, 12)],
+            &[WinSize {
+                ws_col: 20,
+                ws_row: 6,
+            }][..],
+            &[
+                WinSize {
+                    ws_col: 20,
+                    ws_row: 6,
+                },
+                WinSize {
+                    ws_col: 20,
+                    ws_row: 10,
+                },
+            ],
+            &[WinSize {
+                ws_col: 20,
+                ws_row: 16,
+            }],
+            &[
+                WinSize {
+                    ws_col: 20,
+                    ws_row: 4,
+                },
+                WinSize {
+                    ws_col: 20,
+                    ws_row: 3,
+                },
+                WinSize {
+                    ws_col: 20,
+                    ws_row: 12,
+                },
+            ],
         ] {
-            let text = across(b"", (3, 5), sizes);
+            let text = across(b"", (Row::from_index(3), Row::from_index(5)), sizes);
+            let sizes: Vec<_> = sizes.iter().map(WinSize::geometry).collect();
             assert!(
                 text.as_deref().is_some_and(|t| t.starts_with("line 34")),
                 "{sizes:?}: {text:?}"
@@ -10488,8 +10611,34 @@ mod resize_selection_tests {
     /// and the columns no longer name its cells.
     #[test]
     fn a_width_change_clears_the_selection() {
-        assert_eq!(across(b"", (3, 5), &[(16, 10)]), None);
-        assert_eq!(across(b"", (3, 5), &[(20, 6), (24, 6)]), None);
+        assert_eq!(
+            across(
+                b"",
+                (Row::from_index(3), Row::from_index(5)),
+                &[WinSize {
+                    ws_col: 16,
+                    ws_row: 10
+                }]
+            ),
+            None
+        );
+        assert_eq!(
+            across(
+                b"",
+                (Row::from_index(3), Row::from_index(5)),
+                &[
+                    WinSize {
+                        ws_col: 20,
+                        ws_row: 6
+                    },
+                    WinSize {
+                        ws_col: 24,
+                        ws_row: 6
+                    }
+                ]
+            ),
+            None
+        );
     }
 
     /// **A resize on the alternate screen clears it**: the program redraws
@@ -10497,7 +10646,17 @@ mod resize_selection_tests {
     #[test]
     fn a_resize_on_the_alternate_screen_clears_the_selection() {
         let alt: &[u8] = b"\x1b[?1049h\x1b[4;1Halt 3\r\nalt 4\r\nalt 5";
-        assert_eq!(across(alt, (3, 5), &[(20, 8)]), None);
+        assert_eq!(
+            across(
+                alt,
+                (Row::from_index(3), Row::from_index(5)),
+                &[WinSize {
+                    ws_col: 20,
+                    ws_row: 8
+                }]
+            ),
+            None
+        );
     }
 
     /// **A selection touching a row the shrink cut is cleared**, and one
@@ -10506,9 +10665,42 @@ mod resize_selection_tests {
     #[test]
     fn a_selection_touching_cut_rows_is_cleared() {
         let up: &[u8] = b"\x1b[3;1H";
-        assert_eq!(across(up, (4, 7), &[(20, 6)]), None, "into the cut rows");
-        assert_eq!(across(up, (8, 9), &[(20, 6)]), None, "wholly in them");
-        assert!(across(up, (1, 5), &[(20, 6)]).is_some(), "above them, kept");
+        assert_eq!(
+            across(
+                up,
+                (Row::from_index(4), Row::from_index(7)),
+                &[WinSize {
+                    ws_col: 20,
+                    ws_row: 6
+                }]
+            ),
+            None,
+            "into the cut rows"
+        );
+        assert_eq!(
+            across(
+                up,
+                (Row::from_index(8), Row::from_index(9)),
+                &[WinSize {
+                    ws_col: 20,
+                    ws_row: 6
+                }]
+            ),
+            None,
+            "wholly in them"
+        );
+        assert!(
+            across(
+                up,
+                (Row::from_index(1), Row::from_index(5)),
+                &[WinSize {
+                    ws_col: 20,
+                    ws_row: 6
+                }]
+            )
+            .is_some(),
+            "above them, kept"
+        );
     }
 }
 
@@ -14472,10 +14664,7 @@ impl Driver {
         let host = self.app.sizing.host();
         // The view a held window report reads its window through, and the
         // grid's letterbox in it (`report_now`).
-        let (view, pad) = (
-            &self.view,
-            (self.app.pad_px.0.value(), self.app.pad_px.1.value()),
-        );
+        let (view, pad) = (&self.view, self.app.pad_px);
         let mut resized = None;
         // AA, for a reply the feed queued: one store a reply, not a byte's.
         let mut answered = Answered::No;
@@ -17228,8 +17417,7 @@ impl Driver {
     /// or a live resize moves is read again at its question
     /// (`report_now`).
     fn poll_window(&mut self) -> WindowRead {
-        let pad = (self.app.pad_px.0.value(), self.app.pad_px.1.value());
-        let Some(p) = placed(&self.view, pad) else {
+        let Some(p) = placed(&self.view, self.app.pad_px) else {
             return WindowRead::NoWindow;
         };
         #[cfg(feature = "effect-probe")]
@@ -17642,8 +17830,8 @@ impl Driver {
         let (scale, cell, _, pad) = self.pointer_geometry();
         let at = |pad: u32, cell: f64, i: usize| (f64::from(pad) + (i as f64 + 0.5) * cell) / scale;
         NSPoint::new(
-            at(pad.0, cell.0, col.index()),
-            at(pad.1, cell.1, row.index()),
+            at(pad.0.value(), cell.0, col.index()),
+            at(pad.1.value(), cell.1, row.index()),
         )
     }
 
@@ -19504,7 +19692,7 @@ impl Driver {
             (
                 mouse_kind(event.kind),
                 mouse_button(event.button),
-                event.clicks,
+                crate::gesture::ClickCount(event.clicks),
             ),
             press_of(event.modifiers),
             at,
@@ -19765,10 +19953,11 @@ impl Driver {
                 Led::ALL
                     .iter()
                     .map(|&l| {
-                        (
-                            l.letters(),
-                            *shown.get(l) == baud_render::lights::Light::Lit,
-                        )
+                        let lit = match *shown.get(l) == baud_render::lights::Light::Lit {
+                            true => crate::take::Lamp::On,
+                            false => crate::take::Lamp::Off,
+                        };
+                        (l.letters(), lit)
                     })
                     .collect()
             },
@@ -20923,8 +21112,11 @@ impl Driver {
         (
             self.app.scale,
             self.app.metrics_cell(),
-            (self.app.grid.ws_col, self.app.grid.ws_row),
-            (self.app.pad_px.0.value(), self.app.pad_px.1.value()),
+            crate::width::Grid {
+                cols: self.app.grid.ws_col,
+                rows: self.app.grid.ws_row,
+            },
+            self.app.pad_px,
         )
     }
 }
@@ -21008,7 +21200,7 @@ fn grid_origin(view: (Px, Px), whole: (Px, Px), left: Px, top: Px) -> (Px, Px) {
 /// What turns a view point into a cell and a pixel: the backing scale, the
 /// cell in device pixels, the grid in cells, and the padding in device
 /// pixels -- `pointer_under`'s arguments after the point, in its order.
-type PointerGeometry = (CGFloat, (f64, f64), (u16, u16), (u32, u32));
+type PointerGeometry = (CGFloat, (f64, f64), crate::width::Grid, (Px, Px));
 
 /// `cell_under` as a pure function of the point, the scale, the cell size
 /// in pixels and the grid, so a test can pin the arithmetic.
@@ -21016,8 +21208,8 @@ fn cell_under(
     at: (f64, f64),
     scale: CGFloat,
     cell: (f64, f64),
-    grid: (u16, u16),
-    pad: (u32, u32),
+    grid: crate::width::Grid,
+    pad: (Px, Px),
 ) -> (Row, Col) {
     let (row, col, _) = pointer_under(at, scale, cell, grid, pad);
     (row, col)
@@ -21046,7 +21238,7 @@ enum Miniaturized {
 /// it is minimized, its frame, the view taken to the screen through it,
 /// its screen and the primary one, and its backing scale; `pad` is the
 /// grid's letterbox in the view. None while the view is in no window.
-fn placed(view: &DrawableView, pad: (u32, u32)) -> Option<Placed> {
+fn placed(view: &DrawableView, pad: (Px, Px)) -> Option<Placed> {
     let w = view.window()?;
     let mtm = MainThreadMarker::new()?;
     let primary = NSScreen::screens(mtm).firstObject().map(|s| s.frame());
@@ -21073,7 +21265,7 @@ fn placed(view: &DrawableView, pad: (u32, u32)) -> Option<Placed> {
 /// parsed. Nothing is kept: the cache stays what the notifications fed
 /// (`poll_window`). With no window, nothing is known, and the core answers
 /// with silence.
-fn report_now(view: &DrawableView, pad: (u32, u32)) -> baud_core::WindowFacts {
+fn report_now(view: &DrawableView, pad: (Px, Px)) -> baud_core::WindowFacts {
     #[cfg(feature = "effect-probe")]
     baud_present_macos::probe::window_reported();
     placed(view, pad).map_or(baud_core::WindowFacts::UNKNOWN, |p| window_facts(&p))
@@ -21096,7 +21288,7 @@ struct Placed {
     minimized: Miniaturized,
     frame: NSRect,
     view: NSRect,
-    pad: (u32, u32),
+    pad: (Px, Px),
     screen: Option<NSRect>,
     primary: Option<NSRect>,
     scale: CGFloat,
@@ -21123,12 +21315,12 @@ fn window_facts(p: &Placed) -> baud_core::WindowFacts {
         let v = v as i64;
         ScreenCoord::of(i32::try_from(v).unwrap_or(if v < 0 { i32::MIN } else { i32::MAX }))
     };
-    let top_left = |r: NSRect, pad: (u32, u32)| {
+    let top_left = |r: NSRect, pad: (Px, Px)| {
         p.primary.map(|primary| {
             let top = primary.origin.y + primary.size.height;
             ScreenPoint {
-                x: coord(px(r.origin.x) + f64::from(pad.0)),
-                y: coord(px(top - (r.origin.y + r.size.height)) + f64::from(pad.1)),
+                x: coord(px(r.origin.x) + f64::from(pad.0.value())),
+                y: coord(px(top - (r.origin.y + r.size.height)) + f64::from(pad.1.value())),
             }
         })
     };
@@ -21137,7 +21329,7 @@ fn window_facts(p: &Placed) -> baud_core::WindowFacts {
             Miniaturized::Yes => WindowState::Iconified,
             Miniaturized::No => WindowState::Open,
         }),
-        position: top_left(p.frame, (0, 0)),
+        position: top_left(p.frame, (Px::of(0), Px::of(0))),
         text_area: top_left(p.view, p.pad),
         window: Some(size(p.frame)),
         screen: p.screen.map(size),
@@ -23965,7 +24157,12 @@ mod tests {
         let mut order = baud_render::Reorder::new();
         order.lay_out(&t, Rows::ZERO);
         // 1x scale, 10x10 px cells: point (25, 5) is cell (0, 2).
-        let g: PointerGeometry = (1.0, (10.0, 10.0), (20, 6), (0, 0));
+        let g: PointerGeometry = (
+            1.0,
+            (10.0, 10.0),
+            crate::width::Grid { cols: 20, rows: 6 },
+            (Px::of(0), Px::of(0)),
+        );
         assert_eq!(
             line_under(order.orders(), (25.0, 5.0), g),
             (
@@ -23984,11 +24181,38 @@ mod tests {
     fn a_point_names_the_cell_under_it_and_the_edges_clamp() {
         // 2x scale, 20x40 px cells, a 200x50 grid: point (105, 21) is
         // 210x42 px, cell (10, 1).
-        let (r, c) = cell_under((105.0, 21.0), 2.0, (20.0, 40.0), (200, 50), (0, 0));
+        let (r, c) = cell_under(
+            (105.0, 21.0),
+            2.0,
+            (20.0, 40.0),
+            crate::width::Grid {
+                cols: 200,
+                rows: 50,
+            },
+            (Px::of(0), Px::of(0)),
+        );
         assert_eq!((r.index(), c.index()), (1, 10));
-        let (r, c) = cell_under((-3.0, -3.0), 2.0, (20.0, 40.0), (200, 50), (0, 0));
+        let (r, c) = cell_under(
+            (-3.0, -3.0),
+            2.0,
+            (20.0, 40.0),
+            crate::width::Grid {
+                cols: 200,
+                rows: 50,
+            },
+            (Px::of(0), Px::of(0)),
+        );
         assert_eq!((r.index(), c.index()), (0, 0));
-        let (r, c) = cell_under((9999.0, 9999.0), 2.0, (20.0, 40.0), (200, 50), (0, 0));
+        let (r, c) = cell_under(
+            (9999.0, 9999.0),
+            2.0,
+            (20.0, 40.0),
+            crate::width::Grid {
+                cols: 200,
+                rows: 50,
+            },
+            (Px::of(0), Px::of(0)),
+        );
         assert_eq!((r.index(), c.index()), (49, 199));
     }
 
@@ -23998,7 +24222,7 @@ mod tests {
     /// edge is the first pixel of the first cell.
     #[test]
     fn the_grid_begins_after_the_exit_status_strip() {
-        let (cell, grid, scale) = ((20.0, 40.0), (10, 5), 2.0);
+        let (cell, grid, scale) = ((20.0, 40.0), crate::width::Grid { cols: 10, rows: 5 }, 2.0);
         let view = (Px::of(260), Px::of(220));
         let whole = (Px::of(220), Px::of(200));
         assert_eq!(
@@ -24007,7 +24231,6 @@ mod tests {
         );
         let pad = grid_origin(view, whole, Px::of(20), Px::of(0));
         assert_eq!(pad, (Px::of(40), Px::of(10)));
-        let pad = (pad.0.value(), pad.1.value());
         // At 2x: the strip's middle, (30, 10) px, is over it.
         let (r, c, px) = pointer_under((15.0, 5.0), scale, cell, grid, pad);
         assert_eq!((r.index(), c.index(), px.x), (0, 0, ImagePx::ZERO));
@@ -24071,7 +24294,7 @@ mod tests {
     /// height too high -- and this goes red.
     #[test]
     fn the_grid_begins_below_the_lights_line_at_the_top() {
-        let (cell, grid, scale) = ((20.0, 40.0), (10, 5), 2.0);
+        let (cell, grid, scale) = ((20.0, 40.0), crate::width::Grid { cols: 10, rows: 5 }, 2.0);
         let view = (Px::of(260), Px::of(260));
         // A 200-pixel grid and a 30-pixel line: the whole is 230 tall,
         // 15 down in the view.
@@ -24083,7 +24306,6 @@ mod tests {
         );
         let pad = grid_origin(view, whole, Px::of(0), Px::of(30));
         assert_eq!(pad, (Px::of(20), Px::of(45)), "the line on top");
-        let pad = (pad.0.value(), pad.1.value());
         // (x, 45) px is the text area's first pixel, (x, 85) the second
         // row's first, 40 pixels down it.
         let (r, _, px) = pointer_under((15.0, 22.5), scale, cell, grid, pad);
@@ -24102,7 +24324,15 @@ mod tests {
     /// grid and past its far edge.
     #[test]
     fn a_point_names_its_pixel_and_the_cell_that_holds_it() {
-        let (scale, cell, grid, pad) = (2.0, (20.0, 40.0), (200, 50), (10, 6));
+        let (scale, cell, grid, pad) = (
+            2.0,
+            (20.0, 40.0),
+            crate::width::Grid {
+                cols: 200,
+                rows: 50,
+            },
+            (Px::of(10), Px::of(6)),
+        );
         // (105, 21) points at 2x is (210, 42); less the padding (200, 36).
         let (r, c, px) = pointer_under((105.0, 21.0), scale, cell, grid, pad);
         assert_eq!((px.x, px.y), (ImagePx::of(200), ImagePx::of(36)));
@@ -24142,7 +24372,7 @@ mod tests {
             minimized: Miniaturized::No,
             frame: rect(100.0, 332.0, 960.0, 600.0),
             view: rect(100.0, 332.0, 960.0, 572.0),
-            pad: (6, 4),
+            pad: (Px::of(6), Px::of(4)),
             screen: Some(primary),
             primary: Some(primary),
             scale: 2.0,
@@ -24197,7 +24427,7 @@ mod tests {
                 minimized: Miniaturized::No,
                 frame,
                 view: rect(x, 332.0, 960.0, 572.0),
-                pad: (6, 4),
+                pad: (Px::of(6), Px::of(4)),
                 screen: Some(primary),
                 primary: Some(primary),
                 scale: 2.0,

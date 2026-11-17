@@ -454,7 +454,7 @@ impl Uris {
                 candidates += 1;
                 let Some(f) = found_in(
                     units,
-                    (lo, hi),
+                    (crate::link::Ix(lo), crate::link::Ix(hi)),
                     crate::link::Ix(from),
                     crate::link::Ix(q),
                     (head, tail),
@@ -1194,7 +1194,7 @@ impl Lines {
         self.again = again;
         let mut found = core::mem::take(&mut self.found);
         for g in &groups {
-            let rows = (g.start, g.end - 1);
+            let rows = (Row::from_index(g.start), Row::from_index(g.end - 1));
             self.read_group(term, scrolled, back, rows, reader, &mut found, &mut scan);
         }
         self.found = found;
@@ -1238,14 +1238,14 @@ impl Lines {
         term: &Term<'_>,
         scrolled: Scrolled,
         back: Rows,
-        (top, bottom): (usize, usize),
+        (top, bottom): (Row, Row),
         reader: &mut R,
         found: &mut Vec<Run>,
         scan: &mut Scan,
     ) {
         let (_, rows) = self.size;
-        let first_row = scrolled.line(back, Row::from_index(top));
-        let last_row = scrolled.line(back, Row::from_index(bottom));
+        let first_row = scrolled.line(back, top);
+        let last_row = scrolled.line(back, bottom);
         // Whether the line runs on from `l` into the next.
         let on = |reader: &R, l: AbsLine, wrap: Wrap| {
             wrap == Wrap::Continues
@@ -1253,7 +1253,7 @@ impl Lines {
         };
         // Past the window's top, while the rows above run into it.
         let (mut first, mut head) = (first_row, Edge::Line);
-        if top == 0 {
+        if top == Row::ZERO {
             let mut read = 0;
             while let Some(up) = first.above() {
                 let Some((cells, wrap)) = row_of(term, scrolled, up) else {
@@ -1273,7 +1273,7 @@ impl Lines {
         }
         // Past the window's bottom, while the row runs on.
         let (mut last, mut tail) = (last_row, Edge::Line);
-        if bottom + 1 == rows {
+        if bottom.index() + 1 == rows {
             let mut read = 0;
             while let Some((cells, wrap)) = row_of(term, scrolled, last) {
                 if !on(reader, last, wrap) {
@@ -1568,7 +1568,7 @@ impl Lines {
         term: &Term<'_>,
         scrolled: Scrolled,
         back: Rows,
-        (top, bottom): (usize, usize),
+        (top, bottom): (Row, Row),
         reader: &mut R,
         scan: &mut Scan,
     ) {
@@ -1582,7 +1582,7 @@ impl Lines {
         }
         let mut judged = core::mem::take(&mut self.judged);
         let screen = term.screen();
-        for y in top..=bottom {
+        for y in top.index()..=bottom.index() {
             let r = Row::from_index(y);
             let line: AbsLine = scrolled.line(back, r);
             let Some((cells, _)) = row_of(term, scrolled, line) else {
@@ -1862,7 +1862,7 @@ mod tests {
 
     /// The lines at rest over `bytes` on an 80x24 grid, and the URI a click
     /// at `(row, col)` reads.
-    fn at_80x24(bytes: &[u8], (row, col): (usize, usize)) -> (Vec<(usize, usize, usize)>, Vec<u8>) {
+    fn at_80x24(bytes: &[u8], (row, col): (Row, Col)) -> (Vec<(usize, usize, usize)>, Vec<u8>) {
         let ws = WinSize {
             ws_col: 80,
             ws_row: 24,
@@ -1872,8 +1872,8 @@ mod tests {
         feed(&mut t, bytes);
         let mut l = Lines::default();
         let _ = l.scan(&t, at(), &mut Uris::default());
-        let on = at().line(Rows::ZERO, Row::from_index(row));
-        let w = window(&t, at(), on, Col::at_index(col)).expect("a window");
+        let on = at().line(Rows::ZERO, row);
+        let w = window(&t, at(), on, col).expect("a window");
         let bare = w.bare().expect("a URI under the click");
         (runs(&l), bare.uri().expect("one that opens").to_vec())
     }
@@ -1890,15 +1890,27 @@ mod tests {
     fn a_url_on_a_soft_wrap_row_is_found_as_on_an_unwrapped_one() {
         let url = b"https://nixos.org".to_vec();
         // The wrap row: `↪` at column 7, the URL at 17..=33, a click at 25.
-        assert_eq!(at_80x24(WRAPPED, (16, 25)), (vec![], url.clone()));
         assert_eq!(
-            at_80x24(&not_underlined(WRAPPED), (16, 25)),
+            at_80x24(WRAPPED, (Row::from_index(16), Col::at_index(25))),
+            (vec![], url.clone())
+        );
+        assert_eq!(
+            at_80x24(
+                &not_underlined(WRAPPED),
+                (Row::from_index(16), Col::at_index(25))
+            ),
             (vec![(15, 15, 75), (16, 17, 33)], url.clone())
         );
         // The unwrapped row: the URL at 13..=29, a click at 21.
-        assert_eq!(at_80x24(UNWRAPPED, (16, 21)), (vec![], url.clone()));
         assert_eq!(
-            at_80x24(&not_underlined(UNWRAPPED), (16, 21)),
+            at_80x24(UNWRAPPED, (Row::from_index(16), Col::at_index(21))),
+            (vec![], url.clone())
+        );
+        assert_eq!(
+            at_80x24(
+                &not_underlined(UNWRAPPED),
+                (Row::from_index(16), Col::at_index(21))
+            ),
             (vec![(16, 13, 29)], url)
         );
     }

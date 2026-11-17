@@ -39,9 +39,9 @@ const WS: WinSize = WinSize {
     ws_row: 24,
 };
 const G: Geometry = Geometry {
-    pad: (0, 0),
+    pad: (Px::of(0), Px::of(0)),
     cell: (10.0, 10.0),
-    grid: (80, 24),
+    grid: crate::width::Grid { cols: 80, rows: 24 },
     scale: 1.0,
 };
 

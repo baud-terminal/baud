@@ -24,6 +24,20 @@ pub fn codepoints(text: &str) -> Vec<Codepoint> {
         .collect()
 }
 
+/// A byte offset into the composition's text, as an input method's hint
+/// counts it.
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct HintAt(pub u32);
+
+/// The input method's cursor in the composition: a byte offset into its
+/// text, or -1.
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct CaretAt(pub i32);
+
 /// **The hints on each codepoint of `text`**, from an input method's
 /// hints over its bytes `start..end`: each on every codepoint whose first
 /// byte is in its range, overlapping ones combined. A range that ends past
@@ -33,9 +47,9 @@ pub fn codepoints(text: &str) -> Vec<Codepoint> {
 /// no hints, and the composition is drawn as one that had none. Only the
 /// Linux driver is handed any.
 #[cfg(any(target_os = "linux", test))]
-pub fn hints(text: &str, ranges: &[(u32, u32, Hints)]) -> Vec<Hints> {
-    let at = |i: u32| {
-        usize::try_from(i)
+pub fn hints(text: &str, ranges: &[(HintAt, HintAt, Hints)]) -> Vec<Hints> {
+    let at = |i: HintAt| {
+        usize::try_from(i.0)
             .ok()
             .filter(|&i| text.is_char_boundary(i))
     };
@@ -72,15 +86,15 @@ pub fn hints(text: &str, ranges: &[(u32, u32, Hints)]) -> Vec<Hints> {
 /// middle bytes inside a code point" -- or negative but not both -1, or a
 /// reversed pair, says nothing, and the cursor is after the composition.
 #[cfg(any(target_os = "linux", test))]
-pub fn caret(text: &str, cursor: (i32, i32)) -> Caret {
-    let cp = |b: i32| {
-        usize::try_from(b)
+pub fn caret(text: &str, cursor: (CaretAt, CaretAt)) -> Caret {
+    let cp = |b: CaretAt| {
+        usize::try_from(b.0)
             .ok()
             .filter(|&b| text.is_char_boundary(b))
             .map(|b| text[..b].chars().count())
     };
     match cursor {
-        (-1, -1) => Caret::Hidden,
+        (CaretAt(-1), CaretAt(-1)) => Caret::Hidden,
         (begin, end) => match (cp(begin), cp(end)) {
             (Some(b), Some(e)) if b == e => Caret::At(b),
             (Some(b), Some(e)) if b < e => Caret::Range(b, e),
@@ -252,21 +266,35 @@ mod tests {
         // `か` and `な` are three bytes each, `a` one.
         let text = "かなa";
         assert_eq!(
-            hints(text, &[(0, 3, s), (0, 7, w), (6, 7, p)]),
+            hints(
+                text,
+                &[
+                    (HintAt(0), HintAt(3), s),
+                    (HintAt(0), HintAt(7), w),
+                    (HintAt(6), HintAt(7), p)
+                ]
+            ),
             [s.with(w), w, w.with(p)]
         );
         assert_eq!(
-            hints(text, &[(3, 6, s)]),
+            hints(text, &[(HintAt(3), HintAt(6), s)]),
             [Hints::NONE, s, Hints::NONE],
             "text no hint covers is unhinted"
         );
         for bad in [(1, 3), (0, 4), (0, 8), (6, 3)] {
             assert_eq!(
-                hints(text, &[(bad.0, bad.1, s), (6, 7, w)]),
+                hints(
+                    text,
+                    &[(HintAt(bad.0), HintAt(bad.1), s), (HintAt(6), HintAt(7), w)]
+                ),
                 [Hints::NONE, Hints::NONE, w],
                 "{bad:?} dropped"
             );
-            assert_eq!(hints(text, &[(bad.0, bad.1, s)]), [], "{bad:?}: none");
+            assert_eq!(
+                hints(text, &[(HintAt(bad.0), HintAt(bad.1), s)]),
+                [],
+                "{bad:?}: none"
+            );
         }
         assert_eq!(hints(text, &[]), []);
     }
@@ -282,15 +310,23 @@ mod tests {
     fn the_input_methods_cursor_lands_on_codepoints() {
         // `か` and `な` are three bytes each, `a` one.
         let text = "かなa";
-        assert_eq!(caret(text, (-1, -1)), Caret::Hidden);
-        assert_eq!(caret(text, (0, 0)), Caret::At(0));
-        assert_eq!(caret(text, (3, 3)), Caret::At(1));
-        assert_eq!(caret(text, (7, 7)), Caret::At(3), "after the last");
-        assert_eq!(caret(text, (3, 7)), Caret::Range(1, 3));
+        assert_eq!(caret(text, (CaretAt(-1), CaretAt(-1))), Caret::Hidden);
+        assert_eq!(caret(text, (CaretAt(0), CaretAt(0))), Caret::At(0));
+        assert_eq!(caret(text, (CaretAt(3), CaretAt(3))), Caret::At(1));
+        assert_eq!(
+            caret(text, (CaretAt(7), CaretAt(7))),
+            Caret::At(3),
+            "after the last"
+        );
+        assert_eq!(caret(text, (CaretAt(3), CaretAt(7))), Caret::Range(1, 3));
         for bad in [(1, 1), (8, 8), (-1, 3), (3, -1), (6, 3), (-2, -2)] {
-            assert_eq!(caret(text, bad), Caret::End, "{bad:?}");
+            assert_eq!(
+                caret(text, (CaretAt(bad.0), CaretAt(bad.1))),
+                Caret::End,
+                "{bad:?}"
+            );
         }
-        assert_eq!(caret("", (0, 0)), Caret::At(0));
+        assert_eq!(caret("", (CaretAt(0), CaretAt(0))), Caret::At(0));
     }
 
     /// The candidate window's cell is the cursor's, in pixels.

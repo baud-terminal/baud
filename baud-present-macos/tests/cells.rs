@@ -10394,7 +10394,8 @@ fn mpvs_kitty_video_draws_alike_on_every_arm() {
                 usize::try_from(at.0).unwrap(),
                 usize::try_from(at.1).unwrap(),
             );
-            let (lit, dim) = mpv_capture::faint(&a, mpv_capture::Pixels(fw), (x0, y0), (s, v), rgb);
+            let px = mpv_capture::Pixels;
+            let (lit, dim) = mpv_capture::faint(&a, px(fw), (px(x0), px(y0)), (px(s), px(v)), rgb);
             bright += lit;
             assert_eq!(
                 dim, 0,

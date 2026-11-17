@@ -226,25 +226,36 @@ mod tests {
     use super::*;
     use baud_core::Content;
 
-    fn at((r, c): (usize, usize)) -> (Row, Col) {
-        (Row::from_index(r), Col::at_index(c))
-    }
-
     /// **A click on the cursor's line moves the point by the columns
     /// between**: right of the cursor, Right; left, Left; on it, nothing.
     #[test]
     fn a_click_on_the_cursors_line_moves_the_point_by_the_columns_between() {
         let none = |_| Wrap::Ended;
         assert_eq!(
-            point_move(none, at((3, 10)), at((3, 15)), Cols::of_index(80)),
+            point_move(
+                none,
+                (Row::from_index(3), Col::at_index(10)),
+                (Row::from_index(3), Col::at_index(15)),
+                Cols::of_index(80)
+            ),
             Some((Arrow::Right, 5))
         );
         assert_eq!(
-            point_move(none, at((3, 10)), at((3, 2)), Cols::of_index(80)),
+            point_move(
+                none,
+                (Row::from_index(3), Col::at_index(10)),
+                (Row::from_index(3), Col::at_index(2)),
+                Cols::of_index(80)
+            ),
             Some((Arrow::Left, 8))
         );
         assert_eq!(
-            point_move(none, at((3, 10)), at((3, 10)), Cols::of_index(80)),
+            point_move(
+                none,
+                (Row::from_index(3), Col::at_index(10)),
+                (Row::from_index(3), Col::at_index(10)),
+                Cols::of_index(80)
+            ),
             None
         );
     }
@@ -259,19 +270,39 @@ mod tests {
             _ => Wrap::Ended,
         };
         assert_eq!(
-            point_move(wraps, at((2, 70)), at((4, 5)), Cols::of_index(80)),
+            point_move(
+                wraps,
+                (Row::from_index(2), Col::at_index(70)),
+                (Row::from_index(4), Col::at_index(5)),
+                Cols::of_index(80)
+            ),
             Some((Arrow::Right, 95))
         );
         assert_eq!(
-            point_move(wraps, at((4, 5)), at((2, 70)), Cols::of_index(80)),
+            point_move(
+                wraps,
+                (Row::from_index(4), Col::at_index(5)),
+                (Row::from_index(2), Col::at_index(70)),
+                Cols::of_index(80)
+            ),
             Some((Arrow::Left, 95))
         );
         assert_eq!(
-            point_move(wraps, at((4, 5)), at((5, 0)), Cols::of_index(80)),
+            point_move(
+                wraps,
+                (Row::from_index(4), Col::at_index(5)),
+                (Row::from_index(5), Col::at_index(0)),
+                Cols::of_index(80)
+            ),
             None
         );
         assert_eq!(
-            point_move(wraps, at((1, 5)), at((2, 0)), Cols::of_index(80)),
+            point_move(
+                wraps,
+                (Row::from_index(1), Col::at_index(5)),
+                (Row::from_index(2), Col::at_index(0)),
+                Cols::of_index(80)
+            ),
             None
         );
     }
@@ -309,35 +340,64 @@ mod tests {
         let row = cells("$ a漢bc____R", Cols::of_index(12));
         let rows = |_: Row| &row[..];
         let ended = |_: Row| Wrap::Ended;
-        let input = Some(at((0, 2)));
-        let mv = |cursor, click| {
-            prompt_move(rows, ended, Rows::of_count(1), at(cursor), at(click), input)
-        };
+        let input = Some((Row::from_index(0), Col::at_index(2)));
+        let mv = |cursor, click| prompt_move(rows, ended, Rows::of_count(1), cursor, click, input);
         // Cursor after `c` (column 7); the wide character's two cells are one.
-        assert_eq!(mv((0, 7), (0, 2)), Some((Arrow::Left, 4)));
         assert_eq!(
-            mv((0, 7), (0, 4)),
+            mv(
+                (Row::from_index(0), Col::at_index(7)),
+                (Row::from_index(0), Col::at_index(2))
+            ),
+            Some((Arrow::Left, 4))
+        );
+        assert_eq!(
+            mv(
+                (Row::from_index(0), Col::at_index(7)),
+                (Row::from_index(0), Col::at_index(4))
+            ),
             Some((Arrow::Left, 3)),
             "its right half is it"
         );
         assert_eq!(
-            mv((0, 7), (0, 0)),
+            mv(
+                (Row::from_index(0), Col::at_index(7)),
+                (Row::from_index(0), Col::at_index(0))
+            ),
             Some((Arrow::Left, 4)),
             "the left prompt"
         );
         assert_eq!(
-            mv((0, 2), (0, 11)),
+            mv(
+                (Row::from_index(0), Col::at_index(2)),
+                (Row::from_index(0), Col::at_index(11))
+            ),
             Some((Arrow::Right, 4)),
             "the right prompt"
         );
         assert_eq!(
-            mv((0, 2), (0, 9)),
+            mv(
+                (Row::from_index(0), Col::at_index(2)),
+                (Row::from_index(0), Col::at_index(9))
+            ),
             Some((Arrow::Right, 4)),
             "the background"
         );
-        assert_eq!(mv((0, 7), (0, 7)), None);
         assert_eq!(
-            prompt_move(rows, ended, Rows::of_count(1), at((0, 7)), at((0, 2)), None),
+            mv(
+                (Row::from_index(0), Col::at_index(7)),
+                (Row::from_index(0), Col::at_index(7))
+            ),
+            None
+        );
+        assert_eq!(
+            prompt_move(
+                rows,
+                ended,
+                Rows::of_count(1),
+                (Row::from_index(0), Col::at_index(7)),
+                (Row::from_index(0), Col::at_index(2)),
+                None
+            ),
             None
         );
     }
@@ -358,14 +418,14 @@ mod tests {
             0 => Wrap::Continues,
             _ => Wrap::Ended,
         };
-        let input = Some(at((0, 2)));
+        let input = Some((Row::from_index(0), Col::at_index(2)));
         assert_eq!(
             prompt_move(
                 rows,
                 wraps,
                 Rows::of_count(3),
-                at((1, 2)),
-                at((0, 3)),
+                (Row::from_index(1), Col::at_index(2)),
+                (Row::from_index(0), Col::at_index(3)),
                 input
             ),
             Some((Arrow::Left, 5))
@@ -375,8 +435,8 @@ mod tests {
                 rows,
                 wraps,
                 Rows::of_count(3),
-                at((1, 2)),
-                at((2, 1)),
+                (Row::from_index(1), Col::at_index(2)),
+                (Row::from_index(2), Col::at_index(1)),
                 input
             ),
             None
@@ -387,9 +447,9 @@ mod tests {
                 rows,
                 wraps,
                 Rows::of_count(3),
-                at((2, 3)),
-                at((2, 0)),
-                Some(at((0, 2)))
+                (Row::from_index(2), Col::at_index(3)),
+                (Row::from_index(2), Col::at_index(0)),
+                Some((Row::from_index(0), Col::at_index(2)))
             ),
             Some((Arrow::Left, 3)),
             "the cursor's line is row 2 alone, so it starts at its first column"
@@ -421,7 +481,7 @@ mod tests {
             "the pad"
         );
         assert_eq!(view.wrapped(Row::from_index(0)), Wrap::Continues);
-        assert_eq!(t.cursor(), at((1, 3)));
+        assert_eq!(t.cursor(), (Row::from_index(1), Col::at_index(3)));
         let input = t.prompt_click().expect("cl= asked").input;
         let mv = |click| {
             prompt_move(
@@ -429,14 +489,30 @@ mod tests {
                 |r| view.wrapped(r),
                 Rows::of_count(8),
                 t.cursor(),
-                at(click),
+                click,
                 input,
             )
         };
-        assert_eq!(mv((1, 0)), Some((Arrow::Left, 2)), "on 漢");
-        assert_eq!(mv((1, 2)), Some((Arrow::Left, 1)), "on b");
-        assert_eq!(mv((1, 10)), None, "past b, where the cursor is");
-        assert_eq!(mv((0, 38)), Some((Arrow::Left, 3)), "on the last a");
+        assert_eq!(
+            mv((Row::from_index(1), Col::at_index(0))),
+            Some((Arrow::Left, 2)),
+            "on 漢"
+        );
+        assert_eq!(
+            mv((Row::from_index(1), Col::at_index(2))),
+            Some((Arrow::Left, 1)),
+            "on b"
+        );
+        assert_eq!(
+            mv((Row::from_index(1), Col::at_index(10))),
+            None,
+            "past b, where the cursor is"
+        );
+        assert_eq!(
+            mv((Row::from_index(0), Col::at_index(38))),
+            Some((Arrow::Left, 3)),
+            "on the last a"
+        );
     }
 
     /// kitty's report: a left press at the click's cell, the row the
@@ -446,20 +522,36 @@ mod tests {
     fn a_prompt_report_is_an_sgr_press() {
         let top = Row::from_index(3);
         let later = Some(Row::from_index(5));
-        let rep = |e, click| prompt_report(e, top, later, at(click)).map(String::from_utf8);
+        let rep = |e, click| prompt_report(e, top, later, click).map(String::from_utf8);
         assert_eq!(
-            rep(ClickEvents::Absolute, (4, 9)),
+            rep(
+                ClickEvents::Absolute,
+                (Row::from_index(4), Col::at_index(9))
+            ),
             Some(Ok("\x1b[<0;10;5M".into()))
         );
         assert_eq!(
-            rep(ClickEvents::Relative, (4, 9)),
+            rep(
+                ClickEvents::Relative,
+                (Row::from_index(4), Col::at_index(9))
+            ),
             Some(Ok("\x1b[<0;10;2M".into()))
         );
         assert_eq!(
-            rep(ClickEvents::Relative, (6, 0)),
+            rep(
+                ClickEvents::Relative,
+                (Row::from_index(6), Col::at_index(0))
+            ),
             Some(Ok("\x1b[<0;1;2M".into()))
         );
-        assert_eq!(rep(ClickEvents::Absolute, (2, 0)), None, "above the prompt");
+        assert_eq!(
+            rep(
+                ClickEvents::Absolute,
+                (Row::from_index(2), Col::at_index(0))
+            ),
+            None,
+            "above the prompt"
+        );
     }
 
     /// The boundary nearest the pointer, xterm's arithmetic exactly: in a

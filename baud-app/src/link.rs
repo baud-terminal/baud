@@ -1151,7 +1151,14 @@ pub fn find_with(w: &Window, rules: &Rules) -> Option<Found> {
     while hi < text.len() && class(text[hi]).has(Class::URI) {
         hi += 1;
     }
-    found_in(text, (lo, hi), Ix(lo), Ix(at), (w.head, w.tail), rules)
+    found_in(
+        text,
+        (Ix(lo), Ix(hi)),
+        Ix(lo),
+        Ix(at),
+        (w.head, w.tail),
+        rules,
+    )
 }
 
 /// [`find`] over `text`, the run of URI characters around `at` being `lo..hi`
@@ -1160,7 +1167,7 @@ pub fn find_with(w: &Window, rules: &Rules) -> Option<Found> {
 /// costs what one does.
 pub(crate) fn found_in(
     text: &[Unit],
-    (lo, hi): (usize, usize),
+    (Ix(lo), Ix(hi)): (Ix, Ix),
     from: Ix,
     at: Ix,
     (head, tail): (Edge, Edge),
@@ -3296,6 +3303,11 @@ mod tests {
         assert!(admit(b"file://other/etc/hosts", uris.names()).is_err());
     }
 
+    /// How many times a source file spells what a walk looks for.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    #[repr(transparent)]
+    struct Spelled(usize);
+
     /// **The names reach the links and the paths only through
     /// `hand_names`, and the window hands every name it read**: in the
     /// app's own code (comments, literals and tests left out), every
@@ -3309,7 +3321,7 @@ mod tests {
     /// the second part fails.
     #[test]
     fn the_names_are_handed_once_and_whole() {
-        fn walk(dir: &std::path::Path, out: &mut Vec<(String, usize)>) {
+        fn walk(dir: &std::path::Path, out: &mut Vec<(String, Spelled)>) {
             let mut entries: Vec<_> = std::fs::read_dir(dir)
                 .expect("the sources")
                 .flatten()
@@ -3325,7 +3337,7 @@ mod tests {
                     let code = crate::no_appkit::without_tests(&crate::no_appkit::bare_code(&text));
                     let n = code.matches(".set_names(").count();
                     if n > 0 {
-                        out.push((name, n));
+                        out.push((name, Spelled(n)));
                     }
                 }
             }
@@ -3333,13 +3345,18 @@ mod tests {
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut found = Vec::new();
         walk(&src, &mut found);
-        let found: Vec<(String, usize)> = found
+        let found: Vec<(String, Spelled)> = found
             .into_iter()
-            .map(|(p, n)| (p.trim_start_matches(&*src.to_string_lossy()).to_owned(), n))
+            .map(|(p, Spelled(n))| {
+                (
+                    p.trim_start_matches(&*src.to_string_lossy()).to_owned(),
+                    Spelled(n),
+                )
+            })
             .collect();
         assert_eq!(
             found,
-            [("/link.rs".to_owned(), 2)],
+            [("/link.rs".to_owned(), Spelled(2))],
             "set_names outside hand_names"
         );
         let link = crate::no_appkit::bare_code(include_str!("link.rs"));
@@ -3559,7 +3576,11 @@ mod tests {
             Src,
             Outside,
         }
-        fn walk(dir: &std::path::Path, within: Within, out: &mut Vec<(std::path::PathBuf, usize)>) {
+        fn walk(
+            dir: &std::path::Path,
+            within: Within,
+            out: &mut Vec<(std::path::PathBuf, Spelled)>,
+        ) {
             let door = concat!("AdmittedUri::", "checked(");
             let Ok(entries) = std::fs::read_dir(dir) else {
                 return;
@@ -3580,7 +3601,7 @@ mod tests {
                 } else if within == Within::Src && name.ends_with(".rs") {
                     let n = std::fs::read_to_string(&path).map_or(0, |s| s.matches(door).count());
                     if n > 0 {
-                        out.push((path, n));
+                        out.push((path, Spelled(n)));
                     }
                 }
             }
@@ -3592,11 +3613,11 @@ mod tests {
         walk(repo, Within::Outside, &mut found);
         let found: Vec<_> = found
             .iter()
-            .map(|(p, n)| (p.strip_prefix(repo).unwrap_or(p).to_path_buf(), *n))
+            .map(|(p, Spelled(n))| (p.strip_prefix(repo).unwrap_or(p).to_path_buf(), Spelled(*n)))
             .collect();
         assert_eq!(
             found,
-            [(std::path::PathBuf::from("baud-app/src/link.rs"), 3)],
+            [(std::path::PathBuf::from("baud-app/src/link.rs"), Spelled(3))],
             "only the admission mints one"
         );
     }

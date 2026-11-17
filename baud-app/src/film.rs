@@ -303,9 +303,12 @@ impl Stage {
     fn geometry(&self, grid: &WinSize) -> Geometry {
         let m = self.renderer.metrics();
         Geometry {
-            pad: (PAD.value() + self.renderer.grid_left().value(), PAD.value()),
+            pad: (Px::of(PAD.value() + self.renderer.grid_left().value()), PAD),
             cell: (f64::from(m.cell_w.value()), f64::from(m.cell_h.value())),
-            grid: (grid.ws_col, grid.ws_row),
+            grid: crate::width::Grid {
+                cols: grid.ws_col,
+                rows: grid.ws_row,
+            },
             scale: 1.0,
         }
     }
@@ -401,8 +404,8 @@ enum Cue {
 /// pixels.
 fn middle(g: Geometry, (r, c): (f64, f64)) -> (f64, f64) {
     (
-        f64::from(g.pad.0) + (c + 0.5) * g.cell.0,
-        f64::from(g.pad.1) + (r + 0.5) * g.cell.1,
+        f64::from(g.pad.0.value()) + (c + 0.5) * g.cell.0,
+        f64::from(g.pad.1.value()) + (r + 0.5) * g.cell.1,
     )
 }
 

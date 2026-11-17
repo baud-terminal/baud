@@ -673,6 +673,7 @@ mod tests {
     use baud_core::{Owned, Term};
     use baud_domain::{BytePos, ReadLen, WinSize};
     use baud_render::Play;
+    use std::ops::Range;
     use std::time::Instant;
 
     const MS: Duration = Duration::from_millis(1);
@@ -738,16 +739,16 @@ mod tests {
         }
     }
 
-    /// The frames a 120 Hz display link draws from `from` to `to` ms after
-    /// `t0`, as the driver ticks: a frame when one is owed, of a blinking
-    /// block in a window with `focus`; whether any showed it hidden.
-    fn hides(c: &mut Caret<Instant>, t0: Instant, (from, to): (u64, u64), focus: Focus) -> bool {
+    /// The frames a 120 Hz display link draws over the milliseconds `ms`
+    /// after `t0`, as the driver ticks: a frame when one is owed, of a
+    /// blinking block in a window with `focus`; whether any showed it hidden.
+    fn hides(c: &mut Caret<Instant>, t0: Instant, ms: Range<u64>, focus: Focus) -> bool {
         let style = CursorStyle::of(
             baud_core::CursorShape::Block,
             baud_core::CursorBlink::Blinking,
         );
         let mut hid = false;
-        for tick in from * 120 / 1000..to * 120 / 1000 {
+        for tick in ms.start * 120 / 1000..ms.end * 120 / 1000 {
             let now = t0 + Duration::from_nanos(tick * 1_000_000_000 / 120);
             let b = blinks(style, focus, Some(()));
             if c.due(now, b) == Owes::Frame {
@@ -784,28 +785,28 @@ mod tests {
         };
         assert_eq!(gain(&mut c, 0), (NonBlinking::Off, Overridden::No));
         assert!(
-            hides(&mut c, t0, (0, 2000), Focus::Gained),
+            hides(&mut c, t0, 0..2000, Focus::Gained),
             "blinks with the switch off"
         );
         assert!(
-            !hides(&mut c, t0, (2000, 4000), Focus::Lost),
+            !hides(&mut c, t0, 2000..4000, Focus::Lost),
             "behind another window"
         );
         system.set(NonBlinking::On);
         assert!(
-            !hides(&mut c, t0, (4000, 6000), Focus::Lost),
+            !hides(&mut c, t0, 4000..6000, Focus::Lost),
             "turned on, unread"
         );
         assert_eq!(gain(&mut c, 6000), (NonBlinking::On, Overridden::No));
         assert!(
-            !hides(&mut c, t0, (6000, 9000), Focus::Gained),
+            !hides(&mut c, t0, 6000..9000, Focus::Gained),
             "steady from the gain"
         );
-        assert!(!hides(&mut c, t0, (9000, 10000), Focus::Lost));
+        assert!(!hides(&mut c, t0, 9000..10000, Focus::Lost));
         system.set(NonBlinking::Off);
         gain(&mut c, 10000);
         assert!(
-            hides(&mut c, t0, (10000, 12000), Focus::Gained),
+            hides(&mut c, t0, 10000..12000, Focus::Gained),
             "blinks again"
         );
     }
@@ -830,15 +831,11 @@ mod tests {
             let mut c = caret(t0);
             let read = c.read_system(rate, choice, || NonBlinking::On);
             assert_eq!(read, (NonBlinking::On, said), "{choice:?}");
-            assert_eq!(
-                hides(&mut c, t0, (0, 2000), Focus::Gained),
-                hid,
-                "{choice:?}"
-            );
+            assert_eq!(hides(&mut c, t0, 0..2000, Focus::Gained), hid, "{choice:?}");
             let read = c.read_system(rate, choice, || NonBlinking::Off);
             assert_eq!(read.1, Overridden::No, "{choice:?} with the switch off");
             assert!(
-                hides(&mut c, t0, (2000, 4000), Focus::Gained),
+                hides(&mut c, t0, 2000..4000, Focus::Gained),
                 "{choice:?} off"
             );
         }

@@ -10,17 +10,19 @@
 //! tested on any platform; `linux.rs` only turns `wl_pointer` events into
 //! [`Input`].
 
-use crate::gesture::{self, Kind, Owner, Pressed, Selected, Shift, To};
+use crate::gesture::{self, ClickCount, Kind, Owner, Pressed, Selected, Shift, To};
 use crate::keep::{
     Before, Counts, KeptText, Numbered, followed, kept_across_resize, oldest, reset_in,
     scrolled_off_the_top, snap_live, stale_in_moved_rows, switched, tracked_highlight,
 };
 use crate::wheel::{Delta, Route, Travel};
+use crate::width::Grid;
 use baud_core::{Erasure, Focus, Looking, Screen, Term};
 use baud_domain::{
     Col, Cols, EventMillis, ImagePx, LocatorAt, LocatorButtons, LocatorInput, LocatorKind,
     Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, PointerPx, Row, Rows,
 };
+use baud_font::Px;
 use baud_render::{Clip, Highlight, Press, Scrolled, Selection};
 use std::time::Duration;
 
@@ -31,10 +33,6 @@ use std::time::Duration;
 /// no interval of its own -- AppKit counts its clicks itself, the Linux
 /// driver reads no desktop setting.
 pub(crate) const MULTI_CLICK: Duration = Duration::from_millis(250);
-
-/// How many clicks a press makes: one, two for a word, three for a line.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ClickCount(pub(crate) u8);
 
 /// **The click count a press makes, as xterm's `EvalSelectUnit` counts it**
 /// (`[[source: xterm-button-c]]`): the same button as the last release, and
@@ -106,9 +104,9 @@ pub(crate) enum Input {
 /// arithmetic takes it the same way (`gesture::pointer_under`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Geometry {
-    pub(crate) pad: (u32, u32),
+    pub(crate) pad: (Px, Px),
     pub(crate) cell: (f64, f64),
-    pub(crate) grid: (u16, u16),
+    pub(crate) grid: Grid,
     pub(crate) scale: f64,
 }
 
@@ -691,7 +689,7 @@ impl Seat {
                 self.scrolled,
                 &mut self.selection,
                 &mut self.held,
-                (kind, button, self.clicks.count.0),
+                (kind, button, self.clicks.count),
                 press_of(mods),
                 at,
             );
@@ -1104,9 +1102,9 @@ mod tests {
 
     /// Ten-pixel cells on the 20x6 grid.
     const G: Geometry = Geometry {
-        pad: (0, 0),
+        pad: (Px::of(0), Px::of(0)),
         cell: (10.0, 10.0),
-        grid: (20, 6),
+        grid: Grid { cols: 20, rows: 6 },
         scale: 1.0,
     };
 
@@ -1489,9 +1487,9 @@ mod tests {
     #[test]
     fn a_point_at_a_fraction_is_the_cell_its_pixels_are_in() {
         let g = Geometry {
-            pad: (0, 0),
+            pad: (Px::of(0), Px::of(0)),
             cell: (15.0, 15.0),
-            grid: (20, 6),
+            grid: Grid { cols: 20, rows: 6 },
             scale: 1.5,
         };
         let mut owned = Owned::new(&WS);
@@ -1639,9 +1637,9 @@ mod tests {
             ws_row: 6,
         };
         let g = Geometry {
-            pad: (0, 0),
+            pad: (Px::of(0), Px::of(0)),
             cell: (10.0, 10.0),
-            grid: (40, 6),
+            grid: Grid { cols: 40, rows: 6 },
             scale: 1.0,
         };
         let line = |t: &Term<'_>| {
@@ -2444,7 +2442,10 @@ mod tests {
             let mut order = baud_render::Reorder::new();
             order.lay_out(&t, back);
             seat.drawn(order.orders());
-            let g = Geometry { grid: (20, 5), ..G };
+            let g = Geometry {
+                grid: Grid { cols: 20, rows: 5 },
+                ..G
+            };
             seat.input(&mut t, Input::Entered(15.0, 5.0), NONE, g, |_| ());
             for i in 0..3 {
                 let at = |ms: u32| Ms::of_millis(10 + 20 * i + ms);

@@ -81,8 +81,8 @@ fn status_row(statuses: &[capture::Status], before: At, cols: Cols) -> String {
 fn differing(
     frame: &[u32],
     Pixels(fw): Pixels,
-    (x0, y0): (usize, usize),
-    (w, h): (usize, usize),
+    (Pixels(x0), Pixels(y0)): (Pixels, Pixels),
+    (Pixels(w), Pixels(h)): (Pixels, Pixels),
     rgb: &[u8],
 ) -> Pixels {
     let n = (0..h)
@@ -300,16 +300,16 @@ fn mpvs_kitty_video_draws_what_mpv_sent() {
                     "upload {k}: the frames' cell"
                 );
                 let xy = (
-                    usize::try_from(at.0).unwrap(),
-                    usize::try_from(at.1).unwrap(),
+                    Pixels(usize::try_from(at.0).unwrap()),
+                    Pixels(usize::try_from(at.1).unwrap()),
                 );
-                let (lit, dim) = capture::faint(&frame, fw, xy, (s, v), rgb);
+                let (lit, dim) = capture::faint(&frame, fw, xy, up.size, rgb);
                 bright += lit;
                 assert_eq!(
                     dim, 0,
                     "upload {k}: of {lit} bright pixels, {dim} drawn faint"
                 );
-                let wrong = differing(&frame, fw, xy, (s, v), rgb);
+                let wrong = differing(&frame, fw, xy, up.size, rgb);
                 assert_eq!(
                     wrong,
                     Pixels(0),
@@ -427,8 +427,11 @@ fn under_a_two_frame_quota_every_upload_shows_its_own_frame() {
         let (Some(p), Some(rgb)) = (places.first(), shown) else {
             continue;
         };
-        let xy = (usize::try_from(p.x).unwrap(), usize::try_from(p.y).unwrap());
-        let wrong = differing(&frame, fw, xy, (s, v), rgb);
+        let xy = (
+            Pixels(usize::try_from(p.x).unwrap()),
+            Pixels(usize::try_from(p.y).unwrap()),
+        );
+        let wrong = differing(&frame, fw, xy, ups[0].size, rgb);
         assert_eq!(wrong, Pixels(0), "upload {k}: not the newest frame's RGB");
         drawn += 1;
     }

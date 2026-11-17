@@ -150,7 +150,11 @@ impl Fonts {
                 .iter()
                 .zip(&specs)
                 .any(|(f, s)| s.1 != FaceRole::Badge && !narrower_widths(f, &s.2).is_empty());
-            let order: Vec<(usize, FaceRole)> = specs.iter().map(|s| s.1).enumerate().collect();
+            let order: Vec<(Slot, FaceRole)> = specs
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (Slot(i), s.1))
+                .collect();
             let plain = || Built {
                 faces,
                 roles: specs.iter().map(|s| s.1).collect(),
@@ -313,15 +317,17 @@ impl Fonts {
             return Some(b);
         }
         let family = self.families.get(slot.0)?.clone();
-        let mut order = vec![(slot.0, FaceRole::Fallback)];
+        let mut order = vec![(slot, FaceRole::Fallback)];
         for (i, (_, role, _)) in self.specs.iter().enumerate() {
             let same = family.is_some() && self.families[i] == family;
             match role {
                 _ if i == slot.0 => {}
                 // The alternative fonts and the Fraktur face stay what
                 // they are whatever leads the chain.
-                FaceRole::Fallback | FaceRole::Badge | FaceRole::Font(..) => order.push((i, *role)),
-                FaceRole::Style(_) if same => order.push((i, *role)),
+                FaceRole::Fallback | FaceRole::Badge | FaceRole::Font(..) => {
+                    order.push((Slot(i), *role))
+                }
+                FaceRole::Style(_) if same => order.push((Slot(i), *role)),
                 FaceRole::Style(_) | FaceRole::Narrower => {}
             }
         }
@@ -365,14 +371,14 @@ pub const ZOOM_STEP: f32 = 1.0;
 fn instanced(
     data: &[&'static [u8]],
     specs: &[(FaceIndex, FaceRole, Vec<Variation>)],
-    order: &[(usize, FaceRole)],
+    order: &[(Slot, FaceRole)],
     parsed: Option<&[Face<'static>]>,
     held: &mut crate::pty::Held,
 ) -> Option<Built> {
     let wdth = baud_font::Tag::from_bytes(*b"wdth");
     let mut faces: Vec<Face<'static>> = Vec::with_capacity(order.len());
     let mut roles = Vec::with_capacity(order.len());
-    for &(i, role) in order {
+    for &(Slot(i), role) in order {
         let (index, _, variations) = &specs[i];
         let face = match parsed.and_then(|p| p.get(i)) {
             Some(f) => f.clone(),

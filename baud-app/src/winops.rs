@@ -862,11 +862,8 @@ mod tests {
         }
     }
 
-    fn at((x, y): (i32, i32)) -> WindowRequest {
-        WindowRequest::Move(ScreenPoint {
-            x: ScreenCoord::of(x),
-            y: ScreenCoord::of(y),
-        })
+    fn at(x: ScreenCoord, y: ScreenCoord) -> WindowRequest {
+        WindowRequest::Move(ScreenPoint { x, y })
     }
 
     fn frame(a: MacAction) -> Rect {
@@ -883,15 +880,18 @@ mod tests {
     #[test]
     fn a_move_lands_where_the_report_measures_from() {
         let w = window();
-        let f = frame(mac(at((200, 100)), &w));
+        let f = frame(mac(at(ScreenCoord::of(200), ScreenCoord::of(100)), &w));
         assert_eq!((f.x, f.top(), f.w, f.h), (100.0, 932.0, 800.0, 628.0));
-        let f = frame(mac(at((-3024, 0)), &w));
+        let f = frame(mac(at(ScreenCoord::of(-3024), ScreenCoord::of(0)), &w));
         assert_eq!((f.x, f.top()), (-1512.0, 982.0));
         let none = MacWindow {
             primary_top: None,
             ..w
         };
-        assert_eq!(mac(at((0, 0)), &none), MacAction::Nothing(Why::NoScreen));
+        assert_eq!(
+            mac(at(ScreenCoord::of(0), ScreenCoord::of(0)), &none),
+            MacAction::Nothing(Why::NoScreen)
+        );
     }
 
     /// The move is the inverse of the report: the position `window_facts`
@@ -901,7 +901,10 @@ mod tests {
         let w = window();
         let x = (w.frame.x * w.scale) as i32;
         let y = ((982.0 - w.frame.top()) * w.scale) as i32;
-        assert_eq!(frame(mac(at((x, y)), &w)), w.frame);
+        assert_eq!(
+            frame(mac(at(ScreenCoord::of(x), ScreenCoord::of(y)), &w)),
+            w.frame
+        );
     }
 
     /// **`CSI 4 ; h ; w t` sizes the content view in device pixels**, height
@@ -1064,7 +1067,10 @@ mod tests {
             },
             WindowRequest::Maximize(Maximize::Both),
         ];
-        for r in sizing.into_iter().chain([at((0, 0))]) {
+        for r in sizing
+            .into_iter()
+            .chain([at(ScreenCoord::of(0), ScreenCoord::of(0))])
+        {
             assert_eq!(
                 mac(r, &full),
                 MacAction::Nothing(Why::InFullScreen),
@@ -1077,7 +1083,10 @@ mod tests {
         {
             assert_eq!(mac(r, &pinned), MacAction::Nothing(Why::Pinned), "{r:?}");
         }
-        assert!(matches!(mac(at((0, 0)), &pinned), MacAction::Frame(..)));
+        assert!(matches!(
+            mac(at(ScreenCoord::of(0), ScreenCoord::of(0)), &pinned),
+            MacAction::Frame(..)
+        ));
     }
 
     /// **With no screen to measure against, a pixel resize is refused**, as
@@ -1138,7 +1147,7 @@ mod tests {
         let w = window();
         let (calls, _) = mac_batch(
             &[
-                at((200, 100)),
+                at(ScreenCoord::of(200), ScreenCoord::of(100)),
                 WindowRequest::ResizePixels {
                     height: Exactly(1000),
                     width: Exactly(1400),
@@ -1183,7 +1192,10 @@ mod tests {
         );
         assert_eq!((left.frame, left.saved), (w.frame, None));
         let (calls, left) = mac_batch(
-            &[WindowRequest::FullScreen(FullScreen::Enter), at((0, 0))],
+            &[
+                WindowRequest::FullScreen(FullScreen::Enter),
+                at(ScreenCoord::of(0), ScreenCoord::of(0)),
+            ],
             w,
         );
         assert_eq!(
@@ -1242,7 +1254,11 @@ mod tests {
                 &w,
                 Unbuilt(super::Unbuilt::Unminimize),
             ),
-            (at((0, 0)), &w, Unbuilt(super::Unbuilt::Move)),
+            (
+                at(ScreenCoord::of(0), ScreenCoord::of(0)),
+                &w,
+                Unbuilt(super::Unbuilt::Move),
+            ),
             (WindowRequest::Raise, &w, Unbuilt(super::Unbuilt::Stacking)),
             (WindowRequest::Lower, &w, Unbuilt(super::Unbuilt::Stacking)),
             (WindowRequest::Refresh, &w, Redraw),
@@ -1494,7 +1510,7 @@ mod tests {
         for (asked, want) in [
             (thirty, rows(30)),
             (keep, rows(34)),
-            (at((200, 100)), rows(34)),
+            (at(ScreenCoord::of(200), ScreenCoord::of(100)), rows(34)),
         ] {
             let (calls, _) = mac_batch(&[asked], left);
             assert_eq!(frame(calls[0]).h, want, "{asked:?}");

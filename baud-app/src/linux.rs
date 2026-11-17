@@ -504,7 +504,7 @@ fn thumb(
     beside: crate::seat::Beside,
     g: crate::seat::Geometry,
 ) -> crate::bar::Took {
-    let pad = (f64::from(g.pad.0), f64::from(g.pad.1));
+    let pad = (f64::from(g.pad.0.value()), f64::from(g.pad.1.value()));
     let Some(e) = crate::bar::event_beside(beside, pad, g.scale) else {
         return crate::bar::Took::No;
     };
@@ -1410,10 +1410,19 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                     let ranges: Vec<_> = p
                         .hints
                         .iter()
-                        .map(|h| (h.start.0, h.end.0, hint_of(h.hint)))
+                        .map(|h| {
+                            (
+                                crate::marked::HintAt(h.start.0),
+                                crate::marked::HintAt(h.end.0),
+                                hint_of(h.hint),
+                            )
+                        })
                         .collect();
                     let hints = crate::marked::hints(&p.text, &ranges);
-                    let cursor = (p.cursor.begin.0, p.cursor.end.0);
+                    let cursor = (
+                        crate::marked::CaretAt(p.cursor.begin.0),
+                        crate::marked::CaretAt(p.cursor.end.0),
+                    );
                     let caret = crate::marked::caret(&p.text, cursor);
                     let same = composing == d.composing
                         && hints == d.composing_hints
@@ -1973,17 +1982,13 @@ impl Driver {
     /// the scale they are read at.
     fn seat_geometry(&self) -> crate::seat::Geometry {
         let m = self.renderer.metrics();
-        let (cols, rows) = self.term.geometry();
         crate::seat::Geometry {
             pad: (
-                self.origin.x.value() + self.renderer.strip().value(),
-                self.origin.y.value() + self.renderer.grid_top().value(),
+                Px::of(self.origin.x.value() + self.renderer.strip().value()),
+                Px::of(self.origin.y.value() + self.renderer.grid_top().value()),
             ),
             cell: (f64::from(m.cell_w.value()), f64::from(m.cell_h.value())),
-            grid: (
-                u16::try_from(cols.index()).unwrap_or(u16::MAX),
-                u16::try_from(rows.index()).unwrap_or(u16::MAX),
-            ),
+            grid: crate::width::Grid::of(&self.term),
             scale: self.scale.factor(),
         }
     }

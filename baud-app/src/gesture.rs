@@ -237,8 +237,8 @@ pub(crate) fn pointer_under(
     at: (f64, f64),
     scale: f64,
     cell: (f64, f64),
-    grid: (u16, u16),
-    pad: (u32, u32),
+    grid: crate::width::Grid,
+    pad: (baud_font::Px, baud_font::Px),
 ) -> (Row, Col, PointerPx) {
     let axis = |p: f64, pad: u32, cell: f64, cells: u16| {
         let extent = (cell * f64::from(cells)).floor() as i64;
@@ -250,8 +250,8 @@ pub(crate) fn pointer_under(
             ImagePx::of(u16::try_from(px).unwrap_or(u16::MAX)),
         )
     };
-    let (col, x) = axis(at.0, pad.0, cell.0, grid.0);
-    let (row, y) = axis(at.1, pad.1, cell.1, grid.1);
+    let (col, x) = axis(at.0, pad.0.value(), cell.0, grid.cols);
+    let (row, y) = axis(at.1, pad.1.value(), cell.1, grid.rows);
     (Row::from_index(row), Col::at_index(col), PointerPx { x, y })
 }
 
@@ -294,15 +294,17 @@ pub(crate) fn locator_under(
     at: (f64, f64),
     scale: f64,
     cell: (f64, f64),
-    grid: (u16, u16),
-    pad: (u32, u32),
+    grid: crate::width::Grid,
+    pad: (baud_font::Px, baud_font::Px),
 ) -> Option<LocatorAt> {
     let inside = |p: f64, pad: u32, cell: f64, cells: u16| {
         let extent = (cell * f64::from(cells)).floor();
         let px = (p * scale - f64::from(pad)).floor();
         (0.0..extent).contains(&px)
     };
-    if !(inside(at.0, pad.0, cell.0, grid.0) && inside(at.1, pad.1, cell.1, grid.1)) {
+    if !(inside(at.0, pad.0.value(), cell.0, grid.cols)
+        && inside(at.1, pad.1.value(), cell.1, grid.rows))
+    {
         return None;
     }
     let (row, col, px) = pointer_under(at, scale, cell, grid, pad);
@@ -312,6 +314,10 @@ pub(crate) fn locator_under(
         px: Some(px),
     })
 }
+
+/// How many clicks a press makes: one, two for a word, three for a line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ClickCount(pub(crate) u8);
 
 /// What a pointer event did to the selection.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -341,7 +347,7 @@ pub(crate) fn select(
     scrolled: Scrolled,
     selection: &mut Option<Selection>,
     held: &mut Option<MouseButton>,
-    (kind, button, clicks): (Kind, Pressed, u8),
+    (kind, button, ClickCount(clicks)): (Kind, Pressed, ClickCount),
     press: Press,
     (at, col): (WindowLine, Col),
 ) -> Selected {
@@ -686,7 +692,13 @@ mod route_tests {
     #[test]
     fn the_locator_s_position_is_undefined_off_the_text_area() {
         use super::{locator_under, pointer_under};
-        let g = (2.0, (10.0, 20.0), (8, 4), (6, 6));
+        use baud_font::Px;
+        let g = (
+            2.0,
+            (10.0, 20.0),
+            crate::width::Grid { cols: 8, rows: 4 },
+            (Px::of(6), Px::of(6)),
+        );
         let at = |x, y| locator_under((x, y), g.0, g.1, g.2, g.3);
         assert_eq!(at(2.0, 2.0), None, "over the padding");
         assert_eq!(at(43.0, 10.0), None, "past the last column");
@@ -750,7 +762,7 @@ mod tests {
                 s,
                 &mut sel,
                 &mut held,
-                (Kind::Down, Pressed::Left, clicks),
+                (Kind::Down, Pressed::Left, ClickCount(clicks)),
                 Press::Stream,
                 at,
             );
@@ -788,7 +800,7 @@ mod tests {
                 s,
                 sel,
                 held,
-                (k, b, 1),
+                (k, b, ClickCount(1)),
                 Press::Stream,
                 (WindowLine::of(Row::ZERO), Col::at_index(c)),
             )
@@ -868,7 +880,7 @@ mod tests {
                 s,
                 &mut sel,
                 &mut held,
-                (k, Pressed::Left, 1),
+                (k, Pressed::Left, ClickCount(1)),
                 Press::Stream,
                 (WindowLine::of(Row::ZERO), at(c)),
             );
@@ -889,7 +901,7 @@ mod tests {
             s,
             &mut sel,
             &mut held,
-            (Kind::Down, Pressed::Left, 2),
+            (Kind::Down, Pressed::Left, ClickCount(2)),
             Press::Stream,
             (WindowLine::of(Row::ZERO), Col::at_index(8)),
         );
