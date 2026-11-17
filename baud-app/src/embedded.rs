@@ -125,10 +125,10 @@ mod tests {
                 .expect("a head table")
         };
         for (e, len, hash, style) in [
-            (REGULAR, 604_452, 0xb649_beee_83e4_c452_u64, 0),
-            (BOLD, 611_180, 0x64a1_ee9b_dab3_bed7, 1),
-            (ITALIC, 608_076, 0x089b_b776_a733_c323, 2),
-            (BOLD_ITALIC, 613_984, 0x45e7_5ef6_0b46_0695, 3),
+            (REGULAR, 604_588, 0x29e2_c18d_e974_a305_u64, 0),
+            (BOLD, 611_312, 0xc166_784f_1841_9ba8, 1),
+            (ITALIC, 608_212, 0xdba8_1dbf_c224_36b9, 2),
+            (BOLD_ITALIC, 614_116, 0xedbe_dbc8_3bd9_edb4, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
             (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
@@ -162,10 +162,10 @@ mod tests {
         // Name, which binds the built font as a modified version.
         let manifest = std::fs::read_to_string(format!("{dir}/built/MANIFEST")).unwrap();
         for out in [
-            "output 462214e66f0ce9f99959d77b6646d9a7ed85fb75228f7dc04aab47ac8e4df6b6 baud-app/fonts/built/Regular.ttf",
-            "output e32b95b1811f53beefd9f4c861b1cc435f29f4081994f1b813f6903b8b548de9 baud-app/fonts/built/Bold.ttf",
-            "output bc6cdbd048f979b9b879c41f7c34f9e9345d4e99aa19684925f58425848bca8b baud-app/fonts/built/Italic.ttf",
-            "output bce591333f6d413831850078142714c32d402d85ac3735bd37c9483afed8fac8 baud-app/fonts/built/BoldItalic.ttf",
+            "output 383fc97ad960872f5508711f567134947f191bbe38346926671823b7c0f988fd baud-app/fonts/built/Regular.ttf",
+            "output 62444395c771c788d8ddc3cb60d25263f2c9df4b54c5d06c15e21fdc51bd039a baud-app/fonts/built/Bold.ttf",
+            "output 8ca4f8875d9356d9dfcbb5720c868503d09c6a63e0da70ffd06b6b2851d59f27 baud-app/fonts/built/Italic.ttf",
+            "output 7f597c501d5c288b27610c3683ca7c760768bbd0aee39422a87c67a278630ad9 baud-app/fonts/built/BoldItalic.ttf",
         ] {
             assert!(manifest.contains(out), "MANIFEST: {out}");
         }
@@ -367,6 +367,16 @@ mod tests {
     /// BLACK, one glyph each.
     fn half_circles() -> Vec<Codepoint> {
         [0x25D0, 0x25D1]
+            .into_iter()
+            .map(|v| Codepoint::new(v).unwrap())
+            .collect()
+    }
+
+    /// The two parallelograms the Hebrew stage adds after the half
+    /// circles: U+25B0 BLACK PARALLELOGRAM and U+25B1 WHITE PARALLELOGRAM,
+    /// one glyph each.
+    fn parallelograms() -> Vec<Codepoint> {
+        [0x25B0, 0x25B1]
             .into_iter()
             .map(|v| Codepoint::new(v).unwrap())
             .collect()
@@ -820,8 +830,8 @@ mod tests {
             (Some(b), Some(s)) if keeps_lookups(b.as_slice(), s.as_slice()) => {}
             _ => lost.push("GSUB"),
         }
-        let added_glyphs =
-            u32::try_from(shipped().len() + half_circles().len()).unwrap() + DEVANAGARI_GLYPHS;
+        let staged = shipped().len() + half_circles().len() + parallelograms().len();
+        let added_glyphs = u32::try_from(staged).unwrap() + DEVANAGARI_GLYPHS;
         if u32::from(built.glyph_count().value())
             != u32::from(base.glyph_count().value()) + added_glyphs
         {
@@ -840,7 +850,7 @@ mod tests {
             lost.push("cmap");
         }
         // What the built file maps and the stock does not is `shipped()`,
-        // `half_circles()` and `devanagari()`.
+        // `half_circles()`, `parallelograms()` and `devanagari()`.
         let mut added = Vec::new();
         built.candidates(|lo, hi| {
             for c in (lo.value()..=hi.value()).filter_map(Codepoint::new) {
@@ -853,6 +863,7 @@ mod tests {
         added.dedup();
         let mut want = shipped();
         want.extend(half_circles());
+        want.extend(parallelograms());
         want.extend(devanagari());
         want.sort_by_key(|c| c.value());
         if added != want {
@@ -880,9 +891,9 @@ mod tests {
     /// the stock file of its style keeps every GSUB lookup byte for byte at
     /// its index, and what DFLT and latn name; maps every code point the
     /// stock file maps to the same glyph and adds exactly `shipped()`,
-    /// `half_circles()` and `devanagari()`; carries the stock glyphs, one
-    /// more for each Hebrew code point and each half circle, and the 783
-    /// Devanagari glyphs; and keeps every stock
+    /// `half_circles()`, `parallelograms()` and `devanagari()`; carries the
+    /// stock glyphs, one more for each Hebrew code point, half circle and
+    /// parallelogram, and the 783 Devanagari glyphs; and keeps every stock
     /// glyph's advance and outline -- the Latin, its ligatures and the
     /// icons' neighbours draw as they did. Each check has its control, so
     /// none of them is a probe that cannot fire.

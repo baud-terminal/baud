@@ -63,14 +63,14 @@ EPOCH=315532800
 # committed file, and the two Noto instances (noto<weight>).
 gate_hash() {
   case $1 in
-  Regular) echo 462214e66f0ce9f99959d77b6646d9a7ed85fb75228f7dc04aab47ac8e4df6b6 ;;
-  Bold) echo e32b95b1811f53beefd9f4c861b1cc435f29f4081994f1b813f6903b8b548de9 ;;
-  Italic) echo bc6cdbd048f979b9b879c41f7c34f9e9345d4e99aa19684925f58425848bca8b ;;
-  BoldItalic) echo bce591333f6d413831850078142714c32d402d85ac3735bd37c9483afed8fac8 ;;
-  Regular-hebrew) echo d62f653d311bde30066919aa061ab0ceeabfbe268c406a600d47bc9b762cf135 ;;
-  Bold-hebrew) echo d3370638b863f428d0a8c188ec94c2df0913c1564a92e2512278cc8f5d8412d2 ;;
-  Italic-hebrew) echo f5c1c15594d52f0b4658e46277f5e8340237c9ba9b34f0478c6941bcb9a3cda6 ;;
-  BoldItalic-hebrew) echo 15ccfe27e294f1a16510f92fd22f900b42f8cf4ba7f0afcd3e0d9f3b64c01cca ;;
+  Regular) echo 383fc97ad960872f5508711f567134947f191bbe38346926671823b7c0f988fd ;;
+  Bold) echo 62444395c771c788d8ddc3cb60d25263f2c9df4b54c5d06c15e21fdc51bd039a ;;
+  Italic) echo 8ca4f8875d9356d9dfcbb5720c868503d09c6a63e0da70ffd06b6b2851d59f27 ;;
+  BoldItalic) echo 7f597c501d5c288b27610c3683ca7c760768bbd0aee39422a87c67a278630ad9 ;;
+  Regular-hebrew) echo 4e20771f181228ace3307ee498eb28c1121edf7abe9355f7184645850e43ad12 ;;
+  Bold-hebrew) echo a0a00b9d8d19356e17fb67835aba2cb0d3e8ced58e3b3f27e30a8a8d57c7b401 ;;
+  Italic-hebrew) echo 04036e73353a00c454c63e639388764bad2d2c5adac71edc5eef23b7e7da8df3 ;;
+  BoldItalic-hebrew) echo 9118985147af8bccc6e015712dc7bde6d2517e9feef76886b3048bf18edb17a4 ;;
   Regular-merged | Bold-merged | Italic-merged | BoldItalic-merged) gate_hash "${1%-merged}" ;;
   noto400) echo e2569116e656d46710fe1133548fcbcda9decdc94ec5d3c3219213a046d13da7 ;;
   noto700) echo 7eea4776889a270ad2cdf4afa89b169ab3b513990abb838fc702cb03aa6052bb ;;

@@ -90,7 +90,11 @@ fontTools 4.63.0; THE DEVANAGARI says what the merge adds to it and changes in i
 - 2 code points added after the Hebrew: U+25D0 CIRCLE WITH LEFT HALF BLACK and
   U+25D1 CIRCLE WITH RIGHT HALF BLACK, each JetBrains Mono's own U+25CB WHITE CIRCLE
   of its style with one half filled from its inner contour's points.
-  The glyph count goes from 1743 to 1880 (the italics from 1730 to 1867), and the
+- 2 code points added after the half circles: U+25B0 BLACK PARALLELOGRAM and
+  U+25B1 WHITE PARALLELOGRAM (BAUD'S OWN GLYPHS), the same in every style: JetBrains
+  Mono's U+25A0 BLACK SQUARE's band and advance with its sides leaning one unit across
+  for four up, the white one framed at U+25A1 WHITE SQUARE's 50-unit stroke.
+  The glyph count goes from 1743 to 1882 (the italics from 1730 to 1869), and the
   stock glyph order is an exact prefix, so every stock glyph keeps its ID.
 - No stock glyph changed: 0 glyf records, 0 advances and 0 cmap entries changed or
   lost. GSUB is byte-identical but for one added script record, hebr (below): with it
@@ -150,8 +154,8 @@ with fontTools 4.63.0, against that stage):
 - 783 glyphs appended after every existing glyph, so no glyph ID moves: every Noto
   glyph a code point the face did not map reaches, every glyph a Noto lookup names,
   and their components, in Noto's order, at Noto's units (both fonts are 1000 to the
-  em, and no scale is applied), with Noto's advances. The glyph count goes from 1880
-  to 2663 (the italics from 1867 to 2650).
+  em, and no scale is applied), with Noto's advances. The glyph count goes from 1882
+  to 2665 (the italics from 1869 to 2652).
 - 225 code points mapped, in every cmap subtable that can hold them: the Devanagari
   block U+0900-U+097F, Vedic Extensions U+1CD0-U+1CF9 but U+1CF7, Common Indic Number
   Forms U+A830-U+A839, Devanagari Extended U+A8E0-U+A8FF, U+11B00-U+11B09 of

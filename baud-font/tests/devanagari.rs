@@ -466,14 +466,14 @@ fn fixture_glyphs(face: &str) -> std::collections::BTreeMap<String, Vec<HbGlyph>
 
 /// The built Regular: its bytes, and the first glyph the Devanagari merge
 /// appended -- every glyph before it is one the Hebrew stage holds:
-/// JetBrains Mono's, the Hebrew and the two half circles (the merge
-/// appends after every glyph it is given: 1880 in Regular and Bold, 1867
-/// in the italics).
+/// JetBrains Mono's, the Hebrew, the two half circles and the two
+/// parallelograms (the merge appends after every glyph it is given: 1882
+/// in Regular and Bold, 1869 in the italics).
 fn built_regular() -> (Vec<u8>, u16) {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
     (
         std::fs::read(format!("{root}/baud-app/fonts/built/Regular.ttf")).unwrap(),
-        1880,
+        1882,
     )
 }
 
@@ -602,10 +602,10 @@ fn at_width(face: &mut Face<'_>, wdth: f32) {
 /// **Along the width axis only the Devanagari moves.** The built faces
 /// carry Noto's `wdth` axis, 62.5 to 100, for a program that narrows a
 /// Devanagari word to fit it: at 62.5 and at 81.25 every glyph before the
-/// first the merge appended -- all of JetBrains Mono's, the Hebrew and the
-/// two half circles -- draws the outline and takes the advance it takes
-/// at the default instance, and the README line's Devanagari letters
-/// narrow.
+/// first the merge appended -- all of JetBrains Mono's, the Hebrew, the
+/// two half circles and the two parallelograms -- draws the outline and
+/// takes the advance it takes at the default instance, and the README
+/// line's Devanagari letters narrow.
 #[test]
 fn along_the_width_axis_only_the_devanagari_moves() {
     let (data, first) = built_regular();

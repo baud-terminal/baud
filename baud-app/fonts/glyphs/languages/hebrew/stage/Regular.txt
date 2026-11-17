@@ -5,8 +5,10 @@
 # Cascadia Mono's notices: data read out of both fonts, under each font's
 # SIL Open Font License 1.1 (CascadiaMono-OFL.txt and JetBrainsMono-OFL.txt
 # beside this file).
-# The two geometric-shape glyphs, U+25D0 and U+25D1, are JetBrains Mono's
-# own circle points rearranged, under its licence beside this file.
+# The two geometric-shape glyphs U+25D0 and U+25D1 are JetBrains Mono's
+# own circle points rearranged, under its licence beside this file; U+25B0
+# and U+25B1 are baud's own, drawn on its black square's band and its white
+# square's stroke.
 style Regular
 head.modified 2398377600
 os2.ulUnicodeRange1 0xa0040aff
@@ -375,6 +377,11 @@ contour 300,100 374,100,off 492,168,off 560,286,off 560,360 560,434,off 492,552,
 glyph uni25D1 advance 600 class 1 unicode 25D1
 contour 300,50 212,50,off 71,131,off -10,272,off -10,360 -10,449,off 71,589,off 212,670,off 300,670 389,670,off 529,589,off 610,449,off 610,360 610,272,off 529,131,off 389,50,off
 contour 300,620 226,620,off 108,552,off 40,434,off 40,360 40,286,off 108,168,off 226,100,off 300,100
+glyph uni25B0 advance 600 class 1 unicode 25B0
+contour 0,60 150,660 600,660 450,60
+glyph uni25B1 advance 600 class 1 unicode 25B1
+contour 0,60 150,660 600,660 450,60
+contour 64,110 411,110 536,610 189,610
 script GSUB hebr DFLT
 script GPOS hebr DFLT
 feature GPOS 0 mark 0 1 5

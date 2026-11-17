@@ -2945,9 +2945,9 @@ impl Config {
             // yet. The embedded Regular goes first of the
             // three, so it draws whatever the named faces lack and it maps:
             // the 52 Hebrew code points, which were `.notdef`, and whatever
-            // else JetBrains Mono maps. By cmap, not rendering, that is 458
+            // else JetBrains Mono maps. By cmap, not rendering, that is 460
             // code points behind
-            // `baud-font/tests/fonts/FiraCode-Regular.ttf`: the 52, 360 that
+            // `baud-font/tests/fonts/FiraCode-Regular.ttf`: the 52, 362 that
             // drew from STIX before, 8 from the icon face (U+23FB-23FE,
             // U+26A1, U+276E-276F, U+2B58) and 38 more that were boxes.
             // Regular only: a styled face is not in the chain, so the bold
