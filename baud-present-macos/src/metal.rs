@@ -2812,11 +2812,8 @@ impl Gpu {
         // Whether the trail's, the blink animation's or the cursor guide's
         // records leave the grid, where no row's band holds them: a guide
         // spans a legacy scroller's gutter too.
-        let cell = (metrics.cell_w.value(), metrics.cell_h.value());
-        let grid = (
-            u32::try_from(cols.index()).unwrap_or(u32::MAX),
-            u32::try_from(rows.index()).unwrap_or(u32::MAX),
-        );
+        let cell = (metrics.cell_w, metrics.cell_h);
+        let grid = (cols, rows);
         let off_grid = renderer
             .trail()
             .iter()
@@ -3224,11 +3221,8 @@ impl Gpu {
         let n = input.records.len();
         let (ma, mb) = (input.moving.0.min(n), input.moving.1.min(n));
         let (ma, mb) = (ma, mb.max(ma));
-        let cell = (metrics.cell_w.value(), metrics.cell_h.value());
-        let grid_cells_rows = (
-            u32::try_from(ncols).unwrap_or(u32::MAX),
-            u32::try_from(draw_rows).unwrap_or(u32::MAX),
-        );
+        let cell = (metrics.cell_w, metrics.cell_h);
+        let grid_cells_rows = (cols, Rows::of_count(draw_rows));
         let moving = input.records[ma..mb]
             .iter()
             .try_fold(RowSet::NONE, |set, r| {

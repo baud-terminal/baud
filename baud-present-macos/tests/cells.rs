@@ -12,7 +12,7 @@
 //! than passing, because a comparison that skips itself reads as a pass.
 #![cfg(target_os = "macos")]
 
-use baud_core::{Owned, Term, WrapPending};
+use baud_core::{ColorWord, Owned, Term, WrapPending};
 use baud_domain::CacheGeometry;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
@@ -4598,7 +4598,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // cell arm that read the stored colour instead of `cursor_color_in`
     // would draw the text and disagree with the instance arm -- and it is
     // the frame a real `?5 h` then draws with the colour the flip moved.
-    t.set_default_colors((0xd8, 0xd8, 0xd8), (0x10, 0x10, 0x10));
+    t.set_default_colors(
+        ColorWord::from_rgb((0xd8, 0xd8, 0xd8)),
+        ColorWord::from_rgb((0x10, 0x10, 0x10)),
+    );
     feed(&mut t, b"\x1b]12;rgb:d8/d8/d8\x07");
     let (flash_a, flash_b) = arms.draw(&mut t);
     assert_eq!(

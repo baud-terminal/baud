@@ -346,14 +346,14 @@ mod tests {
 
     /// An `avar` of one axis whose map is `records`, each a from and a to in
     /// 2.14.
-    fn avar(records: &[(i16, i16)]) -> [u8; 64] {
+    fn avar(records: &[(F2Dot14, F2Dot14)]) -> [u8; 64] {
         let mut b = [0u8; 64];
         b[0..2].copy_from_slice(&1u16.to_be_bytes());
         b[6..8].copy_from_slice(&1u16.to_be_bytes());
         b[8..10].copy_from_slice(&u16::try_from(records.len()).unwrap().to_be_bytes());
         for (i, (from, to)) in records.iter().enumerate() {
-            b[10 + 4 * i..12 + 4 * i].copy_from_slice(&from.to_be_bytes());
-            b[12 + 4 * i..14 + 4 * i].copy_from_slice(&to.to_be_bytes());
+            b[10 + 4 * i..12 + 4 * i].copy_from_slice(&from.0.to_be_bytes());
+            b[12 + 4 * i..14 + 4 * i].copy_from_slice(&to.0.to_be_bytes());
         }
         b
     }
@@ -375,7 +375,12 @@ mod tests {
     /// reaches this, which is why it is built by hand.
     #[test]
     fn a_target_past_one_is_clamped() {
-        let b = avar(&[(-16384, -16384), (0, 0), (8192, 24576), (16384, 16384)]);
+        let b = avar(&[
+            (F2Dot14(-16384), F2Dot14(-16384)),
+            (F2Dot14(0), F2Dot14(0)),
+            (F2Dot14(8192), F2Dot14(24576)),
+            (F2Dot14(16384), F2Dot14(16384)),
+        ]);
         // 600 is 0.5 of the way to 800: exactly the record mapped to 1.5.
         assert_eq!(at(&b, Fixed(600 << 16)), F2Dot14(16384));
         assert_eq!(
@@ -389,7 +394,11 @@ mod tests {
     /// record's, which has no segment before it.
     #[test]
     fn a_value_on_a_records_from_takes_its_to() {
-        let b = avar(&[(-16384, -8192), (0, 0), (16384, 16384)]);
+        let b = avar(&[
+            (F2Dot14(-16384), F2Dot14(-8192)),
+            (F2Dot14(0), F2Dot14(0)),
+            (F2Dot14(16384), F2Dot14(16384)),
+        ]);
         assert_eq!(at(&b, Fixed(100 << 16)), F2Dot14(-8192));
         assert_eq!(
             at(&b, Fixed(250 << 16)),
@@ -402,10 +411,10 @@ mod tests {
     /// none reaching the value -- leaves the value as it is.
     #[test]
     fn a_map_with_no_segment_leaves_the_value() {
-        let b = avar(&[(0, 0)]);
+        let b = avar(&[(F2Dot14(0), F2Dot14(0))]);
         assert_eq!(at(&b, Fixed(800 << 16)), F2Dot14(16384));
         assert_eq!(at(&b, Fixed(100 << 16)), F2Dot14(-16384));
-        let b = avar(&[(-16384, -16384), (0, 0)]);
+        let b = avar(&[(F2Dot14(-16384), F2Dot14(-16384)), (F2Dot14(0), F2Dot14(0))]);
         assert_eq!(
             at(&b, Fixed(600 << 16)),
             F2Dot14(8192),

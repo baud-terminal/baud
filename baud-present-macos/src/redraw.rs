@@ -8,6 +8,8 @@
 //! `damage.rs`). A surface no frame has been drawn into, and a frame whose
 //! change was not recorded, are missing everything.
 
+use baud_domain::{Cols, Rows};
+use baud_font::Px;
 use baud_render::{Instance, Redraw, RowSet};
 
 /// How many surfaces rotate: one showing, one the compositor may still be
@@ -130,14 +132,16 @@ impl Ages {
 /// The grid rows a record covers, given the cell height, or `None` when it
 /// reaches past the grid's `cols` by `rows` cells of `cell` pixels: a record
 /// there draws pixels no row's redraw holds.
-pub fn record_rows(r: &Instance, cell: (u32, u32), (cols, rows): (u32, u32)) -> Option<RowSet> {
-    let (cw, ch) = (i64::from(cell.0), i64::from(cell.1));
+pub fn record_rows(r: &Instance, cell: (Px, Px), (cols, rows): (Cols, Rows)) -> Option<RowSet> {
+    let (cw, ch) = (i64::from(cell.0.value()), i64::from(cell.1.value()));
+    let cells = |n: usize| i64::from(u32::try_from(n).unwrap_or(u32::MAX));
+    let (cols, rows) = (cells(cols.index()), cells(rows.index()));
     let (x, y) = (i64::from(r.x.0), i64::from(r.y.0));
     let (w, h) = (i64::from(r.w.0), i64::from(r.h.0));
     if w == 0 || h == 0 {
         return Some(RowSet::NONE);
     }
-    if x < 0 || y < 0 || x + w > i64::from(cols) * cw || y + h > i64::from(rows) * ch || ch == 0 {
+    if x < 0 || y < 0 || x + w > cols * cw || y + h > rows * ch || ch == 0 {
         return None;
     }
     let first = usize::try_from(y / ch).ok()?;

@@ -297,9 +297,9 @@ fn uncommented(line: &str) -> &str {
 
 /// Physical lines joined at a trailing `\`, comments off, each with the
 /// number of the line it starts on.
-fn logical<'a>(lines: impl Iterator<Item = (usize, &'a str)>) -> Vec<(usize, String)> {
+fn logical<'a>(lines: impl Iterator<Item = (Line, &'a str)>) -> Vec<(Line, String)> {
     let mut out = Vec::new();
-    let mut open: Option<(usize, String)> = None;
+    let mut open: Option<(Line, String)> = None;
     for (n, line) in lines {
         let code = uncommented(line).trim_end();
         let (start, mut text) = open.take().unwrap_or((n, String::new()));
@@ -391,18 +391,18 @@ impl Scan<'_> {
         }
     }
 
-    fn shell_lines<'a>(&mut self, lines: impl Iterator<Item = (usize, &'a str)>) {
+    fn shell_lines<'a>(&mut self, lines: impl Iterator<Item = (Line, &'a str)>) {
         for (n, text) in logical(lines) {
             if runs_python(&text) {
-                self.push(Line(n), Form::Command, &text);
+                self.push(n, Form::Command, &text);
             } else if installs_python(&text) {
-                self.push(Line(n), Form::Package, &text);
+                self.push(n, Form::Package, &text);
             }
         }
     }
 
     fn shell(&mut self, text: &str) {
-        self.shell_lines(text.lines().enumerate().map(|(i, l)| (i + 1, l)));
+        self.shell_lines(text.lines().enumerate().map(|(i, l)| (Line(i + 1), l)));
         self.other(text);
     }
 
@@ -410,7 +410,7 @@ impl Scan<'_> {
         let record = self.path == RECORD;
         let mut section = false;
         let mut open: Option<(char, usize, bool)> = None;
-        let mut block: Vec<(usize, &str)> = Vec::new();
+        let mut block: Vec<(Line, &str)> = Vec::new();
         for (i, line) in text.lines().enumerate() {
             let n = i + 1;
             if let Some((c, len, shell)) = open {
@@ -424,7 +424,7 @@ impl Scan<'_> {
                     }
                     _ => {
                         self.invocations(Line(n), line, &[]);
-                        block.push((n, line));
+                        block.push((Line(n), line));
                     }
                 }
                 continue;

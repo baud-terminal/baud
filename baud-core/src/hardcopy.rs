@@ -114,6 +114,23 @@ struct PagePx {
     y: i64,
 }
 
+/// A region of the page in pixels: from its upper left `(x0, y0)` up to,
+/// not including, `(x1, y1)`.
+#[derive(Clone, Copy)]
+struct PageRegion {
+    x0: i64,
+    y0: i64,
+    x1: i64,
+    y1: i64,
+}
+
+/// A cell's size in pixels, zero while none is known.
+#[derive(Clone, Copy)]
+struct CellPx {
+    w: i64,
+    h: i64,
+}
+
 /// The picture a dump draws: the region's pixels, read from the screen.
 struct Visible<'p, 'a, 'b> {
     paint: &'p Paint<'a, 'b>,
@@ -124,7 +141,7 @@ struct Visible<'p, 'a, 'b> {
     /// The characters' pixels in the region, a bit each, row by row.
     bits: &'p [u8],
     /// The cell in pixels, zero while none is known.
-    cell: (i64, i64),
+    cell: CellPx,
     pictures: [Option<Picture>; PICTURES],
     fg: Pixel,
     bg: Pixel,
@@ -172,7 +189,7 @@ impl Visible<'_, '_, '_> {
     /// and the column's width in pixels.
     fn cell_at(&self, at: PagePx) -> Option<(Row, Col)> {
         let PagePx { x: gx, y: gy } = at;
-        let (cw, ch) = self.cell;
+        let CellPx { w: cw, h: ch } = self.cell;
         if cw == 0 || ch == 0 || gx < 0 || gy < 0 {
             return None;
         }
@@ -406,11 +423,11 @@ impl Paint<'_, '_> {
             let (front, tail) = area.split_at_mut(split);
             let (bits, room) = tail.split_at_mut(bits_len);
             bits.fill(0);
-            let cell = (
-                i64::from(self.cell_width.raw()),
-                i64::from(self.cell_height.raw()),
-            );
-            self.raster_text((x0, y0, x1, y1), cell, bits);
+            let cell = CellPx {
+                w: i64::from(self.cell_width.raw()),
+                h: i64::from(self.cell_height.raw()),
+            };
+            self.raster_text(PageRegion { x0, y0, x1, y1 }, cell, bits);
             let visible = Visible {
                 paint: self,
                 x0,
@@ -456,9 +473,9 @@ impl Paint<'_, '_> {
     /// twice as tall, its half shown, on a double-height one; an underline
     /// along each underlined cell's last row; no character for a
     /// placeholder cell.
-    fn raster_text(&self, region: (i64, i64, i64, i64), cell: (i64, i64), bits: &mut [u8]) {
-        let (x0, y0, x1, y1) = region;
-        let (cw, ch) = cell;
+    fn raster_text(&self, region: PageRegion, cell: CellPx, bits: &mut [u8]) {
+        let PageRegion { x0, y0, x1, y1 } = region;
+        let CellPx { w: cw, h: ch } = cell;
         if cw == 0 || ch == 0 {
             return;
         }
@@ -545,8 +562,8 @@ impl Paint<'_, '_> {
     /// virtual placement's top-left cell would be and shown over the run's
     /// cells alone, and the relative placements under each virtual one, at
     /// the least row and column of its runs plus the offsets down the chain.
-    fn pictures(&self, cell: (i64, i64)) -> [Option<Picture>; PICTURES] {
-        let (cw, ch) = cell;
+    fn pictures(&self, cell: CellPx) -> [Option<Picture>; PICTURES] {
+        let CellPx { w: cw, h: ch } = cell;
         let imgs = &*self.images;
         let (screen, top) = self.image_top();
         let size = |v: i64| ImagePx::of(u16::try_from(v).unwrap_or(0));

@@ -12,7 +12,7 @@
 
 mod support;
 
-use baud_core::{Owned, Term};
+use baud_core::{ColorWord, Owned, Term};
 use baud_domain::themefile::{CellPaint, kitty};
 use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
@@ -115,7 +115,10 @@ fn a_flash_draws_the_cursor_colour_a_flip_would_leave() {
         let mut r = renderer(&faces, &WS);
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_default_colors(triple(theme.fg), triple(theme.bg));
+        t.set_default_colors(
+            ColorWord::from_rgb(triple(theme.fg)),
+            ColorWord::from_rgb(triple(theme.bg)),
+        );
         feed(&mut t, bytes);
         r.set_flash(flash);
         let mut c = support::Canvas::for_renderer(&r);

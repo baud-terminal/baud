@@ -319,7 +319,10 @@ fn the_colour_epoch_moves_exactly_when_a_resolve_input_moves() {
             support::feed(t, bytes);
             expect(t, moved, what);
         }
-        t.set_default_colors((1, 2, 3), (4, 5, 6));
+        t.set_default_colors(
+            ColorWord::from_rgb((1, 2, 3)),
+            ColorWord::from_rgb((4, 5, 6)),
+        );
         expect(t, false, "the embedder's defaults for a query");
     });
 }

@@ -32,7 +32,7 @@ fn each_read_size(bytes: &[u8], f: impl Fn(&Term<'_>)) {
     for size in [1, 3, 7, bytes.len().max(1)] {
         let mut s = Owned::new(&ws);
         let mut t = Term::new(s.storage(), &ws);
-        t.set_default_colors(FG, BG);
+        t.set_default_colors(ColorWord::from_rgb(FG), ColorWord::from_rgb(BG));
         for chunk in bytes.chunks(size) {
             support::feed(&mut t, chunk);
         }

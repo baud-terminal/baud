@@ -21,7 +21,7 @@ use crate::cff::Cff;
 use crate::cff2::Cff2;
 use crate::cmap::{Cmap, Variation};
 use crate::colr::{Colr, Cpal, Layers, Palette, PaletteEntry, Rgba};
-use crate::glyf::{Glyf, Instance, Loca, LocaFormat, Metrics, Need, Streamed};
+use crate::glyf::{Glyf, HorMetric, Instance, Loca, LocaFormat, Metrics, Need, Streamed};
 use crate::gpos::Gpos;
 use crate::gsub::Gsub;
 use crate::layout::Gdef;
@@ -735,10 +735,10 @@ impl<'a> Face<'a> {
     /// `g`'s advance and left side bearing from `hmtx`, which place its
     /// first two phantom points: `None` without an advance, and a bearing
     /// of 0 where the table has none.
-    fn metrics(&self, g: GlyphId) -> Option<(i32, i32)> {
+    fn metrics(&self, g: GlyphId) -> Option<HorMetric> {
         let advance = i32::from(self.default_advance(g)?.0);
         let lsb = self.side_bearing(g).map_or(0, |b| i32::from(b.value()));
-        Some((advance, lsb))
+        Some(HorMetric { advance, lsb })
     }
 
     /// `g`'s advance height and top side bearing from `vmtx`, which place

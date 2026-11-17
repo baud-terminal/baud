@@ -7605,14 +7605,12 @@ impl<'b> Term<'b> {
     /// decide whether it is on a light or a dark background; without this
     /// call the query gets no reply, which is the truthful answer of a core
     /// that has not been told, and not a wrong one. Call it again when the
-    /// theme changes.
+    /// theme changes. Each colour is an RGB word, [`ColorWord::from_rgb`].
     ///
     /// **A change of dark/light class reports**, like [`Term::set_theme`]: one
     /// `CSI ? 997 ; 1|2 n` while `?2031` is set.
-    pub fn set_default_colors(&mut self, fg: (u8, u8, u8), bg: (u8, u8, u8)) {
-        self.reporting_scheme(|t| {
-            t.write_defaults(ColorWord::from_rgb(fg), ColorWord::from_rgb(bg))
-        });
+    pub fn set_default_colors(&mut self, fg: ColorWord, bg: ColorWord) {
+        self.reporting_scheme(|t| t.write_defaults(fg, bg));
     }
 
     /// Indices 0 and 1 only: the cursor's configured colour comes with the

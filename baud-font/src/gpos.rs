@@ -800,7 +800,7 @@ mod tests {
     /// A `GPOS` table of one `DFLT` Script table whose `mark` feature names
     /// the first lookup only; every lookup is one subtable, given as its
     /// type and bytes, the subtable laid right after its lookup header.
-    fn table(lookups: &[(u16, Vec<u8>)]) -> Vec<u8> {
+    fn table(lookups: &[(Kind, Vec<u8>)]) -> Vec<u8> {
         let be = |v: usize| u16::try_from(v).unwrap().to_be_bytes();
         let mut t = vec![0, 1, 0, 0, 0, 10, 0, 30, 0, 44];
         // ScriptList at 10: DFLT -> Script at 8; LangSys at 4 from it.
@@ -823,14 +823,18 @@ mod tests {
         t
     }
 
+    /// A glyph's pen offset in font units, written to its `dx`.
+    #[derive(Clone, Copy)]
+    struct Pen(i16);
+
     /// A buffer of `(glyph, cluster, attached, mark, pen)`.
     fn buffer<'b>(
         storage: &'b mut [Glyph],
-        glyphs: &[(u16, u16, Attached, Mark, i16)],
+        glyphs: &[(GlyphId, Cluster, Attached, Mark, Pen)],
     ) -> Buffer<'b> {
         let mut buf = Buffer::new(storage);
-        for &(id, cluster, attached, mark, pen) in glyphs {
-            let mut g = Glyph::new(GlyphId::from_shaper(id), Cluster(cluster), Ignorable::No);
+        for &(id, cluster, attached, mark, Pen(pen)) in glyphs {
+            let mut g = Glyph::new(id, cluster, Ignorable::No);
             g.attached = attached;
             g.mark = mark;
             g.dx = pen;
@@ -873,11 +877,17 @@ mod tests {
     /// from the glyphs after it and moves none.
     #[test]
     fn a_single_adjustment_places_its_glyph_and_its_advance_moves_the_pen() {
-        let t = table(&[(1, single_10())]);
+        let t = table(&[(Kind::SINGLE, single_10())]);
         let glyphs = [
-            (10, 0, Base, Letter, 0),
-            (20, 0, After, Letter, 600),
-            (10, 1, Base, Letter, 0),
+            (GlyphId::from_shaper(10), Cluster(0), Base, Letter, Pen(0)),
+            (
+                GlyphId::from_shaper(20),
+                Cluster(0),
+                After,
+                Letter,
+                Pen(600),
+            ),
+            (GlyphId::from_shaper(10), Cluster(1), Base, Letter, Pen(0)),
         ];
         let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
         let mut buf = buffer(&mut storage, &glyphs);
@@ -895,14 +905,14 @@ mod tests {
     /// glyph and the ones after it left.
     #[test]
     fn a_marks_advance_moves_nothing_and_right_to_left_moves_the_glyph_itself() {
-        let t = table(&[(1, single_10())]);
+        let t = table(&[(Kind::SINGLE, single_10())]);
         let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
         let mut buf = buffer(
             &mut storage,
             &[
-                (20, 0, Base, Letter, 0),
-                (10, 0, After, Point, 0),
-                (21, 0, After, Point, 0),
+                (GlyphId::from_shaper(20), Cluster(0), Base, Letter, Pen(0)),
+                (GlyphId::from_shaper(10), Cluster(0), After, Point, Pen(0)),
+                (GlyphId::from_shaper(21), Cluster(0), After, Point, Pen(0)),
             ],
         );
         run(&t, &mut buf, Direction::LeftToRight);
@@ -911,9 +921,9 @@ mod tests {
         let mut buf = buffer(
             &mut storage,
             &[
-                (20, 0, Base, Letter, 0),
-                (10, 0, After, Letter, -5),
-                (21, 0, After, Point, -5),
+                (GlyphId::from_shaper(20), Cluster(0), Base, Letter, Pen(0)),
+                (GlyphId::from_shaper(10), Cluster(0), After, Letter, Pen(-5)),
+                (GlyphId::from_shaper(21), Cluster(0), After, Point, Pen(-5)),
             ],
         );
         run(&t, &mut buf, Direction::RightToLeft);
@@ -927,11 +937,14 @@ mod tests {
         let sub = vec![
             0, 2, 0, 12, 0, 1, 0, 2, 0, 3, 0xFF, 0xF9, 0, 1, 0, 2, 0, 10, 0, 11,
         ];
-        let t = table(&[(1, sub)]);
+        let t = table(&[(Kind::SINGLE, sub)]);
         let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
         let mut buf = buffer(
             &mut storage,
-            &[(10, 0, Base, Letter, 0), (11, 1, Base, Letter, 0)],
+            &[
+                (GlyphId::from_shaper(10), Cluster(0), Base, Letter, Pen(0)),
+                (GlyphId::from_shaper(11), Cluster(1), Base, Letter, Pen(0)),
+            ],
         );
         run(&t, &mut buf, Direction::LeftToRight);
         assert_eq!(placed(&buf), [(3, 0), (-7, 0)]);
@@ -953,17 +966,25 @@ mod tests {
             0, 1, 0, 20, 0, 1, 0, 0, 0, 1, 0, 12, 0, 1, 0, 10, 0, 5, 0, 0, 0, 1, 0, 1, 0, 10,
         ];
         let three = [
-            (10, 0, Base, Letter, 0),
-            (10, 1, Base, Letter, 0),
-            (10, 2, Base, Letter, 0),
+            (GlyphId::from_shaper(10), Cluster(0), Base, Letter, Pen(0)),
+            (GlyphId::from_shaper(10), Cluster(1), Base, Letter, Pen(0)),
+            (GlyphId::from_shaper(10), Cluster(2), Base, Letter, Pen(0)),
         ];
         let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
         let mut buf = buffer(&mut storage, &three);
-        run(&table(&[(2, both)]), &mut buf, Direction::LeftToRight);
+        run(
+            &table(&[(Kind::PAIR, both)]),
+            &mut buf,
+            Direction::LeftToRight,
+        );
         assert_eq!(placed(&buf), [(5, 0), (-7, 0), (0, 0)]);
         let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
         let mut buf = buffer(&mut storage, &three);
-        run(&table(&[(2, first)]), &mut buf, Direction::LeftToRight);
+        run(
+            &table(&[(Kind::PAIR, first)]),
+            &mut buf,
+            Direction::LeftToRight,
+        );
         assert_eq!(placed(&buf), [(5, 0), (5, 0), (0, 0)]);
         // Format 2: glyph 10 is first class 1, glyph 20 second class 1;
         // classes 2 by 2, the record for (1, 1) moving 9 and 4; the two
@@ -978,9 +999,16 @@ mod tests {
         let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
         let mut buf = buffer(
             &mut storage,
-            &[(10, 0, Base, Letter, 0), (20, 1, Base, Letter, 0)],
+            &[
+                (GlyphId::from_shaper(10), Cluster(0), Base, Letter, Pen(0)),
+                (GlyphId::from_shaper(20), Cluster(1), Base, Letter, Pen(0)),
+            ],
         );
-        run(&table(&[(2, classes)]), &mut buf, Direction::LeftToRight);
+        run(
+            &table(&[(Kind::PAIR, classes)]),
+            &mut buf,
+            Direction::LeftToRight,
+        );
         assert_eq!(placed(&buf), [(9, 0), (4, 0)]);
     }
 
@@ -997,18 +1025,24 @@ mod tests {
             0, 1, 0, 1, 0, 20, // input coverage
         ];
         let nested = vec![0, 1, 0, 8, 0, 1, 0, 250, 0, 1, 0, 1, 0, 20];
-        let t = table(&[(8, chain), (1, nested)]);
+        let t = table(&[(Kind::CHAINED_POS, chain), (Kind::SINGLE, nested)]);
         let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
         let mut buf = buffer(
             &mut storage,
-            &[(30, 0, Base, Letter, 0), (20, 1, Base, Letter, 0)],
+            &[
+                (GlyphId::from_shaper(30), Cluster(0), Base, Letter, Pen(0)),
+                (GlyphId::from_shaper(20), Cluster(1), Base, Letter, Pen(0)),
+            ],
         );
         run(&t, &mut buf, Direction::LeftToRight);
         assert_eq!(placed(&buf), [(0, 0), (250, 0)]);
         let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
         let mut buf = buffer(
             &mut storage,
-            &[(31, 0, Base, Letter, 0), (20, 1, Base, Letter, 0)],
+            &[
+                (GlyphId::from_shaper(31), Cluster(0), Base, Letter, Pen(0)),
+                (GlyphId::from_shaper(20), Cluster(1), Base, Letter, Pen(0)),
+            ],
         );
         run(&t, &mut buf, Direction::LeftToRight);
         assert_eq!(placed(&buf), [(0, 0), (0, 0)]);
@@ -1120,7 +1154,7 @@ mod tests {
     /// single adjustment wrapped or not takes the general walk.
     #[test]
     fn a_lookups_reach_is_read_through_the_extension_wrapper() {
-        let wrap = |kind: u16, sub: Vec<u8>| -> Vec<u8> {
+        let wrap = |kind: Kind, sub: Vec<u8>| -> Vec<u8> {
             let mut e = vec![0, 1];
             e.extend(kind.to_be_bytes());
             e.extend(8u32.to_be_bytes());
@@ -1129,12 +1163,12 @@ mod tests {
         };
         let mark = vec![0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let t = table(&[
-            (4, mark.clone()),
-            (6, mark.clone()),
-            (1, single_10()),
-            (9, wrap(4, mark.clone())),
-            (9, wrap(6, mark)),
-            (9, wrap(1, single_10())),
+            (Kind::MARK_TO_BASE, mark.clone()),
+            (Kind::MARK_TO_MARK, mark.clone()),
+            (Kind::SINGLE, single_10()),
+            (Kind::GPOS_EXTENSION, wrap(Kind::MARK_TO_BASE, mark.clone())),
+            (Kind::GPOS_EXTENSION, wrap(Kind::MARK_TO_MARK, mark)),
+            (Kind::GPOS_EXTENSION, wrap(Kind::SINGLE, single_10())),
         ]);
         let gpos = Gpos::parse(Bytes::new(&t), Gdef::default()).unwrap();
         let reach = |i: u32| Reach::of(&gpos.layout.lookup(Index::of(i)).unwrap());

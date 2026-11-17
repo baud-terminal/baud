@@ -127,7 +127,7 @@ fn an_embedder_flip_reports_once_and_a_repeat_reports_nothing() {
         assert_eq!(drain(t), DARK, "the flip");
         t.set_theme(&theme(DARK_FG, DARK_BG), Overrides::Drop);
         assert_eq!(drain(t), b"", "the same class again");
-        t.set_default_colors(LIGHT_FG, LIGHT_BG);
+        t.set_default_colors(ColorWord::from_rgb(LIGHT_FG), ColorWord::from_rgb(LIGHT_BG));
         assert_eq!(drain(t), LIGHT, "set_default_colors reports too");
     });
 }
@@ -176,7 +176,10 @@ fn a_drop_and_set_in_one_call_reports_only_a_change_of_class() {
 #[test]
 fn a_class_crossed_inside_one_call_is_not_reported() {
     support::with_corpus(|t| {
-        t.set_default_colors((0, 0, 0), (0xff, 0xff, 0xff));
+        t.set_default_colors(
+            ColorWord::from_rgb((0, 0, 0)),
+            ColorWord::from_rgb((0xff, 0xff, 0xff)),
+        );
         support::feed(t, b"\x1b[?2031h\x1b]11;rgb:00/00/00\x07\x1b[?996n");
         assert_eq!(drain(t), LIGHT, "the control: a tie reads light");
         t.set_theme(&theme(LIGHT_FG, LIGHT_BG), Overrides::Drop);

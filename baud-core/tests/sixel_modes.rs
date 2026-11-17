@@ -86,7 +86,7 @@ fn fed(set: Setup, pieces: &[&[u8]], f: &dyn Fn(&mut Term<'_>)) {
         t.set_cell_size(ImagePx::of(w), ImagePx::of(h));
     }
     if let Some(fg) = set.fg {
-        t.set_default_colors(fg, (0, 0, 0));
+        t.set_default_colors(ColorWord::from_rgb(fg), ColorWord::from_rgb((0, 0, 0)));
     }
     for p in pieces {
         t.write_at(BytePos::ZERO, p);

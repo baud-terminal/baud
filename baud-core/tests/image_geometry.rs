@@ -304,7 +304,10 @@ fn yazi_reads_a_light_background_as_light_and_a_dark_one_as_dark() {
         ((0x10, 0x10, 0x10), false),
     ] {
         support::with_term(&WS, |t| {
-            t.set_default_colors((0x27, 0x27, 0x27), bg);
+            t.set_default_colors(
+                ColorWord::from_rgb((0x27, 0x27, 0x27)),
+                ColorWord::from_rgb(bg),
+            );
             support::feed(t, YAZI_DETECT);
             let resp = String::from_utf8(t.reply().to_vec()).expect("the replies are ASCII");
             assert_eq!(yazi_light_bg(&resp), Some(light), "{resp:?}");

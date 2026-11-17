@@ -2293,33 +2293,47 @@ mod tests {
     /// answer, the smallest, the largest, or a side of an interval.
     #[test]
     fn avar_is_read_as_a_dictionary() {
-        fn map(records: &[(i16, i16)]) -> ([u8; 32], Count) {
+        fn map(records: &[(F2Dot14, F2Dot14)]) -> ([u8; 32], Count) {
             let mut b = [0u8; 32];
             for (k, (f, t)) in records.iter().enumerate() {
-                b[4 * k..4 * k + 2].copy_from_slice(&f.to_be_bytes());
-                b[4 * k + 2..4 * k + 4].copy_from_slice(&t.to_be_bytes());
+                b[4 * k..4 * k + 2].copy_from_slice(&f.0.to_be_bytes());
+                b[4 * k + 2..4 * k + 4].copy_from_slice(&t.0.to_be_bytes());
             }
             (b, Count::of(u32::try_from(records.len()).unwrap()))
         }
-        let at = |records: &[(i16, i16)], v: f64| {
+        let at = |records: &[(F2Dot14, F2Dot14)], v: f64| {
             let (b, n) = map(records);
             piecewise(v, Bytes::new(&b), n).unwrap()
         };
         let half = 8192;
         // The smallest key twice, below it.
-        let r = [(-half, -13107), (-half, -6554), (0, 0), (16384, 16384)];
+        let r = [
+            (F2Dot14(-half), F2Dot14(-13107)),
+            (F2Dot14(-half), F2Dot14(-6554)),
+            (F2Dot14(0), F2Dot14(0)),
+            (F2Dot14(16384), F2Dot14(16384)),
+        ];
         assert_eq!(at(&r, -0.75), -0.75 + -6554.0 / 16384.0 + 0.5);
         // The key itself.
         assert_eq!(at(&r, -0.5), -6554.0 / 16384.0);
         // A side of an interval.
-        let r = [(0, 0), (half, 4000), (half, 12000), (16384, 16384)];
+        let r = [
+            (F2Dot14(0), F2Dot14(0)),
+            (F2Dot14(half), F2Dot14(4000)),
+            (F2Dot14(half), F2Dot14(12000)),
+            (F2Dot14(16384), F2Dot14(16384)),
+        ];
         assert_eq!(at(&r, 0.25), 12000.0 / 16384.0 * 0.5);
         assert_eq!(
             at(&r, 0.75),
             12000.0 / 16384.0 + (1.0 - 12000.0 / 16384.0) * 0.5
         );
         // The largest key twice, above it.
-        let r = [(0, 0), (half, 4000), (half, 12000)];
+        let r = [
+            (F2Dot14(0), F2Dot14(0)),
+            (F2Dot14(half), F2Dot14(4000)),
+            (F2Dot14(half), F2Dot14(12000)),
+        ];
         assert_eq!(at(&r, 0.75), 0.75 + 12000.0 / 16384.0 - 0.5);
     }
 

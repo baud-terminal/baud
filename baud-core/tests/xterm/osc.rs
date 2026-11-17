@@ -430,7 +430,10 @@ fn special_term(bytes: &[u8], f: impl FnOnce(&Term<'_>)) {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
-    t.set_default_colors((0xe0, 0xe0, 0xe0), (0x11, 0x11, 0x11));
+    t.set_default_colors(
+        ColorWord::from_rgb((0xe0, 0xe0, 0xe0)),
+        ColorWord::from_rgb((0x11, 0x11, 0x11)),
+    );
     support::feed(&mut t, bytes);
     f(&t);
 }
@@ -1016,7 +1019,7 @@ fn dynamic(defaults: Option<(Rgb, Rgb)>, bytes: &[u8]) -> (Vec<u8>, [Option<Rgb>
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     if let Some((fg, bg)) = defaults {
-        t.set_default_colors(fg, bg);
+        t.set_default_colors(ColorWord::from_rgb(fg), ColorWord::from_rgb(bg));
     }
     support::feed(&mut t, bytes);
     (
@@ -1120,7 +1123,7 @@ fn walked(defaults: Option<(Rgb, Rgb)>, bytes: &[u8]) -> ([Option<Rgb>; 3], Vec<
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     if let Some((fg, bg)) = defaults {
-        t.set_default_colors(fg, bg);
+        t.set_default_colors(ColorWord::from_rgb(fg), ColorWord::from_rgb(bg));
     }
     support::feed(&mut t, bytes);
     (

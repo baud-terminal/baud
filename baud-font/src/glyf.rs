@@ -195,7 +195,20 @@ pub enum Need {
 
 /// A glyph's advance and left side bearing, from `hmtx`, which places its
 /// first two phantom points.
-pub type Hmtx<'h> = &'h dyn Fn(GlyphId) -> Option<(i32, i32)>;
+pub type Hmtx<'h> = &'h dyn Fn(GlyphId) -> Option<HorMetric>;
+
+/// One glyph's `hmtx` record, in font units: its advance and its left side
+/// bearing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct HorMetric {
+    pub advance: i32,
+    pub lsb: i32,
+}
+
+impl HorMetric {
+    /// What a missing `hmtx` entry reads as.
+    pub const ZERO: HorMetric = HorMetric { advance: 0, lsb: 0 };
+}
 
 /// A glyph's advance height and top side bearing, from `vmtx`, which place
 /// its two vertical phantom points; for a face without vertical metrics the
@@ -1167,7 +1180,7 @@ impl<'a> Glyf<'a> {
         g: GlyphId,
         gvar: Gvar<'a>,
         coords: &VarCoords,
-        hmtx: &dyn Fn(GlyphId) -> Option<(i32, i32)>,
+        hmtx: Hmtx<'_>,
     ) -> Option<f32> {
         let mut edges = Edges(0);
         let p = self.phantoms(g, Count::ZERO, &mut edges, gvar, coords, hmtx)?;
@@ -1181,7 +1194,7 @@ impl<'a> Glyf<'a> {
         edges: &mut Edges,
         gvar: Gvar<'a>,
         coords: &VarCoords,
-        hmtx: &dyn Fn(GlyphId) -> Option<(i32, i32)>,
+        hmtx: Hmtx<'_>,
     ) -> Option<[VarPoint; 4]> {
         edges.visit()?;
         if depth.value() >= u32::from(MAX_DEPTH) {
@@ -1220,7 +1233,7 @@ impl<'a> Glyf<'a> {
                 n
             }
         };
-        let (advance, lsb) = hmtx(g)?;
+        let HorMetric { advance, lsb } = hmtx(g)?;
         let h = x_min.checked_sub(lsb)?;
         let at = |x: i32| VarPoint::at(x as f32, 0.0, OnCurve::Yes, LastPoint::No, Emit::No);
         // The vertical two at 0: the extent reads only the horizontal pair,
@@ -1322,7 +1335,7 @@ impl<'a> Glyf<'a> {
             Some(data) => data.read(Offset::of(2u32))?,
             None => 0,
         };
-        let (_, lsb) = hmtx(g).unwrap_or((0, 0));
+        let lsb = hmtx(g).unwrap_or(HorMetric::ZERO).lsb;
         i32::from(x_min).checked_sub(lsb)
     }
 
@@ -1335,7 +1348,7 @@ impl<'a> Glyf<'a> {
             Some(data) => (data.read(Offset::of(2u32))?, data.read(Offset::of(8u32))?),
             None => (0, 0),
         };
-        let (advance, lsb) = (walk.metrics.hmtx)(g).unwrap_or((0, 0));
+        let HorMetric { advance, lsb } = (walk.metrics.hmtx)(g).unwrap_or(HorMetric::ZERO);
         let (height, tsb) = (walk.metrics.vmtx)(g);
         Some(Start {
             left: i32::from(x_min).checked_sub(lsb)?,

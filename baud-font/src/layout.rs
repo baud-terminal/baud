@@ -702,6 +702,12 @@ impl Kind {
     pub const GPOS_EXTENSION: Kind = Kind(9);
     pub const PAIR: Kind = Kind(2);
     pub const CHAINED_POS: Kind = Kind(8);
+
+    /// The lookup type as a table stores it, big-endian.
+    #[cfg(test)]
+    pub const fn to_be_bytes(self) -> [u8; 2] {
+        self.0.to_be_bytes()
+    }
 }
 
 /// One lookup: its type, its filter, and its subtables.
