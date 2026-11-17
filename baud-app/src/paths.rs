@@ -100,7 +100,7 @@
 #![forbid(unsafe_code)]
 
 use core::ops::Range;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use baud_core::{FileHost, Screen, Term};
 use baud_domain::{Cols, LinkEpoch, LinkId, Rows};
@@ -1871,6 +1871,8 @@ struct Collect {
     /// Single names to ask, at most [`NAMES_MAX`], given the slots `queue`
     /// leaves at the batch's end.
     names: Vec<Candidate>,
+    /// The paths met in a form that is not a single name, at least once.
+    prefixed: HashSet<Vec<u8>>,
     over: Over,
 }
 
@@ -1890,6 +1892,9 @@ pub struct Paths {
     program_dir: Option<ProgramDir>,
     geometry: Option<(Cols, Rows)>,
     known: HashMap<Vec<u8>, State>,
+    /// Which of `known`'s paths the screen holds in a form that is not a
+    /// single name: under `names = "hover"`, the only ones drawn at rest.
+    prefixed: HashSet<Vec<u8>>,
     /// `OSC 8` `file://` links' answers, kept apart from printed paths' so
     /// one found does not make a frame read rows for printed paths.
     marked: HashMap<Vec<u8>, State>,
@@ -2112,6 +2117,7 @@ impl Paths {
         self.rules = rules;
         self.generation = self.generation.next();
         self.changed();
+        self.update_reads();
     }
 
     /// Whether anything is read, asked or drawn.
@@ -2130,6 +2136,7 @@ impl Paths {
 
     fn drop_all(&mut self) {
         self.known.clear();
+        self.prefixed.clear();
         self.marked.clear();
         // What the worker found for a program goes too: with no worker to
         // ask it again, a kind struck for having no app would stay struck.
@@ -2145,10 +2152,13 @@ impl Paths {
     /// lines still to be named changed: at a batch or a drain, never a
     /// frame.
     fn update_reads(&mut self) {
+        // A single name draws nothing at rest under `names = "hover"`: lit
+        // only under the pointer, it needs no row read for it.
+        let names = self.forms.names != NameLook::Hover;
         let draws = self
             .known
-            .values()
-            .any(|s| s.probe() == Some(Probe::Exists));
+            .iter()
+            .any(|(k, s)| s.probe() == Some(Probe::Exists) && (names || self.prefixed.contains(k)));
         let on = self.marks == Marks::On;
         self.reads = match (
             on && (self.collect.is_some() || draws),
@@ -3635,6 +3645,7 @@ impl Paths {
         }
         c.queue.append(&mut c.names);
         self.known = c.kept;
+        self.prefixed = c.prefixed;
         self.marked = c.marked;
         self.owing = match c.over {
             Over::Yes => Some(Owes::Path),
@@ -3846,6 +3857,9 @@ impl Paths {
             looked += 1;
             let state = self.known.get(self.key.as_slice()).copied();
             if let Some(c) = &mut self.collect {
+                if !t.form.single() && !c.prefixed.contains(self.key.as_slice()) {
+                    c.prefixed.insert(self.key.clone());
+                }
                 let room = match t.form.single() {
                     true => c.names.len() < NAMES_MAX,
                     false => c.queue.len() < BATCH_MAX,
@@ -9498,6 +9512,62 @@ mod tests {
                 "{:?}: lit under the pointer",
                 forms.names
             );
+        }
+    }
+
+    /// **Under `names = "hover"` a single name found reads no row at rest**,
+    /// since it draws nothing there, and is still lit under the pointer; a
+    /// path the screen also holds prefixed, in either order, reads rows, and
+    /// so does a name under the line look. Named break: count every found
+    /// path in `update_reads` -- every frame reads rows for names it never
+    /// draws.
+    #[test]
+    fn names_hover_alone_reads_no_row_at_rest() {
+        use crate::link::{AtRest, Chord, Hover};
+        use baud_core::Focus;
+        use baud_domain::{Col, Row};
+        let hover = Forms {
+            names: NameLook::Hover,
+            ..NAMES
+        };
+        for (forms, bytes, asked, reads) in [
+            (hover, &b"README.md\r\n"[..], "/w/README.md", Reads::No),
+            (hover, &b"./notes.md\r\n"[..], "/w/notes.md", Reads::Yes),
+            (
+                hover,
+                &b"README.md ./README.md\r\n"[..],
+                "/w/README.md",
+                Reads::Yes,
+            ),
+            (
+                hover,
+                &b"./README.md README.md\r\n"[..],
+                "/w/README.md",
+                Reads::Yes,
+            ),
+            (NAMES, &b"README.md\r\n"[..], "/w/README.md", Reads::Yes),
+        ] {
+            let what = (forms.names, String::from_utf8_lossy(bytes));
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut p = in_folder(&mut t, forms, bytes);
+            let (mut l, mut u) = (Lines::default(), Uris::default());
+            let found = collect(&t, &mut p, &mut l, &mut u);
+            assert_eq!(paths_of(&found), [asked], "{what:?}: one key a file");
+            let _ = p.merge(found.into_iter().map(|c| (c.path, Probe::Exists)));
+            assert_eq!(p.reads == Reads::Yes, reads == Reads::Yes, "{what:?}");
+            let mut h = Hover::default();
+            h.set_at_rest(AtRest::Look(baud_render::HoverPaint::Box));
+            let _ = h.update_with(
+                &t,
+                Some((Row::ZERO, Col::at_index(3))),
+                at(),
+                Chord::Other,
+                Focus::Gained,
+                &crate::link::MachineNames::NONE,
+                &p,
+            );
+            assert!(h.over().is_some(), "{what:?}: lit under the pointer");
         }
     }
 
