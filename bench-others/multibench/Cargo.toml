@@ -21,6 +21,9 @@ termwiz = { version = "0.23", default-features = false }
 # allocates the terminal's storage before each timed run
 # (`Owned::with_history` in `src/cores.rs`), as the tests do.
 baud-core = { path = "../../baud-core", features = ["alloc"] }
+# The image budget both cores are given, and the PNG decoder the ghostty
+# arm is handed, so both decode a PNG with the same code.
+baud-domain = { path = "../../baud-domain", features = ["alloc"] }
 # sfte, through the oracle crate's shim: one description of how sfte is
 # configured and driven -- the compile-time geometry, the locale assert, the
 # build-time patch -- rather than a second one here that could drift. The

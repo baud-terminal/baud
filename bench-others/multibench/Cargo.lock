@@ -1151,6 +1151,7 @@ version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
  "baud-core",
+ "baud-domain",
  "baud-sfte-difftest",
  "libc",
  "tattoy-wezterm-term",

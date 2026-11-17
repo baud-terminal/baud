@@ -82,13 +82,25 @@ pub(crate) fn baud_rep(p: &[u8], total: usize) -> f64 {
     // 2,000; at 10,000 the ring is 16 MB at this pitch, and the published
     // table is re-taken with it rather than inherited.
     let mut owned =
-        nb::Owned::with_history(&ws, &nb::CacheGeometry::UNKNOWN, nb::Depth::of(10_000));
+        nb::Owned::with_history(&ws, &nb::CacheGeometry::UNKNOWN, nb::Depth::of(10_000))
+            .with_images(IMAGE_BUDGET);
     let mut t = nb::Term::new(owned.storage(), &ws);
     drive(p, total, |chunk| {
         t.write_at(nb::BytePos::ZERO, chunk);
         t.feed(nb::BytePos::ZERO, nb::ReadLen::from_index(chunk.len()));
     })
 }
+
+/// **The image budget both baud-core and ghostty are given**: the app's,
+/// 95 MiB of RGBA pixels. A core that keeps images under a smaller budget
+/// evicts where the other stores, so its image rows measure less work.
+pub(crate) const IMAGE_BUDGET: baud_domain::ImageBudget =
+    baud_domain::ImageBudget { pixels: 95 << 18 };
+
+/// [`IMAGE_BUDGET`] in bytes, four per pixel, as ghostty's storage limit
+/// counts them.
+#[cfg(have_ghostty)]
+const IMAGE_BUDGET_BYTES: u64 = (IMAGE_BUDGET.pixels as u64) * 4;
 
 /// **sfte is measured at 2,000 lines of scrollback, and every other core at
 /// 10,000, and that is stated rather than hidden.** sfte's depth is a
@@ -186,6 +198,25 @@ pub(crate) fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
                     rb, 0,
                     "clearing ghostty scrollback byte limit failed with {rb}"
                 );
+                // **Images under the budget baud-core is given.** The library's
+                // default is 10 MB per screen.
+                const OPT_KITTY_IMAGE_STORAGE_LIMIT: i32 = 15;
+                let limit: u64 = IMAGE_BUDGET_BYTES;
+                let ri = unsafe {
+                    ghostty::ghostty_terminal_set(
+                        term,
+                        OPT_KITTY_IMAGE_STORAGE_LIMIT,
+                        (&raw const limit).cast(),
+                    )
+                };
+                assert_eq!(
+                    ri, 0,
+                    "setting ghostty's image storage limit failed with {ri}"
+                );
+                // **A PNG is decoded, as baud-core decodes it.** With no decoder
+                // registered, the library refuses an `f=100` transmit up front
+                // and does no image work at all.
+                ghostty::install_png_decoder();
                 let v = drive(p, total, |chunk| unsafe {
                     ghostty::ghostty_terminal_vt_write(term, chunk.as_ptr(), chunk.len());
                 });
