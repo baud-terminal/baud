@@ -8,8 +8,10 @@ fn main() {
     //
     // On macOS that build's final xcframework step needs xcodebuild and may
     // fail; libghostty-vt.a is produced before it and is what we link.
-    let dir = std::env::var("GHOSTTY_LIB_DIR")
-        .unwrap_or_else(|_| "../../../ghostty/zig-out/lib".to_string());
+    let asked = std::env::var("GHOSTTY_LIB_DIR").ok();
+    let dir = asked
+        .clone()
+        .unwrap_or_else(|| "../../../ghostty/zig-out/lib".to_string());
     println!("cargo:rerun-if-env-changed=GHOSTTY_LIB_DIR");
     let archive = std::path::Path::new(&dir).join("libghostty-vt.a");
     if archive.exists() {
@@ -24,9 +26,14 @@ fn main() {
         println!("cargo:rustc-link-search=native={}", out.display());
         println!("cargo:rustc-link-lib=static=ghostty-vt");
         println!("cargo:rustc-cfg=have_ghostty");
+    } else if asked.is_some() {
+        // A build that names the library is one that compares against
+        // ghostty; without it every ghostty figure would be empty, so the
+        // build stops here rather than pass without the arm.
+        panic!("GHOSTTY_LIB_DIR is {dir}, and libghostty-vt.a is not there");
     } else {
-        // Not an error. The other five cores still measure without it, and a
-        // missing row is visible in the output — unlike a silently skipped one.
+        // Not asked for: the other five cores still measure without it, and
+        // the missing row is said in the output, never skipped in silence.
         println!("cargo:warning=libghostty-vt.a not found in {dir}; ghostty row will be skipped");
     }
     println!("cargo:rustc-check-cfg=cfg(have_ghostty)");

@@ -29,6 +29,16 @@ pub(crate) mod ghostty {
             rows: u16,
         ) -> i32;
         pub fn ghostty_terminal_free(t: Terminal);
+        /// Resize to `cols` by `rows` cells of `cell_width_px` by
+        /// `cell_height_px`; the pixel size is set even when the grid's is
+        /// unchanged. Returns 0 on success.
+        pub fn ghostty_terminal_resize(
+            t: Terminal,
+            cols: u16,
+            rows: u16,
+            cell_width_px: u32,
+            cell_height_px: u32,
+        ) -> i32;
         /// Set one option. `value` may be NULL where the option documents it
         /// -- for the scrollback byte limit, NULL means unlimited.
         pub fn ghostty_terminal_set(t: Terminal, opt: i32, value: *const c_void) -> i32;
@@ -40,7 +50,91 @@ pub(crate) mod ghostty {
         /// `len` bytes from the allocator the library hands a callback; the
         /// library frees them.
         pub fn ghostty_alloc(allocator: *const c_void, len: usize) -> *mut u8;
+        /// Read one datum of the terminal into `out`, of the type the
+        /// header names for `data`. Returns 0 on success.
+        pub fn ghostty_terminal_get(t: Terminal, data: i32, out: *mut c_void) -> i32;
+        /// A reference to the cell at `point`, valid until the next
+        /// mutating call.
+        pub fn ghostty_terminal_grid_ref(t: Terminal, point: Point, out: *mut GridRef) -> i32;
+        pub fn ghostty_grid_ref_cell(r: *const GridRef, out: *mut u64) -> i32;
+        pub fn ghostty_cell_get(cell: u64, data: i32, out: *mut c_void) -> i32;
+        /// One datum of the active screen's image storage.
+        pub fn ghostty_kitty_graphics_get(g: Graphics, data: i32, out: *mut c_void) -> i32;
+        /// The image with client id `id`, or NULL.
+        pub fn ghostty_kitty_graphics_image(g: Graphics, id: u32) -> Image;
+        pub fn ghostty_kitty_graphics_image_get(image: Image, data: i32, out: *mut c_void) -> i32;
+        pub fn ghostty_kitty_graphics_placement_iterator_new(
+            allocator: *const c_void,
+            out: *mut Placements,
+        ) -> i32;
+        pub fn ghostty_kitty_graphics_placement_iterator_free(it: Placements);
+        pub fn ghostty_kitty_graphics_placement_next(it: Placements) -> bool;
+        pub fn ghostty_kitty_graphics_placement_get(
+            it: Placements,
+            data: i32,
+            out: *mut c_void,
+        ) -> i32;
+        /// Where the current placement's anchor is on the viewport; not 0
+        /// when it is virtual or wholly off the screen.
+        pub fn ghostty_kitty_graphics_placement_viewport_pos(
+            it: Placements,
+            image: Image,
+            t: Terminal,
+            col: *mut i32,
+            row: *mut i32,
+        ) -> i32;
     }
+
+    /// `GhosttyKittyGraphics`, borrowed from the terminal.
+    pub type Graphics = *mut c_void;
+    /// `GhosttyKittyGraphicsImage`, borrowed from the storage.
+    pub type Image = *const c_void;
+    /// `GhosttyKittyGraphicsPlacementIterator`.
+    pub type Placements = *mut c_void;
+
+    const _: () = assert!(std::mem::size_of::<Point>() == 24);
+    const _: () = assert!(std::mem::size_of::<GridRef>() == 24);
+
+    /// `GhosttyPoint`: an `int` tag, then a 16-byte union aligned to 8
+    /// whose coordinate variant is `{ uint16_t x; uint32_t y; }`, so `x`
+    /// is at byte 8 and `y` at 12.
+    #[repr(C)]
+    pub struct Point {
+        pub tag: i32,
+        pub _gap: u32,
+        pub x: u16,
+        pub _x_pad: u16,
+        pub y: u32,
+        pub _rest: u64,
+    }
+
+    /// `GhosttyGridRef`, a sized struct.
+    #[repr(C)]
+    pub struct GridRef {
+        pub size: usize,
+        pub node: *mut c_void,
+        pub x: u16,
+        pub y: u16,
+    }
+
+    pub const POINT_TAG_ACTIVE: i32 = 0;
+    pub const CELL_DATA_CODEPOINT: i32 = 1;
+    pub const CELL_DATA_WIDE: i32 = 3;
+    pub const CELL_WIDE_SPACER_TAIL: i32 = 2;
+    pub const TERMINAL_DATA_KITTY_GRAPHICS: i32 = 30;
+    pub const GRAPHICS_DATA_PLACEMENT_ITERATOR: i32 = 1;
+    pub const PLACEMENT_DATA_IMAGE_ID: i32 = 1;
+    pub const PLACEMENT_DATA_IS_VIRTUAL: i32 = 3;
+    pub const PLACEMENT_DATA_Z: i32 = 12;
+    pub const IMAGE_DATA_WIDTH: i32 = 3;
+    pub const IMAGE_DATA_HEIGHT: i32 = 4;
+    pub const IMAGE_DATA_FORMAT: i32 = 5;
+    pub const IMAGE_DATA_DATA_PTR: i32 = 7;
+    pub const IMAGE_DATA_DATA_LEN: i32 = 8;
+    pub const IMAGE_FORMAT_RGB: i32 = 0;
+    pub const IMAGE_FORMAT_RGBA: i32 = 1;
+    pub const IMAGE_FORMAT_GRAY_ALPHA: i32 = 3;
+    pub const IMAGE_FORMAT_GRAY: i32 = 4;
 
     /// `GHOSTTY_SYS_OPT_DECODE_PNG`.
     const SYS_OPT_DECODE_PNG: i32 = 1;
@@ -95,22 +189,40 @@ pub(crate) mod ghostty {
         true
     }
 
-    /// Registers [`decode_png`] once for the process.
-    pub fn install_png_decoder() {
-        static ONCE: std::sync::Once = std::sync::Once::new();
-        ONCE.call_once(|| {
-            type DecodePng = unsafe extern "C" fn(
-                *mut c_void,
-                *const c_void,
-                *const u8,
-                usize,
-                *mut SysImage,
-            ) -> bool;
-            let f: DecodePng = decode_png;
-            // SAFETY: `f` matches `GhosttySysDecodePngFn`; the library keeps
-            // the pointer for the process's life, and `decode_png` is static.
-            let r = unsafe { ghostty_sys_set(SYS_OPT_DECODE_PNG, f as *const c_void) };
-            assert_eq!(r, 0, "registering ghostty's PNG decoder failed with {r}");
-        });
+    /// Whether the library is handed a PNG decoder: the process-wide hook,
+    /// so it holds for every ghostty terminal until it is set again.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum PngDecoder {
+        /// [`decode_png`].
+        Registered,
+        /// None: the library refuses an `f=100` transmit. Only the screen
+        /// check's test clears the hook.
+        #[cfg(test)]
+        Cleared,
+    }
+
+    /// Registers [`decode_png`], or, in a test, clears the hook.
+    pub fn set_png_decoder(decoder: PngDecoder) {
+        type DecodePng = unsafe extern "C" fn(
+            *mut c_void,
+            *const c_void,
+            *const u8,
+            usize,
+            *mut SysImage,
+        ) -> bool;
+        let f: DecodePng = decode_png;
+        let value = match decoder {
+            PngDecoder::Registered => f as *const c_void,
+            #[cfg(test)]
+            PngDecoder::Cleared => std::ptr::null(),
+        };
+        // SAFETY: `value` is NULL, which clears the hook, or `f`, which
+        // matches `GhosttySysDecodePngFn` and is a static function the
+        // library may keep for the process's life.
+        let r = unsafe { ghostty_sys_set(SYS_OPT_DECODE_PNG, value) };
+        assert_eq!(
+            r, 0,
+            "setting ghostty's PNG decoder to {decoder:?} failed with {r}"
+        );
     }
 }

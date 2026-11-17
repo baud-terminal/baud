@@ -1,4 +1,5 @@
 mod cores;
+mod equal;
 mod ffi;
 mod report;
 mod transport;
@@ -163,6 +164,23 @@ fn main() {
         })
         .collect();
 
+    // **The screen check, before a single timing.** One rep of each
+    // recording through baud-core and ghostty, from memory, and the two
+    // final screens compared cell for cell and image for image
+    // (`equal::check`). A recording whose screens differ is not timed on
+    // any core and prints no rate, and the run fails naming the cells that
+    // differ. Without libghostty-vt there is nothing to compare against, so
+    // no recording is timed. ghostty decodes a PNG here as its timed arm
+    // does (`run_one`).
+    #[cfg(have_ghostty)]
+    ffi::ghostty::set_png_decoder(ffi::ghostty::PngDecoder::Registered);
+    let screens = [equal::check(&stream, total), equal::check(&tui, total)];
+    // Not linked, the check compares nothing: the other arms are timed and
+    // ghostty's row says it was not built, so no figure is claimed for it.
+    let timed = screens
+        .each_ref()
+        .map(|c| c.as_ref().is_none_or(equal::Compared::equal));
+
     // Interleaved and rotated, not blocked. Rep-major order means thermal drift
     // reaches every core equally; rotating the starting index by the rep number
     // means no core keeps a fixed position across the run. Blocked ordering is
@@ -173,7 +191,9 @@ fn main() {
         for k in 0..CORES.len() {
             let ci = (k + rep) % CORES.len();
             for (pi, p) in payloads.iter().enumerate() {
-                samples[ci][pi].push(run_one(ci, p, total));
+                if timed[pi] {
+                    samples[ci][pi].push(run_one(ci, p, total));
+                }
             }
         }
     }
@@ -197,16 +217,43 @@ fn main() {
         format!("{} median [min-max]", labels[1])
     );
     for (ci, label) in CORES.iter().enumerate() {
-        if samples[ci][0][0].is_nan() {
+        if samples[ci]
+            .iter()
+            .flatten()
+            .next()
+            .is_some_and(|v| v.is_nan())
+        {
             println!(
                 "  {:<28} {:>21}  {:>21}",
                 label, "n/a (lib not built)", "n/a"
             );
             continue;
         }
-        let st = summarize(&mut samples[ci][0]);
-        let tu = summarize(&mut samples[ci][1]);
+        let [st, tu] = &mut samples[ci];
+        let st = timed[0].then(|| summarize(st));
+        let tu = timed[1].then(|| summarize(tu));
         row(label, st, tu);
+        // Each image arm's counters from the screen check's rep, under its
+        // row.
+        let arm = match ci {
+            1 => Some(equal::Arm::Baud),
+            3 => Some(equal::Arm::Ghostty),
+            _ => None,
+        };
+        if let Some(arm) = arm {
+            let counters = |c: &Option<equal::Compared>| {
+                c.as_ref()
+                    .map_or_else(|| "n/a".to_string(), |c| c.counters(arm))
+            };
+            println!(
+                "  {:<28} {}: {}; {}: {}",
+                "",
+                labels[0],
+                counters(&screens[0]),
+                labels[1],
+                counters(&screens[1])
+            );
+        }
         if ci == 7 {
             // The gate's verdict, under the row it governs: a payload on
             // which the two arms drew different screens is named, and its
@@ -225,5 +272,46 @@ fn main() {
                 verdict(admissible[1], &labels[1])
             );
         }
+    }
+
+    // The screen check's verdict on each recording; a recording whose
+    // screens differ fails the run, unless equal::UNEQUAL names it and why.
+    println!();
+    let mut failed = false;
+    for (c, label) in screens.iter().zip(&labels) {
+        match c {
+            Some(c) => match (c.equal(), equal::known_unequal(label)) {
+                // Known to differ, and still differing: no rate, the reason
+                // said, and the run goes on.
+                (false, Some(why)) => {
+                    println!("  {label}: UNEQUAL, no rate: {why}");
+                    for line in c.report(label) {
+                        println!("    {line}");
+                    }
+                }
+                (true, Some(_)) => {
+                    failed = true;
+                    println!(
+                        "  {label}: listed as UNEQUAL, but the screens agree: \
+                         take it out of equal::UNEQUAL"
+                    );
+                }
+                (equal, None) => {
+                    failed |= !equal;
+                    for line in c.report(label) {
+                        println!("  {line}");
+                    }
+                }
+            },
+            None => {
+                println!(
+                    "  {label}: ghostty not linked (no GHOSTTY_LIB_DIR): no screen check, \
+                     and no figure here claims ghostty's"
+                );
+            }
+        }
+    }
+    if failed {
+        std::process::exit(1);
     }
 }
