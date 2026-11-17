@@ -2384,6 +2384,12 @@ pub struct Probes<T> {
     /// core's (`vouch::Latch`): stepped part by part as each drain is
     /// filed.
     latch: crate::vouch::Latch,
+    /// **Every `publish` made and the nanoseconds it took**, read by
+    /// `measure_publish_over_lines_held_by_a_re_cut`.
+    #[cfg(test)]
+    publishes: AtomicU64,
+    #[cfg(test)]
+    publish_ns: AtomicU64,
 }
 
 /// **The runs the rows drew before a batch's scan read them again**: the
@@ -2448,6 +2454,10 @@ impl<T: Moment> Probes<T> {
             #[cfg(feature = "effect-probe")]
             elsewhere_fronts: 0,
             latch: crate::vouch::Latch::Synced,
+            #[cfg(test)]
+            publishes: AtomicU64::new(0),
+            #[cfg(test)]
+            publish_ns: AtomicU64::new(0),
         }
     }
 
@@ -2928,7 +2938,15 @@ impl<T: Moment> Probes<T> {
     /// changes them -- a read kept, a part's moves, a batch answered, the
     /// same-group shortcut, a close.
     fn publish(&self, paths: &mut Paths) {
+        #[cfg(test)]
+        let began = std::time::Instant::now();
         paths.set_pending(self.pending(), self.held.iter().map(|e| e.1));
+        #[cfg(test)]
+        {
+            let ns = u64::try_from(began.elapsed().as_nanos()).unwrap_or(u64::MAX);
+            self.publishes.fetch_add(1, Ordering::Relaxed);
+            self.publish_ns.fetch_add(ns, Ordering::Relaxed);
+        }
     }
 
     /// **The group of each line still to be named that is `span`**, as
@@ -12793,6 +12811,162 @@ mod tests {
                 ts.len()
             );
         }
+    }
+
+    /// **What handing the lines still to be named to `paths` costs while a
+    /// re-cut's holds stand** (`Probes::publish`, `Paths::set_pending`):
+    /// `cat-scroll.raw` fed at 200x50 in reads of 4096 bytes through the
+    /// app's ring -- 2,000 lines of history, `Depth::DEFAULT`, storage of
+    /// 400x150 -- every read the same group's and no batch sent, so one
+    /// span still to be named covers every line written; after half the
+    /// recording the window narrows to 100 columns, and the re-cut holds
+    /// each new line that span covered under its group (`Probes::recut`).
+    /// Then `FRAMES` more reads: each drain's own publishes, counted and
+    /// timed inside `publish`, with the span still to be named grown by the
+    /// read and the holds unchanged. Then `PROBE_PUBLISH_REPS` more (50
+    /// when unset) over the last state, both lists unchanged. Printed
+    /// beside the times: the publishes, the lines the re-cut told, and at
+    /// each frame the holds and the spans handed (still to be named, holds
+    /// included). `set_pending`'s compares are not counted. Only `publish`
+    /// is timed: `drain_recut` checks `pending_is` in a test build, which
+    /// the app does not. `PROBE_BENCH_ARM` labels the summary line, so arms
+    /// run in turn read apart. Run by hand (`--release --ignored
+    /// --nocapture`); it asserts the counts.
+    #[test]
+    #[ignore]
+    fn measure_publish_over_lines_held_by_a_re_cut() {
+        const FRAMES: usize = 20;
+        const CHUNK: usize = 4096;
+        let room = WinSize {
+            ws_col: 400,
+            ws_row: 150,
+        };
+        let ws = WinSize {
+            ws_col: 200,
+            ws_row: 50,
+        };
+        let narrow = WinSize {
+            ws_col: 100,
+            ws_row: 50,
+        };
+        let reps = std::env::var("PROBE_PUBLISH_REPS").map_or(50, |v| {
+            v.parse::<usize>().expect("PROBE_PUBLISH_REPS is a count")
+        });
+        let arm = std::env::var("PROBE_BENCH_ARM").unwrap_or_else(|_| "-".to_string());
+        let recording = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/recordings/ascii/cat-scroll.raw"
+        ))
+        .expect("the recording");
+        let chunks: Vec<&[u8]> = recording.chunks(CHUNK).collect();
+        let half = chunks.len() / 2;
+        assert!(half > FRAMES, "the control: reads past the re-cut");
+        let mut owned = Owned::with_history(
+            &room,
+            &baud_core::CacheGeometry::UNKNOWN,
+            baud_core::Depth::DEFAULT,
+        );
+        let mut t = Term::new(owned.storage(), &ws);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let mut s = Scrolled::START;
+        let mut counts = crate::keep::Counts::new(&t);
+        let mut sampler = Sampler::default();
+        let (mut pr, _) = probes(Fake::default());
+        let mut pace = crate::reads::Pace::new();
+        let t0 = Instant::now();
+        let mut told = 0;
+        // Each frame's publishes, their nanoseconds, the holds and the
+        // spans handed after it.
+        let mut frames = Vec::with_capacity(FRAMES);
+        for (i, &bytes) in chunks.iter().take(half + FRAMES).enumerate() {
+            let now = t0 + GROUP_EVERY * u32::try_from(i + 1).expect("a count");
+            let began = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
+            let _ = sampler.read(now, bytes);
+            let taken = sampler.writers(Some(2), Watched::Nothing);
+            let mut took = Vec::new();
+            let _ = crate::reads::paced(
+                &mut t,
+                &mut pace,
+                now,
+                [(bytes, taken)],
+                |_| {},
+                |t, r| page_width(t, &ws, r),
+                &mut crate::hostlog::NoLog,
+                &mut took,
+            );
+            let last = took.iter().rev().find_map(|w| w.record);
+            s = counts.numbered(&t, last.as_ref()).scrolled();
+            let core = counts.core_lines(&t);
+            let ended = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
+            let calls = pr.publishes.load(Ordering::Relaxed);
+            let ns = pr.publish_ns.load(Ordering::Relaxed);
+            pr.drain_recut(
+                &mut paths,
+                &t,
+                (began, ended),
+                core,
+                took.into_iter().map(|w| (w, Linked::No)),
+                &pace.recuts,
+                now,
+            );
+            if i >= half {
+                frames.push((
+                    pr.publishes.load(Ordering::Relaxed) - calls,
+                    pr.publish_ns.load(Ordering::Relaxed) - ns,
+                    pr.held.len(),
+                    pr.pending().count(),
+                ));
+            }
+            if i + 1 == half {
+                let was = (t.geometry().0, t.screen());
+                let was_last = crate::paths::last_line(&t, counts.primary());
+                pace.recuts.clear();
+                let _ = pace.recuts.resize(&mut t, &narrow);
+                let rec = t.take_record();
+                s = crate::keep::kept_across_resize(&t, was, None, &mut counts, &rec).1;
+                let map = pace.recuts.last();
+                told = map.as_ref().map_or(0, |m| m.map.len());
+                pr.resized(&mut paths, (&rec, map), &t, was_last, &counts);
+                assert!(
+                    pr.held.len() > 1_000,
+                    "the control: the re-cut held its lines, {} held of {told} told",
+                    pr.held.len()
+                );
+            }
+        }
+        let mut still = Vec::with_capacity(reps);
+        for _ in 0..reps {
+            let ns = pr.publish_ns.load(Ordering::Relaxed);
+            pr.publish(&mut paths);
+            still.push(pr.publish_ns.load(Ordering::Relaxed) - ns);
+        }
+        assert_eq!(frames.len(), FRAMES, "the control: every frame read");
+        assert!(
+            frames.iter().all(|f| f.0 > 0),
+            "the control: every drain published"
+        );
+        for (k, (calls, ns, held, spans)) in frames.iter().enumerate() {
+            println!("frame {k}: {calls} publishes, {ns} ns, {held} held, {spans} spans handed");
+        }
+        let spread = |ns: &mut [u64]| {
+            ns.sort_unstable();
+            match (ns.first(), ns.get(ns.len() / 2), ns.last()) {
+                (Some(&lo), Some(&mid), Some(&hi)) => (lo, mid, hi),
+                _ => (0, 0, 0),
+            }
+        };
+        let mut per_frame: Vec<u64> = frames.iter().map(|f| f.1).collect();
+        let (f_lo, f_mid, f_hi) = spread(&mut per_frame);
+        let (s_lo, s_mid, s_hi) = spread(&mut still);
+        let calls: u64 = frames.iter().map(|f| f.0).sum();
+        let (held_first, (_, _, held_last, spans_last)) = (frames[0].2, frames[FRAMES - 1]);
+        println!(
+            "publish_held arm={arm} told={told} frames={FRAMES} frame_publishes={calls} \
+             held_first={held_first} held_last={held_last} spans_last={spans_last} \
+             frame_ns_p50={f_mid} frame_ns_min={f_lo} frame_ns_max={f_hi} still_reps={reps} \
+             still_ns_p50={s_mid} still_ns_min={s_lo} still_ns_max={s_hi}"
+        );
     }
 
     /// **A re-cut carries every hold with its text** (C): `ls` prints a
