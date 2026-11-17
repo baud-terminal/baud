@@ -64,13 +64,22 @@
 //! default.
 //!
 //! `FRAME_TRAIL=n` prices each cursor trail's frame on the waited arm:
-//! after its replay, its idle frames and `FRAME_HASH`'s frame, n frames of
-//! the final screen with no trail and then n with each effect in
-//! `Effect::ALL` over `baud_bench::trail`'s fixed jump, each drawn whole and
-//! waited for, and a line per effect, named as the config file names it, of
-//! its GPU start-to-end a frame and that less the frames with no trail. Each
-//! effect's last frame is read back, outside the timing, and the bench exits
-//! non-zero if one is the frame with no trail.
+//! after its replay, its idle frames and `FRAME_HASH`'s frame, the final
+//! screen drawn in pairs, each frame drawn whole and waited for. A pair is
+//! an off side, a frame with no trail, then an on side drawn straight
+//! after it, and its difference is the on side's GPU start-to-end less the
+//! off side's. First come the control's n pairs, whose on side is two
+//! frames with no trail, their GPU times summed: a known extra whole frame
+//! of work.
+//! Then, for each effect in `Effect::ALL` over `baud_bench::trail`'s fixed
+//! jump, n pairs whose on side is one frame with that trail. Each kind of
+//! pair has a line, the effects named as the config file names them: its
+//! pairs, the off and on sides' median GPU time, and the differences'
+//! median and range, each kind's first pair dropped as cold. A frame the
+//! GPU did not time counts as zero. Each
+//! kind's last frame is read back, outside the timing, and the bench exits
+//! non-zero if an effect's is the control's, which has no trail, or if any
+//! kept control pair's difference is not above zero.
 //!
 //! `FRAME_PREDICT=n` prices a held prediction's frame on the waited arm:
 //! after everything else it draws, 2n frames of the final screen in turn
@@ -464,13 +473,31 @@ fn main() {
             (h ^ u64::from(p)).wrapping_mul(0x0100_0000_01b3)
         })
     };
-    // `FRAME_TRAIL=n`: n frames with no trail and n with each effect, on the
-    // waited arm after everything else it draws; see the header.
+    // `FRAME_TRAIL=n`: n pairs of the control and of each effect, a frame
+    // with no trail then the pair's on side, on the waited arm after
+    // everything else it draws; see the header.
     let trail_n: usize = std::env::var("FRAME_TRAIL")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     let mut trail_blank = false;
+    let mut trail_control = false;
+    /// **A kind of `FRAME_TRAIL` pair**: the control, whose on side is two
+    /// frames with no trail, or an effect, whose on side is one frame with
+    /// its trail.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Pair {
+        Control,
+        Of(Effect),
+    }
+    /// **Which frame of a `FRAME_TRAIL` pair**: the off side, the first of
+    /// the control's two on frames, or the frame that closes the on side.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Side {
+        Off,
+        Lead,
+        On,
+    }
     // `FRAME_PREDICT=n`: n frames with no prediction and n holding the run,
     // in turn, on the waited arm after the trail's; see the header.
     let predict_n: usize = std::env::var("FRAME_PREDICT")
@@ -1092,18 +1119,55 @@ the first cpu {:.1}, copy {:.2}",
             };
             let mut shown = false;
             let mut hash_left = hash && cell_arm;
-            // `FRAME_TRAIL`'s frames, in the order drawn: the trail each
-            // draws, none first, and over them each one's frames, GPU time
-            // and last frame's hash.
-            let trail_plan: Vec<Option<Effect>> = match arm == Arm::Cells {
-                true => std::iter::once(None)
-                    .chain(Effect::ALL.map(Some))
-                    .flat_map(|e| std::iter::repeat_n(e, trail_n))
-                    .collect(),
+            // `FRAME_TRAIL`'s frames, in the order drawn: each one's kind of
+            // pair, its side and the trail it draws; the control's n pairs
+            // first, then each effect's, off and on in turn.
+            let trail_plan: Vec<(Pair, Side, Option<Effect>)> = match arm == Arm::Cells {
+                true => std::iter::repeat_n(
+                    [
+                        (Pair::Control, Side::Off, None),
+                        (Pair::Control, Side::Lead, None),
+                        (Pair::Control, Side::On, None),
+                    ],
+                    trail_n,
+                )
+                .flatten()
+                .chain(Effect::ALL.into_iter().flat_map(|e| {
+                    std::iter::repeat_n(
+                        [
+                            (Pair::Of(e), Side::Off, None),
+                            (Pair::Of(e), Side::On, Some(e)),
+                        ],
+                        trail_n,
+                    )
+                    .flatten()
+                }))
+                .collect(),
                 false => Vec::new(),
             };
             let mut trail_at = 0usize;
-            let mut trail_sums: Vec<(Option<Effect>, Tally, Duration, u64)> = Vec::new();
+            // Over each kind of pair, each pair's off and on sides' GPU
+            // time, in the order drawn, and its last frame's hash; reserved
+            // here, so the frames push without allocating.
+            let mut trail_pairs: Vec<(Pair, Vec<Duration>, Vec<Duration>, u64)> =
+                match trail_plan.is_empty() {
+                    true => Vec::new(),
+                    false => std::iter::once(Pair::Control)
+                        .chain(Effect::ALL.map(Pair::Of))
+                        .map(|p| {
+                            (
+                                p,
+                                Vec::with_capacity(trail_n),
+                                Vec::with_capacity(trail_n),
+                                0,
+                            )
+                        })
+                        .collect(),
+                };
+            // The pair being drawn: its off side's GPU time, and the
+            // control's first on frame's.
+            let mut trail_off = Duration::ZERO;
+            let mut trail_lead = Duration::ZERO;
             // `FRAME_PREDICT`'s frames, after the trail's: a plain frame and
             // one holding the run, in turn; each half's sums and its last
             // frame's hash.
@@ -1155,7 +1219,7 @@ the first cpu {:.1}, copy {:.2}",
                     // No trail over the prediction's frames.
                     r.set_trail(None);
                 }
-                if let Some(effect) = lit {
+                if let Some((_, _, effect)) = lit {
                     let jump = baud_bench::trail::jump(
                         Cols::of_index(usize::from(ws.ws_col)),
                         Rows::of_index(usize::from(ws.ws_row)),
@@ -1462,26 +1526,32 @@ the first cpu {:.1}, copy {:.2}",
                         hashes.push((arm, h, inked));
                         continue;
                     }
-                    if let Some(effect) = lit {
+                    if let Some((pair, side, _)) = lit {
                         trail_at += 1;
                         let took = g.gpu.unwrap_or_default();
-                        match trail_sums.last_mut() {
-                            Some(e) if e.0 == effect => {
-                                e.1.bump();
-                                e.2 += took;
+                        let sums = trail_pairs.iter_mut().find(|k| k.0 == pair);
+                        match side {
+                            Side::Off => trail_off = took,
+                            Side::Lead => trail_lead = took,
+                            Side::On => {
+                                if let Some(k) = sums {
+                                    k.1.push(trail_off);
+                                    k.2.push(trail_lead + took);
+                                }
+                                trail_lead = Duration::ZERO;
                             }
-                            _ => trail_sums.push((effect, Tally::of(1), took, 0)),
                         }
-                        // The trail's last frame, read back outside the
-                        // timing: what says the effect drew.
-                        if trail_plan.get(trail_at) != Some(&effect) {
+                        // Each kind's last frame, an on side, read back
+                        // outside the timing and after its last pair: what
+                        // says the effect drew.
+                        if trail_plan.get(trail_at).map(|e| e.0) != Some(pair) {
                             let drew = g
                                 .waited
                                 .landed()
                                 .unwrap_or_else(|w| panic!("a trail frame: {w}"));
                             gpu.read(&target, drew, &mut pixels).expect("read back");
-                            if let Some(e) = trail_sums.last_mut() {
-                                e.3 = fnv(&pixels[..]);
+                            if let Some(k) = trail_pairs.iter_mut().find(|k| k.0 == pair) {
+                                k.3 = fnv(&pixels[..]);
                             }
                         }
                         continue;
@@ -1717,23 +1787,60 @@ the other {}: {:.1} us/frame, {} misses ({:.2} a frame)",
                     per(rest_miss, rest),
                 );
             }
-            // Each trail's GPU time a frame, and that less the frames with no
-            // trail; an effect whose last frame is theirs drew nothing.
+            // A half's GPU time a frame.
             let us_of = |frames: Tally, d: Duration| {
                 let n = u32::try_from(frames.value()).unwrap_or(u32::MAX).max(1);
                 (d / n).as_secs_f64() * 1e6
             };
-            let off = trail_sums.first().copied().filter(|e| e.0.is_none());
-            for &(effect, frames, took, h) in &trail_sums {
-                let us = us_of(frames, took);
-                let over = off.map_or(0.0, |(_, f, d, _)| us - us_of(f, d));
-                let blank = effect.is_some() && off.is_some_and(|o| o.3 == h);
-                trail_blank |= blank;
+            // Each kind of pair: the off and on sides' median GPU time, and
+            // each pair's on side less its off side, median and range, the
+            // first pair of each kind dropped as cold. An
+            // effect whose last frame is the control's drew nothing, and a
+            // control pair whose difference is not above zero did not
+            // resolve the extra frame it carries.
+            let control = trail_pairs
+                .first()
+                .filter(|k| k.0 == Pair::Control)
+                .map(|k| k.3);
+            for (pair, offs, ons, h) in &trail_pairs {
+                // A kind's first pair follows a read back or a change of
+                // kind and runs cold: the pairs after it are kept.
+                let warm = usize::from(offs.len() > 1);
+                let (offs, ons) = (&offs[warm..], &ons[warm.min(ons.len())..]);
+                let sorted = |mut v: Vec<f64>| {
+                    v.sort_by(f64::total_cmp);
+                    v
+                };
+                let us = |d: &Duration| d.as_secs_f64() * 1e6;
+                let mid = |v: &[f64]| v.get(v.len() / 2).copied().unwrap_or(f64::NAN);
+                let off = sorted(offs.iter().map(us).collect());
+                let on = sorted(ons.iter().map(us).collect());
+                let diffs = sorted(offs.iter().zip(ons).map(|(a, b)| us(b) - us(a)).collect());
+                let (lo, hi) = (
+                    diffs.first().copied().unwrap_or(f64::NAN),
+                    diffs.last().copied().unwrap_or(f64::NAN),
+                );
+                let (name, flag) = match *pair {
+                    Pair::Control => {
+                        let unresolved = !diffs.is_empty() && lo <= 0.0;
+                        trail_control |= unresolved;
+                        ("control", if unresolved { "  NOT ABOVE ZERO" } else { "" })
+                    }
+                    Pair::Of(e) => {
+                        let blank = control == Some(*h);
+                        trail_blank |= blank;
+                        (
+                            baud_bench::trail::name(Some(e)),
+                            if blank { "  BLANK" } else { "" },
+                        )
+                    }
+                };
                 println!(
-                    "      trail: round {round} {:<9} {} frames, gpu {us:.1} us/frame, {over:+.1} over off, {h:016x}{}",
-                    baud_bench::trail::name(effect),
-                    frames.value(),
-                    if blank { "  BLANK" } else { "" },
+                    "      trail: round {round} {name:<9} {} pairs, off {:.1} us, on {:.1} us, on less off {:+.1} [{lo:+.1}..{hi:+.1}] us, {h:016x}{flag}",
+                    diffs.len(),
+                    mid(&off[..]),
+                    mid(&on[..]),
+                    mid(&diffs[..]),
                 );
             }
             // Each half of the prediction's frames: its GPU time a frame,
@@ -1801,6 +1908,10 @@ run {:.2} us/frame, {:.1} records ({:+.1}), {:.1} masked ({:+.1}) a frame, {hash
     }
     if trail_blank {
         eprintln!("frame_gpu: a trail's frame is the frame with no trail");
+        std::process::exit(1);
+    }
+    if trail_control {
+        eprintln!("frame_gpu: a control pair's difference is not above zero");
         std::process::exit(1);
     }
     if predict_blank {
