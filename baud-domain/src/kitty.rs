@@ -447,6 +447,10 @@ pub struct KittyCommand {
     /// Whether a file medium's reader was asked: from then on every
     /// refusal is the single error.
     pub read: KittyFileRead,
+    /// The screen live when the command's first chunk began: whose images
+    /// its ids and numbers name ([`ImageOwner::Kitty`]). The primary for a
+    /// parse; the stream sets it ([`KittyStream::begin`]).
+    pub screen: ImageScreen,
 }
 
 /// **Whether a file medium was read**: once the embedder's reader has been
@@ -502,6 +506,7 @@ impl KittyCommand {
         parent_y: 0,
         error: None,
         read: KittyFileRead::Unasked,
+        screen: ImageScreen::Primary,
     };
 
     /// The action this command performs: `t` where `a` was absent.
@@ -993,6 +998,8 @@ pub const KITTY_VIRTUALS: usize = 256;
 #[derive(Clone, Copy)]
 struct Virtual {
     image: ImageId,
+    /// The screen whose names `id` is in, and whose placeholders show it.
+    screen: ImageScreen,
     id: KittyId,
     placement: KittyPlacement,
     cols: Cols,
@@ -1010,6 +1017,7 @@ struct Virtual {
 impl Virtual {
     const EMPTY: Virtual = Virtual {
         image: ImageId::NONE,
+        screen: ImageScreen::Primary,
         id: KittyId::NONE,
         placement: KittyPlacement::NONE,
         cols: Cols(0),
@@ -1128,6 +1136,9 @@ pub struct KittyStream {
     continues: Continues,
     /// The command whose transmission is in flight, or just ended.
     start: KittyCommand,
+    /// The screen live when the open chunk began
+    /// ([`KittyStream::begin`]): what its command's ids name.
+    screen: ImageScreen,
     load: Load,
     b64: KittyBase64,
     /// The next ENODATA's numbers, taken by [`KittyStream::reply`].
@@ -1226,6 +1237,7 @@ impl KittyStream {
         chunk: Chunk::Closed,
         continues: Continues::No,
         start: KittyCommand::DEFAULT,
+        screen: ImageScreen::Primary,
         load: Load::Idle,
         b64: KittyBase64::NEW,
         short: Shortfall::Unsaid,
@@ -1429,9 +1441,12 @@ impl KittyStream {
     /// **An `APC G` began.** A chunk still open was abandoned with no
     /// terminator, and its upload goes with it: half a chunk is not data the
     /// client sent. Inside a command every byte but its terminator is its
-    /// payload, as kitty reads it, so none leaves a chunk open.
-    pub fn begin(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
+    /// payload, so none leaves a chunk open. `screen`
+    /// is the live screen, whose images the chunk's command names; a chunk
+    /// continuing an upload adds to the image its first chunk named.
+    pub fn begin(&mut self, screen: ImageScreen, store: &mut ImageStore, scratch: &mut [u8]) {
         self.give_up_read(store, scratch);
+        self.screen = screen;
         if self.chunk != Chunk::Closed {
             self.counts.cancelled += 1;
             self.abort(store);
@@ -1687,7 +1702,9 @@ impl KittyStream {
 
     /// The open chunk's own keys.
     fn this_chunk(&self) -> KittyCommand {
-        KittyCommand::parse(&self.ctrl[..self.ctrl_len.min(KITTY_CONTROL_MAX)])
+        let mut c = KittyCommand::parse(&self.ctrl[..self.ctrl_len.min(KITTY_CONTROL_MAX)]);
+        c.screen = self.screen;
+        c
     }
 
     /// **The control data is complete**: decide whether this chunk
@@ -1735,7 +1752,7 @@ impl KittyStream {
         // transmission begins, as kitty trims it (`add_trim_predicate`). A
         // query leaves the store as it found it, so it trims nothing.
         if !query {
-            store.kitty_free_unplaced(|id, _| id.is_none());
+            store.kitty_free_unplaced(cmd.screen, |id, _| id.is_none());
         }
         // A file medium no embedder serves is refused here, before anything
         // is reserved; a served one is checked and reserved as `t=d` is,
@@ -1750,22 +1767,25 @@ impl KittyStream {
         if cmd.error.is_none() && !query {
             // "When re-transmitting image data for a specific id, the
             // existing image and all its placements must be deleted."
-            if let Some(old) = store.kitty_image(cmd.id) {
+            // The image this screen's id names; the other screen's stays.
+            if let Some(old) = store.kitty_image_on(cmd.screen, cmd.id) {
                 store.free(old);
             }
             // Its virtual placements go with it, by the id: an image freed
             // before, by a failed decode, leaves them naming no live image.
             if !cmd.id.is_none() {
-                let id = cmd.id;
-                self.drop_virtuals(store, KittyFree::Placements, |v| v.id == id);
+                let (id, screen) = (cmd.id, cmd.screen);
+                self.drop_virtuals(store, KittyFree::Placements, |v| {
+                    v.screen == screen && v.id == id
+                });
             }
             if cmd.id.is_none() && !cmd.number.is_none() {
-                cmd.id = self.fresh_id(store);
+                cmd.id = self.fresh_id(cmd.screen, store);
             }
         }
         let owner = match query {
-            true => ImageOwner::Kitty(KittyId::NONE, KittyNumber::NONE),
-            false => ImageOwner::Kitty(cmd.id, cmd.number),
+            true => ImageOwner::Kitty(cmd.screen, KittyId::NONE, KittyNumber::NONE),
+            false => ImageOwner::Kitty(cmd.screen, cmd.id, cmd.number),
         };
         self.start = cmd;
         if let Some(e) = cmd.error {
@@ -1818,7 +1838,7 @@ impl KittyStream {
             (Some(e), _) => Load::Refused(e),
             (None, None) => Load::Refused(KittyError::NO_ANIMATED),
             (None, Some(root)) => {
-                let nameless = ImageOwner::Kitty(KittyId::NONE, KittyNumber::NONE);
+                let nameless = ImageOwner::Kitty(cmd.screen, KittyId::NONE, KittyNumber::NONE);
                 self.load_for(cmd, nameless, root, store, scratch)
             }
         };
@@ -1910,7 +1930,9 @@ impl KittyStream {
         // with `P`, with what their placements hang under.
         let parent = match cmd.parent {
             0 => ImageId::NONE,
-            p => store.kitty_image(KittyId::of(p)).unwrap_or(ImageId::NONE),
+            p => store
+                .kitty_image_on(cmd.screen, KittyId::of(p))
+                .unwrap_or(ImageId::NONE),
         };
         let evicted = store.images_evicted;
         let got = match act {
@@ -1943,13 +1965,14 @@ impl KittyStream {
         }
     }
 
-    /// An id no live image has, for an image sent with a number alone:
-    /// "the terminal will reply with the id of the newly created image".
-    fn fresh_id(&mut self, store: &ImageStore) -> KittyId {
+    /// An id no live image of `screen` has, for an image sent there with a
+    /// number alone: "the terminal will reply with the id of the newly
+    /// created image".
+    fn fresh_id(&mut self, screen: ImageScreen, store: &ImageStore) -> KittyId {
         loop {
             let id = KittyId::of(self.next_id);
             self.next_id = self.next_id.wrapping_add(1).max(1);
-            if store.kitty_image(id).is_none() {
+            if store.kitty_image_on(screen, id).is_none() {
                 return id;
             }
         }
@@ -2349,9 +2372,9 @@ impl KittyStream {
         }
         let owner = match cmd.act() {
             KittyAction::Query | KittyAction::Frame => {
-                ImageOwner::Kitty(KittyId::NONE, KittyNumber::NONE)
+                ImageOwner::Kitty(cmd.screen, KittyId::NONE, KittyNumber::NONE)
             }
-            _ => ImageOwner::Kitty(cmd.id, cmd.number),
+            _ => ImageOwner::Kitty(cmd.screen, cmd.id, cmd.number),
         };
         let spare = match cmd.act() {
             KittyAction::Frame => frame_root(&cmd, store).unwrap_or(ImageId::NONE),
@@ -2714,7 +2737,7 @@ impl KittyStream {
         replacing: Option<crate::image::PlacementId>,
     ) -> Result<KittyParent, KittyError> {
         let pid = KittyId::of(cmd.parent);
-        let Some(img) = store.kitty_image(pid) else {
+        let Some(img) = store.kitty_image_on(cmd.screen, pid) else {
             return Err(KittyError::NO_PARENT_IMAGE);
         };
         let q = KittyPlacement::of(cmd.parent_placement);
@@ -2723,7 +2746,10 @@ impl KittyStream {
             .virtuals
             .iter()
             .filter(|v| {
-                v.id == pid && (q.is_none() || v.placement == q) && KittyStream::live(v, store)
+                v.screen == cmd.screen
+                    && v.id == pid
+                    && (q.is_none() || v.placement == q)
+                    && KittyStream::live(v, store)
             })
             .min_by_key(|v| v.serial);
         let base = KittyParent {
@@ -2752,10 +2778,9 @@ impl KittyStream {
                 let placed = store
                     .kitty_parent_slot(img, KittyPlacement::NONE, at.screen)
                     .is_some()
-                    || self
-                        .virtuals
-                        .iter()
-                        .any(|v| v.id == pid && KittyStream::live(v, store));
+                    || self.virtuals.iter().any(|v| {
+                        v.screen == cmd.screen && v.id == pid && KittyStream::live(v, store)
+                    });
                 return Err(match placed {
                     false => KittyError::PARENT_UNPLACED,
                     true => KittyError::NO_PARENT,
@@ -2789,8 +2814,8 @@ impl KittyStream {
         match cmd.act() {
             KittyAction::Put => {
                 let image = match cmd.id.is_none() {
-                    false => store.kitty_image(cmd.id),
-                    true => store.kitty_newest(cmd.number),
+                    false => store.kitty_image_on(cmd.screen, cmd.id),
+                    true => store.kitty_newest_on(cmd.screen, cmd.number),
                 };
                 // A command with neither names nothing, and kitty answers it
                 // with nothing ("Put graphics command without image id or
@@ -2942,11 +2967,14 @@ impl KittyStream {
             KittyDelete::Id => {
                 let id = cmd.id;
                 self.drop_virtuals(store, free, |v| {
-                    !id.is_none() && v.id == id && (pid.is_none() || v.placement == pid)
+                    v.screen == screen
+                        && !id.is_none()
+                        && v.id == id
+                        && (pid.is_none() || v.placement == pid)
                 });
             }
             KittyDelete::Number => {
-                if let Some(img) = store.kitty_newest(cmd.number) {
+                if let Some(img) = store.kitty_newest_on(screen, cmd.number) {
                     self.drop_virtuals(store, free, |v| {
                         v.image == img && (pid.is_none() || v.placement == pid)
                     });
@@ -2955,7 +2983,7 @@ impl KittyStream {
             KittyDelete::Range => {
                 let (lo, hi) = (cmd.x, cmd.y);
                 self.drop_virtuals(store, free, |v| {
-                    !v.id.is_none() && lo <= v.id.raw() && v.id.raw() <= hi
+                    v.screen == screen && !v.id.is_none() && lo <= v.id.raw() && v.id.raw() <= hi
                 });
             }
             _ => {}
@@ -2965,20 +2993,21 @@ impl KittyStream {
             match what {
                 KittyDelete::Id => {
                     let id = cmd.id;
-                    store.kitty_free_unplaced(|i, _| !id.is_none() && i == id);
+                    store.kitty_free_unplaced(screen, |i, _| !id.is_none() && i == id);
                 }
                 KittyDelete::Number => {
-                    if let Some(img) = store.kitty_newest(cmd.number) {
+                    if let Some(img) = store.kitty_newest_on(screen, cmd.number) {
                         if store.kitty_names(img).is_some() {
                             let names = store.kitty_names(img);
-                            store.kitty_free_unplaced(|i, n| Some((i, n)) == names);
+                            store.kitty_free_unplaced(screen, |i, n| Some((i, n)) == names);
                         }
                     }
                 }
                 KittyDelete::Range => {
                     let (lo, hi) = (cmd.x, cmd.y);
-                    store
-                        .kitty_free_unplaced(|i, _| !i.is_none() && lo <= i.raw() && i.raw() <= hi);
+                    store.kitty_free_unplaced(screen, |i, _| {
+                        !i.is_none() && lo <= i.raw() && i.raw() <= hi
+                    });
                 }
                 _ => {}
             }
@@ -3010,7 +3039,7 @@ impl KittyStream {
         };
         match what {
             KittyDelete::Visible => {
-                store.kitty_delete_drawn(free, drawn, |p, _, _| {
+                store.kitty_delete_drawn(screen, free, drawn, |p, _, _| {
                     let rows = p.kitty.shown().index();
                     p.screen == screen
                         && p.line < window_end
@@ -3021,21 +3050,21 @@ impl KittyStream {
             // by it: an id names one live image, a transmission replacing
             // the image it named.
             KittyDelete::Id if !pid.is_none() => {
-                if let Some(img) = store.kitty_image(cmd.id) {
+                if let Some(img) = store.kitty_image_on(screen, cmd.id) {
                     store.kitty_delete_placement(free, img, pid);
                 }
             }
             KittyDelete::Id => {
                 let id = cmd.id;
-                store.kitty_delete(free, |_, i, _| !id.is_none() && i == id);
+                store.kitty_delete(screen, free, |_, i, _| !id.is_none() && i == id);
             }
             KittyDelete::Number => {
-                let Some(img) = store.kitty_newest(cmd.number) else {
+                let Some(img) = store.kitty_newest_on(screen, cmd.number) else {
                     return;
                 };
                 match pid.is_none() {
                     true => {
-                        store.kitty_delete(free, |p, _, _| p.image == img);
+                        store.kitty_delete(screen, free, |p, _, _| p.image == img);
                     }
                     false => {
                         store.kitty_delete_placement(free, img, pid);
@@ -3047,7 +3076,7 @@ impl KittyStream {
             KittyDelete::Cursor => {
                 let line = at.top.plus(at.row);
                 let cols = at.col.index()..at.col.index() + at.span.index();
-                store.kitty_delete_drawn(free, drawn, |p, _, _| {
+                store.kitty_delete_drawn(screen, free, drawn, |p, _, _| {
                     p.screen == screen
                         && covers_line(p, line)
                         && cols.clone().any(|c| covers_col(p, c))
@@ -3058,7 +3087,7 @@ impl KittyStream {
                     return;
                 };
                 let z = (what == KittyDelete::CellZ).then_some(ZIndex::of(cmd.z));
-                store.kitty_delete_drawn(free, drawn, |p, _, _| {
+                store.kitty_delete_drawn(screen, free, drawn, |p, _, _| {
                     p.screen == screen
                         && covers_line(p, line)
                         && covers_col(p, col)
@@ -3067,7 +3096,7 @@ impl KittyStream {
             }
             KittyDelete::Range => {
                 let (lo, hi) = (cmd.x, cmd.y);
-                store.kitty_delete(free, |_, i, _| {
+                store.kitty_delete(screen, free, |_, i, _| {
                     !i.is_none() && lo <= i.raw() && i.raw() <= hi
                 });
             }
@@ -3075,7 +3104,7 @@ impl KittyStream {
                 let Some((_, col)) = cell(cmd.x, 1) else {
                     return;
                 };
-                store.kitty_delete_drawn(free, drawn, |p, _, _| {
+                store.kitty_delete_drawn(screen, free, drawn, |p, _, _| {
                     p.screen == screen && covers_col(p, col)
                 });
             }
@@ -3083,13 +3112,13 @@ impl KittyStream {
                 let Some((line, _)) = cell(1, cmd.y) else {
                     return;
                 };
-                store.kitty_delete_drawn(free, drawn, |p, _, _| {
+                store.kitty_delete_drawn(screen, free, drawn, |p, _, _| {
                     p.screen == screen && covers_line(p, line)
                 });
             }
             KittyDelete::Z => {
                 let z = ZIndex::of(cmd.z);
-                store.kitty_delete(free, |p, _, _| p.z == z);
+                store.kitty_delete(screen, free, |p, _, _| p.z == z);
             }
             // "Delete animation frames": the frame `r`, kitty's
             // `handle_delete_frame_command()`; an image of one frame goes
@@ -3106,7 +3135,9 @@ impl KittyStream {
                     let id = store.kitty_names(root).map(|(i, _)| i);
                     store.free(root);
                     if let Some(id) = id.filter(|i| !i.is_none()) {
-                        self.drop_virtuals(store, KittyFree::Placements, |v| v.id == id);
+                        self.drop_virtuals(store, KittyFree::Placements, |v| {
+                            v.screen == screen && v.id == id
+                        });
                     }
                 }
             }
@@ -3115,9 +3146,11 @@ impl KittyStream {
 
     /// Whether virtual placement `v` still names a live image by its id: an
     /// image freed under it (a failed decode) leaves it naming none, and a
-    /// slot reused since names another id.
+    /// slot reused since names another id or the other screen's image.
     fn live(v: &Virtual, store: &ImageStore) -> bool {
-        !v.image.is_none() && store.kitty_names(v.image).is_some_and(|(i, _)| i == v.id)
+        !v.image.is_none()
+            && store.kitty_names(v.image).is_some_and(|(i, _)| i == v.id)
+            && store.kitty_screen(v.image) == Some(v.screen)
     }
 
     /// **Make a virtual placement of `image`** (`U=1`): replacing the one of
@@ -3181,6 +3214,7 @@ impl KittyStream {
         };
         *slot = Virtual {
             image,
+            screen: cmd.screen,
             id,
             placement: pid,
             cols: Cols(count(cmd.cols)),
@@ -3260,6 +3294,7 @@ impl KittyStream {
     /// placements under it.
     pub fn mark_drawn(
         &mut self,
+        screen: ImageScreen,
         image: KittyId,
         placement: KittyPlacement,
         (line, col): (LineIdx, Col),
@@ -3269,7 +3304,8 @@ impl KittyStream {
             return;
         }
         let Some(v) = self.virtuals.iter_mut().find(|v| {
-            v.id == image
+            v.screen == screen
+                && v.id == image
                 && (placement.is_none() || v.placement == placement)
                 && KittyStream::live(v, store)
         }) else {
@@ -3299,7 +3335,8 @@ impl KittyStream {
             return None;
         }
         let v = self.virtuals.iter().find(|v| {
-            v.id == image
+            v.screen == at.screen
+                && v.id == image
                 && (placement.is_none() || v.placement == placement)
                 && KittyStream::live(v, store)
         })?;
@@ -3336,7 +3373,7 @@ impl KittyStream {
     /// screen, in the primary's history, stays.
     pub fn clear_screen(&mut self, at: &KittyAt, store: &mut ImageStore) {
         let screen = at.screen;
-        store.kitty_delete(KittyFree::Data, |p, _, _| {
+        store.kitty_delete(screen, KittyFree::Data, |p, _, _| {
             let rows = p.kitty.shown().index();
             p.screen == screen && p.line.plus(Rows::of_count(rows)) > at.top
         });
@@ -3489,8 +3526,8 @@ impl ReplyBuf {
 /// the newest with the number `I`, whole.
 fn frame_root(cmd: &KittyCommand, store: &ImageStore) -> Option<ImageId> {
     let image = match cmd.id.is_none() {
-        false => store.kitty_image(cmd.id),
-        true if !cmd.number.is_none() => store.kitty_newest(cmd.number),
+        false => store.kitty_image_on(cmd.screen, cmd.id),
+        true if !cmd.number.is_none() => store.kitty_newest_on(cmd.screen, cmd.number),
         true => None,
     };
     image.filter(|i| store.image(*i).is_some())

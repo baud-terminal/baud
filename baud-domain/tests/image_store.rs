@@ -787,7 +787,7 @@ fn an_image_keeps_the_alpha_mark_it_was_stored_with() {
 #[test]
 fn the_kitty_quota_deletes_only_whole_unplaced_kitty_images() {
     use baud_domain::{ImageOwner, KittyId, KittyNumber};
-    let kitty = |i| ImageOwner::Kitty(KittyId::of(i), KittyNumber::NONE);
+    let kitty = |i| ImageOwner::Kitty(ImageScreen::Primary, KittyId::of(i), KittyNumber::NONE);
     let px = ImagePx::of;
     let mut b = Buffers::new();
     let mut store = b.store();
@@ -819,11 +819,11 @@ fn a_full_slot_table_deletes_the_oldest_unplaced_kitty_image() {
     let mut b = Buffers::new();
     let mut store = b.store();
     for i in 1..=4 {
-        let owner = ImageOwner::Kitty(KittyId::of(i), KittyNumber::NONE);
+        let owner = ImageOwner::Kitty(ImageScreen::Primary, KittyId::of(i), KittyNumber::NONE);
         let id = store.reserve(px(1), px(1), owner).unwrap();
         store.complete(id, ImageAlpha::OpaqueOrClear);
     }
-    let owner = ImageOwner::Kitty(KittyId::of(5), KittyNumber::NONE);
+    let owner = ImageOwner::Kitty(ImageScreen::Primary, KittyId::of(5), KittyNumber::NONE);
     assert!(store.reserve_evicting(px(1), px(1), owner).is_some());
     assert_eq!((store.images_evicted, store.images_refused), (1, 0));
     let live: Vec<bool> = (1..=5)
@@ -849,7 +849,7 @@ fn a_command_that_would_keep_more_than_32_images_deletes_none_for_space() {
     use baud_domain::{
         ImageOwner, KittyId, KittyNumber, KittyParent, KittyPlace, ParentOn, PlaceSerial,
     };
-    let kitty = |i| ImageOwner::Kitty(KittyId::of(i), KittyNumber::NONE);
+    let kitty = |i| ImageOwner::Kitty(ImageScreen::Primary, KittyId::of(i), KittyNumber::NONE);
     let px = ImagePx::of;
     for (held, on, stored) in [
         (31, ParentOn::Virtual, true),

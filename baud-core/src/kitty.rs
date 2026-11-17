@@ -28,8 +28,10 @@ impl Paint<'_, '_> {
         self.cold.str_kind = StrKind::Kitty;
         // An iTerm2 file still arriving gives the scratch up (`crate::file`).
         self.file_yield();
+        // The live screen, whose images the chunk's ids name.
+        let (screen, _) = self.image_top();
         let s = &mut *self.strs;
-        s.kitty.begin(self.images, s.kitty_scratch);
+        s.kitty.begin(screen, self.images, s.kitty_scratch);
         self.rehook();
     }
 
@@ -127,8 +129,13 @@ impl Paint<'_, '_> {
             let line = at.top.plus(Rows::of_count(r));
             for run in PlaceholderRuns::new(cells) {
                 let col = Col::at_index(run.at.index() * stretch);
-                s.kitty
-                    .mark_drawn(run.image, run.placement, (line, col), self.images);
+                s.kitty.mark_drawn(
+                    at.screen,
+                    run.image,
+                    run.placement,
+                    (line, col),
+                    self.images,
+                );
             }
         }
     }

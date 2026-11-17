@@ -85,7 +85,7 @@ fn command(k: &mut KittyStream, store: &mut ImageStore, body: &[u8]) {
         cell_h: ImagePx::of(20),
     };
     let mut scratch = [0u8; 0];
-    k.begin(store, &mut scratch);
+    k.begin(at.screen, store, &mut scratch);
     for &b in body {
         k.put(b, store, &mut scratch);
     }

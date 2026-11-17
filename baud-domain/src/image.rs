@@ -687,11 +687,15 @@ enum PageShows {
 pub enum ImageOwner {
     /// A Sixel, or [`ImageStore::store`]'s caller.
     Local,
-    /// A kitty transmission, with the client's id and number. An image with
-    /// neither can never be named again, so it goes with its last placement
-    /// as a local one does (kitty's own rule, `[[source: kitty-graphics-c]]`
-    /// `filter_refs` and `modify_refs`).
-    Kitty(KittyId, KittyNumber),
+    /// A kitty transmission, with the screen it was sent on and the
+    /// client's id and number. **Each screen names its own images**: an id
+    /// or a number names an image sent on the screen live when the command
+    /// is, and never the other screen's (`[[source: kitty-screen-c]]`
+    /// `screen_toggle_screen_buffer()`). An image with neither can never be
+    /// named again, so it goes with its last placement as a local one does
+    /// (`[[source: kitty-graphics-c]]` `filter_refs` and
+    /// `modify_refs`).
+    Kitty(ImageScreen, KittyId, KittyNumber),
     /// A ReGIS page ([`ImageStore::store_page`]): drawn on after it is
     /// stored, and written over by text a cell at a time rather than freed
     /// whole, as a Sixel is. It goes with its last placement as a local
@@ -1171,7 +1175,7 @@ impl ImageSlot {
     fn goes_with_placements(self) -> bool {
         match self.owner {
             ImageOwner::Local | ImageOwner::Regis | ImageOwner::Iterm => true,
-            ImageOwner::Kitty(id, _) => id.is_none(),
+            ImageOwner::Kitty(_, id, _) => id.is_none(),
         }
     }
 
@@ -2629,19 +2633,42 @@ impl<'b> ImageStore<'b> {
         (!s.is_empty()).then_some(s.born)
     }
 
-    /// The live image a kitty id names.
-    pub fn kitty_image(&self, id: KittyId) -> Option<ImageId> {
+    /// The live image a kitty id names on `screen`
+    /// ([`ImageOwner::Kitty`]): what a command sent there names.
+    pub fn kitty_image_on(&self, screen: ImageScreen, id: KittyId) -> Option<ImageId> {
         if id.is_none() {
             return None;
         }
         self.slots
             .iter()
-            .position(|s| !s.is_empty() && matches!(s.owner, ImageOwner::Kitty(i, _) if i == id))
+            .position(|s| {
+                !s.is_empty()
+                    && matches!(s.owner, ImageOwner::Kitty(on, i, _) if on == screen && i == id)
+            })
             .map(ImageId::from_index)
     }
 
-    /// The newest live image a kitty number names.
+    /// The live image a kitty id names on either screen, the primary's
+    /// first: for a reader that sent the id on one screen alone.
+    pub fn kitty_image(&self, id: KittyId) -> Option<ImageId> {
+        self.kitty_image_on(ImageScreen::Primary, id)
+            .or_else(|| self.kitty_image_on(ImageScreen::Alternate, id))
+    }
+
+    /// The newest live image a kitty number names on `screen`.
+    pub fn kitty_newest_on(&self, screen: ImageScreen, number: KittyNumber) -> Option<ImageId> {
+        self.newest_named(Some(screen), number)
+    }
+
+    /// The newest live image a kitty number names on either screen: for a
+    /// reader that sent the number on one screen alone.
     pub fn kitty_newest(&self, number: KittyNumber) -> Option<ImageId> {
+        self.newest_named(None, number)
+    }
+
+    /// The newest live image `number` names, on `screen` or with none on
+    /// either.
+    fn newest_named(&self, screen: Option<ImageScreen>, number: KittyNumber) -> Option<ImageId> {
         if number.is_none() {
             return None;
         }
@@ -2649,7 +2676,9 @@ impl<'b> ImageStore<'b> {
             .iter()
             .enumerate()
             .filter(|(_, s)| {
-                !s.is_empty() && matches!(s.owner, ImageOwner::Kitty(_, n) if n == number)
+                !s.is_empty()
+                    && matches!(s.owner, ImageOwner::Kitty(on, _, n)
+                        if n == number && screen.is_none_or(|w| w == on))
             })
             .max_by_key(|(_, s)| s.born)
             .map(|(i, _)| ImageId::from_index(i))
@@ -2660,7 +2689,17 @@ impl<'b> ImageStore<'b> {
     pub fn kitty_names(&self, id: ImageId) -> Option<(KittyId, KittyNumber)> {
         let s = *self.slots.get(id.index()?)?;
         match (s.is_empty(), s.owner) {
-            (false, ImageOwner::Kitty(i, n)) => Some((i, n)),
+            (false, ImageOwner::Kitty(_, i, n)) => Some((i, n)),
+            _ => None,
+        }
+    }
+
+    /// The screen whose names a live kitty image is in; `None` for one no
+    /// kitty transmission stored.
+    pub fn kitty_screen(&self, id: ImageId) -> Option<ImageScreen> {
+        let s = *self.slots.get(id.index()?)?;
+        match (s.is_empty(), s.owner) {
+            (false, ImageOwner::Kitty(on, _, _)) => Some(on),
             _ => None,
         }
     }
@@ -2861,15 +2900,17 @@ impl<'b> ImageStore<'b> {
     /// image they leave with no placement that `free` or its namelessness
     /// says goes -- kitty's `filter_refs` (`[[source: kitty-graphics-c]]`):
     /// an image is freed only if a placement of it matched. `hit` sees the
-    /// placement and its image's kitty names. Returns how many placements
-    /// went. Sixel and embedder placements are never touched: the delete
-    /// command is kitty's.
+    /// placement and its image's kitty names, and only the images
+    /// `screen` names ([`ImageOwner::Kitty`]) are looked at. Returns how
+    /// many placements went. Sixel and embedder placements are never
+    /// touched: the delete command names kitty images alone.
     pub fn kitty_delete(
         &mut self,
+        screen: ImageScreen,
         free: KittyFree,
         hit: impl Fn(&PlacementSlot, KittyId, KittyNumber) -> bool,
     ) -> usize {
-        self.delete_shown(free, |_, s| Some(*s), hit)
+        self.delete_shown(screen, free, |_, s| Some(*s), hit)
     }
 
     /// **[`ImageStore::kitty_delete`] by a place on the screen**: `hit`
@@ -2881,11 +2922,12 @@ impl<'b> ImageStore<'b> {
     /// nowhere, is not hit.
     pub fn kitty_delete_drawn(
         &mut self,
+        screen: ImageScreen,
         free: KittyFree,
         drawn: impl Fn(PlaceSerial) -> Option<(LineIdx, Col)>,
         hit: impl Fn(&PlacementSlot, KittyId, KittyNumber) -> bool,
     ) -> usize {
-        self.delete_shown(free, |st, s| st.drawn_slot(s, &drawn), hit)
+        self.delete_shown(screen, free, |st, s| st.drawn_slot(s, &drawn), hit)
     }
 
     /// Placement `s` where it is drawn: itself, or under a virtual parent
@@ -2917,6 +2959,7 @@ impl<'b> ImageStore<'b> {
     /// placement where `hit` tests it.
     fn delete_shown(
         &mut self,
+        screen: ImageScreen,
         free: KittyFree,
         shown: impl Fn(&Self, &PlacementSlot) -> Option<PlacementSlot>,
         hit: impl Fn(&PlacementSlot, KittyId, KittyNumber) -> bool,
@@ -2930,9 +2973,12 @@ impl<'b> ImageStore<'b> {
             let Some(i) = slot.image.index() else {
                 continue;
             };
-            let ImageOwner::Kitty(kid, num) = self.slots[i].owner else {
+            let ImageOwner::Kitty(on, kid, num) = self.slots[i].owner else {
                 continue;
             };
+            if on != screen {
+                continue;
+            }
             if !shown(self, &slot).is_some_and(|s| hit(&s, kid, num)) {
                 continue;
             }
@@ -3244,19 +3290,23 @@ impl<'b> ImageStore<'b> {
     /// **Free every kitty image `hit` picks that has no placement**: an
     /// `a=d,d=I` or `d=N` naming an image only stored, and `d=R`'s range
     /// (`[[source: kitty-graphics-c]]` `handle_delete_command`, whose
-    /// special case frees an unplaced image by id or number). Returns how
-    /// many.
-    pub fn kitty_free_unplaced(&mut self, hit: impl Fn(KittyId, KittyNumber) -> bool) -> usize {
+    /// special case frees an unplaced image by id or number), among the
+    /// images `screen` names. Returns how many.
+    pub fn kitty_free_unplaced(
+        &mut self,
+        screen: ImageScreen,
+        hit: impl Fn(KittyId, KittyNumber) -> bool,
+    ) -> usize {
         let mut n = 0;
         for i in 0..self.slots.len() {
             let s = self.slots[i];
             if s.is_empty() || s.placements.index() != 0 {
                 continue;
             }
-            let ImageOwner::Kitty(kid, num) = s.owner else {
+            let ImageOwner::Kitty(on, kid, num) = s.owner else {
                 continue;
             };
-            if hit(kid, num) {
+            if on == screen && hit(kid, num) {
                 self.forget(i);
                 self.images_dropped += 1;
                 n += 1;

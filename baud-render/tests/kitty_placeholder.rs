@@ -616,6 +616,10 @@ fn the_leaving_row_places_the_strip_it_placed_on_screen() {
     assert_eq!(strips(&mut r, &t, 0), shifted, "the leaving row's strip");
     // The alternate screen keeps no history, so has no leaving row.
     feed(&mut t, b"\x1b[?1049h");
+    // Each screen names its own images: the picture and its placement are
+    // sent again on this one.
+    transmit(&mut t, 1, texel);
+    feed(&mut t, &apc("a=p,U=1,i=1,q=2,c=11,r=3", b""));
     feed(&mut t, first_row.as_bytes());
     let alt = strips(&mut r, &t, 0);
     assert_eq!(alt.len(), 1, "the premise: the alternate's first row");

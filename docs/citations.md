@@ -5550,7 +5550,7 @@ kitty v0.49.2, kitty/graphics.c -- the reference implementation of the graphics 
 - **sha256:** `bfab5f2794ce6a40d454190c8d57f330fa9c4377cfc9084ebd191b4e3973fe14` (123771 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-18
-- **Cited in:** `baud-app/src/film/mpv.rs`, `baud-app/src/kitty_files.rs`, `baud-core/tests/kitty_animation.rs`, `baud-core/tests/kitty_cursor.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/kitty_relative.rs`, `baud-core/tests/kitty_string_end.rs`, `baud-domain/src/image.rs`, `baud-domain/src/image/frames.rs`, `baud-domain/src/kitty.rs`, `baud-domain/tests/kitty_graphics.rs`, `baud-present-macos/tests/cells.rs`, `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-app/src/film/mpv.rs`, `baud-app/src/kitty_files.rs`, `baud-core/tests/kitty_animation.rs`, `baud-core/tests/kitty_cursor.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/kitty_relative.rs`, `baud-core/tests/kitty_screens.rs`, `baud-core/tests/kitty_string_end.rs`, `baud-domain/src/image.rs`, `baud-domain/src/image/frames.rs`, `baud-domain/src/kitty.rs`, `baud-domain/tests/kitty_graphics.rs`, `baud-present-macos/tests/cells.rs`, `baud-render/src/renderer.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-graphics-command"></a>
 ### kitty-graphics-command
@@ -5768,7 +5768,7 @@ kitty v0.49.2, kitty/screen.c -- screen\_render\_line\_graphics, how a line's Un
 - **sha256:** `e73f7eaa9d01d40bb0cbe6a3232691bc864c9b8ab3770cef983106bf40c32fe0` (305999 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-19
-- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/kitty_cursor.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-domain/src/image.rs`, `baud-domain/src/placeholder.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-core/src/ops.rs`, `baud-core/tests/kitty_cursor.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/kitty_screens.rs`, `baud-domain/src/image.rs`, `baud-domain/src/placeholder.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-shaders-c"></a>
 ### kitty-shaders-c

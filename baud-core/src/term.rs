@@ -6702,10 +6702,15 @@ impl<'b> Term<'b> {
     /// choose any virtual placement of the given image". Its geometry is the
     /// whole image fitted into its `c` x `r` cells at the cell size set
     /// now, a count not given the image's own size in cells rounded up.
+    /// The ids are the live screen's: its placeholders name its images.
     /// `None` when the image or the placement is gone.
     pub fn kitty_virtual(&self, image: KittyId, placement: KittyPlacement) -> Option<KittyVirtual> {
+        let screen = match self.cold.screen {
+            Screen::Normal => ImageScreen::Primary,
+            Screen::Alternate => ImageScreen::Alternate,
+        };
         let at = KittyAt {
-            screen: ImageScreen::Primary,
+            screen,
             top: LineIdx::FIRST,
             row: Rows::ZERO,
             col: Col::ZERO,
