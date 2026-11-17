@@ -11520,6 +11520,15 @@ microsoft/terminal 9fd41b2, src/types/utils.cpp -- ColorFromHexString: #rgb each
 - **Read:** 2026-10-17
 - **Cited in:** `baud-domain/src/themefile/iterm.rs`
 
+<a id="wlr-screencopy-unstable-v1"></a>
+### wlr-screencopy-unstable-v1
+
+wlr-screencopy-unstable-v1 -- a client's copy of an output's frames: capture\_output\_region, copy\_with\_damage, buffer, ready, buffer\_done. Simon Ser and Andri Yngvason, 2018, wlroots/wlr-protocols 4264185d unstable/, freedesktop.org GitLab (MIT).
+
+- **URL:** <https://gitlab.freedesktop.org/wlroots/wlr-protocols/-/raw/4264185db3b7e961e7f157e1cc4fd0ab75137568/unstable/wlr-screencopy-unstable-v1.xml>
+- **sha256:** `0f50f6187965b02782a12ba346ad950d6031454f6af6e1ac5b341a279ef16d56` (10166 bytes)
+- **Copy:** [docs/research/sources/wlr-screencopy-unstable-v1.xml](research/sources/wlr-screencopy-unstable-v1.xml)
+
 <a id="wlr-virtual-pointer-unstable-v1"></a>
 ### wlr-virtual-pointer-unstable-v1
 

@@ -1958,9 +1958,9 @@ THIS SOFTWARE.
 | status | research sources | other entries | meaning |
 |---|---|---|---|
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 344 | 69 | redistributable, and its notice is satisfied |
+| kept | 345 | 69 | redistributable, and its notice is satisfied |
 | own | 10 | 11 | the work of baud's author |
-| total | 355 | 80 | |
+| total | 356 | 80 | |
 
 ## Licence texts in LICENSES/
 
@@ -3761,11 +3761,12 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT
 - **Notice:** in the file
-- **Files:** 2
+- **Files:** 3
 
 | file | copied from |
 |---|---|
 | [virtual-keyboard-unstable-v1.xml](docs/research/sources/virtual-keyboard-unstable-v1.xml) | https://gitlab.freedesktop.org/wlroots/wlroots/-/raw/02e9e84ebaeecb85356d829c3316cf77d067b454/protocol/virtual-keyboard-unstable-v1.xml |
+| [wlr-screencopy-unstable-v1.xml](docs/research/sources/wlr-screencopy-unstable-v1.xml) | https://gitlab.freedesktop.org/wlroots/wlr-protocols/-/raw/4264185db3b7e961e7f157e1cc4fd0ab75137568/unstable/wlr-screencopy-unstable-v1.xml |
 | [wlr-virtual-pointer-unstable-v1.xml](docs/research/sources/wlr-virtual-pointer-unstable-v1.xml) | https://gitlab.freedesktop.org/wlroots/wlr-protocols/-/raw/1106a4a1c57562ddd438c547da4c0d6dc150d624/unstable/wlr-virtual-pointer-unstable-v1.xml |
 
 ### X.Org keysymdef.h (The Open Group)

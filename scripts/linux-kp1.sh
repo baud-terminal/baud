@@ -68,6 +68,15 @@ tenv() {
     HYPRLAND_INSTANCE_SIGNATURE="$HYPRLAND_INSTANCE_SIGNATURE" \
     FONTCONFIG_FILE="$work/fonts.conf" LANG=C.UTF-8 TERM=xterm-256color "$@"
 }
+# The active window full screen. A Hyprland with the Lua config engine reads
+# what follows `dispatch` as the argument of `hl.dispatch(...)`, a
+# dispatcher expression; one without it takes the legacy string.
+full_screen() {
+  case "$(hyprctl dispatch 'hl.dsp.window.fullscreen({ mode = "fullscreen" })' 2>&1)" in
+  ok*) ;;
+  *) hyprctl dispatch fullscreen 0 >/dev/null ;;
+  esac
+}
 launch() {
   case "$1" in
   baud | baud-aa)
@@ -130,11 +139,17 @@ while [ "$r" -lt "$rounds" ]; do
       i=$((i + 1))
       continue
     fi
-    hyprctl dispatch fullscreen 0 >/dev/null
+    full_screen
     sleep 1.5
     shape=$(hyprctl activewindow -j | jq -c '{class,fullscreen,size}')
     wpid=$(hyprctl activewindow -j | jq -r '.pid')
     echo "round $r $arm $(date +%T) load1 $(cut -d' ' -f1 /proc/loadavg) $shape" >>"$out/rounds.log"
+    # Every arm is read full screen, or the run is not the comparison.
+    if [ "$(hyprctl activewindow -j | jq -r '.fullscreen')" != 2 ]; then
+      echo "round $r $arm: not full screen; the run stops" | tee -a "$out/rounds.log" >&2
+      kill "$wpid" 2>/dev/null
+      exit 1
+    fi
     timeout 120 "$KP" "$KEYMAP" 0 0 96 64 "$keys" 150 $((1000 + r * 10 + i)) 300 \
       >"$out/r$r-$arm.txt" 2>"$out/r$r-$arm.err"
     echo "  exit $?" >>"$out/rounds.log"
