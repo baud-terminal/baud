@@ -106,7 +106,7 @@ pub(crate) struct ShiftEnd(Col);
 
 impl ShiftEnd {
     /// The column one past the last the shift moves.
-    fn col(self) -> Col {
+    pub(crate) fn col(self) -> Col {
         self.0
     }
 

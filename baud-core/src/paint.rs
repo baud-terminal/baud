@@ -626,10 +626,12 @@ impl<'a, 'b> Paint<'a, 'b> {
     pub(crate) fn open_gap(&mut self, n: Count) {
         // After the fit test, so never a tagged value.
         let (r, at, b) = (self.cy, self.cx.raw(), self.blank());
-        // The line's end: the gap pushes off a double line's last column,
-        // not into the half past it (`[[source: dec-std-070]]` p. 5-140,
-        // `margin = end_of_line(line)`).
-        let to = Col::at_index(self.line_cols().index());
+        // One past the right margin for a cursor at or inside it on a row
+        // inside the scroll area, what is shifted past it lost, and the
+        // line's end otherwise, a double line's last column rather than
+        // the half past it (`[[source: dec-std-070]]` pp. 5-139, 5-140;
+        // [`Paint::insert_end`]).
+        let to = self.insert_end().col();
         self.view.insert_cells(r, at, n, to, b);
         self.erase_images(r, at, to);
         self.cells = self.cells.plus(to.index() - at.index());

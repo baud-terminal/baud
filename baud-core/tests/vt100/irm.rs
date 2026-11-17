@@ -87,17 +87,26 @@ fn text_pushed_past_the_end_is_discarded() {
     assert_eq!(after[stride], blank, "nothing may spill onto the next row");
 }
 
-/// IRM respects DECSLRM: the shift stops at the right margin.
+/// **IRM respects DECSLRM: the shift stops at the right margin.** On
+/// `abcdefghijklmnopqrst` with the margins at columns 5 to 10, a `Z`
+/// written at column 5 moves `e` to `i` one right and `j`, shifted past
+/// the right margin, is lost; columns 11 to 20, and the blank column 21
+/// past the text, keep what they held (`[[source: dec-std-070]]`
+/// pp. 5-139, 5-140: "Data shifted past the Right Margin within the
+/// Scroll Area ... is lost"). The cursor goes on to column 6.
 #[test]
 fn insert_stops_at_the_right_margin() {
-    let mut base: Vec<u8> = Vec::new();
-    base.extend(std::iter::repeat_n(b'a', 20));
-    let mut v = base.clone();
-    v.extend_from_slice(b"\x1b[?69h\x1b[5;10s\x1b[1;5H\x1b[4hZ");
-    let after = grid(&v);
-    let before = grid(&base);
-    assert_eq!(after[10], before[10], "beyond the margin, untouched");
-    assert_eq!(after[19], before[19]);
+    let bytes = b"abcdefghijklmnopqrst\x1b[?69h\x1b[5;10s\x1b[1;5H\x1b[4hZ";
+    assert_eq!(
+        grid(bytes),
+        grid(b"abcdZefghiklmnopqrst"),
+        "inside the margins the line shifts right and `j` is lost; outside them nothing moves"
+    );
+    let cursor = support::with_corpus(|t| {
+        support::feed(t, bytes);
+        t.cursor()
+    });
+    assert_eq!(cursor, (Row::from_index(0), Col::at_index(5)));
 }
 
 /// It applies to the bulk path too, not only to single characters.
