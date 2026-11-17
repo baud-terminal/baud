@@ -4651,10 +4651,14 @@ fn hsb(h: f32, sat: f32, b: f32, alpha: f32) -> Retained<NSColor> {
 /// The material darkening and the shadow, for an appearance.
 ///
 /// **The darkening goes on the MATERIAL, not as a layer over it**, so the
-/// titlebar strip and the body share one surface -- which is what the
-/// crate's example does with the same setter, and what baud did not do at
-/// all. It is appearance-dependent because a black strong enough for dark
-/// would wrongly darken light.
+/// titlebar strip and the body share one surface. It is
+/// appearance-dependent because a black strong enough for dark would
+/// wrongly darken light.
+///
+/// **Only a Liquid Glass body is darkened.** `Body::Glass`, `[glass] style`
+/// regular or clear, takes the darkening through `set_tint_color`;
+/// `Body::Standard`, the default, is a visual effect view, which has no
+/// tint, so it gets `[glass] shadow` and no darkening.
 ///
 /// The colour is a dark, slightly saturated blue rather than pure black:
 /// black scales every channel equally, so it cannot shift the material's
@@ -4662,13 +4666,12 @@ fn hsb(h: f32, sat: f32, b: f32, alpha: f32) -> Retained<NSColor> {
 /// colour survives. Zero strength means no tint at all rather than a
 /// transparent one.
 ///
-/// **What this does not carry.** The example also washes the surface with
-/// the Icon & widget style's *theme* colour under Tinted, and it does so
-/// by painting it in its own `drawRect:` -- explicitly not through this
-/// setter, which "despite being documented as a bias floods the surface
-/// to a flat saturated slab at full strength". baud has no equivalent of
-/// that painting and no key for it, so a Tinted desktop gets the material
-/// darkening and no theme colour.
+/// **What this does not carry.** The Icon & widget style's *theme* colour
+/// is not passed to `set_tint_color`, which floods the surface to a flat
+/// saturated slab at full strength, and baud paints no theme wash of its
+/// own and has no key for one. A Tinted desktop therefore gets no theme
+/// colour on either body: a Liquid Glass body keeps its darkening, and the
+/// standard material is drawn by AppKit alone.
 fn apply_glass(
     body: &Body,
     window: &GlassWindow,
@@ -16850,31 +16853,26 @@ impl Opening {
         driver.place_icon();
         driver.place_lights();
         startup_mark("glass installed");
-        // **Follow the system's appearance and tint, which nothing did.** The
-        // titlebar changed on a light/dark flip and the body did not, because
-        // AppKit repaints the titlebar itself while the material and the
-        // palette were both set once at launch and never again. The crate's
-        // own example installs this observer and re-applies all three; the
-        // callback fires once immediately, so building it is also what applies
-        // the current style.
+        // **Follow the Icon & widget style.** AppKit repaints the titlebar
+        // itself; the material's darkening and the window's shadow are
+        // baud's, so this observer re-applies them through `apply_glass`
+        // whenever the style changes. The callback fires once immediately,
+        // so building it is also what applies the current style.
         //
-        // It cannot be built before `show()` the way the example builds it:
-        // the glass it tints does not exist until the line above, which is
-        // after the first frame by design (ordering a window whose content is
-        // a glass effect view costs 10-20 ms). The frame drawn in the gap gets
-        // its palette from `window.is_dark()` above instead.
+        // It is built after `show()` because the glass it tints is the
+        // window's content only from the line above, which runs after the
+        // first frame. That frame takes its palette from `window.is_dark()`
+        // above.
         //
         // The callback touches the window and the glass directly -- they are
-        // AppKit objects, not the driver -- and leaves the palette in a cell
-        // for `pump`, because it can land while a responder callback holds the
+        // AppKit objects, not the driver -- and leaves the palette to the
+        // driver, because it can land while a responder callback holds the
         // view's borrow.
         //
-        // **It used to hand `s.tint()` to `set_tint_color`, and that was the
-        // one thing the example's own comment forbids**: the theme colour
-        // through this setter "floods the surface to a flat saturated slab at
-        // full strength", which is why the example paints its wash in its own
-        // `drawRect:` instead. The setter carries the material *darkening*
-        // now, and nothing carries the wash -- see `apply_glass`.
+        // The setter carries the material's *darkening* only. The style's
+        // theme colour is never passed to `set_tint_color`, which floods the
+        // surface to a flat saturated slab at full strength, and baud paints
+        // no theme wash -- see `apply_glass`.
         let style = {
             let glass_cb = glass.clone();
             let window_cb = window.clone();
