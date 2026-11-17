@@ -173,7 +173,8 @@ pub struct Offsets {
 /// sfte's `ease * height` on `1 - (1 - p)^3`, truncated.
 pub fn travel(s: ScreenSlide, h: Px) -> i32 {
     let p = s.progress.clamp(0.0, 1.0);
-    let ease = 1.0 - (1.0 - p).powf(3.0);
+    let q = 1.0 - p;
+    let ease = 1.0 - q * q * q;
     let h = i32::try_from(h.value()).unwrap_or(i32::MAX);
     (ease * h as f32) as i32
 }

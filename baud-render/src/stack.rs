@@ -1,6 +1,7 @@
 //! The faces a frame draws with, in fallback order.
 
 use crate::atlas::{Code, VAR_POINTS_MAX};
+use crate::det::Det;
 use crate::units::Tally;
 use baud_domain::{Attrs, Codepoint, FontId, GlyphId};
 use baud_font::bytes::Count;
@@ -782,7 +783,7 @@ impl<'f, 'a> Stack<'f, 'a> {
             Some(a) if a < baud_font::var::Fixed::ZERO => -a.to_f32(),
             _ => baud_font::Angle::OBLIQUE.get(),
         };
-        Some(Lean(degrees.to_radians().tan()))
+        Some(Lean(degrees.to_radians().det_tan()))
     }
 
     pub fn primary(&self) -> &'f Face<'a> {

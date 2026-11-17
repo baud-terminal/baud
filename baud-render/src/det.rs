@@ -16,10 +16,11 @@
 //! `baud-domain`'s Xcms routines are the precedent: baud's own sine where
 //! the answer must not depend on the host. Every effect, the quad chase,
 //! the flash bound, the cursor's blink animations, the box drawing and
-//! braille glyphs baud draws itself and the `Linear` blend's tables call
-//! these, and tests bar std's from their modules
-//! (`the_trails_call_no_platform_math`,
-//! `the_box_glyphs_and_blends_call_no_platform_math`, and the app's
+//! braille glyphs baud draws itself, the `Linear` blend's tables, the
+//! screen slide's curve and an SAPV 17 slant's shear call these, and tests
+//! bar std's from their modules (`the_trails_call_no_platform_math`,
+//! `the_box_glyphs_and_blends_call_no_platform_math`,
+//! `the_slide_and_the_slant_call_no_platform_math`, and the app's
 //! `the_chase_calls_no_platform_math` and
 //! `the_blink_calls_no_platform_math`).
 
@@ -33,6 +34,8 @@ pub trait Det: Sized {
     fn det_sin(self) -> Self;
     fn det_cos(self) -> Self;
     fn det_sin_cos(self) -> (Self, Self);
+    /// The tangent, as the sine over the cosine of one reduction, in `f64`.
+    fn det_tan(self) -> Self;
     fn det_asin(self) -> Self;
     fn det_acos(self) -> Self;
     fn det_atan2(self, x: Self) -> Self;
@@ -63,6 +66,10 @@ impl Det for f64 {
     }
     fn det_sin_cos(self) -> (f64, f64) {
         sin_cos(self)
+    }
+    fn det_tan(self) -> f64 {
+        let (s, c) = sin_cos(self);
+        s / c
     }
     fn det_asin(self) -> f64 {
         asin(self)
@@ -103,6 +110,10 @@ impl Det for f32 {
     fn det_sin_cos(self) -> (f32, f32) {
         let (s, c) = sin_cos(f64::from(self));
         (s as f32, c as f32)
+    }
+    fn det_tan(self) -> f32 {
+        let (s, c) = sin_cos(f64::from(self));
+        (s / c) as f32
     }
     fn det_asin(self) -> f32 {
         asin(f64::from(self)) as f32
@@ -504,10 +515,12 @@ fn powf(x: f64, y: f64) -> f64 {
 }
 
 /// **The platform's functions, as a call spells them**: what a source
-/// whose numbers reach a trail's, a blink's, a box glyph's or a blend's
-/// pixels must not spell, which `the_trails_call_no_platform_math`,
-/// `the_box_glyphs_and_blends_call_no_platform_math` and the app's chase
-/// and blink hold theirs to.
+/// whose numbers reach a trail's, a blink's, a box glyph's, a blend's, the
+/// slide's or a slant's pixels must not spell, which
+/// `the_trails_call_no_platform_math`,
+/// `the_box_glyphs_and_blends_call_no_platform_math`,
+/// `the_slide_and_the_slant_call_no_platform_math` and the app's chase and
+/// blink hold theirs to.
 pub const PLATFORM: [&str; 20] = [
     ".exp(",
     ".exp2(",
@@ -584,6 +597,62 @@ mod tests {
             // The positive control: the scan reads the source it names.
             assert!(src.contains(".det_"), "{name} calls none of det's");
         }
+    }
+
+    /// **The slide and the slant call no platform math**: the screen
+    /// slide's ease-out cubic, whose value is truncated to a whole pixel
+    /// row, and the shear an SAPV 17 slant draws a cell with, the tangent
+    /// of the face's angle, spell none of std's libm calls, so a slid frame
+    /// and a slanted glyph are the same on every OS. Perturbation: a
+    /// `.powf(` put back in the slide's curve fails it, and a `.tan(` in
+    /// the lean.
+    #[test]
+    fn the_slide_and_the_slant_call_no_platform_math() {
+        for (name, src, control) in [
+            (
+                "transition.rs",
+                include_str!("transition.rs"),
+                "pub fn travel(",
+            ),
+            ("stack.rs", include_str!("stack.rs"), ".det_tan("),
+        ] {
+            for call in PLATFORM {
+                assert!(!src.contains(call), "{name} calls the platform's {call}");
+            }
+            // The positive control: the scan reads the source it names.
+            assert!(src.contains(control), "{name} has no {control}");
+        }
+    }
+
+    /// **The tangent at the angles it has a closed form for**: 0, 15, 30
+    /// and 45 degrees either way, the angle turned to radians as the lean
+    /// turns a face's, each within an ulp of `0`, `2 - sqrt 3`,
+    /// `1 / sqrt 3` and `1` rounded to `f32` -- an odd function, so the
+    /// negative angles are the same values negated. Perturbation: the
+    /// sine and cosine swapped in the quotient fails it.
+    #[test]
+    fn the_tangent_is_the_closed_forms() {
+        let ulps = |a: f32, b: f32| {
+            let key = |v: f32| {
+                let i = v.to_bits().cast_signed();
+                if i < 0 { i32::MIN - i } else { i }
+            };
+            if a == b { 0 } else { key(a).abs_diff(key(b)) }
+        };
+        let sqrt3 = 3.0f64.sqrt();
+        for (deg, want) in [
+            (0.0f32, 0.0f64),
+            (15.0, 2.0 - sqrt3),
+            (30.0, 1.0 / sqrt3),
+            (45.0, 1.0),
+        ] {
+            for (d, w) in [(deg, want), (-deg, -want)] {
+                let got = d.to_radians().det_tan();
+                let w = w as f32;
+                assert!(ulps(got, w) <= 1, "tan({d} degrees): {got} against {w}");
+            }
+        }
+        assert!(f32::NAN.det_tan().is_nan() && f32::INFINITY.det_tan().is_nan());
     }
 
     /// **The four-lane exponential is the scalar one**, bit for bit: over
