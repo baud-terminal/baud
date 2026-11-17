@@ -256,6 +256,11 @@ pub struct Presenter {
     /// and frame size the surfaces were filled for.
     stale: Vec<Stale>,
     filled: Option<(Argb, usize, usize)>,
+    /// The CPU path's frame -> surface copies, in bytes ([`Copied`]).
+    copied: Copied,
+    /// The frame [`Presenter::draw_cpu`] draws into: held from frame to
+    /// frame, so a draw that repaints only what changed keeps the rest.
+    scratch: Vec<u32>,
     /// Whether the surfaces may be drawn into ([`Switched::Refused`]).
     writable: Writable,
     #[cfg(feature = "gpu-fault")]
@@ -286,6 +291,37 @@ pub enum Presented {
     /// The surface's lock was refused, the sizes disagree, or the presenter
     /// is on the other path.
     No,
+}
+
+/// **The bytes the CPU path copied from a frame into its surfaces**,
+/// counted where the copy is made: every row of the frame into a surface
+/// owed all of them -- a first frame, a new size or margin colour, a
+/// frame that changed whole -- and otherwise the rows the surface lacked.
+/// Carried across a resize and a give-up, as the journal is.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct Copied {
+    /// Bytes copied into a surface owed every row.
+    pub whole: u64,
+    /// Bytes copied into a surface owed some of its rows.
+    pub rows: u64,
+    /// Copies that reached a surface.
+    pub presents: u64,
+}
+
+/// Pixel rows of a CPU frame: all of them, or these bands and no row
+/// outside them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Bands {
+    Whole,
+    These(Vec<baud_render::Band>),
+}
+
+/// What a draw handed to [`Presenter::draw_cpu`] did: the rows it painted
+/// and the colour of the margin round the frame.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Drew {
+    pub painted: Bands,
+    pub clear: Argb,
 }
 
 impl Presenter {
@@ -368,6 +404,8 @@ impl Presenter {
             ages: redraw::Ages::new(),
             stale: vec![Stale::Whole; SURFACES],
             filled: None,
+            copied: shared.copied,
+            scratch: Vec::new(),
             writable: Writable::Yes,
             #[cfg(feature = "gpu-fault")]
             refuse_set: RefuseSet::No,
@@ -416,6 +454,7 @@ impl Presenter {
             epoch: Arc::clone(&self.epoch),
             journal: Arc::clone(&self.journal),
             frame: self.frame,
+            copied: self.copied,
         };
         match Presenter::build(width, height, self.space, draw, shared) {
             Ok(p) => {
@@ -459,6 +498,7 @@ impl Presenter {
             epoch: Arc::clone(&self.epoch),
             journal: Arc::new(Journal::default()),
             frame: self.frame,
+            copied: self.copied,
         };
         #[cfg(feature = "gpu-fault")]
         let refused = core::mem::replace(&mut self.refuse_set, RefuseSet::No) == RefuseSet::Yes;
@@ -728,6 +768,12 @@ impl Presenter {
         let at = self.next.0;
         let surface = &self.surfaces[at];
         let stale = &self.stale[at];
+        // Whether row `y` is set in a surface's stale rows, one bit a row.
+        let owes = |w: &[u64], y: usize| w.get(y / 64).is_some_and(|b| b & (1 << (y % 64)) != 0);
+        let (owed, copied_rows) = match stale {
+            Stale::Whole => (Owed::Every, fh),
+            Stale::Rows(w) => (Owed::Part, (0..fh).filter(|&y| owes(w, y)).count()),
+        };
         let copy_row = |pixels: &mut [u32], dst_stride: usize, y: usize| {
             let src = &frame[y * fw..y * fw + fw];
             let base = (y + pad_y) * dst_stride + pad_x;
@@ -746,9 +792,7 @@ impl Presenter {
                 }
             }
             Stale::Rows(w) => {
-                for y in
-                    (0..fh).filter(|&y| w.get(y / 64).is_some_and(|b| b & (1 << (y % 64)) != 0))
-                {
+                for y in (0..fh).filter(|&y| owes(w, y)) {
                     copy_row(pixels, dst_stride, y);
                 }
             }
@@ -756,10 +800,57 @@ impl Presenter {
         if !ok {
             return Presented::No;
         }
+        let bytes =
+            u64::try_from(copied_rows * fw * core::mem::size_of::<u32>()).unwrap_or(u64::MAX);
+        match owed {
+            Owed::Every => self.copied.whole = self.copied.whole.saturating_add(bytes),
+            Owed::Part => self.copied.rows = self.copied.rows.saturating_add(bytes),
+        }
+        self.copied.presents = self.copied.presents.saturating_add(1);
         self.stale[at] = Stale::Rows(vec![0; words]);
         self.filled = Some((clear, fw, fh));
         self.next = Next((at + 1) % SURFACES);
         Presented::Yes
+    }
+
+    /// What the CPU path has copied from frames into its surfaces.
+    pub fn copied(&self) -> Copied {
+        self.copied
+    }
+
+    /// **A CPU frame drawn for the next surface**, without a view: `draw`
+    /// paints a `width` by `height` frame into the target it is lent and
+    /// says what it painted and the margin's colour; the frame is then
+    /// copied into the next surface as [`Presenter::copy_changed`] copies
+    /// it. The target holds the frame drawn before, so a draw that repaints
+    /// only what changed leaves the rest as it was; at a new size it holds
+    /// nothing, and the draw repaints whole.
+    pub fn draw_cpu(
+        &mut self,
+        width: Px,
+        height: Px,
+        draw: impl FnOnce(&mut baud_render::Target<'_>) -> Drew,
+    ) -> Presented {
+        if self.mode() != Mode::Cpu {
+            return Presented::No;
+        }
+        let words = slots(width) * slots(height);
+        let mut scratch = core::mem::take(&mut self.scratch);
+        scratch.resize(words, 0);
+        let drew = match baud_render::Target::new(&mut scratch, width, width, height) {
+            Some(mut target) => draw(&mut target),
+            None => {
+                self.scratch = scratch;
+                return Presented::No;
+            }
+        };
+        let changed = match &drew.painted {
+            Bands::Whole => Changed::Whole,
+            Bands::These(b) => Changed::Bands(b),
+        };
+        let shown = self.copy(&scratch, width, drew.clear, changed);
+        self.scratch = scratch;
+        shown
     }
 
     /// Surface `i`'s pixels, row-major at its stride: what the CPU path's
@@ -1061,6 +1152,13 @@ impl Presenter {
     }
 }
 
+/// Whether a copy owed a surface every row of the frame or some of them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Owed {
+    Every,
+    Part,
+}
+
 /// What a presenter hands to its successor across a resize: the frames it
 /// has in flight outlive it, and they name the epoch and count themselves in
 /// the journal, so neither may be rebuilt with the surfaces.
@@ -1069,6 +1167,7 @@ struct Shared {
     epoch: Arc<SwapEpoch>,
     journal: Arc<Journal>,
     frame: FrameGen,
+    copied: Copied,
 }
 
 impl Shared {
@@ -1077,6 +1176,7 @@ impl Shared {
             epoch: Arc::new(SwapEpoch::new()),
             journal: Arc::new(Journal::default()),
             frame: FrameGen::FIRST,
+            copied: Copied::default(),
         }
     }
 }

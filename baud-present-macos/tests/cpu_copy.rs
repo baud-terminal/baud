@@ -18,7 +18,7 @@ use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Codepoint, Cols, ReadLen, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_present_macos::redraw::SurfaceIx;
-use baud_present_macos::{Changed, Presented, Presenter};
+use baud_present_macos::{Bands, Changed, Drew, Presented, Presenter};
 use baud_render::{
     BADGE, BOX, BadgeLook, Blend, CURSOR_GUIDE, CursorPhase, Damage, FaceStyle, GuideLook, PxSize,
     Renderer, Stack, Target, Theme,
@@ -308,4 +308,110 @@ fn a_cpu_frame_copies_only_its_rows_and_each_surface_is_the_whole_copy() {
         by_rows >= 20,
         "the cursor's frames repainted rows: {by_rows}"
     );
+}
+
+/// **A CPU frame drawn for a surface is copied into it**, and
+/// `Presenter::copied` counts the bytes: each of the three surfaces is owed
+/// every row the first time a frame goes to it, and after that the rows
+/// changed since it was last drawn. Each surface is the frame a second
+/// renderer draws whole.
+#[test]
+fn a_cpu_frame_drawn_for_a_surface_is_copied_into_it() {
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [Face::parse(&data).unwrap()];
+    let theme = Theme {
+        bg_alpha: baud_domain::Chan::from_u8(56),
+        ..Theme::dark()
+    };
+    let renderer = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            theme.clone(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let mut r = renderer();
+    let mut fresh = renderer();
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let (w, h) = r.frame_size();
+    let (sw, sh) = (Px::of(w.value() + 6), Px::of(h.value() + 4));
+    let mut drawn = Presenter::new(sw, sh, ColorSpace::Srgb).expect("surfaces");
+    let mut reference = Presenter::new(sw, sh, ColorSpace::Srgb).expect("surfaces");
+    let mut fresh_frame = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
+    let frame_bytes = u64::from(w.value()) * u64::from(h.value()) * 4;
+    // Three frames to give each surface its first, whole copy; then text
+    // and cursor moves, so the last surface lacks only the cursor's rows.
+    let steps: [&[u8]; 7] = [
+        b"hello, world\r\n\x1b[31mred\x1b[0m line",
+        b"\x1b[5;20H",
+        b"\x1b[1;1H",
+        b"\x1b[7;1Hmore text",
+        b"\x1b[3;3H",
+        b"\x1b[3;4H",
+        b"\x1b[3;5H",
+    ];
+    let mut at = SurfaceIx::FIRST;
+    let mut wrong = Vec::new();
+    for (i, bytes) in steps.iter().enumerate() {
+        feed(&mut t, bytes);
+        let before = drawn.copied();
+        // The lent frame holds nothing before the first draw.
+        let damage = match i {
+            0 => Damage::Full,
+            _ => Damage::Incremental,
+        };
+        let shown = drawn.draw_cpu(w, h, |target| {
+            r.render(&mut t, target, damage);
+            Drew {
+                painted: Bands::These(r.painted().collect()),
+                clear: r.clear_color(),
+            }
+        });
+        assert_eq!(shown, Presented::Yes, "{i}: drawn");
+        let after = drawn.copied();
+        let (whole, rows) = (after.whole - before.whole, after.rows - before.rows);
+        assert_eq!(after.presents, before.presents + 1, "{i}: one copy a frame");
+        match i {
+            // A surface no frame has gone to lacks every row.
+            0..=2 => {
+                assert_eq!(
+                    (whole, rows),
+                    (frame_bytes, 0),
+                    "{i}: the whole frame copied"
+                );
+            }
+            // A surface drawn before: the rows the frames since changed.
+            _ => {
+                assert_eq!(whole, 0, "{i}: no whole copy");
+                assert!(rows > 0, "{i}: rows copied");
+            }
+        }
+        // Past the whole repaints, only the cursor's rows.
+        if i == steps.len() - 1 {
+            assert!(
+                rows < frame_bytes,
+                "{i}: the rows copied, {rows} of {frame_bytes} bytes"
+            );
+        }
+        let mut fresh_target = Target::new(&mut fresh_frame, w, w, h).unwrap();
+        fresh.render(&mut t, &mut fresh_target, Damage::Full);
+        assert_eq!(
+            reference.copy_changed(&fresh_frame, w, fresh.clear_color(), Changed::Whole),
+            Presented::Yes
+        );
+        if drawn.surface_pixels(at) != reference.surface_pixels(at) {
+            wrong.push(format!("{i}: unlike the frame drawn whole"));
+        }
+        at = at.next();
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
