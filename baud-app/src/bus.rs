@@ -1069,7 +1069,7 @@ pub(crate) struct Session {
     /// paths the portal makes are under it.
     unique: Option<String>,
     /// A dialog asked for before the name was known, its title.
-    prepare_after_hello: Option<String>,
+    prepare_after_hello: Option<(String, String)>,
     /// The print exchange waiting for its `Response`.
     print: Option<Pending>,
     /// The handle tokens sent so far, so each Request path is new.
@@ -1435,13 +1435,13 @@ impl Session {
     /// **The print dialog**, titled `title`: `PreparePrint` with nothing
     /// preset, offering PDF to print to a file, as that is what the job
     /// becomes. Before `Hello`'s reply it waits for it.
-    pub(crate) fn prepare_print(&mut self, title: &str) {
+    pub(crate) fn prepare_print(&mut self, parent: &str, title: &str) {
         let Some(token) = self.expect_response(PrintStep::Prepare) else {
-            self.prepare_after_hello = Some(title.to_owned());
+            self.prepare_after_hello = Some((parent.to_owned(), title.to_owned()));
             return;
         };
         let mut b = Writer::default();
-        b.string("");
+        b.string(parent);
         b.string(title);
         b.array(Align::EIGHT, |_| {});
         b.array(Align::EIGHT, |_| {});
@@ -1470,7 +1470,13 @@ impl Session {
     /// `pdf`, open for reading at its start, and the token
     /// `PreparePrint` gave. `false` where the bus does not pass files or
     /// the name is not known, and nothing is sent.
-    pub(crate) fn print(&mut self, title: &str, pdf: OwnedFd, token: PrintToken) -> bool {
+    pub(crate) fn print(
+        &mut self,
+        parent: &str,
+        title: &str,
+        pdf: OwnedFd,
+        token: PrintToken,
+    ) -> bool {
         if self.files == Files::Refused {
             return false;
         }
@@ -1478,7 +1484,7 @@ impl Session {
             return false;
         };
         let mut b = Writer::default();
-        b.string("");
+        b.string(parent);
         b.string(title);
         b.word(Word(0));
         b.array(Align::EIGHT, |w| {
@@ -1658,8 +1664,8 @@ impl Session {
                     .then(|| Reader::new(m.body, m.order).string().map(str::to_owned))
                     .flatten();
                 match self.prepare_after_hello.take() {
-                    Some(title) if self.unique.is_some() => {
-                        self.prepare_print(&title);
+                    Some((parent, title)) if self.unique.is_some() => {
+                        self.prepare_print(&parent, &title);
                         Vec::new()
                     }
                     Some(_) => vec![Heard::PrintEnded(PrintEnd::Failed(
@@ -1890,16 +1896,22 @@ impl Bus {
 
     #[cfg(target_os = "linux")]
     /// The print dialog.
-    pub(crate) fn prepare_print(&mut self, title: &str) {
-        self.session.prepare_print(title);
+    pub(crate) fn prepare_print(&mut self, parent: &str, title: &str) {
+        self.session.prepare_print(parent, title);
         let _ = self.flush();
     }
 
     #[cfg(target_os = "linux")]
     /// The document printed with the dialog's choices; `false` where it
     /// cannot be sent.
-    pub(crate) fn print(&mut self, title: &str, pdf: OwnedFd, token: PrintToken) -> bool {
-        let sent = self.session.print(title, pdf, token);
+    pub(crate) fn print(
+        &mut self,
+        parent: &str,
+        title: &str,
+        pdf: OwnedFd,
+        token: PrintToken,
+    ) -> bool {
+        let sent = self.session.print(parent, title, pdf, token);
         let _ = self.flush();
         sent
     }
@@ -3190,13 +3202,17 @@ mod tests {
         let mut s = named();
         let n = s.outgoing().len();
         s.sent(Len(n));
-        s.prepare_print("baud \u{2014} print");
+        s.prepare_print("wayland:h-1", "baud \u{2014} print");
         let out = s.outgoing().to_vec();
         let at = |needle: &[u8]| out.windows(needle.len()).position(|w| w == needle);
         let rule = at(PATH_1.as_bytes()).expect("the match names the path");
         let call = at(b"PreparePrint").expect("the call");
         assert!(rule < call, "the match before the call");
         assert!(at(b"supported_output_file_formats").is_some());
+        assert!(
+            at(b"wayland:h-1").is_some_and(|p| p < at(b"supported").unwrap()),
+            "the parent window"
+        );
         let serial = last_serial(&s);
         s.sent(Len(out.len()));
         // The answer first, then the method's reply.
@@ -3220,7 +3236,7 @@ mod tests {
     #[test]
     fn a_dialog_asked_for_before_the_name_waits_for_it() {
         let mut s = ready();
-        s.prepare_print("t");
+        s.prepare_print("", "t");
         assert!(!s.outgoing().windows(12).any(|w| w == b"PreparePrint"));
         let mut b = Writer::default();
         b.string(":1.42");
@@ -3240,12 +3256,12 @@ mod tests {
     fn the_document_prints_with_the_dialog_s_token() {
         let path_2 = "/org/freedesktop/portal/desktop/request/1_42/baud_print_2";
         let mut s = named();
-        s.prepare_print("t");
+        s.prepare_print("", "t");
         s.received(&response(PATH_1, Word(0), Some(Word(7))));
         let n = s.outgoing().len();
         s.sent(Len(n));
         let pdf = std::fs::File::open("/dev/null").unwrap();
-        assert!(s.print("t", pdf.into(), PrintToken(Word(7))));
+        assert!(s.print("wayland:h-1", "t", pdf.into(), PrintToken(Word(7))));
         let (bytes, fds) = s.next_send();
         assert!(fds.is_empty(), "the match goes first, alone");
         assert!(bytes.windows(path_2.len()).any(|w| w == path_2.as_bytes()));
@@ -3253,6 +3269,10 @@ mod tests {
         s.sent(Len(n));
         let (bytes, fds) = s.next_send();
         assert_eq!(fds.len(), 1, "the document with the call");
+        assert!(
+            bytes.windows(11).any(|w| w == b"wayland:h-1"),
+            "the parent window"
+        );
         assert!(bytes.windows(5).any(|w| w == b"Print"));
         assert_eq!(
             s.received(&response(path_2, Word(0), None)),
@@ -3260,14 +3280,14 @@ mod tests {
         );
 
         let mut c = named();
-        c.prepare_print("t");
+        c.prepare_print("", "t");
         assert_eq!(
             c.received(&response(PATH_1, Word(1), None)),
             [Heard::PrintEnded(PrintEnd::Cancelled)]
         );
 
         let mut e = named();
-        e.prepare_print("t");
+        e.prepare_print("", "t");
         let serial = last_serial(&e);
         let n = e.outgoing().len();
         e.sent(Len(n));

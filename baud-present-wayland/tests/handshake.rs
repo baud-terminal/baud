@@ -1902,6 +1902,45 @@ fn the_window_is_activated_with_a_token_it_asks_for_or_is_given() {
     server.expect("xdg_toplevel", "set_title");
 }
 
+/// **The window is exported through `xdg-foreign-unstable-v2`**:
+/// `export_toplevel` with the window's surface, once, and the handle its
+/// `handle` event brings kept; and without the exporter nothing is sent and
+/// there is no handle.
+#[test]
+fn the_window_is_exported_for_another_client_to_name() {
+    let (mut conn, mut server, mut w, bound) = session_with(&[("zxdg_exporter_v2", 1)]);
+    let exporter = bound[0];
+    assert_eq!(w.exported(), None);
+    w.export(&mut conn.sender());
+    conn.flush().unwrap();
+    let r = server.expect("zxdg_exporter_v2", "export_toplevel");
+    assert_eq!(r.sender, exporter);
+    let (Val::New(exported), Val::Obj(surface)) = (&r.args[0], &r.args[1]) else {
+        panic!("{:?}", r.args)
+    };
+    assert_ne!(*surface, ObjectId::NULL, "the window's surface");
+    assert_eq!(w.exported(), None, "not before the handle comes");
+    // Once: a second export sends nothing -- the next request is the title.
+    w.export(&mut conn.sender());
+    w.set_title(&mut conn.sender(), "between");
+    conn.flush().unwrap();
+    server.expect("xdg_toplevel", "set_title");
+    server.send(
+        *exported,
+        "zxdg_exported_v2",
+        "handle",
+        &[Arg::Str(Some("h-1"))],
+    );
+    pump(&mut conn, &mut w);
+    assert_eq!(w.exported(), Some("h-1"));
+
+    let (mut conn, mut server, mut w, _) = session_with(&[]);
+    w.export(&mut conn.sender());
+    w.set_title(&mut conn.sender(), "after");
+    conn.flush().unwrap();
+    server.expect("xdg_toplevel", "set_title");
+    assert_eq!(w.exported(), None);
+}
 /// **A frame's length is the gap between frame callbacks** where no
 /// presentation feedback says a refresh: none before two callbacks, the
 /// gap once two come 16 ms apart, and a gap past a tenth of a second --

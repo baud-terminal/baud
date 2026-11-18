@@ -1,6 +1,7 @@
 //! **The interface tables, generated from the pinned protocol XMLs at build
 //! time.** `docs/research/sources/wayland.xml` and the `wp-*.xml`,
-//! `xdg-system-bell-v1.xml` and `xdg-activation-v1.xml` beside it are the
+//! `xdg-system-bell-v1.xml`, `xdg-activation-v1.xml` and
+//! `xdg-foreign-unstable-v2.xml` beside it are the
 //! sources the manifest pins by hash, read through the links to them in
 //! `baud-wayland/protocols/`, which the published crate carries as files; nothing here is
 //! transcribed by hand. The XML this reads is the restricted shape `wayland-scanner`
@@ -33,6 +34,7 @@ const FILES: &[&str] = &[
     "wp-primary-selection-unstable-v1.xml",
     "xdg-system-bell-v1.xml",
     "xdg-activation-v1.xml",
+    "xdg-foreign-unstable-v2.xml",
 ];
 
 #[derive(Debug)]

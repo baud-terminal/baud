@@ -1306,6 +1306,7 @@ files   = [
   "wp-xdg-decoration-unstable-v1.xml",
   "wp-xdg-shell.xml",
   "xdg-activation-v1.xml",
+  "xdg-foreign-unstable-v2.xml",
   "xdg-system-bell-v1.xml",
 ]
 
@@ -3073,6 +3074,7 @@ paths    = [
   "baud-wayland/protocols/wp-xdg-decoration-unstable-v1.xml",
   "baud-wayland/protocols/wp-xdg-shell.xml",
   "baud-wayland/protocols/xdg-activation-v1.xml",
+  "baud-wayland/protocols/xdg-foreign-unstable-v2.xml",
   "baud-wayland/protocols/xdg-system-bell-v1.xml",
 ]
 licence  = "MIT"
@@ -3205,6 +3207,15 @@ to        = "</copyright>"
 copyright = [
   "Copyright © 2020 Aleix Pol Gonzalez <aleixpol@kde.org>",
   "Copyright © 2020 Carlos Garnacho <carlosg@gnome.org>",
+]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/xdg-foreign-unstable-v2.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = [
+  "Copyright © 2015-2016 Red Hat Inc.",
 ]
 
 [[tree.credit.text]]

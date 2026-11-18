@@ -667,6 +667,10 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             o.scale
         );
     }
+    // **The window exported** (`xdg-foreign-unstable-v2`), so a print
+    // portal's dialog opens on it: its handle comes with the next events
+    // and names the dialog's parent (`print_parent`).
+    window.export(&mut conn.sender());
     startup_mark("wayland");
     let geom = host_geometry();
     crate::info!("cache: {}", describe(&geom));
@@ -2649,7 +2653,9 @@ impl Driver {
         let window =
             crate::title::window_title(self.term.title(), self.term.title_encoding(), &fallback);
         let title = crate::print::job_title(&window, job.cut, Default::default());
-        bus.prepare_print(&title);
+        let parent = print_parent(self.window.exported());
+        crate::info!("print: the dialog, its parent {parent:?}");
+        bus.prepare_print(&parent, &title);
         self.print_dialog = PrintDialog::Asked { job, title };
     }
 
@@ -2686,10 +2692,11 @@ impl Driver {
                 return self.print_next();
             }
         };
+        let parent = print_parent(self.window.exported());
         let sent = self
             .bus
             .as_mut()
-            .is_some_and(|b| b.print(&title, file, token));
+            .is_some_and(|b| b.print(&parent, &title, file, token));
         match sent {
             true => self.print_dialog = PrintDialog::Printing,
             false => {
@@ -4752,6 +4759,14 @@ fn print_faces(
     let mut bold = with(|r| matches!(r, FaceRole::Style(FaceStyle::Bold)));
     bold.extend(plain.iter().cloned());
     (plain, bold)
+}
+
+/// **The print dialog's parent window**, as the portal names one under
+/// Wayland, `wayland:` and the window's exported handle (`[[source:
+/// xdg-portal-window-identifiers]]`); none, `""`, before the handle comes or
+/// where the compositor offers no export.
+fn print_parent(handle: Option<&str>) -> String {
+    handle.map_or_else(String::new, |h| format!("wayland:{h}"))
 }
 
 /// **A document the portal reads**: written to a file in the runtime

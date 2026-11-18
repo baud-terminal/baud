@@ -203,13 +203,16 @@ fn the_wire_refuses_what_the_signature_forbids() {
     );
 }
 
-/// **The tables are the XMLs.** Fifty-nine interfaces across the sixteen
+/// **The tables are the XMLs.** Sixty-three interfaces across the seventeen
 /// pinned files, the opcodes the protocol documents, and the enums. The
-/// primary selection's four came last, the system bell's one after them
-/// and activation's two after that, so no earlier index moved.
+/// primary selection's four came last, the system bell's one after them,
+/// activation's two after that and xdg-foreign's four last, so no earlier
+/// index moved.
 #[test]
 fn the_generated_tables_are_what_the_pinned_protocols_declare() {
-    assert_eq!(protocol::INTERFACES.len(), 59);
+    assert_eq!(protocol::INTERFACES.len(), 63);
+    assert_eq!(protocol::zxdg_exporter_v2::INDEX, 59);
+    assert_eq!(protocol::zxdg_exporter_v2::request::EXPORT_TOPLEVEL, 1);
     assert_eq!(protocol::zwp_primary_selection_device_manager_v1::INDEX, 52);
     assert_eq!(protocol::xdg_system_bell_v1::INDEX, 56);
     assert_eq!(protocol::xdg_system_bell_v1::request::RING, 1);

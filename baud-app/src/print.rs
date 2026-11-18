@@ -663,6 +663,15 @@ mod tests {
             "an area, or no job is ever collected"
         );
         assert!(linux.contains("bus.ask_print_portal();"));
+        // The dialog parented to the window: exported at launch, and its
+        // handle named in both calls.
+        assert!(linux.contains("window.export(&mut conn.sender());"));
+        assert_eq!(
+            linux
+                .matches("print_parent(self.window.exported())")
+                .count(),
+            2
+        );
         // The call is wrapped by the formatter: its argument, which only
         // the portal's answer passes.
         assert_eq!(linux.matches("crate::print::Printers::Listed,").count(), 1);

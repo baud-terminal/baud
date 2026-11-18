@@ -7022,6 +7022,35 @@ group  = "J"
 # Committed under docs/research/sources/ -- a protocol file, MIT, re-hashed on
 # commit. Fetched 2026-10-21 (lane b143).
 
+[sources.xdg-foreign-unstable-v2]
+key    = "xdg-foreign-unstable-v2"
+title  = "xdg-foreign-unstable-v2 -- zxdg_exporter_v2.export_toplevel, and the exported surface's handle, a string another client passes on to name it"
+author = "Jonas Ådahl"
+year   = 2016
+venue  = "wayland-protocols 1.45 unstable/, freedesktop.org GitLab (MIT)"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/1.45/unstable/xdg-foreign/xdg-foreign-unstable-v2.xml"
+file   = "xdg-foreign-unstable-v2.xml"
+sha256 = "625d83fbb068f48e69e739eafde507f10cdfe7480146f3ac10af9a2ddf551c80"
+bytes  = 9206
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a protocol file, MIT. Fetched
+# 2026-11-16 (XF1): the handle the print portal's dialog is parented by.
+
+[sources.xdg-portal-window-identifiers]
+key    = "xdg-portal-window-identifiers"
+title  = "xdg-desktop-portal ee298d1, doc/window-identifiers.rst -- under Wayland a parent window is 'wayland:<HANDLE>', the handle xdg-foreign's export gives"
+author = "the xdg-desktop-portal contributors"
+year   = 2026
+venue  = "flatpak/xdg-desktop-portal (LGPL-2.1-or-later)"
+url    = "https://raw.githubusercontent.com/flatpak/xdg-desktop-portal/ee298d1817fed18c208c9ddb638a4aef7bcecc9b/doc/window-identifiers.rst"
+file   = ""
+sha256 = "ea202f5205360da57dc9fb5e598eae3741bbe3328c6aab17279d1b68fdab8881"
+bytes  = 1083
+status = "external"
+group  = "J"
+# Fetched 2026-11-16 (XF1). Not committed: LGPL, as the portal's XMLs.
+
 [sources.wayland-protocol-book]
 key    = "wayland-protocol-book"
 title  = "The Wayland Protocol -- wire format chapter"

@@ -419,6 +419,8 @@ struct Globals {
     /// it, and the version bound: from 2 a decoration may be made for a
     /// toplevel that has already committed.
     decoration: Option<(ObjectId, u32)>,
+    /// the `xdg-foreign-unstable-v2` exporter, where the compositor offers it.
+    exporter: Option<ObjectId>,
     scaling: Scaling,
     /// Every `wl_output`, bound at version 2 for its `scale` event, which
     /// the window and the pointer's image are drawn at below
@@ -606,6 +608,9 @@ pub struct Window {
     serial: Option<u32>,
     /// The activation token asked for and not yet come ([`Window::activate`]).
     token: Option<ObjectId>,
+    /// The window's export: asked for, and its handle once it comes
+    /// ([`Window::export`]).
+    export: Option<(ObjectId, Option<String>)>,
     clip: Clip,
     events: VecDeque<Event>,
 }
@@ -705,6 +710,7 @@ impl Window {
             ime: TextInput::default(),
             serial: None,
             token: None,
+            export: None,
             clip: Clip::default(),
             events: VecDeque::new(),
         })
@@ -2114,6 +2120,32 @@ impl Window {
         Activated::Asked
     }
 
+    /// **Export the window for another client to name it**, through
+    /// `xdg-foreign-unstable-v2`: `export_toplevel` on the window's surface,
+    /// once; the handle comes as an event ([`Window::exported`]).
+    pub fn export(&mut self, s: &mut Sender<'_>) {
+        let (Some(exporter), Some(surface), None) =
+            (self.globals.exporter, self.surface, &self.export)
+        else {
+            return;
+        };
+        let exported = s.new_id(Interface::named("zxdg_exported_v2").expect("pinned"));
+        let _ = s.request(
+            exporter,
+            Opcode(protocol::zxdg_exporter_v2::request::EXPORT_TOPLEVEL),
+            &[Arg::NewId(exported), Arg::Object(surface)],
+        );
+        self.export = Some((exported, None));
+    }
+
+    /// The handle the export gave, "an exported surface handle" another
+    /// client passes on, as a print portal's dialog is parented by it
+    /// (`[[source: xdg-portal-window-identifiers]]`); `None` before it comes
+    /// and where the compositor offers no exporter.
+    pub fn exported(&self) -> Option<&str> {
+        self.export.as_ref()?.1.as_deref()
+    }
+
     /// **Activate the window with a token another client gave**: the one a
     /// notification server's `ActivationToken` signal carries, "an
     /// activation token that can be used to activate a toplevel"
@@ -2351,6 +2383,10 @@ impl Handler for Window {
                             Window::bind(s, self.registry, name, iface, version)
                                 .map(|id| (id, version));
                         self.decorate(s);
+                    }
+                    "zxdg_exporter_v2" => {
+                        self.globals.exporter =
+                            Window::bind(s, self.registry, name, iface, version.min(1));
                     }
                     // An output's scale, which a compositor older than
                     // version 6 leaves the pointer's image to: `wl_output`
@@ -2946,6 +2982,12 @@ impl Handler for Window {
                 if self.unseen.is_some_and(|(fb, _)| fb == ev.object) {
                     self.unseen = None;
                 }
+            }
+            // The window's export: its handle, kept for another client.
+            ("zxdg_exported_v2", "handle", [Read::Str(Some(handle))])
+                if self.export.as_ref().is_some_and(|(id, _)| *id == ev.object) =>
+            {
+                self.export = Some((ev.object, Some(handle.to_string())));
             }
             // The token asked for: `activate` with it, and the token's
             // object let go -- "The received token stays valid".

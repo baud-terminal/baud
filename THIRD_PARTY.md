@@ -801,6 +801,7 @@ Copyright:  Copyright © 2008-2011 Kristian Høgsberg
             Copyright © 2015-2017 Red Hat Inc.
             Copyright © 2020 Aleix Pol Gonzalez <aleixpol@kde.org>
             Copyright © 2020 Carlos Garnacho <carlosg@gnome.org>
+            Copyright © 2015-2016 Red Hat Inc.
             Copyright © 2016, 2023 Red Hat
 Changes:    Compiled into tables when baud is built; the files themselves
             are not included.
@@ -1663,6 +1664,7 @@ The works under it, by notice, and their copyright notices:
           Copyright © 2015-2017 Red Hat Inc.
           Copyright © 2020 Aleix Pol Gonzalez <aleixpol@kde.org>
           Copyright © 2020 Carlos Garnacho <carlosg@gnome.org>
+          Copyright © 2015-2016 Red Hat Inc.
           Copyright © 2016, 2023 Red Hat
 
 Permission is hereby granted, free of charge, to any person obtaining a
@@ -1966,9 +1968,9 @@ THIS SOFTWARE.
 | status | research sources | other entries | meaning |
 |---|---|---|---|
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 345 | 69 | redistributable, and its notice is satisfied |
+| kept | 346 | 69 | redistributable, and its notice is satisfied |
 | own | 10 | 11 | the work of baud's author |
-| total | 356 | 80 | |
+| total | 357 | 80 | |
 
 ## Licence texts in LICENSES/
 
@@ -2576,7 +2578,7 @@ they were built from.
 - **Licence:** MIT
 - **Notice:** in the file
 - **From:** https://gitlab.freedesktop.org/wayland/wayland-protocols
-- **Files:** [baud-wayland/protocols/wayland.xml](baud-wayland/protocols/wayland.xml), [baud-wayland/protocols/wp-commit-timing-v1.xml](baud-wayland/protocols/wp-commit-timing-v1.xml), [baud-wayland/protocols/wp-cursor-shape-v1.xml](baud-wayland/protocols/wp-cursor-shape-v1.xml), [baud-wayland/protocols/wp-fifo-v1.xml](baud-wayland/protocols/wp-fifo-v1.xml), [baud-wayland/protocols/wp-fractional-scale-v1.xml](baud-wayland/protocols/wp-fractional-scale-v1.xml), [baud-wayland/protocols/wp-linux-dmabuf-v1.xml](baud-wayland/protocols/wp-linux-dmabuf-v1.xml), [baud-wayland/protocols/wp-linux-drm-syncobj-v1.xml](baud-wayland/protocols/wp-linux-drm-syncobj-v1.xml), [baud-wayland/protocols/wp-presentation-time.xml](baud-wayland/protocols/wp-presentation-time.xml), [baud-wayland/protocols/wp-primary-selection-unstable-v1.xml](baud-wayland/protocols/wp-primary-selection-unstable-v1.xml), [baud-wayland/protocols/wp-tearing-control-v1.xml](baud-wayland/protocols/wp-tearing-control-v1.xml), [baud-wayland/protocols/wp-viewporter.xml](baud-wayland/protocols/wp-viewporter.xml), [baud-wayland/protocols/wp-xdg-decoration-unstable-v1.xml](baud-wayland/protocols/wp-xdg-decoration-unstable-v1.xml), [baud-wayland/protocols/wp-xdg-shell.xml](baud-wayland/protocols/wp-xdg-shell.xml), [baud-wayland/protocols/xdg-activation-v1.xml](baud-wayland/protocols/xdg-activation-v1.xml), [baud-wayland/protocols/xdg-system-bell-v1.xml](baud-wayland/protocols/xdg-system-bell-v1.xml)
+- **Files:** [baud-wayland/protocols/wayland.xml](baud-wayland/protocols/wayland.xml), [baud-wayland/protocols/wp-commit-timing-v1.xml](baud-wayland/protocols/wp-commit-timing-v1.xml), [baud-wayland/protocols/wp-cursor-shape-v1.xml](baud-wayland/protocols/wp-cursor-shape-v1.xml), [baud-wayland/protocols/wp-fifo-v1.xml](baud-wayland/protocols/wp-fifo-v1.xml), [baud-wayland/protocols/wp-fractional-scale-v1.xml](baud-wayland/protocols/wp-fractional-scale-v1.xml), [baud-wayland/protocols/wp-linux-dmabuf-v1.xml](baud-wayland/protocols/wp-linux-dmabuf-v1.xml), [baud-wayland/protocols/wp-linux-drm-syncobj-v1.xml](baud-wayland/protocols/wp-linux-drm-syncobj-v1.xml), [baud-wayland/protocols/wp-presentation-time.xml](baud-wayland/protocols/wp-presentation-time.xml), [baud-wayland/protocols/wp-primary-selection-unstable-v1.xml](baud-wayland/protocols/wp-primary-selection-unstable-v1.xml), [baud-wayland/protocols/wp-tearing-control-v1.xml](baud-wayland/protocols/wp-tearing-control-v1.xml), [baud-wayland/protocols/wp-viewporter.xml](baud-wayland/protocols/wp-viewporter.xml), [baud-wayland/protocols/wp-xdg-decoration-unstable-v1.xml](baud-wayland/protocols/wp-xdg-decoration-unstable-v1.xml), [baud-wayland/protocols/wp-xdg-shell.xml](baud-wayland/protocols/wp-xdg-shell.xml), [baud-wayland/protocols/xdg-activation-v1.xml](baud-wayland/protocols/xdg-activation-v1.xml), [baud-wayland/protocols/xdg-foreign-unstable-v2.xml](baud-wayland/protocols/xdg-foreign-unstable-v2.xml), [baud-wayland/protocols/xdg-system-bell-v1.xml](baud-wayland/protocols/xdg-system-bell-v1.xml)
 
 ### baud-wayland's build reads text-input-unstable-v3 the same way, through a link to its copy in docs/research/sources/; its copyright block grants the historical permission with the right to sell (Intel, Jan Arne Petersen, Red Hat, Purism), not MIT
 
@@ -3683,7 +3685,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT
 - **Notice:** in the file
-- **Files:** 16
+- **Files:** 17
 
 | file | copied from |
 |---|---|
@@ -3702,6 +3704,7 @@ notice is, and the URL each file was copied from.
 | [wp-xdg-decoration-unstable-v1.xml](docs/research/sources/wp-xdg-decoration-unstable-v1.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml |
 | [wp-xdg-shell.xml](docs/research/sources/wp-xdg-shell.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/xdg-shell/xdg-shell.xml |
 | [xdg-activation-v1.xml](docs/research/sources/xdg-activation-v1.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/xdg-activation/xdg-activation-v1.xml |
+| [xdg-foreign-unstable-v2.xml](docs/research/sources/xdg-foreign-unstable-v2.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/1.45/unstable/xdg-foreign/xdg-foreign-unstable-v2.xml |
 | [xdg-system-bell-v1.xml](docs/research/sources/xdg-system-bell-v1.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/xdg-system-bell/xdg-system-bell-v1.xml |
 
 ### wayland-protocols' text-input-unstable-v3, under the historical permission notice with the right to sell

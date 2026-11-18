@@ -775,6 +775,7 @@ Copyright:  Copyright © 2008-2011 Kristian Høgsberg
             Copyright © 2015-2017 Red Hat Inc.
             Copyright © 2020 Aleix Pol Gonzalez <aleixpol@kde.org>
             Copyright © 2020 Carlos Garnacho <carlosg@gnome.org>
+            Copyright © 2015-2016 Red Hat Inc.
             Copyright © 2016, 2023 Red Hat
 Changes:    Compiled into tables when baud is built; the files themselves
             are not included.
@@ -1637,6 +1638,7 @@ The works under it, by notice, and their copyright notices:
           Copyright © 2015-2017 Red Hat Inc.
           Copyright © 2020 Aleix Pol Gonzalez <aleixpol@kde.org>
           Copyright © 2020 Carlos Garnacho <carlosg@gnome.org>
+          Copyright © 2015-2016 Red Hat Inc.
           Copyright © 2016, 2023 Red Hat
 
 Permission is hereby granted, free of charge, to any person obtaining a

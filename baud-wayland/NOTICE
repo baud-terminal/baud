@@ -19,6 +19,7 @@ build reads into its interface tables
            protocols/wp-tearing-control-v1.xml, protocols/wp-viewporter.xml,
            protocols/wp-xdg-decoration-unstable-v1.xml,
            protocols/wp-xdg-shell.xml, protocols/xdg-activation-v1.xml,
+           protocols/xdg-foreign-unstable-v2.xml,
            protocols/xdg-system-bell-v1.xml
   Holder:  The holders each file's copyright block names (Kristian Høgsberg,
            Intel, Collabora, Red Hat, Valve and others)
