@@ -18,6 +18,7 @@ pub mod draw;
 pub mod effect;
 pub mod frame;
 pub mod lend;
+mod loader;
 pub mod pipeline;
 pub mod present;
 pub mod sheets;

@@ -45,9 +45,7 @@ impl Vulkan {
     /// Open `libvulkan` and make an instance of Vulkan 1.3.
     #[allow(unsafe_code)]
     pub fn open() -> Result<Vulkan, Unopened> {
-        // SAFETY: loading the system's Vulkan loader; `ash` checks the entry
-        // point it needs and fails rather than calling a missing one.
-        let entry = unsafe { ash::Entry::load() }.map_err(|_| Unopened::NoLoader)?;
+        let entry = crate::loader::entry().ok_or(Unopened::NoLoader)?;
         let app = vk::ApplicationInfo::default()
             .application_name(c"baud")
             .api_version(vk::API_VERSION_1_3);

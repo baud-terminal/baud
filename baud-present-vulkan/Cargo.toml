@@ -20,9 +20,10 @@ baud-present-wayland = { workspace = true }
 
 # Linux only: the crate is empty elsewhere.
 [target.'cfg(target_os = "linux")'.dependencies]
-# Vulkan's bindings, the loader opened at run time (`loaded`): a box
-# without libvulkan runs on shared memory rather than failing to start.
-ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
+# Vulkan's bindings; the loader is opened at run time by the crate's own
+# dlopen (`loader.rs`): a box without libvulkan runs on shared memory
+# rather than failing to start.
+ash = { version = "0.38", default-features = false, features = ["std"] }
 # The atlas the sheets are brought up to, and the cell path's frame.
 baud-render = { workspace = true }
 baud-domain = { workspace = true }

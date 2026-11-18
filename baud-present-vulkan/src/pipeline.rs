@@ -46,16 +46,88 @@ use std::thread::JoinHandle;
 /// A shader stage's SPIR-V, as committed beside its source.
 struct Spirv(&'static [u8]);
 
-macro_rules! spv {
-    ($name:literal) => {
-        Spirv(include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/shaders/spv/",
-            $name,
-            ".spv"
-        )))
-    };
-}
+/// Each stage's SPIR-V, one include a file, each path written out so the
+/// credits scan reads what the binary embeds (`xtask credits`).
+const BG_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/bg.frag.spv"
+)));
+const BG_VERT: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/bg.vert.spv"
+)));
+const CELL_BG_VERT: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/cell_bg.vert.spv"
+)));
+const CELL_GLYPH_VERT: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/cell_glyph.vert.spv"
+)));
+const CELL_RING_VERT: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/cell_ring.vert.spv"
+)));
+const CELL_SHAPE_VERT: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/cell_shape.vert.spv"
+)));
+const FIREWORKS_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/fireworks.frag.spv"
+)));
+const FIREWORKS_VERT: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/fireworks.vert.spv"
+)));
+const FLAT_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/flat.frag.spv"
+)));
+const FX_FIRE_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/fx_fire.frag.spv"
+)));
+const FX_ICE_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/fx_ice.frag.spv"
+)));
+const FX_LIGHTNING_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/fx_lightning.frag.spv"
+)));
+const FX_LIQUID_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/fx_liquid.frag.spv"
+)));
+const FX_ORB_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/fx_orb.frag.spv"
+)));
+const FX_PLASMA_FACTOR_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/fx_plasma_factor.frag.spv"
+)));
+const FX_PLASMA_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/fx_plasma.frag.spv"
+)));
+const FX_PLASMA_MULTIPLY_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/fx_plasma_multiply.frag.spv"
+)));
+const FX_UFO_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/fx_ufo.frag.spv"
+)));
+const GLYPH_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/glyph.frag.spv"
+)));
+const GLYPH_VERT: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/glyph.vert.spv"
+)));
 
 /// A pipeline's vertex and fragment stages, by what they draw.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -181,15 +253,15 @@ impl Fx {
 
     fn stage(self) -> Spirv {
         match self {
-            Fx::Fire => spv!("fx_fire.frag"),
-            Fx::Plasma => spv!("fx_plasma.frag"),
-            Fx::PlasmaMultiply => spv!("fx_plasma_multiply.frag"),
-            Fx::PlasmaFactor => spv!("fx_plasma_factor.frag"),
-            Fx::Lightning => spv!("fx_lightning.frag"),
-            Fx::Ice => spv!("fx_ice.frag"),
-            Fx::Ufo => spv!("fx_ufo.frag"),
-            Fx::Orb => spv!("fx_orb.frag"),
-            Fx::Liquid => spv!("fx_liquid.frag"),
+            Fx::Fire => FX_FIRE_FRAG,
+            Fx::Plasma => FX_PLASMA_FRAG,
+            Fx::PlasmaMultiply => FX_PLASMA_MULTIPLY_FRAG,
+            Fx::PlasmaFactor => FX_PLASMA_FACTOR_FRAG,
+            Fx::Lightning => FX_LIGHTNING_FRAG,
+            Fx::Ice => FX_ICE_FRAG,
+            Fx::Ufo => FX_UFO_FRAG,
+            Fx::Orb => FX_ORB_FRAG,
+            Fx::Liquid => FX_LIQUID_FRAG,
         }
     }
 }
@@ -197,14 +269,14 @@ impl Fx {
 impl Fragment {
     fn stages(self) -> (Spirv, Spirv) {
         match self {
-            Fragment::Background => (spv!("bg.vert"), spv!("bg.frag")),
-            Fragment::Glyph => (spv!("glyph.vert"), spv!("glyph.frag")),
-            Fragment::Effect(fx) => (spv!("glyph.vert"), fx.stage()),
-            Fragment::Fireworks => (spv!("fireworks.vert"), spv!("fireworks.frag")),
-            Fragment::CellBg => (spv!("cell_bg.vert"), spv!("flat.frag")),
-            Fragment::CellGlyph => (spv!("cell_glyph.vert"), spv!("glyph.frag")),
-            Fragment::CellShape => (spv!("cell_shape.vert"), spv!("glyph.frag")),
-            Fragment::CellRing => (spv!("cell_ring.vert"), spv!("glyph.frag")),
+            Fragment::Background => (BG_VERT, BG_FRAG),
+            Fragment::Glyph => (GLYPH_VERT, GLYPH_FRAG),
+            Fragment::Effect(fx) => (GLYPH_VERT, fx.stage()),
+            Fragment::Fireworks => (FIREWORKS_VERT, FIREWORKS_FRAG),
+            Fragment::CellBg => (CELL_BG_VERT, FLAT_FRAG),
+            Fragment::CellGlyph => (CELL_GLYPH_VERT, GLYPH_FRAG),
+            Fragment::CellShape => (CELL_SHAPE_VERT, GLYPH_FRAG),
+            Fragment::CellRing => (CELL_RING_VERT, GLYPH_FRAG),
         }
     }
 
