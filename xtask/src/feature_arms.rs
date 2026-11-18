@@ -60,7 +60,7 @@ pub struct Floor(pub usize);
 /// Every crate with a `[features]` block, by directory, each with its floor:
 /// the fewest features its manifest may yield, so a parse that reads short
 /// fails here.
-pub const CRATES: [(&str, Floor); 13] = [
+pub const CRATES: [(&str, Floor); 14] = [
     ("baud-bench", Floor(53)),
     ("baud-core", Floor(53)),
     ("baud-domain", Floor(7)),
@@ -74,6 +74,7 @@ pub const CRATES: [(&str, Floor); 13] = [
     ("baud-wayland", Floor(0)),
     ("baud-xkb", Floor(0)),
     ("baud-present-wayland", Floor(0)),
+    ("baud-present-vulkan", Floor(1)),
 ];
 
 /// Declared features with no reader, as `crate/name`, each allowed for a
