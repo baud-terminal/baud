@@ -34,26 +34,26 @@ pub struct Gpu {
     pub vulkan: Vulkan,
     pub physical: vk::PhysicalDevice,
     pub device: ash::Device,
-    queue: vk::Queue,
-    family: QueueFamily,
-    pool: vk::CommandPool,
+    pub(crate) queue: vk::Queue,
+    pub(crate) family: QueueFamily,
+    pub(crate) pool: vk::CommandPool,
     pub choice: Choice,
 }
 
 /// A memory type's index, as `vkAllocateMemory` takes it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct MemoryType(u32);
+pub(crate) struct MemoryType(pub(crate) u32);
 
 /// What [`Gpu::memory_type`] takes when no type has what is wanted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Fallback {
+pub(crate) enum Fallback {
     Any,
     None,
 }
 
 /// A queue family's index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct QueueFamily(u32);
+pub(crate) struct QueueFamily(pub(crate) u32);
 
 /// A timeline semaphore and its exported fd.
 pub struct Timeline {
@@ -63,7 +63,7 @@ pub struct Timeline {
 
 /// An image exported as a dmabuf, with its one plane's layout.
 pub struct Target {
-    image: vk::Image,
+    pub(crate) image: vk::Image,
     memory: vk::DeviceMemory,
     pub fd: OwnedFd,
     pub width: Px,
@@ -81,6 +81,8 @@ pub enum Failed {
     NoGraphicsQueue,
     Vulkan(vk::Result),
     NoMemoryType,
+    /// A committed shader is not whole SPIR-V words.
+    Spirv,
 }
 
 impl Target {
@@ -153,6 +155,22 @@ impl Gpu {
             pool,
             choice,
         })
+    }
+
+    /// **The device's driver**, as `VkPhysicalDeviceDriverProperties` names
+    /// it: how a test tells one implementation's blend from another's.
+    #[allow(unsafe_code)]
+    pub fn driver(&self) -> vk::DriverId {
+        let mut driver = vk::PhysicalDeviceDriverProperties::default();
+        let mut props = vk::PhysicalDeviceProperties2::default().push_next(&mut driver);
+        // SAFETY: the device's own physical device, and a chain whose
+        // members live through the call.
+        unsafe {
+            self.vulkan
+                .instance
+                .get_physical_device_properties2(self.physical, &mut props)
+        };
+        driver.driver_id
     }
 
     /// **An image of `width` by `height` in the chosen format and
@@ -239,7 +257,7 @@ impl Gpu {
     /// image where there is one (a CPU device has none), and host-visible
     /// for a readback, which has no fallback.
     #[allow(unsafe_code)]
-    fn memory_type(
+    pub(crate) fn memory_type(
         &self,
         req: &vk::MemoryRequirements,
         want: vk::MemoryPropertyFlags,
@@ -538,7 +556,10 @@ impl Gpu {
     /// Record with `record` into a fresh command buffer, submit it alone,
     /// and wait for it on the CPU.
     #[allow(unsafe_code)]
-    fn submit_and_wait(&self, record: impl FnOnce(vk::CommandBuffer)) -> Result<(), Failed> {
+    pub(crate) fn submit_and_wait(
+        &self,
+        record: impl FnOnce(vk::CommandBuffer),
+    ) -> Result<(), Failed> {
         let d = &self.device;
         let alloc = vk::CommandBufferAllocateInfo::default()
             .command_pool(self.pool)

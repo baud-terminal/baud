@@ -3,12 +3,14 @@
 # from the development shell, which puts the Vulkan loader on the library
 # path.
 #
-# `baud-present-vulkan/tests/radv.rs` holds them, `#[ignore]`d so a run on
-# a box without the GPU never passes them having drawn nothing. This runs
+# `baud-present-vulkan/tests/radv.rs` and `tests/instance_path.rs` hold
+# them, `#[ignore]`d so a run on a box without the GPU never passes them
+# having drawn nothing. This runs
 # them by name where the GPU exists: **a Linux host whose Vulkan devices
 # include one driven by RADV**. Anywhere else it refuses and exits
-# non-zero. It asserts that both tests ran, so a filter that matched
-# nothing cannot pass either.
+# non-zero. It asserts that every test named in `expect` ran and passed, and
+# that nothing else ran, so a filter that matched nothing, or a test that
+# was renamed, cannot pass either.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -25,14 +27,26 @@ grep -q '^Gpu ' <<<"$probe" || {
   exit 1
 }
 
-out=$(cargo test -p baud-present-vulkan --test radv -- --ignored 2>&1) || {
+out=$(cargo test -p baud-present-vulkan --test radv --test instance_path -- --ignored 2>&1) || {
   echo "$out" >&2
   exit 1
 }
 echo "$out" | grep -E '^test |test result'
-ran=$(grep -c '^test radv_.* ok$' <<<"$out" || true)
-[ "$ran" -eq 2 ] || {
-  echo "linux-vulkan-radv: $ran of 2 tests ran" >&2
+expect=(
+  radv_clears_one_frame_into_a_linear_dmabuf
+  radv_signals_a_frame_on_a_syncobj_timeline
+  the_instance_path_is_exact_on_radv
+  a_pass_over_keeps_the_target_on_radv
+)
+for t in "${expect[@]}"; do
+  grep -q "^test $t \.\.\. ok$" <<<"$out" || {
+    echo "linux-vulkan-radv: $t did not run and pass" >&2
+    exit 1
+  }
+done
+ran=$(grep -cE '^test .* \.\.\. ok$' <<<"$out" || true)
+[ "$ran" -eq "${#expect[@]}" ] || {
+  echo "linux-vulkan-radv: $ran tests passed, ${#expect[@]} expected" >&2
   exit 1
 }
-echo "linux-vulkan-radv: ok, 2 of 2"
+echo "linux-vulkan-radv: ok, $ran of ${#expect[@]}"

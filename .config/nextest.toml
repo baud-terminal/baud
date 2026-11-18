@@ -72,7 +72,7 @@ test-group = 'metal'
 # queue (`Gpu::new`), lavapipe's on the CPU and radv's on the GPU, so they
 # share the bound the Metal tests are held to.
 [[profile.default.overrides]]
-filter = 'package(baud-present-vulkan) & (binary(lavapipe) | binary(radv))'
+filter = 'package(baud-present-vulkan) & (binary(lavapipe) | binary(radv) | binary(instance_path))'
 test-group = 'metal'
 
 # 16 threads holding 4 spawned terminals each, all at once.

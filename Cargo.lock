@@ -220,7 +220,10 @@ version = "1.0.0-unstable"
 dependencies = [
  "ash",
  "baud-domain",
+ "baud-font",
+ "baud-present-vulkan",
  "baud-present-wayland",
+ "baud-render",
 ]
 
 [[package]]

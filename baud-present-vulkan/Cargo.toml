@@ -13,7 +13,7 @@ publish = false
 readme = "README.md"
 keywords = ["terminal", "vulkan", "wayland", "linux"]
 categories = ["gui", "os::linux-apis"]
-include = ["/src/", "/README.md", "/LICENSE"]
+include = ["/src/", "/shaders/", "/README.md", "/LICENSE"]
 
 [dependencies]
 baud-present-wayland = { workspace = true }
@@ -24,5 +24,12 @@ baud-present-wayland = { workspace = true }
 # without libvulkan runs on shared memory rather than failing to start.
 ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
 
+[features]
+# A pipeline build held at a gate, for the crate's tests (`Pipelines::hold_builds`).
+test-hooks = []
+
 [dev-dependencies]
+baud-present-vulkan = { path = ".", features = ["test-hooks"] }
 baud-domain = { workspace = true }
+baud-font = { workspace = true }
+baud-render = { workspace = true }

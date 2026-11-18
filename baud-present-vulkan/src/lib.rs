@@ -11,6 +11,8 @@
 #![deny(unsafe_code)]
 
 pub mod choose;
+pub mod draw;
 pub mod frame;
+pub mod pipeline;
 pub mod sys;
 pub mod vk;
