@@ -125,7 +125,7 @@ fn contact(len: f32, c: f32, radius: f32) -> (f32, f32) {
 
 /// **Seconds from ignition to when the gel is out**: the wobble after the
 /// contact has died under half a pixel, and a little after; at least 0.22 s.
-pub fn end(f: &Ignition, radius: f32) -> f32 {
+pub fn end_on(f: &Ignition, radius: f32) -> f32 {
     let (t, a) = contact(f.len, f.unit, radius);
     let tw = if a > 0.5 {
         (a / 0.5).det_ln() / (ZETA * OMEGA)
@@ -263,7 +263,7 @@ pub fn state(vfx: &Vfx) -> State {
         turn += core::f32::consts::TAU;
     }
     let (ly, lx) = (rest + turn * (-f.age / LEAN).det_exp()).det_sin_cos();
-    let end = end(f, nominal);
+    let end = end_on(f, nominal);
     State {
         b,
         h,
@@ -470,8 +470,8 @@ pub fn support(vfx: &Vfx, mut each: impl FnMut(Corners)) {
 
 /// The gel's end, from the ignition alone, for the driver: the tube's
 /// radius taken on a block cursor a cell tall and half a cell wide.
-pub fn end_of(f: &Ignition) -> f32 {
-    end(f, tube(f.dir, 0.5 * f.unit, f.unit))
+pub fn end(f: &Ignition) -> f32 {
+    end_on(f, tube(f.dir, 0.5 * f.unit, f.unit))
 }
 
 #[cfg(test)]
@@ -642,7 +642,7 @@ mod tests {
     fn the_gel_fades_and_goes_out() {
         let (from, to) = (cell(10.0, 5.0), cell(40.0, 5.0));
         let f = ignition(from, to, Seed(5));
-        let out = end_of(&f);
+        let out = end(&f);
         assert_eq!(Effect::Liquid.end(&f), out);
         assert!(
             (0.34..0.44).contains(&out),
@@ -662,10 +662,10 @@ mod tests {
                 assert_eq!(light(&gone, p), 0.0);
             }
         }
-        let short = end_of(&ignition(from, cell(13.0, 5.0), Seed(5)));
+        let short = end(&ignition(from, cell(13.0, 5.0), Seed(5)));
         assert!((short - 0.22).abs() < 1e-6, "a short hop's floor: {short}");
         let far = ignition(cell(0.0, 0.0), cell(199.0, 49.0), Seed(5));
-        assert!(end_of(&far) <= LIFE, "{} past its life", end_of(&far));
+        assert!(end(&far) <= LIFE, "{} past its life", end(&far));
     }
 
     /// **The reach holds the gel**: every pixel it lights is well inside

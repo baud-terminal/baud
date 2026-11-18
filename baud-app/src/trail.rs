@@ -1283,7 +1283,7 @@ mod tests {
                 if k == 17 {
                     restarted = Some(v);
                 }
-                let fading = v.ignition.age >= liquid::end_of(&v.ignition) - liquid::FADE;
+                let fading = v.ignition.age >= liquid::end(&v.ignition) - liquid::FADE;
                 if effect == Effect::Liquid && !fading {
                     levels.push(liquid::state(&v).envelope);
                 }
@@ -1356,7 +1356,7 @@ mod tests {
                 continue;
             };
             seeds.push(v.ignition.seed);
-            if v.ignition.age < liquid::end_of(&v.ignition) - liquid::FADE {
+            if v.ignition.age < liquid::end(&v.ignition) - liquid::FADE {
                 levels.push(liquid::state(&v).envelope);
             }
         }

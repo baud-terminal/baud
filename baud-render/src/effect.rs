@@ -141,7 +141,7 @@ impl Effect {
             Effect::Ice => ice::end(ignition),
             Effect::Ufo => ufo::end(ignition),
             Effect::Orb => orb::end(ignition),
-            Effect::Liquid => liquid::end_of(ignition),
+            Effect::Liquid => liquid::end(ignition),
         }
     }
 }
