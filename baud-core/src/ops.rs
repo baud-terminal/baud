@@ -706,9 +706,7 @@ impl Paint<'_, '_> {
             if self.cold.watched == crate::term::Watched::Rows {
                 self.cold.watch_uncounted(Scroll::Up, self.book.top);
             }
-            if self.images.any_placed() || self.anchored() {
-                self.alt_images_moved(Scroll::Up);
-            }
+            self.alt_line_moved(Scroll::Up);
             return;
         }
         let room = self.view.ring().index() - self.rows.index();
@@ -720,12 +718,10 @@ impl Paint<'_, '_> {
         // moves on with the window, so a placement past a full ring gets a
         // distinct line, and `unretire` moves it back.
         self.book.top = self.book.top.plus(Rows::of_count(1));
-        // **The one compare a stream with no image pays.** The work behind it
-        // is outlined, the wide-row fill's shape: `retire` runs once a scroll,
-        // on the path `cat` spends its time in.
-        if self.images.any_placed() {
-            self.primary_images_moved(Scroll::Up);
-        }
+        // **The one compare a stream with no image and no bell armed
+        // pays.** The work behind it is outlined, the wide-row fill's shape:
+        // `retire` runs once a scroll, on the path `cat` spends its time in.
+        self.primary_line_moved(Scroll::Up);
     }
 
     /// **The primary's images after its window moved one row**: those whose
@@ -1053,9 +1049,7 @@ impl Paint<'_, '_> {
             if self.cold.watched == crate::term::Watched::Rows {
                 self.cold.watch_uncounted(Scroll::Down, self.book.top);
             }
-            if self.images.any_placed() || self.anchored() {
-                self.alt_images_moved(Scroll::Down);
-            }
+            self.alt_line_moved(Scroll::Down);
             return;
         }
         let room = self.view.ring().index() - self.rows.index();
@@ -1115,9 +1109,7 @@ impl Paint<'_, '_> {
         // A window over the history this took back to is on the live screen
         // from this row on (`Book::window_taken_back`).
         self.book.window_taken_back();
-        if self.images.any_placed() {
-            self.primary_images_moved(Scroll::Down);
-        }
+        self.primary_line_moved(Scroll::Down);
     }
 
     // ---- scrolling ------------------------------------------------------
@@ -1147,7 +1139,6 @@ impl Paint<'_, '_> {
             {
                 self.scroll_rot += k;
             }
-            self.margin_bell_line_left();
             for _ in 0..k {
                 self.retire();
                 self.view.advance_rot(1, &mut OneTable);
@@ -1659,7 +1650,6 @@ impl Paint<'_, '_> {
         let k = n.at_least_one().min(bot.index() + 1 - top.index());
         let last = self.rows.index() - 1;
         if top.index() == 0 && bot.index() == last {
-            self.margin_bell_line_left();
             // **One compare for the passes past the edge, then the scroll
             // the core had before them.** Tested again after each line and
             // followed by the swept count's store, they were sixteen

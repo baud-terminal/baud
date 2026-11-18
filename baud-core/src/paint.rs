@@ -325,7 +325,23 @@ pub(crate) struct Paint<'a, 'b> {
     /// the hooked path, so it clears once the image goes or the watch is
     /// reached. Too high is only slower; too low loses an overwrite or a
     /// dropped selection, which a debug build asserts.
+    ///
+    /// **A scrolled line reads it too** ([`Paint::primary_line_moved`],
+    /// [`Paint::alt_line_moved`]): the images moved with the line and a
+    /// margin bell armed on it disarmed sit behind this one byte, so too low
+    /// there leaves an image on a line that moved, which a debug build
+    /// asserts.
     hooks: WriteHooks,
+    /// Whether a move to another row has more to do than the move
+    /// ([`Paint::set_row`]): set while the rows outside the scroll area
+    /// write to their line's end ([`Fences::ByRow`]) or a margin bell is
+    /// armed. Read in [`Paint::new`] and again by [`Paint::row_rehook`]
+    /// wherever the fences change or a bell is disarmed; inside a read a
+    /// bell is armed again only by a display swapped in, whose fences are
+    /// taken again. Too high is only slower; too low keeps a bell armed
+    /// across a row change or a fence of another row, which a debug build
+    /// asserts.
+    row_hooks: RowHooks,
     /// How many runs of each character count the loop took, and of each
     /// encoded length. **Do not read a bulk path as covering a character class
     /// -- count how often it is entered**, which is the mistake this repo
@@ -457,6 +473,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             flags,
             start_window(cold),
         );
+        let row_hooks = RowHooks::of(cold.fences, cold.bell.armed);
         // **The live surface by which screen is up.** The primary is the
         // ring -- the screen's capacity plus the scrollback -- and the
         // alternate is a ring of the capacity alone, so a scroll there
@@ -545,6 +562,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             // cursor leaves it: see the field.
             row_written: Col::at_index(crate::storage::MAX_COLS),
             hooks,
+            row_hooks,
             #[cfg(feature = "diag")]
             runs: [0; 8],
             #[cfg(feature = "diag")]
@@ -2364,18 +2382,35 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// line ([`Paint::fence_by_row`]): a move between a row outside the area
     /// and one inside it changes where a write wraps.
     ///
-    /// **A move to another row disarms the margin bell** (`margin.rs`),
-    /// behind the write path's hook gate: a move that keeps the row keeps it
-    /// armed.
+    /// **A move to another row disarms the margin bell** (`margin.rs`): a
+    /// move that keeps the row keeps it armed.
+    ///
+    /// Both sit behind one compare ([`Paint::row_hooks`]) and out of line
+    /// ([`Paint::set_row_hooked`]), so a move with neither steps the row and
+    /// no more.
     pub(crate) fn set_row(&mut self, r: Row) {
         #[cfg(feature = "read-record")]
         if r < self.cy {
             self.record_climb(r);
         }
-        if self.hooks == WriteHooks::On && r != self.cy {
+        self.end_left_edge();
+        if self.row_hooks == RowHooks::On {
+            self.set_row_hooked(r);
+            return;
+        }
+        debug_assert!(RowHooks::of(self.cold.fences, self.cold.bell.armed) == RowHooks::Off);
+        self.step_row(r);
+    }
+
+    /// [`Paint::set_row`] while the fences go by row or a margin bell is
+    /// armed: the bell disarmed if the row is another, tested against the
+    /// row left, then the row stepped and its fence taken.
+    #[cold]
+    #[inline(never)]
+    fn set_row_hooked(&mut self, r: Row) {
+        if r != self.cy {
             self.margin_bell_disarmed();
         }
-        self.end_left_edge();
         self.step_row(r);
         if self.cold.fences == Fences::ByRow {
             self.fence_by_row();
@@ -2434,6 +2469,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.view.set_region_top(r, t);
         }
         self.cold.fence = self.write_fence_of_line();
+        self.row_rehook();
     }
 
     /// **Which [`Fences`] the margins give** the display written: by row
@@ -2459,6 +2495,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     pub(crate) fn fences_again(&mut self) {
         self.cold.fences = self.fences_of();
         self.region_top_again();
+        self.row_rehook();
     }
 
     /// [`Paint::set_row`] for [`Paint::index`]: a line feed's step down,
@@ -2799,9 +2836,9 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
-    /// **The cursor's line left or moved under it while a margin bell may
-    /// be armed** -- a move to another row, a full-screen scroll -- behind
-    /// the write path's hook gate, so a terminal with no bell armed pays one
+    /// **The cursor's line moved under it while a margin bell may be
+    /// armed** -- the window moving back over a redrawn prompt -- behind the
+    /// write path's hook gate, so a terminal with no bell armed pays one
     /// compare.
     #[inline(always)]
     pub(crate) fn margin_bell_line_left(&mut self) {
@@ -2817,7 +2854,80 @@ impl<'a, 'b> Paint<'a, 'b> {
     fn margin_bell_disarmed(&mut self) {
         if self.cold.bell.armed.take().is_some() {
             self.rehook();
+            self.row_rehook();
         }
+    }
+
+    /// **A line of the primary retired or taken back** ([`Paint::retire`],
+    /// [`Paint::unretire`]): its images and a margin bell armed on a row
+    /// the scroll moved sit behind the write path's hook flag, which is on
+    /// whenever an image is placed or a bell is armed, so a scroll with
+    /// neither pays one compare.
+    #[inline(always)]
+    pub(crate) fn primary_line_moved(&mut self, way: crate::ops::Scroll) {
+        if self.hooks == WriteHooks::On {
+            self.primary_scrolled(way);
+            return;
+        }
+        debug_assert!(
+            !self.images.any_placed(),
+            "an image placed with the hooks off"
+        );
+    }
+
+    /// [`Paint::primary_line_moved`] with a hook on: the margin bell
+    /// disarmed if the scroll moved its row, and the images moved.
+    #[cold]
+    #[inline(never)]
+    fn primary_scrolled(&mut self, way: crate::ops::Scroll) {
+        self.margin_bell_scrolled();
+        if self.images.any_placed() {
+            self.primary_images_moved(way);
+        }
+    }
+
+    /// [`Paint::primary_line_moved`] on the alternate screen, whose lines
+    /// are numbered while something is anchored to one as well
+    /// ([`Paint::anchored`]).
+    #[inline(always)]
+    pub(crate) fn alt_line_moved(&mut self, way: crate::ops::Scroll) {
+        if self.hooks == WriteHooks::On || self.anchored() {
+            self.alt_scrolled(way);
+            return;
+        }
+        debug_assert!(
+            !self.images.any_placed(),
+            "an image placed with the hooks off"
+        );
+    }
+
+    /// [`Paint::alt_line_moved`] with a hook on or a line anchored: the
+    /// margin bell disarmed if the scroll moved its row, and the images and
+    /// the anchored lines moved.
+    #[cold]
+    #[inline(never)]
+    fn alt_scrolled(&mut self, way: crate::ops::Scroll) {
+        self.margin_bell_scrolled();
+        if self.images.any_placed() || self.anchored() {
+            self.alt_images_moved(way);
+        }
+    }
+
+    /// **A whole-screen or top region's scroll moved the rows to the
+    /// region's bottom**: a bell armed on one of them has moved off the
+    /// cursor's line, and is disarmed. One armed under a top region was
+    /// put back and re-read before the scroll (`Paint::margin_bell_under`),
+    /// and stays armed.
+    fn margin_bell_scrolled(&mut self) {
+        if self.cold.bell.armed.is_some_and(|a| a.row <= self.cold.bot) {
+            self.margin_bell_disarmed();
+        }
+    }
+
+    /// [`Paint::row_hooks`] read again, wherever the fences change or a
+    /// bell is disarmed.
+    fn row_rehook(&mut self) {
+        self.row_hooks = RowHooks::of(self.cold.fences, self.cold.bell.armed);
     }
 
     /// **The `BEL`s this read counted since the last fold, credited to the
@@ -3052,7 +3162,6 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.cold.top == Row::ZERO && self.cold.bot.index() == last,
             "only a full-screen region rotates the whole screen"
         );
-        self.margin_bell_line_left();
         self.retire();
         let rot = self.view.advance_rot(1, &mut OneTable);
         #[cfg(feature = "probe-warm-scroll")]
@@ -3197,6 +3306,23 @@ impl WriteHooks {
         {
             true => WriteHooks::On,
             false => WriteHooks::Off,
+        }
+    }
+}
+
+/// [`Paint::row_hooks`]: whether a move to another row has a fence by row
+/// to take or an armed margin bell to disarm.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RowHooks {
+    Off,
+    On,
+}
+
+impl RowHooks {
+    fn of(fences: Fences, armed: Option<crate::margin::Line>) -> RowHooks {
+        match fences == Fences::ByRow || armed.is_some() {
+            true => RowHooks::On,
+            false => RowHooks::Off,
         }
     }
 }

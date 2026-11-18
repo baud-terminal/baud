@@ -24,24 +24,28 @@
 //! A move to another row disarms it (`Paint::set_row`), and a move that
 //! keeps the row does not. **A scroll that moves the armed line's text
 //! disarms it, and one that does not keeps it armed**: a whole-screen
-//! scroll, up or down, on either screen, disarms it
-//! (`Paint::margin_bell_line_left`), as does the window moving back over a
-//! shell's redrawn prompt; rows moved in place -- a region scrolled by
-//! copy, `IL`, `DL` -- disarm it when the armed row is among them
-//! ([`BellState::rows_moved`]); and a region at the top, which rotates the
-//! ring and puts the rows under it back, re-reads the rotation of a line
-//! armed under it and disarms one armed in it
+//! scroll, up or down, on either screen, disarms it with each line it
+//! retires or takes back (`Paint::primary_line_moved`,
+//! `Paint::alt_line_moved`), as does the window moving back over a shell's
+//! redrawn prompt (`Paint::margin_bell_line_left`); rows moved in place
+//! -- a region scrolled by copy, `IL`, `DL` -- disarm it when the armed
+//! row is among them ([`BellState::rows_moved`]); and a region at the top,
+//! which rotates the ring and puts the rows under it back, re-reads the
+//! rotation of a line armed under it and disarms one armed in it
 //! (`Paint::margin_bell_under`). The write then tests the line the
 //! keystroke armed on ([`Line`]): the screen's epoch, the ring's rotation
 //! and the cursor's row, so a line feed that steps down a row, or a
 //! change of screen, disarms it unrung at the next write.
 //!
-//! Each disarm on a row change or a scroll runs behind the write path's
-//! hook flag (`Paint::hooks`), on while a bell is armed: a row change or a
-//! whole-screen scroll with none armed pays one compare, and a printed byte
-//! or a line feed that steps down a row pays nothing more. The ring test
-//! runs behind the write path's one hook compare (`Paint::overwrote`), so a
-//! terminal with no margin bell armed writes as it did. A write that prints
+//! Each disarm on a row change or a scroll rides a compare the move or
+//! the scroll already makes: a row change's of the fences
+//! (`Paint::row_hooks`), on while a bell is armed too, and a retired or
+//! taken-back line's of the write path's hook flag (`Paint::hooks`), on
+//! while an image is placed or a bell is armed. A row change or a scroll
+//! with no bell armed pays no compare more, and neither does a printed
+//! byte or a line feed that steps down a row. The ring test runs behind
+//! the write path's one hook compare (`Paint::overwrote`), so a terminal
+//! with no margin bell armed writes as it did. A write that prints
 //! no character --
 //! a double line's cleared half, a rectangle -- takes the hook with the
 //! bell set aside (`Paint::overwrote_unprinted`), so it neither rings nor
