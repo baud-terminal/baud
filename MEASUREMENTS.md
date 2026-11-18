@@ -2071,6 +2071,54 @@ cost the GPU is unmeasured. Over `vim-unicode` the `frame` bench's
 default move lights an ignition pointing left (`dir.x` -0.998), so the
 hand mirrors it: 4.92 rows a frame become 4.95.
 
+## The plasma trail's GPU time a frame, in interleaved pairs (2026-11-17)
+
+**A whole frame with the plasma trail costs the GPU about 4-10 us more than
+the same frame without it, about 1-2% of the frame, at the Linux run's
+400x126 grid and at the app's own 200x50.** Taken 2026-11-17, Apple M5 Max,
+macOS 27.3 (26C5035r), on AC, nothing else on the GPU, at `89239c75`:
+
+```sh
+FRAME_ARMS=cells FRAME_TRAIL=400 FRAME_SIZE=400x126 FRAME_GRID=400x150 FRAME_PX=13 \
+  cargo bench -p baud-bench --bench frame_gpu -- vim 4
+FRAME_ARMS=cells FRAME_TRAIL=400 FRAME_SIZE=200x50 FRAME_GRID=400x150 FRAME_PX=28 \
+  cargo bench -p baud-bench --bench frame_gpu -- vim 4
+```
+
+`frame_gpu`'s waited arm draws the vim recording's final screen whole and
+waits for each frame, in pairs: a frame with no trail, then the pair's
+other side, the GPU's start-to-end of each read; a pair's difference is
+the other side less the no-trail side, so the GPU's clock state cancels
+within it. 400 pairs a kind and round, the first dropped, four rounds.
+400x126 at 13 px is the Linux DP-1 run's grid (its 3200 px text area over
+400 columns gives cells about 8 px wide, as 13 px does); 200x50 at 28 px is
+the app's window at 14 pt on a Retina panel. This is the waited arm on
+unified memory, not the app's paced present.
+
+**The control resolves one frame.** Its other side is two frames with no
+trail, so its difference is a known extra whole frame: +655.1, +654.5,
++654.5 and +280.4 us at 400x126, where the no-trail frame read 654.4,
+654.0, 653.7 and 280.0 us (the fourth round ran with the GPU at a lower
+clock, and the control moved with it); +279.0, +277.3, +278.0 and +277.1 us
+at 200x50 against 278.9, 277.2, 277.9 and 277.0. A run that could not
+resolve one extra frame would have failed the bench.
+
+The plasma, each round's median difference [its pairs' range], us:
+
+| size | no-trail frame | round 0 | round 1 | round 2 | round 3 |
+|---|---:|---:|---:|---:|---:|
+| 400x126, 13 px | 280-655 | +5.5 [+1.7..+56.1] | +9.8 [+6.8..+13.4] | +7.5 [-318.8..+171.7] | +4.0 [-267.8..+13.2] |
+| 200x50, 28 px | 149-279 | +6.1 [+3.5..+8.7] | +3.8 [-79.4..+104.8] | +6.1 [+4.0..+8.3] | +6.2 [+3.6..+8.5] |
+
+Every round's median is above zero at both sizes; the wide ranges are the
+rounds in which the GPU changed clock between pairs. The grid is the Linux
+run's, the work is not: that run drew on the CPU, so its frame time is not
+set beside these.
+
+**What would have proven this wrong:** the control's difference not one
+frame, or the plasma's frame equal to the no-trail frame (the bench exits
+non-zero on either). Neither happened.
+
 ## The glass's backdrop premultiplied once a run (measured, no change)
 
 **A memo of the premultiplied backdrop paints the see-through page no
