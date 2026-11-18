@@ -5826,6 +5826,100 @@ fn a_coloured_bell_draws_alike_on_every_arm() {
     }
 }
 
+/// **Every background byte at every alpha below opaque is stored as its
+/// nearest premultiplied byte on both GPU arms**, as the CPU arm's
+/// `premultiply` stores it: a page of 256 cells, each a grey of one byte
+/// set as its background under `AppBg::Dimmed` and `PictureBg::Dimmed`, so
+/// every cell takes the page's alpha, drawn at each alpha from 1 to 254 --
+/// the instance arm through `bg_fragment` and the cell arm through
+/// `cell_bg_vertex`, each replacing what is under it. The three rows the
+/// cells fill are the CPU arm's, pixel for pixel; a line of text three rows
+/// below holds the glyph map's scene, and its blended pixels are not
+/// compared. The premise is checked each time: the cells hold the alpha
+/// asked for, and every byte reaches a cell.
+#[test]
+fn every_background_byte_at_every_alpha_is_stored_as_its_nearest_premultiplied_byte() {
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [Face::parse(&data).expect("parse")];
+    let at = |alpha: u8| Theme {
+        bg_alpha: Chan::from_u8(alpha),
+        app_bg: baud_render::AppBg::Dimmed,
+        picture_bg: baud_render::PictureBg::Dimmed,
+        ..Theme::dark()
+    };
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        at(1),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    let mut bytes = b"\x1b[?25l\x1b[H".to_vec();
+    for c in 0..=255u8 {
+        bytes.extend_from_slice(format!("\x1b[48;2;{c};{c};{c}m ").as_bytes());
+    }
+    bytes.extend_from_slice(
+        b"\x1b[0m\x1b[6;1HThe quick brown fox jumps over the lazy dog 0123456789",
+    );
+    feed(&mut t, &bytes);
+    let m = arms.renderer.metrics();
+    let side = |p: Px| usize::try_from(p.value()).unwrap();
+    let (cw, ch) = (side(m.cell_w), side(m.cell_h));
+    let cols = usize::from(WS.ws_col);
+    let mut wrong = Vec::new();
+    for alpha in 1..=254u8 {
+        arms.renderer.set_theme(at(alpha));
+        let (a, b) = arms.draw(&mut t);
+        let cpu = cpu_frame(&mut arms, &mut t);
+        assert_eq!(
+            (a.len(), b.len()),
+            (cpu.len(), cpu.len()),
+            "alpha {alpha}: one frame size"
+        );
+        let fw = side(arms.renderer.whole_size().0);
+        let centre = |c: usize| ((c / cols) * ch + ch / 2) * fw + (c % cols) * cw + cw / 2;
+        assert!(
+            (0..256).all(|c| cpu[centre(c)] >> 24 == u32::from(alpha)),
+            "alpha {alpha}: the premise, every cell drawn at the page's alpha"
+        );
+        let want = |c: u8| {
+            let p = u32::from(
+                baud_domain::premultiply_chan(Chan::from_u8(c), Chan::from_u8(alpha)).get(),
+            );
+            (u32::from(alpha) << 24) | (p << 16) | (p << 8) | p
+        };
+        assert!(
+            (0..=255u8).all(|c| cpu[centre(usize::from(c))] == want(c)),
+            "alpha {alpha}: the premise, each cell the CPU arm's nearest byte of its grey"
+        );
+        let rows = 256usize.div_ceil(cols) * ch * fw;
+        for (arm, got) in [("instance", &a), ("cell", &b)] {
+            for (i, (&g, &w)) in got[..rows].iter().zip(&cpu[..rows]).enumerate() {
+                if g != w {
+                    wrong.push(format!(
+                        "{arm} alpha {alpha} ({}, {}) {g:08x} {w:08x}",
+                        i % fw,
+                        i / fw
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} pixels differ from the CPU arm's, the first (arm, alpha, x, y, got, want) {:#?}",
+        wrong.len(),
+        &wrong[..wrong.len().min(12)]
+    );
+}
+
 /// **The shape pass drawn by what the table holds** (`Gpu::draw_cells`
 /// leaves it undrawn while no slot carries a decoration, but for the
 /// cursor's line): each decoration alone, minted on a screen whose table
