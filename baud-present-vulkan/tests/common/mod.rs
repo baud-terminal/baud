@@ -1,7 +1,8 @@
 //! **What the Vulkan pixel tests share**: the two devices, a record in
 //! `Instance::to_bytes`'s layout, and the frame comparison with the one
 //! allowance a device may take, a step a channel on blended pixels where it
-//! rounds term by term.
+//! rounds term by term, and the bias bound every device but llvmpipe is held
+//! to ([`bias_gated`]).
 
 #![allow(dead_code)]
 
@@ -106,12 +107,21 @@ fn spread(a: u32, b: u32) -> u32 {
         .unwrap_or(0)
 }
 
+/// **The bar a frame is held to**: how its device rounds a blend, and which
+/// device it is, by `VkDriverId` ([`bias_gated`]).
+#[derive(Clone, Copy)]
+pub struct Bar {
+    pub rounding: Rounding,
+    pub driver: ash::vk::DriverId,
+}
+
 /// **`got` against `want`, pixel for pixel**: exact where `blended` is
 /// false, and where it is true exact under [`Rounding::Exact`] and within
 /// a step a channel under [`Rounding::TermByTerm`] -- where, as the
 /// control, some pixel must take the step, so the allowance is what lets
 /// them through rather than a scene that never blends.
-pub fn assert_frame(got: &[u32], want: &[u32], blended: &[bool], rounding: Rounding, width: usize) {
+pub fn assert_frame(got: &[u32], want: &[u32], blended: &[bool], bar: Bar, width: usize) {
+    let Bar { rounding, driver } = bar;
     assert_eq!(
         (got.len(), want.len(), blended.len()),
         (want.len(), blended.len(), got.len())
@@ -140,4 +150,47 @@ pub fn assert_frame(got: &[u32], want: &[u32], blended: &[bool], rounding: Round
         rounding == Rounding::Exact || stepped > 0,
         "no blended pixel took the step: the allowance tested nothing"
     );
+    let bias = mean_signed(got, want, blended);
+    if !bias_gated(driver) {
+        eprintln!(
+            "bias (b, g, r, a) on VkDriverId {}, reported and not gated: {bias:?}",
+            driver.as_raw()
+        );
+        return;
+    }
+    assert!(
+        bias.iter().all(|b| b.abs() <= BIAS),
+        "blended pixels lean {bias:?} a channel (b, g, r, a), past {BIAS}: a step every pixel takes \
+         one way is an error, not rounding"
+    );
+}
+
+/// **How far a step may lean**: the mean signed difference a channel over
+/// the blended pixels, in steps. Rounding a term at a time goes either way;
+/// a slip in premultiplying goes one way on every pixel and stays within a
+/// step, which the per-pixel bound alone lets through.
+pub const BIAS: f64 = 0.25;
+
+/// **Whether a device's frames are held to [`BIAS`]**: every device but
+/// llvmpipe, by its `VkDriverId`. llvmpipe rounds each blend term to a byte
+/// before the sum ([`Rounding::TermByTerm`]) and the rounding leans: on the
+/// instance path's scene red goes up 16 times and never down, +0.33 step.
+/// RADV is exact on the same reference, so a slip in premultiplying shows
+/// there at full strength, and a change to a shader, a blend or this helper
+/// is not tested until it has run on RADV.
+pub fn bias_gated(driver: ash::vk::DriverId) -> bool {
+    driver != ash::vk::DriverId::MESA_LLVMPIPE
+}
+
+/// The mean of `got - want` a channel (b, g, r, a) over the blended pixels.
+pub fn mean_signed(got: &[u32], want: &[u32], blended: &[bool]) -> [f64; 4] {
+    let mut sum = [0i64; 4];
+    let mut n = 0i64;
+    for ((&g, &w), _) in got.iter().zip(want).zip(blended).filter(|(_, b)| **b) {
+        for (c, s) in [0, 8, 16, 24].iter().enumerate() {
+            sum[c] += i64::from((g >> s) & 0xff) - i64::from((w >> s) & 0xff);
+        }
+        n += 1;
+    }
+    sum.map(|s| if n == 0 { 0.0 } else { s as f64 / n as f64 })
 }

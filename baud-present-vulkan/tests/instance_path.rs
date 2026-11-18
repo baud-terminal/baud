@@ -10,11 +10,12 @@
 
 mod common;
 
+use ash::vk::DriverId;
 use baud_present_vulkan::draw::{Pass, Records, Scene, Texel, Texels};
 use baud_present_vulkan::frame::{Gpu, Premultiplied};
 use baud_present_vulkan::pipeline::Pipelines;
 use baud_present_wayland::Px;
-use common::{Rounding, assert_frame, lavapipe, radv, record};
+use common::{Bar, Rounding, assert_frame, lavapipe, radv, record};
 
 /// The CPU renderer's over (`Blend::over`, native) of an opaque straight
 /// `color` at coverage `cov` over an opaque `dst`.
@@ -127,7 +128,16 @@ fn draw_and_check(gpu: &Gpu, rounding: Rounding) {
         }
     }
     let width = usize::try_from(w).expect("a width");
-    assert_frame(&got, &want, &blended, rounding, width);
+    assert_frame(
+        &got,
+        &want,
+        &blended,
+        Bar {
+            rounding,
+            driver: gpu.driver(),
+        },
+        width,
+    );
     gpu.drop_target(t);
     // The device is idle after `draw`'s wait.
     pipes.destroy();
@@ -217,9 +227,73 @@ fn over_and_check(gpu: &Gpu, rounding: Rounding) {
         &got,
         &want,
         &blended,
-        rounding,
+        Bar {
+            rounding,
+            driver: gpu.driver(),
+        },
         usize::try_from(w).expect("a width"),
     );
     gpu.drop_target(t);
     pipes.destroy();
+}
+
+/// **The bias bound discriminates, and only where it is gated**: a step each
+/// blended pixel takes, half one way and half the other, is rounding and
+/// passes; the same step taken the same way on every blended pixel stays
+/// within a step a pixel and must still fail on RADV, on the bias alone, and
+/// pass on llvmpipe, whose lean is reported and not gated. No GPU: the frames
+/// are made here, and the driver named.
+#[test]
+fn a_step_every_pixel_takes_one_way_fails() {
+    let want: Vec<u32> = (0..64u32).map(|i| 0x8040_2010 + i * 0x0001_0101).collect();
+    let blended: Vec<bool> = (0..64).map(|i| i % 4 != 0).collect();
+    let step = |up: &dyn Fn(usize) -> bool| -> Vec<u32> {
+        want.iter()
+            .enumerate()
+            .map(|(i, &w)| match (blended[i], up(i)) {
+                (false, _) => w,
+                (true, true) => w + 0x0101_0101,
+                (true, false) => w - 0x0101_0101,
+            })
+            .collect()
+    };
+    let both_ways = step(&|i| i % 8 < 4);
+    let (radv, llvmpipe) = (DriverId::MESA_RADV, DriverId::MESA_LLVMPIPE);
+    assert_frame(
+        &both_ways,
+        &want,
+        &blended,
+        Bar {
+            rounding: Rounding::TermByTerm,
+            driver: radv,
+        },
+        8,
+    );
+    let planted = step(&|_| true);
+    assert!(
+        std::panic::catch_unwind(|| {
+            assert_frame(
+                &planted,
+                &want,
+                &blended,
+                Bar {
+                    rounding: Rounding::TermByTerm,
+                    driver: radv,
+                },
+                8,
+            )
+        })
+        .is_err(),
+        "a +1 on every blended pixel passed on RADV: the bias bound tested nothing"
+    );
+    assert_frame(
+        &planted,
+        &want,
+        &blended,
+        Bar {
+            rounding: Rounding::TermByTerm,
+            driver: llvmpipe,
+        },
+        8,
+    );
 }
