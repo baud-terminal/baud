@@ -221,9 +221,11 @@ for s in /io/streams/*.bin; do
   # The child waits for the window's grid, so no byte is drawn at the
   # 80x24 the pty is spawned at and then reflowed; then raw, so the tty
   # passes the bytes as they are: no LF made CR LF, no answer to a query
-  # echoed onto the screen.
+  # echoed onto the screen. Written, it leaves <name>.fed beside the
+  # screenshot: a grid that never came leaves the page empty, and the
+  # comparison names that rather than the pixels it costs.
   BAUD_LOG=debug BAUD_CONFIG=/tmp/baud.toml \
-    BAUD_CMD="until [ \"\$(stty size)\" = '35 100' ]; do sleep 0.05; done; stty raw -echo; cat $s; exec sleep 600" \
+    BAUD_CMD="until [ \"\$(stty size)\" = '35 100' ]; do sleep 0.05; done; stty raw -echo; cat $s; : >/io/shot/$n.fed; exec sleep 600" \
     /target/release/baud >/io/shot/$n.log 2>&1 &
   BAUD=$!
   sleep 4
@@ -350,10 +352,11 @@ start_sway() {
   export SWAYSOCK=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock)
   sleep 1
 }
-# The app, its child waiting for the grid before it writes the stream.
+# The app, its child waiting for the grid before it writes the stream,
+# then leaving the log's name with .fed for .log.
 start_baud() { # stream, rows, cols, log
   BAUD_LOG=debug BAUD_CONFIG=baud.toml \
-    BAUD_CMD="until [ \"\$(stty size)\" = '$2 $3' ]; do sleep 0.05; done; stty raw -echo; cat $1; exec sleep 600" \
+    BAUD_CMD="until [ \"\$(stty size)\" = '$2 $3' ]; do sleep 0.05; done; stty raw -echo; cat $1; : >'${4%.log}.fed'; exec sleep 600" \
     /target/release/baud > "$4" 2>&1 &
   BAUD=$!
 }
@@ -445,67 +448,7 @@ echo "$fixtures" | while read -r name rec ws scale comp; do
     "$out/streams/$name.bin" "$out/mac/$name.pam"
 done
 
-# The comparisons, by baud-bench's linux-pixels example, built here as the Mac
-# arm's bench was.
-cargo build -q --release --manifest-path "$root/Cargo.toml" -p baud-bench --example linux-pixels
-px=${CARGO_TARGET_DIR:-$root/target}/release/examples/linux-pixels
-# The grid of a screenshot `$1`, `$2` x `$3` pixels, where the app centres
-# it: half of what the screenshot leaves beyond it on each axis. A PNG's
-# width and height are its IHDR's first eight bytes, big-endian, at 16.
-grid_at() {
-  local sw sh
-  read -r sw sh < <(od -An -tu1 -j 16 -N 8 "$1" |
-    awk '{print $1 * 16777216 + $2 * 65536 + $3 * 256 + $4, $5 * 16777216 + $6 * 65536 + $7 * 256 + $8}')
-  $px crop "$1" $(((sw - $2) / 2)) $(((sh - $3) / 2)) "$2" "$3" "$4"
-}
-echo "$fixtures" | while read -r name rec ws scale comp; do
-  [ -n "$name" ] || continue
-  echo "== $name ($ws, scale $scale, $comp)"
-  if [ -s "$out/shot/$name.told" ]; then sed 's/^/        /' "$out/shot/$name.told"; fi
-  printf 'mac against linux, the bench: '
-  if cmp -s "$out/mac/$name.pam" "$out/linux/$name.pam"; then
-    echo identical
-  else
-    $px diff "$out/mac/$name.pam" "$out/linux/$name.pam" "$out/diff/$name-os.png" || true
-  fi
-  printf 'the screenshot settled: '
-  $px diff "$out/shot/$name.png" "$out/shot/$name.again.png" >/dev/null &&
-    echo yes || echo "no, it changed in the second after"
-  $px over-black "$out/linux/$name.pam" "$out/linux/$name.over.pam"
-  w=$(sed -n 's/^WIDTH //p' "$out/linux/$name.pam" | head -1)
-  h=$(sed -n 's/^HEIGHT //p' "$out/linux/$name.pam" | head -1)
-  grid_at "$out/shot/$name.png" "$w" "$h" "$out/shot/$name.grid.pam"
-  printf 'linux over black against the screenshot: '
-  $px diff "$out/linux/$name.over.pam" "$out/shot/$name.grid.pam" "$out/diff/$name-app.png" || true
-done
-# The control's one value, which linux-pixels computes and reads from neither
-# arm: rgb(185, 37, 105) at the dark dim's alpha, round(0.70 * 255) = 179,
-# premultiplied over black and rounded.
-for c in control control-x2 control-sway control-x1.5; do
-  printf 'the %s holds one value, (130, 26, 74), everywhere: ' "$c"
-  $px control "$out/shot/$c.grid.pam"
-done
-# The moves: each step's window, what it attached and told, and its frame
-# on the output it is on against the bench at that output's scale.
-for arm in bookworm trixie; do
-  m=$out/$arm/moves
-  if [ "$arm" = trixie ]; then s2=1.5 bench2=less-pager-x1.5; else s2=2 bench2=less-pager-x2; fi
-  echo "== moves, sway on $arm: $(tr '\n' ' ' <"$m/outputs.txt")"
-  for step in first across-from-1 moved across-from-2 back; do
-    echo "-- $step: the window at $(cat "$m/$step.rect")"
-    sed 's/^/        /' "$m/$step.told"
-  done
-  for shot in first-HEADLESS-1:less-pager:1 moved-HEADLESS-2:$bench2:$s2 back-HEADLESS-1:less-pager:1; do
-    IFS=: read -r f b sc <<<"$shot"
-    w=$(sed -n 's/^WIDTH //p' "$out/linux/$b.pam" | head -1)
-    h=$(sed -n 's/^HEIGHT //p' "$out/linux/$b.pam" | head -1)
-    printf '%s, its screenshot %s, against the bench at %s: ' "$f" \
-      "$($px png-size "$m/$f.png")" "$sc"
-    grid_at "$m/$f.png" "$w" "$h" "$m/$f.grid.pam"
-    $px diff "$out/linux/$b.over.pam" "$m/$f.grid.pam" "$out/diff/$arm-$f.png" || true
-  done
-  echo "-- every window buffer size and scale told, in order:"
-  sed 's/^/        /' "$m/told.all"
-done
-echo "== clipboard"
-cat "$out/clip/result.txt"
+# The comparisons, by `linux-pixels-compare.sh`, which reads the fixtures
+# from the folder.
+echo "$fixtures" >"$out/fixtures.txt"
+exec "$root/scripts/linux-pixels-compare.sh" "$out"
