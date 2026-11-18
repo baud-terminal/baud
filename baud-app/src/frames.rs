@@ -70,8 +70,6 @@ pub(crate) enum Deadline {
     Splash,
     /// A kitty animation's next frame.
     Images,
-    /// Predictions outstanding past their bound.
-    Predictions,
     /// The indicator line's printer field, at its pace.
     Indicator,
     /// The five-second report, while the log shows it.

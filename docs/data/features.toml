@@ -371,16 +371,6 @@ platform = "macos"
 measured = ["Five terminals through a pty"]
 
 [[feature]]
-id = "echo-early"
-area = "speed"
-name = "What you type shows before the shell answers"
-does = "At a prompt your shell marks, a typed character is drawn about 3 ms sooner, and quietly taken back if the shell shows something else."
-status = "built"
-platform = "macos"
-tests = ["baud-render/tests/predicted.rs::a_prediction_gives_way_to_a_cell_the_walk_already_drew", "baud-app/src/app.rs::a_reset_drops_outstanding_predictions_as_contradicted"]
-measured = ["A key's echo drawn before the pty answers (row 9)"]
-
-[[feature]]
 id = "key-during-flood"
 area = "speed"
 name = "Keys first, even during a flood"

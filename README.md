@@ -30,7 +30,7 @@ in time. baud does it with a look of its own.
 on Linux under Wayland. [What works today, and what is in
 progress](docs/guide/status.md).
 
-**[See all 221 features](docs/guide/features.md)**
+**[See all 220 features](docs/guide/features.md)**
 
 ## Install
 

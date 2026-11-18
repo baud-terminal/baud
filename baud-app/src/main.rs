@@ -139,10 +139,9 @@ mod keep;
 // its own, given back when freed.
 #[cfg(target_os = "macos")]
 mod heap;
-// The keystroke instrument, on both drivers. Its GPU landing and its
-// predicted echoes are the macOS driver's alone, unused on Linux, whose
-// frames are shared memory and whose echo is not predicted; the macOS
-// build still holds every item to being used.
+// The keystroke instrument, on both drivers. Its GPU landing is the
+// macOS driver's alone, unused on Linux, whose frames are shared memory;
+// the macOS build still holds every item to being used.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod latency;

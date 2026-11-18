@@ -23,21 +23,17 @@ use crate::keep::{
     kept_across_resize_owing, live_moved, oldest, reset_in, scrolled_off_the_top, snap_live,
     stale_in_moved_rows, switched, tracked_highlight, whole_screen_scrolled,
 };
-use crate::latency::{Ended, Judged, Latency, Switch};
+use crate::latency::{Ended, Latency, Switch};
 use crate::layouts::KeyLayout;
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
 use crate::reveal::{Reveal, Scale, shown_gutter};
 use crate::trail::{GhostRide, ride_px};
 use crate::wheel::{Delta, Route, Travel};
-use baud_core::{
-    Depth, Erasure, Looking, Owned, PromptJump, PromptsOpened, ReadLamp, Screen, Term, Zone,
-    grid_stride,
-};
+use baud_core::{Depth, Erasure, Looking, Owned, PromptJump, ReadLamp, Screen, Term, grid_stride};
 use baud_domain::{
-    Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent, KeyEventKind,
-    KeypadMode, LocatorAt, LocatorButtons, LocatorInput, LocatorKind, Modifiers, MouseButton,
-    MouseEvent, MouseKind, MouseMods, PackedCell, PointerPx, RegisRepainted, Row, RowRot, Rows,
-    WinSize,
+    Codepoint, Col, Cols, FnKey, HostTime, ImagePx, KeyCode, KeyEvent, KeyEventKind, LocatorAt,
+    LocatorButtons, LocatorInput, LocatorKind, Modifiers, MouseButton, MouseEvent, MouseKind,
+    MouseMods, PackedCell, PointerPx, RegisRepainted, Row, RowRot, Rows, WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -482,7 +478,6 @@ struct FrameGate {
     update: Option<Update>,
     trigger: Trigger,
     echo: Echo,
-    guess: Guess,
     marked: Marked,
     /// Since the last frame was committed, and how far apart the ticks
     /// are.
@@ -495,7 +490,7 @@ struct FrameGate {
 /// [`Decided::Clean`]; a synchronised update the clock still honours holds
 /// the frame, so a partial redraw is never shown; at the opening the
 /// window's first frame draws it. Otherwise a frame is due on a tick, on a
-/// key's echo fed, a prediction or a composition owed, or once a frame's
+/// key's echo fed or a composition owed, or once a frame's
 /// time has passed since the last commit -- so a flood draws once a vsync
 /// and a keystroke draws now -- and it is drawn unless one is in flight,
 /// whose completion runs the turn again. The launch logo is no input: it
@@ -512,7 +507,6 @@ fn frame_gate(g: FrameGate) -> Decided {
     }
     let due = g.trigger == Trigger::Tick
         || g.echo == Echo::Fed
-        || g.guess == Guess::Owed
         || g.marked == Marked::Owed
         || g.since_commit >= g.interval;
     match due && g.flight == InFlight::Idle {
@@ -778,21 +772,12 @@ struct App {
     /// drawn as soon as no frame is in flight, whatever the clock says,
     /// and only that read; floods still coalesce.
     echo: Echo,
-    /// Row 9: the echoes drawn before the pty answered, oldest first; the
-    /// frame they are owed; whether a contradiction has closed prediction
-    /// until the next prompt; and the zone the last read left the core in,
-    /// so the next prompt is seen opening.
-    predictions: Vec<Prediction>,
-    guess: Guess,
     /// The input manager's composition -- `marked_text`'s marked text: a
     /// dead key's accent, an IME's unconverted text -- drawn at the cursor
     /// until it is committed or cancelled, and whether a frame is owed for a
     /// change to it.
     composing: Vec<Codepoint>,
     marked: Marked,
-    hold: Hold,
-    /// The core's prompt count at the last read, for [`hold_after`].
-    last_prompts: PromptsOpened,
     last_tick: Option<f64>,
     /// When the frames held for a synchronised update (`?2026`) began to be
     /// held. A frame is held while one is open, so a half-drawn screen --
@@ -1666,7 +1651,6 @@ impl App {
         crate::pty::say_refused(&mut term, &pty);
         let notes = crate::notify::Delivery::new(notifications, &term, images);
         let fireworks = crate::fireworks::Fireworks::new();
-        let last_prompts = term.prompts_opened();
         let counts = Counts::new(&term);
         App {
             bell,
@@ -1806,12 +1790,8 @@ impl App {
             last_commit: Instant::now(),
             interval: Duration::from_micros(8333),
             echo: Echo::Drawn,
-            predictions: Vec::new(),
-            guess: Guess::None,
             composing: Vec::new(),
             marked: Marked::Drawn,
-            hold: Hold::Open,
-            last_prompts,
             last_tick: None,
             updates: UpdateClock::new(SYNC_MAX),
             blink: BlinkPhases::SHOWN,
@@ -3019,7 +2999,7 @@ impl App {
                 let live = live_cursor(&self.term).map(|(r, c)| (r, c, self.term.cursor_style()));
                 let inputs = baud_render::cell_frame::CellInputs {
                     back: self.term.window_back(),
-                    predictions: self.predictions.iter().map(|p| (p.row, p.col, p.cp)),
+                    predictions: core::iter::empty(),
                     live,
                     composition: &composition,
                     highlight,
@@ -3324,11 +3304,10 @@ impl App {
         self.pending = Pending::Clean;
         self.last_commit = Instant::now();
         // A fed echo is drawn by this commit; a wanted one is still owed,
-        // whatever frame this was -- a tick's, or a prediction's.
+        // whatever frame this was.
         if self.echo == Echo::Fed {
             self.echo = Echo::Drawn;
         }
-        self.guess = Guess::None;
         self.marked = Marked::Drawn;
         self.frames.bump();
     }
@@ -4472,13 +4451,6 @@ fn typed_text(text: &str, keyed: Option<&Keyed>) -> Vec<KeyEvent> {
         .collect()
 }
 
-/// **Whether a key's modifiers make it a chord**, whose bytes are not its
-/// text: anything but Shift, whose capital is the text the base layer
-/// sends, and Caps Lock, whose capital is too.
-fn is_chord(held: Modifiers) -> bool {
-    held.without(Modifiers::SHIFT).without(Modifiers::CAPS_LOCK) != Modifiers::NONE
-}
-
 /// The character `layout` types on `key` without Shift, asked only
 /// while Shift is held: the one case its own characters do not say. The
 /// app asks the selected layout ([`KeyLayout::Selected`]).
@@ -4529,16 +4501,6 @@ fn history_page(
         ..pressed(code, key, held_with_locks(key, flags))
     };
     crate::history_keys::decide(&e, screen, undecoded)
-}
-
-/// Whether a key's text is what it sends, so that drawing it ahead of the
-/// echo predicts the echo: a keypad key only from the numeric column
-/// (`[[source: ctlseqs]]` line 2498), under DECKPAM `5` being `SS3 u`.
-fn predicts(code: KeyCode, keypad: KeypadMode) -> bool {
-    match code {
-        KeyCode::Keypad(_) => keypad == KeypadMode::Numeric,
-        _ => true,
-    }
 }
 
 /// A style change the system has announced and the loop has not applied.
@@ -6042,17 +6004,13 @@ fn chase_frame(
 }
 
 /// What the app keeps over the screen and a read can leave naming cells
-/// that are gone: the selection, the echoes drawn ahead of the shell and
-/// their frame, the slide, the wheel's travel not yet a line, and the
-/// instrument the guesses' verdicts go to. Borrowed from `App` for one call,
-/// so the rule is a plain function a test runs over a real `Term`.
+/// that are gone: the selection, the slide and the wheel's travel not yet a
+/// line. Borrowed from `App` for one call, so the rule is a plain function a
+/// test runs over a real `Term`.
 struct Kept<'a> {
     selection: &'a mut Option<Selection>,
-    predictions: &'a mut Vec<Prediction>,
-    guess: &'a mut Guess,
     slide: &'a mut Slide,
     travel: &'a mut Travel,
-    latency: &'a mut Latency,
 }
 
 /// Whether a read put another surface up, for what follows the cursor and
@@ -6076,8 +6034,7 @@ enum Thumb {
 ///
 /// Note V's V1: when the reset count moves, the selection goes -- it names
 /// cells the power-on state does not have, as foot's hard reset and xterm's
-/// `RIS` both drop theirs -- the guesses drawn ahead of the shell are
-/// dropped as contradicted, the wheel's part-line settles, and a window over
+/// `RIS` both drop theirs -- the wheel's part-line settles, and a window over
 /// the history that came to the live screen reveals its thumb, as a key's
 /// snap does (V1's first fork). **The window is the one the reset took live,
 /// at the reset's byte**, which the core keeps with the first erasure
@@ -6101,15 +6058,6 @@ fn restart(term: &Term<'_>, before: Before, kept: Kept<'_>) -> (Surface, Thumb) 
     let reset = reset_in(term, before);
     if surface == Surface::Switched || reset {
         *kept.selection = None;
-        // Each with its verdict, as `judge` gives one: a bare clear left a
-        // key's record under `BAUD_KEYLAT` waiting for the instrument's own
-        // timeout.
-        for p in kept.predictions.drain(..) {
-            if let Some(seq) = p.seq {
-                kept.latency.judged(seq, Judged::Contradicted);
-            }
-        }
-        *kept.guess = Guess::None;
         kept.travel.settle();
     }
     if surface == Surface::Switched {
@@ -6254,8 +6202,8 @@ mod ghost_tests {
 #[cfg(test)]
 mod alt_window_tests {
     use super::{
-        Before, Counts, Hold, Numbered, Ring, erased, hold_after, live_cursor, live_moved, oldest,
-        snap_live, stale_in_moved_rows, switched, whole_screen_scrolled, window_of,
+        Before, Counts, Numbered, Ring, erased, live_cursor, live_moved, oldest, snap_live,
+        stale_in_moved_rows, switched, whole_screen_scrolled, window_of,
     };
     use baud_core::{Depth, Owned, Screen, Term};
     use baud_domain::{BytePos, ReadLen, Rows, WinSize};
@@ -7587,85 +7535,6 @@ mod alt_window_tests {
                 );
                 // A live window stays live, whatever the re-cut did.
                 assert_eq!(window_resized(&mut t, &ws(from), Rows::ZERO), Rows::ZERO);
-            }
-        }
-    }
-
-    /// **A full-screen program started from the prompt is not a prompt
-    /// opening.** A contradicted prediction holds prediction until the
-    /// shell's next prompt, and the hold is released when a prompt opens on
-    /// the primary. Each screen has its own zone, so a program a line-editor
-    /// widget opens with no `C` -- fzf full-screen, `edit-command-line` --
-    /// turned the live zone to `Output` and back, which read as a prompt
-    /// opening when it closed. The control is a real next prompt, which
-    /// releases the hold.
-    #[test]
-    fn an_alternate_screen_round_trip_is_not_a_prompt_opening() {
-        let mut owned = Owned::new(&WS);
-        let mut t = Term::new(owned.storage(), &WS);
-        let before = t.prompts_opened();
-        feed(&mut t, b"\x1b]133;P;k=i\x07$ ");
-        let (mut hold, mut last) = hold_after(&t, Hold::UntilNextPrompt, before);
-        assert!(hold == Hold::Open, "the control: a prompt opened");
-        // A prediction the echo contradicted.
-        hold = Hold::UntilNextPrompt;
-        // The program's screen carries a mark of its own, which is the
-        // program's and opens no prompt of the shell's.
-        let program = b"\x1b[?1049h\x1b]133;A\x07\x1b[Hpicker";
-        for read in [&program[..], b"\x1b[?1049l"] {
-            (hold, last) = hold_after(&t, hold, last);
-            feed(&mut t, read);
-            (hold, last) = hold_after(&t, hold, last);
-            assert!(
-                hold == Hold::UntilNextPrompt,
-                "{read:?}: the program's screen opened no prompt"
-            );
-        }
-        // The command the user runs, then its next prompt.
-        feed(&mut t, b"\r\n\x1b]133;C\x07");
-        (hold, last) = hold_after(&t, hold, last);
-        feed(&mut t, b"out\r\n\x1b]133;D\x07\x1b]133;P;k=i\x07$ ");
-        (hold, _) = hold_after(&t, hold, last);
-        assert!(hold == Hold::Open, "the next prompt released the hold");
-    }
-
-    /// **A command whose `C`, output and next prompt come in one read
-    /// opens a prompt all the same.** The hold was released by the zone
-    /// turning to `Prompt` between two reads, and a one-read command leaves
-    /// it at `Prompt` on both sides, so prediction stayed held until a later
-    /// prompt. At every split of the read in two the hold is released at its
-    /// end; the control is the read with no prompt in it, which keeps it.
-    #[test]
-    fn a_command_in_one_read_releases_the_hold() {
-        let prompt = b"\x1b]133;P;k=i\x07$ ";
-        let read = b"\r\n\x1b]133;C\x07out\r\n\x1b]133;D\x07\x1b]133;P;k=i\x07$ ";
-        let control = b"\r\n\x1b]133;C\x07out\r\n\x1b]133;D\x07";
-        for (bytes, opens) in [(&read[..], true), (&control[..], false)] {
-            for cut in 0..bytes.len() {
-                let mut owned = Owned::new(&WS);
-                let mut t = Term::new(owned.storage(), &WS);
-                let (_, last) = hold_after(&t, Hold::Open, t.prompts_opened());
-                feed(&mut t, prompt);
-                let (_, mut last) = hold_after(&t, Hold::Open, last);
-                // A prediction the echo contradicted, at this prompt.
-                let mut hold = Hold::UntilNextPrompt;
-                let (one, two) = bytes.split_at(cut);
-                match cut == 0 {
-                    // One read, the whole of it.
-                    true => feed(&mut t, bytes),
-                    // Two reads, the hold sampled after each.
-                    false => {
-                        feed(&mut t, one);
-                        (hold, last) = hold_after(&t, hold, last);
-                        feed(&mut t, two);
-                    }
-                }
-                (hold, _) = hold_after(&t, hold, last);
-                assert_eq!(
-                    hold == Hold::Open,
-                    opens,
-                    "{bytes:?} cut at {cut}: a prompt opened or not"
-                );
             }
         }
     }
@@ -10719,15 +10588,14 @@ mod resize_selection_tests {
 /// core's.
 #[cfg(test)]
 mod restart_tests {
-    use super::{Before, Guess, Kept, Prediction, Surface, Thumb, restart, window_of};
-    use crate::latency::{Judged, Latency, Switch};
+    use super::{Before, Kept, Surface, Thumb, restart, window_of};
     use crate::reveal::Reveal;
     use crate::wheel::{Delta, Travel};
     use baud_core::{Owned, Screen, Term};
-    use baud_domain::{BytePos, Codepoint, Col, HostTime, ReadLen, Row, Rows, WinSize};
+    use baud_domain::{BytePos, Col, HostTime, ReadLen, Row, Rows, WinSize};
     use baud_font::Px;
     use baud_render::{Grain, Scroll, Scrolled, Scroller, Selection, Slide, Span, bar};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     const WS: WinSize = WinSize {
         ws_col: 20,
@@ -10742,22 +10610,16 @@ mod restart_tests {
     /// What the app keeps over the screen, owned, as `App` holds it.
     struct State {
         selection: Option<Selection>,
-        predictions: Vec<Prediction>,
-        guess: Guess,
         slide: Slide,
         travel: Travel,
-        latency: Latency,
     }
 
     impl State {
         fn new() -> State {
             State {
                 selection: None,
-                predictions: Vec::new(),
-                guess: Guess::None,
                 slide: Slide::new(Px::of(20)),
                 travel: Travel::default(),
-                latency: Latency::new(Switch::On),
             }
         }
 
@@ -10770,11 +10632,8 @@ mod restart_tests {
                 before,
                 Kept {
                     selection: &mut self.selection,
-                    predictions: &mut self.predictions,
-                    guess: &mut self.guess,
                     slide: &mut self.slide,
                     travel: &mut self.travel,
-                    latency: &mut self.latency,
                 },
             )
         }
@@ -10796,28 +10655,6 @@ mod restart_tests {
                 Span::cell(t.row(r).expect("a row on the grid"), line, Col::ZERO),
                 Grain::Cell,
             ));
-        }
-
-        /// A key's echo drawn at `(row, col)` ahead of the shell, with its
-        /// record open in the instrument: the record's seq.
-        fn predict(&mut self, t: &Term<'_>, (row, col): (Row, Col)) -> baud_render::Tally {
-            let at = |us| HostTime::of_nanos(1_000_000_000).plus(Duration::from_micros(us));
-            self.latency.key(|| Some(at(0)), || at(10));
-            self.latency.written(|| at(20));
-            let seq = self
-                .latency
-                .predicted(|| at(30))
-                .expect("a record to carry it");
-            self.predictions.push(Prediction {
-                row,
-                col,
-                cp: Codepoint::new(u32::from('l')).expect("a codepoint"),
-                seq: Some(seq),
-                at: Instant::now(),
-                rot: t.rotation(),
-            });
-            self.guess = Guess::Owed;
-            seq
         }
     }
 
@@ -10901,43 +10738,7 @@ mod restart_tests {
         }
     }
 
-    /// **The guesses go as contradicted**, on a reset and on a switch, each
-    /// with its verdict in the instrument -- a bare clear left a key's record
-    /// waiting for its timeout -- and stay pending across a read that does
-    /// neither.
-    #[test]
-    fn a_reset_drops_outstanding_predictions_as_contradicted() {
-        with_term(&WS, |t| {
-            let mut s = State::new();
-            feed(t, b"$ ");
-            let seq = s.predict(t, (Row::from_index(0), Col::at_index(2)));
-            s.read(t, b"\x1b[m");
-            assert_eq!(
-                s.predictions.len(),
-                1,
-                "the control: a read that resets nothing"
-            );
-            assert_eq!(s.latency.verdict(seq), Some(Judged::Unjudged));
-            s.read(t, b"\x1bc");
-            assert!(s.predictions.is_empty(), "the reset kept a guess");
-            assert!(s.guess == Guess::None, "and its frame");
-            assert_eq!(s.latency.verdict(seq), Some(Judged::Contradicted));
-        });
-    }
-
-    #[test]
-    fn a_switch_drops_predictions_with_a_verdict() {
-        with_term(&WS, |t| {
-            let mut s = State::new();
-            feed(t, b"$ ");
-            let seq = s.predict(t, (Row::from_index(0), Col::at_index(2)));
-            s.read(t, b"\x1b[?1049h");
-            assert!(s.predictions.is_empty(), "the switch kept a guess");
-            assert_eq!(s.latency.verdict(seq), Some(Judged::Contradicted));
-        });
-    }
-
-    /// **A switch drops the rest as a reset does, and settles the slide**,
+    /// **A switch drops the selection as a reset does, and settles the slide**,
     /// whose offset names a row the other surface does not have; a reset's
     /// slide is the pump's erase arm's, so `restart` leaves it -- the
     /// control.
@@ -13300,34 +13101,8 @@ fn builds(flight: Option<InFlight>) -> Builds {
     }
 }
 
-/// A key's echo drawn before the pty answered: the cell it stands in on the
-/// live screen, the codepoint it shows, the latency record it belongs to
-/// when the instrument is on, and when it was made.
-struct Prediction {
-    row: Row,
-    col: Col,
-    cp: Codepoint,
-    seq: Option<Tally>,
-    at: Instant,
-    /// The ring's rotation when the cell was chosen. `row` is a *screen*
-    /// row, so a read that scrolls moves the cell out from under it: the
-    /// judge would then read whatever now sits there, and the draw would
-    /// put the glyph on a line the user did not type it on. Only a read
-    /// rotates the ring and every read judges, so comparing this against
-    /// the rotation the read left is enough to catch it.
-    rot: RowRot,
-}
-
-/// Whether a predicted echo is owed a frame: the reason a frame is due
-/// now, beside a fed echo and the tick.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Guess {
-    Owed,
-    None,
-}
-
 /// Whether a change to the composition is owed a frame: the reason a frame
-/// is due now, beside a fed echo and a prediction.
+/// is due now, beside a fed echo.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Marked {
     Owed,
@@ -13346,38 +13121,6 @@ enum Marked {
 fn composing_first(key: &KeyPress, composing: &[Codepoint]) -> bool {
     !key.modifiers.command && !composing.is_empty()
 }
-
-/// Whether the app may predict: open, or held until the shell's next
-/// prompt after a prediction the echo contradicted.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Hold {
-    Open,
-    UntilNextPrompt,
-}
-
-/// The hold after a read, and the prompt count to remember for the next: a
-/// prompt opening on the primary since the last read releases a hold a
-/// contradicted prediction set. **A count, not the zone sampled.** A read
-/// carrying a whole command -- its `C`, the output and the next `A` --
-/// leaves the zone at `Prompt` on both sides, and the hold stayed on until
-/// a later prompt; the core counts each turn of the primary's zone to
-/// `Prompt` as the bytes come, whatever the reads. **The primary's, not the
-/// live screen's**: a full-screen program a line-editor widget opens with
-/// no `C` turned the live zone to `Output` and back, and its closing read as
-/// a prompt opening.
-fn hold_after(term: &Term<'_>, hold: Hold, last: PromptsOpened) -> (Hold, PromptsOpened) {
-    let now = term.prompts_opened();
-    let hold = match now != last {
-        true => Hold::Open,
-        false => hold,
-    };
-    (hold, now)
-}
-
-/// A prediction outstanding this long is dropped as contradicted: a shell
-/// that did not echo a printable at its prompt in this time is a shell
-/// whose widgets are eating keys, and the glyph must not outlive that.
-const PREDICT_MAX: Duration = Duration::from_millis(150);
 
 /// Where the echo of the last key sent stands.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -13401,151 +13144,35 @@ enum Sent {
     Bytes,
 }
 
-/// **The key [`key_owes`] decides for**: its text, the modifiers held
-/// with it, its code, and the keypad mode in force when it was typed.
-#[derive(Clone, Copy)]
-struct KeyTyped {
-    text: Option<Codepoint>,
-    held: Modifiers,
-    code: KeyCode,
-    keypad: KeypadMode,
-}
-
-/// Whether the cell a prediction is drawn at already holds something.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Underneath {
-    Empty,
-    Occupied,
-}
-
-/// **Where a key's echo is drawn before the pty answers** ([`key_owes`]).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Guessed {
-    /// Not asked: nothing was sent, the key carries no text, or its text
-    /// is not what it sends ([`predicts`]).
-    Unasked,
-    /// Refused, for the reason the latency record takes.
-    Refused(&'static str),
-    /// Drawn at this cell of the live screen.
-    At {
-        row: Row,
-        col: Col,
-        cp: Codepoint,
-        under: Underneath,
-    },
-}
-
-/// **What a typed key owes** ([`key_owes`]): where its echo stands,
-/// whether a frame is owed now, and where its echo is predicted.
+/// **What a typed key owes** ([`key_owes`]): where its echo stands, and
+/// whether a frame is owed now.
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct KeyOwes {
     echo: Echo,
     frame: Pending,
-    guessed: Guessed,
 }
 
 /// **What a key `Driver::typed` sent owes**, read from the terminal after
-/// the key reached it. Under SRM reset the core drew the key itself, so
-/// its frame is owed now, as a read's echo is. A key sent otherwise waits
-/// for its echo, and a printable typed at the shell's prompt is predicted:
-/// drawn before the pty answers, as an overlay the next read judges, which
-/// owes its frame now.
-///
-/// The prediction's gates: the cell path, the core's prompt zone, the
-/// primary screen, the live view, no synchronised update, a visible cursor
-/// that is not in the last column, an ASCII printable, and no
-/// contradiction since the prompt opened (`hold`). A second key before the
-/// first echo is predicted after the first, `last`. An occupied cell is
-/// predicted over: at a prompt the occupant is the shell's own suggestion
-/// of what comes next.
-fn key_owes(
-    echo: Echo,
-    sent: Sent,
-    key: KeyTyped,
-    hold: Hold,
-    path: Path,
-    last: Option<(Row, Col)>,
-    term: &Term<'_>,
-) -> KeyOwes {
-    let guessed = 'guess: {
-        let c = match (sent, key.text) {
-            (Sent::Bytes, Some(c)) if predicts(key.code, key.keypad) => c,
-            _ => break 'guess Guessed::Unasked,
-        };
-        // Only the cell path draws a prediction: on the instance or CPU
-        // path a record would be stamped and committed on a frame that
-        // never drew the glyph.
-        if path != Path::Cells {
-            break 'guess Guessed::Refused("path");
-        }
-        let printable =
-            char::from_u32(c.value()).is_some_and(|ch| ch == ' ' || ch.is_ascii_graphic());
-        let refused = if is_chord(key.held) {
-            // A control or option chord carries text -- the unmodified
-            // character -- and `send` writes the *chord*, so the glyph
-            // would not be the byte. Only the input manager's `text` path
-            // predicts, whose events carry Shift at most. Shift's capital
-            // is the text the base layer sends below `modifyOtherKeys` 2; at
-            // 2 and 3 it is `CSI 27 ; 2 ; N ~`, and the next read judges the
-            // overlay, as it does for a plain key at level 3 or with every
-            // key reported as an escape code.
-            Some("mods")
-        } else if hold != Hold::Open {
-            Some("hold")
-        } else if term.zone() != Zone::Prompt {
-            Some("zone")
-        } else if term.screen() != Screen::Normal {
-            Some("screen")
-        } else if term.window_back().index() != 0 {
-            Some("back")
-        } else if term.synchronized_output() {
-            Some("sync")
-        } else if term.local_echo() {
-            // SRM reset: the terminal drew the key itself, and the child's
-            // echo, if it echoes too, is not one to predict.
-            Some("srm")
-        } else if !term.cursor_visible() {
-            Some("cursor")
-        } else if !printable {
-            Some("printable")
-        } else {
-            None
-        };
-        if let Some(why) = refused {
-            break 'guess Guessed::Refused(why);
-        }
-        let view = term.view(Rows::ZERO);
-        let (row, col) = match last {
-            Some((row, col)) => (row, col.after()),
-            None => term.cursor(),
-        };
-        if col.index() + 1 >= view.cols().index() {
-            break 'guess Guessed::Refused("edge");
-        }
-        let Some(cell) = view.row(row).get(col.index()) else {
-            break 'guess Guessed::Refused("edge");
-        };
-        let under = match cell.content.is_empty() {
-            true => Underneath::Empty,
-            false => Underneath::Occupied,
-        };
-        Guessed::At {
-            row,
-            col,
-            cp: c,
-            under,
-        }
+/// the key reached it. A key sent waits for the host's echo and owes no
+/// frame, so nothing is drawn for it until a read feeds that echo
+/// ([`read_echo`]) and the frame gate ([`frame_gate`]) finds it fed. Under
+/// SRM reset the core drew the key itself, so its frame is owed now, as a
+/// read's echo is.
+fn key_owes(echo: Echo, sent: Sent, term: &Term<'_>) -> KeyOwes {
+    let (echo, frame) = match (term.local_echo(), sent) {
+        (true, _) => (Echo::Fed, Pending::Dirty),
+        (false, Sent::Bytes) => (Echo::Wanted, Pending::Clean),
+        (false, Sent::Nothing) => (echo, Pending::Clean),
     };
-    let (echo, frame) = match (term.local_echo(), sent, guessed) {
-        (true, _, _) => (Echo::Fed, Pending::Dirty),
-        (false, Sent::Bytes, Guessed::At { .. }) => (Echo::Wanted, Pending::Dirty),
-        (false, Sent::Bytes, _) => (Echo::Wanted, Pending::Clean),
-        (false, Sent::Nothing, _) => (echo, Pending::Clean),
-    };
-    KeyOwes {
-        echo,
-        frame,
-        guessed,
+    KeyOwes { echo, frame }
+}
+
+/// **Where the echo stands after a read is fed**: the first read after a
+/// key's write is that key's echo, and it is owed a frame now.
+fn read_echo(echo: Echo) -> Echo {
+    match echo {
+        Echo::Wanted => Echo::Fed,
+        Echo::Fed | Echo::Drawn => echo,
     }
 }
 
@@ -14425,31 +14052,7 @@ impl Driver {
         }
         self.app.latency.key(current_event_time, host_now);
         self.app.take.key(&e);
-        let key = KeyTyped {
-            text: e.text,
-            held: e.mods,
-            code: e.code,
-            keypad: self.app.term.keypad(),
-        };
-        let path = match (
-            self.app.presenter.as_ref().map(Presenter::mode),
-            self.app.cell.as_ref(),
-        ) {
-            (Some(Mode::Gpu), Some(_)) => Path::Cells,
-            (Some(Mode::Gpu), None) => Path::Instances,
-            (Some(Mode::Cpu) | None, _) => Path::Cpu,
-        };
         let sent = self.app.send(e);
-        let last = self.app.predictions.last().map(|p| (p.row, p.col));
-        let owes = key_owes(
-            self.app.echo,
-            sent,
-            key,
-            self.app.hold,
-            path,
-            last,
-            &self.app.term,
-        );
         match sent {
             Sent::Bytes => {
                 // A key can start a job that prints nothing (`title.rs`).
@@ -14457,21 +14060,15 @@ impl Driver {
                 let act = self.hiding.key(&self.app.term);
                 hide_pointer(act);
                 self.app.latency.written(host_now);
-                self.app.echo = owes.echo;
-                self.predict(owes.guessed);
             }
             Sent::Nothing => self.app.latency.unsent(),
         }
-        // The key's frame, owed now: under SRM reset the core drew the key
-        // itself, as a read's echo is drawn, or its echo is predicted; the
-        // keystroke is the event, and nothing else pumps the loop for it.
+        let owes = key_owes(self.app.echo, sent, &self.app.term);
+        self.app.echo = owes.echo;
+        // SRM reset: the core drew the key itself, so its frame is owed now,
+        // as a read's echo is, and nothing else pumps the loop for it.
         if owes.frame == Pending::Dirty {
             self.app.owe_frame();
-            self.app.echo = owes.echo;
-            self.pump(Trigger::Wake);
-        } else if self.app.guess == Guess::Owed {
-            // An earlier key's prediction is owed its frame now, not at the
-            // next wake.
             self.pump(Trigger::Wake);
         }
     }
@@ -14484,134 +14081,6 @@ impl Driver {
         if self.app.term.local_echo() {
             self.app.owe_frame();
             self.pump(Trigger::Wake);
-        }
-    }
-
-    /// Row 9: what [`key_owes`] decided of a key's prediction, done: the
-    /// refusal or the note the latency record takes, and the prediction
-    /// stamped and kept for the next read to judge. `typed` owes its frame.
-    fn predict(&mut self, guessed: Guessed) {
-        let app = &mut self.app;
-        let (row, col, c) = match guessed {
-            Guessed::Unasked => return,
-            Guessed::Refused(why) => {
-                app.latency.refused(why);
-                return;
-            }
-            Guessed::At {
-                row,
-                col,
-                cp,
-                under,
-            } => {
-                if under == Underneath::Occupied {
-                    app.latency.noted("over-occupied");
-                }
-                (row, col, cp)
-            }
-        };
-        let seq = app.latency.predicted(host_now);
-        app.predictions.push(Prediction {
-            row,
-            col,
-            cp: c,
-            seq,
-            at: Instant::now(),
-            rot: app.term.rotation(),
-        });
-        app.guess = Guess::Owed;
-    }
-
-    /// Row 9: the read that came is the echo. Predictions are held
-    /// against the live grid oldest first: confirmed while each cell holds
-    /// its codepoint, and dropped, because the grid draws them now; still
-    /// pending at a cell the echo has not reached, which stays empty until
-    /// the next read or the expiry; contradicted at a cell that holds
-    /// anything else, with every prediction after it, because the chain
-    /// stood on it. A contradiction holds prediction until the next prompt
-    /// opens.
-    fn judge(&mut self) {
-        let app = &mut self.app;
-        if !app.predictions.is_empty() {
-            // A read that scrolled moved every predicted cell out from
-            // under its screen row, so nothing here can be judged against
-            // the grid any more: drop the lot as contradicted rather than
-            // read a line the user did not type on.
-            let rot = app.term.rotation();
-            if app.predictions.iter().any(|p| p.rot != rot) {
-                for p in app.predictions.drain(..) {
-                    if let Some(seq) = p.seq {
-                        app.latency.judged(seq, Judged::Contradicted);
-                    }
-                }
-                app.hold = Hold::UntilNextPrompt;
-                app.guess = Guess::None;
-                app.latency.noted("scrolled-away");
-            }
-        }
-        if !app.predictions.is_empty() {
-            let view = app.term.view(Rows::ZERO);
-            let mut confirmed = 0;
-            let mut wrong = false;
-            for p in &app.predictions {
-                // The base the cell shows: an echo a mark joined holds its
-                // slot, and the prediction was its base.
-                let content = view
-                    .row(p.row)
-                    .get(p.col.index())
-                    .map(|c| app.term.base_of(*c));
-                match content {
-                    Some(c) if c == Content::codepoint(p.cp) => confirmed += 1,
-                    Some(c) if c.is_empty() => break,
-                    _ => {
-                        wrong = true;
-                        break;
-                    }
-                }
-            }
-            let settled = if wrong {
-                app.predictions.len()
-            } else {
-                confirmed
-            };
-            for (i, p) in app.predictions.drain(..settled).enumerate() {
-                if let Some(seq) = p.seq {
-                    let verdict = if i < confirmed {
-                        Judged::Confirmed
-                    } else {
-                        Judged::Contradicted
-                    };
-                    app.latency.judged(seq, verdict);
-                }
-            }
-            if wrong {
-                app.hold = Hold::UntilNextPrompt;
-            }
-            if app.predictions.is_empty() {
-                app.guess = Guess::None;
-            }
-        }
-        (app.hold, app.last_prompts) = hold_after(&app.term, app.hold, app.last_prompts);
-    }
-
-    /// Row 9: predictions outstanding past `PREDICT_MAX` are dropped as
-    /// contradicted, and the frame is owed again to draw the grid without
-    /// them.
-    fn expire_predictions(&mut self) {
-        let app = &mut self.app;
-        if app
-            .predictions
-            .first()
-            .is_some_and(|p| p.at.elapsed() > PREDICT_MAX)
-        {
-            for p in app.predictions.drain(..) {
-                if let Some(seq) = p.seq {
-                    app.latency.judged(seq, Judged::Contradicted);
-                }
-            }
-            app.hold = Hold::UntilNextPrompt;
-            app.guess = Guess::None;
-            app.owe_frame();
         }
     }
 
@@ -14977,10 +14446,7 @@ impl Driver {
             self.app.take.fed();
             // The first read after a key's write is that key's echo -- the
             // instrument's rule, and the loop's: it is owed a frame now.
-            if self.app.echo == Echo::Wanted {
-                self.app.echo = Echo::Fed;
-            }
-            self.judge();
+            self.app.echo = read_echo(self.app.echo);
         }
         // **What the output set is acted on after every read fed**, its own
         // chunks or the reads a held kitty file read or a ReGIS delay held,
@@ -15129,11 +14595,8 @@ impl Driver {
                 before,
                 Kept {
                     selection: &mut self.app.selection,
-                    predictions: &mut self.app.predictions,
-                    guess: &mut self.app.guess,
                     slide: &mut self.app.slide,
                     travel: &mut self.app.travel,
-                    latency: &mut self.app.latency,
                 },
             );
             if thumb == Thumb::Reveal {
@@ -15296,7 +14759,6 @@ impl Driver {
             update,
             trigger,
             echo: self.app.echo,
-            guess: self.app.guess,
             marked: self.app.marked,
             since_commit: self.app.since_commit(),
             interval: self.app.interval,
@@ -15539,7 +15001,7 @@ impl Responder for Driver {
     /// A key came up. Its release goes to the program when its press did
     /// (`Downs`), and the core sends it only where kitty's event types
     /// asked for releases. A release is not a keystroke: the latency
-    /// instrument, the prediction and `?1011`'s snap leave it alone.
+    /// instrument and `?1011`'s snap leave it alone.
     fn key_released(&mut self, key: &KeyPress) {
         self.handed.up(VirtualKey(key.key_code));
         // Caps Lock from the current event, wrong on a replay, until the crate's `Modifiers` has it.
@@ -15902,7 +15364,6 @@ impl Responder for Driver {
         // inside the frame, as the reveal did before it had a turn.
         #[cfg(feature = "effect-probe")]
         baud_present_macos::probe::run_parked();
-        self.expire_predictions();
         // The vsync this tick's work is due at, announced before anything
         // this tick presents so a surface set from here on is bounded by it.
         self.app.latency.announced(|| HostTime::of_secs(target));
@@ -17308,10 +16769,6 @@ impl Driver {
             (
                 Deadline::Images,
                 playing.then(|| app.term.next_image_frame(now)).flatten(),
-            ),
-            (
-                Deadline::Predictions,
-                app.predictions.first().map(|p| host(p.at + PREDICT_MAX)),
             ),
             (
                 Deadline::Indicator,
@@ -20346,8 +19803,6 @@ impl Driver {
         let ws = grid.ws();
         self.app.chase.snap();
         self.app.carried.forget();
-        self.app.predictions.clear();
-        self.app.guess = Guess::None;
         self.app.slide.snap();
         if let Some(t) = self.app.trace.as_mut() {
             t.resized(grid.ws());
@@ -20615,22 +20070,11 @@ impl Driver {
         );
         if (ws.ws_col, ws.ws_row) != (self.app.grid.ws_col, self.app.grid.ws_row) {
             let t_step = Instant::now();
-            // Row 9: a prediction names a cell of the screen about to be
-            // re-cut, and a reflow moves every one of them. The clear
-            // belongs *here*, at the one place the grid changes shape,
-            // rather than in `resized`: `zoom` re-lays through this
-            // function too, and a prediction that survived it was drawn
-            // and judged at whatever cell its old row and column now
-            // name -- `Viewport::row` takes the row modulo the ring, so
-            // a stale row is a wrong cell rather than a panic, and the
-            // glyph would sit somewhere else until the next read
-            // contradicted it.
-            self.app.predictions.clear();
-            self.app.guess = Guess::None;
             // A slide in flight names a leaving row of the ring about to be
-            // re-cut: the same reason predictions are cleared here. Settle it
-            // rather than draw a leaving row from the reflowed ring, which
-            // would be a different line for the frame or two before it drains.
+            // re-cut, here at the one place the grid changes shape, which
+            // `zoom` re-lays through too. Settle it rather than draw a
+            // leaving row from the reflowed ring, which would be a
+            // different line for the frame or two before it drains.
             self.app.slide.snap();
             // Truncated only past MAX_GRID, which the clamp above prevents.
             // The core holds a window that is *already* looking back on its
@@ -22449,9 +21893,6 @@ mod tests {
         );
         assert_eq!(commit[0].mods, Modifiers::NONE);
         assert_eq!(core_sends(b"\x1b[>8u", commit[0]), b"\x1b[97u");
-        // Shift alone is not a chord: its capital is predicted as typed.
-        assert!(!is_chord(shift));
-        assert!(is_chord(Modifiers::CTRL.with(shift)));
     }
 
     /// **A Control or Option chord with Shift names the key Shift is on**,
@@ -22636,8 +22077,7 @@ mod tests {
     /// syscall layouts are asked of the headers: a probe compiled now turns
     /// a keyboard event with the HID's lock flag, and one without, into
     /// `NSEvent`s off screen, nothing posted, and prints the SDK's mask and
-    /// their flags. Caps Lock is no chord, so its capital is predicted as
-    /// typed. `key` reads the dispatched event's flags, held in the source:
+    /// their flags. `key` reads the dispatched event's flags, held in the source:
     /// off the main thread there is none. Perturbation: read no lock from
     /// the flags and the Caps rows of the shared table lose their `64`.
     #[test]
@@ -22696,7 +22136,6 @@ mod tests {
         let on = held_with_locks(&k, NSEventModifierFlags(said["on"]));
         let off = held_with_locks(&k, NSEventModifierFlags(said["off"]));
         assert_eq!((on, off), (Modifiers::CAPS_LOCK, Modifiers::NONE));
-        assert!(!is_chord(on), "Caps Lock's capital is typed text");
         // Caps Lock with Shift: AppKit types `A` on the US layout, the key
         // Shift is on with both bits.
         let a = Codepoint::from_char('a');
@@ -22707,7 +22146,6 @@ mod tests {
         assert_eq!(core_sends(b"", both), b"A");
         assert_eq!(core_sends(b"\x1b[>8u", both), b"\x1b[97;66u");
         assert_eq!(core_sends(b"\x1b[>12u", both), b"\x1b[97:65;66u");
-        assert!(is_chord(Modifiers::CTRL.with(on)));
         let key = crate::app_source::split(concat!(
             "    fn key(&mut self, key: ",
             "&KeyPress) -> Handled {"
@@ -22837,26 +22275,22 @@ mod tests {
         }
     }
 
-    /// **A keypad key is predicted only from the numeric column**: under
-    /// DECKPAM a `5` goes out as `SS3 u`, and a `5` drawn ahead of the
-    /// child's echo would be a glyph no echo confirms.
-    #[test]
-    fn a_keypad_key_is_predicted_only_where_it_sends_its_text() {
-        use baud_domain::KeypadKey::Digit5;
-        assert!(predicts(KeyCode::Keypad(Digit5), KeypadMode::Numeric));
-        assert!(!predicts(KeyCode::Keypad(Digit5), KeypadMode::Application));
-        let five = KeyCode::Char(Codepoint::new(u32::from('5')).unwrap());
-        assert!(predicts(five, KeypadMode::Application));
-    }
-
-    /// **What a key typed at a marked prompt owes** ([`key_owes`]): a
-    /// printable key at the shell's prompt (`OSC 133`), sent, on the cell
-    /// path, owes a frame now and is predicted at the cursor, its echo
-    /// wanted. The control is SRM reset, under which the core draws the key
-    /// itself: the key owes its frame now, its echo is fed, and its
-    /// prediction is refused.
+    /// **What a key typed at a marked prompt owes** ([`key_owes`]): it is
+    /// drawn only when the host echoes it. After a printable key at the
+    /// shell's prompt (`OSC 133`), the key owes no frame and its cell stays
+    /// empty, so the frame gate draws nothing for it; the read that feeds
+    /// the echo makes a frame due, and the cell the frame draws is the
+    /// echoed one. The control is SRM reset, under which the core draws the
+    /// key itself: the same key owes a frame at once and its cell is
+    /// already the key.
     #[test]
     fn what_a_key_typed_at_a_marked_prompt_owes() {
+        fn drawn_at(t: &Term<'_>, (row, col): (Row, Col)) -> Option<char> {
+            t.row(row)
+                .and_then(|cells| cells.get(col.index()))
+                .and_then(|c| c.content.as_codepoint())
+                .and_then(|c| char::from_u32(c.value()))
+        }
         fn read(t: &mut Term<'_>, bytes: &[u8]) {
             t.write_at(baud_domain::BytePos::ZERO, bytes);
             t.feed(
@@ -22867,6 +22301,18 @@ mod tests {
         let ws = WinSize {
             ws_col: 20,
             ws_row: 4,
+        };
+        let gate = |pending: Pending, echo: Echo| {
+            frame_gate(FrameGate {
+                pending,
+                update: (pending == Pending::Dirty).then_some(crate::bell::Update::Closed),
+                trigger: Trigger::Wake,
+                echo,
+                marked: Marked::Drawn,
+                since_commit: Duration::ZERO,
+                interval: Duration::from_millis(8),
+                flight: baud_present_macos::InFlight::Idle,
+            })
         };
         let cp = Codepoint::from_char('l');
         let l = KeyEvent {
@@ -22879,44 +22325,42 @@ mod tests {
             let mut t = Term::new(owned.storage(), &ws);
             read(&mut t, modes);
             read(&mut t, b"\x1b]133;A\x07$ \x1b]133;B\x07");
-            assert!(t.zone() == Zone::Prompt, "{modes:?}: a marked prompt");
-            let (row, col) = t.cursor();
-            let key = KeyTyped {
-                text: l.text,
-                held: l.mods,
-                code: l.code,
-                keypad: t.keypad(),
-            };
+            assert!(
+                t.zone() == baud_core::Zone::Prompt,
+                "{modes:?}: a marked prompt"
+            );
+            let at = t.cursor();
+            assert_eq!(drawn_at(&t, at), None, "{modes:?}: the cell is empty");
             let mut sent = Vec::new();
             crate::reads::input(&mut t, |t| t.key(l), |b| sent.extend_from_slice(b));
             assert_eq!(sent, b"l", "{modes:?}: the key goes to the host");
-            let owes = key_owes(
-                Echo::Drawn,
-                Sent::Bytes,
-                key,
-                Hold::Open,
-                Path::Cells,
-                None,
-                &t,
-            );
-            assert!(
-                owes.frame == Pending::Dirty,
-                "{modes:?}: the key owes a frame now"
-            );
+            let owes = key_owes(Echo::Drawn, Sent::Bytes, &t);
             if local {
-                // The control: the core drew the key, and its echo is fed.
-                assert!(owes.echo == Echo::Fed, "{modes:?}: the echo is fed");
-                assert_eq!(owes.guessed, Guessed::Refused("srm"), "{modes:?}");
+                // The control: the core drew the key, and its frame is owed.
+                assert!(
+                    owes.frame == Pending::Dirty,
+                    "{modes:?}: SRM reset owes a frame"
+                );
+                assert!(gate(owes.frame, owes.echo) == Decided::Now, "{modes:?}");
+                assert_eq!(drawn_at(&t, at), Some('l'), "{modes:?}: drawn by the core");
                 continue;
             }
+            assert!(owes.frame == Pending::Clean, "the key owes no frame");
             assert!(owes.echo == Echo::Wanted, "the key waits for its echo");
-            let at_cursor = Guessed::At {
-                row,
-                col,
-                cp,
-                under: Underneath::Empty,
-            };
-            assert_eq!(owes.guessed, at_cursor, "predicted at the cursor");
+            assert!(
+                gate(owes.frame, owes.echo) == Decided::Clean,
+                "nothing is drawn for it"
+            );
+            assert_eq!(drawn_at(&t, at), None, "the key put no cell in the frame");
+            // The host's echo, fed as a read: a frame is due and draws it.
+            read(&mut t, b"l");
+            let echo = read_echo(owes.echo);
+            assert!(echo == Echo::Fed, "the read is the key's echo");
+            assert!(
+                gate(Pending::Dirty, echo) == Decided::Now,
+                "the echo is drawn now"
+            );
+            assert_eq!(drawn_at(&t, at), Some('l'), "the echoed cell");
         }
     }
 
@@ -22924,8 +22368,7 @@ mod tests {
     /// key types `,` on 81 of the Mac's layouts, German and French among
     /// them, and the digits type Arabic-Indic digits on Arabic ones
     /// (`UCKeyTranslate`). From the numeric column, and under kitty's
-    /// disambiguate flag, that character goes out and is the text handed to
-    /// prediction, which draws only an ASCII printable (`Driver::predict`).
+    /// disambiguate flag, that character goes out and is the key's text.
     /// A decimal key that types `,` is the keypad's comma, as a German
     /// Linux keypad's is (`KP_Separator`, `[[source:
     /// xkeyboard-config-kpdl-193cc6c]]`): line 2498's `SS3 l` under DECKPAM
@@ -22955,8 +22398,7 @@ mod tests {
             assert_eq!(sent_for(modes, &k), want, "{code:#x} {chars:?} {modes:?}");
             if modes.is_empty() {
                 let e = pressed(special(&k).unwrap(), &k, Modifiers::NONE);
-                let drawn = e.text.filter(|_| predicts(e.code, KeypadMode::Numeric));
-                let drawn = drawn.and_then(|c| char::from_u32(c.value()));
+                let drawn = e.text.and_then(|c| char::from_u32(c.value()));
                 assert_eq!(drawn.map(String::from).as_deref(), Some(chars));
             }
         }
@@ -27312,7 +26754,6 @@ mod mark_tests {
                 update: Some(crate::bell::Update::Closed),
                 trigger,
                 echo: super::Echo::Fed,
-                guess: super::Guess::Owed,
                 marked: super::Marked::Owed,
                 since_commit: std::time::Duration::from_secs(1),
                 interval: std::time::Duration::from_millis(8),
@@ -27782,7 +27223,7 @@ mod strip_lights_tests {
 ///   timed effect shares (a trail, a transition, the scrollbar's fade).
 #[cfg(test)]
 mod gate_tests {
-    use super::{Decided, Echo, FrameGate, Guess, Marked, Pending, Trigger, frame_gate};
+    use super::{Decided, Echo, FrameGate, Marked, Pending, Trigger, frame_gate};
     use crate::bell::Update;
     use crate::config::{LaunchSplash, SystemMotion};
     use crate::splash::{Owes, Splash};
@@ -27911,7 +27352,6 @@ mod gate_tests {
                 update: (pending == Pending::Dirty).then_some(Update::Closed),
                 trigger,
                 echo: Echo::Drawn,
-                guess: Guess::None,
                 marked: Marked::Drawn,
                 since_commit: Duration::from_micros(now - last_commit),
                 interval: Duration::from_micros(TICK),
