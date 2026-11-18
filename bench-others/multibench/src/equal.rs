@@ -889,7 +889,7 @@ mod ghostty {
 /// no rate and the run says so, with the reason, instead of failing; one
 /// listed here whose screens and counts agree fails the run, so the list
 /// cannot outlive its reason.
-pub(crate) const UNEQUAL: [(&str, &str); 2] = [
+pub(crate) const UNEQUAL: [(&str, &str); 3] = [
     (
         "mpv-logo-40x6.raw",
         "uploads refused (a bare ESC in an upload): mpv's status line cuts three of the \
@@ -901,6 +901,13 @@ pub(crate) const UNEQUAL: [(&str, &str); 2] = [
         "uploads refused (a bare ESC in an upload): the recording is one continuation \
          chunk that mpv's status line cuts, a bare ESC cancels it, and baud-core refuses \
          the upload whole; ghostty reports no refusals, so equal work is not shown",
+    ),
+    (
+        "icat-logo-dark-140.raw",
+        "the terminals size the image quota differently (frame data accounting); both \
+         evict unplaced images first: each replay is a new image under one image number, \
+         both store every one, and ghostty's quota fills sooner, so it holds and places \
+         only the newest of what baud-core still places",
     ),
 ];
 
@@ -1114,6 +1121,37 @@ mod tests {
         assert_eq!(ours.len(), 5, "baud-core's placements\n{report}");
         assert_eq!(theirs.len(), 5, "ghostty's placements\n{report}");
         assert!(!c.placements_differ(), "{report}");
+    }
+
+    /// **icat stores alike on both arms and parts only where the quota is
+    /// full**: each replay transmits a new image under one image number, and
+    /// both arms store every one; ghostty's quota fills sooner, so the
+    /// placements it keeps are fewer and are the newest of baud-core's. That
+    /// is the reason [`super::UNEQUAL`] lists it, and it is listed.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn icat_stores_alike_and_ghostty_keeps_the_newest_of_the_placements() {
+        let p = recording("kitty/icat-logo-dark-140.raw");
+        let _hook = HOOK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::ffi::ghostty::set_png_decoder(crate::ffi::ghostty::PngDecoder::Registered);
+        let c = super::check(&p, 32 << 20).expect("libghostty-vt is linked");
+        let report = c.report("icat").join("\n");
+        let [ours, theirs] = &c.counts;
+        assert!(ours.stored.is_some(), "{report}");
+        assert_eq!(
+            ours.stored, theirs.stored,
+            "both store every image\n{report}"
+        );
+        let [ours, theirs] = &c.placed;
+        assert!(theirs.len() < ours.len(), "ghostty places fewer\n{report}");
+        assert!(
+            theirs.iter().all(|t| ours.contains(t)),
+            "each of ghostty's placements is one of baud-core's\n{report}"
+        );
+        assert!(
+            super::known_unequal("icat-logo-dark-140.raw").is_some_and(|w| w.contains("quota")),
+            "listed, with the quota as its reason"
+        );
     }
 
     /// The same screen with a compared count "n/a" on one arm is timed,
