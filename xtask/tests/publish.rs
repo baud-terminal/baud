@@ -35,7 +35,7 @@ fn the_base_tree_passes_and_exits_0_under_release() {
         t.run(flags()),
         (
             Exit::Passed,
-            "checked: 10 crates to publish, 5 not\nok\n".to_string()
+            "checked: 10 crates to publish, 4 not\nok\n".to_string()
         )
     );
     assert_eq!(t.run(release()).0, Exit::Passed);
@@ -115,9 +115,9 @@ fn a_published_crate_baud_does_not_reach() {
         &t,
         &[
             "FAIL c7: published, and `baud` does not depend on it",
-            "FAIL unpublished members are ['baud-bench', 'baud-difftest', 'baud-present-vulkan', \
+            "FAIL unpublished members are ['baud-bench', 'baud-difftest', \
              'baud-sfte-difftest', 'c7', 'xtask'], UNPUBLISHED says ['baud-bench', \
-             'baud-difftest', 'baud-present-vulkan', 'baud-sfte-difftest', 'xtask']",
+             'baud-difftest', 'baud-sfte-difftest', 'xtask']",
             "FAIL only 9 crates reached from `baud`: the dependency walk has stopped working",
         ],
     );

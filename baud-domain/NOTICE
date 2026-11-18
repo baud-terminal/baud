@@ -23,8 +23,9 @@ else
   From:    https://gitlab.freedesktop.org/xorg/lib/libx11/-/tree/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms
 
 Tables generated from the Unicode Character Database and Unicode's emoji
-data files: emoji presentation. baud.metallib carries the stress mark's skip
-trie compiled in, which the build writes from baud-render's tables
+data files: emoji presentation. baud.metallib and the Linux cell shaders
+carry the stress mark's skip trie compiled in, which the build writes from
+baud-render's tables
   Files:   src/vs16.rs
   Holder:  Unicode, Inc.
   Licence: Unicode-3.0

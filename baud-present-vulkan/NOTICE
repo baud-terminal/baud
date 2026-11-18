@@ -1,0 +1,20 @@
+Third-party material in the baud-present-vulkan crate
+
+The licence of baud-present-vulkan is LICENSE. This file lists the material
+from other projects that files in this crate carry: for each, the files by
+their paths in this crate, the licence it keeps, and where the notice that
+licence asks for is. It is generated from baud's record of third-party
+files, in its repository at https://github.com/baud-terminal/baud, whose
+THIRD_PARTY.md lists every such file there.
+
+Tables generated from the Unicode Character Database and Unicode's emoji
+data files: emoji presentation. baud.metallib and the Linux cell shaders
+carry the stress mark's skip trie compiled in, which the build writes from
+baud-render's tables
+  Files:   shaders/spv/cell_bg.vert.spv, shaders/spv/cell_glyph.vert.spv,
+           shaders/spv/cell_ring.vert.spv, shaders/spv/cell_shape.vert.spv
+  Holder:  Unicode, Inc.
+  Licence: Unicode-3.0
+  Notice:  LICENSES/Unicode-3.0.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://www.unicode.org/Public/
