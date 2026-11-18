@@ -15,7 +15,9 @@
 //!   under `.config/` other than `.config/nextest.toml`, a changed line of
 //!   `.config/nextest.toml` whose filter selects tests by more than a
 //!   binary's or a package's name, and a scope that cannot be computed
-//!   print it.
+//!   print it. On a tried tip whose tries name what they covered, all but
+//!   a scope that cannot be computed give way to `tried` and the gates
+//!   `full` stands for.
 //! - `package<TAB><name><TAB><reason>`: every test of the package and its
 //!   doc tests. A changed path in a member reaches that member and every
 //!   member that builds from it (`features-since`'s reach); so does a file
@@ -42,10 +44,31 @@
 //!   documentation.
 //! - `gif<TAB><reason>`: the README's GIF or its provenance changed, so its
 //!   flash census and `--verify` run.
-//! - `tried<TAB><reason>`, alone, in place of the rest: a try already ran
-//!   `<to>`'s tree clean, by the list of tree hashes the file
-//!   `BAUD_TRIED_TREES` names, so only the gates that build nothing run. A
-//!   change that runs every gate still prints `full`.
+//! - `tried<TAB><reason>`, first: a try already ran `<to>`'s tree clean,
+//!   by the list the file `BAUD_TRIED_TREES` names, one line a try: the
+//!   tree's hash, its lane, its commit, its time, and after them, when the
+//!   try names them, `covered=<gate>,<gate>,...`, the gates it ran. The
+//!   lines that name `<to>`'s tree cover the union of their `covered=`
+//!   gates. What follows `tried`:
+//!   - a line without `covered=` among them, on a range that does not run
+//!     every gate: nothing, so only the gates that build nothing run;
+//!   - no line with `covered=`, on a range that runs every gate: no
+//!     `tried` line, and `full`;
+//!   - else every line the range plans whose gate no tried line covers, as
+//!     this list prints it, with `full` standing for `clippy` of every
+//!     member, `bare` and `linux`; the event rig, the whole suite and the
+//!     publish verify are never planned there and print `left-out` lines.
+//!
+//!   A gate in `covered=` is `package:<member>` (which covers that
+//!   member's `binary` lines too), `binary:<binary id>`,
+//!   `clippy:<member>`, `doc:<member>`, `rig`, `bare`, `linux`, `gif`,
+//!   `suite` (every `package`, `binary` and `doc` line, and the whole
+//!   suite), `publish`, or one of `fmt`, `sources`, `no-python`, `paths`
+//!   and `changelog`, which run on every push and change nothing here. A
+//!   name that is none of these covers nothing.
+//! - `left-out<TAB><gate><TAB><reason>`: on a tried tip, a gate the range
+//!   would run that the tries did not cover and the push does not run:
+//!   `rig`, `suite` (every member's tests and doc tests) and `publish`.
 //! - `from-tried<TAB><tree> <lane>`, first, before the rest: the plan is
 //!   over the paths that differ between `<to>` and a tried tree, named by
 //!   its first twelve hex digits and its lane, in place of `<from>`. Of the
@@ -787,11 +810,25 @@ pub fn run(args: &[&str], out: &mut impl Write) -> io::Result<u8> {
             }))
         };
         let whole = plan_of(from, &paths)?;
-        let Some(to) = to.filter(|_| whole.full.is_none()) else {
+        let Some(to) = to else {
             return Ok(Scope::Plan(whole));
         };
-        if let Some(why) = tried(to) {
-            return Ok(Scope::Tried(why));
+        if let Some(t) = tried(to) {
+            match (&t.covered, &whole.full) {
+                (_, None) if t.plain == Plain::Yes => return Ok(Scope::Tried(t.why, Vec::new())),
+                (None, Some(_)) => {}
+                (Some(c), Some(why)) => {
+                    let every = everything_of(why, &packages);
+                    return Ok(Scope::Tried(t.why, uncovered(every, c, Range::Every)));
+                }
+                (c, None) => {
+                    let c = c.clone().unwrap_or_default();
+                    return Ok(Scope::Tried(t.why, uncovered(whole, &c, Range::Scoped)));
+                }
+            }
+        }
+        if whole.full.is_some() {
+            return Ok(Scope::Plan(whole));
         }
         if let Some(n) = nearest(to, &paths) {
             let from_tree = plan_of(&n.hash, &n.paths)?;
@@ -802,8 +839,11 @@ pub fn run(args: &[&str], out: &mut impl Write) -> io::Result<u8> {
         Ok(Scope::Plan(whole))
     })();
     let plan = match computed {
-        Ok(Scope::Tried(why)) => {
+        Ok(Scope::Tried(why, lines)) => {
             writeln!(out, "tried\t{why}")?;
+            for line in lines {
+                writeln!(out, "{line}")?;
+            }
             return Ok(0);
         }
         Ok(Scope::FromTried(tree, p)) => {
@@ -823,8 +863,9 @@ pub fn run(args: &[&str], out: &mut impl Write) -> io::Result<u8> {
 enum Scope {
     /// The plan over the changed paths.
     Plan(Plan),
-    /// A try ran the tree clean, so only the gates that build nothing run.
-    Tried(String),
+    /// A try ran the tree clean: the reason, and the lines of the gates
+    /// the tries did not cover.
+    Tried(String, Vec<String>),
     /// The plan over the paths that differ from a tried tree, which is
     /// named by its first twelve hex digits and its lane.
     FromTried(String, Plan),
@@ -872,10 +913,112 @@ fn nearest(to: &str, whole: &[String]) -> Option<Nearest> {
     best.filter(|n| n.paths.len() < whole.len())
 }
 
+/// The lines of the file `BAUD_TRIED_TREES` names that start with a tree's
+/// hash.
+struct Tried {
+    /// The tree and the first such line.
+    why: String,
+    /// Whether one of the lines carries no `covered=`.
+    plain: Plain,
+    /// The union of the lines' `covered=` gates, when one carries them.
+    covered: Option<Covered>,
+}
+
+/// Whether a tried line among those of a tree carries no `covered=`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Plain {
+    /// None does.
+    No,
+    /// One does.
+    Yes,
+}
+
+/// What the range plans before the tried lines are read.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Range {
+    /// Every gate, `full`.
+    Every,
+    /// The gates its paths reach.
+    Scoped,
+}
+
+/// The gates the tries of a tree ran, by their `covered=` names.
+#[derive(Clone, Default)]
+struct Covered(BTreeSet<String>);
+
+impl Covered {
+    fn has(&self, gate: &str) -> bool {
+        self.0.contains(gate)
+    }
+
+    /// Whether the tries ran the line `step` prints for `name`.
+    fn line(&self, step: &str, name: &str) -> bool {
+        self.has(&format!("{step}:{name}"))
+    }
+}
+
+/// Why the event rig is not run on a tried tip.
+const RIG_LEFT: &str = "the event rig opens windows and is run by hand, never on a tried tree";
+
+/// Why the whole suite is not run on a tried tip.
+const SUITE_LEFT: &str =
+    "every member's tests and doc tests run on their own schedule, not on the push of a tried tree";
+
+/// Why the publish verify is not run on a tried tip.
+const PUBLISH_LEFT: &str = "the publish verify has no scoped step";
+
+/// The gates `full` stands for that a push of a tried tree can run:
+/// `clippy` of every member, `bare` and `linux`, for `why`; and the rig,
+/// which [`uncovered`] leaves out.
+fn everything_of(why: &str, packages: &[Package]) -> Plan {
+    Plan {
+        clippy: packages.iter().map(|p| p.name.clone()).collect(),
+        rig: Some(why.to_string()),
+        bare: Some(why.to_string()),
+        linux: Some(why.to_string()),
+        ..Plan::default()
+    }
+}
+
+/// The lines of `plan` whose gate `c` does not cover, then a `left-out`
+/// line for the rig when the plan names it and for the whole suite and the
+/// publish verify when the range runs every gate, each unless `c` covers it.
+fn uncovered(mut plan: Plan, c: &Covered, range: Range) -> Vec<String> {
+    let every = range == Range::Every;
+    let suite = c.has("suite");
+    plan.packages
+        .retain(|name, _| !suite && !c.line("package", name));
+    plan.binaries
+        .retain(|(pkg, id), _| !suite && !c.line("package", pkg) && !c.line("binary", id));
+    plan.doc.retain(|name| !suite && !c.line("doc", name));
+    plan.clippy.retain(|name| !c.line("clippy", name));
+    let rig = plan.rig.take();
+    for (gate, slot) in [
+        ("bare", &mut plan.bare),
+        ("linux", &mut plan.linux),
+        ("gif", &mut plan.gif),
+    ] {
+        if c.has(gate) {
+            *slot = None;
+        }
+    }
+    let mut out = plan.lines();
+    if every && !suite {
+        out.push(format!("left-out\tsuite\t{SUITE_LEFT}"));
+    }
+    if rig.is_some() && !c.has("rig") {
+        out.push(format!("left-out\trig\t{RIG_LEFT}"));
+    }
+    if every && !c.has("publish") {
+        out.push(format!("left-out\tpublish\t{PUBLISH_LEFT}"));
+    }
+    out
+}
+
 /// Whether a try already ran `to`'s tree clean: a line of the file
-/// `BAUD_TRIED_TREES` names starts with its tree hash. The line, when one
-/// does.
-fn tried(to: &str) -> Option<String> {
+/// `BAUD_TRIED_TREES` names starts with its tree hash. What those lines
+/// cover, when one does.
+fn tried(to: &str) -> Option<Tried> {
     let list = std::env::var_os("BAUD_TRIED_TREES")?;
     let text = fs::read_to_string(list).ok()?;
     let spec = format!("{to}^{{tree}}");
@@ -884,7 +1027,25 @@ fn tried(to: &str) -> Option<String> {
     if tree.is_empty() {
         return None;
     }
-    text.lines()
-        .find(|l| l.split_whitespace().next() == Some(tree.as_str()))
-        .map(|l| format!("tree {tree} was tried clean: {l}"))
+    let mut found: Option<Tried> = None;
+    for l in text.lines() {
+        let mut fields = l.split_whitespace();
+        if fields.next() != Some(tree.as_str()) {
+            continue;
+        }
+        let gates = fields.find_map(|f| f.strip_prefix("covered="));
+        let t = found.get_or_insert_with(|| Tried {
+            why: format!("tree {tree} was tried clean: {l}"),
+            plain: Plain::No,
+            covered: None,
+        });
+        match gates {
+            None => t.plain = Plain::Yes,
+            Some(g) => {
+                let c = t.covered.get_or_insert_with(Covered::default);
+                c.0.extend(g.split(',').filter(|n| !n.is_empty()).map(str::to_string));
+            }
+        }
+    }
+    found
 }

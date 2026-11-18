@@ -1,5 +1,6 @@
 //! `cargo xtask scoped-test`: the gates that build nothing run every time,
-//! a tried tree stops after them, a plan that names every gate exits 3,
+//! a tried tree stops after them unless the plan names gates its tries
+//! did not cover, a plan that names every gate exits 3,
 //! and each step the plan names runs the command it names, timed and
 //! reported, with any failure named at the end and exit 1.
 
@@ -165,6 +166,31 @@ fn a_tried_tree_stops_after_the_gates_that_build_nothing() {
              scoped-test: changelog\nscoped-test: changelog passed (1 s)\n\
              scoped-test: FAILED: paths\n"
         ),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_tried_tree_runs_the_gates_its_tries_did_not_cover_and_never_the_rig() {
+    let plan = "tried\ttree 1234 was tried clean: 1234 r1\n\
+                clippy\tbaud-core\n\
+                linux\tbaud is reached by x\n\
+                left-out\trig\tthe event rig is run by hand\n";
+    let f = Fake::new(Some(plan), &[]);
+    let (exit, out) = run(&f, Os::Darwin, &["A", "B"]);
+    assert_eq!(exit, Exit(0), "{out}");
+    let mut want: Vec<String> = CHEAP.iter().map(|c| c.to_string()).collect();
+    for c in [
+        "cargo clippy --quiet -p baud-core --all-targets -- -D warnings",
+        "cargo xtask feature-arms --since A",
+        "sh ./audit_all.sh",
+        "cargo clippy --quiet -p baud --target aarch64-unknown-linux-gnu --all-targets -- -D warnings",
+    ] {
+        want.push(c.to_string());
+    }
+    assert_eq!(f.ran(), want);
+    assert!(
+        out.ends_with("scoped-test: every scoped gate passed\n"),
         "{out}"
     );
 }

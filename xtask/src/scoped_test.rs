@@ -5,7 +5,9 @@
 //!
 //! Every run: formatting, sources, no Python, paths and the changelog,
 //! which build nothing. A tree a try already ran clean (`tried`) stops
-//! there. Then, as the scope names them: clippy of the packages a code
+//! there when the scope names nothing after it, and runs what it names
+//! otherwise; a `left-out` line runs nothing. Then, as the scope names
+//! them: clippy of the packages a code
 //! change reaches; the tests of whole packages and single binaries, in one
 //! nextest run, and their doc tests, under the `release-probe` profile;
 //! the feature arms of the crates the change reaches and the raw-integer
@@ -146,6 +148,12 @@ impl<'a> Plan<'a> {
 #[derive(Clone, Copy)]
 struct Field(usize);
 
+/// The steps of a plan's lines that run a gate after the ones that build
+/// nothing.
+const GATES: [&str; 8] = [
+    "package", "binary", "clippy", "doc", "rig", "bare", "linux", "gif",
+];
+
 /// The bare-metal builds.
 const BARE: &str = "cargo build --release --quiet -p baud-core --target x86_64-unknown-none && cargo build --release --quiet -p baud-font --target x86_64-unknown-none";
 
@@ -203,7 +211,7 @@ pub fn run(
         "changelog",
         &Cmd::new(&["cargo", "xtask", "changelog"]),
     )?;
-    if tried {
+    if tried && !GATES.iter().any(|g| plan.has(g)) {
         return s.end(
             out,
             "tried clean, so no cargo gate runs; every gate that builds nothing passed",

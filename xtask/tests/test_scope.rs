@@ -130,7 +130,7 @@ impl Repo {
                 let f: Vec<&str> = l.split('\t').collect();
                 let keep = match f[0] {
                     "binary" => 3,
-                    "package" | "clippy" | "doc" => 2,
+                    "package" | "clippy" | "doc" | "left-out" => 2,
                     _ => 1,
                 };
                 f[..keep.min(f.len())].join(" ")
@@ -237,6 +237,76 @@ fn a_tried_tree_that_reaches_every_crate_still_runs_everything() {
     r.commit("hooks");
     let tree = r.git(&["rev-parse", "HEAD^{tree}"]);
     assert_eq!(r.scope_tried(Some(&tree)), ["full"]);
+}
+
+/// A tried line for the tree of `rev`, naming in `covered=` the gates the
+/// tries ran on it.
+fn covered(r: &Repo, rev: &str, gates: &str) -> String {
+    let tree = r.git(&["rev-parse", rev]);
+    format!("{tree} lane 0000 2026-11-15T10:00 covered={gates}\n")
+}
+
+#[test]
+fn a_tried_tip_whose_tries_covered_every_gate_its_range_names_plans_tried_alone() {
+    let r = Repo::new();
+    r.put("core/src/lib.rs", "pub fn f() {}\npub fn g() {}\n");
+    r.commit("core");
+    let all = "package:baud,package:baud-core,clippy:baud,clippy:baud-core,\
+               doc:baud,doc:baud-core,rig,bare,linux,fmt";
+    assert_eq!(
+        r.scope_from("HEAD~1", Some(&covered(&r, "HEAD^{tree}", all))),
+        ["tried"]
+    );
+    assert_eq!(
+        r.scope_from(
+            "HEAD~1",
+            Some(&covered(
+                &r,
+                "HEAD^{tree}",
+                "package:baud-core,clippy:baud,rig"
+            ))
+        ),
+        [
+            "tried",
+            "package baud",
+            "clippy baud-core",
+            "doc baud",
+            "doc baud-core",
+            "bare",
+            "linux",
+        ],
+        "a gate the tries did not run is planned, each as the range names it"
+    );
+}
+
+#[test]
+fn a_tried_tip_whose_range_runs_every_gate_plans_only_the_gates_its_tries_did_not_cover() {
+    let r = Repo::new();
+    r.put("core/src/lib.rs", "pub fn f() {}\npub fn g() {}\n");
+    r.commit("core");
+    r.put(".pre-commit-config.yaml", "repos: []\n");
+    r.commit("hooks");
+    r.put("other/src/lib.rs", "pub fn f() {}\npub fn g() {}\n");
+    r.commit("other");
+    let tip = covered(&r, "HEAD^{tree}", "clippy:baud,clippy:other,bare");
+    assert_eq!(
+        r.scope_from("HEAD~3", Some(&tip)),
+        [
+            "tried",
+            "clippy baud-core",
+            "clippy baud-font",
+            "linux",
+            "left-out suite",
+            "left-out rig",
+            "left-out publish",
+        ]
+    );
+    assert_eq!(
+        r.scope_from("HEAD~3", Some(&covered(&r, "HEAD~1^{tree}", "bare"))),
+        ["full"],
+        "a tip no try ran plans every gate"
+    );
+    assert_eq!(r.scope_from("HEAD~3", None), ["full"]);
 }
 
 /// The base, a commit whose tree a try ran clean (lane a's change to
