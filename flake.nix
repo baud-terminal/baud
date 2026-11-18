@@ -147,6 +147,13 @@
             rm "$out/bin/baud"
             ln -s ../Applications/baud.app/Contents/MacOS/baud "$out/bin/baud"
             rcodesign sign "$app"
+          ''
+          # **The Vulkan loader on the Linux binary's run path**: the GPU arm
+          # opens `libvulkan.so.1` at run time, and with no loader found every
+          # frame is drawn on the CPU (`checks.<linux>.vulkan-loader`). Added
+          # after the fixup's shrink, which drops a directory nothing links.
+          + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            patchelf --add-rpath ${pkgs.vulkan-loader}/lib "$out/bin/baud"
           '';
 
           # The fonts baud draws with are inside the binary, and their
@@ -219,25 +226,48 @@
       # build .#checks.aarch64-darwin.sdk`) fails if the binary's
       # LC_BUILD_VERSION names an SDK below 26, so the installed app and a
       # `cargo install` cannot drift back apart.
-      checks = lib.genAttrs (lib.filter (lib.hasSuffix "darwin") systems) (
-        system:
-        let
-          pkgs = pkgsFor system;
-        in
-        {
-          sdk = pkgs.runCommand "baud-linked-sdk" { nativeBuildInputs = [ pkgs.cctools ]; } ''
-            bin=${baud pkgs}/Applications/baud.app/Contents/MacOS/baud
-            sdk=$(otool -l "$bin" | awk '/cmd LC_BUILD_VERSION/ { f = 1 } f && $1 == "sdk" { print $2; exit }')
-            echo "baud links SDK $sdk"
-            major=''${sdk%%.*}
-            if [ -z "$major" ] || [ "$major" -lt 26 ]; then
-              echo "the app links SDK '$sdk', below 26" >&2
-              exit 1
-            fi
-            echo "$sdk" > $out
-          '';
-        }
-      );
+      checks = lib.recursiveUpdate
+        (lib.genAttrs (lib.filter (lib.hasSuffix "darwin") systems) (
+          system:
+          let
+            pkgs = pkgsFor system;
+          in
+          {
+            sdk = pkgs.runCommand "baud-linked-sdk" { nativeBuildInputs = [ pkgs.cctools ]; } ''
+              bin=${baud pkgs}/Applications/baud.app/Contents/MacOS/baud
+              sdk=$(otool -l "$bin" | awk '/cmd LC_BUILD_VERSION/ { f = 1 } f && $1 == "sdk" { print $2; exit }')
+              echo "baud links SDK $sdk"
+              major=''${sdk%%.*}
+              if [ -z "$major" ] || [ "$major" -lt 26 ]; then
+                echo "the app links SDK '$sdk', below 26" >&2
+                exit 1
+              fi
+              echo "$sdk" > $out
+            '';
+          }
+        ))
+        # **The Vulkan loader, on the Linux binary's run path**: the GPU arm
+        # opens it at run time (`baud-present-vulkan`'s `Vulkan::open`), and a
+        # binary that cannot find it draws every frame on the CPU. `nix build
+        # .#checks.x86_64-linux.vulkan-loader` fails if the RUNPATH does not
+        # name nixpkgs' loader.
+        (lib.genAttrs (lib.filter (lib.hasSuffix "linux") systems) (
+          system:
+          let
+            pkgs = pkgsFor system;
+          in
+          {
+            vulkan-loader = pkgs.runCommand "baud-vulkan-runpath" { nativeBuildInputs = [ pkgs.binutils ]; } ''
+              path=$(readelf -d ${baud pkgs}/bin/baud | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')
+              echo "baud's RUNPATH: $path"
+              case ":$path:" in
+                *:${pkgs.vulkan-loader}/lib:*) ;;
+                *) echo "the RUNPATH does not name ${pkgs.vulkan-loader}/lib" >&2; exit 1 ;;
+              esac
+              echo "$path" > $out
+            '';
+          }
+        ));
 
       # For a configuration that builds baud with its own nixpkgs.
       overlays.default = lib.composeExtensions rust-overlay.overlays.default (final: _: { baud = baud final; });
