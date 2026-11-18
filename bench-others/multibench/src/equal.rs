@@ -1077,6 +1077,31 @@ mod tests {
         );
     }
 
+    /// **The placement reader's positive control**: three images sent with
+    /// no client id and two with one, each placed on its own row, read as
+    /// five placements on the screen on both arms, at the same cells. A
+    /// placement count either arm reports for a recording is believed only
+    /// because this known case reads right on the same build.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn five_images_placed_read_as_five_placements_on_both_arms() {
+        const PIXELS: &str = "f=24,s=2,v=2;////////////////\x1b\\\r\n";
+        let mut p = Vec::new();
+        for keys in ["a=T,", "a=T,", "a=T,", "a=T,i=7,", "a=T,i=8,"] {
+            p.extend_from_slice(b"\x1b_G");
+            p.extend_from_slice(keys.as_bytes());
+            p.extend_from_slice(PIXELS.as_bytes());
+        }
+        let _hook = HOOK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::ffi::ghostty::set_png_decoder(crate::ffi::ghostty::PngDecoder::Registered);
+        let c = super::check(&p, p.len()).expect("libghostty-vt is linked");
+        let report = c.report("five-placed").join("\n");
+        let [ours, theirs] = &c.placed;
+        assert_eq!(ours.len(), 5, "baud-core's placements\n{report}");
+        assert_eq!(theirs.len(), 5, "ghostty's placements\n{report}");
+        assert!(!c.placements_differ(), "{report}");
+    }
+
     /// The same screen with a compared count "n/a" on one arm is timed,
     /// marked UNEQUAL-UNKNOWN, its rate printed unquotable, and never
     /// passed as equal.
