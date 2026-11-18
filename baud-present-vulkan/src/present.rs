@@ -138,6 +138,9 @@ pub struct Presenter {
     slots: Vec<Slot>,
     next: TargetIx,
     counts: Counts,
+    /// What the last frame drawn cost, from its target in hand to its
+    /// fence, the wait included: what effect pacing weighs.
+    cost: std::time::Duration,
 }
 
 impl Presenter {
@@ -178,6 +181,7 @@ impl Presenter {
             slots: Vec::new(),
             next: TargetIx(0),
             counts: Counts::default(),
+            cost: std::time::Duration::ZERO,
         })
     }
 
@@ -242,6 +246,8 @@ impl Presenter {
             self.counts.owed.0 += 1;
             return Ok(Frame::Owed);
         };
+        // The frame's cost runs from here, a target in hand, to its fence.
+        let started = std::time::Instant::now();
         renderer.fit(term);
         renderer.set_highlight(inputs.highlight);
         renderer.set_composition(inputs.composition.clone());
@@ -364,6 +370,7 @@ impl Presenter {
             &slot.target,
         )?;
         slot.holder = Holder::Drawn;
+        self.cost = started.elapsed();
         self.next = TargetIx((k.0 + 1) % TARGETS);
         self.counts.drew.0 += 1;
         Ok(Frame::Drew(k))
@@ -453,6 +460,12 @@ impl Presenter {
     /// **Whether a build finished since the last call**: a frame owed.
     pub fn finished(&mut self) -> crate::pipeline::Built {
         self.pipes.finished()
+    }
+
+    /// **What the last frame drawn cost**: from its target in hand to its
+    /// fence, the wait on it included.
+    pub fn cost(&self) -> std::time::Duration {
+        self.cost
     }
 
     pub fn counts(&self) -> Counts {

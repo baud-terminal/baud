@@ -148,6 +148,20 @@ pub(crate) struct Timed {
     /// iTerm2's fireworks (`fireworks.rs`), built with the timing, so a
     /// request read before the first plan starts a show on it.
     fireworks: crate::fireworks::Fireworks,
+    /// **Effect pacing** (`pacer.rs`): the decision, the refresh period the
+    /// window last said, which of two trail-only turns this one is at half
+    /// rate, and the refresh a skipped turn wakes for.
+    pacer: crate::pacer::EffectPacer,
+    period: Option<Duration>,
+    parity: Parity,
+    paced_wake: Option<Instant>,
+}
+
+/// Which of two trail-only turns at half rate a turn is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Parity {
+    Drawn,
+    Skipped,
 }
 
 impl Timed {
@@ -178,6 +192,10 @@ impl Timed {
             bar: crate::bar::Bar::new(),
             splash: crate::splash::Splash::new(crate::config::LaunchSplash::Off),
             fireworks: crate::fireworks::Fireworks::new(),
+            pacer: crate::pacer::EffectPacer::new(),
+            period: None,
+            parity: Parity::Skipped,
+            paced_wake: None,
         }
     }
 
@@ -280,7 +298,6 @@ impl Timed {
     }
 
     /// The trail drawn now.
-    #[cfg(test)]
     pub(crate) fn trail(&self) -> CursorTrail {
         self.trail
     }
@@ -310,11 +327,29 @@ impl Timed {
             .splash
             .deadline()
             .map(|s| self.clock.instant_of_secs(s));
-        [flip, dwell, hold, cap]
+        [flip, dwell, hold, cap, self.paced_wake]
             .into_iter()
             .flatten()
             .filter(|&t| t > now)
             .min()
+    }
+
+    /// **The refresh period the window says**, which effect pacing weighs a
+    /// frame's cost against: `None` until presentation feedback names one.
+    pub(crate) fn set_period(&mut self, period: Option<Duration>) {
+        self.period = period;
+    }
+
+    /// **An effect frame drawn**: its key -- the arm, what it drew, its
+    /// frame's size and scale --, what it cost and whether the frame before
+    /// it was shown late, fed to the pacer; the divisor when it changed.
+    pub(crate) fn effect_frame(
+        &mut self,
+        key: crate::pacer::Key,
+        cost: Duration,
+        missed: crate::pacer::Missed,
+    ) -> Option<crate::pacer::Divisor> {
+        self.pacer.frame(key, cost, missed, self.period)
     }
 
     /// **What a turn of the loop at `now` owes**: a whole frame when a
@@ -351,12 +386,26 @@ impl Timed {
         // The fireworks owe every frame while a show is up, and the one a
         // request starts.
         let fireworks = self.fireworks.owes(term) == crate::fireworks::Owes::Frame;
-        let moving = thumb
-            || splash
-            || fireworks
-            || self.ghost.is_some()
-            || self.switch.is_some()
-            || self.chase.owes(host) == crate::caret::Owes::Frame;
+        let chasing = self.chase.owes(host) == crate::caret::Owes::Frame;
+        let others = thumb || splash || self.ghost.is_some() || self.switch.is_some();
+        let moving = others || fireworks || chasing;
+        // **Effect pacing** (`pacer.rs`): at half rate, of the turns owed by
+        // the trail or the fireworks alone, every second owes nothing and
+        // wakes the loop a period on; a turn owed for anything else is drawn.
+        self.paced_wake = None;
+        let paced_only = owes == Owes::Nothing && !others && (fireworks || chasing);
+        if let (true, Some(period), crate::pacer::Divisor::Half) =
+            (paced_only, self.period, self.pacer.divisor())
+        {
+            self.parity = match self.parity {
+                Parity::Drawn => Parity::Skipped,
+                Parity::Skipped => Parity::Drawn,
+            };
+            if self.parity == Parity::Skipped {
+                self.paced_wake = Some(now + period);
+                return Owes::Nothing;
+            }
+        }
         match (owes, moving) {
             (Owes::Full, _) => Owes::Full,
             (_, true) => Owes::Frame,
@@ -2020,5 +2069,115 @@ mod tests {
             now.origin_dy,
             was.origin_dy
         );
+    }
+
+    /// A Timed with the default plasma in flight after a long move, at
+    /// the dwell's end, its frame drawn: the turn after owes a frame.
+    fn in_flight(t0: Instant, t: &mut Term<'_>) -> (Timed, Instant) {
+        let mut fx = Timed::new(t0, TrailPick::Default, ScreenTransition::Off);
+        let _ = fx.plan(t0, t, rect, CELL, widths());
+        fx.input(t0);
+        feed(t, b"\x1b[8;30H");
+        let at = t0 + Duration::from_millis(2);
+        let _ = fx.plan(at, t, rect, CELL, widths());
+        let dwell = fx.deadline(at).expect("the dwell");
+        assert_eq!(fx.turn(dwell, t), Owes::Frame, "the dwell ran out");
+        let _ = fx.plan(dwell, t, rect, CELL, widths());
+        (fx, dwell)
+    }
+
+    const PERIOD: Duration = Duration::from_millis(4);
+
+    fn paced_key() -> crate::pacer::Key {
+        crate::pacer::Key {
+            arm: crate::pacer::PacedArm::Cpu,
+            drawn: crate::pacer::Paced::Trail(CursorTrail::Plasma),
+            size: (crate::pacer::Pixels(800), crate::pacer::Pixels(600)),
+            scale: 1.0,
+        }
+    }
+
+    /// **At half rate a turn owed only by the trail is drawn every second
+    /// refresh**, and a skipped one wakes the loop a period on: while the
+    /// plasma flies, the turns owe a frame and nothing in turn, and each
+    /// owing nothing names the next refresh. The control: at every refresh
+    /// each turn owes a frame. Named break: a pacer whose divisor no turn
+    /// reads.
+    #[test]
+    fn a_trail_only_turn_at_half_rate_is_drawn_every_second_refresh() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let (mut fx, dwell) = in_flight(t0, &mut t);
+        fx.set_period(Some(PERIOD));
+        let owed = |fx: &mut Timed, t: &mut Term<'_>| -> Vec<(Owes, Option<Instant>)> {
+            (1..=6u32)
+                .map(|k| {
+                    let now = dwell + PERIOD * k;
+                    (fx.turn(now, t), fx.deadline(now))
+                })
+                .collect()
+        };
+        let full = owed(&mut fx, &mut t);
+        assert!(
+            full.iter().all(|(o, _)| *o == Owes::Frame),
+            "the control: {full:?}"
+        );
+        let slow = PERIOD.mul_f64(1.5);
+        assert_eq!(
+            fx.effect_frame(paced_key(), slow, crate::pacer::Missed::No),
+            Some(crate::pacer::Divisor::Half)
+        );
+        let (mut fx, dwell) = (fx, dwell);
+        let mut drawn = 0;
+        for k in 1..=6u32 {
+            let now = dwell + PERIOD * (6 + k);
+            match fx.turn(now, &mut t) {
+                Owes::Frame => drawn += 1,
+                Owes::Nothing => {
+                    assert_eq!(
+                        fx.deadline(now),
+                        Some(now + PERIOD),
+                        "turn {k} wakes a period on"
+                    )
+                }
+                Owes::Full => panic!("turn {k}"),
+            }
+        }
+        assert_eq!(drawn, 3, "every second refresh");
+    }
+
+    /// **At half rate a turn owed for anything else is drawn at once**: a
+    /// blink flip owes the whole frame on the turn the trail would skip.
+    #[test]
+    fn a_turn_owed_for_more_than_the_trail_is_never_skipped() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        feed(&mut t, b"\x1b[5mslow\x1b[m");
+        let (mut fx, dwell) = in_flight(t0, &mut t);
+        fx.drawn(Blinking::SLOW, RegisBlink::Off);
+        fx.set_period(Some(PERIOD));
+        fx.effect_frame(paced_key(), PERIOD * 2, crate::pacer::Missed::No);
+        let flip = fx.deadline(dwell).expect("the blink flips");
+        let turns: Vec<Owes> = (0..3).map(|k| fx.turn(flip + PERIOD * k, &mut t)).collect();
+        assert_eq!(turns[0], Owes::Full, "the flip, drawn at once: {turns:?}");
+    }
+
+    /// **With no period known no turn is skipped**, however slow a frame.
+    #[test]
+    fn with_no_period_no_turn_is_skipped() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let (mut fx, dwell) = in_flight(t0, &mut t);
+        fx.effect_frame(
+            paced_key(),
+            Duration::from_millis(50),
+            crate::pacer::Missed::Yes,
+        );
+        for k in 1..=6u32 {
+            assert_eq!(fx.turn(dwell + PERIOD * k, &mut t), Owes::Frame, "turn {k}");
+        }
     }
 }

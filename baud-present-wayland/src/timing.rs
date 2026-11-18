@@ -141,9 +141,69 @@ impl Presentation {
     }
 }
 
+/// `wp_presentation_feedback.kind`'s `vsync`: "presentation was
+/// synchronized to the vertical blanking period".
+pub(crate) const VSYNC: u32 = 0x1;
+
+/// **Whether feedback said a frame was synchronised to the vertical
+/// blank**, its [`VSYNC`] flag.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Synced {
+    Yes,
+    No,
+}
+
+/// **Whether a frame was shown late**: two or more refresh periods after
+/// the moment it was drawn for, on feedback that says it was synchronised
+/// to the vertical blank -- a frame shown torn, or by a compositor that
+/// does not say, is not counted, and nor is one drawn for no moment or on
+/// a display that names no refresh.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Late {
+    Yes,
+    No,
+}
+
+/// **[`Late`] of a frame drawn for `target`**, shown at `at`, `synced` or
+/// not, on a display of `refresh`.
+pub fn late(target: Option<Stamp>, at: Stamp, refresh: Duration, synced: Synced) -> Late {
+    match target {
+        Some(t)
+            if synced == Synced::Yes
+                && !refresh.is_zero()
+                && at.since(t) >= refresh.saturating_mul(2) =>
+        {
+            Late::Yes
+        }
+        _ => Late::No,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A frame shown two periods after its moment, synchronised, is
+    /// late; one period is not; nor is the same lateness without `vsync`,
+    /// nor a frame drawn for no moment, nor a display with no refresh.**
+    #[test]
+    fn a_frame_is_late_two_periods_on_and_only_synchronised() {
+        let p = Duration::from_nanos(4_166_667);
+        let t = Stamp(Duration::from_secs(10));
+        let after = |n: u32| Stamp(t.0 + p * n);
+        let y = Synced::Yes;
+        assert_eq!(late(Some(t), after(2), p, y), Late::Yes);
+        assert_eq!(late(Some(t), after(3), p, y), Late::Yes);
+        assert_eq!(late(Some(t), after(1), p, y), Late::No, "a period");
+        let n = Synced::No;
+        assert_eq!(late(Some(t), after(3), p, n), Late::No, "not synchronised");
+        assert_eq!(late(None, after(3), p, y), Late::No, "no moment");
+        assert_eq!(
+            late(Some(t), after(3), Duration::ZERO, y),
+            Late::No,
+            "no refresh"
+        );
+    }
 
     const MS: Duration = Duration::from_millis(1);
 

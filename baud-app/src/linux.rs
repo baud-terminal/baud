@@ -381,6 +381,8 @@ struct Driver {
     /// The GPU arm, which draws a frame before the CPU arm is asked
     /// (`gpu_arm.rs`).
     gpu: crate::gpu_arm::GpuArm,
+    /// When effect pacing last logged a change of divisor.
+    paced_said: Option<Instant>,
     /// The session bus, for the portal's appearance and the file
     /// manager's reveal; `None` once it is gone or was never there.
     bus: Option<crate::bus::Bus>,
@@ -971,6 +973,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         composing_caret: baud_render::Caret::End,
         // `BAUD_GPU=off` keeps every frame on the CPU arm, read once.
         gpu: crate::gpu_arm::GpuArm::new(std::env::var("BAUD_GPU").ok().as_deref()),
+        paced_said: None,
         timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition)
             .with_trail_scroll(cfg.trail_scroll)
             // Every window's, a new window's process as much as the
@@ -1358,6 +1361,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         if d.caret.tick(at, blinks, update) == Owes::Frame {
             d.pending = Pending::Dirty;
         }
+        // The refresh effect pacing weighs a frame against (`pacer.rs`).
+        d.timed.set_period(d.window.frame_interval());
         match d.timed.turn(at, &mut d.term) {
             crate::timed::Owes::Nothing => {}
             crate::timed::Owes::Frame => {
@@ -4474,6 +4479,10 @@ impl Driver {
             composition: &composed,
             predictions: &[],
         };
+        // What effect pacing weighs this frame by: whether it draws a trail
+        // or the fireworks, and whether the frame before was shown late.
+        let effect = paced(&self.renderer, self.timed.trail());
+        let late = self.window.take_late();
         let slide = match plan.slide {
             Some(_) => crate::effects::Composed::Yes,
             None => crate::effects::Composed::No,
@@ -4487,6 +4496,9 @@ impl Driver {
             slide,
         ) {
             crate::gpu_arm::Arm::Shown => {
+                if let (Some(drawn), Some(cost)) = (effect, self.gpu.cost()) {
+                    self.pace(crate::pacer::PacedArm::Gpu, drawn, cost, late);
+                }
                 self.seat.drawn(self.renderer.bidi());
                 self.timed
                     .drawn(self.renderer.blink_seen(), self.term.regis_blink());
@@ -4516,6 +4528,7 @@ impl Driver {
         let back = self.term.window_back();
         let size = self.renderer.whole_size();
         let damage = self.damage;
+        let painting = Instant::now();
         let (renderer, term) = (&mut self.renderer, &mut self.term);
         let Some(painted) =
             crate::origin::in_frame(&mut self.frame, self.stride, self.origin, size, |target| {
@@ -4581,6 +4594,8 @@ impl Driver {
                 crate::effects::Composed::No
             }
         };
+        // The CPU arm's cost: the paint and the slide's composition.
+        let cost = painting.elapsed();
         let changed = match (whole, slid, self.slid) {
             (Damage::Full, _, _)
             | (_, crate::effects::Composed::Yes, _)
@@ -4608,6 +4623,9 @@ impl Driver {
             == Presented::Yes
         {
             startup_first("first present", &FIRST_PRESENT);
+            if let Some(drawn) = effect {
+                self.pace(crate::pacer::PacedArm::Cpu, drawn, cost, late);
+            }
             self.report.presented();
             self.latency.shown_cpu(crate::pty::host_now);
             self.bell.commit(bell);
@@ -4616,6 +4634,70 @@ impl Driver {
             self.frame_for = FrameFor::Soonest;
         }
     }
+
+    /// **An effect frame shown, fed to effect pacing** (`pacer.rs`): the arm
+    /// that drew it, what it drew, what it cost and whether the frame before
+    /// was shown late -- which counts only on feedback synchronised to the
+    /// vertical blank (`timing::late`). A change of divisor is logged, at
+    /// most once a second.
+    fn pace(
+        &mut self,
+        arm: crate::pacer::PacedArm,
+        drawn: crate::pacer::Paced,
+        cost: Duration,
+        late: Option<baud_present_wayland::Late>,
+    ) {
+        let (w, h) = self.renderer.whole_size();
+        let key = crate::pacer::Key {
+            arm,
+            drawn,
+            size: (
+                crate::pacer::Pixels(w.value()),
+                crate::pacer::Pixels(h.value()),
+            ),
+            scale: self.scale.factor(),
+        };
+        let missed = match late {
+            Some(baud_present_wayland::Late::Yes) => crate::pacer::Missed::Yes,
+            _ => crate::pacer::Missed::No,
+        };
+        let Some(divisor) = self.timed.effect_frame(key, cost, missed) else {
+            return;
+        };
+        let now = Instant::now();
+        if self
+            .paced_said
+            .is_none_or(|t| now.duration_since(t) >= Duration::from_secs(1))
+        {
+            self.paced_said = Some(now);
+            crate::info!(
+                "effects: {drawn:?} on the {arm:?} arm drawn {divisor:?}, a frame costing {cost:?} against {:?}",
+                self.window.frame_interval()
+            );
+        }
+    }
+}
+
+/// **What an effect frame draws**, for effect pacing: the fireworks while a
+/// show is up, else the trail when its records are an effect's or a
+/// smear's -- a ghost's sweep is a plain fill, and not paced.
+fn paced(
+    renderer: &Renderer<'_, '_>,
+    trail: crate::config::CursorTrail,
+) -> Option<crate::pacer::Paced> {
+    if renderer.fireworks_uniform([0.0; 2]).is_some() {
+        return Some(crate::pacer::Paced::Fireworks);
+    }
+    renderer
+        .trail()
+        .iter()
+        .any(|r| {
+            matches!(
+                r.kind,
+                baud_render::Kind::Quad | baud_render::Kind::Band | baud_render::Kind::Particle
+            )
+        })
+        .then_some(crate::pacer::Paced::Trail(trail))
 }
 
 /// The renderer's spelling of one of `text-input-v3`'s preedit hints.

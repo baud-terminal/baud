@@ -545,6 +545,9 @@ pub struct Window {
     /// first reach where that was known when it was committed: a frame
     /// that holds a refresh (`timing.rs`).
     unseen: Option<(ObjectId, Option<Stamp>)>,
+    /// Whether the last frame waited on was shown late ([`Window::take_late`]),
+    /// until taken.
+    late: Option<crate::timing::Late>,
     /// The surface's fifo-v1 object, commit timer and tearing control,
     /// each made once, "Only one such object may exist for a surface";
     /// the tearing control only once tearing is turned on.
@@ -672,6 +675,7 @@ impl Window {
             presented: None,
             frames: Frames::default(),
             unseen: None,
+            late: None,
             fifo: None,
             timer: None,
             tearing_control: None,
@@ -1874,6 +1878,12 @@ impl Window {
         Some(dmabuf::import_timeline(s, m, fd))
     }
 
+    /// **Whether the last frame waited on was shown late** ([`crate::timing::late`]),
+    /// once: `None` until feedback on another comes.
+    pub fn take_late(&mut self) -> Option<crate::timing::Late> {
+        self.late.take()
+    }
+
     /// Destroy the surface's syncobj object, if there is one.
     fn drop_sync_surface(&mut self, s: &mut Sender<'_>) {
         if let Some(sync) = self.sync_surface.take() {
@@ -2900,14 +2910,29 @@ impl Handler for Window {
                     Read::Uint(nanos),
                     Read::Uint(refresh),
                     ..,
+                    Read::Uint(flags),
                 ],
             ) => {
                 self.frames.presented.0 += 1;
-                if self.unseen.is_some_and(|(fb, _)| fb == ev.object) {
+                let waited = self.unseen.filter(|(fb, _)| *fb == ev.object);
+                if waited.is_some() {
                     self.unseen = None;
                 }
                 let secs = u64::from(*hi) << 32 | u64::from(*lo);
                 if let (Some(clock), true) = (self.clock, *nanos < 1_000_000_000) {
+                    // The frame waited on: late, or not, against the moment it
+                    // was drawn for.
+                    if let Some((_, target)) = waited {
+                        self.late = Some(crate::timing::late(
+                            target,
+                            Stamp(Duration::new(secs, *nanos)),
+                            Duration::from_nanos(u64::from(*refresh)),
+                            match *flags & crate::timing::VSYNC {
+                                0 => crate::timing::Synced::No,
+                                _ => crate::timing::Synced::Yes,
+                            },
+                        ));
+                    }
                     self.presented = Some(Presentation {
                         clock,
                         at: Stamp(Duration::new(secs, *nanos)),

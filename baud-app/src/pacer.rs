@@ -41,12 +41,19 @@ pub enum Missed {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pixels(pub u32);
 
-/// **What a decision is kept for**: the arm, the trail drawn (its name),
+/// What an effect frame draws: a trail, or the fireworks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Paced {
+    Trail(crate::config::CursorTrail),
+    Fireworks,
+}
+
+/// **What a decision is kept for**: the arm, what the frame draws,
 /// the frame's size in pixels and the scale.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Key {
     pub arm: PacedArm,
-    pub trail: &'static str,
+    pub drawn: Paced,
     pub size: (Pixels, Pixels),
     pub scale: f64,
 }
@@ -201,7 +208,7 @@ mod tests {
     fn key(arm: PacedArm, size: (Pixels, Pixels)) -> Key {
         Key {
             arm,
-            trail: "plasma",
+            drawn: Paced::Trail(crate::config::CursorTrail::Plasma),
             size,
             scale: 1.0,
         }
@@ -209,7 +216,7 @@ mod tests {
 
     const K: Key = Key {
         arm: PacedArm::Cpu,
-        trail: "plasma",
+        drawn: Paced::Trail(crate::config::CursorTrail::Plasma),
         size: (Pixels(3840), Pixels(2160)),
         scale: 1.0,
     };

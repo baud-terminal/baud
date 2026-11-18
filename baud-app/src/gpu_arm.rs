@@ -193,6 +193,15 @@ impl GpuArm {
         was
     }
 
+    /// **What the last frame the GPU arm drew cost**, from its target in hand
+    /// to its fence; `None` while the arm is not on.
+    pub fn cost(&self) -> Option<std::time::Duration> {
+        match &self.state {
+            State::On(on) => Some(on.presenter.cost()),
+            _ => None,
+        }
+    }
+
     /// The descriptor a finished pipeline build makes readable.
     pub fn ready_fd(&self) -> Option<BorrowedFd<'_>> {
         match &self.state {
