@@ -1,4 +1,5 @@
 mod cores;
+mod counts;
 mod equal;
 mod ffi;
 mod report;
@@ -167,10 +168,13 @@ fn main() {
     // **The screen check, before a single timing.** One rep of each
     // recording through baud-core and ghostty, from memory, and the two
     // final screens compared cell for cell and image for image
-    // (`equal::check`). A recording whose screens differ is not timed on
-    // any core and prints no rate, and the run fails naming the cells that
-    // differ. Without libghostty-vt there is nothing to compare against, so
-    // no recording is timed. ghostty decodes a PNG here as its timed arm
+    // (`equal::check`), and what each stored counted (`counts`). A
+    // recording whose screens or counts differ is not timed on any core
+    // and prints no rate, and the run fails naming the cells or counters
+    // that differ. One whose compared count is "n/a" on an arm is timed,
+    // its rate printed unquotable, and fails the run too. Without
+    // libghostty-vt there is nothing to compare against, so no recording
+    // is timed. ghostty decodes a PNG here as its timed arm
     // does (`run_one`).
     #[cfg(have_ghostty)]
     ffi::ghostty::set_png_decoder(ffi::ghostty::PngDecoder::Registered);
@@ -179,7 +183,10 @@ fn main() {
     // ghostty's row says it was not built, so no figure is claimed for it.
     let timed = screens
         .each_ref()
-        .map(|c| c.as_ref().is_none_or(equal::Compared::equal));
+        .map(|c| c.as_ref().is_none_or(equal::Compared::timed));
+    let quoted = screens
+        .each_ref()
+        .map(|c| c.as_ref().is_some_and(equal::Compared::rated));
 
     // Interleaved and rotated, not blocked. Rep-major order means thermal drift
     // reaches every core equally; rotating the starting index by the rep number
@@ -230,9 +237,12 @@ fn main() {
             continue;
         }
         let [st, tu] = &mut samples[ci];
-        let st = timed[0].then(|| summarize(st));
-        let tu = timed[1].then(|| summarize(tu));
-        row(label, st, tu);
+        let rate = |pi: usize, v: &mut [f64]| match (timed[pi], quoted[pi]) {
+            (false, _) => Rate::Untimed,
+            (true, true) => Rate::Quoted(summarize(v)),
+            (true, false) => Rate::Unquotable(summarize(v)),
+        };
+        row(label, rate(0, st), rate(1, tu));
         // Each image arm's counters from the screen check's rep, under its
         // row.
         let arm = match ci {
@@ -275,12 +285,13 @@ fn main() {
     }
 
     // The screen check's verdict on each recording; a recording whose
-    // screens differ fails the run, unless equal::UNEQUAL names it and why.
+    // screens or counts differ fails the run, unless equal::UNEQUAL names it
+    // and why.
     println!();
     let mut failed = false;
     for (c, label) in screens.iter().zip(&labels) {
         match c {
-            Some(c) => match (c.equal(), equal::known_unequal(label)) {
+            Some(c) => match (c.rated(), equal::known_unequal(label)) {
                 // Known to differ, and still differing: no rate, the reason
                 // said, and the run goes on.
                 (false, Some(why)) => {
@@ -292,12 +303,12 @@ fn main() {
                 (true, Some(_)) => {
                     failed = true;
                     println!(
-                        "  {label}: listed as UNEQUAL, but the screens agree: \
+                        "  {label}: listed as UNEQUAL, but the screens and counts agree: \
                          take it out of equal::UNEQUAL"
                     );
                 }
-                (equal, None) => {
-                    failed |= !equal;
+                (rated, None) => {
+                    failed |= !rated;
                     for line in c.report(label) {
                         println!("  {line}");
                     }

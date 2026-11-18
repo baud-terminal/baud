@@ -151,6 +151,23 @@ const IMAGE_BUDGET_BYTES: u64 = (IMAGE_BUDGET.pixels as u64) * 4;
 /// ([`ghostty::set_png_decoder`]).
 #[cfg(have_ghostty)]
 pub(crate) fn ghostty_new() -> ghostty::Terminal {
+    ghostty_with(GhosttyImages::Budget)
+}
+
+/// What ghostty's image storage is given.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum GhosttyImages {
+    /// [`IMAGE_BUDGET`], as every rep has it.
+    Budget,
+    /// A limit of zero, which turns its image storage off: the count
+    /// check's positive control.
+    #[cfg(all(test, have_ghostty))]
+    Off,
+}
+
+/// [`ghostty_new`], its image storage given `images`.
+#[cfg(have_ghostty)]
+pub(crate) fn ghostty_with(images: GhosttyImages) -> ghostty::Terminal {
     let mut term: ghostty::Terminal = std::ptr::null_mut();
     let rc = unsafe {
         ghostty::ghostty_terminal_new(std::ptr::null(), &mut term, COLS as u16, ROWS as u16)
@@ -191,7 +208,11 @@ pub(crate) fn ghostty_new() -> ghostty::Terminal {
     // **Images under the budget baud-core is given.** The library's
     // default is 10 MB per screen.
     const OPT_KITTY_IMAGE_STORAGE_LIMIT: i32 = 15;
-    let limit: u64 = IMAGE_BUDGET_BYTES;
+    let limit: u64 = match images {
+        GhosttyImages::Budget => IMAGE_BUDGET_BYTES,
+        #[cfg(all(test, have_ghostty))]
+        GhosttyImages::Off => 0,
+    };
     let ri = unsafe {
         ghostty::ghostty_terminal_set(
             term,

@@ -131,6 +131,7 @@ pub(crate) mod ghostty {
     pub const IMAGE_DATA_FORMAT: i32 = 5;
     pub const IMAGE_DATA_DATA_PTR: i32 = 7;
     pub const IMAGE_DATA_DATA_LEN: i32 = 8;
+    pub const IMAGE_DATA_GENERATION: i32 = 9;
     pub const IMAGE_FORMAT_RGB: i32 = 0;
     pub const IMAGE_FORMAT_RGBA: i32 = 1;
     pub const IMAGE_FORMAT_GRAY_ALPHA: i32 = 3;
