@@ -219,6 +219,51 @@ fn mpvs_exit_restores_the_screen_by_default_and_not_under_the_setting() {
     }
 }
 
+/// **The shell's `D` after a program's open kitty command**: a prompt, its
+/// command started (`C`), a program that turns the alternate screen on and
+/// exits as mpv 0.41.0 does -- its delete left open, `ESC _ G a = d ;`,
+/// then the primary back -- and the shell's `D ; 7` and next prompt, each
+/// mark ended by `BEL`. By default the `ESC` of the program's resets
+/// cancels the delete, the resets run, and the `D` ends the first prompt's
+/// command. Under the setting the resets, the `D` and the next prompt are
+/// the delete's payload, which a `BEL` does not end, so the command is
+/// still running and the alternate screen up.
+#[test]
+fn the_shells_d_after_an_open_kitty_command_ends_the_command_by_default() {
+    let s: &[u8] = b"\x1b]133;A\x07$ \x1b]133;B\x07mpv\r\n\x1b]133;C\x07\
+\x1b[?1003h\x1b[?1049hplaying\x1b_Ga=d;\x1b[?25h\x1b[?1003l\x1b[?1049l\x1b>\
+\x1b]133;D;7\x07\x1b]133;A\x07$ ";
+    for mode in MODES {
+        for read in [s.len(), 7, 1] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            t.set_control_string_end(mode);
+            for piece in s.chunks(read) {
+                t.write_at(BytePos::ZERO, piece);
+                t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
+            }
+            let first = t.prompts().next().map(|p| p.status);
+            match mode {
+                ControlStringEnd::Standard => {
+                    assert_eq!(
+                        first,
+                        Some(ExitStatus::Exited(ExitCode::of(7))),
+                        "reads of {read}: the D ended the command"
+                    );
+                    assert_eq!(t.screen(), Screen::Normal, "reads of {read}");
+                }
+                ControlStringEnd::Kitty => {
+                    assert!(
+                        !matches!(first, Some(ExitStatus::Exited(_))),
+                        "reads of {read}: the D is the delete's payload: {first:?}"
+                    );
+                    assert_eq!(t.screen(), Screen::Alternate, "reads of {read}");
+                }
+            }
+        }
+    }
+}
+
 /// **3. A status line printed inside a chunk**, the recording
 /// `tests/recordings/kitty/mpv-status-in-chunk.raw`: one continuation chunk
 /// with `ESC [ 1 K CR ESC [ 0 m <status> ESC [ 0 m` and 764 base64

@@ -457,6 +457,43 @@ fn under_a_two_frame_quota_every_upload_shows_its_own_frame() {
     );
 }
 
+/// **mpv 0.41.0's exit, as it wrote it, turns off what it turned on**, by
+/// default: the capture fed in the tty's reads, then zsh's prompt with its
+/// marks. mpv's delete is left open (`ESC _ G a = d ;`), and the `ESC` of
+/// the resets after it cancels it, so its exit shows the cursor, turns
+/// any-event tracking off and brings the primary back: each holds when the
+/// prompt is drawn. The premise: the capture turned `?1003` on.
+#[test]
+fn after_mpvs_exit_the_mouse_is_off_and_the_primary_is_back() {
+    let bytes = std::fs::read(capture::PATH).expect("the capture");
+    assert!(
+        bytes.windows(8).any(|w| w == b"\x1b[?1003h"),
+        "the premise: mpv turned any-event tracking on"
+    );
+    let zsh: &[u8] = b"\x1b]133;D;0;aid=4242\x07\x1b]133;A;aid=4242\x07~/baud \xe2\x9d\xaf ";
+    let grid = grid_of(GRID);
+    let mut owned = Owned::new(&grid);
+    let mut term = Term::new(owned.storage(), &grid);
+    for chunk in bytes.chunks(READ).chain(core::iter::once(zsh)) {
+        crate::reads::feed(
+            &mut term,
+            [chunk],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        while crate::reads::decode_step(&mut term).0 == DecodeProgress::More {}
+    }
+    assert_eq!(
+        (term.mouse_tracking(), term.screen(), term.cursor_visible()),
+        (
+            baud_core::MouseTracking::Off,
+            baud_core::Screen::Normal,
+            true
+        )
+    );
+}
+
 /// **The demo's prompts after mpv's exit**: each shell's mark is a
 /// BEL-ended `OSC 133 ; A`, after the `OSC 133 ; D` of the command before
 /// it -- zsh's, baud's integration's, `ESC ] 133 ; A ; aid=PID BEL`

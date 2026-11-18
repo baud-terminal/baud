@@ -701,6 +701,49 @@ fn a_click_in_vim_moves_its_cursor_to_the_cell() {
     }
 }
 
+/// **A program's mouse mode is gone once its exit runs, and motion at the
+/// prompt after it reaches no one**: a program turns any-event tracking on
+/// (`?1003`), then exits as mpv 0.41.0 does -- its delete left open,
+/// `ESC _ G a = d ;`, then the cursor shown, `?1003` off and the primary
+/// back, which by default the `ESC` of the resets lets run -- and a
+/// shell's prompt returns with its `OSC 133` marks. A move of the pointer
+/// there sends nothing to the child. The control: before the exit, the
+/// same move is reported.
+#[test]
+fn after_a_program_exits_motion_at_the_prompt_reports_nothing() {
+    let dir = Scratch::new("mx");
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let cmd = concat!(
+        "printf '\\033[?1003h\\033[?25l\\033[?1049hplaying'; read -r go; ",
+        "printf '\\033_Ga=d;\\033[?25h\\033[?1003l\\033[?1049l\\033>'; ",
+        "printf '\\033]133;D;0\\007\\033]133;A\\007prompt$ '; exec cat",
+    );
+    let mut u = Under::start(&mut t, cmd, dir.env(&[]));
+    u.until("the program plays with the mouse on", |t, _| {
+        screen(t)[0] == "playing" && t.mouse_tracking() == MouseTracking::AnyEvent
+    });
+    u.at(cell!(3, 3), NONE);
+    assert!(
+        !u.take_sent().is_empty(),
+        "the control: a move is reported while it plays"
+    );
+    u.typed(b"\r");
+    u.until("the prompt returns", |t, _| {
+        screen(t).iter().any(|r| r.contains("prompt$"))
+    });
+    u.at(cell!(5, 7), NONE);
+    u.at(cell!(6, 9), NONE);
+    let sent = u.take_sent();
+    assert!(
+        sent.is_empty(),
+        "motion at the prompt reached the shell: {:?}, mouse {:?}, screen {:?}",
+        String::from_utf8_lossy(&sent),
+        u.term.mouse_tracking(),
+        u.term.screen()
+    );
+}
+
 const SHIFT: Modifiers = Modifiers::SHIFT;
 const CTRL: Modifiers = Modifiers::CTRL;
 
