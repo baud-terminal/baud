@@ -21,6 +21,9 @@ pub(crate) enum Rate {
     /// Timed, equal work not shown: a compared count was "n/a" on an arm
     /// (UNEQUAL-UNKNOWN). The median is printed and is not a result.
     Unquotable(Summary),
+    /// Timed, its screen shown to differ from baud-core's by its own gate
+    /// (`screens`): a rate for other work, so none is printed.
+    Unequal,
 }
 
 impl Rate {
@@ -31,7 +34,7 @@ impl Rate {
             Rate::Unquotable((median, _, _)) => {
                 format!("{:>21}", format!("unquotable {median:.1}"))
             }
-            Rate::Untimed => format!("{:>21}", "no rate"),
+            Rate::Untimed | Rate::Unequal => format!("{:>21}", "no rate"),
         }
     }
 }

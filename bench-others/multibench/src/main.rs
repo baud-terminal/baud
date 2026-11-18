@@ -3,6 +3,7 @@ mod counts;
 mod equal;
 mod ffi;
 mod report;
+mod screens;
 mod transport;
 // The guard every measurement in this repository runs first, a file of
 // baud-bench's: this workspace links nothing from that one.
@@ -187,6 +188,18 @@ fn main() {
     let quoted = screens
         .each_ref()
         .map(|c| c.as_ref().is_some_and(equal::Compared::rated));
+    // The other cores' screen gates, each recording against baud-core's
+    // screen (`screens::for_core`): a core whose screen differs is still
+    // timed, so every core keeps its place in the rotation, and its rate
+    // is not printed.
+    let gates: Vec<[Option<screens::Gate>; 2]> = (0..CORES.len())
+        .map(|ci| {
+            [
+                screens::for_core(ci, &stream, total),
+                screens::for_core(ci, &tui, total),
+            ]
+        })
+        .collect();
 
     // Interleaved and rotated, not blocked. Rep-major order means thermal drift
     // reaches every core equally; rotating the starting index by the rep number
@@ -237,12 +250,22 @@ fn main() {
             continue;
         }
         let [st, tu] = &mut samples[ci];
-        let rate = |pi: usize, v: &mut [f64]| match (timed[pi], quoted[pi]) {
-            (false, _) => Rate::Untimed,
-            (true, true) => Rate::Quoted(summarize(v)),
-            (true, false) => Rate::Unquotable(summarize(v)),
+        let gated = |pi: usize| gates[ci][pi].is_none_or(screens::Gate::rated);
+        let rate = |pi: usize, v: &mut [f64]| match (timed[pi], gated(pi), quoted[pi]) {
+            (false, _, _) => Rate::Untimed,
+            (true, false, _) => Rate::Unequal,
+            (true, true, true) => Rate::Quoted(summarize(v)),
+            (true, true, false) => Rate::Unquotable(summarize(v)),
         };
         row(label, rate(0, st), rate(1, tu));
+        if let [Some(s), Some(t)] = gates[ci] {
+            println!(
+                "  {:<28} {}; {}",
+                "",
+                s.says(&labels[0]),
+                t.says(&labels[1])
+            );
+        }
         // Each image arm's counters from the screen check's rep, under its
         // row.
         let arm = match ci {
