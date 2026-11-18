@@ -12,6 +12,7 @@
 
 pub mod choose;
 pub mod draw;
+pub mod effect;
 pub mod frame;
 pub mod pipeline;
 pub mod sys;

@@ -517,6 +517,9 @@ fn every_test_named_in_the_docs_exists() {
         "baud-wayland",
         "baud-xkb",
         "baud-present-wayland",
+        // Its docs name its pixel tests, such as
+        // `multiply_s_second_step_is_its_second_rounding`.
+        "baud-present-vulkan",
         "baud-tablegen",
         "xtask",
         // Outside the workspace; its docs name the C functions its extern

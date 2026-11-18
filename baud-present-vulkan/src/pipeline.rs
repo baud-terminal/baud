@@ -49,6 +49,47 @@ pub enum Fragment {
     /// A record: a mask, a colour glyph or a flat colour
     /// (`glyph_fragment`).
     Glyph,
+    /// An effect trail's records, by its own fragment over the records'
+    /// vertex stage, reading its `EffectU` at set 2 (`fx_*.frag`).
+    Effect(Fx),
+    /// The fireworks' stars, by their own vertex and fragment stages and
+    /// their `FwU` at set 2 (`fireworks.vert`, `fireworks.frag`).
+    Fireworks,
+}
+
+/// **An effect trail's fragment shader**, one an effect
+/// (`baud_render::effect::Effect`) and the plasma's second for its
+/// `multiply` mix, which writes the factor its backdrop is taken at as the
+/// second source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Fx {
+    Fire,
+    Plasma,
+    PlasmaMultiply,
+    /// The plasma's `multiply` factor alone, `1 - as + cs`, for the first of
+    /// the two passes a device without a second source blends it in.
+    PlasmaFactor,
+    Lightning,
+    Ice,
+    Ufo,
+    Orb,
+    Liquid,
+}
+
+impl Fx {
+    fn stage(self) -> Spirv {
+        match self {
+            Fx::Fire => spv!("fx_fire.frag"),
+            Fx::Plasma => spv!("fx_plasma.frag"),
+            Fx::PlasmaMultiply => spv!("fx_plasma_multiply.frag"),
+            Fx::PlasmaFactor => spv!("fx_plasma_factor.frag"),
+            Fx::Lightning => spv!("fx_lightning.frag"),
+            Fx::Ice => spv!("fx_ice.frag"),
+            Fx::Ufo => spv!("fx_ufo.frag"),
+            Fx::Orb => spv!("fx_orb.frag"),
+            Fx::Liquid => spv!("fx_liquid.frag"),
+        }
+    }
 }
 
 impl Fragment {
@@ -56,6 +97,8 @@ impl Fragment {
         match self {
             Fragment::Background => (spv!("bg.vert"), spv!("bg.frag")),
             Fragment::Glyph => (spv!("glyph.vert"), spv!("glyph.frag")),
+            Fragment::Effect(fx) => (spv!("glyph.vert"), fx.stage()),
+            Fragment::Fireworks => (spv!("fireworks.vert"), spv!("fireworks.frag")),
         }
     }
 }
@@ -69,6 +112,18 @@ pub enum Blend {
     Normal,
     /// `src + dst (1 - src)`.
     Screen,
+    /// W3C Compositing's `multiply` in premultiplied numbers, `cs (1 - ab)
+    /// + cb (1 - as + cs)`, by a second source (`dualSrcBlend`): the
+    /// fragment writes the colour and, as source 1, the factor `1 - as + cs`
+    /// the backdrop is taken at ([`Fx::PlasmaMultiply`]).
+    Multiply,
+    /// `multiply`'s first pass where the device has no second source: the
+    /// backdrop's colour times the factor the fragment writes
+    /// ([`Fx::PlasmaFactor`]), its alpha kept for the second pass.
+    MultiplyFactor,
+    /// `multiply`'s second pass: the colour times `1 - ab`, added, and the
+    /// alpha source-over.
+    MultiplyAdd,
 }
 
 impl Blend {
@@ -93,6 +148,9 @@ impl Blend {
                 .color_write_mask(all),
             Blend::Normal => blend(over, over),
             Blend::Screen => blend((F::ONE, F::ONE_MINUS_SRC_COLOR), over),
+            Blend::Multiply => blend((F::ONE_MINUS_DST_ALPHA, F::SRC1_COLOR), over),
+            Blend::MultiplyFactor => blend((F::ZERO, F::SRC_COLOR), (F::ZERO, F::ONE)),
+            Blend::MultiplyAdd => blend((F::ONE_MINUS_DST_ALPHA, F::ONE), over),
         }
     }
 }
@@ -202,6 +260,9 @@ pub struct Pipelines {
     /// Draws skipped because their pipeline was still building
     /// ([`Pipelines::ready`]).
     pub not_ready: Skipped,
+    /// `multiply` draws blended in two passes, on a device without a second
+    /// source ([`crate::frame::Multiply::TwoPass`]).
+    pub multiply_two_pass: Skipped,
     /// Builds that failed, whose draws are skipped from then on.
     failed: HashMap<Key, Failed>,
 }
@@ -300,6 +361,7 @@ impl Pipelines {
             pending: HashMap::new(),
             building,
             not_ready: Skipped::default(),
+            multiply_two_pass: Skipped::default(),
             failed: HashMap::new(),
         })
     }

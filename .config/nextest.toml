@@ -68,11 +68,11 @@ test-group = 'metal'
 filter = 'package(baud) & (binary(event_rig) | binary(about_window) | binary(titlebar_mark))'
 test-group = 'metal'
 
-# The Vulkan tests: `lavapipe` and `radv` each make a Vulkan device and a
-# queue (`Gpu::new`), lavapipe's on the CPU and radv's on the GPU, so they
-# share the bound the Metal tests are held to.
+# The Vulkan tests: each makes a Vulkan device and a queue (`Gpu::new`),
+# lavapipe's on the CPU and radv's on the GPU, so they share the bound the
+# Metal tests are held to.
 [[profile.default.overrides]]
-filter = 'package(baud-present-vulkan) & (binary(lavapipe) | binary(radv) | binary(instance_path))'
+filter = 'package(baud-present-vulkan) & (binary(lavapipe) | binary(radv) | binary(instance_path) | binary(effect_building) | binary(effect_pixels) | binary(fireworks_pixels))'
 test-group = 'metal'
 
 # 16 threads holding 4 spawned terminals each, all at once.

@@ -274,7 +274,8 @@ impl Gpu {
     }
 
     /// [`Gpu::draw`] with the records drawn by `records`' pipeline, and, for
-    /// a fragment that reads one, its uniform's bytes bound at set 2.
+    /// an effect or the fireworks, its uniform (`EffectU`, `FwU`) bound at
+    /// set 2 (`effect.rs`).
     #[allow(unsafe_code)]
     pub(crate) fn draw_with(
         &self,

@@ -38,6 +38,18 @@ pub struct Gpu {
     pub(crate) family: QueueFamily,
     pub(crate) pool: vk::CommandPool,
     pub choice: Choice,
+    /// How the plasma's `multiply` blends on this device.
+    pub multiply: Multiply,
+}
+
+/// **How the plasma's `multiply` mix is blended**: by a second source, the
+/// factor the backdrop is taken at, where the device has `dualSrcBlend`;
+/// otherwise in two passes, the factor multiplied into the backdrop and
+/// then the colour added (`effect.rs`), counted where it is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Multiply {
+    DualSource,
+    TwoPass,
 }
 
 /// A memory type's index, as `vkAllocateMemory` takes it.
@@ -132,9 +144,20 @@ impl Gpu {
             .queue_priorities(&priority)];
         let mut v12 = vk::PhysicalDeviceVulkan12Features::default()
             .timeline_semaphore(choice.sync == Sync::Explicit);
+        // The plasma's `multiply` blends by a second source where the device
+        // offers it, and in two passes where it does not (`Multiply`).
+        // SAFETY: a physical device of this instance.
+        let offered = unsafe { inst.get_physical_device_features(physical) };
+        let multiply = match offered.dual_src_blend {
+            vk::TRUE => Multiply::DualSource,
+            _ => Multiply::TwoPass,
+        };
+        let features =
+            vk::PhysicalDeviceFeatures::default().dual_src_blend(multiply == Multiply::DualSource);
         let info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queues)
             .enabled_extension_names(&names)
+            .enabled_features(&features)
             .push_next(&mut v12);
         // SAFETY: the create-info and everything it points to live through
         // the call; the extensions were checked present (`vk::candidates`).
@@ -154,6 +177,7 @@ impl Gpu {
             family,
             pool,
             choice,
+            multiply,
         })
     }
 

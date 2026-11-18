@@ -27,7 +27,7 @@ grep -q '^Gpu ' <<<"$probe" || {
   exit 1
 }
 
-out=$(cargo test -p baud-present-vulkan --test radv --test instance_path -- --ignored 2>&1) || {
+out=$(cargo test -p baud-present-vulkan --test radv --test instance_path --test effect_pixels --test fireworks_pixels -- --ignored 2>&1) || {
   echo "$out" >&2
   exit 1
 }
@@ -37,6 +37,11 @@ expect=(
   radv_signals_a_frame_on_a_syncobj_timeline
   the_instance_path_is_exact_on_radv
   a_pass_over_keeps_the_target_on_radv
+  every_effect_matches_the_cpu_path_on_radv
+  the_plasma_mixes_match_the_reference_on_radv
+  multiply_s_second_step_is_its_second_rounding_on_radv
+  multiply_in_two_passes_matches_where_one_record_covers_on_radv
+  the_fireworks_match_the_cpu_path_on_radv
 )
 for t in "${expect[@]}"; do
   grep -q "^test $t \.\.\. ok$" <<<"$out" || {
