@@ -86,21 +86,35 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 }
 
 /// Where the `n`th input mark (`OSC 133 ; B`, counted from 1) of `raw`
-/// ends: the bytes through it leave the shell at its `n`th prompt.
+/// ends: the bytes through it leave the shell at its `n`th prompt. bash
+/// ends the mark with BEL, fish with ST.
 fn through_input(raw: &[u8], n: usize) -> usize {
-    const B: &[u8] = b"\x1b]133;B\x07";
+    const B: &[u8] = b"\x1b]133;B";
     raw.windows(B.len())
         .enumerate()
         .filter(|(_, w)| *w == B)
+        .map(|(i, _)| match raw[i + B.len()..] {
+            [0x07, ..] => i + B.len() + 1,
+            [0x1b, b'\\', ..] => i + B.len() + 2,
+            _ => panic!("an input mark at {i} that neither BEL nor ST ends"),
+        })
         .nth(n - 1)
-        .map(|(i, _)| i + B.len())
         .unwrap_or_else(|| panic!("the recording has no input mark {n}"))
 }
 
 /// `bash-session` up to its `n`th prompt, in one window, with the setting
 /// as `pin` says.
 fn session_at<R>(pin: PromptAtBottom, n: usize, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
-    let fx = load("prompt/bash-session");
+    recording_at("prompt/bash-session", pin, n, f)
+}
+
+/// The recording `name` up to its `n`th prompt, in one window, with the
+/// setting as `pin` says.
+fn recording_at<R, F>(name: &str, pin: PromptAtBottom, n: usize, f: F) -> R
+where
+    F: FnOnce(&mut Term<'_>) -> R,
+{
+    let fx = load(name);
     let ws = WinSize { ..fx.steps[0].0 };
     let mut owned = Owned::new(&ws);
     let mut t = Term::new(owned.storage(), &ws);
@@ -206,6 +220,79 @@ fn a_growth_at_a_prompt_keeps_it_on_the_last_row() {
     }
     replay("prompt/bash-grow", PromptAtBottom::Off, |t, _| {
         assert_eq!(row_text(t, 0), "demo$");
+    });
+}
+
+/// **fish's own marks pin its prompts as bash's do.** fish 4.9.3 sends
+/// `OSC 133` itself, each mark ended by ST where bash's end with BEL, its
+/// prompt mark carrying `click_events=1` and its `C` the command line. On,
+/// the first prompt, the prompt after `clear; ls`, both prompts Control-L
+/// draws and the prompts after `echo one` and `echo two` land on the last
+/// row, and `ls`'s output stays on the row it was written to. Off, each
+/// prompt follows the output down.
+#[test]
+fn fish_s_prompts_land_on_the_last_row_only_with_the_setting_on() {
+    let fish = "prompt/fish-session";
+    let last = 11;
+    // Off: where the cursor was.
+    recording_at(fish, PromptAtBottom::Off, 1, |t| {
+        assert_eq!(t.cursor().0.index(), 0)
+    });
+    recording_at(fish, PromptAtBottom::Off, 2, |t| {
+        assert_eq!(words(t, 0), "alpha beta gamma");
+        assert_eq!(row_text(t, 1), "demo>");
+    });
+    recording_at(fish, PromptAtBottom::Off, 4, |t| {
+        assert_eq!(row_text(t, 0), "demo>")
+    });
+    // On.
+    recording_at(fish, PromptAtBottom::On, 1, |t| {
+        assert_eq!(rows(t), last + 1);
+        assert_eq!(t.cursor().0.index(), last, "a fresh session's prompt");
+        assert_eq!(row_text(t, last), "demo>");
+        assert!(t.scrollback().is_empty(), "walking down retires nothing");
+    });
+    recording_at(fish, PromptAtBottom::On, 2, |t| {
+        assert_eq!(words(t, 0), "alpha beta gamma", "the output stays put");
+        assert!((1..last).all(|y| row_text(t, y).is_empty()), "a gap");
+        assert_eq!(row_text(t, last), "demo>", "the prompt after clear; ls");
+    });
+    for (n, said) in [(3, "one"), (6, "two")] {
+        recording_at(fish, PromptAtBottom::On, n, |t| {
+            assert_eq!(row_text(t, last - 2), format!("demo> echo {said}"));
+            assert_eq!(row_text(t, last - 1), said);
+            assert_eq!(row_text(t, last), "demo>");
+        });
+    }
+    // Control-L: fish clears and draws its prompt twice, each with its marks.
+    for n in [4, 5] {
+        recording_at(fish, PromptAtBottom::On, n, |t| {
+            assert!((0..last).all(|y| row_text(t, y).is_empty()), "prompt {n}");
+            assert_eq!(row_text(t, last), "demo>", "Control-L's redraw {n}");
+            assert_eq!(t.cursor().0.index(), last);
+            assert_eq!(t.prompt_row(), Some(Row::from_index(last)));
+        });
+    }
+}
+
+/// **A window that grows at a fish prompt keeps it on the last row**: fish
+/// redraws its prompt with its `A` and its `B` after each `SIGWINCH`, through
+/// 60x12, 60x20 and 80x20, and the input mark that ends the redraw pins it.
+/// Off, the session's first line stays at the top.
+#[test]
+fn a_growth_at_a_fish_prompt_keeps_it_on_the_last_row() {
+    let mut on = Vec::new();
+    replay("prompt/fish-grow", PromptAtBottom::On, |t, _| {
+        on.push((rows(t), t.cursor().0.index(), row_text(t, rows(t) - 1)));
+    });
+    assert_eq!(on.len(), 5, "{on:?}");
+    assert_eq!(on.last().map(|s| s.0), Some(20), "{on:?}");
+    for (r, cy, text) in &on {
+        assert_eq!(*cy, r - 1, "{on:?}");
+        assert_eq!(text, "demo>", "{on:?}");
+    }
+    replay("prompt/fish-grow", PromptAtBottom::Off, |t, _| {
+        assert_eq!(row_text(t, 0), "demo>");
     });
 }
 
