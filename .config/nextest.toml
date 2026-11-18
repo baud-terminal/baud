@@ -54,9 +54,8 @@ threads-required = 'num-test-threads'
 # one through AppKit, measured; `present` draws to IOSurfaces and makes
 # none, measured, and is held with the present path's other tests.
 # `gpu_fault` makes a Gpu and a Presenter to hold and fail their completions.
-# `material_probe` makes a device and a queue to render a view offscreen.
 [[profile.default.overrides]]
-filter = 'package(baud-present-macos) & (binary(cells) | binary(metallib) | binary(suite_archive) | binary(on_screen) | binary(present) | binary(gpu_fault) | binary(material_probe))'
+filter = 'package(baud-present-macos) & (binary(cells) | binary(metallib) | binary(suite_archive) | binary(on_screen) | binary(present) | binary(gpu_fault))'
 test-group = 'metal'
 
 # The app's tests: the about window's and the title bar's windows make a

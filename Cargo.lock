@@ -205,7 +205,6 @@ dependencies = [
  "macos-liquid-glass",
  "objc2",
  "objc2-core-foundation",
- "objc2-core-graphics",
  "objc2-foundation",
  "objc2-io-surface",
  "objc2-metal",
