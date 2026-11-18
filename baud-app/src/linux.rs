@@ -109,7 +109,7 @@ use crate::config::Config;
 use crate::host::{
     FIRST_PRESENT, MAX_GRID, cell_px, describe, host_geometry, startup_first, startup_mark,
 };
-use crate::pty::{Chunk, Outbox, Pty, Ready, wait};
+use crate::pty::{Outbox, Pty, Ready, wait};
 use baud_core::{Focus, Owned, PointerHides, Resized, Term};
 use baud_domain::{Cols, DecodeProgress, Rows, WinSize};
 use baud_font::Px;
@@ -474,6 +474,12 @@ struct Driver {
     /// and the last presentation it was told of: on Linux a key is shown
     /// when `wp_presentation` says its frame turned into light.
     latency: crate::latency::Latency,
+    /// **The buffer each turn drains the master into** (`Pty::drain_into`),
+    /// kept at `READ_BATCH` so a turn allocates nothing to read.
+    read_buf: Vec<u8>,
+    /// What the last read left of the window's title, so a read that
+    /// changed none of it builds no title (`title::ReadTitle`).
+    read_title: crate::title::ReadTitle,
     last_presented: Option<baud_present_wayland::Stamp>,
     /// The presented-frame log, on under `BAUD_PRESENTED=1`
     /// ([`PresentedLog`]).
@@ -1001,6 +1007,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         type_size,
         report: crate::report::Polled::new(Instant::now(), crate::report::Logged::now()),
         latency: crate::latency::Latency::from_env(),
+        read_buf: Vec::with_capacity(crate::pty::READ_BATCH),
+        read_title: crate::title::ReadTitle::new(),
         last_presented: None,
         presented_log: PresentedLog::from_env(),
         holding: crate::held::Holding::No,
@@ -1199,12 +1207,29 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             }
         }
         if pty == Ready::Readable {
-            match d.pty.read_chunk() {
+            // **The master drained in one turn** (`Pty::drain_into`): every
+            // read it has, up to `READ_BATCH`, into the buffer the driver
+            // keeps, and the work a feed does done once for all of them.
+            // The keystroke instrument's echo is stamped at the first read,
+            // and the clock read for it only while the instrument holds a
+            // keystroke's record open.
+            let mut stamp = match d.latency.on() == crate::latency::Switch::On
+                && d.latency.open().value() > 0
+            {
+                true => crate::pty::Stamp::Asked,
+                false => crate::pty::Stamp::Unasked,
+            };
+            let mut bytes = std::mem::take(&mut d.read_buf);
+            let batch = d.pty.drain_into(&mut bytes, &mut stamp);
+            match batch {
                 // The child let go of its terminal: the master leaves the
                 // poll, and the window decides below once the child is
                 // reaped too (`held.rs`).
-                Chunk::Closed => d.pty.hung_up(),
-                Chunk::Bytes(bytes) => {
+                crate::pty::Batch::Closed => d.pty.hung_up(),
+                // A wake that found nothing to read: the paced and released
+                // reads are `feed_released`'s, below, every turn.
+                crate::pty::Batch::Bytes(0) => {}
+                crate::pty::Batch::Bytes(_) => {
                     // Which program wrote it, asked at the read: it may be
                     // gone by the batch (`Probes::read_taken`), and a read
                     // carrying a link always asks.
@@ -1222,8 +1247,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                         ),
                         crate::probe::Asks::No => (d.groups.unasked(), crate::probe::Linked::No),
                     };
-                    if d.latency.on() == crate::latency::Switch::On {
-                        d.latency.echoed([crate::pty::host_now()]);
+                    if let crate::pty::Stamp::At(at) = stamp {
+                        d.latency.echoed([at]);
                     }
                     let began = d.seat.cursor_on(&d.term);
                     let took = d.feed(&bytes, (writers, linked));
@@ -1242,6 +1267,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                     );
                 }
             }
+            d.read_buf = bytes;
         }
         // The child's end, by its pidfd, or with none the one more look the
         // hangup owes (`Pty::reap_owed`); and the window's decision once
@@ -1742,7 +1768,20 @@ impl Driver {
         }
         // The read owes the derived title a check, made at the next frame.
         self.derive.owe();
-        self.send_title();
+        // **The title once for each change, not once a read**
+        // (`title::ReadTitle`): a read changes the program's title, its
+        // encoding, the printer's run or the folder `OSC 7` names, and the
+        // frame's check finds a change of the folder and program a derived
+        // title names.
+        let changed = self.read_title.changed(
+            self.term.title(),
+            self.term.title_encoding(),
+            self.term.print_run(),
+            self.term.working_directory(),
+        );
+        if changed == crate::title::Changed::Yes {
+            self.send_title();
+        }
         took
     }
 

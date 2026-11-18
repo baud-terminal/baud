@@ -483,13 +483,17 @@ impl Pty {
         }
     }
 
-    /// One read of the master; nothing, and never an end, for a refused
-    /// terminal.
+    /// **The master drained into `buf`** ([`drain_master`]): one turn's
+    /// reads, up to [`READ_BATCH`]; nothing, and never an end, for a
+    /// refused terminal.
     #[cfg(target_os = "linux")]
-    pub fn read_chunk(&self) -> Chunk {
+    pub fn drain_into(&self, buf: &mut Vec<u8>, stamp: &mut Stamp) -> Batch {
         match self {
-            Pty::Live(l) => l.read_chunk(),
-            Pty::Refused(_) => Chunk::Bytes(Vec::new()),
+            Pty::Live(l) => drain_master(l.master, buf, stamp),
+            Pty::Refused(_) => {
+                buf.clear();
+                Batch::Bytes(0)
+            }
         }
     }
 
@@ -674,8 +678,8 @@ pub enum Stream {
 /// earliest moment this process knows the child answered -- the `echo` leg
 /// of the keystroke instrument (`latency.rs`), which is why it rides in the
 /// channel beside the bytes rather than being read on the main thread when
-/// the chunk is drained. Named `Read` rather than `Chunk`, which is the Linux
-/// loop's enum for the same read without the stamp.
+/// the chunk is drained. The Linux loop stamps a batch's first read itself
+/// (`Stamp`).
 #[cfg(target_os = "macos")]
 pub struct Read {
     pub at: HostTime,
@@ -700,6 +704,84 @@ pub struct Drained {
 
 /// What `read(2)` delivers at most per call, the tty's own quantum.
 const READ_CHUNK: usize = 4096;
+
+/// **What one turn of the loop drains from the master before it feeds the
+/// terminal**: sixteen reads of [`READ_CHUNK`], each as large as the tty
+/// hands back, so the work done once a feed -- the probes, the title, the
+/// lights -- is done once for up to 64 KiB rather than once for each read.
+/// **The bound is what keeps a program that writes without pause from
+/// starving keys and frames**: a drain to `EAGAIN` alone would never end
+/// for one, and 64 KiB is about 0.1 ms of the core's parse, after which the
+/// turn waits again with the keys and the compositor.
+#[cfg(target_os = "linux")]
+pub const READ_BATCH: usize = 16 * READ_CHUNK;
+
+/// What a drain of the master found.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Batch {
+    /// The bytes the reads took, in the buffer, and how many reads it took:
+    /// none when the wait woke for something else.
+    Bytes(usize),
+    /// The child has gone and nothing more was read.
+    Closed,
+}
+
+/// **The master drained into `buf`**: reads of [`READ_CHUNK`] until one
+/// finds nothing (`EAGAIN`, the master being non-blocking), the child has
+/// gone, or `buf` has no room for another, its capacity [`READ_BATCH`] when
+/// the caller keeps it. `buf` is cleared first and grows into its own
+/// capacity, so a caller that keeps one buffer allocates nothing a drain.
+/// Bytes read before the child went are delivered now, and the close is
+/// found by the next drain.
+#[cfg(target_os = "linux")]
+fn drain_master(fd: crate::sys::Fd, buf: &mut Vec<u8>, stamp: &mut Stamp) -> Batch {
+    buf.clear();
+    let mut reads = 0;
+    loop {
+        let at = buf.len();
+        if at + READ_CHUNK > READ_BATCH {
+            return Batch::Bytes(reads);
+        }
+        buf.resize(at + READ_CHUNK, 0);
+        match read_master(fd, &mut buf[at..]) {
+            Got::Bytes(b) => {
+                let n = b.len();
+                buf.truncate(at + n);
+                if *stamp == Stamp::Asked {
+                    *stamp = Stamp::At(host_now());
+                }
+                reads += 1;
+            }
+            Got::Nothing => {
+                buf.truncate(at);
+                return Batch::Bytes(reads);
+            }
+            Got::Closed => {
+                buf.truncate(at);
+                return match reads {
+                    0 => Batch::Closed,
+                    _ => Batch::Bytes(reads),
+                };
+            }
+        }
+    }
+}
+
+/// **The moment a batch's first read returned**, read only when asked: the
+/// keystroke instrument asks while a keystroke waits for its echo, so the
+/// echo is stamped where it arrived, not after the rest of the batch, and
+/// no clock is read for a batch no keystroke waits on.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Stamp {
+    /// No keystroke waits: read no clock.
+    Unasked,
+    /// A keystroke waits: stamp the first read.
+    Asked,
+    /// The first read's moment.
+    At(baud_domain::HostTime),
+}
 
 /// Whether a write reached the child whole, in part, or not at all.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2557,7 +2639,7 @@ impl Pty {
     }
 
     /// The pty with no thread: the caller waits on `as_fd` beside whatever
-    /// else it waits on and takes each read with `read_chunk`, which is
+    /// else it waits on and drains the reads with `drain_into`, which is
     /// the Linux loop's shape -- one wait over the compositor's socket and
     /// the master, and nothing crossing a channel.
     #[cfg(target_os = "linux")]
@@ -2658,25 +2740,6 @@ impl Live {
         match t.c_cc[crate::sys::VLNEXT] {
             crate::sys::POSIX_VDISABLE => crate::readline::Quote::LNEXT,
             b => crate::readline::Quote(b),
-        }
-    }
-
-    /// One read of the master, taken after a wait said it was ready: at
-    /// most `READ_CHUNK` bytes, empty when a signal interrupted the read or
-    /// the wait woke for room to write rather than for bytes, and `Closed`
-    /// once the child has gone -- a Linux master answers a read with an
-    /// error then, not with zero bytes.
-    #[cfg(target_os = "linux")]
-    pub fn read_chunk(&self) -> Chunk {
-        let mut buf = vec![0u8; READ_CHUNK];
-        match read_master(self.master, &mut buf) {
-            Got::Bytes(b) => {
-                let n = b.len();
-                buf.truncate(n);
-                Chunk::Bytes(buf)
-            }
-            Got::Nothing => Chunk::Bytes(Vec::new()),
-            Got::Closed => Chunk::Closed,
         }
     }
 
@@ -3109,13 +3172,6 @@ pub enum Ready {
 pub enum Owed {
     Nothing,
     Bytes,
-}
-
-/// One read of the master.
-#[cfg(target_os = "linux")]
-pub enum Chunk {
-    Bytes(Vec<u8>),
-    Closed,
 }
 
 /// What else a [`wait`] watches a descriptor for: a clipboard transfer's
@@ -3701,6 +3757,84 @@ mod tests {
         let given = unsafe { c.release() };
         assert_eq!(given.unmapped, 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A master with bytes waiting is drained in one turn, allocating
+    /// nothing**: 40,000 bytes come in one batch of ten reads of
+    /// `READ_CHUNK`, into a buffer kept at `READ_BATCH`; 70,000 take the
+    /// batch's sixteen reads, 65,536 bytes, and the rest the next; an empty
+    /// master gives an empty batch, and a closed one with nothing waiting
+    /// `Closed`, after the bytes it held. Perturbation: one read a drain
+    /// gives a batch of one read and 4,096 bytes; a fresh buffer a drain
+    /// allocates.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_master_with_bytes_waiting_is_drained_in_one_batch_allocating_nothing() {
+        use std::io::Write;
+        use std::os::fd::AsRawFd;
+        let (mut w, r) = std::os::unix::net::UnixStream::pair().expect("a socket pair");
+        r.set_nonblocking(true).expect("non-blocking");
+        let bytes = |n: usize| -> Vec<u8> {
+            (0..n)
+                .map(|i| u8::try_from(i % 251).expect("below 251"))
+                .collect()
+        };
+        let mut buf = Vec::with_capacity(READ_BATCH);
+        let sent = bytes(40_000);
+        w.write_all(&sent).expect("written");
+        // The one allocation a drain could make is its buffer growing: the
+        // same block, as large, says it made none.
+        let (at, room) = (buf.as_ptr(), buf.capacity());
+        let got = drain_master(r.as_raw_fd(), &mut buf, &mut Stamp::Unasked);
+        assert_eq!(got, Batch::Bytes(10), "ten reads");
+        assert_eq!(buf, sent, "every byte, in order");
+        assert_eq!((buf.as_ptr(), buf.capacity()), (at, room), "no allocation");
+        assert_eq!(
+            drain_master(r.as_raw_fd(), &mut buf, &mut Stamp::Unasked),
+            Batch::Bytes(0)
+        );
+        assert!(buf.is_empty(), "an empty master, an empty batch");
+        let sent = bytes(70_000);
+        w.write_all(&sent).expect("written");
+        assert_eq!(
+            drain_master(r.as_raw_fd(), &mut buf, &mut Stamp::Unasked),
+            Batch::Bytes(16)
+        );
+        assert_eq!(buf, sent[..READ_BATCH], "a batch's worth");
+        assert_eq!(
+            drain_master(r.as_raw_fd(), &mut buf, &mut Stamp::Unasked),
+            Batch::Bytes(2)
+        );
+        assert_eq!(buf, sent[READ_BATCH..], "the rest");
+        w.write_all(b"last").expect("written");
+        drop(w);
+        assert_eq!(
+            drain_master(r.as_raw_fd(), &mut buf, &mut Stamp::Unasked),
+            Batch::Bytes(1)
+        );
+        assert_eq!(buf, b"last", "what it held before it closed");
+        assert_eq!(
+            drain_master(r.as_raw_fd(), &mut buf, &mut Stamp::Unasked),
+            Batch::Closed
+        );
+        // A keystroke waiting has its echo stamped at the first read, and
+        // none waiting reads no clock.
+        let (mut w, r) = std::os::unix::net::UnixStream::pair().expect("a socket pair");
+        r.set_nonblocking(true).expect("non-blocking");
+        w.write_all(b"echo").expect("written");
+        let mut stamp = Stamp::Asked;
+        assert_eq!(
+            drain_master(r.as_raw_fd(), &mut buf, &mut stamp),
+            Batch::Bytes(1)
+        );
+        assert!(matches!(stamp, Stamp::At(_)), "stamped: {stamp:?}");
+        w.write_all(b"more").expect("written");
+        let mut stamp = Stamp::Unasked;
+        assert_eq!(
+            drain_master(r.as_raw_fd(), &mut buf, &mut stamp),
+            Batch::Bytes(1)
+        );
+        assert_eq!(stamp, Stamp::Unasked, "no clock read");
     }
 
     /// **`wait` says which of its extra descriptors is ready**, so the
@@ -7082,7 +7216,8 @@ mod tests {
                 "an event before the bound"
             );
             if master == Ready::Readable {
-                if let Chunk::Closed = self.pty.read_chunk() {
+                let mut buf = Vec::with_capacity(READ_BATCH);
+                if let Batch::Closed = self.pty.drain_into(&mut buf, &mut Stamp::Unasked) {
                     self.pty.hung_up();
                 }
             }
@@ -7111,7 +7246,7 @@ mod tests {
     /// link, run `BAUD_SSH_RACE_N` times (200 by default) as a job of its
     /// own under a monitor-mode bash, a line of the shell's own before
     /// each, as a prompt is. Each read is taken as the Linux loop takes it
-    /// -- the poll, [`Pty::read_chunk`], [`crate::probe::Sampler`] and the
+    /// -- the poll, [`Pty::drain_into`], [`crate::probe::Sampler`] and the
     /// group's `TIOCGPGRP` -- and each sampled group named at once as the
     /// paths worker names it (`probe::front_of`, a group gone naming
     /// nothing, which is not local). It counts the links whose read had
@@ -7175,10 +7310,10 @@ mod tests {
             )
             .expect("the wait");
             assert_eq!(m, Ready::Readable, "output before the bound");
-            let bytes = match w.pty.read_chunk() {
-                Chunk::Bytes(b) => b,
-                Chunk::Closed => break,
-            };
+            let mut bytes = Vec::with_capacity(READ_BATCH);
+            if w.pty.drain_into(&mut bytes, &mut Stamp::Unasked) == Batch::Closed {
+                break;
+            }
             let asks = sampler.read(std::time::Instant::now(), &bytes);
             let writers = match asks {
                 Asks::Yes(_) => {
@@ -7222,7 +7357,7 @@ mod tests {
     /// `BAUD_SSH_RACE_INTEGRATION=off`, is typed `ssh localhost cat <file>`
     /// `BAUD_SSH_RACE_N` times (200 by default), the file holding one `OSC
     /// 8` link, each at its prompt. Each read is taken as the Linux loop
-    /// takes it -- the poll, [`Pty::read_chunk`], the
+    /// takes it -- the poll, [`Pty::drain_into`], the
     /// [`crate::probe::Sampler`] and its marks, `TIOCGPGRP` -- and each
     /// sampled group named as the paths worker names it. It counts the
     /// links read with local groups at both samples, and of those the ones
@@ -7310,10 +7445,10 @@ mod tests {
                     "output before the bound: {:?}",
                     String::from_utf8_lossy(&all)
                 );
-                let bytes = match w.pty.read_chunk() {
-                    Chunk::Bytes(b) => b,
-                    Chunk::Closed => panic!("the shell ended: {:?}", String::from_utf8_lossy(&all)),
-                };
+                let mut bytes = Vec::with_capacity(READ_BATCH);
+                if w.pty.drain_into(&mut bytes, &mut Stamp::Unasked) == Batch::Closed {
+                    panic!("the shell ended: {:?}", String::from_utf8_lossy(&all));
+                }
                 let asks = sampler.read(std::time::Instant::now(), &bytes);
                 let writers = match asks {
                     Asks::Yes(_) => sampler.writers(crate::fg::group(master), Watched::Nothing),
@@ -8529,7 +8664,12 @@ mod refused_tests {
             pty.give_up();
             assert_eq!(pty.stream(), crate::held::Stream::Open, "the window stays");
             assert_eq!(pty.reap_owed(), None);
-            assert!(matches!(pty.read_chunk(), Chunk::Bytes(b) if b.is_empty()));
+            let mut buf = Vec::with_capacity(READ_BATCH);
+            assert_eq!(
+                pty.drain_into(&mut buf, &mut Stamp::Unasked),
+                Batch::Bytes(0)
+            );
+            assert!(buf.is_empty());
         }
         assert!(pty.refused().is_some());
     }

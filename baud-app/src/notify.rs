@@ -2900,6 +2900,62 @@ mod tests {
         assert_eq!(rgba(&wide), None, "past 1024 pixels a side");
     }
 
+    /// **A `p=icon` JPEG or GIF reaches a Linux notification as its
+    /// `image-data`**: kitty's OSC 99 sending the image base64'd in two
+    /// chunks, taken as the driver takes it -- the notice, its icon, the
+    /// image decoded, the `Notify` built -- carries the image's size and
+    /// the pixels [`rgba`] decodes, beside its title; one cached under `g`
+    /// and named by a later notification is sent with that one too. The
+    /// control: a JPEG cut short decodes to nothing and the `Notify` has no
+    /// `image-data`. Perturbation: drop the JPEG arm of `rgba_within` --
+    /// the JPEG's hint is missing.
+    #[test]
+    fn a_p_icon_jpeg_or_gif_is_a_linux_notifications_image_data() {
+        let image_data = |n: &crate::bus::Notification| {
+            n.hints.iter().find_map(|(k, h)| match (k, h) {
+                (&"image-data", crate::bus::Hint::Image(i)) => {
+                    Some(((i.size.width, i.size.height), i.rgba.clone()))
+                }
+                _ => None,
+            })
+        };
+        let jpg: &[u8] = include_bytes!("../../baud-domain/tests/jpeg/small.jpg");
+        let gif: &[u8] = include_bytes!("../../baud-domain/tests/gif/scene2.gif");
+        let cut = &jpg[..jpg.len() / 2];
+        for (name, img, shown) in [("jpeg", jpg, true), ("gif", gif, true), ("cut", cut, false)] {
+            let half = img.len() / 6 * 3;
+            let seq = format!(
+                "\x1b]99;i=n:d=0:g={name};Built\x1b\\\x1b]99;i=n:d=0:p=icon:e=1;{}\x1b\\\x1b]99;i=n:p=icon:e=1;{}\x1b\\\x1b]99;g={name};Again\x1b\\",
+                b64(&img[..half]),
+                b64(&img[half..])
+            );
+            let mut owned = Owned::new(&WS).with_notices(BUDGET);
+            let t = Term::new(owned.storage(), &WS);
+            let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
+            let posts = posted(seq.as_bytes(), &mut Icons::default());
+            assert_eq!(posts.len(), 2, "{name}");
+            assert_eq!(
+                posts[0].icon.as_deref(),
+                Some(img),
+                "{name}: the chunks whole"
+            );
+            for p in &posts {
+                let image = d.image_data(p);
+                let n = crate::bus::notification(p, None, ServerCaps::NONE, image);
+                assert_eq!(
+                    image_data(&n),
+                    match shown {
+                        true => rgba(img).map(|(s, px)| ((s.width, s.height), px)),
+                        false => None,
+                    },
+                    "{name}: {}",
+                    n.summary
+                );
+                assert_eq!(image_data(&n).is_some(), shown, "{name}: {}", n.summary);
+            }
+        }
+    }
+
     /// **`p=alive` stays true on macOS**: a notification baud closed, one
     /// whose `w` passed and one Notification Center no longer holds are
     /// each forgotten by the core; one scheduled after the list was asked
@@ -3457,26 +3513,28 @@ mod tests {
         assert_eq!(icon_name("/tmp/x.png"), "", "nor a path");
     }
 
+    /// `d` in base64, padded.
+    fn b64(d: &[u8]) -> String {
+        const A: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for c in d.chunks(3) {
+            let w = (u32::from(c[0]) << 16)
+                | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
+                | u32::from(*c.get(2).unwrap_or(&0));
+            for i in 0..4 {
+                out.push(match i <= c.len() {
+                    true => {
+                        char::from(A[usize::try_from((w >> (18 - 6 * i)) & 63).expect("six bits")])
+                    }
+                    false => '=',
+                });
+            }
+        }
+        out
+    }
+
     /// iTerm2's `Notification` as a test sends it: each part base64'd.
     fn iterm(parts: &[(&str, &[u8])]) -> Vec<u8> {
-        let b64 = |d: &[u8]| -> String {
-            const A: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-            let mut out = String::new();
-            for c in d.chunks(3) {
-                let w = (u32::from(c[0]) << 16)
-                    | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
-                    | u32::from(*c.get(2).unwrap_or(&0));
-                for i in 0..4 {
-                    out.push(match i <= c.len() {
-                        true => char::from(
-                            A[usize::try_from((w >> (18 - 6 * i)) & 63).expect("six bits")],
-                        ),
-                        false => '=',
-                    });
-                }
-            }
-            out
-        };
         let pairs: Vec<String> = parts
             .iter()
             .map(|(k, v)| format!("{k}={}", b64(v)))

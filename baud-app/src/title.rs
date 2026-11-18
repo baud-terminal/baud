@@ -174,6 +174,84 @@ pub enum Changed {
     Yes,
 }
 
+/// **What a read can change of the window's title**: the program's title,
+/// its encoding, the printer's run, and the working directory a derived
+/// title names (`OSC 7`). A read that changed none of them sends no title,
+/// so the title is built once for each change rather than once a read; the
+/// folder and program a derived title names change by the frame's own
+/// check ([`Derive::check`]). Kept in buffers it reuses, so a read that
+/// changed nothing allocates nothing.
+#[cfg(any(target_os = "linux", test))]
+pub struct ReadTitle {
+    bytes: Vec<u8>,
+    encoding: InputEncoding,
+    run: PrintRun,
+    host: Vec<u8>,
+    path: Vec<u8>,
+    cwd: Cwd,
+}
+
+/// Which working directory a terminal reports, as [`ReadTitle`] keeps it.
+#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Cwd {
+    Never,
+    None,
+    Local,
+    Named,
+}
+
+#[cfg(any(target_os = "linux", test))]
+impl ReadTitle {
+    pub fn new() -> ReadTitle {
+        ReadTitle {
+            bytes: Vec::new(),
+            encoding: InputEncoding::Utf8,
+            run: PrintRun::Idle,
+            host: Vec::new(),
+            path: Vec::new(),
+            cwd: Cwd::Never,
+        }
+    }
+
+    /// Whether these differ from what it was last given, which it then
+    /// holds.
+    pub fn changed(
+        &mut self,
+        bytes: &[u8],
+        encoding: InputEncoding,
+        run: PrintRun,
+        cwd: Option<baud_core::WorkingDirectory<'_>>,
+    ) -> Changed {
+        use baud_domain::FileHost;
+        let (kind, host, path): (Cwd, &[u8], &[u8]) = match cwd {
+            None => (Cwd::None, &[], &[]),
+            Some(d) => match d.host {
+                FileHost::Local => (Cwd::Local, &[], d.path),
+                FileHost::Named(h) => (Cwd::Named, h, d.path),
+            },
+        };
+        let same = self.cwd == kind
+            && self.bytes == bytes
+            && self.encoding == encoding
+            && self.run == run
+            && self.host == host
+            && self.path == path;
+        if same {
+            return Changed::No;
+        }
+        self.bytes.clear();
+        self.bytes.extend_from_slice(bytes);
+        (self.encoding, self.run, self.cwd) = (encoding, run, kind);
+        self.host.clear();
+        self.host.extend_from_slice(host);
+        self.path.clear();
+        self.path.extend_from_slice(path);
+        Changed::Yes
+    }
+}
+
 /// Whether the program's name must be read again although its group did
 /// not change: an exec renames a process in place.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -399,6 +477,76 @@ pub fn local<'d>(d: baud_core::WorkingDirectory<'d>, hosts: &[String]) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A read that changed nothing of the title asks for no title**, which
+    /// it finds by comparing, so it allocates nothing; the program's title, its encoding,
+    /// the printer's run and the working directory each are a change, and
+    /// the first read always is. Perturbation: a `changed` that answers
+    /// `Yes` builds a title every read.
+    #[test]
+    fn a_read_that_changed_nothing_of_the_title_asks_for_none() {
+        use baud_core::WorkingDirectory;
+        use baud_domain::FileHost;
+        let cwd = |path: &'static [u8]| {
+            Some(WorkingDirectory {
+                host: FileHost::Local,
+                path,
+            })
+        };
+        let mut t = ReadTitle::new();
+        let (utf8, idle) = (InputEncoding::Utf8, PrintRun::Idle);
+        assert_eq!(
+            t.changed(b"vim", utf8, idle, cwd(b"/a")),
+            Changed::Yes,
+            "the first"
+        );
+        assert_eq!(
+            t.changed(b"vim", utf8, idle, cwd(b"/a")),
+            Changed::No,
+            "nothing changed"
+        );
+        assert_eq!(
+            t.changed(b"vi", utf8, idle, cwd(b"/a")),
+            Changed::Yes,
+            "the title"
+        );
+        let latin = InputEncoding::Latin1;
+        assert_eq!(
+            t.changed(b"vi", latin, idle, cwd(b"/a")),
+            Changed::Yes,
+            "the encoding"
+        );
+        let run = PrintRun::Controller;
+        assert_eq!(
+            t.changed(b"vi", latin, run, cwd(b"/a")),
+            Changed::Yes,
+            "the run"
+        );
+        assert_eq!(
+            t.changed(b"vi", latin, run, cwd(b"/b")),
+            Changed::Yes,
+            "the folder"
+        );
+        assert_eq!(
+            t.changed(b"vi", latin, run, None),
+            Changed::Yes,
+            "no folder"
+        );
+        let named = Some(WorkingDirectory {
+            host: FileHost::Named(b"far"),
+            path: b"/b",
+        });
+        assert_eq!(
+            t.changed(b"vi", latin, run, named),
+            Changed::Yes,
+            "another host"
+        );
+        assert_eq!(
+            t.changed(b"vi", latin, run, named),
+            Changed::No,
+            "and the same"
+        );
+    }
 
     /// **A folder the kernel reads is `~` under a physical `HOME`, and not
     /// under one spelled through a symbolic link**: [`crate::fg::dir`]

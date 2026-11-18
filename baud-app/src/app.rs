@@ -9765,7 +9765,7 @@ mod drag_tests {
         );
         assert!(at < key.find("self.typed(e, ").expect("the key sent on"));
         // Linux.
-        assert!(LINUX.contains(concat!("Chunk::Closed => ", "d.pty.hung_up(),")));
+        assert!(LINUX.contains(concat!("crate::pty::Batch::Closed => ", "d.pty.hung_up(),")));
         assert!(!LINUX.contains(concat!("Chunk::Closed => ", "break 'run")));
         assert!(LINUX.contains(concat!("d.pty.", "polled_master(),")));
         assert!(LINUX.contains(concat!("d.pty.", "child_fd()")));
