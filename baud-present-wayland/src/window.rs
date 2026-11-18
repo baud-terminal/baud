@@ -349,6 +349,17 @@ pub enum DmabufShown {
     ConflictingPoints,
 }
 
+/// **Whether the compositor holds a dmabuf's buffer** ([`Window::holds`]):
+/// shown without points, until its `wl_buffer.release` -- "the compositor
+/// will not access the buffer until it is reattached"; before that the
+/// renderer may not draw into it. A buffer shown with points is held until
+/// its release point is signalled, which the renderer waits on itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Holds {
+    Yes,
+    No,
+}
+
 /// `wl_keyboard.repeat_info`: the time between repeats of a held key, and the
 /// wait before the first. **Repeat is the client's job**: the protocol's
 /// "repeated" key state is version 10's, and the seat is bound at 9, so no
@@ -553,6 +564,9 @@ pub struct Window {
     /// `no_acquire_point` or `no_release_point`, and one of a shm buffer
     /// may be `unsupported_buffer`.
     sync_surface: Option<ObjectId>,
+    /// The dmabuf buffers shown without points and not yet released
+    /// ([`Window::holds`]).
+    holding: Vec<ObjectId>,
     /// The moment the next frame presented is drawn for
     /// ([`Window::draw_for`]), taken by that frame.
     drawn_for: Option<Instant>,
@@ -667,6 +681,7 @@ impl Window {
             formats: None,
             formats_sent: Count(0),
             sync_surface: None,
+            holding: Vec::new(),
             drawn_for: None,
             callback_time: None,
             cadence: None,
@@ -1827,6 +1842,15 @@ impl Window {
         }
     }
 
+    /// **Whether the compositor holds `buffer`**, a dmabuf's buffer shown
+    /// without points and not yet released ([`Holds`]).
+    pub fn holds(&self, buffer: ObjectId) -> Holds {
+        match self.holding.contains(&buffer) {
+            true => Holds::Yes,
+            false => Holds::No,
+        }
+    }
+
     /// **Import a DRM syncobj as a timeline**, where the compositor offers
     /// `wp_linux_drm_syncobj_manager_v1`; `None` without it, where frames
     /// are presented without points and the buffer's own fences order
@@ -1936,6 +1960,9 @@ impl Window {
         self.copied = Px(0);
         if let Some(p) = self.pool.take() {
             p.destroy(s);
+        }
+        if points.is_none() && !self.holding.contains(&buffer) {
+            self.holding.push(buffer);
         }
         self.owed = RowSet::default();
         DmabufShown::Yes
@@ -2815,6 +2842,7 @@ impl Handler for Window {
                 }
             }
             ("wl_buffer", "release", _) => {
+                self.holding.retain(|&b| b != ev.object);
                 if let Some(p) = self.pool.as_mut() {
                     p.released(ev.object);
                 }

@@ -6817,3 +6817,86 @@ fn without_the_syncobj_manager_frames_go_without_points() {
         ]
     );
 }
+
+/// **A dmabuf shown without points is the compositor's until it is
+/// released**: imported, it is not held; shown without points, it is,
+/// through the next frame's commit of another buffer, until its
+/// `wl_buffer.release`; shown with points it is never held here, its
+/// release point being the renderer's to wait on. Perturbation: leave the
+/// release out of the event's arm -- the buffer stays held.
+#[test]
+fn a_dmabuf_buffer_is_free_again_on_release() {
+    let (mut conn, mut server, mut w, _) = session_with(&[
+        ("zwp_linux_dmabuf_v1", 6),
+        ("wp_linux_drm_syncobj_manager_v1", 1),
+    ]);
+    let fb = feedback_object(&server);
+    send_formats(&mut server, fb, true);
+    pump(&mut conn, &mut w);
+    let plane = tempfile();
+    let planes = [dmabuf::Plane {
+        fd: plane.as_fd(),
+        offset: dmabuf::Bytes(0),
+        stride: dmabuf::Bytes(256),
+    }];
+    let size = w.buffer_size().unwrap();
+    let d = dmabuf::Dmabuf {
+        width: size.0,
+        height: size.1,
+        format: ARGB_TILED,
+        planes: &planes,
+    };
+    let import = |conn: &mut Connection, w: &mut Window| match w.import(&mut conn.sender(), &d) {
+        dmabuf::Imported::Buffer(b) => b,
+        other => panic!("imported: {other:?}"),
+    };
+    let (a, b) = (import(&mut conn, &mut w), import(&mut conn, &mut w));
+    assert_eq!((w.holds(a), w.holds(b)), (Holds::No, Holds::No), "imported");
+    assert_eq!(
+        w.present_dmabuf(&mut conn.sender(), a, size, None, Changed::Whole),
+        DmabufShown::Yes
+    );
+    conn.flush().unwrap();
+    let first = until_commit(&mut server);
+    assert_eq!(w.holds(a), Holds::Yes, "shown");
+    frame_done(&mut server, &first);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        w.present_dmabuf(&mut conn.sender(), b, size, None, Changed::Whole),
+        DmabufShown::Yes
+    );
+    conn.flush().unwrap();
+    let second = until_commit(&mut server);
+    assert_eq!(
+        (w.holds(a), w.holds(b)),
+        (Holds::Yes, Holds::Yes),
+        "until released"
+    );
+    server.send(a, "wl_buffer", "release", &[]);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        (w.holds(a), w.holds(b)),
+        (Holds::No, Holds::Yes),
+        "a released"
+    );
+
+    let syncfd = tempfile();
+    let t = w
+        .import_timeline(&mut conn.sender(), syncfd.as_fd())
+        .expect("the manager is bound");
+    frame_done(&mut server, &second);
+    pump(&mut conn, &mut w);
+    let points = dmabuf::Points {
+        acquire: (t, dmabuf::Point(1)),
+        release: (t, dmabuf::Point(2)),
+    };
+    assert_eq!(
+        w.present_dmabuf(&mut conn.sender(), a, size, Some(points), Changed::Whole),
+        DmabufShown::Yes
+    );
+    assert_eq!(
+        w.holds(a),
+        Holds::No,
+        "shown with points: its release point's"
+    );
+}
