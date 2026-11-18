@@ -3,8 +3,8 @@
 
 use super::cli::Child;
 use super::parse::{
-    Count, Front, Ns, OFFSETS, PREDICT_NOTED, PREDICT_REFUSED, PREDOK, Post, PredOk, Record, Seq,
-    parse_front_line, parse_keylat_line, parse_keylat_lines, parse_post_line,
+    Count, Front, Ns, OFFSETS, PREDICT_REFUSED, Post, Record, Seq, parse_front_line,
+    parse_keylat_line, parse_keylat_lines, parse_post_line,
 };
 use super::py;
 use super::report::summary_text;
@@ -33,11 +33,10 @@ fn approx(a: Option<f64>, b: f64) -> bool {
 }
 
 /// A well-formed record line with every known token, overridable.
-pub fn record_line(seq: Seq, event: Ns, over: &[(&str, &str)], predok: Option<&str>) -> String {
+pub fn record_line(seq: Seq, event: Ns, over: &[(&str, &str)]) -> String {
     let default = |name: &str| match name {
         "handled" => "+300.0",
         "written" => "+350.0",
-        "pred" => "-",
         "echo" => "+360.0",
         "fed" => "+365.0",
         "commit" => "+370.0",
@@ -53,9 +52,6 @@ pub fn record_line(seq: Seq, event: Ns, over: &[(&str, &str)], predok: Option<&s
             .find(|(k, _)| *k == name)
             .map_or(default(name), |(_, v)| *v);
         line += &format!(" {name}={v}");
-    }
-    if let Some(ok) = predok {
-        line += &format!(" {PREDOK}={ok}");
     }
     line
 }
@@ -102,7 +98,6 @@ fn frame_line(seq: i128, e: i128, at: i128) -> String {
             ("vsync", &vsync),
             ("vsync_hi", &hi),
         ],
-        None,
     )
 }
 
@@ -176,20 +171,15 @@ pub fn selftest(dir: &str) -> Result<Outcome, String> {
     if refusals != Count(1) {
         failures.push(format!("expected 1 landing-refused line, got {refusals}"));
     }
-    // The three classes of non-record line, told apart the way a run tells
-    // them apart: the open-keys report, the predictor's refusals by gate,
-    // and what it noted about a prediction it made anyway.
-    let seen = |prefix: &str| {
-        let mut t = Tally::default();
-        for r in reports.iter().filter(|r| r.starts_with(prefix)) {
-            t.add(py::strip(&r[prefix.len()..]), Count(1));
-        }
-        t
-    };
-    let (refused_seen, noted_seen) = (seen(PREDICT_REFUSED), seen(PREDICT_NOTED));
+    // The two classes of non-record line, told apart the way a run tells
+    // them apart: the open-keys report, and the `refused` lines by why.
+    let mut refused_seen = Tally::default();
+    for r in reports.iter().filter(|r| r.starts_with(PREDICT_REFUSED)) {
+        refused_seen.add(py::strip(&r[PREDICT_REFUSED.len()..]), Count(1));
+    }
     let opens: Vec<String> = reports
         .iter()
-        .filter(|r| !r.starts_with(PREDICT_REFUSED) && !r.starts_with(PREDICT_NOTED))
+        .filter(|r| !r.starts_with(PREDICT_REFUSED))
         .cloned()
         .collect();
     if opens != ["keylat: 3 keys open"] {
@@ -204,14 +194,8 @@ pub fn selftest(dir: &str) -> Result<Outcome, String> {
             refused_seen.repr_counter()
         ));
     }
-    if !noted_seen.equals(&[("over-occupied", Count(1))]) {
-        failures.push(format!(
-            "the fixture's noted line must be counted: {}",
-            noted_seen.repr_counter()
-        ));
-    }
     // And the per-round counters are summed by gate rather than overwritten.
-    let one = |refused: &[(&str, usize)], noted: usize| {
+    let one = |refused: &[(&str, usize)]| {
         let mut d = Diag {
             paired: Count(1),
             ..Diag::default()
@@ -219,10 +203,9 @@ pub fn selftest(dir: &str) -> Result<Outcome, String> {
         for (k, n) in refused {
             d.predict_refused.add(k, Count(*n));
         }
-        d.predict_noted.add("over-occupied", Count(noted));
         Some(d)
     };
-    let pooled = merge_diags(&[one(&[("zone", 2), ("hold", 1)], 3), one(&[("zone", 5)], 4)])
+    let pooled = merge_diags(&[one(&[("zone", 2), ("hold", 1)]), one(&[("zone", 5)])])
         .expect("two diags merge");
     if !pooled
         .predict_refused
@@ -233,8 +216,8 @@ pub fn selftest(dir: &str) -> Result<Outcome, String> {
             pooled.predict_refused.repr_dict()
         ));
     }
-    if !pooled.predict_noted.equals(&[("over-occupied", Count(7))]) || pooled.paired != Count(2) {
-        failures.push(format!("noted/paired must pool: {}", pooled.repr()));
+    if pooled.paired != Count(2) {
+        failures.push(format!("paired must pool: {}", pooled.repr()));
     }
 
     let (mut rows, mut diag) = pair_by_order(&posts, keylats, default_window());
@@ -406,7 +389,6 @@ fn hand_built(failures: &mut Vec<String>) {
             ("vsync", "-"),
             ("vsync_hi", "-"),
         ],
-        None,
     ));
     check(
         partial.stamps.landed.is_none() && partial.stamps.vsync.is_none(),
@@ -442,49 +424,13 @@ fn hand_built(failures: &mut Vec<String>) {
             &format!("must be a parse failure: {bad}"),
         );
     }
-    let line = record_line(Seq(4), Ns(4_000_000_000), &[], None) + " future=+1.0 note=x";
+    let line = record_line(Seq(4), Ns(4_000_000_000), &[]) + " future=+1.0 note=x";
     check(
         parse_keylat_line(&line).is_ok_and(|r| r.is_some_and(|r| r.seq == Seq(4))),
         "unknown tokens must be tolerated and dropped",
     );
-    // A record from before the predictor carries no `pred` at all, and a
-    // baseline arm is such an app: it parses, with the leg never happened.
-    let old = rec(
-        "keylat: seq=5 event=5000000000 handled=+300.0 written=+350.0 echo=+360.0 \
-                   fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+400.0 \
-                   vsync_hi=+416.7",
-    );
-    check(
-        old.stamps.pred.is_none() && old.predok == PredOk::Unjudged,
-        "a record from before the predictor must parse with pred=-",
-    );
-
-    // A predicted key's frame precedes its fed, so `build` runs from `pred`,
-    // `predict` is written->pred, and the row is NOT excluded as a negative
-    // leg; the same stamps without `pred` are the negative-build exclusion
-    // (the positive control). The verdict rides as predok.
-    let predicted = rec(&record_line(
-        Seq(11),
-        Ns(11_000_000_000),
-        &[
-            ("pred", "+352.0"),
-            ("commit", "+355.0"),
-            ("landed", "+365.0"),
-            ("shown", "+370.0"),
-        ],
-        Some("yes"),
-    ));
-    let (prow, _) = pair_by_order(&[post(11, 11_000_000_000, "q")], &[predicted], window);
-    check(!prow[0].excluded(), "a predicted row must not be excluded");
-    let plegs = legs_of(&prow[0]);
-    check(
-        approx(*plegs.get("build"), 3.0)
-            && approx(*plegs.get("predict"), 2.0)
-            && approx(*plegs.get("child"), 10.0)
-            && approx(*plegs.get("wake"), 5.0),
-        "predicted row legs",
-    );
-    check(prow[0].predok == PredOk::Yes, "predok must ride on the row");
+    // A frame committed before its echo was fed is a negative build, and
+    // the row is excluded.
     let plain = rec(&record_line(
         Seq(12),
         Ns(12_000_000_000),
@@ -493,7 +439,6 @@ fn hand_built(failures: &mut Vec<String>) {
             ("landed", "+365.0"),
             ("shown", "+370.0"),
         ],
-        None,
     ));
     let (nrow, _) = pair_by_order(&[post(12, 12_000_000_000, "q")], &[plain], window);
     check(
@@ -501,33 +446,7 @@ fn hand_built(failures: &mut Vec<String>) {
             .exclude_reason
             .as_deref()
             .is_some_and(|r| r.contains("build")),
-        "commit before fed without pred must be a negative build",
-    );
-    let both: Vec<Row> = prow.iter().chain(&nrow).cloned().collect();
-    let psumm = summarize(&both, None);
-    check(
-        (psumm.predicted, psumm.confirmed, psumm.contradicted) == (Count(1), Count(1), Count(0)),
-        "prediction counts",
-    );
-    let unjudged = rec(&record_line(
-        Seq(13),
-        Ns(13_000_000_000),
-        &[("pred", "+352.0"), ("commit", "+355.0")],
-        None,
-    ));
-    check(
-        unjudged.predok == PredOk::Unjudged,
-        "a predicted row without predok reads as unjudged",
-    );
-    check(
-        parse_keylat_line(&record_line(
-            Seq(14),
-            Ns(14_000_000_000),
-            &[],
-            Some("maybe"),
-        ))
-        .is_err(),
-        "predok=maybe must be a parse failure",
+        "commit before fed must be a negative build",
     );
 
     // The `N keys open` report line, the refusal line and unrelated lines
@@ -549,7 +468,6 @@ fn hand_built(failures: &mut Vec<String>) {
         Seq(5),
         Ns(5_000_000_000),
         &[("landed", "+390.0"), ("shown", "+385.0")],
-        None,
     ));
     let (nrow, ndiag) = pair_by_order(&[post(5, 5_000_000_000, "n")], &[neg], window);
     check(
@@ -598,7 +516,7 @@ fn hand_built(failures: &mut Vec<String>) {
     let at = |i: i128| 7_000_000_000 + i * 1_000_000;
     let cpu_posts: Vec<Post> = [1, 2, 3].map(|i| post(i, at(i), "c")).to_vec();
     let cpu_klines: Vec<Record> = [1, 2, 3]
-        .map(|i| rec(&record_line(Seq(i), Ns(at(i)), &[("landed", "-")], None)))
+        .map(|i| rec(&record_line(Seq(i), Ns(at(i)), &[("landed", "-")])))
         .to_vec();
     let (mut cpu_rows, _) = pair_by_order(&cpu_posts, &cpu_klines, window);
     check(
@@ -637,14 +555,8 @@ fn hand_built(failures: &mut Vec<String>) {
                 ("vsync", "-"),
                 ("vsync_hi", "-"),
             ],
-            None,
         )),
-        rec(&record_line(
-            Seq(2),
-            Ns(8_001_000_000),
-            &[("landed", "-")],
-            None,
-        )),
+        rec(&record_line(Seq(2), Ns(8_001_000_000), &[("landed", "-")])),
     ];
     let mposts = [post(1, 8_000_000_000, "m"), post(3, 8_001_000_000, "m")];
     let (mut mrows, _) = pair_by_order(&mposts, &mixed, window);
@@ -679,7 +591,7 @@ fn hand_built(failures: &mut Vec<String>) {
     // said; a round 1 that worked is not; a single round is not discarded.
     let (wrow, _) = pair_by_order(
         &[post(1, 9_000_000_000, "w")],
-        &[rec(&record_line(Seq(1), Ns(9_000_000_000), &[], None))],
+        &[rec(&record_line(Seq(1), Ns(9_000_000_000), &[]))],
         window,
     );
     check(
@@ -709,7 +621,7 @@ fn hand_built(failures: &mut Vec<String>) {
     }
     let (wrow, _) = pair_by_order(
         &[post(1, 1_000_000_000, "a")],
-        &[rec(&record_line(Seq(1), Ns(1_050_000_000), &[], None))],
+        &[rec(&record_line(Seq(1), Ns(1_050_000_000), &[]))],
         Ns(45_000_000),
     );
     check(

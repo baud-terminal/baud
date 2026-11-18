@@ -4,7 +4,7 @@
 //! three, which is the whole of what a headless box can check of it.
 
 use super::cli::{AaArm, Args, Child};
-use super::parse::{Count, PREDICT_NOTED, PREDICT_REFUSED, Post};
+use super::parse::{Count, PREDICT_REFUSED, Post};
 use super::parse::{parse_front_line, parse_keylat_lines, parse_post_line};
 use super::report::{aa_text, deltas_text, summary_text};
 use super::rows::{Diag, Row, Tally, exclude_refused_landings, pair_by_order};
@@ -526,14 +526,14 @@ fn run_arm(
     stop_app(&mut app, &stop);
 
     let parsed = parse_keylat_lines(&snapshot(keylat_start));
-    let tally = |prefix: &str| {
-        let mut t = Tally::default();
-        for r in parsed.reports.iter().filter(|r| r.starts_with(prefix)) {
-            t.add(py::strip(&r[prefix.len()..]), Count(1));
-        }
-        t
-    };
-    let (predict_refused, predict_noted) = (tally(PREDICT_REFUSED), tally(PREDICT_NOTED));
+    let mut predict_refused = Tally::default();
+    for r in parsed
+        .reports
+        .iter()
+        .filter(|r| r.starts_with(PREDICT_REFUSED))
+    {
+        predict_refused.add(py::strip(&r[PREDICT_REFUSED.len()..]), Count(1));
+    }
     if !posts.is_empty() && parsed.records.is_empty() {
         println!(
             "  round {round} arm {arm}: keys posted, none reached the app (Accessibility? wrong \
@@ -552,14 +552,7 @@ fn run_arm(
             predict_refused.sorted_line()
         );
     }
-    if !predict_noted.is_empty() {
-        println!(
-            "  round {round} arm {arm}: predict noted: {}",
-            predict_noted.sorted_line()
-        );
-    }
     diag.predict_refused = predict_refused;
-    diag.predict_noted = predict_noted;
     let excluded = exclude_refused_landings(&mut rows, parsed.refusals);
     diag.refused_landing_rows = Some(excluded);
     if parsed.refusals != Count(0) {
@@ -624,7 +617,6 @@ pub fn tsv_text(rows: &[Row]) -> String {
         "exclude_reason",
     ];
     cols.extend(super::parse::OFFSETS);
-    cols.push(super::parse::PREDOK);
     let mut o = cols.join("\t");
     o.push('\n');
     for r in rows {
@@ -642,7 +634,6 @@ pub fn tsv_text(rows: &[Row]) -> String {
                 .named()
                 .map(|(_, v)| v.map_or("None".to_string(), |v| v.0.to_string())),
         );
-        cells.push(r.predok.token().to_string());
         o += &cells.join("\t");
         o.push('\n');
     }

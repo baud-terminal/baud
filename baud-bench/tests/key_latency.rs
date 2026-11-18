@@ -55,8 +55,6 @@ fn a_well_formed_record_makes_every_stage_absolute() {
     assert_eq!(r.event, Ns(1_000_000_000));
     assert_eq!(r.stamps.handled, Some(Ns(1_000_300_000)));
     assert_eq!(r.stamps.vsync_hi, Some(Ns(1_000_416_700)));
-    assert_eq!(r.stamps.pred, None);
-    assert_eq!(r.predok, PredOk::Unjudged);
 }
 
 #[test]
@@ -71,36 +69,6 @@ fn every_missing_token_is_named_in_emission_order() {
         .replace(" echo=+360.0", "")
         .replace(" event=1000000000", "");
     assert!(err(&line).starts_with("missing event,echo: "));
-}
-
-#[test]
-fn a_missing_pred_reads_as_a_leg_that_never_happened() {
-    let r = rec(&LINE.replace(" pred=-", ""));
-    assert_eq!(r.stamps.pred, None);
-}
-
-#[test]
-fn a_missing_predok_reads_as_unjudged() {
-    let r = rec(&LINE.replace(" predok=-", ""));
-    assert_eq!(r.predok, PredOk::Unjudged);
-}
-
-#[test]
-fn a_bad_predok_is_a_failure() {
-    let line = LINE.replace("predok=-", "predok=maybe");
-    assert!(err(&line).starts_with("predok=maybe is not yes, no or -: "));
-}
-
-#[test]
-fn predok_keeps_each_verdict() {
-    assert_eq!(
-        rec(&LINE.replace("predok=-", "predok=yes")).predok,
-        PredOk::Yes
-    );
-    assert_eq!(
-        rec(&LINE.replace("predok=-", "predok=no")).predok,
-        PredOk::No
-    );
 }
 
 #[test]
@@ -218,7 +186,6 @@ fn a_run_s_lines_sort_into_their_classes() {
         "keylat: landing refused ended=2 now=1",
         "  keylat: landing refused ended=4 now=3",
         "keylat: refused zone",
-        "keylat: noted over-occupied",
         "keylat: 3 keys open",
         "keylat: something else",
     ];
@@ -226,14 +193,7 @@ fn a_run_s_lines_sort_into_their_classes() {
     assert_eq!(p.records.len(), 1);
     assert_eq!(p.failures.len(), 1);
     assert_eq!(p.refusals, Count(2));
-    assert_eq!(
-        p.reports,
-        [
-            "keylat: refused zone",
-            "keylat: noted over-occupied",
-            "keylat: 3 keys open"
-        ]
-    );
+    assert_eq!(p.reports, ["keylat: refused zone", "keylat: 3 keys open"]);
 }
 
 #[test]
@@ -378,18 +338,12 @@ fn a_negative_stamp_leg_is_the_event_before_post_rule_not_a_negative() {
 }
 
 #[test]
-fn a_predicted_key_builds_from_pred() {
+fn a_commit_before_its_echo_is_fed_is_a_negative_build() {
     let line = LINE
-        .replace("pred=-", "pred=+352.0")
         .replace("commit=+370.0", "commit=+355.0")
         .replace("landed=+380.0", "landed=+365.0")
         .replace("shown=+385.0", "shown=+370.0");
     let row = one_row(post(1, 1_000_000_000), rec(&line));
-    assert!(!row.excluded());
-    assert_eq!(*legs_of(&row).get("build"), Some(3.0));
-    assert_eq!(*legs_of(&row).get("predict"), Some(2.0));
-    let unpredicted = line.replace("pred=+352.0", "pred=-");
-    let row = one_row(post(1, 1_000_000_000), rec(&unpredicted));
     assert_eq!(row.exclude_reason.as_deref(), Some("negative build"));
 }
 
@@ -428,7 +382,6 @@ fn every_leg_runs_between_its_own_two_stages() {
     ] {
         assert_eq!(*legs.get(leg), Some(want), "{leg}");
     }
-    assert_eq!(*legs.get("predict"), None);
 }
 
 #[test]
@@ -501,7 +454,6 @@ fn commit_row(event: i128, commit_us: &str) -> Row {
             ("vsync", "-"),
             ("vsync_hi", "-"),
         ],
-        None,
     );
     one_row(post(1, event), rec(&line))
 }
@@ -643,29 +595,6 @@ fn every_negative_reason_pools_as_one() {
         summarize(&rows, None)
             .reasons
             .equals(&[("negative", Count(2))])
-    );
-}
-
-#[test]
-fn predictions_count_only_kept_rows_and_each_verdict() {
-    let line = |ok: &str| {
-        LINE.replace("pred=-", "pred=+352.0")
-            .replace("commit=+370.0", "commit=+355.0")
-            .replace("landed=+380.0", "landed=+365.0")
-            .replace("shown=+385.0", "shown=+370.0")
-            .replace("predok=-", &format!("predok={ok}"))
-    };
-    let rows = [
-        one_row(post(1, 1_000_000_000), rec(&line("yes"))),
-        one_row(post(1, 1_000_000_000), rec(&line("no"))),
-        one_row(post(1, 1_000_000_000), rec(&line("-"))),
-        one_row(post(2, 1_000_000_000), rec(&line("yes"))),
-        one_row(post(1, 1_000_000_000), rec(LINE)),
-    ];
-    let s = summarize(&rows, None);
-    assert_eq!(
-        (s.predicted, s.confirmed, s.contradicted),
-        (Count(3), Count(1), Count(1))
     );
 }
 
@@ -915,9 +844,6 @@ fn summary_with(legs: PerLeg<Option<LegStats>>) -> Summary {
         excluded: Count(0),
         reasons: Tally::default(),
         shared: Count(0),
-        predicted: Count(0),
-        confirmed: Count(0),
-        contradicted: Count(0),
         legs,
     }
 }
@@ -975,21 +901,6 @@ fn summary_of(rows: &[Row], d: Option<&Diag>) -> String {
 }
 
 #[test]
-fn the_prediction_line_prints_only_when_there_are_predictions() {
-    let plain = one_row(post(1, 1_000_000_000), rec(LINE));
-    assert!(!summary_of(std::slice::from_ref(&plain), None).contains("predicted="));
-    let line = LINE
-        .replace("pred=-", "pred=+352.0")
-        .replace("commit=+370.0", "commit=+355.0")
-        .replace("landed=+380.0", "landed=+365.0")
-        .replace("shown=+385.0", "shown=+370.0");
-    let row = one_row(post(1, 1_000_000_000), rec(&line));
-    assert!(
-        summary_of(&[row], None).contains("predicted=1 confirmed=0 contradicted=0 unjudged=1\n")
-    );
-}
-
-#[test]
 fn a_diag_adds_the_unpaired_line_and_a_refusal_the_warning() {
     let row = one_row(post(1, 1_000_000_000), rec(LINE));
     assert!(!summary_of(std::slice::from_ref(&row), None).contains("unpaired posts="));
@@ -1010,30 +921,29 @@ fn the_predictor_s_lines_sort_by_gate() {
     let mut d = Diag::default();
     d.predict_refused.add("zone", Count(1));
     d.predict_refused.add("hold", Count(2));
-    d.predict_noted.add("over-occupied", Count(3));
     let text = summary_of(&[row], Some(&d));
     assert!(text.contains("predict refused: hold=2, zone=1\n"));
-    assert!(text.contains("predict noted: over-occupied=3\n"));
 }
 
 #[test]
 fn an_absent_leg_prints_dashes_in_every_table() {
-    let row = one_row(post(1, 1_000_000_000), rec(LINE));
+    let cpu = rec(&LINE.replace("landed=+380.0", "landed=-"));
+    let row = one_row(post(1, 1_000_000_000), cpu);
     let s = summarize(&[row], None);
     let text = summary_text("arm", &s, None);
     assert!(
-        text.contains("  predict          -        -                        -\n"),
+        text.contains("      gpu          -        -                        -\n"),
         "{text}"
     );
     let aa = aa_text("base", &s, &s);
     assert!(
         aa.contains(
-            "  predict           -           -         -          -          -          -\n"
+            "      gpu           -           -         -          -          -          -\n"
         ),
         "{aa}"
     );
     let ab = deltas_text("base", "new", &s, &s, None);
-    assert!(ab.contains("  predict           -           -          -          -                 -                 -  -\n"), "{ab}");
+    assert!(ab.contains("      gpu           -           -          -          -                 -                 -  -\n"), "{ab}");
 }
 
 #[test]
@@ -1054,12 +964,12 @@ fn a_tsv_says_true_false_and_none_as_python_did() {
     assert_eq!(
         lines.next(),
         Some(
-            "seq\tapp_seq\tchar\tpost\tevent\texcluded\texclude_reason\thandled\twritten\tpred\t\
-             echo\tfed\tcommit\tlanded\tshown\tvsync\tvsync_hi\tpredok"
+            "seq\tapp_seq\tchar\tpost\tevent\texcluded\texclude_reason\thandled\twritten\t\
+             echo\tfed\tcommit\tlanded\tshown\tvsync\tvsync_hi"
         )
     );
     assert!(lines.next().is_some_and(|l| l.starts_with(
-        "1\t1\ta\t1000000000\t1000000000\tFalse\tNone\t1000300000\t1000350000\tNone\t"
+        "1\t1\ta\t1000000000\t1000000000\tFalse\tNone\t1000300000\t1000350000\t1000360000\t"
     )));
     assert!(lines
         .next()

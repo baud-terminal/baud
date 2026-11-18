@@ -1,6 +1,6 @@
 //! Posts paired to records, and each key's legs.
 
-use super::parse::{Count, Ns, Post, PredOk, Record, Seq, Stamps};
+use super::parse::{Count, Ns, Post, Record, Seq, Stamps};
 use super::py;
 
 /// A point a leg runs from or to.
@@ -15,8 +15,6 @@ pub enum Point {
     /// See [`Stamps`].
     Written,
     /// See [`Stamps`].
-    Pred,
-    /// See [`Stamps`].
     Echo,
     /// See [`Stamps`].
     Fed,
@@ -30,24 +28,19 @@ pub enum Point {
     Vsync,
     /// See [`Stamps`].
     VsyncHi,
-    /// Where the frame's work started: `pred` for a key whose echo was
-    /// predicted, whose frame was committed before the echo was fed, so
-    /// `commit - fed` would be negative and mean nothing; `fed` otherwise.
-    BuildFrom,
 }
 
 /// How many legs a key has.
-pub const LEG_COUNT: usize = 15;
+pub const LEG_COUNT: usize = 14;
 
 /// The legs, in report order, as (name, start, end).
 pub const LEGS: [(&str, Point, Point); LEG_COUNT] = [
     ("stamp", Point::Post, Point::Event),
     ("deliver", Point::Post, Point::Handled),
     ("write", Point::Handled, Point::Written),
-    ("predict", Point::Written, Point::Pred),
     ("child", Point::Written, Point::Echo),
     ("wake", Point::Echo, Point::Fed),
-    ("build", Point::BuildFrom, Point::Commit),
+    ("build", Point::Fed, Point::Commit),
     ("gpu", Point::Commit, Point::Landed),
     ("show", Point::Landed, Point::Shown),
     // The app's own share: the responder's stamp to the surface on the
@@ -186,10 +179,8 @@ pub struct Diag {
     pub landing_refused: Option<Count>,
     /// Rows excluded for a refused landing, once they have been.
     pub refused_landing_rows: Option<Count>,
-    /// The predictor's refusals, by gate.
+    /// The `refused` lines, by why.
     pub predict_refused: Tally,
-    /// What the predictor noted, by condition.
-    pub predict_noted: Tally,
 }
 
 impl Diag {
@@ -235,8 +226,6 @@ pub struct Row {
     pub event: Ns,
     /// Every later stage.
     pub stamps: Stamps,
-    /// How the echo judged it.
-    pub predok: PredOk,
     /// Why it is left out of every median, if it is.
     pub exclude_reason: Option<String>,
 }
@@ -254,7 +243,6 @@ impl Row {
             Point::Event => Some(self.event),
             Point::Handled => s.handled,
             Point::Written => s.written,
-            Point::Pred => s.pred,
             Point::Echo => s.echo,
             Point::Fed => s.fed,
             Point::Commit => s.commit,
@@ -262,7 +250,6 @@ impl Row {
             Point::Shown => s.shown,
             Point::Vsync => s.vsync,
             Point::VsyncHi => s.vsync_hi,
-            Point::BuildFrom => s.pred.or(s.fed),
         }
     }
 
@@ -306,7 +293,6 @@ pub fn pair_by_order(posts: &[Post], keylats: &[Record], window: Ns) -> (Vec<Row
             post: post.ns,
             event: rec.event,
             stamps: rec.stamps,
-            predok: rec.predok,
             exclude_reason: None,
         };
         let reason = if rec.seq != post.seq {

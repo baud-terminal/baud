@@ -37,7 +37,6 @@ echo "jitter seed $pid mean $gap ms range [1-2] ms"
 : >"$state/lines.tmp"
 {
   echo "keylat: refused zone"
-  [ $((run % 2)) = 0 ] && echo "keylat: noted over-occupied"
   echo "not a keylat line"
 } >>"$state/lines.tmp"
 commit_prev=0 event_prev=0
@@ -61,23 +60,11 @@ while [ $k -lt "$keys" ]; do
   shown=$((landed + 50))
   vsync=$((shown + 150 + (k * 29) % 80))
   hi=$((vsync + 83330))
-  pred=- predok=-
-  case $((k % 7)) in
-  3)
-    p=$((written + 20))
-    pred=$(us $p)
-    commit=$((p + 30))
-    landed=$((commit + 100))
-    shown=$((landed + 50))
-    predok=yes
-    [ $k -gt 7 ] && predok=no
-    ;;
-  esac
   seq=$k
   [ $k = 5 ] && seq=500
   [ $k = 4 ] && echo=$((written - 36))
   line="keylat: seq=$seq event=$event handled=$(us $handled) written=$(us $written)"
-  line="$line pred=$pred echo=$(us $echo) fed=$(us $fed) commit=$(us $commit)"
+  line="$line echo=$(us $echo) fed=$(us $fed) commit=$(us $commit)"
   if [ "$mode" = landings ] && [ $((k % 2)) = 0 ]; then
     line="$line landed=-"
   elif [ "$mode" = cpu ]; then
@@ -91,7 +78,6 @@ while [ $k -lt "$keys" ]; do
   else
     line="$line vsync=$(us $vsync) vsync_hi=$(us $hi)"
   fi
-  [ "$pred" != - ] && line="$line predok=$predok"
   [ $k = 6 ] && line="$line extra=tolerated"
   [ $k = "$keys" ] && [ "$k" -gt 8 ] && line="keylat: seq=$k event=$event handled=$(us $handled)"
   [ "$mode" = silent ] || echo "$line" >>"$state/lines.tmp"

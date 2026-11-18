@@ -29,51 +29,16 @@ impl std::ops::AddAssign for Count {
 }
 
 /// The offset tokens a record carries, in the order it prints them.
-pub const OFFSETS: [&str; 10] = [
-    "handled", "written", "pred", "echo", "fed", "commit", "landed", "shown", "vsync", "vsync_hi",
+pub const OFFSETS: [&str; 9] = [
+    "handled", "written", "echo", "fed", "commit", "landed", "shown", "vsync", "vsync_hi",
 ];
 
-/// The tokens a record may omit: `pred` is printed by every app from the
-/// predictor on and by no app before it, and a baseline arm is the app
-/// before it. A missing optional token reads as `-`, a leg that never
-/// happened.
-pub const OPTIONAL: [&str; 1] = ["pred"];
-
-/// The token saying how the echo judged a predicted key. Not an offset, and
-/// optional: a line without it reads as never judged.
-pub const PREDOK: &str = "predok";
-
-/// A key the predictor declined: `keylat: refused <gate>`, one line a key,
-/// no record.
+/// What the instrument refused, and why: `keylat: refused <why>`, one line
+/// beside the records, not a record.
 pub const PREDICT_REFUSED: &str = "keylat: refused ";
-
-/// A prediction made under a condition worth counting.
-pub const PREDICT_NOTED: &str = "keylat: noted ";
 
 /// The line a landing whose GPU end stamp is off the clock prints.
 pub const REFUSAL_PREFIX: &str = "keylat: landing refused";
-
-/// How the echo judged a predicted key.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum PredOk {
-    /// The echo confirmed it.
-    Yes,
-    /// The echo contradicted it.
-    No,
-    /// Never judged before the record closed.
-    Unjudged,
-}
-
-impl PredOk {
-    /// What the record prints.
-    pub fn token(self) -> &'static str {
-        match self {
-            PredOk::Yes => "yes",
-            PredOk::No => "no",
-            PredOk::Unjudged => "-",
-        }
-    }
-}
 
 /// The absolute stamp of every stage of one key, `None` for a leg that did
 /// not happen.
@@ -83,8 +48,6 @@ pub struct Stamps {
     pub handled: Option<Ns>,
     /// The key's bytes were written to the pty.
     pub written: Option<Ns>,
-    /// The key's echo was drawn before the pty answered.
-    pub pred: Option<Ns>,
     /// The echo came back.
     pub echo: Option<Ns>,
     /// The reader thread fed the core.
@@ -103,11 +66,10 @@ pub struct Stamps {
 
 impl Stamps {
     /// Every stage with its token, in `OFFSETS`'s order.
-    pub fn named(&self) -> [(&'static str, Option<Ns>); 10] {
+    pub fn named(&self) -> [(&'static str, Option<Ns>); 9] {
         [
             ("handled", self.handled),
             ("written", self.written),
-            ("pred", self.pred),
             ("echo", self.echo),
             ("fed", self.fed),
             ("commit", self.commit),
@@ -118,11 +80,10 @@ impl Stamps {
         ]
     }
 
-    fn named_mut(&mut self) -> [(&'static str, &mut Option<Ns>); 10] {
+    fn named_mut(&mut self) -> [(&'static str, &mut Option<Ns>); 9] {
         [
             ("handled", &mut self.handled),
             ("written", &mut self.written),
-            ("pred", &mut self.pred),
             ("echo", &mut self.echo),
             ("fed", &mut self.fed),
             ("commit", &mut self.commit),
@@ -143,8 +104,6 @@ pub struct Record {
     pub event: Ns,
     /// Every later stage, absolute.
     pub stamps: Stamps,
-    /// How the echo judged it.
-    pub predok: PredOk,
 }
 
 /// A record that is not what the app promises to emit: a known token
@@ -177,9 +136,9 @@ fn offset_value(v: &str) -> Option<f64> {
 ///
 /// `Ok(None)` for any line that is not a per-key record: the `N keys open`
 /// report, the `landing refused` line and all non-keylat output. `Err` for a
-/// record that is one (it carries `seq=`) but lacks a token that is not
-/// optional, or carries a value that is neither `+<us>` nor `-`. Tokens it
-/// does not know are ignored; an optional token that is absent reads as `-`.
+/// record that is one (it carries `seq=`) but lacks a token it knows, or
+/// carries a value that is neither `+<us>` nor `-`. Tokens it does not know
+/// are ignored.
 pub fn parse_keylat_line(line: &str) -> Result<Option<Record>, KeylatParseError> {
     let line = py::strip(line);
     let Some(rest) = line.strip_prefix("keylat:") else {
@@ -200,7 +159,7 @@ pub fn parse_keylat_line(line: &str) -> Result<Option<Record>, KeylatParseError>
     let missing: Vec<&str> = ["seq", "event"]
         .into_iter()
         .chain(OFFSETS)
-        .filter(|k| token(k).is_none() && !OPTIONAL.contains(k))
+        .filter(|k| token(k).is_none())
         .collect();
     if !missing.is_empty() {
         return Err(KeylatParseError(format!(
@@ -231,21 +190,10 @@ pub fn parse_keylat_line(line: &str) -> Result<Option<Record>, KeylatParseError>
         }
         *slot = Some(Ns(event + ns as i128));
     }
-    let predok = match token(PREDOK).unwrap_or("-") {
-        "yes" => PredOk::Yes,
-        "no" => PredOk::No,
-        "-" => PredOk::Unjudged,
-        ok => {
-            return Err(KeylatParseError(format!(
-                "{PREDOK}={ok} is not yes, no or -: {line}"
-            )));
-        }
-    };
     Ok(Some(Record {
         seq: Seq(seq),
         event: Ns(event),
         stamps,
-        predok,
     }))
 }
 
@@ -258,7 +206,7 @@ pub struct Parsed {
     pub failures: Vec<String>,
     /// How many `landing refused` lines.
     pub refusals: Count,
-    /// The `N keys open` lines and the predictor's refused and noted lines.
+    /// The `N keys open` lines and the `refused` lines.
     pub reports: Vec<String>,
 }
 
@@ -276,9 +224,7 @@ pub fn parse_keylat_lines<S: AsRef<str>>(lines: &[S]) -> Parsed {
             Ok(Some(rec)) => out.records.push(rec),
             Ok(None) => {
                 let open = s.starts_with("keylat:") && s.ends_with("keys open");
-                // A key the predictor declined, with the gate that did, or
-                // one it predicted under a condition worth counting.
-                if open || s.starts_with(PREDICT_REFUSED) || s.starts_with(PREDICT_NOTED) {
+                if open || s.starts_with(PREDICT_REFUSED) {
                     out.reports.push(s.to_string());
                 }
             }

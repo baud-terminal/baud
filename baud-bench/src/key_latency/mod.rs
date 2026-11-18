@@ -26,9 +26,7 @@
 //! expired record is emitted with the legs it has). The parser is STRICT
 //! about the known tokens -- a record missing any of them is a parse
 //! failure, counted and printed, never a silent `-` -- and tolerant of
-//! extra tokens a newer app may add, and of the absence of `pred`, which
-//! an app before row 9 never prints (it reads as `-`, so a baseline arm
-//! from before the row pairs and reduces). The helper prints one `jitter
+//! extra tokens a newer app may add. The helper prints one `jitter
 //! seed <pid> ...` line, then `post <seq> <ns> <char>` per key. Pairing the
 //! posts to the records by order recovers, per key, the legs:
 //!
@@ -39,12 +37,7 @@
 //! write    = written  - handled  (Term::key + Pty::write)
 //! child    = echo     - written  (the pty round trip: kernel + child)
 //! wake     = fed      - echo     (reader thread wake to core fed)
-//! predict  = pred     - written  (row 9: the key's echo drawn before
-//!                                 the pty answered; `-` when it was
-//!                                 not predicted)
-//! build    = commit   - fed      (present: convert, encode, commit --
-//!                                 from `pred` instead on a predicted
-//!                                 key, whose frame precedes its fed)
+//! build    = commit   - fed      (present: convert, encode, commit)
 //! gpu      = landed   - commit   (GPU start to end; - on the CPU path)
 //! show     = shown    - landed   (completion to surface on the layer)
 //! vsync    = vsync    - shown    (surface set to the EARLY vsync bound)
@@ -88,8 +81,8 @@
 //! disjoint; every other row says `not a result` and why (within the floor,
 //! or the IQRs overlap). Without `--aa` there is no floor and no row can be
 //! a result. This table is what a latency change -- pacing the GPU by
-//! completion for a keystroke, drawing the echo before the pty round trip,
-//! skipping the present when nothing changed -- is read by.
+//! completion for a keystroke, skipping the present when nothing changed --
+//! is read by.
 //!
 //! A key is `completed` when it paired and reached `vsync`; `excluded` when
 //! the app's `seq` is not the helper's, its `event` precedes its `post` or
@@ -142,10 +135,8 @@
 //! whatever the child does.) `--child stream` is `cat`'s echo under a child
 //! that prints a line every 2 ms and never reads: a build log scrolling while
 //! the user types. `--child mute` is a prompt that never answers: the OSC 133
-//! marks a shell sends around its prompt, then echo off and sleep -- so the
-//! row-9 predictor draws the first key, its echo never comes, the prediction
-//! expires as contradicted and the keys after it are refused on the hold; the
-//! positive control for that path, run on one arm. `stream` is the workload
+//! marks a shell sends around its prompt, then echo off and sleep, so no key
+//! typed at it echoes. `stream` is the workload
 //! row 6 of note N is about -- with output arriving several times a display
 //! period, the frame loop's "draw now on a wake only if a frame's time has
 //! passed" gate is never open, so a key's echo is paced by the tick, and

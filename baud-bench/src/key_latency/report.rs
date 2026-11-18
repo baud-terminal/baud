@@ -32,18 +32,8 @@ pub fn summary_text(name: &str, summ: &Summary, diag: Option<&Diag>) -> String {
         "posted={} paired={} completed={} excluded={} shared_a_frame={}\n",
         summ.posted, summ.paired, summ.completed, summ.excluded, summ.shared
     );
-    if summ.predicted != Count(0) {
-        let unjudged = summ.predicted.0 - summ.confirmed.0 - summ.contradicted.0;
-        o += &format!(
-            "predicted={} confirmed={} contradicted={} unjudged={unjudged}\n",
-            summ.predicted, summ.confirmed, summ.contradicted
-        );
-    }
     if let Some(d) = diag.filter(|d| !d.predict_refused.is_empty()) {
         o += &format!("predict refused: {}\n", d.predict_refused.sorted_line());
-    }
-    if let Some(d) = diag.filter(|d| !d.predict_noted.is_empty()) {
-        o += &format!("predict noted: {}\n", d.predict_noted.sorted_line());
     }
     if !summ.reasons.is_empty() {
         o += &format!("excluded by reason: {}\n", summ.reasons.sorted_line());

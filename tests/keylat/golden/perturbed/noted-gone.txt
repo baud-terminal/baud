@@ -1,3 +1,0 @@
-exit 3
-SELFTEST FAILED:
-  - the fixture's noted line must be counted: Counter()

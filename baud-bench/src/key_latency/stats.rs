@@ -1,7 +1,7 @@
 //! The folds a sweep reports: per-leg statistics, the A/A floor, the arm
 //! deltas, and how the rounds and the gap are arranged.
 
-use super::parse::{Count, Ns, PredOk};
+use super::parse::{Count, Ns};
 use super::py;
 use super::rows::{Diag, PerLeg, Row, Tally, is_completed, legs_of, shared_frame_count};
 use super::rows::{LEG_COUNT, SHARED_FRAME};
@@ -88,12 +88,6 @@ pub struct Summary {
     pub reasons: Tally,
     /// Keys that shared a frame.
     pub shared: Count,
-    /// Kept rows the predictor drew.
-    pub predicted: Count,
-    /// Of those, the echo confirmed.
-    pub confirmed: Count,
-    /// Of those, the echo contradicted.
-    pub contradicted: Count,
     /// Each leg's statistics.
     pub legs: PerLeg<Option<LegStats>>,
 }
@@ -118,11 +112,6 @@ pub fn summarize(rows: &[Row], diag: Option<&Diag>) -> Summary {
             vals.extend(v);
         }
     }
-    let predicted = || {
-        rows.iter()
-            .filter(|r| !r.excluded() && r.stamps.pred.is_some())
-    };
-    let judged = |ok: PredOk| Count(predicted().filter(|r| r.predok == ok).count());
     Summary {
         posted: diag.map_or(Count(rows.len()), |d| d.posted),
         paired: Count(rows.len()),
@@ -130,14 +119,11 @@ pub fn summarize(rows: &[Row], diag: Option<&Diag>) -> Summary {
         excluded: Count(rows.iter().filter(|r| r.excluded()).count()),
         reasons,
         shared: shared_frame_count(rows, SHARED_FRAME),
-        predicted: Count(predicted().count()),
-        confirmed: judged(PredOk::Yes),
-        contradicted: judged(PredOk::No),
         legs: PerLeg(std::array::from_fn(|i| leg_stats(&leg_vals[i]))),
     }
 }
 
-/// The runs' counters summed, the predictor's by gate. `None` when no run
+/// The runs' counters summed, the `refused` lines by why. `None` when no run
 /// counted anything: one that never presented has no diag at all.
 pub fn merge_diags(diags: &[Option<Diag>]) -> Option<Diag> {
     let mut merged: Option<Diag> = None;
@@ -163,9 +149,6 @@ pub fn merge_diags(diags: &[Option<Diag>]) -> Option<Diag> {
         }
         for (k, v) in &d.predict_refused.0 {
             m.predict_refused.add(k, *v);
-        }
-        for (k, v) in &d.predict_noted.0 {
-            m.predict_noted.add(k, *v);
         }
     }
     merged

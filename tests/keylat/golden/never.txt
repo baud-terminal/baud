@@ -22,7 +22,6 @@ posted=0 paired=0 completed=0 excluded=0 shared_a_frame=0
     stamp          -        -                        -
   deliver          -        -                        -
     write          -        -                        -
-  predict          -        -                        -
     child          -        -                        -
      wake          -        -                        -
     build          -        -                        -

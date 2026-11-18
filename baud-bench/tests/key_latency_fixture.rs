@@ -51,7 +51,6 @@ fn perturbed(name: &str, file: &str, edits: &[(&str, &str)], exit: i32, fired: &
     assert_eq!(text, want, "{name}");
 }
 
-const SEQ1: &str = "keylat: seq=1 event=1000000000 handled=+300.0";
 const REFUSAL: &str = "keylat: landing refused ended=1003500390000 now=1003500385000\n";
 
 /// Replace `from` with `to` in the first three records only.
@@ -165,21 +164,6 @@ fn an_event_that_is_no_integer() {
 }
 
 #[test]
-fn a_bad_predok() {
-    let edit = format!(
-        "{SEQ1} written=+350.0 pred=- echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+400.0 vsync_hi=+416.7 predok=-"
-    );
-    let to = edit.replace("predok=-", "predok=maybe");
-    perturbed(
-        "predok-bad",
-        KEYLAT,
-        &[(&edit, &to)],
-        3,
-        "predok=maybe is not yes, no or -",
-    );
-}
-
-#[test]
 fn the_refusal_gone() {
     perturbed(
         "refusal-gone",
@@ -249,17 +233,6 @@ fn a_gate_refusal_more() {
         )],
         3,
         "Counter({'occupied': 2, 'zone': 1})",
-    );
-}
-
-#[test]
-fn the_noted_line_gone() {
-    perturbed(
-        "noted-gone",
-        KEYLAT,
-        &[("keylat: noted over-occupied\n", "")],
-        3,
-        "must be counted: Counter()",
     );
 }
 
@@ -522,18 +495,6 @@ fn an_unknown_token_changes_nothing() {
         0,
         "SELFTEST OK",
     );
-}
-
-#[test]
-fn a_missing_pred_changes_nothing() {
-    let from = "seq=4 event=1001000000 handled=+300.0 written=+350.0 pred=- ";
-    let to = from.replace("pred=- ", "");
-    perturbed("no-pred", KEYLAT, &[(from, &to)], 0, "SELFTEST OK");
-}
-
-#[test]
-fn a_missing_predok_changes_nothing() {
-    perturbed("no-predok", KEYLAT, &[(" predok=-", "")], 0, "SELFTEST OK");
 }
 
 #[test]

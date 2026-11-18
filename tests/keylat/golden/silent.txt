@@ -25,7 +25,6 @@ unpaired posts=3 unpaired keylats=0 parse failures=0 landings refused=0
     stamp          -        -                        -
   deliver          -        -                        -
     write          -        -                        -
-  predict          -        -                        -
     child          -        -                        -
      wake          -        -                        -
     build          -        -                        -
@@ -46,5 +45,5 @@ zero completed keys: arm base round 1
 
 zero completed keys in a run -- the instrument reported nothing; not a pass.
 --- keylat-base-1.tsv
-seq	app_seq	char	post	event	excluded	exclude_reason	handled	written	pred	echo	fed	commit	landed	shown	vsync	vsync_hi	predok
+seq	app_seq	char	post	event	excluded	exclude_reason	handled	written	echo	fed	commit	landed	shown	vsync	vsync_hi
 --- exit 1

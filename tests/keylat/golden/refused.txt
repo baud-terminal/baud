@@ -29,7 +29,6 @@ unpaired posts=0 unpaired keylats=0 parse failures=0 landings refused=0
     stamp        0.1 (  1)  [0.1-0.1]                [0.1-0.1]
   deliver      348.5 (  1)  [348.5-348.5]            [348.5-348.5]
     write       50.7 (  1)  [50.7-50.7]              [50.7-50.7]
-  predict          -        -                        -
     child       11.4 (  1)  [11.4-11.4]              [11.4-11.4]
      wake        5.1 (  1)  [5.1-5.1]                [5.1-5.1]
     build        5.3 (  1)  [5.3-5.3]                [5.3-5.3]
@@ -44,7 +43,7 @@ unpaired posts=0 unpaired keylats=0 parse failures=0 landings refused=0
 
 WARM-UP ROUND USED -- --rounds 1 has no settled round; not quotable
 --- keylat-base-1.tsv
-seq	app_seq	char	post	event	excluded	exclude_reason	handled	written	pred	echo	fed	commit	landed	shown	vsync	vsync_hi	predok
-1	1	a	1010149999900	1010150000000	False	None	1010150348400	1010150399100	None	1010150410500	1010150415600	1010150420900	1010150431000	1010150436000	1010150453900	1010158786900	-
-2	2	a	1010150099800	1010150100000	True	negative build	1010150200000	1010150300000	None	1010150400000	1010150500000	1010150420900	1010150431000	1010150436000	1010150456800	1010158789800	-
+seq	app_seq	char	post	event	excluded	exclude_reason	handled	written	echo	fed	commit	landed	shown	vsync	vsync_hi
+1	1	a	1010149999900	1010150000000	False	None	1010150348400	1010150399100	1010150410500	1010150415600	1010150420900	1010150431000	1010150436000	1010150453900	1010158786900
+2	2	a	1010150099800	1010150100000	True	negative build	1010150200000	1010150300000	1010150400000	1010150500000	1010150420900	1010150431000	1010150436000	1010150456800	1010158789800
 --- exit 2

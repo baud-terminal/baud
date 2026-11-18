@@ -14,5 +14,4 @@ keylat: landing refused ended=1003500390000 now=1003500385000
 keylat: seq=10 event=1004000000 handled=+300.0 written=+350.0 pred=- echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+400.0
 keylat: refused zone
 keylat: refused occupied
-keylat: noted over-occupied
 keylat: 3 keys open

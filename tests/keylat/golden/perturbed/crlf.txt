@@ -14,7 +14,6 @@ NOT QUOTABLE -- 1 landing(s) refused in the runs pooled here: a GPU end stamp of
     stamp        0.0 (  5)  [0.0-0.0]                [0.0-0.0]
   deliver      300.0 (  5)  [300.0-300.0]            [300.0-300.0]
     write       50.0 (  5)  [50.0-50.0]              [50.0-50.0]
-  predict          -        -                        -
     child       10.0 (  5)  [10.0-10.0]              [10.0-10.0]
      wake        5.0 (  5)  [5.0-5.0]                [5.0-5.0]
     build        5.0 (  5)  [5.0-5.0]                [5.0-5.0]
