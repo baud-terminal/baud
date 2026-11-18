@@ -1102,6 +1102,38 @@ enum Load {
     Refused(KittyError),
 }
 
+/// **The image a transmission in flight replaces**: "When re-transmitting
+/// image data for a specific id, the existing image and all its
+/// placements must be deleted. The new data replaces the old image data"
+/// (`[[source: kitty-graphics-rst]]`, the note under "Display images on
+/// screen"), and "terminals must not display anything, until the entire
+/// sequence is received and validated" ("Remote client"). So the delete
+/// waits for the transmission to conclude -- its last chunk's terminator,
+/// or the read of its file -- and runs there, just before the new image
+/// is made and placed ([`KittyStream::replace`]): a frame drawn between two
+/// reads of the transmission, inside a chunk or between chunks, draws the
+/// old image and every placement of it. Concluded refused, the old image
+/// goes all the same, the retransmission having been received; abandoned
+/// before it concludes -- a chunk left open, one dropped past
+/// [`KITTY_BODY_MAX`], an upload a delete or another stream aborts -- the
+/// transmission replaces nothing ([`KittyStream::abort`]). An arena that
+/// cannot hold the old image and the new one together deletes the old one
+/// when the new one is reserved, before any other image goes for space
+/// ([`KittyStream::reserve`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Replaces {
+    /// Nothing: no transmission in flight, or one with no id, a query, an
+    /// animation frame, or one whose image was already replaced.
+    Nothing,
+    /// The image `id` names on `screen`, `old`, or [`ImageId::NONE`] when
+    /// it named none: the virtual placements by that id go either way.
+    Id {
+        screen: ImageScreen,
+        id: KittyId,
+        old: ImageId,
+    },
+}
+
 /// A finished transmission whose pixels are still to be made.
 #[derive(Clone, Copy)]
 enum Deferred {
@@ -1140,6 +1172,8 @@ pub struct KittyStream {
     /// ([`KittyStream::begin`]): what its command's ids name.
     screen: ImageScreen,
     load: Load,
+    /// The image the transmission in flight replaces when it concludes.
+    replaces: Replaces,
     b64: KittyBase64,
     /// The next ENODATA's numbers, taken by [`KittyStream::reply`].
     short: Shortfall,
@@ -1239,6 +1273,7 @@ impl KittyStream {
         start: KittyCommand::DEFAULT,
         screen: ImageScreen::Primary,
         load: Load::Idle,
+        replaces: Replaces::Nothing,
         b64: KittyBase64::NEW,
         short: Shortfall::Unsaid,
         mark: ChunkMark::Fresh,
@@ -1388,6 +1423,8 @@ impl KittyStream {
         self.owed_read = KittyFileOwed::No;
         let cmd = self.start;
         self.refuse_load(KittyError::FILE, store);
+        // Concluded as a failed read concludes, replacing its image.
+        self.replace(store);
         self.load = Load::Idle;
         self.counts.commands += 1;
         self.reply(&cmd, Err(KittyError::FILE));
@@ -1764,20 +1801,19 @@ impl KittyStream {
         {
             cmd.error = Some(KittyError::FILE);
         }
+        self.replaces = Replaces::Nothing;
         if cmd.error.is_none() && !query {
-            // "When re-transmitting image data for a specific id, the
-            // existing image and all its placements must be deleted."
-            // The image this screen's id names; the other screen's stays.
-            if let Some(old) = store.kitty_image_on(cmd.screen, cmd.id) {
-                store.free(old);
-            }
-            // Its virtual placements go with it, by the id: an image freed
-            // before, by a failed decode, leaves them naming no live image.
+            // A retransmission: the image this screen's id names, and its
+            // placements, stay drawn until the transmission concludes
+            // ([`Replaces`]). The other screen's stays.
             if !cmd.id.is_none() {
-                let (id, screen) = (cmd.id, cmd.screen);
-                self.drop_virtuals(store, KittyFree::Placements, |v| {
-                    v.screen == screen && v.id == id
-                });
+                self.replaces = Replaces::Id {
+                    screen: cmd.screen,
+                    id: cmd.id,
+                    old: store
+                        .kitty_image_on(cmd.screen, cmd.id)
+                        .unwrap_or(ImageId::NONE),
+                };
             }
             if cmd.id.is_none() && !cmd.number.is_none() {
                 cmd.id = self.fresh_id(cmd.screen, store);
@@ -1891,8 +1927,9 @@ impl KittyStream {
     /// counted without looking for a gap. A new image that does not fit
     /// deletes older images until it does, those without placements first
     /// ([`ImageStore::reserve_evicting`]), and the virtual placements of
-    /// an image it deleted go with it ([`KittyStream::drop_dead_virtuals`]).
-    /// A query decodes in the store's
+    /// an image it deleted go with it ([`KittyStream::drop_dead_virtuals`]);
+    /// a retransmission's deletes the image it replaces first
+    /// ([`Replaces`]). A query decodes in the store's
     /// probe when it fits there, whatever the arena holds, and otherwise in
     /// a gap of the arena, deleting nothing
     /// ([`KITTY_PROBE`](crate::KITTY_PROBE)).
@@ -1923,6 +1960,14 @@ impl KittyStream {
         if w.index() * h.index() > store.capacity() {
             store.refuse(ImageRefusal::Arena(w, h));
             return Err(KittyError::TOO_LARGE);
+        }
+        // A retransmission whose image does not fit beside the one it
+        // replaces deletes that one now, the older image the quota would
+        // delete to make space for the new, and no other image goes while
+        // deleting it makes the space ([`Replaces`]).
+        if matches!(self.replaces, Replaces::Id { old, .. } if !old.is_none()) && !store.fits(w, h)
+        {
+            self.replace(store);
         }
         // A query stores nothing the client can name or show, so it
         // deletes nothing for space; and nothing goes that the command
@@ -2196,12 +2241,33 @@ impl KittyStream {
     }
 
     /// Abort the load in flight with no reply: a delete or a cancelled
-    /// chunk.
+    /// chunk. The image it would have replaced stays ([`Replaces`]).
     fn abort(&mut self, store: &mut ImageStore) {
         if let Load::Raw { image, .. } | Load::RawZ { image } = self.load {
             store.free_decoding(image);
         }
         self.load = Load::Idle;
+        self.replaces = Replaces::Nothing;
+    }
+
+    /// **The image the transmission replaces goes, with every placement
+    /// of it** ([`Replaces`]): the one its id named when it began, if that
+    /// image is still live and still the id's, and the virtual placements
+    /// by the id, which an image freed before, by a failed decode, leaves
+    /// naming no live image.
+    fn replace(&mut self, store: &mut ImageStore) {
+        let Replaces::Id { screen, id, old } =
+            core::mem::replace(&mut self.replaces, Replaces::Nothing)
+        else {
+            return;
+        };
+        if matches!(store.owner(old), Some(ImageOwner::Kitty(on, i, _)) if on == screen && i == id)
+        {
+            store.free(old);
+        }
+        self.drop_virtuals(store, KittyFree::Placements, |v| {
+            v.screen == screen && v.id == id
+        });
     }
 
     /// **The last chunk**: the base64's final quantum, the inflate's end,
@@ -2250,6 +2316,8 @@ impl KittyStream {
                 self.refuse_load(KittyError::INFLATE, store);
             }
         }
+        // The image this transmission replaces goes as the new one is made.
+        self.replace(store);
         let load = self.load;
         self.load = Load::Idle;
         self.counts.commands += 1;

@@ -2420,6 +2420,15 @@ impl<'b> ImageStore<'b> {
         self.reserve(width, height, owner)
     }
 
+    /// **Whether a `width` x `height` image would be reserved as things
+    /// stand**: a free slot, and a gap of the arena that holds it. What
+    /// [`ImageStore::reserve_keeping`] tests before it deletes anything,
+    /// asked without reserving, deleting or counting.
+    pub fn fits(&self, width: ImagePx, height: ImagePx) -> bool {
+        let area = width.index().saturating_mul(height.index());
+        self.free_slot().is_some() && self.lowest_gap(area).is_some()
+    }
+
     /// **The images the kitty quota must not delete for a command that
     /// needs `keep`**, by where their spans start: each of them, and every
     /// image a placement of one hangs under, up its chain of parents, and

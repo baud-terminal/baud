@@ -431,11 +431,12 @@ fn a_cell_size_set_while_owed_sizes_the_placement_the_end_makes() {
     assert_eq!(got, want);
 }
 
-/// **A re-transmission over a live placement deletes the old image at its
-/// control data**: while the read is owed no placement is left, and the
-/// end places the new image as a lent reader's read places it.
+/// **A re-transmission over a live placement keeps the old image drawn
+/// while its read is owed**: the transmission concludes at the read, so
+/// until then the old image and its placement stay, and the end replaces
+/// them with the new image as a lent reader's read does.
 #[test]
-fn a_retransmission_held_leaves_no_placement_while_owed() {
+fn a_retransmission_held_keeps_the_old_placement_while_owed() {
     let old = apc("a=T,i=1,f=32,s=3,v=2", &bytes(3 * 2 * 4, 1));
     let new = bytes(3 * 2 * 4, 2);
     let name: &[u8] = b"/pics/new";
@@ -443,7 +444,14 @@ fn a_retransmission_held_leaves_no_placement_while_owed() {
     let want = lent(&old, &cmd, b"Z", name, Some(&new), |_| {});
     let seven = NonZeroUsize::new(7).unwrap();
     let got = held(&old, &cmd, b"Z", Some(&new), seven, |t| {
-        assert_eq!(t.images().placements().count(), 0, "the old one is gone");
+        // The new image is reserved and not whole, so the one whole image
+        // placed is the old one.
+        let imgs = t.images();
+        let whole = imgs
+            .placements()
+            .filter(|(_, p)| imgs.image(p.image).is_some())
+            .count();
+        assert_eq!(whole, 1, "the old placement stays drawn");
     });
     assert_eq!(got, want);
 }
