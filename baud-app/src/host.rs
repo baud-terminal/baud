@@ -2015,7 +2015,11 @@ mod tests {
         }
         const CALL: &str = concat!("crate::host::", "set_control_string_end(&mut term, ");
         for (driver, src, arg) in [
-            ("macOS", include_str!("app.rs"), "kitty_string_end);"),
+            (
+                "macOS",
+                crate::app_source::app_source(),
+                "kitty_string_end);",
+            ),
             (
                 "Linux",
                 &super::linux_driver_src(),
@@ -2030,7 +2034,7 @@ mod tests {
             );
         }
         assert_eq!(
-            include_str!("app.rs")
+            crate::app_source::app_source()
                 .matches("kitty_string_end: cfg.kitty_string_end,")
                 .count(),
             1,

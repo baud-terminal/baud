@@ -30,7 +30,7 @@ const MODES: [ControlStringEnd; 2] = [ControlStringEnd::Standard, ControlStringE
 const AT: &[u8] = b"\x1b[3;5H";
 
 /// What a stream left: the replies, every row's text, the cursor, the
-/// screen, the pixels of every kitty image stored, by id, and the kitty
+/// screen, the pixels of every kitty image stored, by id, and the kitty graphics
 /// stream's counts.
 #[derive(Debug, PartialEq, Eq)]
 struct Left {
@@ -362,7 +362,7 @@ fn can_and_sub_cancel_an_apc_g_by_default_and_are_payload_under_the_setting() {
 }
 
 /// **Every other control string is read the same under both**: an `APC`
-/// that is not kitty's, cut by a bare `ESC`, is cancelled under either,
+/// that is not a kitty graphics command, cut by a bare `ESC`, is cancelled under either,
 /// and the `CUP` after it runs.
 #[test]
 fn an_apc_that_is_not_kittys_is_cancelled_by_a_bare_esc_under_both() {

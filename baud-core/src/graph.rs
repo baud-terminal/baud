@@ -240,7 +240,7 @@ pub enum Node {
     /// command (`[[source: kitty-graphics]]`, "All graphics escape codes are
     /// of the form: <ESC>_G<control data>;<payload><ESC>\"), read in
     /// `KittyStr` by the standard's rule; every other byte takes `SosStr`'s
-    /// edge, so an `APC` that is not kitty's is the `sos/pm/apc string` it
+    /// edge, so an `APC` that is not a kitty graphics command is the `sos/pm/apc string` it
     /// was. Under [`ControlStringEnd::Kitty`] the introducer's arm leads to
     /// `KittyApcFirst` instead (`Paint::str_start`). Last, with the next
     /// two, so no other node's index moves.
