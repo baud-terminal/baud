@@ -506,10 +506,12 @@ fn forms_gate<'f, 'a>(
 }
 
 /// **Every precomposed letter on `arm`**, on stock JetBrains Mono with the
-/// Noto subset and its bold and italic faces behind it, over a page at
-/// alpha 56, where U+01FA shapes to several glyphs and U+00E9 to one --
-/// the premise -- and on the default chain's embedded faces, in its order:
-/// regular, bold and italic, alone and against its decomposition.
+/// Noto subset and its bold and italic faces behind it, over a page
+/// configured at alpha 56 and drawn at the alpha the dark theme's text
+/// reads at from there ([`Theme::glass_reach`]), where U+01FA shapes to
+/// several glyphs and U+00E9 to one -- the premise -- and on the default
+/// chain's embedded faces, in its order: regular, bold and italic, alone
+/// and against its decomposition.
 fn precomposed(gpu: &Gpu, arm: Arm) {
     let letters = precomposed_letters();
     for c in ['Ǻ', 'Ȁ', 'Ṩ', 'Ȅ', 'Ǡ', 'Ḉ', 'ǰ', 'ḉ', 'é'] {
@@ -518,6 +520,10 @@ fn precomposed(gpu: &Gpu, arm: Arm) {
     let theme = Theme {
         bg_alpha: Chan::from_u8(56),
         ..Theme::dark()
+    };
+    let theme = Theme {
+        bg_alpha: theme.glass_reach(),
+        ..theme
     };
     let fallback = |p: &str| (repo_file(p), FaceRole::Fallback);
     let styled = |p: &str, s: FaceStyle| (repo_file(p), FaceRole::Style(s));
@@ -666,16 +672,21 @@ fn app_stack(files: &[(Vec<u8>, FaceRole)]) -> (Vec<Face<'_>>, Vec<FaceRole>) {
 
 /// **The pointed Genesis 1:1-5 in regular, `SGR 3` and `SGR 1;3`, on
 /// `arm`**, on the built faces' four styles behind the icon face, over a
-/// page at alpha 56, in stored order (BDSM reset). The controls: the core
-/// keeps every point, and the italic and bold-italic frames differ from
-/// the regular one and from each other, so the italic faces' Hebrew is
-/// what the paths agree on.
+/// page configured at alpha 56 and drawn at the alpha the dark theme's
+/// text reads at from there ([`Theme::glass_reach`]), in stored order
+/// (BDSM reset). The controls: the core keeps every point, and the italic
+/// and bold-italic frames differ from the regular one and from each other,
+/// so the italic faces' Hebrew is what the paths agree on.
 fn italic_hebrew(gpu: &Gpu, arm: Arm) {
     let files = app_files();
     let (faces, roles) = app_faces(&files);
     let theme = Theme {
         bg_alpha: Chan::from_u8(56),
         ..Theme::dark()
+    };
+    let theme = Theme {
+        bg_alpha: theme.glass_reach(),
+        ..theme
     };
     let frames = with_term(gpu, arm, fresh(&faces, &roles, theme), |arms, t| {
         let mut frames = Vec::new();

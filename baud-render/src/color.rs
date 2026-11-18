@@ -148,22 +148,47 @@ impl Floor {
     /// objects (`[[source: wcag22]]`).
     pub const GLASS_TRIGGER: f64 = 3.0;
 
+    /// **This floor with its trigger at its target: the floor text is drawn
+    /// by under the glass.** On a page drawn below full alpha, every pair
+    /// that reads below the target against what can be behind it
+    /// ([`Behind::over`]) is lifted to the target
+    /// ([`Floor::lift_on_glass`]), however the program asked it: WCAG 2.2
+    /// SC 1.4.3 asks 4.5:1 of text (`[[source: wcag22]]`), and a colour
+    /// asked below that on the page drawn opaque is lifted too. A pair whose
+    /// text is its page's own colour is kept. Only the glass draws by it: a
+    /// page drawn opaque keeps the floor's own trigger ([`Floor::lift`]).
+    /// Itself when it lifts nothing.
+    pub fn at_target(self) -> Floor {
+        match self {
+            Floor::Lift { target, .. } => Floor::Lift {
+                trigger: target,
+                target,
+            },
+            other => other,
+        }
+    }
+
     /// `text` as drawn on `page`, which the window draws at `alpha` over
     /// whatever its material shows, `backdrop`: lifted when the pair reads
-    /// below a trigger against what can be behind it ([`Behind::over`]) and
-    /// **not** below
-    /// it on `page`. Two bands: the floor's own trigger, and
-    /// [`Floor::GLASS_TRIGGER`] (or the floor's, when that is higher) for a
-    /// pair asked at it or above, so a pair asked below 3 is never lifted by
-    /// the second. `text` is what [`Floor::lift`] made of the pair, so a
-    /// pair the floor covers has already been lifted on the page, and what
-    /// is left below the trigger on it -- a program's own low-contrast pair
-    /// on its own page -- the program chose and keeps. The colour drawn
-    /// over a page the dim leaves solid is `text` itself.
+    /// below a trigger against what can be behind it ([`Behind::over`]).
+    /// **At the target** ([`Floor::at_target`]), every pair that reads below
+    /// the target against it is lifted, however it was asked on `page`.
+    /// **Below it**, two bands, each lifting only a pair asked at it or
+    /// above on `page`: the floor's own trigger, and
+    /// [`Floor::GLASS_TRIGGER`] (or the floor's, when that is higher), so a
+    /// pair asked below 3 is never lifted by the second. `text` is what
+    /// [`Floor::lift`] made of the pair, so a pair the floor covers has
+    /// already been lifted on the page. The colour drawn over a page the dim
+    /// leaves solid is `text` itself.
+    ///
+    /// **Text in its page's own colour is kept**: a pair whose text and
+    /// page are one colour, which the page drawn opaque leaves hidden,
+    /// stays hidden under the glass, the text drawn in the page's colour.
     ///
     /// **Where no colour reaches the target against all of it**, the text
     /// is lifted as far as the glass trigger, and only where none reaches
-    /// that either to the extreme that reads better: a pair the floor
+    /// that either -- at the target, at once -- to the extreme that reads
+    /// better: a pair the floor
     /// cannot bring to 4.5 ends where an untouched pair may already sit,
     /// keeping what hue it can.
     ///
@@ -178,14 +203,14 @@ impl Floor {
         let Floor::Lift { trigger, target } = self else {
             return text;
         };
-        let (lt, lp) = (Lum::of(text), Lum::of(page));
-        let asked = lt.ratio(lp);
-        let glass = trigger.max(Floor::GLASS_TRIGGER);
-        let k = if asked >= glass { glass } else { trigger };
-        let behind = Behind::over(page, alpha, backdrop);
-        if behind.ratio(lt) >= k || asked < k {
+        if Floor::hidden(text, page) {
             return text;
         }
+        let (lt, lp) = (Lum::of(text), Lum::of(page));
+        let behind = Behind::over(page, alpha, backdrop);
+        let Some(glass) = Floor::glass_band(trigger, target, lt, lp, behind) else {
+            return text;
+        };
         let to = if behind.reaches(target) || !behind.reaches(glass) {
             target
         } else {
@@ -198,6 +223,71 @@ impl Floor {
             Toward::Black => dark.max(0.0),
         };
         Oklab::lift(text, toward, y)
+    }
+
+    /// **The lowest alpha at which some colour reads at the floor's target
+    /// as `text` on `page`**, against everything the page can show drawn at
+    /// that alpha over `backdrop`: `alpha` itself where
+    /// [`Floor::lift_on_glass`] leaves `text` there or a colour already
+    /// reaches the target, and otherwise the lowest alpha above it at which
+    /// one does. WCAG 2.2 SC 1.4.3 asks 4.5:1 of text (`[[source: wcag22]]`).
+    /// What [`Theme::glass_reach`] reads, once a theme is built.
+    ///
+    /// **By bisection, at most eight steps**: as the alpha rises, every
+    /// channel of the page over a grey moves toward the page's own, so the
+    /// range behind the text only narrows and a colour that reaches the
+    /// target at one alpha reaches it at every higher one. A solid page
+    /// reaches 4.5:1 with black or white text on it; a target no colour
+    /// reaches even there gives opaque.
+    pub fn page_alpha(self, text: Argb, page: Argb, alpha: Chan, backdrop: Backdrop) -> Chan {
+        let Floor::Lift { trigger, target } = self else {
+            return alpha;
+        };
+        if Floor::hidden(text, page) {
+            return alpha;
+        }
+        let behind = Behind::over(page, alpha, backdrop);
+        if behind.reaches(target)
+            || Floor::glass_band(trigger, target, Lum::of(text), Lum::of(page), behind).is_none()
+        {
+            return alpha;
+        }
+        let reaches = |a: u8| Behind::over(page, Chan::from_u8(a), backdrop).reaches(target);
+        let (mut below, mut at) = (alpha.get(), u8::MAX);
+        while at - below > 1 {
+            let mid = below + (at - below) / 2;
+            if reaches(mid) {
+                at = mid;
+            } else {
+                below = mid;
+            }
+        }
+        Chan::from_u8(at)
+    }
+
+    /// The glass trigger a pair is lifted at against `behind`, or none
+    /// where it is kept, by [`Floor::lift_on_glass`]'s rule. With `trigger`
+    /// at `target` ([`Floor::at_target`]), every pair reading below `target`
+    /// against `behind` is lifted, however it was asked. Below it, two
+    /// bands, the floor's own `trigger` and [`Floor::GLASS_TRIGGER`] (or
+    /// `trigger`, when that is higher) for a pair asked at it or above; a
+    /// pair below its band as asked, or at it against all of `behind`, is
+    /// kept.
+    fn glass_band(trigger: f64, target: f64, text: Lum, page: Lum, behind: Behind) -> Option<f64> {
+        let glass = trigger.max(Floor::GLASS_TRIGGER);
+        if trigger >= target {
+            return (behind.ratio(text) < target).then_some(glass);
+        }
+        let asked = text.ratio(page);
+        let k = if asked >= glass { glass } else { trigger };
+        (behind.ratio(text) < k && asked >= k).then_some(glass)
+    }
+
+    /// Whether `text` is `page`'s own colour, alpha aside: a pair the page
+    /// drawn opaque leaves hidden, which the glass keeps hidden.
+    fn hidden(text: Argb, page: Argb) -> bool {
+        let opaque = Chan::from_u8(0xFF);
+        text.with_alpha(opaque) == page.with_alpha(opaque)
     }
 
     /// `text` moved toward black or white until it reads at `target`
@@ -825,8 +915,10 @@ pub struct Theme {
     /// The contrast floor, [`Floor::DEFAULT`] on both built-in themes.
     pub floor: Floor,
     /// What the window's material can show under a page drawn below full
-    /// alpha, which the floor reads text against ([`Floor::lift_on_glass`]).
-    /// [`Backdrop::any`] on both built-in themes.
+    /// alpha, which the floor reads text on a page the program set against
+    /// ([`Floor::lift_on_glass`]); text on the default page is read against
+    /// [`Backdrop::any`] whatever this is. [`Backdrop::any`] on both
+    /// built-in themes.
     pub backdrop: Backdrop,
     pub palette: [Argb; 256],
     /// **The selection's colours, the `Theme` selection setting**: the
@@ -1246,6 +1338,40 @@ impl Theme {
         .with_bauds_cursor()
     }
 
+    /// **The alpha this theme's default page reaches the floor's target
+    /// at under the glass**: the highest [`Floor::page_alpha`] of the
+    /// default page over everything from black to white
+    /// ([`Backdrop::any`]), by the floor the text is drawn by
+    /// ([`Floor::at_target`]), over the default foreground and the sixteen,
+    /// and `bg_alpha` itself where every one of them already reaches it.
+    /// WCAG 2.2 SC 1.4.3 asks 4.5:1 of text (`[[source: wcag22]]`), the
+    /// built-in floor's target. Drawing the default page at this alpha
+    /// leaves some colour that reads at the target against everything the
+    /// page can show, for each of them.
+    ///
+    /// **Every pair is counted, and none takes the page to opaque**: a page
+    /// drawn opaque lets black or white text read at 4.5:1 or more on it,
+    /// whatever its colour -- the least any page allows is about 4.58:1 --
+    /// so the alpha at which some colour reaches 4.5:1 against it is below
+    /// opaque from any alpha. A floor whose target is above what the page
+    /// allows drawn opaque takes it to opaque.
+    /// [`Floor::Off`] keeps `bg_alpha`.
+    pub fn glass_reach(&self) -> Chan {
+        self.reach_from(self.bg_alpha)
+    }
+
+    /// [`Theme::glass_reach`] with the default page drawn at `alpha`.
+    fn reach_from(&self, alpha: Chan) -> Chan {
+        let floor = self.floor.at_target();
+        core::iter::once(self.fg)
+            .chain(self.palette[..16].iter().copied())
+            .map(|text| floor.page_alpha(text, self.bg, alpha, Backdrop::any()))
+            .fold(alpha, |high, a| match a.get() > high.get() {
+                true => a,
+                false => high,
+            })
+    }
+
     /// Lays a theme file's scheme over this half: each of the sixteen, the
     /// page, the text and the selection's two colours that the file sets
     /// replaces the half's, and the
@@ -1521,6 +1647,42 @@ impl Theme {
             return self.entry(Chan::from_u8(i), palette);
         }
         fg
+    }
+}
+
+/// **The alpha a theme's default page is drawn at under the glass**: the
+/// one the config set, or [`Theme::glass_reach`] where that is higher, so
+/// the theme's text reads at its floor's target over any desktop. Which of
+/// the two is the notice the window gives of it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GlassAlpha {
+    /// The configured alpha, already at or above the theme's reach.
+    AsSet(Chan),
+    /// The configured alpha, below the theme's reach, and the reach drawn
+    /// in its place.
+    Raised { configured: Chan, effective: Chan },
+}
+
+impl GlassAlpha {
+    /// `configured` against `theme`'s reach from it, whatever alpha
+    /// `theme` carries.
+    pub fn of(theme: &Theme, configured: Chan) -> GlassAlpha {
+        let effective = theme.reach_from(configured);
+        match effective.get() > configured.get() {
+            true => GlassAlpha::Raised {
+                configured,
+                effective,
+            },
+            false => GlassAlpha::AsSet(configured),
+        }
+    }
+
+    /// The alpha the default page is drawn at.
+    pub fn effective(self) -> Chan {
+        match self {
+            GlassAlpha::AsSet(a) => a,
+            GlassAlpha::Raised { effective, .. } => effective,
+        }
     }
 }
 

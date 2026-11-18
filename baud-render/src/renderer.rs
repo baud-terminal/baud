@@ -11,7 +11,7 @@ use crate::cellmap::{
     BlockCursor, BlockPaint, CellSpan, CursorLook, Curves, Ground, Hilite, Line, Resolved,
     Selected, Shapes, Swaps, Text, takes_stress_mark,
 };
-use crate::color::{Argb, BaudCursor, CursorMade, Theme, Video};
+use crate::color::{Argb, Backdrop, BaudCursor, CursorMade, Theme, Video};
 use crate::composite::{Blend, Blit, Mix, Page, Target, Texels};
 use crate::counters::{Counter, Site};
 use crate::effect::Vfx;
@@ -13920,16 +13920,27 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let fg = self.theme.floor.lift(fg, bg, (text_word, page_word));
         let opaque_bg = self.theme.opaque_bg(style, self.video);
         // **The floor again, on the glass**, measured against the page at
-        // its alpha over what the material can show, `Theme::backdrop` --
-        // black to white on the glass -- since the renderer draws onto a
-        // target with nothing under it and the glass is the window server's
-        // (`Floor::lift_on_glass`). It covers a page the program set; the
-        // default page is left out: its own text is held at the bound by
-        // the dims (note AS, section 3). A picture's, an opaque rendition's
-        // and a swap's page is solid, and `Resolved::drawn` gives them
-        // `fg`.
-        let glass = if page_word.is_default() || opaque_bg || self.theme.bg_alpha.get() == 0xFF {
+        // its alpha over what the material can show, since the renderer
+        // draws onto a target with nothing under it and the glass is the
+        // window server's (`Floor::lift_on_glass`). A page the program set
+        // is read against `Theme::backdrop` -- black to white on the glass.
+        // The default page's text is read against anything from black to
+        // white (`Backdrop::any`) and, wherever it reads below the floor's
+        // target there, however it was asked, lifted to it
+        // (`Floor::at_target`), at the theme's own alpha, which the app sets
+        // no lower than the alpha at which its colours can read
+        // (`Theme::glass_reach`). A reversed default page's text is the
+        // page's own and is raised below; a picture's, an opaque
+        // rendition's and a swap's page is solid, and `Resolved::drawn`
+        // gives them `fg`.
+        let raised = Theme::raised(style, self.video);
+        let glass = if raised || opaque_bg || self.theme.bg_alpha.get() == 0xFF {
             fg
+        } else if page_word.is_default() {
+            self.theme
+                .floor
+                .at_target()
+                .lift_on_glass(fg, bg, self.theme.bg_alpha, Backdrop::any())
         } else {
             self.theme
                 .floor
@@ -13940,8 +13951,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // `Resolved::drawn`. A reversed default page -- `SGR 7`'s bar,
         // `?5`'s screen -- is raised until the default text reads on it
         // (`Theme::raised`); its text is the page's own, so the glass floor
-        // above leaves it, as it leaves the default page's.
-        let alpha = match Theme::raised(style, self.video) {
+        // above leaves it.
+        let alpha = match raised {
             true => self.reversed.0,
             false => self.theme.bg_alpha,
         };

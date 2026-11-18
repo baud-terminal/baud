@@ -369,8 +369,9 @@ fn a_struck_links_sgr_58_underline_keeps_its_colour() {
 /// **The grey is weighed against the page shown, the dimmed one**: colour 8
 /// at `#c0c0c0` reads 9:1 on the dark page drawn solid and under 4:1 on the
 /// same page at 0.70 over a white desktop, so the solid window strikes the
-/// link grey and the glass one keeps its red. Perturbation, run red: weigh
-/// the grey against the page made opaque.
+/// link grey and the glass one keeps its own colour: red, as the glass
+/// floor draws it on the default page (`Floor::at_target`, `Floor::lift_on_glass`).
+/// Perturbation, run red: weigh the grey against the page made opaque.
 #[test]
 fn the_grey_is_weighed_against_the_dimmed_page() {
     let mono = font("JetBrainsMono-Regular.ttf");
@@ -396,9 +397,26 @@ fn the_grey_is_weighed_against_the_dimmed_page() {
             .all(|&c| c == 0x00C0_C0C0),
         "the control: on the solid page the grey reads"
     );
+    let dark = Theme::dark();
+    let red = baud_render::Argb::rgb(
+        baud_domain::Chan::from_u8(0xFF),
+        baud_domain::Chan::from_u8(0),
+        baud_domain::Chan::from_u8(0),
+    );
+    let own = dark
+        .floor
+        .at_target()
+        .lift_on_glass(
+            red,
+            dark.bg,
+            baud_domain::Chan::from_u8(0xB3),
+            baud_render::Backdrop::any(),
+        )
+        .0
+        & 0x00FF_FFFF;
     assert!(
-        struck(&mut glass(&faces)).iter().all(|&c| c == 0x00FF_0000),
-        "on the dimmed page it does not, and the text keeps its red"
+        struck(&mut glass(&faces)).iter().all(|&c| c == own),
+        "on the dimmed page it does not, and the text keeps its own colour"
     );
 }
 

@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use baud_domain::ColorScheme;
 use baud_domain::themefile::detect::{self, Grammar, Kind, Mark, NotText, Shape, Unknown, Verdict};
 use baud_domain::themefile::{self, Cpp, Format, Scheme, SchemeErrorKind, Skipped};
-use baud_render::Theme;
+use baud_render::{GlassAlpha, Theme};
 
 use crate::config::CursorPick;
 use baud_render::CursorMade;
@@ -593,12 +593,28 @@ fn notice(at: &str, half: Half, scheme: &Scheme, said: &mut Vec<String>) {
 /// The theme a half draws: its built-in palette, the file named for it laid
 /// over that, and the half's own dim, floor and exemptions. Both drivers call
 /// this, so a pinned light theme dims by `dim_light` on either.
+///
+/// **The dim is the configured opacity or the opacity at which this half's
+/// text reads at the floor's target over any desktop, whichever is higher**
+/// (`GlassAlpha`): every default cell, the margin and a reversed default
+/// page read it, so the whole window moves together, and [`glass_raised`]
+/// says so.
 pub fn half_theme(
     half: Half,
     glass: &crate::config::Glass,
     floor: baud_render::Floor,
     halves: &Halves,
 ) -> Theme {
+    half_glass(half, glass, floor, halves).0
+}
+
+/// [`half_theme`], and the dim it is drawn at against the one configured.
+fn half_glass(
+    half: Half,
+    glass: &crate::config::Glass,
+    floor: baud_render::Floor,
+    halves: &Halves,
+) -> (Theme, GlassAlpha) {
     let mut theme = half.built_in();
     if let Some(scheme) = halves.get(half) {
         theme.take_scheme(scheme);
@@ -641,15 +657,52 @@ pub fn half_theme(
     if halves.selection.text != crate::config::SelectionPick::Theme {
         theme.unset_selection_text = baud_domain::themefile::SelectionText::Reverse;
     }
-    theme.bg_alpha = baud_domain::Chan::from_unit(match half {
-        Half::Dark => glass.dim_dark,
-        Half::Light => glass.dim_light,
-    });
     theme.app_bg = glass.app_backgrounds;
     theme.picture_bg = glass.pictures;
     theme.sixel_bg = glass.sixel_backgrounds;
     theme.floor = floor;
-    theme
+    let dim = GlassAlpha::of(&theme, baud_domain::Chan::from_unit(dim_of(half, glass)));
+    theme.bg_alpha = dim.effective();
+    (theme, dim)
+}
+
+/// The opacity `[glass]` gives a half: `dim_dark` or `dim_light`.
+fn dim_of(half: Half, glass: &crate::config::Glass) -> f32 {
+    match half {
+        Half::Dark => glass.dim_dark,
+        Half::Light => glass.dim_light,
+    }
+}
+
+/// **What the window says of a raised glass**: one line for each half
+/// whose configured dim [`half_theme`] raised (`GlassAlpha::Raised`),
+/// naming the key set, both dims and the ratio its text reads at --
+/// `[glass] dim_dark 0.22 is raised to 0.57, so text reads at 4.5:1`.
+///
+/// None for a half drawn as configured.
+pub fn glass_raised(
+    glass: &crate::config::Glass,
+    floor: baud_render::Floor,
+    halves: &Halves,
+) -> Vec<String> {
+    let baud_render::Floor::Lift { target, .. } = floor else {
+        return Vec::new();
+    };
+    [Half::Dark, Half::Light]
+        .into_iter()
+        .filter_map(|half| match half_glass(half, glass, floor, halves).1 {
+            GlassAlpha::AsSet(_) => None,
+            GlassAlpha::Raised {
+                configured,
+                effective,
+            } => Some(format!(
+                "[glass] dim_{} {:.2} is raised to {:.2}, so text reads at {target}:1",
+                half.key(),
+                f32::from(configured.get()) / 255.0,
+                f32::from(effective.get()) / 255.0
+            )),
+        })
+        .collect()
 }
 
 fn name(s: ColorScheme) -> &'static str {
@@ -1318,17 +1371,42 @@ mod tests {
             (light.palette, light.fg, light.bg),
             (want.palette, want.fg, want.bg)
         );
-        assert_eq!(
-            light.bg_alpha,
-            baud_domain::Chan::from_unit(glass.dim_light)
-        );
+        // The dim is the configured one, or the half's reach where that is
+        // higher (`Theme::glass_reach`).
+        let dimmed = |mut t: Theme, dim: f32| {
+            let configured = baud_domain::Chan::from_unit(dim);
+            t.bg_alpha = configured;
+            t.floor = floor;
+            let reach = t.glass_reach();
+            match reach.get() > configured.get() {
+                true => reach,
+                false => configured,
+            }
+        };
+        assert_eq!(light.bg_alpha, dimmed(want, glass.dim_light));
         let dark = half_theme(Half::Dark, &glass, floor, &halves);
         assert_eq!(
             dark.palette,
             Theme::dark().palette,
             "the light file stays in its half"
         );
-        assert_eq!(dark.bg_alpha, baud_domain::Chan::from_unit(glass.dim_dark));
+        assert_eq!(dark.bg_alpha, dimmed(Theme::dark(), glass.dim_dark));
+        // A dim below the half's reach is drawn at the reach.
+        let low = crate::config::Glass {
+            dim_dark: 0.22,
+            sixel_backgrounds: baud_render::SixelBg::Cleared,
+            ..crate::config::Glass::defaults()
+        };
+        let raised = half_theme(Half::Dark, &low, floor, &halves);
+        let reach = dimmed(Theme::dark(), 0.22);
+        assert!(
+            reach.get() > baud_domain::Chan::from_unit(0.22).get(),
+            "the premise: 0.22 is below the dark half's reach"
+        );
+        assert_eq!(
+            raised.bg_alpha, reach,
+            "a dim below the reach is raised to it"
+        );
         assert_eq!(
             (dark.floor, dark.app_bg, dark.picture_bg, dark.sixel_bg),
             (

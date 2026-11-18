@@ -299,11 +299,17 @@ fn partial_faces() -> [Vec<u8>; 3] {
     ]
 }
 
-/// A renderer over `faces` on a page at alpha 56.
+/// A renderer over `faces` on a page configured at alpha 56 and drawn at
+/// the alpha the dark theme's text reads at from there
+/// ([`Theme::glass_reach`]).
 fn partial_renderer<'f, 'a>(faces: &'f [Face<'a>]) -> Renderer<'f, 'a> {
     let theme = Theme {
         bg_alpha: Chan::from_u8(56),
         ..Theme::dark()
+    };
+    let theme = Theme {
+        bg_alpha: theme.glass_reach(),
+        ..theme
     };
     fresh(faces, theme)
 }

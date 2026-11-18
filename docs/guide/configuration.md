@@ -394,7 +394,7 @@ darkening that suits a dark desktop is far too much over a light one.
 | key | values | default | what it changes |
 |---|---|---|---|
 | `style` | `"standard"`, `"regular"`, `"clear"` | `"standard"` | The window's material. `"standard"` is the Mac's standard see-through window material, the one Apple puts behind an app's content: the desktop shows through faintly, and Apple draws it subdued while another window is in front. `"regular"` is Liquid Glass, frosted; `"clear"` is thinner, more see-through Liquid Glass. |
-| `dim_dark` | 0 to 1 | `0.70` | How solid the background is under the dark appearance, from 0 (clear) to 1 (opaque). The default keeps text readable at Apple's minimum contrast even over a white window behind; turn it down to see more of the desktop. |
+| `dim_dark` | 0 to 1 | `0.70` | How solid the background is under the dark appearance, from 0 (clear) to 1 (opaque). The default keeps text readable at Apple's minimum contrast even over a white window behind; turn it down to see more of the desktop, as far as the floor below. |
 | `dim_light` | 0 to 1 | `0.60`, `0.85` on Linux | The same, under the light appearance, where the default keeps text readable over a black window behind. On Linux nothing light is under the page, only the desktop's blur, which the desktop may darken, so the default is more solid there to keep the page light. |
 | `app_backgrounds` | `"dim"`, `"opaque"` | `"dim"` | Whether backgrounds a program paints, such as btop's panels, are see-through like the rest (`"dim"`) or solid (`"opaque"`). |
 | `pictures` | `"opaque"`, `"dim"` | `"opaque"` | Whether a picture drawn with text characters, such as a file manager's photo preview, is kept solid so it reads as a picture. |
@@ -404,6 +404,14 @@ darkening that suits a dark desktop is far too much over a light one.
 | `hue` | 0 to 1 | `0.60` | The colour of that darkening; `0.60` is a blue. |
 | `saturation` | 0 to 1 | `0.80` | How strong that colour is. |
 | `shadow` | `"auto"`, `"always"`, `"never"` | `"auto"` | Whether the window casts a shadow. `"auto"` casts one only under the dark appearance. |
+
+Each dim has a floor: the least solid the background can be while the
+theme's text still reads at 4.5:1 whatever is behind the window. A dim set
+below it is raised to it, for that appearance only, and the config notice
+and the line baud prints at startup each say so once, with the dim you set
+and the dim in effect. With baud's own colours the floor is 0.57 on the
+dark appearance and 0.49 on the light one, so the defaults are never
+raised; a theme file's colours have their own floor.
 
 A status bar drawn in reverse video, such as the ones less and vim show,
 and the whole screen while a program turns on reverse-screen mode (`?5`),

@@ -598,7 +598,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             let files = crate::reload::files(&w.lookup, &w.themes, &w.faces);
             (l, files)
         });
-    let notice = crate::live::Notice::of(&launched.said);
+    let mut notice_said = launched.said;
     let reload = match launched.config.config_reload {
         crate::config::ConfigReload::On => Some(Reloading {
             watch,
@@ -729,6 +729,14 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     for s in said {
         crate::warn!("{s}");
     }
+    // A glass raised so its text reads is said once, on the notice's row
+    // and the startup line.
+    for s in crate::palette::glass_raised(&cfg.glass, cfg.floor, &halves) {
+        crate::info!("{s}");
+        crate::host::startup_said(&s);
+        notice_said.push(s);
+    }
+    let notice = crate::live::Notice::of(&notice_said);
     // The theme `half_theme` builds is the one macOS builds for the same
     // half, dim included: `[glass]`'s material has no counterpart here,
     // and the dim follows the half drawn. Only the backdrop differs: with
@@ -3137,13 +3145,14 @@ impl Driver {
     /// anew, the half the desktop's scheme gives shown, and the core told
     /// the new defaults with a program's colours kept.
     fn reload_palette(&mut self, c: &Config) -> Vec<String> {
-        let (mut halves, said) = crate::palette::load_halves(
+        let (mut halves, mut said) = crate::palette::load_halves(
             c.palette_light.as_deref(),
             c.palette_dark.as_deref(),
             &crate::palette::Dirs::from_env(c.source.as_deref()),
         );
         halves.selection = c.selection;
         halves.cursor = c.cursor;
+        said.extend(crate::palette::glass_raised(&c.glass, c.floor, &halves));
         self.halves = halves;
         self.theme_choice = c.theme;
         self.glass = c.glass;

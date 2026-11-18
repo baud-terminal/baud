@@ -25,8 +25,8 @@ use baud_domain::themefile::{CellPaint, kitty};
 use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::{
-    AppBg, Argb, Blend, Damage, Floor, Hover, Kind, Look, PxSize, Renderer, Scroll, Scroller,
-    Stack, Theme, Trail, TrailLook, Transition, Widths, Window,
+    AppBg, Argb, Backdrop, Blend, Damage, Floor, Hover, Kind, Look, PxSize, Renderer, Scroll,
+    Scroller, Stack, Theme, Trail, TrailLook, Transition, Widths, Window,
 };
 use support::font;
 
@@ -128,10 +128,17 @@ fn glyph_colours(r: &Renderer<'_, '_>) -> Vec<Argb> {
 #[test]
 fn the_default_colours_swap_and_the_background_is_raised() {
     let theme = dim_theme();
-    // The control: without `?5` a blank is the theme's background.
+    // The control: without `?5` a blank is the theme's background, and a
+    // letter the foreground as the glass floor draws it on the default page.
     render(b"A\x1b[2;12H", |r| {
         assert_eq!(rgb(r.background()[1]), rgb(theme.bg));
-        assert_eq!(glyph_colours(r), vec![theme.fg]);
+        let text = theme.floor.at_target().lift_on_glass(
+            theme.fg,
+            theme.bg,
+            theme.bg_alpha,
+            Backdrop::any(),
+        );
+        assert_eq!(glyph_colours(r), vec![text]);
     });
     render(b"A\x1b[?5h\x1b[2;12H", |r| {
         let blank = r.background()[1];

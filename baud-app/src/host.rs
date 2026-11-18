@@ -944,6 +944,16 @@ pub fn startup_note(text: &str) {
     startup_line(text);
 }
 
+/// A line about the config, under the same flag on either driver: a
+/// `[glass]` dim raised so its text reads (`palette::glass_raised`), said
+/// once at launch as the window's notice row says it.
+pub fn startup_said(text: &str) {
+    if WANTED.get() != Some(&Wanted::Print) {
+        return;
+    }
+    startup_line(text);
+}
+
 #[cfg(target_os = "macos")]
 pub static FIRST_COMMIT: AtomicBool = AtomicBool::new(false);
 /// The first bytes the child wrote, and the first frame committed after

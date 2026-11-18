@@ -1134,7 +1134,7 @@ impl Boot {
                 let files = crate::reload::files(&w.lookup, &w.themes, &w.faces);
                 (l, files)
             });
-        let notice = crate::live::Notice::of(&launched.said);
+        let mut notice_said = launched.said;
         let reload = match launched.config.config_reload {
             crate::config::ConfigReload::On => Some((launched.read, watch)),
             crate::config::ConfigReload::Off => None,
@@ -1168,6 +1168,13 @@ impl Boot {
         for s in said {
             crate::warn!("{s}");
         }
+        let transparency = display_settings(reduce_transparency, || false).transparency;
+        for s in glass_said(transparency, &cfg.glass, cfg.floor, &halves) {
+            crate::info!("{s}");
+            crate::host::startup_said(&s);
+            notice_said.push(s);
+        }
+        let notice = crate::live::Notice::of(&notice_said);
         startup_mark("themes");
         // The appearance the config pins, or dark's until the window can be
         // asked -- this renderer draws no frame; `run` sets the palette
@@ -4894,6 +4901,21 @@ fn accessible(mut theme: Theme, display: Display) -> Theme {
     }
     theme.floor = display.contrast.floor(theme.floor);
     theme
+}
+
+/// **What the window says of a raised glass** (`palette::glass_raised`),
+/// at launch and on a config read again: nothing while Reduce
+/// Transparency draws every background opaque anyway.
+fn glass_said(
+    transparency: Transparency,
+    glass: &crate::config::Glass,
+    floor: baud_render::Floor,
+    halves: &crate::palette::Halves,
+) -> Vec<String> {
+    match transparency {
+        Transparency::Reduced => Vec::new(),
+        Transparency::Full => crate::palette::glass_raised(glass, floor, halves),
+    }
 }
 
 /// The appearance whose theme is in force: the pinned one, or under `auto`
@@ -18484,7 +18506,7 @@ impl Driver {
     /// program set keep winning: the core is told the new defaults with its
     /// overrides kept. Returns what the theme files could not act on.
     fn reload_palette(&mut self, c: &crate::config::Config) -> Vec<String> {
-        let (mut halves, said) = crate::palette::load_halves(
+        let (mut halves, mut said) = crate::palette::load_halves(
             c.palette_light.as_deref(),
             c.palette_dark.as_deref(),
             &crate::palette::Dirs::from_env(c.source.as_deref()),
@@ -18495,6 +18517,12 @@ impl Driver {
         self.glass_cfg = c.glass;
         self.glass_live.set(c.glass);
         self.themes = Themes::of(&c.glass, c.theme, c.floor, &halves);
+        said.extend(glass_said(
+            self.display.transparency,
+            &c.glass,
+            c.floor,
+            &halves,
+        ));
         let appearance = match c.theme {
             crate::config::ThemeChoice::Dark => Appearance::Dark,
             crate::config::ThemeChoice::Light => Appearance::Light,
@@ -21368,6 +21396,64 @@ mod tests {
             Transparency::Reduced
         );
         assert_eq!(display_settings(|| false, || false), Display::default());
+    }
+
+    /// **A glass opacity too low for 4.5:1 text is raised, per half, and
+    /// said once**: `dim_dark = 0.22` draws the dark half at its reach,
+    /// 146 (`Theme::glass_reach`), with one sentence for it and none for
+    /// the light half at its default; a switch from light to dark with no
+    /// config read again draws the dark reach, since both halves are built
+    /// raised; Reduce Transparency draws it opaque and says nothing.
+    /// Perturbation: drop the raise in `palette::half_theme` -- the dark
+    /// half draws 56 and no sentence comes.
+    #[test]
+    fn a_low_glass_is_raised_per_half_and_said_once() {
+        use baud_domain::Chan;
+        use baud_render::Floor;
+        let glass = crate::config::Glass {
+            dim_dark: 0.22,
+            ..crate::config::Glass::defaults()
+        };
+        let halves = crate::palette::Halves::default();
+        let themes = Themes::of(
+            &glass,
+            crate::config::ThemeChoice::Auto,
+            Floor::DEFAULT,
+            &halves,
+        );
+        let reach = |mut t: Theme, dim: f32| {
+            t.bg_alpha = Chan::from_unit(dim);
+            t.glass_reach()
+        };
+        let dark = reach(Theme::dark(), glass.dim_dark);
+        assert_eq!(dark, Chan::from_u8(146), "the dark half's reach at 0.22");
+        let light = themes.get(Appearance::Light);
+        assert_eq!(
+            light.bg_alpha,
+            reach(Theme::light(), glass.dim_light),
+            "the light half"
+        );
+        assert_eq!(
+            light.bg_alpha,
+            Chan::from_unit(glass.dim_light),
+            "the light half at its default is drawn as configured"
+        );
+        assert_eq!(
+            themes.get(Appearance::Dark).bg_alpha,
+            dark,
+            "after the switch"
+        );
+        assert_eq!(
+            glass_said(Transparency::Full, &glass, Floor::DEFAULT, &halves),
+            ["[glass] dim_dark 0.22 is raised to 0.57, so text reads at 4.5:1"]
+        );
+        let reduced = Display {
+            transparency: Transparency::Reduced,
+            ..Display::default()
+        };
+        let opaque = accessible(themes.get(Appearance::Dark).clone(), reduced);
+        assert_eq!(opaque.bg_alpha, Chan::from_u8(0xFF));
+        assert!(glass_said(reduced.transparency, &glass, Floor::DEFAULT, &halves).is_empty());
     }
 
     /// **Increase Contrast makes the floor stricter**: a trigger of at

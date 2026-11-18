@@ -1181,16 +1181,19 @@ const RECORDINGS: [&str; 16] = [
 /// read at a time under the glass at the shipped dims, the dark theme at
 /// alpha 179 and the light at 153: at every read boundary, a glyph whose
 /// text is drawn otherwise than [`Floor::lift`] made it is either a
-/// box-drawing line, drawn as asked, or sits on a page the program set and
+/// box-drawing line, drawn as asked; or sits on the default page, drawn as
+/// [`Floor::at_target`] and [`Floor::lift_on_glass`] lift it against black
+/// to white at the theme's own alpha; or sits on a page the program set and
 /// reads at a trigger or above on that page and below it against the
 /// range the page can show over the glass -- 1.2, or
 /// [`Floor::GLASS_TRIGGER`] for a pair asked at 3 or above -- and now
 /// reads at the target against all of it, or at the glass trigger where
 /// no colour reaches the target, or is black or white where none reaches
-/// that. The glyphs so moved on each final screen are counted and
-/// pinned, and the lines the floor and the glass lift would have moved,
-/// over every read. The chafa previews are found as pictures and drawn
-/// solid, so nothing in them moves.
+/// that. The glyphs so moved on a page the program set on each final
+/// screen are counted and pinned, and the lines on those pages the floor
+/// and the glass lift would have moved, over every read. The chafa
+/// previews are found as pictures and drawn solid, so nothing in them
+/// moves.
 #[test]
 fn every_capture_moves_only_text_the_dim_made_unreadable() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../tests");
@@ -1221,6 +1224,7 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     let mut got = Vec::new();
+    let mut on_default = 0;
     for ((half, theme, alpha), (name, bytes)) in
         [("dark", glass(), DIM), ("light", light_glass(), LIGHT_DIM)]
             .into_iter()
@@ -1269,7 +1273,7 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
                         let (other, _) = drawn_as(slot, pictured, Line::No);
                         if rgb(slot.fg) != rgb(asked) {
                             lines += 1;
-                        } else if rgb(other) != rgb(asked) {
+                        } else if rgb(other) != rgb(asked) && !words(style).1.is_default() {
                             glass_lines += 1;
                         }
                         continue;
@@ -1277,9 +1281,20 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
                     if rgb(text) == rgb(slot.fg) {
                         continue;
                     }
-                    moved += 1;
                     let bg = slot.bg.with_alpha(Chan::from_u8(0xFF));
-                    assert!(!words(style).1.is_default(), "{name}: the default page");
+                    if words(style).1.is_default() {
+                        let a = Chan::from_u8(alpha);
+                        let lifted =
+                            theme
+                                .floor
+                                .at_target()
+                                .lift_on_glass(slot.fg, bg, a, Backdrop::any());
+                        assert_eq!(rgb(text), rgb(lifted), "{half} {name}: the default page");
+                        assert_eq!(slot.bg.a().get(), alpha, "{half} {name}: the page's alpha");
+                        on_default += 1;
+                        continue;
+                    }
+                    moved += 1;
                     let (asked, drawn) = (contrast(slot.fg, bg), behind(slot.fg, bg, alpha));
                     assert!(
                         (asked >= 1.2 && drawn < 1.2) || (asked >= 3.0 && drawn < 3.0),
@@ -1298,11 +1313,16 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
         }
         got.push((half, *name, moved, lines, glass_lines));
     }
-    // On the final screens, at the shipped dims: btop's graph greys,
-    // helix's and vimdiff's panels; under the light theme, light text on
-    // dark pages goes light. pipes draws on the default page and moves
-    // nothing. Over every read, the lines: herdr's dividers on the
-    // default page, which the floor lifted (2546 dark, 1211 light), and
+    assert!(
+        on_default > 0,
+        "the control: no text on the default page moved"
+    );
+    // On the final screens, at the shipped dims, on pages the program set:
+    // btop's graph greys, helix's and vimdiff's panels; under the light
+    // theme, light text on dark pages goes light. pipes draws on the
+    // default page, which this count leaves out. Over every read, the
+    // lines: herdr's dividers on the default page, which the floor lifted
+    // (2546 dark, 1211 light), and
     // the borders on pages the program set that the glass trigger would
     // lift: btop's 156194, helix's 123 and herdr's panels.
     // yazi-walk's 17 on dark came with the dark sixteen's corrections of
