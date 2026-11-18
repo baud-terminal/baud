@@ -1120,6 +1120,16 @@ enum Load {
 /// cannot hold the old image and the new one together deletes the old one
 /// when the new one is reserved, before any other image goes for space
 /// ([`KittyStream::reserve`]).
+///
+/// **A decode stepped after the transmission (`f=100`, `o=z`) carries the
+/// replacement to its own end** ([`KittyStream::step`]): the new image
+/// exists once its pixels are made, so a frame drawn between two steps
+/// draws the old image, and the step that completes the decode deletes
+/// the old image and its placements and shows the new one. A decode that
+/// fails, or whose image is cleared first, deletes the old image there, as
+/// a retransmission refused at its conclusion does. Nothing abandons a
+/// concluded transmission's decode: a later command finishes it first, and
+/// a chunk cancelled meanwhile cancels only itself.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Replaces {
     /// Nothing: no transmission in flight, or one with no id, a query, an
@@ -1195,6 +1205,8 @@ pub struct KittyStream {
     png: Option<PngSteps>,
     /// The command the deferred decode answers, and where to place it.
     owed: KittyCommand,
+    /// The image the deferred decode replaces when it ends.
+    owed_replaces: Replaces,
     next_id: u32,
     outbox: [u8; OUTBOX],
     out_len: usize,
@@ -1285,6 +1297,7 @@ impl KittyStream {
         deferred: Deferred::Idle,
         png: None,
         owed: KittyCommand::DEFAULT,
+        owed_replaces: Replaces::Nothing,
         next_id: 1,
         outbox: [0; OUTBOX],
         out_len: 0,
@@ -2277,17 +2290,30 @@ impl KittyStream {
     /// by the id, which an image freed before, by a failed decode, leaves
     /// naming no live image.
     fn replace(&mut self, store: &mut ImageStore) {
-        let Replaces::Id { screen, id, old } =
-            core::mem::replace(&mut self.replaces, Replaces::Nothing)
-        else {
+        let r = core::mem::replace(&mut self.replaces, Replaces::Nothing);
+        self.delete_replaced(r, ImageId::NONE, store);
+    }
+
+    /// **The image a stepped decode replaces goes** ([`Replaces`]), as
+    /// [`KittyStream::replace`] deletes it, `made` and its virtual
+    /// placements kept: the new image, when the decode completed it.
+    fn replace_owed(&mut self, made: ImageId, store: &mut ImageStore) {
+        let r = core::mem::replace(&mut self.owed_replaces, Replaces::Nothing);
+        self.delete_replaced(r, made, store);
+    }
+
+    /// Delete what `r` names, `kept` and its virtual placements excepted.
+    fn delete_replaced(&mut self, r: Replaces, kept: ImageId, store: &mut ImageStore) {
+        let Replaces::Id { screen, id, old } = r else {
             return;
         };
-        if matches!(store.owner(old), Some(ImageOwner::Kitty(on, i, _)) if on == screen && i == id)
+        if old != kept
+            && matches!(store.owner(old), Some(ImageOwner::Kitty(on, i, _)) if on == screen && i == id)
         {
             store.free(old);
         }
         self.drop_virtuals(store, KittyFree::Placements, |v| {
-            v.screen == screen && v.id == id
+            v.screen == screen && v.id == id && v.image != kept
         });
     }
 
@@ -2337,11 +2363,34 @@ impl KittyStream {
                 self.refuse_load(KittyError::INFLATE, store);
             }
         }
-        // The image this transmission replaces goes as the new one is made.
-        self.replace(store);
+        // The image this transmission replaces goes as the new one is made:
+        // here for an image made now, and at the end of a stepped decode
+        // ([`Replaces`]), or here after all when the decode never begins.
+        let stepped = matches!(
+            self.load,
+            Load::RawZ { .. } | Load::Png { .. } | Load::PngZ { .. }
+        ) && cmd.read == KittyFileRead::Unasked;
+        if !stepped {
+            self.replace(store);
+        }
         let load = self.load;
         self.load = Load::Idle;
         self.counts.commands += 1;
+        let moved = self.make(load, cmd, at, store, scratch);
+        self.replace(store);
+        moved
+    }
+
+    /// [`KittyStream::conclude`]'s image: refused, made whole, or handed to
+    /// a stepped decode.
+    fn make(
+        &mut self,
+        load: Load,
+        cmd: KittyCommand,
+        at: &KittyAt,
+        store: &mut ImageStore,
+        scratch: &mut [u8],
+    ) -> Option<KittyMove> {
         match load {
             Load::Idle => None,
             Load::Refused(e) => {
@@ -2578,6 +2627,8 @@ impl KittyStream {
                 None => None,
             };
         }
+        // The image this one replaces goes when the decode ends.
+        self.owed_replaces = core::mem::replace(&mut self.replaces, Replaces::Nothing);
         if cmd.act() != KittyAction::TransmitPut {
             return None;
         }
@@ -2637,8 +2688,10 @@ impl KittyStream {
     }
 
     /// **Advance the deferred decode** by about `budget` bytes of work; the
-    /// image shows, and its reply is owed, when it completes. A decode that
-    /// fails frees its image, placements and all, and replies with the error.
+    /// image shows, and its reply is owed, when it completes, and the image
+    /// it replaces goes in that step ([`Replaces`]). A decode that fails
+    /// frees its image, placements and all, and the image it replaces, and
+    /// replies with the error.
     pub fn step(
         &mut self,
         budget: DecodeBudget,
@@ -2657,6 +2710,7 @@ impl KittyStream {
                 // command is answered ENOENT, the image it named being gone.
                 self.deferred = Deferred::Idle;
                 self.png = None;
+                self.replace_owed(ImageId::NONE, store);
                 self.reply(&cmd, Err(KittyError::CLEARED));
             }
             Deferred::Png { image, len } => {
@@ -2700,6 +2754,8 @@ impl KittyStream {
                 match left {
                     0 => {
                         self.deferred = Deferred::Idle;
+                        // The old image goes in the step that shows the new.
+                        self.replace_owed(image, store);
                         store.complete(image, alpha);
                         // An RGB root frame keeps no alpha a later frame could
                         // give it, as kitty's three-byte frame keeps none.
@@ -2750,6 +2806,7 @@ impl KittyStream {
         self.deferred = Deferred::Idle;
         self.png = None;
         store.free_decoding(image);
+        self.replace_owed(ImageId::NONE, store);
         self.reply(cmd, Err(e));
     }
 

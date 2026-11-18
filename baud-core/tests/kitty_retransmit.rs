@@ -15,7 +15,9 @@
 //! drawn, and one cancelled before it ends keeps the old image and drops
 //! the new one. When the arena cannot hold the old image and the
 //! new one together, the old one is deleted when the new one is reserved,
-//! and no other image goes for it.
+//! and no other image goes for it. A PNG or `o=z` image decoded in steps
+//! after its transmission replaces the old image in the step that
+//! completes it, and one that fails deletes the old image there.
 use baud_core::*;
 use baud_domain::{
     ControlStringEnd, DecodeBudget, DecodeProgress, ImageBudget, ImageOwner, ImagePx,
@@ -381,5 +383,255 @@ fn a_retransmission_cancelled_before_it_ends_keeps_the_old_image() {
         feed(t, &apc("a=p,i=7,p=3,C=1", b""), &mut r);
         assert_eq!(String::from_utf8_lossy(&r), "\x1b_Gi=7,p=3;OK\x1b\\");
         assert_eq!(drawn(t).placed, vec![vec![RED; 2]; 3]);
+    });
+}
+
+/// One read, a deferred decode left pending as the read leaves it, the
+/// replies kept.
+fn feed_held(t: &mut Term<'_>, bytes: &[u8], replies: &mut Vec<u8>) {
+    t.write_at(BytePos::ZERO, bytes);
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    replies.extend_from_slice(t.reply());
+    t.clear_reply();
+}
+
+/// What a frame shows after the read, then after each step of `budget`
+/// the deferred decode takes, as the app steps it a turn at a time; the
+/// last after the step that completes it.
+fn stepped(t: &mut Term<'_>, budget: DecodeBudget, replies: &mut Vec<u8>) -> Vec<Drawn> {
+    let mut frames = vec![drawn(t)];
+    while t.decode_step(budget) == DecodeProgress::More {
+        frames.push(drawn(t));
+    }
+    frames.push(drawn(t));
+    replies.extend_from_slice(t.reply());
+    t.clear_reply();
+    frames
+}
+
+/// A `width` x `height` RGB PNG of scattered bytes: data that deflate
+/// barely shrinks, so a small decode budget takes many steps to inflate
+/// it and many more to make its scanlines.
+fn scattered(width: ImagePx, height: ImagePx) -> Vec<u8> {
+    let rgb: Vec<u8> = (0..width.index() * height.index() * 3)
+        .map(|i| u8::try_from((i * i * 2_654_435_761 + i * 40_503) >> 16 & 255).unwrap_or(0))
+        .collect();
+    let side = |p: ImagePx| u32::try_from(p.index()).unwrap_or(0);
+    let mut out = Vec::new();
+    let mut e = png::Encoder::new(&mut out, side(width), side(height));
+    e.set_color(png::ColorType::Rgb);
+    e.set_depth(png::BitDepth::Eight);
+    e.write_header()
+        .and_then(|mut w| w.write_image_data(&rgb))
+        .expect("a PNG");
+    out
+}
+
+/// A PNG's chunks after its signature, each whole: length, type, data
+/// and CRC.
+fn png_chunks(png: &[u8]) -> Vec<&[u8]> {
+    let mut rest = &png[8..];
+    let mut out = Vec::new();
+    while rest.len() >= 12 {
+        let len = rest[..4].iter().fold(0, |n, &b| n << 8 | usize::from(b));
+        let (chunk, tail) = rest.split_at(12 + len);
+        out.push(chunk);
+        rest = tail;
+    }
+    out
+}
+
+/// **A PNG whose header outruns its data**: a 64x32 [`scattered`]'s
+/// scanlines under a 64x64 `IHDR`, every chunk's CRC intact, so it parses
+/// at its terminator and fails only when its decode runs out of data.
+fn short_png() -> Vec<u8> {
+    let tall = scattered(ImagePx::of(64), ImagePx::of(64));
+    let short = scattered(ImagePx::of(64), ImagePx::of(32));
+    let mut out = tall[..8].to_vec();
+    out.extend_from_slice(png_chunks(&tall)[0]);
+    for c in png_chunks(&short).into_iter().skip(1) {
+        out.extend_from_slice(c);
+    }
+    out
+}
+
+/// The decode budget these tests step by: many steps for a [`scattered`] PNG.
+fn turn() -> DecodeBudget {
+    DecodeBudget::of(512)
+}
+
+/// **A PNG retransmission whose decode is stepped draws the old image in
+/// every frame until the decode completes**, its two placements and its
+/// virtual one, and the step that completes it deletes them and draws the
+/// new image, as the same retransmission decoded whole does: the
+/// transmission's data is received at its terminator, and the new image
+/// it replaces the old one with exists once its pixels are made.
+#[test]
+fn a_png_retransmission_draws_the_old_image_until_its_stepped_decode_completes() {
+    let s = apc(
+        "a=T,f=100,i=7,C=1",
+        &b64(&scattered(ImagePx::of(64), ImagePx::of(32))),
+    );
+    let whole = with(ROOMY, |t| {
+        let mut r = Vec::new();
+        feed(t, &old_image(), &mut r);
+        feed(t, &s, &mut r);
+        (drawn(t), r)
+    });
+    assert_eq!(whole.0.placed.len(), 1, "the premise: the new image drawn");
+    assert_eq!(whole.0.virtual7, None);
+    for keys in ["a=T,f=100,i=7,C=1", "a=t,f=100,i=7"] {
+        let s = apc(keys, &b64(&scattered(ImagePx::of(64), ImagePx::of(32))));
+        with(ROOMY, |t| {
+            let mut r = Vec::new();
+            feed(t, &old_image(), &mut r);
+            feed_held(t, &s, &mut r);
+            let frames = stepped(t, turn(), &mut r);
+            let (last, before) = frames.split_last().expect("a frame");
+            assert!(before.len() > 3, "the premise: stepped over turns");
+            for (n, f) in before.iter().enumerate() {
+                assert_eq!(f, &old_drawn(), "{keys}: frame {n}, decoding");
+            }
+            let after = match keys.starts_with("a=T") {
+                true => &whole.0,
+                false => &Drawn {
+                    placed: vec![],
+                    virtual7: None,
+                },
+            };
+            assert_eq!(last, after, "{keys}: once decoded");
+            assert_eq!(t.images().placements().count(), after.placed.len());
+            if keys.starts_with("a=T") {
+                assert_eq!(r, whole.1, "the reply, once decoded");
+            }
+        });
+    }
+}
+
+/// **A retransmission whose stepped decode fails deletes the old image
+/// when it fails**: the old image draws in every frame while the data
+/// decodes, and when the data runs out the old image and every placement
+/// of it go, with no new image in their place. "When re-transmitting
+/// image data for a specific id, the existing image and all its
+/// placements must be deleted" sets no condition on the new data
+/// decoding, so the end state is a retransmission's refused at its
+/// terminator.
+#[test]
+fn a_retransmission_whose_stepped_decode_fails_deletes_the_old_image() {
+    let s = apc("a=T,f=100,i=7,C=1", &b64(&short_png()));
+    with(ROOMY, |t| {
+        let mut r = Vec::new();
+        feed(t, &old_image(), &mut r);
+        feed_held(t, &s, &mut r);
+        let frames = stepped(t, turn(), &mut r);
+        let (last, before) = frames.split_last().expect("a frame");
+        assert!(before.len() > 3, "the premise: failed after several turns");
+        for (n, f) in before.iter().enumerate() {
+            assert_eq!(f, &old_drawn(), "frame {n}, decoding");
+        }
+        assert_eq!(
+            last,
+            &Drawn {
+                placed: vec![],
+                virtual7: None,
+            },
+            "once failed"
+        );
+        assert!(
+            String::from_utf8_lossy(&r).starts_with("\x1b_Gi=7;EBADPNG"),
+            "{}",
+            String::from_utf8_lossy(&r)
+        );
+        assert_eq!(t.images().kitty_image(KittyId::of(7)), None);
+        assert_eq!(t.images().placements().count(), 0);
+    });
+}
+
+/// **A cancel keeps the old image**: a PNG retransmission cancelled in its
+/// upload by a bare `ESC` never decodes and the old image draws on; and an
+/// `APC G` cancelled while a retransmission's decode is stepped abandons
+/// only itself, so the old image draws until that decode completes, and
+/// then the new one.
+#[test]
+fn a_cancel_keeps_the_old_image_of_a_stepped_retransmission() {
+    let coded = b64(&scattered(ImagePx::of(64), ImagePx::of(32)));
+    let mut upload = b"\x1b_Ga=T,f=100,i=7,C=1,q=2,m=1;".to_vec();
+    upload.extend_from_slice(&coded[..64]);
+    upload.extend_from_slice(b"\x1b\\\x1b_Gm=0;");
+    upload.extend_from_slice(&coded[64..]);
+    upload.extend_from_slice(b"\x1b[5;7H\x1b\\");
+    with(ROOMY, |t| {
+        let mut r = Vec::new();
+        feed(t, &old_image(), &mut r);
+        feed_held(t, &upload, &mut r);
+        assert_eq!(t.kitty().cancelled, 1, "the premise: cancelled");
+        let frames = stepped(t, turn(), &mut r);
+        assert!(frames.iter().all(|f| f == &old_drawn()), "{frames:?}");
+    });
+
+    let s = apc("a=T,f=100,i=7,C=1,q=2", &coded);
+    let cut = b"\x1b_Ga=d,d=I,i=7\x1b[5;7H";
+    with(ROOMY, |t| {
+        let mut r = Vec::new();
+        feed(t, &old_image(), &mut r);
+        feed_held(t, &s, &mut r);
+        assert_eq!(t.decode_step(turn()), DecodeProgress::More);
+        feed_held(t, cut, &mut r);
+        assert_eq!(t.kitty().cancelled, 1, "the premise: cancelled");
+        let frames = stepped(t, turn(), &mut r);
+        let (last, before) = frames.split_last().expect("a frame");
+        assert!(before.len() > 2, "the premise: still decoding");
+        for (n, f) in before.iter().enumerate() {
+            assert_eq!(f, &old_drawn(), "frame {n}, decoding");
+        }
+        assert_eq!(last.placed.len(), 1, "the new image");
+        assert_eq!(last.virtual7, None);
+        assert_ne!(last, &old_drawn());
+    });
+}
+
+/// **A stepped PNG retransmission is reserved at its terminator, its
+/// header read there, and an arena that cannot hold the old image beside
+/// it deletes the old one at that reserve**, as at a raw image's control
+/// data, and no other image for it: the frames while it decodes draw
+/// neither, and then the new one. Id 9, 2x1 and unplaced, then id 7, 2x1
+/// and placed, fill four pixels of a 2,051-pixel arena; the 64x32
+/// retransmission of id 7 fits only once the old id 7 is gone.
+#[test]
+fn a_stepped_retransmission_too_large_for_both_deletes_the_old_image_at_its_reserve() {
+    let mut prior = apc("a=t,f=24,s=2,v=1,i=9,q=2", &pixels(&[[0, 255, 0]; 2]));
+    prior.extend(apc(
+        "a=T,f=24,s=2,v=1,i=7,C=1,q=2",
+        &pixels(&[[255, 0, 0]; 2]),
+    ));
+    let s = apc(
+        "a=T,f=100,i=7,C=1,q=2",
+        &b64(&scattered(ImagePx::of(64), ImagePx::of(32))),
+    );
+    with(ImageBudget::of(2051), |t| {
+        let mut r = Vec::new();
+        feed(t, &prior, &mut r);
+        assert_eq!(
+            drawn(t).placed,
+            vec![vec![RED; 2]],
+            "the premise: the old image drawn"
+        );
+        feed_held(t, &s, &mut r);
+        let frames = stepped(t, turn(), &mut r);
+        let (last, before) = frames.split_last().expect("a frame");
+        assert!(before.len() > 3, "the premise: stepped over turns");
+        for (n, f) in before.iter().enumerate() {
+            assert!(f.placed.is_empty(), "frame {n}: neither, {f:?}");
+        }
+        assert_eq!(last.placed.len(), 1, "the new image");
+        assert_ne!(last.placed, vec![vec![RED; 2]]);
+        let green = t.images().kitty_image(KittyId::of(9)).expect("id 9 kept");
+        assert_eq!(
+            t.images()
+                .image(green)
+                .map(|v| v.pixels.iter().map(|p| p.bits()).collect::<Vec<_>>()),
+            Some(vec![GREEN; 2])
+        );
+        assert_eq!(t.images().images_evicted, 0, "nothing deleted for space");
     });
 }
