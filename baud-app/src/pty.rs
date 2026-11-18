@@ -683,7 +683,7 @@ pub enum Stream {
 #[cfg(target_os = "macos")]
 pub struct Read {
     pub at: HostTime,
-    pub bytes: Vec<u8>,
+    pub bytes: Lent,
     /// The foreground process group just after the read and at the read
     /// before it, and what the process watch saw between, when the reader
     /// asked (`probe::Sampler::writers`): which program wrote these bytes,
@@ -702,7 +702,78 @@ pub struct Drained {
     pub stream: Stream,
 }
 
+#[cfg(all(target_os = "macos", test))]
+impl Drained {
+    /// Every chunk's buffer back to the reader, the chunks kept for what
+    /// is read of them after the feed (each one's stamp and how many there
+    /// were); their bytes read as empty from here on.
+    pub fn release(&mut self) {
+        for chunk in &mut self.chunks {
+            chunk.bytes.release();
+        }
+    }
+}
+
+/// **A read's bytes, in one of the buffers the reader lends**: made as a
+/// flood needs them, up to [`LENT`], and kept. Released or dropped, the
+/// buffer goes back to the reader, emptied, for a later read, so once the
+/// pool has grown to what the stream needs no read allocates. The bytes
+/// are read through `Deref`; a released chunk reads as empty.
+#[cfg(target_os = "macos")]
+pub struct Lent {
+    buf: Vec<u8>,
+    home: std::sync::mpsc::SyncSender<Vec<u8>>,
+}
+
+#[cfg(target_os = "macos")]
+impl core::ops::Deref for Lent {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        &self.buf
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Lent {
+    /// The buffer back to the reader now, while the chunk is still held:
+    /// once its bytes are fed, the reader may read into it again.
+    pub fn release(&mut self) {
+        let buf = core::mem::take(&mut self.buf);
+        // A released chunk holds an empty `Vec` with no room, which is not
+        // a buffer: only a real one goes back. The reader made at most
+        // `LENT` and the channel holds as many, so the send finds room; a
+        // reader that has ended takes none, and the buffer is freed here.
+        if buf.capacity() > 0 {
+            let _ = self.home.try_send(buf);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for Lent {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// **What one of the macOS reader's buffers holds**: what Darwin's tty
+/// hands back at most a read, `TTYCLSIZE` (`baud_render::lights::DARWIN_CEILING`),
+/// so a buffer is as long as a read and the cap below counts bytes.
+#[cfg(target_os = "macos")]
+const LENT_CHUNK: usize = baud_render::lights::DARWIN_CEILING;
+
+/// **The most buffers the macOS reader lends**: 4 MiB of [`LENT_CHUNK`]s,
+/// many frames of what the tty delivers at its measured ceiling, so the
+/// cap holds back only a window that has stopped feeding. Below it the
+/// reader takes a returned buffer when one is free and makes one when none
+/// is; at it, the reader waits for one back before it reads again, so the
+/// master's bytes stay in the kernel and the child writing them is held
+/// back by the tty, as on Linux, instead of filling memory.
+#[cfg(target_os = "macos")]
+const LENT: usize = (4 << 20) / LENT_CHUNK;
+
 /// What `read(2)` delivers at most per call, the tty's own quantum.
+#[cfg(any(target_os = "linux", test))]
 const READ_CHUNK: usize = 4096;
 
 /// **What one turn of the loop drains from the master before it feeds the
@@ -3072,7 +3143,20 @@ fn reader(
     wake: impl Fn(),
 ) {
     let fd = held.fd();
-    let mut buf = vec![0u8; READ_CHUNK];
+    // The buffers this reader lends, each `LENT_CHUNK` long: a returned one
+    // when one is free, a new one while fewer than `LENT` are made, and at
+    // the cap a wait for one back.
+    let (home, lent) = std::sync::mpsc::sync_channel::<Vec<u8>>(LENT);
+    let mut made = 0;
+    let mut take = || match lent.try_recv() {
+        Ok(buf) => Some(buf),
+        Err(_) if made < LENT => {
+            made += 1;
+            Some(vec![0u8; LENT_CHUNK])
+        }
+        Err(_) => lent.recv().ok(),
+    };
+    let Some(mut buf) = take() else { return };
     let mut sampler = crate::probe::Sampler::for_shell(token);
     // Debug tee: with BAUD_PTYLOG set, every byte the child writes is appended
     // to that file, so a scrambled Sixel can be captured as the exact input
@@ -3085,8 +3169,11 @@ fn reader(
             .ok()
     });
     loop {
-        let bytes = match read_master(fd, &mut buf) {
-            Got::Bytes(b) => b,
+        // A buffer comes back emptied: it is made a chunk long again, in
+        // the room it kept.
+        buf.resize(LENT_CHUNK, 0);
+        let n = match read_master(fd, &mut buf) {
+            Got::Bytes(b) => b.len(),
             // **The wait is here, in `poll`, not in the read.** The master is
             // non-blocking for the main thread's writes, and the flag is the
             // open file's, so this read returns at once with nothing. Read as
@@ -3124,6 +3211,8 @@ fn reader(
                 return;
             }
         };
+        buf.truncate(n);
+        let bytes = &buf[..];
         // Stamped before anything else happens to the bytes: this is the
         // moment the child's answer reached the process.
         let at = host_now();
@@ -3133,10 +3222,14 @@ fn reader(
             use std::io::Write;
             let _ = f.write_all(bytes);
         }
+        let bytes = Lent {
+            buf,
+            home: home.clone(),
+        };
         if tx
             .send(Read {
                 at,
-                bytes: bytes.to_vec(),
+                bytes,
                 writers,
                 linked,
             })
@@ -3149,6 +3242,10 @@ fn reader(
         if !signalled.swap(true, Ordering::AcqRel) {
             wake();
         }
+        // At the cap the next read waits for a buffer the window has
+        // released: nothing more is read until it feeds.
+        let Some(next) = take() else { return };
+        buf = next;
     }
 }
 
@@ -5295,6 +5392,79 @@ mod tests {
         for d in [real, link.parent().expect("its directory").into()] {
             let _ = std::fs::remove_dir_all(d);
         }
+    }
+
+    /// **The macOS reader lends its buffers, reads into a released one, and
+    /// stops at the cap**: a writer sends far more than the cap holds, and
+    /// the window holds every chunk it is given. Exactly `LENT` arrive, each
+    /// in its own buffer, and while they are held no more comes, the writer
+    /// still blocked. Released while still held, as the pump releases a
+    /// drain once fed, they let the reader go on, and the next reads come in
+    /// buffers of the same set: once grown, a read allocates nothing, and a
+    /// pump slow to finish does not hold the reader back. Perturbation: a
+    /// buffer made each read past the cap, or a release that gives nothing
+    /// back, and a read comes past the `LENT`th or none after the release.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_macos_reader_reuses_released_buffers_and_stops_at_its_cap() {
+        use std::io::Write;
+        use std::os::fd::AsRawFd;
+        let (mut w, r) = std::os::unix::net::UnixStream::pair().expect("a socket pair");
+        make_nonblocking(r.as_raw_fd());
+        let (tx, rx) = channel();
+        let (reading, _closing) = Reading::of(r.as_raw_fd());
+        std::thread::spawn(move || {
+            reader(
+                reading,
+                tx,
+                Arc::new(AtomicBool::new(false)),
+                &crate::probe::WatchCell::default(),
+                None,
+                || {},
+            );
+        });
+        // Twice what the cap holds, written by a thread that waits while
+        // the socket is full and says when it is done.
+        let (done, finished) = channel();
+        std::thread::spawn(move || {
+            let _ = w.write_all(&vec![b'x'; 2 * LENT * LENT_CHUNK]);
+            let _ = done.send(());
+        });
+        let bound = std::time::Duration::from_secs(60);
+        let mut chunks = Vec::new();
+        while chunks.len() < LENT {
+            chunks.push(rx.recv_timeout(bound).expect("a read"));
+        }
+        let mut lent: Vec<*const u8> = chunks.iter().map(|c| c.bytes.as_ptr()).collect();
+        lent.sort_unstable();
+        lent.dedup();
+        assert_eq!(lent.len(), LENT, "LENT buffers, each its own");
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_millis(200))
+                .is_err(),
+            "no read while every buffer is out"
+        );
+        assert!(
+            finished.try_recv().is_err(),
+            "the rest stays with the writer"
+        );
+        let mut drained = Drained {
+            chunks,
+            stream: Stream::Open,
+        };
+        drained.release();
+        assert!(
+            drained.chunks.iter().all(|c| c.bytes.is_empty()),
+            "a released chunk reads as empty"
+        );
+        for _ in 0..LENT {
+            let next = rx.recv_timeout(bound).expect("a read once released");
+            assert!(
+                lent.binary_search(&next.bytes.as_ptr()).is_ok(),
+                "a read past the cap comes in a buffer of the same set"
+            );
+        }
+        drop(drained);
     }
 
     /// **A window's close hangs up its shell**, as baud's exit does: the
