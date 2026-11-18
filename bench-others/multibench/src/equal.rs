@@ -986,6 +986,46 @@ mod tests {
         assert_eq!(c.pixels_unread, 0, "{report}");
     }
 
+    /// Three one-cell pictures placed at rows 1, 11 and 21 of the 50-row
+    /// screen, then, in the second stream, the screen scrolled up by 15
+    /// lines from its bottom row.
+    #[cfg(have_ghostty)]
+    fn three_placed(scrolled: bool) -> super::Compared {
+        let mut p = Vec::new();
+        for (row, id) in [(1, 7), (11, 8), (21, 9)] {
+            p.extend_from_slice(format!("\x1b[{row};2H").as_bytes());
+            p.extend_from_slice(
+                format!("\x1b_Ga=T,f=32,s=1,v=1,i={id},c=1,r=1,q=2;AAAA/w==\x1b\\").as_bytes(),
+            );
+        }
+        if scrolled {
+            p.extend_from_slice(b"\x1b[50;1H");
+            p.extend_from_slice(&[b'\n'; 15]);
+        }
+        super::check(&p, p.len()).expect("libghostty-vt is linked")
+    }
+
+    /// **The placement counter reads a known count on both arms**, its
+    /// positive control: three pictures placed read as three on each arm,
+    /// at rows 0, 10 and 20; scrolled up by 15 lines, a picture moves with
+    /// its text, so the two that leave the top are off the screen and the
+    /// third reads at row 5, on each arm.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn three_placements_read_three_and_scroll_with_the_text_on_both_arms() {
+        let c = three_placed(false);
+        let report = c.report("three placed").join("\n");
+        let rows = |i: usize| c.placed[i].iter().map(|p| p.row).collect::<Vec<_>>();
+        assert_eq!(rows(0), [0, 10, 20], "baud-core\n{report}");
+        assert_eq!(rows(1), [0, 10, 20], "ghostty\n{report}");
+        assert!(!c.placements_differ(), "{report}");
+        let c = three_placed(true);
+        let report = c.report("three placed, scrolled").join("\n");
+        let rows = |i: usize| c.placed[i].iter().map(|p| p.row).collect::<Vec<_>>();
+        assert_eq!(rows(0), [5], "baud-core\n{report}");
+        assert_eq!(rows(1), [5], "ghostty\n{report}");
+    }
+
     /// With storage on, both arms count the one image the recording
     /// stores, its pixels and its one frame, and the recording is rated.
     /// With ghostty's storage off its count falls to none while
