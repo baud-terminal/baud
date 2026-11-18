@@ -33,6 +33,15 @@ pub const LIFE: f32 = 0.32;
 /// and the region is half a cell wide either side.
 pub const REACH: f32 = 2.2;
 
+/// The lightning effect's rules as [`Effect::rules`](effect::Effect::rules) reads
+/// them.
+pub const RULES: effect::Rules = effect::Rules {
+    fragment: "lightning_fragment",
+    reach: REACH,
+    life: LIFE,
+    end,
+};
+
 /// Seconds for the leader to cross the path, tail to head; the moment the
 /// corona and the sparks start.
 pub const T_LEAD: f32 = 0.040;

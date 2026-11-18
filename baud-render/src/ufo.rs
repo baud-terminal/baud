@@ -63,6 +63,15 @@ pub fn depart(len: f32, c: f32) -> f32 {
 /// the shapes already hold everything it draws.
 pub const REACH: f32 = 0.1;
 
+/// The ufo effect's rules as [`Effect::rules`](effect::Effect::rules) reads
+/// them.
+pub const RULES: effect::Rules = effect::Rules {
+    fragment: "ufo_fragment",
+    reach: REACH,
+    life: LIFE,
+    end,
+};
+
 /// Where the rim lights sit round the rim, as cosines and sines of fifths of
 /// a turn -- the same literals as the shader's `UFO_LIGHTS`.
 const LIGHTS: [(f32, f32); 5] = [

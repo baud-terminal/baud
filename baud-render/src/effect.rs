@@ -89,61 +89,56 @@ impl Effect {
     /// How many effects there are: a GPU path keeps one pipeline each.
     pub const COUNT: usize = Effect::ALL.len();
 
+    /// This effect's [`Rules`], held in its own module.
+    pub const fn rules(self) -> Rules {
+        match self {
+            Effect::Fire => fire::RULES,
+            Effect::Plasma => plasma::RULES,
+            Effect::Lightning => lightning::RULES,
+            Effect::Ice => ice::RULES,
+            Effect::Ufo => ufo::RULES,
+            Effect::Orb => orb::RULES,
+            Effect::Liquid => liquid::RULES,
+        }
+    }
+
     /// The fragment function a GPU path draws this effect's records with.
     pub const fn fragment(self) -> &'static str {
-        match self {
-            Effect::Fire => "fire_fragment",
-            Effect::Plasma => "plasma_fragment",
-            Effect::Lightning => "lightning_fragment",
-            Effect::Ice => "ice_fragment",
-            Effect::Ufo => "ufo_fragment",
-            Effect::Orb => "orb_fragment",
-            Effect::Liquid => "liquid_fragment",
-        }
+        self.rules().fragment
     }
 
     /// Cells from the emitter past which the effect draws nothing: its
     /// fragment function rejects a pixel this far out, and the bands cover
     /// exactly this reach.
     pub const fn reach(self) -> f32 {
-        match self {
-            Effect::Fire => fire::REACH,
-            Effect::Plasma => plasma::REACH,
-            Effect::Lightning => lightning::REACH,
-            Effect::Ice => ice::REACH,
-            Effect::Ufo => ufo::REACH,
-            Effect::Orb => orb::REACH,
-            Effect::Liquid => liquid::REACH,
-        }
+        self.rules().reach
     }
 
     /// Seconds the effect's body lasts from ignition; its particles may
     /// outlive it ([`Effect::end`]).
     pub const fn life(self) -> f32 {
-        match self {
-            Effect::Fire => fire::LIFE,
-            Effect::Plasma => plasma::LIFE,
-            Effect::Lightning => lightning::LIFE,
-            Effect::Ice => ice::LIFE,
-            Effect::Ufo => ufo::LIFE,
-            Effect::Orb => orb::LIFE,
-            Effect::Liquid => liquid::LIFE,
-        }
+        self.rules().life
     }
 
     /// **Seconds from ignition to when the effect is out**: its life, or its
     /// last particle's death if that is later.
     pub fn end(self, ignition: &Ignition) -> f32 {
-        match self {
-            Effect::Fire => fire::end(ignition),
-            Effect::Plasma => plasma::end(ignition),
-            Effect::Lightning => lightning::end(ignition),
-            Effect::Ice => ice::end(ignition),
-            Effect::Ufo => ufo::end(ignition),
-            Effect::Orb => orb::end(ignition),
-            Effect::Liquid => liquid::end(ignition),
-        }
+        (self.rules().end)(ignition)
     }
+}
+
+/// **An effect's rules where every effect is read alike**: each effect's
+/// module holds its own as `RULES`, and [`Effect::rules`] reads them.
+#[derive(Clone, Copy)]
+pub struct Rules {
+    /// The fragment function a GPU path draws the effect's records with.
+    pub fragment: &'static str,
+    /// Cells from the emitter past which the effect draws nothing.
+    pub reach: f32,
+    /// Seconds the effect's body lasts from ignition.
+    pub life: f32,
+    /// Seconds from an ignition to when the effect is out.
+    pub end: fn(&Ignition) -> f32,
 }
 
 /// An ignition's seed: every hash the effect and its particles draw from.

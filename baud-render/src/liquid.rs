@@ -83,6 +83,15 @@ pub const REACH: f32 = TUBE + UNION + 0.15;
 /// and the fade.
 pub const LIFE: f32 = 0.60;
 
+/// The liquid effect's rules as [`Effect::rules`](effect::Effect::rules) reads
+/// them.
+pub const RULES: effect::Rules = effect::Rules {
+    fragment: "liquid_fragment",
+    reach: REACH,
+    life: LIFE,
+    end,
+};
+
 /// **Seconds the gel takes to appear, and to fade before it is out**, its
 /// envelope's two smoothsteps -- `liquid_state` in the shader spells the
 /// same two numbers.

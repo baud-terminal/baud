@@ -28,6 +28,15 @@ pub const HEIGHT: f32 = 1.6;
 /// and the records cover exactly this reach.
 pub const REACH: f32 = HEIGHT + 0.4;
 
+/// The fire effect's rules as [`Effect::rules`](effect::Effect::rules) reads
+/// them.
+pub const RULES: effect::Rules = effect::Rules {
+    fragment: "fire_fragment",
+    reach: REACH,
+    life: LIFE,
+    end,
+};
+
 /// Cells a second the flame's pattern climbs.
 pub const RISE: f32 = 2.2;
 

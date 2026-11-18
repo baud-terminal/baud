@@ -40,6 +40,15 @@ pub const LIFE: f32 = 0.55;
 /// a step of 255, so the fragment function rejects a pixel this far out.
 pub const REACH: f32 = 1.0;
 
+/// The plasma effect's rules as [`Effect::rules`](effect::Effect::rules) reads
+/// them.
+pub const RULES: effect::Rules = effect::Rules {
+    fragment: "plasma_fragment",
+    reach: REACH,
+    life: LIFE,
+    end,
+};
+
 /// Opacity the tube adds inside the quad, over the sheath.
 pub const TUBE: f32 = 0.08;
 

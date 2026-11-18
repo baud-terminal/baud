@@ -58,6 +58,15 @@ pub const REACH: f32 = RADIUS + 0.85;
 /// The longest the orb lasts: the slowest flight and its fade.
 pub const LIFE: f32 = 0.25 + LINGER + FADE;
 
+/// The orb effect's rules as [`Effect::rules`](effect::Effect::rules) reads
+/// them.
+pub const RULES: effect::Rules = effect::Rules {
+    fragment: "orb_fragment",
+    reach: REACH,
+    life: LIFE,
+    end,
+};
+
 /// Sparks it bursts into, their drag and their salt.
 const SPARKS: u32 = 12;
 const DRAG: f32 = 8.0;

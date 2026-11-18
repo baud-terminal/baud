@@ -36,6 +36,15 @@ pub const LIFE: f32 = HOLD + SPREAD + MELT + 0.03;
 /// line 0.054 more -- 1.105, and a little over.
 pub const REACH: f32 = 1.15;
 
+/// The ice effect's rules as [`Effect::rules`](effect::Effect::rules) reads
+/// them.
+pub const RULES: effect::Rules = effect::Rules {
+    fragment: "ice_fragment",
+    reach: REACH,
+    life: LIFE,
+    end,
+};
+
 /// The crystals' pitch along the path, the longest arm, the line's half
 /// width, and the spacing of side branches along an arm, in cells.
 pub const SPACING: f32 = 0.70;
