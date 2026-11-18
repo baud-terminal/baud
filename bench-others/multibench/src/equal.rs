@@ -536,6 +536,11 @@ mod baud {
                 let (w, h) = store.size_of(id)?;
                 let image = Held {
                     id: kitty.raw(),
+                    unnamed: if kitty.is_none() {
+                        store.born(id)
+                    } else {
+                        None
+                    },
                     width: w.index(),
                     height: h.index(),
                 };
@@ -806,6 +811,7 @@ mod ghostty {
                     assert!(read, "reading a ghostty image's size failed");
                     Some(Held {
                         id,
+                        unnamed: None,
                         width: w as usize,
                         height: h as usize,
                     })
@@ -882,11 +888,7 @@ mod ghostty {
 /// no rate and the run says so, with the reason, instead of failing; one
 /// listed here whose screens and counts agree fails the run, so the list
 /// cannot outlive its reason.
-pub(crate) const UNEQUAL: [(&str, &str); 1] = [(
-    "mpv-logo-40x6.raw",
-    "images stored differ: the screens agree, and of mpv's uploads, each \
-     52,992 bytes, baud-core stores 48 and refuses 96 where ghostty stores 528",
-)];
+pub(crate) const UNEQUAL: [(&str, &str); 0] = [];
 
 /// The reason `label` is listed in [`UNEQUAL`], if it is.
 pub(crate) fn known_unequal(label: &str) -> Option<&'static str> {
@@ -1088,6 +1090,54 @@ mod tests {
             ..c
         };
         assert!(both.rated());
+    }
+
+    /// Images sent with no client id each count: baud-core gives all of
+    /// them the client id 0, and three of one size placed one after
+    /// another are three held and three stored, not one.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn images_with_no_client_id_count_one_each() {
+        let ws = crate::cores::baud_ws();
+        let mut owned = crate::cores::baud_owned(&ws);
+        let mut t = crate::cores::baud_new(&mut owned, &ws);
+        let mut tally = crate::counts::Tally::default();
+        for _ in 0..3 {
+            crate::cores::baud_feed(&mut t, b"\x1b_Ga=T,f=24,s=2,v=2;////////////////\x1b\\");
+            tally.observe(
+                super::baud::held(&t, &[])
+                    .into_iter()
+                    .map(|(h, _)| h)
+                    .collect(),
+            );
+        }
+        let held = super::baud::held(&t, &[]);
+        assert_eq!(held.len(), 3, "{held:?}");
+        assert!(
+            held.iter().all(|(h, _)| h.id == 0),
+            "sent with no id: {held:?}"
+        );
+        let c = tally.counts(None, None, None);
+        assert_eq!(c.stored, Some(3));
+        assert_eq!(c.held, Some(3));
+    }
+
+    /// mpv sends its frames with no client id: one pass of its recording
+    /// stores as many images on baud-core as on ghostty, and as many pixel
+    /// bytes.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn mpv_s_frames_with_no_client_id_are_counted_alike_on_both_arms() {
+        let _hook = HOOK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::ffi::ghostty::set_png_decoder(crate::ffi::ghostty::PngDecoder::Registered);
+        let p = recording("kitty/mpv-logo-40x6.raw");
+        let c = super::check(&p, p.len()).expect("libghostty-vt is linked");
+        let report = c.report("mpv-logo-40x6.raw").join("\n");
+        let [ours, theirs] = c.counts;
+        assert!(c.equal(), "{report}");
+        assert!(ours.stored.is_some_and(|n| n > 1), "{report}");
+        assert_eq!(ours.stored, theirs.stored, "{report}");
+        assert_eq!(ours.stored_bytes, theirs.stored_bytes, "{report}");
     }
 
     /// Without the library there is no second arm: the check compares

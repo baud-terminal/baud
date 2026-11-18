@@ -29,10 +29,17 @@
 const PIXEL_BYTES: usize = 4;
 
 /// One image an arm holds: its client id, as that arm numbers it, and its
-/// size in pixels.
+/// size in pixels. baud-core gives every image the client sent with no id
+/// the client id 0, so it names each of those by when its store took it
+/// ([`Held::unnamed`]): two of them of one size are two images, as they
+/// are on ghostty, which numbers each itself.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub(crate) struct Held {
     pub(crate) id: u32,
+    /// baud-core's name for an image of client id 0: when its store took
+    /// it, one for each image stored. `None` for an image with a client
+    /// id, and for every image on ghostty.
+    pub(crate) unnamed: Option<baud_domain::ImageAge>,
     pub(crate) width: usize,
     pub(crate) height: usize,
 }
@@ -252,7 +259,12 @@ mod tests {
     use super::*;
 
     fn held(id: u32, width: usize, height: usize) -> Held {
-        Held { id, width, height }
+        Held {
+            id,
+            unnamed: None,
+            width,
+            height,
+        }
     }
 
     /// An image counts as stored when it appears, again when it comes
