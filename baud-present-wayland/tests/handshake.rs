@@ -1061,10 +1061,26 @@ fn shown(
     ago: std::time::Duration,
     refresh: std::time::Duration,
 ) -> std::time::Duration {
-    let (callback, feedback) = callback_and_feedback(requests);
     let clock = baud_present_wayland::sys::clock_now(ClockId(i32::try_from(MONOTONIC).unwrap()))
         .expect("the monotonic clock");
     let at = clock.0 - ago;
+    presented_at(server, conn, w, requests, at, refresh, Synced::No);
+    at
+}
+
+/// The frame `requests` committed, shown at `at` on the monotonic clock
+/// at a refresh of `refresh`, with feedback's `vsync` flag set when
+/// `synced`, its callback done and every buffer released.
+fn presented_at(
+    server: &mut Server,
+    conn: &mut Connection,
+    w: &mut Window,
+    requests: &[(&'static str, &'static str, Vec<Val>)],
+    at: std::time::Duration,
+    refresh: std::time::Duration,
+    synced: Synced,
+) {
+    let (callback, feedback) = callback_and_feedback(requests);
     if let Some(fb) = feedback {
         server.send(
             fb,
@@ -1077,7 +1093,11 @@ fn shown(
                 Arg::Uint(u32::try_from(refresh.as_nanos()).unwrap()),
                 Arg::Uint(0),
                 Arg::Uint(1),
-                Arg::Uint(0),
+                // `kind`: `vsync` is its bit 0x1.
+                Arg::Uint(match synced {
+                    Synced::Yes => 0x1,
+                    Synced::No => 0,
+                }),
             ],
         );
     }
@@ -1089,7 +1109,56 @@ fn shown(
     server.send(callback, "wl_callback", "done", &[Arg::Uint(16)]);
     pump(conn, w);
     while w.next_event().is_some() {}
-    at
+}
+
+/// **A frame shown late is late only on feedback synchronised to the
+/// vertical blank** (`timing::late`, `Window::take_late`). Once a frame
+/// has been shown, the next is drawn for a refresh. Shown four periods
+/// after now without `vsync`, it is not late. The same lateness with
+/// `vsync` is, and each answer is read once. Each case runs in its own
+/// session, because a frame shown ahead of now moves the next one's refresh.
+#[test]
+fn lateness_counts_only_on_feedback_synchronised_to_the_vertical_blank() {
+    for (synced, late) in [(Synced::No, Late::No), (Synced::Yes, Late::Yes)] {
+        let (mut conn, mut server, mut w, _, _) = paced_session(&PACED, Tearing::Off);
+        let frame = vec![0xff00_0000u32; 64 * 32];
+        let r = std::time::Duration::from_millis(16);
+        assert_eq!(
+            w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+            Presented::Yes
+        );
+        conn.flush().unwrap();
+        let first = commit_requests(&mut server);
+        let _ = shown(
+            &mut server,
+            &mut conn,
+            &mut w,
+            &first,
+            std::time::Duration::from_millis(3),
+            r,
+        );
+        assert_eq!(w.take_late(), Some(Late::No), "drawn for no refresh");
+        assert_eq!(
+            w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+            Presented::Yes
+        );
+        conn.flush().unwrap();
+        let requests = commit_requests(&mut server);
+        let clock =
+            baud_present_wayland::sys::clock_now(ClockId(i32::try_from(MONOTONIC).unwrap()))
+                .expect("the monotonic clock");
+        presented_at(
+            &mut server,
+            &mut conn,
+            &mut w,
+            &requests,
+            clock.0 + r * 4,
+            r,
+            synced,
+        );
+        assert_eq!(w.take_late(), Some(late), "{synced:?}");
+        assert_eq!(w.take_late(), None, "read once");
+    }
 }
 
 /// The timestamp a commit carried, on the presentation clock.
