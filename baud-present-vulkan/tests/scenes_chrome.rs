@@ -38,11 +38,6 @@
 //! - [`a_guide_across_the_gutter_is_drawn_whole_on_both_paths`]: the cursor
 //!   guide across a scroller's gutter.
 //!
-//! The last five are `#[ignore]`d: the instance path draws no frame
-//! chrome yet -- no gutter or margin page, strip, lights line or their
-//! records -- so the cell frame, which draws them, cannot be held to it
-//! there.
-//!
 //! **Frames drawn whole.**
 //!
 //! - [`the_cell_path_draws_the_notice_as_the_instance_path_does`], the
@@ -92,7 +87,7 @@ mod common;
 mod scenes;
 
 use baud_core::{Owned, Term};
-use baud_domain::{Chan, Col, Row, RowStyles, Rows, WinSize};
+use baud_domain::{Chan, Col, Row, Rows, WinSize};
 use baud_font::{Face, Px as FontPx};
 use baud_present_vulkan::damage::TARGETS;
 use baud_present_vulkan::frame::{Gpu, Target};
@@ -1003,7 +998,6 @@ fn light_change(gpu: &Gpu, arm: Arm) {
 }
 
 #[test]
-#[ignore = "the instance path draws no frame chrome yet (gutter, strip, margins, lights line), so the cell frame cannot be held to it there"]
 fn a_light_change_on_its_line_draws_the_frame_whole_on_both_paths() {
     let gpu = lavapipe();
     light_change(&gpu, Arm::InPlace);
@@ -1011,7 +1005,7 @@ fn a_light_change_on_its_line_draws_the_frame_whole_on_both_paths() {
 }
 
 #[test]
-#[ignore = "the instance path draws no frame chrome yet (gutter, strip, margins, lights line), so the cell frame cannot be held to it there"]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
 fn a_light_change_on_its_line_draws_the_frame_whole_on_both_paths_on_radv() {
     let gpu = radv();
     light_change(&gpu, Arm::Staging);
@@ -1085,7 +1079,6 @@ fn exit_status(gpu: &Gpu, arm: Arm) {
 }
 
 #[test]
-#[ignore = "the instance path draws no frame chrome yet (gutter, strip, margins, lights line), so the cell frame cannot be held to it there"]
 fn an_exit_status_draws_the_frame_whole_on_both_paths() {
     let gpu = lavapipe();
     exit_status(&gpu, Arm::InPlace);
@@ -1093,7 +1086,7 @@ fn an_exit_status_draws_the_frame_whole_on_both_paths() {
 }
 
 #[test]
-#[ignore = "the instance path draws no frame chrome yet (gutter, strip, margins, lights line), so the cell frame cannot be held to it there"]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
 fn an_exit_status_draws_the_frame_whole_on_both_paths_on_radv() {
     let gpu = radv();
     exit_status(&gpu, Arm::Staging);
@@ -1161,7 +1154,6 @@ fn wrap_mark(gpu: &Gpu, arm: Arm) {
 }
 
 #[test]
-#[ignore = "the instance path draws no frame chrome yet (gutter, strip, margins, lights line), so the cell frame cannot be held to it there"]
 fn a_wrap_mark_draws_the_frame_whole_on_both_paths() {
     let gpu = lavapipe();
     wrap_mark(&gpu, Arm::InPlace);
@@ -1169,7 +1161,7 @@ fn a_wrap_mark_draws_the_frame_whole_on_both_paths() {
 }
 
 #[test]
-#[ignore = "the instance path draws no frame chrome yet (gutter, strip, margins, lights line), so the cell frame cannot be held to it there"]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
 fn a_wrap_mark_draws_the_frame_whole_on_both_paths_on_radv() {
     let gpu = radv();
     wrap_mark(&gpu, Arm::Staging);
@@ -1218,7 +1210,6 @@ fn steady_strip_and_margin(gpu: &Gpu, arm: Arm) {
 }
 
 #[test]
-#[ignore = "the instance path draws no frame chrome yet (gutter, strip, margins, lights line), so the cell frame cannot be held to it there"]
 fn a_steady_strip_and_margin_draw_by_rows_on_both_paths() {
     let gpu = lavapipe();
     steady_strip_and_margin(&gpu, Arm::InPlace);
@@ -1226,7 +1217,7 @@ fn a_steady_strip_and_margin_draw_by_rows_on_both_paths() {
 }
 
 #[test]
-#[ignore = "the instance path draws no frame chrome yet (gutter, strip, margins, lights line), so the cell frame cannot be held to it there"]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
 fn a_steady_strip_and_margin_draw_by_rows_on_both_paths_on_radv() {
     let gpu = radv();
     steady_strip_and_margin(&gpu, Arm::Staging);
@@ -1276,7 +1267,6 @@ fn guide_across_gutter(gpu: &Gpu, arm: Arm) {
 }
 
 #[test]
-#[ignore = "the instance path draws no frame chrome yet (gutter, strip, margins, lights line), so the cell frame cannot be held to it there"]
 fn a_guide_across_the_gutter_is_drawn_whole_on_both_paths() {
     let gpu = lavapipe();
     guide_across_gutter(&gpu, Arm::InPlace);
@@ -1284,7 +1274,7 @@ fn a_guide_across_the_gutter_is_drawn_whole_on_both_paths() {
 }
 
 #[test]
-#[ignore = "the instance path draws no frame chrome yet (gutter, strip, margins, lights line), so the cell frame cannot be held to it there"]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
 fn a_guide_across_the_gutter_is_drawn_whole_on_both_paths_on_radv() {
     let gpu = radv();
     guide_across_gutter(&gpu, Arm::Staging);
@@ -1814,7 +1804,7 @@ fn no_cursor_covers_an_address_on_any_arm_on_radv() {
 fn two_lines(t: &Term<'_>, spans: [(usize, usize); 2]) -> Vec<baud_render::LinkLine> {
     let word = |x: usize| {
         let c = t.view(Rows::ZERO).row(Row::ZERO)[x];
-        t.style_in(RowStyles::Live, c)
+        t.style_in(t.row_styles(Row::ZERO), c)
     };
     spans
         .map(|(from, to)| baud_render::LinkLine {

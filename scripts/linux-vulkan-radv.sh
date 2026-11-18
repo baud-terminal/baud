@@ -27,12 +27,17 @@ grep -q '^Gpu ' <<<"$probe" || {
   exit 1
 }
 
-out=$(cargo test -p baud-present-vulkan --test radv --test instance_path --test effect_pixels --test fireworks_pixels --test layouts --test sheets --test lend --test cell_path --test scenes_basic --test scenes_bidi --test scenes_compose --test scenes_fonts --test scenes_chrome --test blend_rounding -- --ignored --skip a_light_change_on_its_line_draws_the_frame_whole_on_both_paths --skip an_exit_status_draws_the_frame_whole_on_both_paths --skip a_wrap_mark_draws_the_frame_whole_on_both_paths --skip a_steady_strip_and_margin_draw_by_rows_on_both_paths --skip a_guide_across_the_gutter_is_drawn_whole_on_both_paths 2>&1) || {
+out=$(cargo test -p baud-present-vulkan --test radv --test instance_path --test effect_pixels --test fireworks_pixels --test layouts --test sheets --test lend --test cell_path --test scenes_basic --test scenes_bidi --test scenes_compose --test scenes_fonts --test scenes_chrome --test blend_rounding -- --ignored 2>&1) || {
   echo "$out" >&2
   exit 1
 }
 echo "$out" | grep -E '^test |test result'
 expect=(
+  a_light_change_on_its_line_draws_the_frame_whole_on_both_paths_on_radv
+  an_exit_status_draws_the_frame_whole_on_both_paths_on_radv
+  a_wrap_mark_draws_the_frame_whole_on_both_paths_on_radv
+  a_steady_strip_and_margin_draw_by_rows_on_both_paths_on_radv
+  a_guide_across_the_gutter_is_drawn_whole_on_both_paths_on_radv
   radv_clears_one_frame_into_a_linear_dmabuf
   radv_signals_a_frame_on_a_syncobj_timeline
   the_instance_path_is_the_cpu_path_on_radv

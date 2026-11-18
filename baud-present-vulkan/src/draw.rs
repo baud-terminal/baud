@@ -6,11 +6,14 @@
 //! draws; the scene's other buffers and textures are made for the frame and
 //! destroyed after it.
 
+use crate::chrome::Chrome;
 use crate::frame::{Failed, Fallback, Gpu, Target};
+use crate::lend::Elems;
 use crate::pipeline::{Blend, Fragment, Pipelines};
 use crate::sheets::Sheets;
 use ash::vk;
 use baud_present_wayland::Px;
+use baud_render::Instance;
 
 /// How a texture's texels are laid out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,6 +67,20 @@ pub struct Scene<'a> {
     pub sheets: &'a Sheets,
     pub records: &'a [u8],
     pub count: Records,
+    /// The frame around the grid, or none: the grid over the whole target.
+    pub framing: Option<Framing<'a>>,
+}
+
+/// **The frame around the grid**: its chrome in the target, and the
+/// records of its three strips (`Instance::to_bytes`) -- the exit-status
+/// strip's, the lights' line's and the word wrap's marks', in that order.
+/// A whole frame is cleared to the chrome's page, its backgrounds and
+/// records drawn in the grid's viewport and each strip's records in its
+/// own, source-over, as the cell path draws them. A pass over a frame (an
+/// effect) takes the grid's pad and draws no strip.
+pub struct Framing<'a> {
+    pub chrome: Chrome,
+    pub strips: [&'a [u8]; 3],
 }
 
 /// A buffer the CPU writes and the GPU reads.
@@ -315,15 +332,58 @@ impl Gpu {
             Pass::Over => None,
         };
         let glyph_pipe = pipes.get(records.0, records.1)?;
-        let u_bytes: Vec<u8> = scene.u.iter().flat_map(|f| f.to_le_bytes()).collect();
-        let u = self.buffer(&u_bytes, vk::BufferUsageFlags::UNIFORM_BUFFER)?;
-        let insts = self.buffer(scene.records, vk::BufferUsageFlags::STORAGE_BUFFER)?;
+        // A framed frame's grid `U` takes the grid's pad, and, on a whole
+        // frame, each strip a `U` of its own and its records after the
+        // scene's. The strips are the whole frame's: a pass over a frame (an
+        // effect) draws over them and not them.
+        let (grid_u, strips) = match &scene.framing {
+            Some(f) => {
+                let mut u = scene.u;
+                [u[10], u[11]] = f.chrome.pad();
+                let first = Elems(usize::try_from(scene.count.0).unwrap_or(0));
+                debug_assert!(
+                    f.strips.iter().all(|s| s.len() % Instance::BYTES == 0),
+                    "a strip's records are whole records"
+                );
+                let lens = f.strips.map(|s| s.len() / Instance::BYTES);
+                let strips = (pass == Pass::Whole).then(|| f.chrome.strips(first, lens));
+                (u, strips)
+            }
+            None => (scene.u, None),
+        };
+        // A strip's records drawn as the cell path draws them, whatever
+        // pipeline the grid's records are drawn by.
+        let strip_pipe = match strips {
+            Some(_) => Some(pipes.get(Fragment::Glyph, Blend::Normal)?),
+            None => None,
+        };
+        let mut uniforms = vec![grid_u];
+        if let Some(strips) = &strips {
+            let (cell, sides) = ((scene.u[2], scene.u[3]), (scene.u[6], scene.u[8]));
+            uniforms.extend(strips.iter().map(|s| s.u(cell, sides)));
+        }
+        let mut us = Vec::with_capacity(uniforms.len());
+        for u in &uniforms {
+            let bytes: Vec<u8> = u.iter().flat_map(|f| f.to_le_bytes()).collect();
+            us.push(self.buffer(&bytes, vk::BufferUsageFlags::UNIFORM_BUFFER)?);
+        }
+        let all: Vec<u8>;
+        let record_bytes = match &scene.framing {
+            Some(f) => {
+                all = [scene.records, f.strips[0], f.strips[1], f.strips[2]].concat();
+                &all[..]
+            }
+            None => scene.records,
+        };
+        let insts = self.buffer(record_bytes, vk::BufferUsageFlags::STORAGE_BUFFER)?;
         let effect_u = match effect {
             Some(bytes) => Some(self.buffer(bytes, vk::BufferUsageFlags::UNIFORM_BUFFER)?),
             None => None,
         };
-        // Set 2 only for an effect, whose fragment reads it.
+        // Set 2 only for an effect, whose fragment reads it; a set 0 for each
+        // `U`, the grid's first.
         let set_count: usize = if effect_u.is_some() { 3 } else { 2 };
+        let extra = us.len() - 1;
         let backgrounds = self.texture(&scene.backgrounds)?;
         let sheets = scene.sheets;
         let sampler = sheets.sampler;
@@ -331,24 +391,25 @@ impl Gpu {
         let sizes = [
             vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(2),
+                .descriptor_count(u32::try_from(2 + extra).unwrap_or(5)),
             vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::UNIFORM_BUFFER)
-                .descriptor_count(2),
+                .descriptor_count(u32::try_from(2 + extra).unwrap_or(5)),
             vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .descriptor_count(3),
         ];
         let pool_info = vk::DescriptorPoolCreateInfo::default()
-            .max_sets(u32::try_from(set_count).unwrap_or(2))
+            .max_sets(u32::try_from(set_count + extra).unwrap_or(6))
             .pool_sizes(&sizes);
         // SAFETY: as above.
         let pool = unsafe { d.create_descriptor_pool(&pool_info, None) }?;
-        let all = [pipes.sets[0], pipes.sets[1], pipes.sets[2]];
-        let layouts = &all[..set_count];
+        let mut layouts = vec![pipes.sets[0], pipes.sets[1], pipes.sets[2]];
+        layouts.truncate(set_count);
+        layouts.extend(std::iter::repeat_n(pipes.sets[0], extra));
         let alloc = vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(pool)
-            .set_layouts(layouts);
+            .set_layouts(&layouts);
         // SAFETY: the pool holds exactly these sets.
         let sets = unsafe { d.allocate_descriptor_sets(&alloc) }?;
         let whole = |b: &Buffer| {
@@ -356,7 +417,8 @@ impl Gpu {
                 .buffer(b.buffer)
                 .range(vk::WHOLE_SIZE)]
         };
-        let (insts_info, u_info) = (whole(&insts), whole(&u));
+        let insts_info = whole(&insts);
+        let u_infos: Vec<[vk::DescriptorBufferInfo; 1]> = us.iter().map(whole).collect();
         let curves_info = [vk::DescriptorBufferInfo::default()
             .buffer(curves_buffer)
             .range(vk::WHOLE_SIZE)];
@@ -380,7 +442,7 @@ impl Gpu {
         let effect_info = effect_u.as_ref().map(whole);
         let mut writes = vec![
             write(sets[0], 0, storage).buffer_info(&insts_info),
-            write(sets[0], 1, uniform).buffer_info(&u_info),
+            write(sets[0], 1, uniform).buffer_info(&u_infos[0]),
             write(sets[1], 0, sampled).image_info(&mask_info),
             write(sets[1], 1, sampled).image_info(&color_info),
             write(sets[1], 2, storage).buffer_info(&curves_info),
@@ -388,6 +450,12 @@ impl Gpu {
         ];
         if let Some(info) = &effect_info {
             writes.push(write(sets[2], 0, uniform).buffer_info(info));
+        }
+        // The strips' set 0s, after the sets the layout binds.
+        let strip_sets = &sets[set_count..];
+        for (set, u) in strip_sets.iter().zip(&u_infos[1..]) {
+            writes.push(write(*set, 0, storage).buffer_info(&insts_info));
+            writes.push(write(*set, 1, uniform).buffer_info(u));
         }
         // SAFETY: every set, buffer and view named is alive.
         unsafe { d.update_descriptor_sets(&writes, &[]) };
@@ -446,14 +514,39 @@ impl Gpu {
             width: t.width.0,
             height: t.height.0,
         };
-        let viewport = [vk::Viewport {
-            x: 0.0,
-            y: 0.0,
-            width: t.width.0 as f32,
-            height: t.height.0 as f32,
-            min_depth: 0.0,
-            max_depth: 1.0,
-        }];
+        // The grid's viewport: the whole target, or a framed frame's grid.
+        let grid_view = scene.framing.as_ref().map(|f| f.chrome.boxed.grid);
+        let viewport = [grid_view.map_or(
+            vk::Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: t.width.0 as f32,
+                height: t.height.0 as f32,
+                min_depth: 0.0,
+                max_depth: 1.0,
+            },
+            |v| v.vk(),
+        )];
+        let drawable = grid_view.is_none_or(|v| v.drawable());
+        let page = scene.framing.as_ref().map(|f| {
+            [vk::ClearAttachment {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                color_attachment: 0,
+                clear_value: vk::ClearValue {
+                    color: f.chrome.clear.clear(),
+                },
+            }]
+        });
+        let target_size = (t.width, t.height);
+        // The cells' rectangle from the grid's pad: `U`'s grid times its cell.
+        let cells = scene.framing.as_ref().map(|f| {
+            let span = |n: f32, cell: f32| Px(u32::try_from((n * cell) as i64).unwrap_or(0));
+            crate::chrome::scissor(
+                target_size,
+                f.chrome.pad(),
+                (span(scene.u[4], scene.u[2]), span(scene.u[5], scene.u[3])),
+            )
+        });
         let scissor = [vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent,
@@ -478,22 +571,62 @@ impl Gpu {
                     &[to_colour],
                 );
                 d.cmd_begin_render_pass(cb, &begin, vk::SubpassContents::INLINE);
-                d.cmd_set_viewport(cb, 0, &viewport);
+                // A framed whole frame starts as its page.
+                if let (Some(page), Pass::Whole) = (&page, pass) {
+                    let rect = [vk::ClearRect {
+                        rect: scissor[0],
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    }];
+                    d.cmd_clear_attachments(cb, page, &rect);
+                }
                 d.cmd_set_scissor(cb, 0, &scissor);
                 d.cmd_bind_descriptor_sets(
                     cb,
                     vk::PipelineBindPoint::GRAPHICS,
                     layout,
                     0,
-                    &sets,
+                    &sets[..set_count],
                     &[],
                 );
-                if let Some(bg_pipe) = bg_pipe {
-                    d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, bg_pipe);
-                    d.cmd_draw(cb, 4, 1, 0, 0);
+                if drawable {
+                    d.cmd_set_viewport(cb, 0, &viewport);
+                    if let Some(bg_pipe) = bg_pipe {
+                        // A framed frame's backgrounds cover its cells and
+                        // no more: the gutter beside them keeps the page.
+                        if let Some(cells) = cells {
+                            d.cmd_set_scissor(cb, 0, &[cells]);
+                        }
+                        d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, bg_pipe);
+                        d.cmd_draw(cb, 4, 1, 0, 0);
+                        d.cmd_set_scissor(cb, 0, &scissor);
+                    }
+                    d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, glyph_pipe);
+                    d.cmd_draw(cb, 4, scene.count.0, 0, 0);
                 }
-                d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, glyph_pipe);
-                d.cmd_draw(cb, 4, scene.count.0, 0, 0);
+                // Each strip's records in its own viewport and scissor, under
+                // its own `U`, source-over.
+                if let Some(p) = strip_pipe {
+                    d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, p);
+                }
+                for (st, set) in strips.iter().flatten().zip(strip_sets) {
+                    if !st.drawn() {
+                        continue;
+                    }
+                    d.cmd_bind_descriptor_sets(
+                        cb,
+                        vk::PipelineBindPoint::GRAPHICS,
+                        layout,
+                        0,
+                        &[*set],
+                        &[],
+                    );
+                    d.cmd_set_viewport(cb, 0, &[st.view.vk()]);
+                    d.cmd_set_scissor(cb, 0, &[st.scissor(target_size)]);
+                    let n = u32::try_from(st.to.0 - st.from.0).unwrap_or(0);
+                    let first = u32::try_from(st.from.0).unwrap_or(0);
+                    d.cmd_draw(cb, 4, n, 0, first);
+                }
                 d.cmd_end_render_pass(cb);
                 d.cmd_pipeline_barrier(
                     cb,
@@ -513,7 +646,7 @@ impl Gpu {
             d.destroy_descriptor_pool(pool, None);
         }
         sheets.finished(self);
-        for b in [u, insts].into_iter().chain(effect_u) {
+        for b in us.into_iter().chain([insts]).chain(effect_u) {
             self.drop_buffer(b);
         }
         self.drop_texture(backgrounds);

@@ -12,6 +12,7 @@
 
 pub mod cells;
 pub mod choose;
+pub mod chrome;
 pub mod damage;
 pub mod draw;
 pub mod effect;

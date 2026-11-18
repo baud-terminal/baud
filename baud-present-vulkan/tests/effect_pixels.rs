@@ -208,6 +208,7 @@ fn gpu_frame(
         sheets: &sheets,
         records,
         count: n,
+        framing: None,
     };
     gpu.draw_effect(pipes, &t, &scene, shader, blend, u)
         .expect("the effect drawn");

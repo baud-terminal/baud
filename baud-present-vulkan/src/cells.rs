@@ -17,9 +17,10 @@
 //! frame owes the ranges the shader reads, and the glyph map's entries that
 //! differ from those the device buffer was last given.
 
+use crate::chrome::{Chrome, View, scissor};
 use crate::damage::{self, BANDS, Stale, TARGETS, TargetIx};
 use crate::draw::Buffer;
-use crate::frame::{Failed, Gpu, Premultiplied, Recorder, Target};
+use crate::frame::{Failed, Gpu, Recorder, Target};
 use crate::lend::{Arm, Elems, Lent, Uploaded};
 use crate::pipeline::{Blend, Fragment, Pipelines, Skipped};
 use crate::sheets::Sheets;
@@ -988,106 +989,6 @@ impl CellSet {
     }
 }
 
-/// A rectangle of the target in pixels, as a viewport places one.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct View {
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
-}
-
-impl View {
-    fn vk(self) -> vk::Viewport {
-        vk::Viewport {
-            x: self.x as f32,
-            y: self.y as f32,
-            width: self.w as f32,
-            height: self.h as f32,
-            min_depth: 0.0,
-            max_depth: 1.0,
-        }
-    }
-}
-
-/// **The whole frame's parts**, in its pixels: the margin, the exit-status
-/// strip, the grid's frame's top and height, and the lights' line's.
-struct Parts {
-    margin: f64,
-    strip: f64,
-    top: f64,
-    rows: f64,
-    line_top: f64,
-    line: f64,
-}
-
-/// [`letterbox_whole`]'s viewports.
-struct Boxed {
-    grid: View,
-    pad: [f32; 2],
-    strip: View,
-    line: View,
-    rows: View,
-}
-
-/// **The whole frame centred in the target**, then the grid's viewport and
-/// pad the margin and the strip in from the whole's left and the grid's
-/// top down, the strip's viewport past the left margin over the grid's
-/// rows, the line's across the whole width at its rows, and the grid's rows
-/// across the whole width.
-fn letterbox_whole(target: (f64, f64), whole: (f64, f64), parts: &Parts) -> Boxed {
-    let vp = View {
-        x: (target.0 - whole.0).max(0.0) / 2.0,
-        y: (target.1 - whole.1).max(0.0) / 2.0,
-        w: whole.0,
-        h: whole.1,
-    };
-    let rows = View {
-        y: vp.y + parts.top,
-        h: parts.rows,
-        ..vp
-    };
-    let grid = View {
-        x: rows.x + parts.margin + parts.strip,
-        w: (rows.w - 2.0 * parts.margin - parts.strip).max(0.0),
-        ..rows
-    };
-    let strip = View {
-        x: rows.x + parts.margin,
-        w: parts.strip,
-        ..rows
-    };
-    let line = View {
-        y: vp.y + parts.line_top,
-        h: parts.line,
-        ..vp
-    };
-    Boxed {
-        grid,
-        pad: [grid.x as f32, grid.y as f32],
-        strip,
-        line,
-        rows,
-    }
-}
-
-/// The rectangle of the target from `pad` that is `size` big, clamped to
-/// the target: the first pixel whose centre the pad covers is its floor.
-fn scissor(target: (Px, Px), pad: [f32; 2], size: (Px, Px)) -> vk::Rect2D {
-    let floor = |p: f32| u32::try_from(p.max(0.0).floor() as i64).unwrap_or(0);
-    let (x, y) = (floor(pad[0]).min(target.0.0), floor(pad[1]).min(target.1.0));
-    vk::Rect2D {
-        offset: vk::Offset2D {
-            x: i32::try_from(x).unwrap_or(i32::MAX),
-            y: i32::try_from(y).unwrap_or(i32::MAX),
-        },
-        extent: vk::Extent2D {
-            width: size.0.0.min(target.0.0 - x),
-            height: size.1.0.min(target.1.0 - y),
-        },
-    }
-}
-
 /// **What the shape pass draws**: every cell's slots while a slot of the
 /// table carries a decoration, else the cursor's slot alone when it is an
 /// underline or a bar, else nothing.
@@ -1114,14 +1015,6 @@ struct Part(u32);
 const GROUND_EVERY: Part = Part(0);
 const PART_INSIDE: Part = Part(0);
 const PART_ABOVE: Part = Part(1);
-
-/// A strip's records, its viewport and the height its uniform is given.
-struct Strip {
-    from: Elems,
-    to: Elems,
-    view: View,
-    height: FontPx,
-}
 
 impl Gpu {
     /// **A cell frame drawn into `t`**: the sheets brought up to the atlas,
@@ -1193,23 +1086,10 @@ impl Gpu {
         let kind = CursorKind::drawn(renderer, input);
         let metrics = renderer.metrics();
         let frame_px = renderer.frame_size();
-        let clear = Premultiplied(baud_domain::premultiply(renderer.clear_color().0));
+        let framed = Chrome::of(renderer, (t.width, t.height));
+        let (boxed, clear) = (framed.boxed, framed.clear);
         let side_m = renderer.atlas().side().value() as f32;
         let side_c = renderer.atlas().color_side().value() as f32;
-        let fpx = |p: FontPx| f64::from(p.value());
-        let whole = renderer.whole_size();
-        let boxed = letterbox_whole(
-            (f64::from(t.width.0), f64::from(t.height.0)),
-            (fpx(whole.0), fpx(whole.1)),
-            &Parts {
-                margin: fpx(renderer.margins()),
-                strip: fpx(renderer.strip()),
-                top: fpx(renderer.grid_top()),
-                rows: fpx(frame_px.1),
-                line_top: fpx(renderer.lights_top()),
-                line: fpx(renderer.lights_height()),
-            },
-        );
         // The shape pass's draw, and whether a glyph reaches above its row.
         let shape_draw = match (input.table.decorations(), kind, input.cursor) {
             (Decorations::Present, _, _) => ShapeDraw::Every,
@@ -1380,45 +1260,10 @@ impl Gpu {
             boxed.pad[1],
         ];
         s.put_u(Elems(0), &ru);
-        let strips = [
-            Strip {
-                from: Elems(n),
-                to: Elems(n + strip.len()),
-                view: boxed.strip,
-                height: frame_px.1,
-            },
-            Strip {
-                from: Elems(n + strip.len()),
-                to: Elems(n + strip.len() + lights.len()),
-                view: boxed.line,
-                height: renderer.lights_height(),
-            },
-            Strip {
-                from: Elems(n + strip.len() + lights.len()),
-                to: Elems(all),
-                view: boxed.rows,
-                height: frame_px.1,
-            },
-        ];
+        let strips = framed.strips(Elems(n), [strip.len(), lights.len(), wraps.len()]);
+        let cell_px = (metrics.cell_w.value() as f32, metrics.cell_h.value() as f32);
         for (k, st) in strips.iter().enumerate() {
-            let width = st.view.w.max(0.0) as f32;
-            s.put_u(
-                Elems(k + 1),
-                &[
-                    width.trunc(),
-                    st.height.value() as f32,
-                    metrics.cell_w.value() as f32,
-                    metrics.cell_h.value() as f32,
-                    0.0,
-                    0.0,
-                    side_m,
-                    side_m,
-                    side_c,
-                    side_c,
-                    st.view.x as f32,
-                    st.view.y as f32,
-                ],
-            );
+            s.put_u(Elems(k + 1), &st.u(cell_px, (side_m, side_c)));
         }
         for (w, word) in s.cu_mem.iter_mut().zip(cu.0) {
             *w = word.0;
@@ -1719,12 +1564,10 @@ impl Gpu {
                     continue;
                 }
                 for (k, st) in strips.iter().enumerate() {
-                    if st.to.0 <= st.from.0 || st.view.w <= 0.0 || st.view.h <= 0.0 {
+                    if !st.drawn() {
                         continue;
                     }
-                    let width = Px(u32::try_from(st.view.w as i64).unwrap_or(0));
-                    let origin = [st.view.x as f32, st.view.y as f32];
-                    let cut = scissor(target_size, origin, (width, Px(st.height.value())));
+                    let cut = st.scissor(target_size);
                     // SAFETY: as above.
                     unsafe {
                         d.cmd_set_viewport(cb, 0, &[st.view.vk()]);

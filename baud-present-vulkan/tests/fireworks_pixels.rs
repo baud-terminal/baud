@@ -109,6 +109,7 @@ fn gpu_frame(
         sheets: &sheets,
         records,
         count: n,
+        framing: None,
     };
     // The pipeline is built before the frame that draws it: a test may wait.
     let mut drawn = gpu.draw_fireworks(pipes, &t, &scene, u).expect("a draw");

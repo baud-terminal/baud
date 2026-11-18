@@ -105,6 +105,7 @@ fn draw(gpu: &Gpu, pipes: &mut Pipelines, t: &Target, records: &[u8]) -> Drawn {
         sheets: &sheets,
         records,
         count: Records(1),
+        framing: None,
     };
     let drawn = gpu
         .draw_effect_when_ready(pipes, t, &scene, Fx::Fire, Blend::Normal, &fire_u())

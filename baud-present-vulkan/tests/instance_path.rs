@@ -114,6 +114,7 @@ fn draw_and_check(gpu: &Gpu, rounding: Rounding) {
         sheets: &sheets,
         records: &records,
         count: Records(2),
+        framing: None,
     };
     gpu.draw(&mut pipes, &t, &scene, Pass::Whole)
         .expect("a drawn frame");
@@ -220,6 +221,7 @@ fn over_and_check(gpu: &Gpu, rounding: Rounding) {
         sheets: &sheets,
         records: &records,
         count: Records(1),
+        framing: None,
     };
     gpu.draw(&mut pipes, &t, &scene, Pass::Over)
         .expect("a pass over the target");

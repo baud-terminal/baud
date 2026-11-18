@@ -111,6 +111,7 @@ fn measure(gpu: &Gpu) -> Measured {
             sheets: &sheets,
             records: &rec,
             count: Records(1),
+            framing: None,
         };
         gpu.draw(&mut pipes, &t, &scene, Pass::Whole)
             .expect("drawn");

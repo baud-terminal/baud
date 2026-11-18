@@ -87,6 +87,7 @@ fn frame(
         sheets,
         records: &records,
         count: Records(u32::try_from(slots.len()).expect("a count")),
+        framing: None,
     };
     gpu.clear(&t, Premultiplied(BLACK), None)
         .expect("a black target");

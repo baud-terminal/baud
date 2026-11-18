@@ -47,7 +47,8 @@ use baud_core::Term;
 use baud_domain::{BytePos, Codepoint, Col, PackedCell, ReadLen, Row, RowExtent, Rows, WinSize};
 use baud_font::Px as FontPx;
 use baud_present_vulkan::cells::{CellDraw, CellDrawn, CellMemory, CellSizes, CellSlices, MapSide};
-use baud_present_vulkan::draw::{Pass, Records, Scene, Texel, Texels};
+use baud_present_vulkan::chrome::Chrome;
+use baud_present_vulkan::draw::{Framing, Pass, Records, Scene, Texel, Texels};
 use baud_present_vulkan::frame::{Gpu, Target};
 use baud_present_vulkan::lend::{Arm, Elems};
 use baud_present_vulkan::pipeline::Pipelines;
@@ -284,7 +285,7 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
             cols,
             rows,
             stride: t.stride(),
-            styles: Elems(t.styles().len()),
+            styles: Elems(t.styles().one().len()),
         };
         let (mem, mut lent) = CellMemory::new(gpu, &pipes, arm, sizes).expect("the cell memory");
         assert_eq!(mem.arm(), arm, "the memory is on the arm asked for");
@@ -487,14 +488,23 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
             .bring(self.gpu, r.atlas_mut())
             .expect("the sheets brought up");
         let (w, h) = r.whole_size();
+        let frame = r.frame_size();
         let (cols, rows) = r.grid();
         let m = r.metrics();
         let at = |c: usize| u32::try_from(c).expect("a count");
         let f = |v: u32| v as f32;
+        let bytes = |run: &[baud_render::Instance]| -> Vec<u8> {
+            run.iter().flat_map(|i| i.to_bytes()).collect()
+        };
+        let strips = [
+            bytes(r.strip_records()),
+            bytes(r.lights_records()),
+            bytes(r.margin_records()),
+        ];
         let scene = Scene {
             u: [
-                f(w.value()),
-                f(h.value()),
+                f(frame.0.value()),
+                f(frame.1.value()),
                 f(m.cell_w.value()),
                 f(m.cell_h.value()),
                 f(at(cols.index())),
@@ -515,6 +525,10 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
             sheets,
             records: &records,
             count: Records(at(n)),
+            framing: Some(Framing {
+                chrome: Chrome::of(r, (Px(w.value()), Px(h.value()))),
+                strips: [&strips[0], &strips[1], &strips[2]],
+            }),
         };
         let target = self
             .gpu
@@ -581,7 +595,8 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
 
 /// **How many records of the renderer's last convert blend each pixel**:
 /// draw it at a source alpha strictly between nothing and all, as
-/// `glyph.frag` forms it, in a frame `w` by `h`.
+/// `glyph.frag` forms it, in a frame `w` by `h` -- the grid's records from
+/// its pad, and each strip's from its viewport's origin.
 fn covers(r: &Renderer<'_, '_>, (w, h): (u32, u32)) -> Vec<u8> {
     let wide = usize::try_from(w).expect("a width");
     let high = usize::try_from(h).expect("a height");
@@ -590,9 +605,22 @@ fn covers(r: &Renderer<'_, '_>, (w, h): (u32, u32)) -> Vec<u8> {
     let side = usize::try_from(atlas.side().value()).expect("a side");
     let cside = usize::try_from(atlas.color_side().value()).expect("a side");
     let (mask, color) = (atlas.pixels(), atlas.argb());
-    for i in r.instances() {
+    let origins = Chrome::of(r, (Px(w), Px(h))).origins();
+    let whole = |o: [f32; 2]| (o[0].floor() as i32, o[1].floor() as i32);
+    let grid: Vec<baud_render::Instance> = r.instances().copied().collect();
+    let runs = [
+        (&grid[..], origins[0]),
+        (r.strip_records(), origins[1]),
+        (r.lights_records(), origins[2]),
+        (r.margin_records(), origins[3]),
+    ];
+    for (i, origin) in runs
+        .iter()
+        .flat_map(|(run, o)| run.iter().map(move |i| (i, *o)))
+    {
         let ca = u8::try_from(i.color.0 >> 24).expect("a byte");
-        let (x0, y0) = (i32::from(i.x.0), i32::from(i.y.0));
+        let (ox, oy) = whole(origin);
+        let (x0, y0) = (i32::from(i.x.0) + ox, i32::from(i.y.0) + oy);
         for dy in 0..usize::from(i.h.0) {
             for dx in 0..usize::from(i.w.0) {
                 let (Ok(x), Ok(y)) = (
