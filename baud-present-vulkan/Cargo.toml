@@ -28,6 +28,8 @@ baud-render = { workspace = true }
 baud-domain = { workspace = true }
 # The metrics' pixels, which `CU` carries.
 baud-font = { workspace = true }
+# The terminal the driver's frames are built from (`present.rs`).
+baud-core = { workspace = true }
 
 [features]
 # A pipeline build held at a gate, for the crate's tests (`Pipelines::hold_builds`).

@@ -19,6 +19,7 @@ pub mod effect;
 pub mod frame;
 pub mod lend;
 pub mod pipeline;
+pub mod present;
 pub mod sheets;
 pub mod sys;
 pub mod vk;

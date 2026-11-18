@@ -355,6 +355,19 @@ impl Gpu {
         Ok(Point(v))
     }
 
+    /// **Signal `p` on `tl` from the CPU**: the acquire point of a frame
+    /// already waited for, which the compositor reads before the buffer.
+    #[allow(unsafe_code)]
+    pub fn signal(&self, tl: &Timeline, p: Point) -> Result<(), Failed> {
+        let info = vk::SemaphoreSignalInfo::default()
+            .semaphore(tl.semaphore)
+            .value(p.0);
+        // SAFETY: a timeline semaphore of this device, and a value past its
+        // current one: each target's points only rise.
+        unsafe { self.device.signal_semaphore(&info) }?;
+        Ok(())
+    }
+
     /// Destroy `tl`. Its fd is closed when dropped.
     #[allow(unsafe_code)]
     pub fn drop_timeline(&self, tl: Timeline) {
