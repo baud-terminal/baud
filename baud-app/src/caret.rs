@@ -501,6 +501,13 @@ impl<M: Moment> Caret<M> {
         self.quiet_since = now;
     }
 
+    /// **When the last input came** -- a key, a paste, a click, the wheel,
+    /// a focus gain -- which the cursor trail lights an effect after
+    /// (`Chase::input`). Output never moves it.
+    pub fn last_input(&self) -> M {
+        self.quiet_since
+    }
+
     /// The system's rate and switch, read again -- or on Linux, where no
     /// system caret is read, the config's read again (`reload.rs`). No
     /// restart: a blink that resumes restarts at the next plan anyway.

@@ -2719,6 +2719,7 @@ impl App {
         // The cursor it follows is `trail_cursor`'s: the one drawn, or where a
         // program placed a cursor it hid and draws its own.
         let ridden = core::mem::replace(&mut self.ridden, Rows::ZERO);
+        self.chase.input(self.caret.last_input());
         let trail_look = frame_trail(
             (self.cursor_trail, self.trail_scroll),
             &self.term,
@@ -6214,6 +6215,8 @@ mod ghost_tests {
                 .collect();
             feed(&mut t, &lines);
             let mut chase = crate::trail::Chase::new(trail.style());
+            // The move below is a person's: a key just before it.
+            chase.input(HostTime::of_nanos(1_000_000));
             let mut frame = |t: &Term<'_>, n: u64| {
                 let cursor = trail_cursor(t).map(rect);
                 chase_frame(&mut chase, t, cursor, ms(n), size)
@@ -11679,6 +11682,8 @@ mod trail_cursor_tests {
         let at = |ms: u64| t0 + Duration::from_millis(ms);
         let mut chase: Chase<Instant> = Chase::new(Style::Effect(Effect::Fire));
         let mut drawn = |t: &Term<'_>, ms: u64| {
+            // Every frame here follows a key, as `ge` does.
+            chase.input(at(ms));
             let now = trail_cursor(t).map(|f| block(f.cell()));
             match chase.frame(now, at(ms), CELL, PT) {
                 Some(TrailLook::Vfx(v)) => Some(v.emitter.opacity),
@@ -11765,6 +11770,8 @@ mod trail_cursor_tests {
                 let mut last: Option<(TrailLook, Rect)> = None;
                 for (k, bytes) in frames.iter().enumerate() {
                     feed(&mut t, bytes);
+                    // Each frame answers a wheel line: input.
+                    chase.input(t0 + tick * (u32::try_from(k).unwrap() * 36));
                     let cell = trail_cursor(&t).map(|f| f.cell());
                     let (r, c) = cell.unwrap_or_else(|| panic!("{case}: frame {k} placed nothing"));
                     assert_eq!(c.index(), 7, "{case}: frame {k}");
@@ -12197,6 +12204,7 @@ mod motion_tests {
     fn a_switch_mid_fire_owes_one_frame_and_then_none() {
         let mut chase: Chase<HostTime> = Chase::new(T::Fire.style());
         chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0), PT);
+        chase.input(at(1.008));
         chase.frame(Some(cell(60.0, 3.0)), at(1.008), (10.0, 20.0), PT);
         assert!(
             chase
@@ -12258,6 +12266,7 @@ mod motion_tests {
         ] {
             let mut chase: Chase<HostTime> = Chase::new(T::Plasma.style());
             chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0), pt);
+            chase.input(at(1.008));
             chase.frame(Some(cell(60.0, 3.0)), at(1.008), (10.0, 20.0), pt);
             let lit = chase.frame(Some(cell(60.0, 3.0)), at(1.020), (10.0, 20.0), pt);
             let strength = |l: Option<baud_render::TrailLook>| match l {
@@ -12280,6 +12289,7 @@ mod motion_tests {
             assert_eq!(first, Some(Full), "the control: a full ghost");
             let _ = retrail(&mut chase, &mut ghost, &mut last, T::Plasma, None);
             chase.frame(Some(cell(60.0, 3.0)), at(t - 0.02), (10.0, 20.0), pt);
+            chase.input(at(t - 0.012));
             chase.frame(Some(cell(5.0, 3.0)), at(t - 0.012), (10.0, 20.0), pt);
             let moved = chase.frame(Some(cell(5.0, 3.0)), at(t), (10.0, 20.0), pt);
             assert_eq!(
@@ -12311,6 +12321,32 @@ mod motion_tests {
                 &rest[..40.min(rest.len())]
             );
         }
+    }
+
+    /// **The frame hands the chase the last input before its trail**: in
+    /// the frame, `self.chase.input(self.caret.last_input());` comes
+    /// straight before the `frame_trail(` call, so an effect lights on a
+    /// move that follows a key, a paste, a click, the wheel or a focus gain
+    /// (`trail::FOLLOWS`). Without it every effect stays dark on macOS and
+    /// nothing else here fails. The planted control: the same source with
+    /// the line taken out fails the check.
+    #[test]
+    fn the_frame_hands_the_chase_the_last_input_before_its_trail() {
+        let src = crate::app_source::app_source();
+        // Spelled apart, so this test does not match its own source.
+        let line = concat!("self.chase.input(", "self.caret.last_input());");
+        let call = concat!("let trail_look = ", "frame_trail(");
+        let hands = |src: &str| {
+            let bare: String = src.split_whitespace().collect();
+            let call: String = call.split_whitespace().collect();
+            let parts: Vec<&str> = bare.split(call.as_str()).collect();
+            parts.len() == 2 && parts[0].ends_with(line)
+        };
+        assert!(hands(src), "the frame hands the chase its input");
+        assert!(
+            !hands(&src.replacen(line, "", 1)),
+            "the planted control: without the line"
+        );
     }
 
     /// A switch at rest owes no frame: nothing was drawn.

@@ -379,6 +379,12 @@ impl Timed {
         self.regis = regis;
     }
 
+    /// **Input at `at`** -- the caret's last -- which a long move must
+    /// follow for an effect to light (`Chase::input`).
+    pub(crate) fn input(&mut self, at: Instant) {
+        self.chase.input(self.clock.host(at));
+    }
+
     /// **The cells moved under the trail** -- a resize, a font change: the
     /// next sighting starts afresh, no ghost sweeps across, and no line
     /// scrolled before it rides what comes after.
@@ -1090,6 +1096,7 @@ mod tests {
                 let mut fx = Timed::new(t0, pick, ScreenTransition::Off);
                 let _ = fx.set_motion(motion, t0);
                 let _ = fx.plan(t0, &t, rect, CELL, widths());
+                fx.input(t0);
                 feed(&mut t, b"\x1b[8;30H");
                 let at = t0 + Duration::from_millis(2);
                 let _ = fx.plan(at, &t, rect, CELL, widths());
@@ -1132,6 +1139,7 @@ mod tests {
         feed(&mut t, b"\x1b[2C");
         let _ = fx.plan(t0 + Duration::from_millis(1), &t, rect, CELL, widths());
         assert_eq!(fx.deadline(t0), None, "a short move snaps");
+        fx.input(t0);
         feed(&mut t, b"\x1b[8;30H");
         let at = t0 + Duration::from_millis(2);
         let _ = fx.plan(at, &t, rect, CELL, widths());
@@ -1158,6 +1166,46 @@ mod tests {
         assert_eq!(fx.deadline(now), None);
     }
 
+    /// **A program's long move lights no effect**: the default plasma, the
+    /// same move as [`a_long_move_trails_as_the_effect_and_lands`] with no
+    /// input in the [`crate::trail::FOLLOWS`] before it draws nothing and
+    /// owes nothing once the dwell runs out. Input 40 ms before the next
+    /// move lights it. Perturbation: drop `Timed::input`'s forwarding --
+    /// the last assertion fails.
+    #[test]
+    fn a_programs_long_move_lights_no_effect() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let mut fx = Timed::new(t0, TrailPick::Default, ScreenTransition::Off);
+        let _ = fx.plan(t0, &t, rect, CELL, widths());
+        fx.input(t0);
+        feed(&mut t, b"\x1b[8;30H");
+        let at = t0 + Duration::from_millis(400);
+        let _ = fx.plan(at, &t, rect, CELL, widths());
+        let dwell = fx.deadline(at).expect("the dwell");
+        assert_eq!(fx.turn(dwell, &mut t), Owes::Frame, "the dwell ran out");
+        assert_eq!(
+            fx.plan(dwell, &t, rect, CELL, widths()).trail,
+            None,
+            "unlit"
+        );
+        assert_eq!(
+            fx.turn(dwell + Duration::from_millis(16), &mut t),
+            Owes::Nothing
+        );
+        let at = dwell + Duration::from_millis(100);
+        fx.input(at - Duration::from_millis(40));
+        feed(&mut t, b"\x1b[1;1H");
+        let _ = fx.plan(at, &t, rect, CELL, widths());
+        let dwell = fx.deadline(at).expect("the dwell");
+        let _ = fx.turn(dwell, &mut t);
+        assert!(
+            fx.plan(dwell, &t, rect, CELL, widths()).trail.is_some(),
+            "a move 40 ms after input lights"
+        );
+    }
+
     /// **Reduced motion holds blinking text shown and turns the default
     /// trail off, as Reduce Motion does on macOS**: no blink flip bounds
     /// the wait or owes a frame, a trail in flight is cut with a frame
@@ -1178,6 +1226,7 @@ mod tests {
         assert!(fx.deadline(t0).is_some(), "the control: it blinks");
         assert_eq!(fx.trail(), CursorTrail::default(), "the control: trailed");
         // A long move, in flight when the preference changes.
+        fx.input(t0);
         feed(&mut t, b"\x1b[8;30H");
         let at = t0 + Duration::from_millis(2);
         let _ = fx.plan(at, &t, rect, CELL, widths());
@@ -1416,6 +1465,7 @@ mod tests {
             feed(&mut t, &lines);
             let mut fx = Timed::new(t0, TrailPick::Named(trail), ScreenTransition::Off);
             let _ = fx.plan(t0, &t, rect, CELL, widths());
+            fx.input(t0);
             feed(&mut t, b"\x1b[1;30H");
             let _ = fx.plan(t0 + ms(5), &t, rect, CELL, widths());
             let p = fx.plan(t0 + ms(20), &t, rect, CELL, widths());

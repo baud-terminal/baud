@@ -45,6 +45,12 @@
 //! * **Typing never ignites**: a move of two cells or fewer snaps, as it does
 //!   for the quad, and a burning flame follows the cursor it snapped to.
 //!
+//! And an effect lights only on a long move that **follows input**: a key, a
+//! paste, a click, the wheel or a focus gain at most [`FOLLOWS`] before the move
+//! ([`Chase::input`]). Output that moves the cursor on its own -- a stream,
+//! a build log, a full-screen program redrawing itself -- lights nothing, so
+//! nothing is shaded while it runs.
+//!
 //! **Above a 32 pt cell, a repeat pass is drawn under the flash thresholds**
 //! (every trail takes the bound, the ghost's sweeps
 //! weighed as a long move is, on the one [`Ledger`] every trail shares,
@@ -96,6 +102,15 @@ pub const THRESHOLD: f32 = 2.0;
 /// three times a second -- every effect but the plasma, which lights every
 /// long move ([`Chase::ignite`]).
 pub const REIGNITE: Duration = Duration::from_millis(334);
+
+/// **How near to input a long move must start to light an effect**: a key,
+/// a paste, a click, the wheel or a focus gain at most this long before the
+/// move. A program's own output moves the cursor with no input behind it --
+/// a stream, a build log, a full-screen program redrawing itself -- and
+/// lights nothing. A keystroke's echo from a local program comes back well
+/// inside it; over a link whose round trip is longer -- ssh to a far host
+/// -- the move a key asked for arrives after it and lights nothing.
+pub const FOLLOWS: Duration = Duration::from_millis(150);
 
 /// **How long a hidden cursor's trail takes to fade out**, seconds, and a
 /// shown one's to come back: kitty's slow corner's decay time, which its
@@ -300,6 +315,9 @@ pub struct Chase<M> {
     /// is out in 0.32 s, inside [`REIGNITE`], so a guard read off the live
     /// ignition would let a fourth bolt a second through.
     last_lit: Option<M>,
+    /// The last input -- a key, a paste, a click, the wheel, a focus gain --
+    /// which a long move must follow within [`FOLLOWS`] to light an effect.
+    input: Option<M>,
     /// The seed the next ignition takes: one an ignition, so no two in a
     /// session burn alike.
     next_seed: Seed,
@@ -375,6 +393,7 @@ impl<M: Moment> Chase<M> {
             pending: None,
             live: None,
             last_lit: None,
+            input: None,
             next_seed: Seed(1),
             axis: Pt { x: 1.0, y: 0.0 },
             swept: Ledger::new(),
@@ -456,6 +475,13 @@ impl<M: Moment> Chase<M> {
             }
         }
         self.look(rect, now, level)
+    }
+
+    /// **Input at `at`**: a key, a paste, a click, the wheel or a focus
+    /// gain, which a long move starting within [`FOLLOWS`] of it lights an
+    /// effect on.
+    pub fn input(&mut self, at: M) {
+        self.input = Some(at);
     }
 
     /// **The trail's opacity at `now`**, for a frame whose cursor is
@@ -658,7 +684,8 @@ impl<M: Moment> Chase<M> {
         }
     }
 
-    /// An effect's long move from `tail` to `rect`, starting `at`: a new
+    /// An effect's long move from `tail` to `rect`, starting `at`: nothing
+    /// unless input came at most [`FOLLOWS`] before it, then a new
     /// ignition, unless the last was lit within [`REIGNITE`] and still burns,
     /// which the quad carries on retargeted -- the liquid's restarting its
     /// back on this move (`Chase::restart`).
@@ -677,6 +704,14 @@ impl<M: Moment> Chase<M> {
         let Style::Effect(effect) = self.style else {
             return;
         };
+        // A move no input led to -- a program's own output -- lights
+        // nothing, the liquid's restart included.
+        if !self
+            .input
+            .is_some_and(|input| at.elapsed_since(input) <= FOLLOWS)
+        {
+            return;
+        }
         if effect != Effect::Plasma
             && self
                 .last_lit
@@ -1063,8 +1098,15 @@ mod tests {
     }
 
     impl Chase<Instant> {
-        /// The frame's trail as an effect, for the fire's tests.
+        /// The frame's trail as an effect, for the fire's tests, with input
+        /// at every frame: a person's moves.
         fn fire(&mut self, cursor: Option<Rect>, now: Instant) -> Option<Vfx> {
+            self.input(now);
+            self.streamed(cursor, now)
+        }
+
+        /// The frame's trail as an effect, with no input: a program's moves.
+        fn streamed(&mut self, cursor: Option<Rect>, now: Instant) -> Option<Vfx> {
             match self.frame(cursor, now, CELL, PT) {
                 Some(TrailLook::Vfx(f)) => Some(f),
                 None => None,
@@ -1825,6 +1867,73 @@ mod tests {
         );
     }
 
+    /// **A long move with no input behind it lights no effect**, for every
+    /// effect: a program streaming output moves the cursor far on its own,
+    /// and the move is taken -- counted, the chase at its new place -- and
+    /// draws nothing, so nothing is shaded and no frame is owed. Then a key
+    /// 40 ms before the next long move lights it. Perturbation: drop the
+    /// test in `ignite` -- every effect lights the streamed moves.
+    #[test]
+    fn a_long_move_with_no_input_behind_it_lights_nothing() {
+        for effect in Effect::ALL {
+            let t0 = Instant::now();
+            let (a, b) = (at(10.0, 5.0), at(60.0, 5.0));
+            let mut q = Chase::new(Style::Effect(effect));
+            q.streamed(Some(a), t0);
+            for k in 0..4u32 {
+                let (to, ms) = (if k % 2 == 0 { b } else { a }, 400 * k + 8);
+                q.streamed(Some(to), t0 + MS * ms);
+                assert_eq!(
+                    q.streamed(Some(to), t0 + MS * (ms + 12)),
+                    None,
+                    "{effect:?} move {k}: streamed, unlit"
+                );
+                assert_eq!(q.owes(t0 + MS * (ms + 14)), Owes::Nothing, "{effect:?}");
+            }
+            assert_eq!(q.longs, Count(4), "{effect:?}: every move taken");
+            q.input(t0 + MS * 1960);
+            q.streamed(Some(b), t0 + MS * 2000);
+            assert!(
+                q.streamed(Some(b), t0 + MS * 2012).is_some(),
+                "{effect:?}: a move 40 ms after a key lights"
+            );
+        }
+    }
+
+    /// **A move lights within [`FOLLOWS`] of the input and not past it**,
+    /// counted from when the cursor was first seen at its new place, the
+    /// moment the move is backdated to: seen 150 ms after a key it lights,
+    /// at 151 ms it does not. A key while the move waits out its dwell
+    /// lights it too: the echo of a key can land before the key's event is
+    /// read. Perturbation: count from the frame that takes the move -- the
+    /// move seen at 150 ms is 162 ms old there and stays dark.
+    #[test]
+    fn a_move_lights_within_follows_of_the_input() {
+        let follows = u32::try_from(FOLLOWS.as_millis()).unwrap();
+        for (seen, lit) in [(follows, true), (follows + 1, false)] {
+            let t0 = Instant::now();
+            let mut q = Chase::new(Style::Effect(Effect::Plasma));
+            q.streamed(Some(at(10.0, 5.0)), t0);
+            q.input(t0);
+            q.streamed(Some(at(60.0, 5.0)), t0 + MS * seen);
+            assert_eq!(
+                q.streamed(Some(at(60.0, 5.0)), t0 + MS * (seen + 12))
+                    .is_some(),
+                lit,
+                "seen {seen} ms after the key"
+            );
+        }
+        let t0 = Instant::now();
+        let mut q = Chase::new(Style::Effect(Effect::Plasma));
+        q.streamed(Some(at(10.0, 5.0)), t0);
+        q.streamed(Some(at(60.0, 5.0)), t0 + MS * 8);
+        q.input(t0 + MS * 12);
+        assert!(
+            q.streamed(Some(at(60.0, 5.0)), t0 + MS * 20).is_some(),
+            "a key inside the dwell"
+        );
+    }
+
     impl Chase<Instant> {
         /// The frame's trail as a smear, for the quad's and the sweep's
         /// tests.
@@ -1866,6 +1975,7 @@ mod tests {
     /// seen at `t0` and at 8 ms, taken at 18 and backdated to 8.
     fn in_flight(style: Style, t0: Instant) -> Chase<Instant> {
         let mut q = Chase::new(style);
+        q.input(t0);
         assert_eq!(q.frame(Some(at(10.0, 5.0)), t0, CELL, PT), None);
         assert_eq!(q.frame(Some(at(60.0, 5.0)), t0 + MS * 8, CELL, PT), None);
         assert!(
@@ -2179,6 +2289,7 @@ mod tests {
                     let t0 = Instant::now();
                     let mut q = Chase::new(style);
                     q.frame(Some(at(10.0, 44.0)), t0, CELL, PT);
+                    q.input(t0);
                     q.frame(Some(to), t0 + MS * 8, CELL, PT);
                     let mut slide = Slide::new(Px::of(34));
                     if !settled {
@@ -2614,6 +2725,7 @@ mod tests {
     /// A long move from (0, 0) to (90, 20), seen at `t0` and 2 ms on and
     /// taken at 20 ms, backdated to 2: what that frame draws.
     fn jumped(q: &mut Chase<Instant>, t0: Instant) -> TrailLook {
+        q.input(t0);
         q.frame(Some(at(0.0, 0.0)), t0, CELL, PT);
         q.frame(Some(at(90.0, 20.0)), t0 + MS * 2, CELL, PT);
         q.frame(Some(at(90.0, 20.0)), t0 + MS * 20, CELL, PT)
@@ -2780,6 +2892,7 @@ mod tests {
             after: Duration,
             pt: Points,
         ) -> Option<Strength> {
+            q.input(t0 + after);
             q.frame(Some(to), t0 + after, CELL, pt);
             strength(q.frame(Some(to), t0 + after + MS * 12, CELL, pt))
         }
@@ -2802,6 +2915,7 @@ mod tests {
             let mut seeds = std::collections::BTreeSet::new();
             for k in 1..10u32 {
                 let to = if k % 2 == 1 { a } else { b };
+                q.input(t0 + MS * (8 + 100 * k));
                 q.frame(Some(to), t0 + MS * (8 + 100 * k), CELL, ABOVE);
                 let look = q.frame(Some(to), t0 + MS * (20 + 100 * k), CELL, ABOVE);
                 if let Some(TrailLook::Vfx(v)) = look {
@@ -2854,6 +2968,7 @@ mod tests {
             let mut q = Chase::new(Style::Effect(Effect::Fire));
             q.frame(Some(a), t0, CELL, ABOVE);
             assert_eq!(moved(&mut q, t0, b, MS * 8, ABOVE), Some(Strength::Full));
+            q.input(t0 + MS * 408);
             q.frame(Some(a), t0 + MS * 408, CELL, ABOVE);
             let look = q.frame(Some(a), t0 + MS * 420, CELL, ABOVE);
             let Some(TrailLook::Vfx(v)) = look else {

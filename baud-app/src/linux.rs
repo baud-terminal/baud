@@ -4238,6 +4238,7 @@ impl Driver {
             px: (side(m.cell_w), side(m.cell_h)),
             height: baud_render::Points(side(m.cell_h) / scale as f32),
         };
+        self.timed.input(self.caret.last_input());
         let renderer = &self.renderer;
         let plan = self.timed.plan(
             seen_at,

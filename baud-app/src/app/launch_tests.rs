@@ -467,6 +467,8 @@ fn no_frame_draws_a_trail_over_the_history_the_wheel_scrolls_to() {
             s.screen_text().iter().any(|l| l == "ready")
         });
         let mut chase = crate::trail::Chase::new(kind.style());
+        // The Enter below is the input the move follows.
+        chase.input(baud_domain::HostTime::of_nanos(1_000_000_000));
         let (mut trail, mut last) = (None, None);
         let mut carried = crate::carried::Carried::new();
         // A frame at `t` seconds: its trail drawn, and the same frame
