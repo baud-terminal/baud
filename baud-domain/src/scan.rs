@@ -36,6 +36,11 @@ impl LaneMask {
     pub fn first(self) -> Option<Lane> {
         self.any().then(|| Lane(self.0.trailing_zeros() as usize))
     }
+    /// The mask without its first matching lane: the next `first` is the
+    /// one after it.
+    pub fn after_first(self) -> LaneMask {
+        LaneMask(self.0 & self.0.wrapping_sub(1))
+    }
 
     /// The first four characters, from the offset table.
     ///
@@ -900,6 +905,17 @@ impl Vectorized<Printable> {
         let l = v.simd_ge(Simd::splat(lo.0));
         let h = v.simd_le(Simd::splat(hi.0));
         LaneMask::from_movemask((l & h).to_bitmask() as u32)
+    }
+
+    /// Lanes equal to any of three bytes -- the link probe's `ESC`, `9D` and
+    /// `:`.
+    #[inline(always)]
+    pub fn any_of_three(self, a: StreamByte, b: StreamByte, c: StreamByte) -> LaneMask {
+        let v = self.lanes();
+        let x = v.simd_eq(Simd::splat(a.0));
+        let y = v.simd_eq(Simd::splat(b.0));
+        let z = v.simd_eq(Simd::splat(c.0));
+        LaneMask::from_movemask((x | y | z).to_bitmask() as u32)
     }
 
     /// Lanes equal to either of two bytes -- the string-terminator test.

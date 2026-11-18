@@ -949,32 +949,50 @@ fn linked(tail: &[u8], bytes: &[u8]) -> bool {
 /// and `profile:` ask nothing. One after a `;` is a control string's
 /// parameter, `OSC 7`'s folder at every prompt, which no click reads, and
 /// asks nothing either: `OSC 8`'s is asked for by its introducer.
+///
+/// Sixteen bytes a step: one compare finds the lanes holding `ESC`, `9D` or
+/// `:`, and only those are looked at. The bytes past the last whole block
+/// are looked at one by one.
 fn holds_link(b: &[u8]) -> bool {
-    let mut from = 0;
-    while let Some(p) = b[from..]
-        .iter()
-        .position(|&c| c == 0x1b || c == 0x9d || c == b':')
-    {
-        let at = from + p;
-        let rest = &b[at + 1..];
-        let hit = match b[at] {
-            0x1b => rest.starts_with(b"]8;"),
-            0x9d => rest.starts_with(b"8;"),
-            _ => {
-                let name = at
-                    .checked_sub(4)
-                    .map(|s| (&b[s..at], s.checked_sub(1).map(|q| b[q])));
-                name.is_some_and(|(name, before)| {
-                    name.eq_ignore_ascii_case(b"file") && before != Some(b';')
-                }) && rest.starts_with(b"//")
+    use baud_domain::{LANE_COUNT, Printable, StreamByte, Vectorized};
+    let s = StreamByte::slice_from(b);
+    let mut n = 0;
+    while n + LANE_COUNT <= b.len() {
+        let mut lanes = Vectorized::<Printable>::load(&s[n..]).any_of_three(
+            StreamByte::from_stream(0x1b),
+            StreamByte::from_stream(0x9d),
+            StreamByte::from_stream(b':'),
+        );
+        while let Some(l) = lanes.first() {
+            if link_at(b.split_at(n + l.index() + 1)) {
+                return true;
             }
-        };
-        if hit {
-            return true;
+            lanes = lanes.after_first();
         }
-        from = at + 1;
+        n += LANE_COUNT;
     }
-    false
+    (n..b.len()).any(|at| matches!(b[at], 0x1b | 0x9d | b':') && link_at(b.split_at(at + 1)))
+}
+
+/// Whether the `ESC`, `9D` or `:` that ends `head` begins an `OSC 8`
+/// introducer or is a `file://` URI's colon, `rest` being what follows it.
+fn link_at((head, rest): (&[u8], &[u8])) -> bool {
+    let Some((&mark, before)) = head.split_last() else {
+        return false;
+    };
+    match mark {
+        0x1b => rest.starts_with(b"]8;"),
+        0x9d => rest.starts_with(b"8;"),
+        _ => {
+            let name = before
+                .len()
+                .checked_sub(4)
+                .map(|s| (&before[s..], s.checked_sub(1).map(|q| before[q])));
+            name.is_some_and(|(name, before)| {
+                name.eq_ignore_ascii_case(b"file") && before != Some(b';')
+            }) && rest.starts_with(b"//")
+        }
+    }
 }
 
 /// How mount points are compared to a path.
@@ -4119,6 +4137,51 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Mutex;
     use std::time::Instant;
+
+    /// `holds_link` one byte at a time: what the block scan must answer.
+    fn holds_link_bytewise(b: &[u8]) -> bool {
+        (0..b.len()).any(|at| matches!(b[at], 0x1b | 0x9d | b':') && link_at(b.split_at(at + 1)))
+    }
+
+    #[test]
+    fn the_link_scan_answers_as_a_byte_at_a_time_scan_does_at_every_offset() {
+        let marks: [&[u8]; 8] = [
+            b"\x1b]8;",
+            b"\x9d8;",
+            b"file://",
+            b"FILE://",
+            b"profile:12",
+            b";file://",
+            b"\x1b]9;",
+            b"Makefile:12:",
+        ];
+        let mut asked = 0;
+        for mark in marks {
+            for len in mark.len()..80usize {
+                for at in 0..=len - mark.len() {
+                    let mut b = vec![b'a'; len];
+                    b[at..at + mark.len()].copy_from_slice(mark);
+                    assert_eq!(
+                        holds_link(&b),
+                        holds_link_bytewise(&b),
+                        "{mark:?} at {at} of {len}"
+                    );
+                    asked += 1;
+                }
+            }
+        }
+        // The marks that are links are found at every offset, in a block or
+        // in the tail past the last whole one.
+        for len in [16, 17, 31, 32, 33, 47, 63, 79] {
+            let mut b = vec![b'a'; len];
+            b[len - 4..].copy_from_slice(b"\x1b]8;");
+            assert!(holds_link(&b), "an introducer ending {len} bytes");
+        }
+        // A lane that is no link does not end its block's search: the link
+        // after it, in the same sixteen bytes, is found.
+        assert!(holds_link(b"a:b \x1b]9; file://h/aaaaaaaaaaaaaaaaaaaa"));
+        assert!(asked > 2000);
+    }
 
     /// What a stuck lookup waits on until the test lets it go.
     type Gate = Arc<Mutex<Receiver<()>>>;
