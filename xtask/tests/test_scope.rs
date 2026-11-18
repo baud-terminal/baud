@@ -233,8 +233,8 @@ fn a_tree_a_try_ran_clean_runs_only_the_gates_that_build_nothing() {
 #[test]
 fn a_tried_tree_that_reaches_every_crate_still_runs_everything() {
     let r = Repo::new();
-    r.put(".config/nextest.toml", "[profile.default]\n");
-    r.commit("nextest");
+    r.put(".pre-commit-config.yaml", "repos: []\n");
+    r.commit("hooks");
     let tree = r.git(&["rev-parse", "HEAD^{tree}"]);
     assert_eq!(r.scope_tried(Some(&tree)), ["full"]);
 }
@@ -311,11 +311,87 @@ fn what_every_crate_builds_from_runs_everything() {
 }
 
 #[test]
-fn the_test_runners_configuration_runs_everything() {
+fn a_runner_configuration_other_than_nextests_runs_everything() {
     let r = Repo::new();
-    r.put(".config/nextest.toml", "[profile.default]\n");
-    r.commit("nextest");
+    r.put(".config/other.toml", "[profile.default]\n");
+    r.commit("other configuration");
     assert_eq!(r.scope(), ["full"]);
+}
+
+/// The test runner's configuration, with an override whose filter is
+/// `filter`.
+fn nextest(filter: &str) -> String {
+    format!(
+        "[profile.default]\nslow-timeout = \"60s\"\n\n\
+         [[profile.default.overrides]]\nfilter = '{filter}'\ntest-group = '@global'\n"
+    )
+}
+
+#[test]
+fn a_nextest_change_plans_the_binaries_and_packages_its_changed_lines_name() {
+    let r = Repo::new();
+    r.put(".config/nextest.toml", &nextest("binary(=demo)"));
+    r.commit("nextest");
+    r.put(".config/nextest.toml", &nextest("binary(readme)"));
+    r.commit("the readme in place of the example");
+    assert_eq!(
+        r.scope(),
+        ["binary baud baud::example/demo", "binary baud baud::readme"],
+        "the line taken out names the example, the line put in the readme"
+    );
+    r.put(".config/nextest.toml", &nextest("package(other)"));
+    r.commit("other whole");
+    assert_eq!(
+        r.scope(),
+        ["package other", "binary baud baud::readme", "doc other"]
+    );
+}
+
+#[test]
+fn a_nextest_change_naming_no_binary_plans_what_reads_it() {
+    let r = Repo::new();
+    r.put(".config/nextest.toml", &nextest("binary(readme)"));
+    r.put(
+        "other/tests/runner.rs",
+        "#[test]\nfn reads() { let _ = std::fs::read(\"../.config/nextest.toml\"); }\n",
+    );
+    r.commit("nextest and its reader");
+    r.put(".config/nextest.toml", &nextest("binary(nowhere)"));
+    r.commit("a binary no package has");
+    assert_eq!(
+        r.scope(),
+        ["binary baud baud::readme", "binary other other::runner"]
+    );
+}
+
+#[test]
+fn a_reader_that_joins_the_manifest_directory_to_the_path_is_found() {
+    let r = Repo::new();
+    r.put(".config/nextest.toml", &nextest("binary(readme)"));
+    r.put(
+        "other/tests/window.rs",
+        "#[test]\nfn reads() {\n    let path = concat!(env!(\"CARGO_MANIFEST_DIR\"), \
+         \"/../.config/nextest.toml\");\n    let _ = std::fs::read(path);\n}\n",
+    );
+    r.commit("nextest and its reader");
+    let text = fs::read_to_string(r.path(".config/nextest.toml")).expect("the configuration");
+    r.put(".config/nextest.toml", &text.replace("\"60s\"", "\"30s\""));
+    r.commit("a shorter period");
+    assert_eq!(r.scope(), ["binary other other::window"]);
+}
+
+#[test]
+fn a_pre_push_change_plans_what_names_it() {
+    let r = Repo::new();
+    r.put("scripts/pre-push.sh", "#!/bin/sh\nexit 0\n");
+    r.put(
+        "other/tests/hook.rs",
+        "#[test]\nfn reads() { let _ = std::fs::read(\"../scripts/pre-push.sh\"); }\n",
+    );
+    r.commit("the hook and its reader");
+    r.put("scripts/pre-push.sh", "#!/bin/sh\nexit 1\n");
+    r.commit("the hook");
+    assert_eq!(r.scope(), ["binary other other::hook"]);
 }
 
 #[test]
@@ -404,4 +480,14 @@ fn documentation_is_markdown_and_the_readme_assets() {
     assert!(is_doc("assets/readme/session.gif"));
     assert!(!is_doc("assets/demo/links.txt"));
     assert!(!is_doc("baud-core/src/lib.rs"));
+}
+
+#[test]
+fn a_nextest_filter_the_plan_cannot_list_runs_everything() {
+    let r = Repo::new();
+    r.put(".config/nextest.toml", &nextest("binary(readme)"));
+    r.commit("nextest");
+    r.put(".config/nextest.toml", &nextest("rdeps(baud-core)"));
+    r.commit("what builds from core");
+    assert_eq!(r.scope(), ["full"]);
 }

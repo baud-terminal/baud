@@ -11,8 +11,11 @@
 //! ignore included. It prints one tab-separated line per step:
 //!
 //! - `full<TAB><reason>`, alone: every gate runs. A path that reaches every
-//!   crate (`features-since`'s list), the test runner's or the hooks'
-//!   configuration, and a scope that cannot be computed print it.
+//!   crate (`features-since`'s list), the hooks' configuration, a file
+//!   under `.config/` other than `.config/nextest.toml`, a changed line of
+//!   `.config/nextest.toml` whose filter selects tests by more than a
+//!   binary's or a package's name, and a scope that cannot be computed
+//!   print it.
 //! - `package<TAB><name><TAB><reason>`: every test of the package and its
 //!   doc tests. A changed path in a member reaches that member and every
 //!   member that builds from it (`features-since`'s reach); so does a file
@@ -24,6 +27,11 @@
 //!   it, a tail of it from a `/`, or its extension, as a walker of `.md`
 //!   files names `".md"`), or includes a source that does. A source that
 //!   belongs to no test binary names its whole package.
+//! - A change to `.config/nextest.toml` plans, beside the tests that read
+//!   it, each binary a `binary(<name>)` on a line it adds or removes names
+//!   (a `binary` line for every member target of that name) and each member
+//!   a `package(<name>)` there names (a `package` line). A changed line
+//!   that sets a value and names no binary and no package adds nothing.
 //! - `doc<TAB><name>`: the doc tests of each package a `package` line
 //!   names that has a library.
 //! - `clippy<TAB><name>`: the clippy of each package a `package` line
@@ -61,14 +69,82 @@ use serde_json::Value;
 use crate::features_since::{Scan, everything, lex, walk};
 
 /// Paths whose change reaches every gate, on top of `features-since`'s:
-/// the test runner's configuration, the hooks', and this scope's own code.
-const FULL_PREFIXES: [&str; 5] = [
-    ".config/",
-    ".pre-commit-config.yaml",
-    "scripts/pre-push.sh",
-    "xtask/src/scoped_test.rs",
-    "xtask/src/test_scope.rs",
-];
+/// the configuration under `.config/` but [`NEXTEST`], and the hooks'.
+const FULL_PREFIXES: [&str; 2] = [".config/", ".pre-commit-config.yaml"];
+
+/// The test runner's configuration: a change to it plans what the filters
+/// on its changed lines name, and the tests that read it.
+pub const NEXTEST: &str = ".config/nextest.toml";
+
+/// What a filter on a changed line of [`NEXTEST`] names.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Named {
+    /// A test binary, `binary(<name>)` or `binary(=<name>)`.
+    Binary(String),
+    /// A package, `package(<name>)` or `package(=<name>)`.
+    Package(String),
+    /// A selection whose tests the plan does not list, as written: a
+    /// `binary` or `package` matcher that is a glob, a regular expression
+    /// or a substring, any predicate but those two and `test`, or a `test`
+    /// on a line that names no binary and no package.
+    Unbounded(String),
+}
+
+fn is_word(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '-'
+}
+
+/// What the filter predicates on the lines a diff of [`NEXTEST`] adds or
+/// removes name, in the order they appear. Only the lines after the first
+/// hunk header are read, so the file headers are not, and a comment line
+/// names nothing.
+pub fn named(diff: &str) -> Vec<Named> {
+    let mut out = Vec::new();
+    let lines = diff
+        .lines()
+        .skip_while(|l| !l.starts_with("@@"))
+        .filter(|l| l.starts_with('+') || l.starts_with('-'))
+        .map(|l| &l[1..])
+        .filter(|l| !l.trim_start().starts_with('#'));
+    for line in lines {
+        let b = line.as_bytes();
+        let (mut i, mut bounded, mut tests) = (0, false, false);
+        while i < b.len() {
+            if !b[i].is_ascii_lowercase() || (i > 0 && is_word(char::from(b[i - 1]))) {
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < b.len() && (b[i].is_ascii_lowercase() || b[i] == b'_') {
+                i += 1;
+            }
+            if b.get(i) != Some(&b'(') {
+                continue;
+            }
+            let pred = &line[start..i];
+            let close = line[i..].find(')').map(|n| i + n);
+            let written = &line[start..close.map_or(line.len(), |c| c + 1)];
+            let arg = close.map(|c| line[i + 1..c].trim());
+            i = close.map_or(line.len(), |c| c + 1);
+            let name = arg.map(|a| a.strip_prefix('=').unwrap_or(a));
+            let plain = name.filter(|n| !n.is_empty() && n.chars().all(is_word));
+            out.push(match (pred, plain) {
+                ("binary", Some(n)) => Named::Binary(n.to_string()),
+                ("package", Some(n)) => Named::Package(n.to_string()),
+                ("test", _) if arg.is_some() => {
+                    tests = true;
+                    continue;
+                }
+                _ => Named::Unbounded(written.to_string()),
+            });
+            bounded = true;
+        }
+        if tests && !bounded {
+            out.push(Named::Unbounded(line.trim().to_string()));
+        }
+    }
+    out
+}
 
 /// The package whose code the event rig and the Linux clippy build.
 const RIG: &str = "baud";
@@ -201,10 +277,15 @@ pub fn is_doc(path: &str) -> bool {
 }
 
 /// Whether a string literal in a source names `path`: the path itself
-/// (leading `./` and `../` taken off), a directory above it, a tail of it
-/// that starts at a `/`, or, for a literal such as `".md"`, its extension.
+/// (leading `./` and `../` taken off, and the `/` before them of a literal
+/// joined to a directory, as `"/../x"` is), a directory above it, a tail of
+/// it that starts at a `/`, or, for a literal such as `".md"`, its
+/// extension.
 pub fn names(lit: &str, path: &str) -> bool {
     let mut l = lit;
+    if l.starts_with("/../") || l.starts_with("/./") {
+        l = &l[1..];
+    }
     loop {
         if let Some(r) = l.strip_prefix("../") {
             l = r;
@@ -284,6 +365,8 @@ pub struct Inputs<'a> {
     pub packages: &'a [Package],
     /// Each member source file with its string literals.
     pub sources: &'a [(String, Vec<String>)],
+    /// What the filters on the changed lines of [`NEXTEST`] name.
+    pub named: &'a [Named],
 }
 
 struct Builder<'a> {
@@ -347,6 +430,39 @@ impl Builder<'_> {
         }
     }
 
+    /// Adds the binaries and the members the changed lines of [`NEXTEST`]
+    /// name: every member target of a binary's name, every member of a
+    /// package's. An error holding the selection as written when one
+    /// selects tests by more than a binary's or a package's name.
+    fn filters(&mut self) -> Result<(), String> {
+        for n in self.i.named {
+            match n {
+                Named::Binary(name) => {
+                    let why = format!("a changed line of {NEXTEST} names binary({name})");
+                    for p in self.i.packages {
+                        for t in p.targets.iter().filter(|t| &t.name == name) {
+                            if let Some(id) = binary_id(&p.name, t) {
+                                self.plan
+                                    .binaries
+                                    .entry((p.name.clone(), id))
+                                    .or_insert_with(|| why.clone());
+                            }
+                        }
+                    }
+                }
+                Named::Package(name) => {
+                    if self.i.packages.iter().any(|p| &p.name == name) {
+                        self.plan.packages.entry(name.clone()).or_insert_with(|| {
+                            format!("a changed line of {NEXTEST} names package({name})")
+                        });
+                    }
+                }
+                Named::Unbounded(what) => return Err(what.clone()),
+            }
+        }
+        Ok(())
+    }
+
     /// A file outside the members: the whole reach when a library other
     /// members build from reads it at compile time, else the binaries that
     /// read it at compile time or name it. `false` when it reaches every
@@ -406,7 +522,7 @@ pub fn plan(i: &Inputs) -> Plan {
     let paths = i.paths;
     if let Some(p) = paths
         .iter()
-        .find(|p| FULL_PREFIXES.iter().any(|f| p.starts_with(f)))
+        .find(|p| *p != NEXTEST && FULL_PREFIXES.iter().any(|f| p.starts_with(f)))
     {
         return Plan::everything(format!("{p} changed, so every gate runs"));
     }
@@ -442,6 +558,14 @@ pub fn plan(i: &Inputs) -> Plan {
         }
     }
     for p in &outside {
+        if p == NEXTEST {
+            if let Err(what) = b.filters() {
+                return Plan::everything(format!(
+                    "a changed line of {p} selects {what}, which the plan does not list, so \
+                     every gate runs"
+                ));
+            }
+        }
         if !b.outside(p) {
             return Plan::everything(format!("{p} reaches every crate"));
         }
@@ -523,6 +647,30 @@ pub fn changed(from: &str, to: Option<&str>) -> Result<Vec<String>, String> {
         )?;
     }
     Ok(paths.into_iter().collect())
+}
+
+/// The diff of [`NEXTEST`] between `from` and `to`, or between `from` and
+/// the working tree. An untracked file is all added lines.
+fn nextest_diff(from: &str, to: Option<&str>) -> Result<String, String> {
+    let mut args = vec!["diff", "--no-color", "--no-ext-diff", "-U0", from];
+    if let Some(to) = to {
+        args.push(to);
+    }
+    args.extend(["--", NEXTEST]);
+    let diff = String::from_utf8_lossy(&git(&args)?).into_owned();
+    if to.is_some() || !diff.is_empty() {
+        return Ok(diff);
+    }
+    let Ok(text) = fs::read_to_string(NEXTEST) else {
+        return Ok(diff);
+    };
+    let mut added = String::from("@@\n");
+    for l in text.lines() {
+        added.push('+');
+        added.push_str(l);
+        added.push('\n');
+    }
+    Ok(added)
 }
 
 fn text_of<'a>(v: &'a Value, k: &str) -> Result<&'a str, String> {
@@ -624,15 +772,21 @@ pub fn run(args: &[&str], out: &mut impl Write) -> io::Result<u8> {
         let scan = Scan::load().ok_or("the workspace could not be scanned")?;
         let reach = |p: &[String]| scan.reach(p);
         let sources = sources(&packages);
-        let plan_of = |paths: &[String]| {
-            plan(&Inputs {
+        let plan_of = |base: &str, paths: &[String]| -> Result<Plan, String> {
+            let named = if paths.iter().any(|p| p == NEXTEST) {
+                named(&nextest_diff(base, to)?)
+            } else {
+                Vec::new()
+            };
+            Ok(plan(&Inputs {
                 paths,
                 reach: &reach,
                 packages: &packages,
                 sources: &sources,
-            })
+                named: &named,
+            }))
         };
-        let whole = plan_of(&paths);
+        let whole = plan_of(from, &paths)?;
         let Some(to) = to.filter(|_| whole.full.is_none()) else {
             return Ok(Scope::Plan(whole));
         };
@@ -640,7 +794,7 @@ pub fn run(args: &[&str], out: &mut impl Write) -> io::Result<u8> {
             return Ok(Scope::Tried(why));
         }
         if let Some(n) = nearest(to, &paths) {
-            let from_tree = plan_of(&n.paths);
+            let from_tree = plan_of(&n.hash, &n.paths)?;
             if from_tree.full.is_none() {
                 return Ok(Scope::FromTried(n.tree, from_tree));
             }
@@ -680,6 +834,8 @@ enum Scope {
 struct Nearest {
     /// The tree's first twelve hex digits and its lane.
     tree: String,
+    /// The tree's hash.
+    hash: String,
     /// The paths that differ.
     paths: Vec<String>,
 }
@@ -708,6 +864,7 @@ fn nearest(to: &str, whole: &[String]) -> Option<Nearest> {
             let short = tree.get(..12).unwrap_or(tree);
             best = Some(Nearest {
                 tree: format!("{short} {lane}"),
+                hash: tree.to_string(),
                 paths,
             });
         }
