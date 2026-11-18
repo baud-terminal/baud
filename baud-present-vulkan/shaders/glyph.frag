@@ -1,8 +1,6 @@
 #version 450
-#extension GL_GOOGLE_include_directive : require
 // `glyph_fragment`: a mask's coverage bent by its contrast curve, a colour
 // glyph's texel, or a flat colour; premultiplied out.
-#include "common.glsl"
 
 layout(location = 0) in vec2 in_uv;
 layout(location = 1) in vec4 in_color;

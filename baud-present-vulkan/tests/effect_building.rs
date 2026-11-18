@@ -91,19 +91,26 @@ fn draw(gpu: &Gpu, pipes: &mut Pipelines, t: &Target, records: &[u8]) -> Drawn {
         texel,
         bytes,
     };
+    let sheets = common::sheets(
+        gpu,
+        tex(Texel::Coverage, &one[..1]),
+        tex(Texel::Argb, &one),
+        &curves,
+    );
     let scene = Scene {
         u: [
             W as f32, H as f32, 8.0, 8.0, 4.0, 2.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0,
         ],
         backgrounds: tex(Texel::Argb, &one),
-        mask: tex(Texel::Coverage, &one[..1]),
-        color: tex(Texel::Argb, &one),
-        curves: &curves,
+        sheets: &sheets,
         records,
         count: Records(1),
     };
-    gpu.draw_effect_when_ready(pipes, t, &scene, Fx::Fire, Blend::Normal, &fire_u())
-        .expect("a draw")
+    let drawn = gpu
+        .draw_effect_when_ready(pipes, t, &scene, Fx::Fire, Blend::Normal, &fire_u())
+        .expect("a draw");
+    sheets.destroy(gpu);
+    drawn
 }
 
 /// Whether `pipes`' wake descriptor becomes readable within `limit`.

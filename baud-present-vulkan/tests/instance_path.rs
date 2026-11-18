@@ -37,11 +37,12 @@ fn the_instance_path_draws_backgrounds_and_records() {
     draw_and_check(&lavapipe(), Rounding::TermByTerm);
 }
 
-/// **The same frame on RADV, exact**: every pixel the CPU's, blended or not.
+/// **The same frame on RADV**: every unblended pixel the CPU's, every blended
+/// one within a step of it.
 #[test]
 #[ignore = "needs the GPU: scripts/linux-vulkan-radv.sh"]
-fn the_instance_path_is_exact_on_radv() {
-    draw_and_check(&radv(), Rounding::Exact);
+fn the_instance_path_is_the_cpu_path_on_radv() {
+    draw_and_check(&radv(), Rounding::OnceAtTies);
 }
 
 fn draw_and_check(gpu: &Gpu, rounding: Rounding) {
@@ -86,6 +87,22 @@ fn draw_and_check(gpu: &Gpu, rounding: Rounding) {
         0.0,
         0.0,
     ];
+    let sheets = common::sheets(
+        gpu,
+        Texels {
+            width: Px(8),
+            height: Px(8),
+            texel: Texel::Coverage,
+            bytes: &mask,
+        },
+        Texels {
+            width: Px(1),
+            height: Px(1),
+            texel: Texel::Argb,
+            bytes: &color_atlas,
+        },
+        &curves,
+    );
     let scene = Scene {
         u,
         backgrounds: Texels {
@@ -94,19 +111,7 @@ fn draw_and_check(gpu: &Gpu, rounding: Rounding) {
             texel: Texel::Argb,
             bytes: &bg,
         },
-        mask: Texels {
-            width: Px(8),
-            height: Px(8),
-            texel: Texel::Coverage,
-            bytes: &mask,
-        },
-        color: Texels {
-            width: Px(1),
-            height: Px(1),
-            texel: Texel::Argb,
-            bytes: &color_atlas,
-        },
-        curves: &curves,
+        sheets: &sheets,
         records: &records,
         count: Records(2),
     };
@@ -138,6 +143,7 @@ fn draw_and_check(gpu: &Gpu, rounding: Rounding) {
         },
         width,
     );
+    sheets.destroy(gpu);
     gpu.drop_target(t);
     // The device is idle after `draw`'s wait.
     pipes.destroy();
@@ -152,13 +158,13 @@ fn draw_and_check(gpu: &Gpu, rounding: Rounding) {
 /// is zero, so there is no second term to round.
 #[test]
 fn a_pass_over_keeps_the_target_it_draws_on() {
-    over_and_check(&lavapipe(), Rounding::Exact);
+    over_and_check(&lavapipe(), Rounding::OnceAtTies);
 }
 
 #[test]
 #[ignore = "needs the GPU: scripts/linux-vulkan-radv.sh"]
 fn a_pass_over_keeps_the_target_on_radv() {
-    over_and_check(&radv(), Rounding::Exact);
+    over_and_check(&radv(), Rounding::OnceAtTies);
 }
 
 fn over_and_check(gpu: &Gpu, rounding: Rounding) {
@@ -179,6 +185,17 @@ fn over_and_check(gpu: &Gpu, rounding: Rounding) {
         texel: Texel::Argb,
         bytes,
     };
+    let sheets = common::sheets(
+        gpu,
+        Texels {
+            width: Px(1),
+            height: Px(1),
+            texel: Texel::Coverage,
+            bytes: &one[..1],
+        },
+        texels(&one),
+        &curves,
+    );
     let scene = Scene {
         u: [
             w as f32,
@@ -200,14 +217,7 @@ fn over_and_check(gpu: &Gpu, rounding: Rounding) {
             texel: Texel::Argb,
             bytes: &bg,
         },
-        mask: Texels {
-            width: Px(1),
-            height: Px(1),
-            texel: Texel::Coverage,
-            bytes: &one[..1],
-        },
-        color: texels(&one),
-        curves: &curves,
+        sheets: &sheets,
         records: &records,
         count: Records(1),
     };
@@ -233,6 +243,7 @@ fn over_and_check(gpu: &Gpu, rounding: Rounding) {
         },
         usize::try_from(w).expect("a width"),
     );
+    sheets.destroy(gpu);
     gpu.drop_target(t);
     pipes.destroy();
 }

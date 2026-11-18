@@ -20,7 +20,7 @@ pub struct Premultiplied(pub u32);
 impl Premultiplied {
     /// The clear value: each channel's byte as a UNORM float, in the
     /// image's `B8G8R8A8` order of channels named R, G, B, A.
-    fn clear(self) -> vk::ClearColorValue {
+    pub(crate) fn clear(self) -> vk::ClearColorValue {
         let [b, g, r, a] = self.0.to_le_bytes();
         let f = |c: u8| f32::from(c) / 255.0;
         vk::ClearColorValue {
@@ -87,6 +87,12 @@ pub struct Target {
     pub size: Bytes,
 }
 
+/// A command buffer and fence reused frame after frame.
+pub(crate) struct Recorder {
+    cb: vk::CommandBuffer,
+    fence: vk::Fence,
+}
+
 /// Why the GPU path could not be made.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Failed {
@@ -95,6 +101,8 @@ pub enum Failed {
     NoMemoryType,
     /// A committed shader is not whole SPIR-V words.
     Spirv,
+    /// A copy to a sheet that does not fit it, or of another texel.
+    Outside,
 }
 
 impl Target {
@@ -575,6 +583,70 @@ impl Gpu {
             d.free_memory(memory, None);
         }
         read
+    }
+
+    /// **A command buffer and a fence made once**, for a frame drawn again
+    /// and again ([`Gpu::submit_reusing`]).
+    #[allow(unsafe_code)]
+    pub(crate) fn recorder(&self) -> Result<Recorder, Failed> {
+        let d = &self.device;
+        let alloc = vk::CommandBufferAllocateInfo::default()
+            .command_pool(self.pool)
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(1);
+        // SAFETY: the pool is this device's.
+        let cb = unsafe { d.allocate_command_buffers(&alloc) }?[0];
+        // SAFETY: a device of this struct.
+        let fence = match unsafe { d.create_fence(&vk::FenceCreateInfo::default(), None) } {
+            Ok(f) => f,
+            Err(e) => {
+                // SAFETY: never submitted.
+                unsafe { d.free_command_buffers(self.pool, &[cb]) };
+                return Err(e.into());
+            }
+        };
+        Ok(Recorder { cb, fence })
+    }
+
+    /// **[`Gpu::submit_and_wait`] through `r`'s buffer and fence**, reset and
+    /// reused: a frame that makes no command buffer and no fence.
+    #[allow(unsafe_code)]
+    pub(crate) fn submit_reusing(
+        &self,
+        r: &Recorder,
+        record: impl FnOnce(vk::CommandBuffer),
+    ) -> Result<(), Failed> {
+        let d = &self.device;
+        let begin = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        // SAFETY: the buffer and fence are idle: every submission through
+        // them is waited for before this returns.
+        unsafe {
+            d.reset_command_buffer(r.cb, vk::CommandBufferResetFlags::empty())?;
+            d.reset_fences(&[r.fence])?;
+            d.begin_command_buffer(r.cb, &begin)?;
+        }
+        record(r.cb);
+        let cbs = [r.cb];
+        let submit = [vk::SubmitInfo::default().command_buffers(&cbs)];
+        // SAFETY: the buffer is recorded and the fence unsignalled.
+        unsafe {
+            d.end_command_buffer(r.cb)?;
+            d.queue_submit(self.queue, &submit, r.fence)?;
+            d.wait_for_fences(&[r.fence], true, u64::MAX)?;
+        }
+        Ok(())
+    }
+
+    /// `r`'s buffer and fence freed; nothing submitted through it is
+    /// pending, as every submission is waited for.
+    #[allow(unsafe_code)]
+    pub(crate) fn drop_recorder(&self, r: Recorder) {
+        // SAFETY: idle, as above.
+        unsafe {
+            self.device.destroy_fence(r.fence, None);
+            self.device.free_command_buffers(self.pool, &[r.cb]);
+        }
     }
 
     /// Record with `record` into a fresh command buffer, submit it alone,

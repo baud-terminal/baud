@@ -95,14 +95,18 @@ fn gpu_frame(
         texel,
         bytes,
     };
+    let sheets = common::sheets(
+        gpu,
+        tex(Texel::Coverage, &one[..1]),
+        tex(Texel::Argb, &one),
+        &curves,
+    );
     let scene = Scene {
         u: [
             W as f32, H as f32, 10.0, 23.0, 24.0, 4.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0,
         ],
         backgrounds: tex(Texel::Argb, &one),
-        mask: tex(Texel::Coverage, &one[..1]),
-        color: tex(Texel::Argb, &one),
-        curves: &curves,
+        sheets: &sheets,
         records,
         count: n,
     };
@@ -114,6 +118,7 @@ fn gpu_frame(
         drawn = gpu.draw_fireworks(pipes, &t, &scene, u).expect("a draw");
     }
     let got = gpu.read(&t).expect("the frame read back");
+    sheets.destroy(gpu);
     gpu.drop_target(t);
     got
 }

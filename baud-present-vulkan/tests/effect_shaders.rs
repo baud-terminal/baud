@@ -6,9 +6,11 @@
 
 #![cfg(target_os = "linux")]
 
+mod spirv;
+
 use baud_render::effect::{Cap, Effect, Ignition, Seed, UNIFORM_FLOATS, Vfx};
 use baud_render::{Corners, Pt, Rect, Shape, Smear, Strength};
-use std::collections::HashMap;
+use spirv::{Binding, Block, DescriptorSet, block};
 use std::path::PathBuf;
 
 /// The shaders' folder.
@@ -35,97 +37,6 @@ fn stems() -> Vec<&'static str> {
     stems.push("fx_plasma_multiply");
     stems.push("fx_plasma_factor");
     stems
-}
-
-/// **What a module says about its `EffectU`**: the members' names and
-/// offsets in order, and the set and binding of the variable of that type.
-#[derive(Debug, PartialEq)]
-struct Block {
-    members: Vec<(String, u32)>,
-    set: DescriptorSet,
-    binding: Binding,
-}
-
-/// A `DescriptorSet` decoration's operand.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct DescriptorSet(u32);
-
-/// A `Binding` decoration's operand.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Binding(u32);
-
-/// A SPIR-V string operand: UTF-8, nul-terminated, in little-endian words.
-fn string(words: &[u32]) -> String {
-    let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
-    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-    String::from_utf8_lossy(&bytes[..end]).into_owned()
-}
-
-/// **The `EffectU` block of a SPIR-V module**, read from its instructions
-/// (`OpName` 5, `OpMemberName` 6, `OpDecorate` 71, `OpMemberDecorate` 72,
-/// `OpTypePointer` 32, `OpVariable` 59; decorations `Binding` 33,
-/// `DescriptorSet` 34, `Offset` 35), after the five-word header.
-fn effect_block(spv: &[u8]) -> Option<Block> {
-    let words: Vec<u32> = spv
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|c| u32::from_le_bytes(*c))
-        .collect();
-    assert_eq!(words.first(), Some(&0x0723_0203), "SPIR-V's magic number");
-    let mut names: HashMap<u32, String> = HashMap::new();
-    let mut member_names: HashMap<(u32, u32), String> = HashMap::new();
-    let mut offsets: HashMap<(u32, u32), u32> = HashMap::new();
-    let mut decorations: HashMap<(u32, u32), u32> = HashMap::new();
-    let mut pointers: HashMap<u32, u32> = HashMap::new();
-    let mut variables: Vec<(u32, u32)> = Vec::new();
-    let mut at = 5;
-    while at < words.len() {
-        let count = usize::try_from(words[at] >> 16).ok()?;
-        let op = words[at] & 0xffff;
-        let ins = words.get(at..at + count)?;
-        match op {
-            5 => {
-                names.insert(ins[1], string(&ins[2..]));
-            }
-            6 => {
-                member_names.insert((ins[1], ins[2]), string(&ins[3..]));
-            }
-            71 if ins.len() >= 4 => {
-                decorations.insert((ins[1], ins[2]), ins[3]);
-            }
-            72 if ins.len() >= 5 && ins[3] == 35 => {
-                offsets.insert((ins[1], ins[2]), ins[4]);
-            }
-            32 => {
-                pointers.insert(ins[1], ins[3]);
-            }
-            59 => variables.push((ins[1], ins[2])),
-            _ => {}
-        }
-        at += count.max(1);
-    }
-    let block = *names.iter().find(|(_, n)| n.as_str() == "EffectU")?.0;
-    let mut members: Vec<(u32, String, u32)> = member_names
-        .iter()
-        .filter(|((s, _), _)| *s == block)
-        .map(|((_, m), n)| {
-            (
-                *m,
-                n.clone(),
-                offsets.get(&(block, *m)).copied().unwrap_or(u32::MAX),
-            )
-        })
-        .collect();
-    members.sort();
-    let (_, var) = variables
-        .iter()
-        .find(|(ty, _)| pointers.get(ty) == Some(&block))?;
-    Some(Block {
-        members: members.into_iter().map(|(_, n, o)| (n, o)).collect(),
-        set: DescriptorSet(*decorations.get(&(*var, 34))?),
-        binding: Binding(*decorations.get(&(*var, 33))?),
-    })
 }
 
 /// An effect lit on a quad, at `age`, for reading its uniform.
@@ -200,9 +111,9 @@ fn every_effect_shader_reads_the_uniform_where_rust_writes_it() {
             missing.push(stem);
             continue;
         };
-        let block = effect_block(&bytes).unwrap_or_else(|| panic!("{stem}: no EffectU"));
+        let found = block(&bytes, "EffectU").unwrap_or_else(|| panic!("{stem}: no EffectU"));
         assert_eq!(
-            block,
+            found,
             Block {
                 members: want.clone(),
                 set: DescriptorSet(2),

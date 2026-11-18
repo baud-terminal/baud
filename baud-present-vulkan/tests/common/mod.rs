@@ -9,21 +9,33 @@
 use baud_present_vulkan::choose::{Kind, SyncObj, choose};
 use baud_present_vulkan::frame::Gpu;
 use baud_present_vulkan::vk::Vulkan;
+use baud_present_wayland::Px;
 use baud_present_wayland::dmabuf::{
     Count, Device, Feedback, Format, Fourcc, Modifier, Tranche, TrancheFlags,
 };
 
 /// **How a device rounds a blend at partial alpha.** Lavapipe rounds the
 /// source and destination terms each to a byte before it adds them (133
-/// for the CPU's 132 at coverage 72, 240 over 90); RADV forms the sum in
-/// floats and rounds once.
+/// for the CPU's 132 at coverage 72, 240 over 90); RADV forms the exact
+/// sum and rounds it once, at a precision that can land a step either side
+/// where the sum lies within [`TIE_WINDOW`] of a half
+/// (`blend_rounding.rs`). Either way a blended pixel is within one step of
+/// the CPU's, and an unblended one is its byte.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Rounding {
-    /// Each term to a byte before the sum: within one step of the CPU.
+    /// Each term to a byte before the sum: some blended pixel takes the
+    /// step, the control that the allowance is what lets them through.
     TermByTerm,
-    /// The sum in floats, rounded once: the CPU's bytes.
-    Exact,
+    /// The exact sum, rounded once: a blended pixel within a step of the
+    /// CPU's byte.
+    OnceAtTies,
 }
+
+/// **How near a half step, in 255ths, an exact sum lies where RADV may
+/// round it the other way**: 26, over the 20 observed on an RX 9070 XT
+/// across every coverage of six ink and page pairs (`blend_rounding.rs`).
+/// Widened only on new isolation data.
+pub const TIE_WINDOW: u32 = 26;
 
 /// The first GPU with a render node, offered ARGB8888 on LINEAR.
 pub fn radv() -> Gpu {
@@ -116,52 +128,84 @@ pub struct Bar {
 }
 
 /// **`got` against `want`, pixel for pixel**: exact where `blended` is
-/// false, and where it is true exact under [`Rounding::Exact`] and within
-/// a step a channel under [`Rounding::TermByTerm`] -- where, as the
-/// control, some pixel must take the step, so the allowance is what lets
-/// them through rather than a scene that never blends.
+/// false, and within a step a channel where it is true, on every device;
+/// under [`Rounding::TermByTerm`], as the control, some pixel must take the
+/// step, so the allowance is what lets them through rather than a scene
+/// that never blends.
 pub fn assert_frame(got: &[u32], want: &[u32], blended: &[bool], bar: Bar, width: usize) {
+    let width = Px(u32::try_from(width).expect("a width"));
+    assert_frame_of("the frame", got, want, blended, bar, width);
+}
+
+/// **[`assert_frame`], each failure named by `what`**: the scene and the
+/// path the frame is of.
+pub fn assert_frame_of(
+    what: &str,
+    got: &[u32],
+    want: &[u32],
+    blended: &[bool],
+    bar: Bar,
+    width: Px,
+) {
+    let stacked = vec![false; blended.len()];
+    assert_frame_stacked(what, got, want, (blended, &stacked), bar, width);
+}
+
+/// **[`assert_frame_of`], with the pixels two or more blends stack on**:
+/// where each term of each blend is rounded to a byte
+/// ([`Rounding::TermByTerm`]) such a pixel may take a second step, as an
+/// effect's records stacked on lavapipe do (`effect_pixels.rs`); a device
+/// that rounds the sum once holds it to one.
+pub fn assert_frame_stacked(
+    what: &str,
+    got: &[u32],
+    want: &[u32],
+    (blended, stacked): (&[bool], &[bool]),
+    bar: Bar,
+    width: Px,
+) {
+    let width = usize::try_from(width.0).expect("a width");
     let Bar { rounding, driver } = bar;
     assert_eq!(
-        (got.len(), want.len(), blended.len()),
-        (want.len(), blended.len(), got.len())
+        (got.len(), want.len(), blended.len(), stacked.len()),
+        (want.len(), blended.len(), got.len(), got.len()),
+        "{what}: the frames' sizes"
     );
     let mut wrong = Vec::new();
     let mut stepped = 0;
-    for (i, ((&g, &w), &b)) in got.iter().zip(want).zip(blended).enumerate() {
-        let ok = match (b, rounding) {
-            (true, Rounding::TermByTerm) => {
-                stepped += usize::from(g != w);
-                spread(g, w) <= 1
-            }
-            _ => g == w,
+    for (i, (((&g, &w), &b), &s)) in got.iter().zip(want).zip(blended).zip(stacked).enumerate() {
+        let steps = match (b, s, rounding) {
+            (false, _, _) => 0,
+            (true, true, Rounding::TermByTerm) => 2,
+            (true, _, _) => 1,
         };
-        if !ok {
-            wrong.push((i % width, i / width, g, w));
+        stepped += usize::from(b && g != w);
+        if spread(g, w) > steps {
+            wrong.push(format!("({}, {}, {g:08x}, {w:08x})", i % width, i / width));
         }
     }
     assert!(
         wrong.is_empty(),
-        "{} pixels wrong, the first (x, y, got, want) {:x?}",
+        "{what}: {} pixels wrong, the first (x, y, got, want) {}",
         wrong.len(),
-        &wrong[..wrong.len().min(6)]
+        wrong[..wrong.len().min(6)].join(" ")
     );
     assert!(
-        rounding == Rounding::Exact || stepped > 0,
-        "no blended pixel took the step: the allowance tested nothing"
+        rounding == Rounding::OnceAtTies || stepped > 0,
+        "{what}: no blended pixel took the step: the allowance tested nothing"
     );
     let bias = mean_signed(got, want, blended);
     if !bias_gated(driver) {
         eprintln!(
-            "bias (b, g, r, a) on VkDriverId {}, reported and not gated: {bias:?}",
+            "{what}: bias (b, g, r, a) on VkDriverId {}, reported and not gated: {bias:?}",
             driver.as_raw()
         );
         return;
     }
     assert!(
         bias.iter().all(|b| b.abs() <= BIAS),
-        "blended pixels lean {bias:?} a channel (b, g, r, a), past {BIAS}: a step every pixel takes \
-         one way is an error, not rounding"
+        "{what}: blended pixels lean {bias:?} a channel (b, g, r, a), past {BIAS}: a step every \
+         pixel takes one way is an error, not rounding"
     );
 }
 
@@ -193,4 +237,23 @@ pub fn mean_signed(got: &[u32], want: &[u32], blended: &[bool]) -> [f64; 4] {
         n += 1;
     }
     sum.map(|s| if n == 0 { 0.0 } else { s as f64 / n as f64 })
+}
+
+/// **Sheets holding `mask` and `color` whole**, and `curves`, for a scene
+/// drawn from texels a test makes.
+pub fn sheets(
+    gpu: &Gpu,
+    mask: baud_present_vulkan::draw::Texels<'_>,
+    color: baud_present_vulkan::draw::Texels<'_>,
+    curves: &[u8],
+) -> baud_present_vulkan::sheets::Sheets {
+    use baud_present_vulkan::sheets::Which;
+    let mut sheets = gpu.sheets(curves).expect("the sheets");
+    sheets
+        .replace(gpu, Which::Mask, &mask)
+        .expect("the mask sheet");
+    sheets
+        .replace(gpu, Which::Color, &color)
+        .expect("the colour sheet");
+    sheets
 }

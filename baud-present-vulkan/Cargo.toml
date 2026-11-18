@@ -23,6 +23,11 @@ baud-present-wayland = { workspace = true }
 # Vulkan's bindings, the loader opened at run time (`loaded`): a box
 # without libvulkan runs on shared memory rather than failing to start.
 ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
+# The atlas the sheets are brought up to, and the cell path's frame.
+baud-render = { workspace = true }
+baud-domain = { workspace = true }
+# The metrics' pixels, which `CU` carries.
+baud-font = { workspace = true }
 
 [features]
 # A pipeline build held at a gate, for the crate's tests (`Pipelines::hold_builds`).
@@ -30,6 +35,7 @@ test-hooks = []
 
 [dev-dependencies]
 baud-present-vulkan = { path = ".", features = ["test-hooks"] }
+baud-core = { workspace = true }
 baud-domain = { workspace = true }
 baud-font = { workspace = true }
 baud-render = { workspace = true }

@@ -1,6 +1,8 @@
-//! **The instance path's pipelines**: one render pass over a frame's
-//! target, the descriptor layouts every draw binds (`design-c2`), and a
-//! pipeline a fragment stage and a blend, built once and kept.
+//! **The instance and cell paths' pipelines**: one render pass over a
+//! frame's target, the descriptor layouts every draw binds, and a pipeline
+//! a fragment stage and a blend, built once and kept.
+//!
+//! The instance path's layout, [`INSTANCE_SETS`]:
 //!
 //! | set.binding | what | stages |
 //! |---|---|---|
@@ -11,6 +13,20 @@
 //! | 1.2 | the contrast curves, bytes | fragment |
 //! | 1.3 | the cells' backgrounds, a texel a cell | fragment |
 //! | 2.0 | an effect's `EffectU` | fragment |
+//!
+//! The cell path's, [`CELL_SETS`], its own so no effect draw carries its
+//! buffers, and a [`CELL_PUSH`]-byte push constant, the part a pass draws,
+//! read by the vertex stages:
+//!
+//! | set.binding | what | stages |
+//! |---|---|---|
+//! | 0.0 | the grid, a `PackedCell` a `uvec2` | vertex |
+//! | 0.1 | the renditions, nine words a slot | vertex |
+//! | 0.2 | the glyph map, six words an entry | vertex |
+//! | 0.3 | the overlay, a byte a cell | vertex |
+//! | 0.4 | `CU` | vertex |
+//! | 0.5 | each draw row's first rendition slot | vertex |
+//! | 1.x | the instance path's set 1 | fragment |
 //!
 //! Every output is premultiplied, and every blend's alpha is the
 //! premultiplied over. [`Pipelines::get`] builds on the calling thread, for
@@ -55,7 +71,81 @@ pub enum Fragment {
     /// The fireworks' stars, by their own vertex and fragment stages and
     /// their `FwU` at set 2 (`fireworks.vert`, `fireworks.frag`).
     Fireworks,
+    /// The cell path's backgrounds, a cell an instance (`cell_bg.vert`,
+    /// `flat.frag`).
+    CellBg,
+    /// The cell path's glyphs (`cell_glyph.vert`, `glyph.frag`).
+    CellGlyph,
+    /// The cell path's lines and marks, the shape slots a cell
+    /// (`cell_shape.vert`, `glyph.frag`).
+    CellShape,
+    /// The cell path's hollow cursor (`cell_ring.vert`, `glyph.frag`).
+    CellRing,
 }
+
+/// Which pipeline layout a pipeline is built against.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Layout {
+    Instance,
+    Cell,
+}
+
+/// A descriptor's kind, as a layout binds it and a stage declares it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Descriptor {
+    Sampler,
+    Uniform,
+    Storage,
+}
+
+impl Descriptor {
+    fn vk(self) -> vk::DescriptorType {
+        match self {
+            Descriptor::Sampler => vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            Descriptor::Uniform => vk::DescriptorType::UNIFORM_BUFFER,
+            Descriptor::Storage => vk::DescriptorType::STORAGE_BUFFER,
+        }
+    }
+}
+
+/// **One set's bindings**, in binding order: each its kind and the stages
+/// that declare it.
+pub type Set = &'static [(Descriptor, vk::ShaderStageFlags)];
+
+const VERTEX: vk::ShaderStageFlags = vk::ShaderStageFlags::VERTEX;
+const FRAGMENT: vk::ShaderStageFlags = vk::ShaderStageFlags::FRAGMENT;
+const BOTH: vk::ShaderStageFlags =
+    vk::ShaderStageFlags::from_raw(VERTEX.as_raw() | FRAGMENT.as_raw());
+
+/// The instance path's sets, the first table at the head of this module.
+pub const INSTANCE_SETS: [Set; 3] = [
+    &[(Descriptor::Storage, VERTEX), (Descriptor::Uniform, BOTH)],
+    &[
+        (Descriptor::Sampler, FRAGMENT),
+        (Descriptor::Sampler, FRAGMENT),
+        (Descriptor::Storage, FRAGMENT),
+        (Descriptor::Sampler, FRAGMENT),
+    ],
+    &[(Descriptor::Uniform, FRAGMENT)],
+];
+
+/// The cell path's sets: its own set 0 and the instance path's set 1, so
+/// one set of atlases binds to both.
+pub const CELL_SETS: [Set; 2] = [
+    &[
+        (Descriptor::Storage, VERTEX),
+        (Descriptor::Storage, VERTEX),
+        (Descriptor::Storage, VERTEX),
+        (Descriptor::Storage, VERTEX),
+        (Descriptor::Uniform, VERTEX),
+        (Descriptor::Storage, VERTEX),
+    ],
+    INSTANCE_SETS[1],
+];
+
+/// The cell path's push constant in bytes, `part`, read by the vertex
+/// stages; the instance path has none.
+pub const CELL_PUSH: u32 = 4;
 
 /// **An effect trail's fragment shader**, one an effect
 /// (`baud_render::effect::Effect`) and the plasma's second for its
@@ -77,6 +167,18 @@ pub enum Fx {
 }
 
 impl Fx {
+    pub const ALL: [Fx; 9] = [
+        Fx::Fire,
+        Fx::Plasma,
+        Fx::PlasmaMultiply,
+        Fx::PlasmaFactor,
+        Fx::Lightning,
+        Fx::Ice,
+        Fx::Ufo,
+        Fx::Orb,
+        Fx::Liquid,
+    ];
+
     fn stage(self) -> Spirv {
         match self {
             Fx::Fire => spv!("fx_fire.frag"),
@@ -99,7 +201,45 @@ impl Fragment {
             Fragment::Glyph => (spv!("glyph.vert"), spv!("glyph.frag")),
             Fragment::Effect(fx) => (spv!("glyph.vert"), fx.stage()),
             Fragment::Fireworks => (spv!("fireworks.vert"), spv!("fireworks.frag")),
+            Fragment::CellBg => (spv!("cell_bg.vert"), spv!("flat.frag")),
+            Fragment::CellGlyph => (spv!("cell_glyph.vert"), spv!("glyph.frag")),
+            Fragment::CellShape => (spv!("cell_shape.vert"), spv!("glyph.frag")),
+            Fragment::CellRing => (spv!("cell_ring.vert"), spv!("glyph.frag")),
         }
+    }
+
+    /// Every pipeline's stages, each fragment once.
+    pub fn every() -> impl Iterator<Item = Fragment> {
+        [
+            Fragment::Background,
+            Fragment::Glyph,
+            Fragment::Fireworks,
+            Fragment::CellBg,
+            Fragment::CellGlyph,
+            Fragment::CellShape,
+            Fragment::CellRing,
+        ]
+        .into_iter()
+        .chain(Fx::ALL.map(Fragment::Effect))
+    }
+
+    /// The layout its pipeline is built against.
+    pub fn layout(self) -> Layout {
+        match self {
+            Fragment::Background | Fragment::Glyph | Fragment::Effect(_) | Fragment::Fireworks => {
+                Layout::Instance
+            }
+            Fragment::CellBg | Fragment::CellGlyph | Fragment::CellShape | Fragment::CellRing => {
+                Layout::Cell
+            }
+        }
+    }
+
+    /// Its vertex and fragment stages' SPIR-V, for the tests that hold a
+    /// stage's declarations to its layout.
+    pub fn spirv(self) -> [&'static [u8]; 2] {
+        let (v, f) = self.stages();
+        [v.0, f.0]
     }
 }
 
@@ -166,6 +306,7 @@ struct Shape {
     device: ash::Device,
     cache: vk::PipelineCache,
     layout: vk::PipelineLayout,
+    cell_layout: vk::PipelineLayout,
     pass: vk::RenderPass,
 }
 
@@ -221,7 +362,10 @@ impl Shape {
             .multisample_state(&multisample)
             .color_blend_state(&blending)
             .dynamic_state(&dynamic)
-            .layout(self.layout)
+            .layout(match fragment.layout() {
+                Layout::Instance => self.layout,
+                Layout::Cell => self.cell_layout,
+            })
             .render_pass(self.pass)
             .subpass(0)];
         // SAFETY: every handle is this device's; the cache is internally
@@ -253,7 +397,10 @@ struct Building {
 /// blend, built once and kept; and the layouts and pass they share.
 pub struct Pipelines {
     shape: Shape,
+    /// The instance path's set layouts, [`INSTANCE_SETS`].
     pub sets: [vk::DescriptorSetLayout; 3],
+    /// The cell path's set 0, [`CELL_SETS`]; its set 1 is `sets[1]`.
+    pub cell_set: vk::DescriptorSetLayout,
     built: HashMap<Key, vk::Pipeline>,
     pending: HashMap<Key, ()>,
     building: Building,
@@ -278,23 +425,6 @@ pub enum Built {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Skipped(pub u64);
 
-/// A binding's number within its set.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Binding(u32);
-
-/// A descriptor binding: its number, kind and stages.
-fn binding(
-    n: Binding,
-    kind: vk::DescriptorType,
-    stages: vk::ShaderStageFlags,
-) -> vk::DescriptorSetLayoutBinding<'static> {
-    vk::DescriptorSetLayoutBinding::default()
-        .binding(n.0)
-        .descriptor_type(kind)
-        .descriptor_count(1)
-        .stage_flags(stages)
-}
-
 impl Pipelines {
     /// The layouts, the pass over a `B8G8R8A8_UNORM` target released to the
     /// compositor's queue family after the frame, an empty pipeline cache,
@@ -302,30 +432,37 @@ impl Pipelines {
     #[allow(unsafe_code)]
     pub fn new(device: &ash::Device) -> Result<Pipelines, Failed> {
         let d = device;
-        let (v, f) = (vk::ShaderStageFlags::VERTEX, vk::ShaderStageFlags::FRAGMENT);
-        let sampler = vk::DescriptorType::COMBINED_IMAGE_SAMPLER;
-        let storage = vk::DescriptorType::STORAGE_BUFFER;
-        let uniform = vk::DescriptorType::UNIFORM_BUFFER;
-        let set0 = [
-            binding(Binding(0), storage, v),
-            binding(Binding(1), uniform, v | f),
-        ];
-        let set1 = [
-            binding(Binding(0), sampler, f),
-            binding(Binding(1), sampler, f),
-            binding(Binding(2), storage, f),
-            binding(Binding(3), sampler, f),
-        ];
-        let set2 = [binding(Binding(0), uniform, f)];
-        let layout_of = |b: &[vk::DescriptorSetLayoutBinding<'_>]| {
-            let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(b);
+        let layout_of = |set: Set| {
+            let bindings: Vec<vk::DescriptorSetLayoutBinding<'_>> = (0u32..)
+                .zip(set)
+                .map(|(n, (kind, stages))| {
+                    vk::DescriptorSetLayoutBinding::default()
+                        .binding(n)
+                        .descriptor_type(kind.vk())
+                        .descriptor_count(1)
+                        .stage_flags(*stages)
+                })
+                .collect();
+            let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
             // SAFETY: a device of the caller's.
             unsafe { d.create_descriptor_set_layout(&info, None) }
         };
-        let sets = [layout_of(&set0)?, layout_of(&set1)?, layout_of(&set2)?];
+        let [s0, s1, s2] = INSTANCE_SETS;
+        let sets = [layout_of(s0)?, layout_of(s1)?, layout_of(s2)?];
+        let cell_set = layout_of(CELL_SETS[0])?;
         let info = vk::PipelineLayoutCreateInfo::default().set_layouts(&sets);
         // SAFETY: layouts just made on this device.
         let layout = unsafe { d.create_pipeline_layout(&info, None) }?;
+        let cell_sets = [cell_set, sets[1]];
+        let push = [vk::PushConstantRange::default()
+            .stage_flags(VERTEX)
+            .offset(0)
+            .size(CELL_PUSH)];
+        let info = vk::PipelineLayoutCreateInfo::default()
+            .set_layouts(&cell_sets)
+            .push_constant_ranges(&push);
+        // SAFETY: as above.
+        let cell_layout = unsafe { d.create_pipeline_layout(&info, None) }?;
         let attachment = [vk::AttachmentDescription::default()
             .format(vk::Format::B8G8R8A8_UNORM)
             .samples(vk::SampleCountFlags::TYPE_1)
@@ -351,12 +488,14 @@ impl Pipelines {
             device: d.clone(),
             cache,
             layout,
+            cell_layout,
             pass,
         };
         let building = Building::start(shape.clone());
         Ok(Pipelines {
             shape,
             sets,
+            cell_set,
             built: HashMap::new(),
             pending: HashMap::new(),
             building,
@@ -368,6 +507,10 @@ impl Pipelines {
 
     pub fn layout(&self) -> vk::PipelineLayout {
         self.shape.layout
+    }
+
+    pub fn cell_layout(&self) -> vk::PipelineLayout {
+        self.shape.cell_layout
     }
 
     pub fn pass(&self) -> vk::RenderPass {
@@ -461,6 +604,8 @@ impl Pipelines {
             d.destroy_pipeline_cache(self.shape.cache, None);
             d.destroy_render_pass(self.shape.pass, None);
             d.destroy_pipeline_layout(self.shape.layout, None);
+            d.destroy_pipeline_layout(self.shape.cell_layout, None);
+            d.destroy_descriptor_set_layout(self.cell_set, None);
             for s in self.sets {
                 d.destroy_descriptor_set_layout(s, None);
             }

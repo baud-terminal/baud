@@ -10,10 +10,14 @@
 #![cfg(target_os = "linux")]
 #![deny(unsafe_code)]
 
+pub mod cells;
 pub mod choose;
+pub mod damage;
 pub mod draw;
 pub mod effect;
 pub mod frame;
+pub mod lend;
 pub mod pipeline;
+pub mod sheets;
 pub mod sys;
 pub mod vk;

@@ -1,11 +1,14 @@
 //! **A frame drawn by the instance path into a target**: the cells'
 //! backgrounds, then the records over them, each pipeline from
 //! [`Pipelines`], and the image released to the compositor's queue family
-//! after, as [`Gpu::clear`] leaves it. The scene's buffers and textures are
-//! made for the frame and destroyed after it.
+//! after, as [`Gpu::clear`] leaves it. The glyphs are sampled from the
+//! persistent [`Sheets`], whose owed copies the frame records ahead of its
+//! draws; the scene's other buffers and textures are made for the frame and
+//! destroyed after it.
 
 use crate::frame::{Failed, Fallback, Gpu, Target};
 use crate::pipeline::{Blend, Fragment, Pipelines};
+use crate::sheets::Sheets;
 use ash::vk;
 use baud_present_wayland::Px;
 
@@ -52,15 +55,13 @@ pub enum Pass {
 pub struct Records(pub u32);
 
 /// **What a frame draws**: the uniform, the cells' backgrounds a texel a
-/// cell, the two atlases, the contrast curves and the records
-/// (`Instance::to_bytes`, 20 bytes each).
+/// cell, and the records (`Instance::to_bytes`, 20 bytes each); the atlases
+/// and the contrast curves are the persistent [`Sheets`].
 pub struct Scene<'a> {
     /// `U`: viewport, cell, grid, mask, colour and pad, two floats each.
     pub u: [f32; 12],
     pub backgrounds: Texels<'a>,
-    pub mask: Texels<'a>,
-    pub color: Texels<'a>,
-    pub curves: &'a [u8],
+    pub sheets: &'a Sheets,
     pub records: &'a [u8],
     pub count: Records,
 }
@@ -68,12 +69,12 @@ pub struct Scene<'a> {
 /// A buffer the CPU writes and the GPU reads.
 pub(crate) struct Buffer {
     pub(crate) buffer: vk::Buffer,
-    memory: vk::DeviceMemory,
+    pub(crate) memory: vk::DeviceMemory,
 }
 
 /// A sampled image, its memory and its view.
 pub(crate) struct Texture {
-    image: vk::Image,
+    pub(crate) image: vk::Image,
     memory: vk::DeviceMemory,
     pub(crate) view: vk::ImageView,
 }
@@ -118,15 +119,16 @@ impl Gpu {
         Ok(Buffer { buffer, memory })
     }
 
-    /// **A texture uploaded from `t`**: a device image, the texels copied
-    /// in from a staging buffer, left readable by the fragment stage.
+    /// **A device image of `texel`, `width` by `height`**, its memory and
+    /// its view, written by transfers and sampled by the fragment stage; its
+    /// texels undefined until a copy.
     #[allow(unsafe_code)]
-    pub(crate) fn texture(&self, t: &Texels<'_>) -> Result<Texture, Failed> {
+    pub(crate) fn image(&self, texel: Texel, width: Px, height: Px) -> Result<Texture, Failed> {
         let d = &self.device;
-        let (w, h) = (t.width.0.max(1), t.height.0.max(1));
+        let (w, h) = (width.0.max(1), height.0.max(1));
         let info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
-            .format(t.texel.format())
+            .format(texel.format())
             .extent(vk::Extent3D {
                 width: w,
                 height: h,
@@ -152,6 +154,33 @@ impl Gpu {
         let memory = unsafe { d.allocate_memory(&alloc, None) }?;
         // SAFETY: as above; bound once.
         unsafe { d.bind_image_memory(image, memory, 0) }?;
+        let range = vk::ImageSubresourceRange::default()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .level_count(1)
+            .layer_count(1);
+        let view_info = vk::ImageViewCreateInfo::default()
+            .image(image)
+            .view_type(vk::ImageViewType::TYPE_2D)
+            .format(texel.format())
+            .subresource_range(range);
+        // SAFETY: as above.
+        let view = unsafe { d.create_image_view(&view_info, None) }?;
+        Ok(Texture {
+            image,
+            memory,
+            view,
+        })
+    }
+
+    /// **A texture uploaded from `t`**: [`Gpu::image`], the texels copied
+    /// in from a staging buffer, left readable by the fragment stage; the
+    /// CPU waits for the copy.
+    #[allow(unsafe_code)]
+    pub(crate) fn texture(&self, t: &Texels<'_>) -> Result<Texture, Failed> {
+        let d = &self.device;
+        let (w, h) = (t.width.0.max(1), t.height.0.max(1));
+        let made = self.image(t.texel, t.width, t.height)?;
+        let image = made.image;
         let staging = self.buffer(t.bytes, vk::BufferUsageFlags::TRANSFER_SRC)?;
         let range = vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -217,19 +246,11 @@ impl Gpu {
             }
         });
         self.drop_buffer(staging);
-        copied?;
-        let view_info = vk::ImageViewCreateInfo::default()
-            .image(image)
-            .view_type(vk::ImageViewType::TYPE_2D)
-            .format(t.texel.format())
-            .subresource_range(range);
-        // SAFETY: as above.
-        let view = unsafe { d.create_image_view(&view_info, None) }?;
-        Ok(Texture {
-            image,
-            memory,
-            view,
-        })
+        if let Err(e) = copied {
+            self.drop_texture(made);
+            return Err(e);
+        }
+        Ok(made)
     }
 
     #[allow(unsafe_code)]
@@ -297,24 +318,16 @@ impl Gpu {
         let u_bytes: Vec<u8> = scene.u.iter().flat_map(|f| f.to_le_bytes()).collect();
         let u = self.buffer(&u_bytes, vk::BufferUsageFlags::UNIFORM_BUFFER)?;
         let insts = self.buffer(scene.records, vk::BufferUsageFlags::STORAGE_BUFFER)?;
-        let curves = self.buffer(scene.curves, vk::BufferUsageFlags::STORAGE_BUFFER)?;
         let effect_u = match effect {
             Some(bytes) => Some(self.buffer(bytes, vk::BufferUsageFlags::UNIFORM_BUFFER)?),
             None => None,
         };
         // Set 2 only for an effect, whose fragment reads it.
         let set_count: usize = if effect_u.is_some() { 3 } else { 2 };
-        let mask = self.texture(&scene.mask)?;
-        let color = self.texture(&scene.color)?;
         let backgrounds = self.texture(&scene.backgrounds)?;
-        let sampler_info = vk::SamplerCreateInfo::default()
-            .mag_filter(vk::Filter::NEAREST)
-            .min_filter(vk::Filter::NEAREST)
-            .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_EDGE)
-            .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_EDGE)
-            .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE);
-        // SAFETY: a device of this struct.
-        let sampler = unsafe { d.create_sampler(&sampler_info, None) }?;
+        let sheets = scene.sheets;
+        let sampler = sheets.sampler;
+        let (mask_view, color_view, curves_buffer) = sheets.bound();
         let sizes = [
             vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
@@ -343,14 +356,18 @@ impl Gpu {
                 .buffer(b.buffer)
                 .range(vk::WHOLE_SIZE)]
         };
-        let (insts_info, u_info, curves_info) = (whole(&insts), whole(&u), whole(&curves));
-        let image = |t: &Texture| {
+        let (insts_info, u_info) = (whole(&insts), whole(&u));
+        let curves_info = [vk::DescriptorBufferInfo::default()
+            .buffer(curves_buffer)
+            .range(vk::WHOLE_SIZE)];
+        let image = |view: vk::ImageView| {
             [vk::DescriptorImageInfo::default()
                 .sampler(sampler)
-                .image_view(t.view)
+                .image_view(view)
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)]
         };
-        let (mask_info, color_info, bg_info) = (image(&mask), image(&color), image(&backgrounds));
+        let (mask_info, color_info, bg_info) =
+            (image(mask_view), image(color_view), image(backgrounds.view));
         let write = |set: vk::DescriptorSet, binding: u32, kind: vk::DescriptorType| {
             vk::WriteDescriptorSet::default()
                 .dst_set(set)
@@ -447,6 +464,7 @@ impl Gpu {
             .render_area(scissor[0]);
         let layout = pipes.layout();
         let drawn = self.submit_and_wait(|cb| {
+            sheets.record(d, cb);
             // SAFETY: every handle recorded is alive until the wait ends;
             // the barriers name the target and this queue's family.
             unsafe {
@@ -493,14 +511,12 @@ impl Gpu {
             d.destroy_framebuffer(framebuffer, None);
             d.destroy_image_view(target_view, None);
             d.destroy_descriptor_pool(pool, None);
-            d.destroy_sampler(sampler, None);
         }
-        for b in [u, insts, curves].into_iter().chain(effect_u) {
+        sheets.finished(self);
+        for b in [u, insts].into_iter().chain(effect_u) {
             self.drop_buffer(b);
         }
-        for t in [mask, color, backgrounds] {
-            self.drop_texture(t);
-        }
+        self.drop_texture(backgrounds);
         drawn
     }
 }

@@ -219,6 +219,7 @@ name = "baud-present-vulkan"
 version = "1.0.0-unstable"
 dependencies = [
  "ash",
+ "baud-core",
  "baud-domain",
  "baud-font",
  "baud-present-vulkan",

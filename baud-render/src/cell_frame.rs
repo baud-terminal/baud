@@ -64,6 +64,55 @@ pub struct CellParts<'a, 'g, 'm> {
     pub lent_used: &'a mut Vec<RowExtent>,
 }
 
+/// The words of the cell shaders' uniform `CU`, 152 bytes: four bytes each,
+/// every pair a `uint2` whose `.x` comes first.
+pub const CU_WORDS: usize = 38;
+
+/// **`CU`'s words, in the order every cell shader declares them**, each
+/// GPU path's uniform written by these names: a pair's halves as `.x` and
+/// `.y`. Tested against the Metal declaration and the Vulkan one, so the
+/// two cannot fall out of step with each other or with this list.
+pub const CU_NAMES: [&str; CU_WORDS] = [
+    "viewport.x",
+    "viewport.y",
+    "cell.x",
+    "cell.y",
+    "grid.x",
+    "grid.y",
+    "sides.x",
+    "sides.y",
+    "cursor.x",
+    "cursor.y",
+    "cursor_kind",
+    "baseline",
+    "underline",
+    "strike",
+    "thickness",
+    "map_slots",
+    "map_shift",
+    "stride",
+    "rot",
+    "ring",
+    "sel_on",
+    "sel_from_col",
+    "sel_from_row",
+    "sel_to_col",
+    "sel_to_row",
+    "pan",
+    "slide_rows",
+    "cursor_color",
+    "blink_hidden",
+    "cursor_alpha",
+    "sel_bg",
+    "sel_fg",
+    "sel_bg_curve",
+    "sel_fg_curve",
+    "cursor_text",
+    "cursor_text_curve",
+    "blink_faint",
+    "cursor_side",
+];
+
 /// **What a built cell frame hands its caller**, for the GPU's input and
 /// for a screen switch's kept frame.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

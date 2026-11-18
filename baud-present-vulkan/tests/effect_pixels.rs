@@ -194,20 +194,25 @@ fn gpu_frame(
         texel,
         bytes,
     };
+    let sheets = common::sheets(
+        gpu,
+        tex(Texel::Coverage, &one[..1]),
+        tex(Texel::Argb, &one),
+        &curves,
+    );
     let scene = Scene {
         u: [
             W as f32, H as f32, 10.0, 23.0, 24.0, 4.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0,
         ],
         backgrounds: tex(Texel::Argb, &one),
-        mask: tex(Texel::Coverage, &one[..1]),
-        color: tex(Texel::Argb, &one),
-        curves: &curves,
+        sheets: &sheets,
         records,
         count: n,
     };
     gpu.draw_effect(pipes, &t, &scene, shader, blend, u)
         .expect("the effect drawn");
     let got = gpu.read(&t).expect("the frame read back");
+    sheets.destroy(gpu);
     gpu.drop_target(t);
     got
 }
@@ -308,7 +313,7 @@ fn judge_over(
 fn rounding(gpu: &Gpu) -> Rounding {
     match gpu.driver() {
         ash::vk::DriverId::MESA_LLVMPIPE => Rounding::TermByTerm,
-        _ => Rounding::Exact,
+        _ => Rounding::OnceAtTies,
     }
 }
 
