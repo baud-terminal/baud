@@ -2059,13 +2059,13 @@ from      = "Permission is hereby granted"
 copyright = ["Copyright (c) 2021 Björn Ottosson"]
 
 [[tree]]
-what     = "Tables generated from the Unicode Character Database files pinned in the manifest: the text-default emoji a VS16 widens; and, in baud.metallib, compiled, what SGR 64's stress mark skips, the table the builds of baud-render and baud-present-macos compile from baud-render/data/ and write into the shader it is compiled from"
-paths    = ["baud-domain/src/vs16.rs", "baud-present-macos/src/baud.metallib"]
+what     = "Tables generated from the Unicode Character Database files pinned in the manifest: the text-default emoji a VS16 widens; and, in baud.metallib and the Linux cell shaders' SPIR-V, compiled, what SGR 64's stress mark skips, the table the builds of baud-render and baud-present-macos compile from baud-render/data/ and write into the shader it is compiled from, and that baud-present-vulkan's cell shaders include"
+paths    = ["baud-domain/src/vs16.rs", "baud-present-macos/src/baud.metallib", "baud-present-vulkan/shaders/spv/cell_bg.vert.spv", "baud-present-vulkan/shaders/spv/cell_glyph.vert.spv", "baud-present-vulkan/shaders/spv/cell_shape.vert.spv", "baud-present-vulkan/shaders/spv/cell_ring.vert.spv"]
 licence  = "Unicode-3.0"
 notice   = "LICENSES/Unicode-3.0.txt"
 upstream = "https://www.unicode.org/Public/"
 status   = "kept"
-public   = "Tables generated from the Unicode Character Database and Unicode's emoji data files: emoji presentation. baud.metallib carries the stress mark's skip trie compiled in, which the build writes from baud-render's tables"
+public   = "Tables generated from the Unicode Character Database and Unicode's emoji data files: emoji presentation. baud.metallib and the Linux cell shaders carry the stress mark's skip trie compiled in, which the build writes from baud-render's tables"
 holder   = "Unicode, Inc."
 
 [tree.credit]

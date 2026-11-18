@@ -188,6 +188,8 @@ mod line_tip;
 mod marked;
 // The link policy is pure and its tests run on every platform; both
 // drivers open a link through it.
+#[cfg(target_os = "linux")]
+mod gpu_arm;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod lined;
 mod link;

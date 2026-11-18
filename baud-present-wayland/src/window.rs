@@ -769,6 +769,12 @@ impl Window {
         self.callback.is_some()
     }
 
+    /// Whether the compositor offers `wp_linux_drm_syncobj_manager_v1`, so a
+    /// dmabuf frame can be shown with points.
+    pub fn syncobj_offered(&self) -> bool {
+        self.globals.syncobj.is_some()
+    }
+
     /// Set the window's title, as a program's `OSC 0` or `OSC 2` asks.
     ///
     /// Kept as well as sent, so a title set before the toplevel exists is
@@ -1840,6 +1846,14 @@ impl Window {
             (Some(m), Some(f)) => dmabuf::import(s, m, f, d),
             _ => Imported::NoFormats,
         }
+    }
+
+    /// **A dmabuf's buffer destroyed**, the renderer done with it: no
+    /// longer held ([`Window::holds`]). What it showed stays until the
+    /// next commit.
+    pub fn drop_buffer(&mut self, s: &mut Sender<'_>, buffer: ObjectId) {
+        self.holding.retain(|&b| b != buffer);
+        let _ = s.request(buffer, Opcode(protocol::wl_buffer::request::DESTROY), &[]);
     }
 
     /// **Whether the compositor holds `buffer`**, a dmabuf's buffer shown

@@ -378,6 +378,9 @@ struct Driver {
     /// Text blink, the cursor trail, the alternate screen's fade and the
     /// scrollbar's thumb, each owing a deadline or a frame (`timed.rs`).
     timed: crate::timed::Timed,
+    /// The GPU arm, which draws a frame before the CPU arm is asked
+    /// (`gpu_arm.rs`).
+    gpu: crate::gpu_arm::GpuArm,
     /// The session bus, for the portal's appearance and the file
     /// manager's reveal; `None` once it is gone or was never there.
     bus: Option<crate::bus::Bus>,
@@ -954,6 +957,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         finding: None,
         pressed: crate::pressed::Pressed::default(),
         composing_caret: baud_render::Caret::End,
+        // `BAUD_GPU=off` keeps every frame on the CPU arm, read once.
+        gpu: crate::gpu_arm::GpuArm::new(std::env::var("BAUD_GPU").ok().as_deref()),
         timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition)
             .with_trail_scroll(cfg.trail_scroll)
             // Every window's, a new window's process as much as the
@@ -1172,6 +1177,11 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             transfers.push((fd, crate::pty::Interest::Read));
             transfers.len() - 1
         });
+        // The GPU arm's pipeline builds: one finished owes a frame.
+        let built = d.gpu.ready_fd().map(|fd| {
+            transfers.push((fd, crate::pty::Interest::Read));
+            transfers.len() - 1
+        });
         // The master until it hangs up, after which it would answer every
         // wait at once (`Pty::polled_master`).
         let waited = wait(
@@ -1268,6 +1278,11 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                 }
             }
             d.read_buf = bytes;
+        }
+        // A GPU pipeline built: the frame it held back is owed, though
+        // nothing else changed.
+        if built.and_then(|i| extra.get(i).copied()) == Some(Ready::Readable) && d.gpu.woken() {
+            d.pending = Pending::Dirty;
         }
         // The child's end, by its pidfd, or with none the one more look the
         // hangup owes (`Pty::reap_owed`); and the window's decision once
@@ -4246,6 +4261,7 @@ impl Driver {
                 (c, r)
             }
         };
+        let composed = composition.clone();
         self.renderer.set_composition(composition);
         // In the surface's points, "surface local coordinates": the grid
         // begins at the frame's origin past the exit-status strip, and the
@@ -4317,7 +4333,7 @@ impl Driver {
         // re-cut keeps its layout under the seal, so the frame's later asks
         // read no row. `render_at` seals again at its top, closing an empty
         // generation, as it does on macOS's CPU arm.
-        let _ = self.term.seal_writes();
+        let seal = self.term.seal_writes();
         // The marks on the window shown, and the whole frame they are
         // drawn in: the strip at its left, then the grid.
         self.renderer.place_marks(
@@ -4329,6 +4345,50 @@ impl Driver {
         // The frame at its origin in the surface (`origin.rs`), placed
         // again for a frame whose size changed.
         self.place();
+        // **The GPU arm first** (`gpu_arm.rs`): drawn and shown, or owed
+        // while the compositor holds both buffers; a frame it hands back,
+        // and a slide, is the CPU arm's, below, repainted whole after a
+        // GPU frame.
+        if self.frame_for == FrameFor::Moment {
+            self.window.draw_for(seen_at);
+        }
+        let inputs = baud_present_vulkan::present::Inputs {
+            back: self.term.window_back(),
+            highlight,
+            composition: &composed,
+            predictions: &[],
+        };
+        let slide = match plan.slide {
+            Some(_) => crate::effects::Composed::Yes,
+            None => crate::effects::Composed::No,
+        };
+        match self.gpu.frame(
+            (&mut self.window, &mut self.conn.sender()),
+            &mut self.renderer,
+            &self.term,
+            seal,
+            &inputs,
+            slide,
+        ) {
+            crate::gpu_arm::Arm::Shown => {
+                self.seat.drawn(self.renderer.bidi());
+                self.timed
+                    .drawn(self.renderer.blink_seen(), self.term.regis_blink());
+                startup_first("first present", &FIRST_PRESENT);
+                self.report.presented();
+                self.latency.shown_cpu(crate::pty::host_now);
+                self.bell.commit(bell);
+                self.caret.commit(caret);
+                self.pending = Pending::Clean;
+                self.frame_for = FrameFor::Soonest;
+                return;
+            }
+            crate::gpu_arm::Arm::Owed => return,
+            crate::gpu_arm::Arm::Cpu => {}
+        }
+        if self.gpu.cpu_owes_whole() {
+            self.damage = Damage::Full;
+        }
         // A frame the driver repaints whole -- a new size, the margin
         // refilled, the frame moved -- changed pixels past the grid's rows
         // too, which no band the renderer paints covers: the whole buffer

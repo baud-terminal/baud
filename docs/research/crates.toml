@@ -26,6 +26,26 @@
 #               source ships, printed whole
 
 [[crate]]
+name = "ash"
+version = "0.38.0+1.3.281"
+expression = "MIT OR Apache-2.0"
+licence = "MIT"
+notice = "LICENSE-MIT"
+sha256 = "c733ccf8ab25df175a63d9d844677b98e3a5ab8f8de1c1616087e6868a7f948e"
+notice_source = ""
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+]
+copyright = ["Copyright (c) 2016 ASH"]
+authors = [
+  "Maik Klein",
+  "Benjamin Saunders",
+  "Marijn Suijten",
+]
+repository = "https://github.com/ash-rs/ash"
+
+[[crate]]
 name = "bitflags"
 version = "2.13.2"
 expression = "MIT OR Apache-2.0"

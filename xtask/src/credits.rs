@@ -114,7 +114,7 @@ pub struct Own {
 }
 
 /// baud's own embedded files, each with its reason.
-pub const OWN: [Own; 7] = [
+pub const OWN: [Own; 23] = [
     Own {
         path: "baud-app/config.toml.example",
         from: &[],
@@ -152,6 +152,86 @@ pub const OWN: [Own; 7] = [
         from: &["baud-domain/src/contrast.rs"],
         why: "the text-contrast curve, a table baud-domain's build computes from \
               Windows Terminal's coefficients",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/bg.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/bg.vert.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/fireworks.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/fireworks.vert.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/flat.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/fx_fire.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/fx_ice.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/fx_lightning.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/fx_liquid.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/fx_orb.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/fx_plasma_factor.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/fx_plasma.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/fx_plasma_multiply.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/fx_ufo.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/glyph.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/glyph.vert.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
     },
 ];
 

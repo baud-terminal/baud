@@ -471,3 +471,28 @@ fn a_frame_sits_on_whole_pixels_in_a_larger_target() {
     assert_eq!(apart, 0, "pixels apart from the frame moved (8, 4)");
     p.destroy(&gpu);
 }
+
+/// **The Linux driver draws no pan and no leaving row**: the frame's cell
+/// uniform carries a pan of 0 and no slide rows, on a screen that scrolled
+/// a line since the last frame. Named break: smooth scroll turned on by
+/// accident, which is its own row.
+#[test]
+fn linux_draws_no_pan_and_no_leaving_row() {
+    let gpu = lavapipe();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = warm(&gpu, &mut r, &mut t);
+    feed(&mut t, b"1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n");
+    assert!(matches!(
+        frame(&gpu, &mut p, &mut r, &mut t),
+        Frame::Drew(_)
+    ));
+    let cu = p.uniforms();
+    for name in ["pan", "slide_rows"] {
+        assert_eq!(cu.get(name).map(|w| w.0), Some(0), "CU.{name}");
+    }
+    p.destroy(&gpu);
+}

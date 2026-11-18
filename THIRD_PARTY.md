@@ -829,14 +829,21 @@ whose build links it, the copyright notices of its licence file, and the
 licence it falls under. A crate offered under several licences is credited
 under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
 
-38.1 bitflags 2.13.2
+38.1 ash 0.38.0+1.3.281
+    Platforms:         Linux
+    Copyright:         Copyright (c) 2016 ASH
+    Upstream:          https://github.com/ash-rs/ash
+    Licence:           MIT License (full text: B, below)
+    Offered under:     MIT OR Apache-2.0
+
+38.2 bitflags 2.13.2
     Platforms:         macOS
     Copyright:         Copyright (c) 2014 The Rust Project Developers
     Upstream:          https://github.com/bitflags/bitflags
     Licence:           MIT License (full text: B, below)
     Offered under:     MIT OR Apache-2.0
 
-38.2 block2 0.6.2
+38.3 block2 0.6.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -846,7 +853,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Upstream:          https://github.com/madsmtm/objc2
     Licence:           MIT License (full text: B, below)
 
-38.3 dispatch2 0.3.1
+38.4 dispatch2 0.3.1
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -857,20 +864,20 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.4 libc 0.2.191
+38.5 libc 0.2.191
     Platforms:         macOS
     Copyright:         Copyright (c) The Rust Project Developers
     Upstream:          https://github.com/rust-lang/libc
     Licence:           MIT License (full text: B, below)
     Offered under:     MIT OR Apache-2.0
 
-38.5 macos-liquid-glass 1.0.0-beta.9
+38.6 macos-liquid-glass 1.0.0-beta.9
     Platforms:         macOS
     Copyright:         Copyright (c) 2026 i-am-logger
     Upstream:          https://github.com/i-am-logger/macos-liquid-glass
     Licence:           MIT License (full text: B, below)
 
-38.6 objc2 0.6.5
+38.7 objc2 0.6.5
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -880,18 +887,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Upstream:          https://github.com/madsmtm/objc2
     Licence:           MIT License (full text: B, below)
 
-38.7 objc2-app-kit 0.3.2
-    Platforms:         macOS
-    Copyright:         Copyright 2026 Mads Marquart
-    Note:              Its crates.io source carries no licence file; its
-                       copyright notice is from its upstream repository's
-                       licence file,
-                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
-    Upstream:          https://github.com/madsmtm/objc2
-    Licence:           MIT License (full text: B, below)
-    Offered under:     Zlib OR Apache-2.0 OR MIT
-
-38.8 objc2-cloud-kit 0.3.2
+38.8 objc2-app-kit 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -902,7 +898,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.9 objc2-core-data 0.3.2
+38.9 objc2-cloud-kit 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -913,7 +909,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.10 objc2-core-foundation 0.3.2
+38.10 objc2-core-data 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -924,7 +920,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.11 objc2-core-graphics 0.3.2
+38.11 objc2-core-foundation 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -935,7 +931,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.12 objc2-core-image 0.3.2
+38.12 objc2-core-graphics 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -946,7 +942,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.13 objc2-core-text 0.3.2
+38.13 objc2-core-image 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -957,7 +953,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.14 objc2-core-video 0.3.2
+38.14 objc2-core-text 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -968,27 +964,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.15 objc2-encode 4.1.0
-    Platforms:         macOS
-    Copyright:         Copyright 2026 Mads Marquart
-    Note:              Its crates.io source carries no licence file; its
-                       copyright notice is from its upstream repository's
-                       licence file,
-                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
-    Upstream:          https://github.com/madsmtm/objc2
-    Licence:           MIT License (full text: B, below)
-
-38.16 objc2-foundation 0.3.2
-    Platforms:         macOS
-    Copyright:         Copyright 2026 Mads Marquart
-    Note:              Its crates.io source carries no licence file; its
-                       copyright notice is from its upstream repository's
-                       licence file,
-                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
-    Upstream:          https://github.com/madsmtm/objc2
-    Licence:           MIT License (full text: B, below)
-
-38.17 objc2-io-surface 0.3.2
+38.15 objc2-core-video 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -999,7 +975,27 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.18 objc2-metal 0.3.2
+38.16 objc2-encode 4.1.0
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+
+38.17 objc2-foundation 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+
+38.18 objc2-io-surface 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -1010,7 +1006,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.19 objc2-quartz-core 0.3.2
+38.19 objc2-metal 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -1021,7 +1017,18 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.20 zerocopy 0.8.63
+38.20 objc2-quartz-core 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+38.21 zerocopy 0.8.63
     Platforms:         macOS, Linux
     Copyright:         Copyright 2023 The Fuchsia Authors
     Upstream:          https://github.com/google/zerocopy
@@ -1162,12 +1169,12 @@ The works under it, by notice, and their copyright notices:
   24.     Copyright (c) 2021 Björn Ottosson
   27.     Copyright (c) 2018 Yevhenii Reizner
   28.     Copyright (c) 2017 Just van Rossum
-  38.1    Copyright (c) 2014 The Rust Project Developers
-  38.2    Copyright 2026 Mads Marquart
+  38.1    Copyright (c) 2016 ASH
+  38.2    Copyright (c) 2014 The Rust Project Developers
   38.3    Copyright 2026 Mads Marquart
-  38.4    Copyright (c) The Rust Project Developers
-  38.5    Copyright (c) 2026 i-am-logger
-  38.6    Copyright 2026 Mads Marquart
+  38.4    Copyright 2026 Mads Marquart
+  38.5    Copyright (c) The Rust Project Developers
+  38.6    Copyright (c) 2026 i-am-logger
   38.7    Copyright 2026 Mads Marquart
   38.8    Copyright 2026 Mads Marquart
   38.9    Copyright 2026 Mads Marquart
@@ -1181,7 +1188,8 @@ The works under it, by notice, and their copyright notices:
   38.17   Copyright 2026 Mads Marquart
   38.18   Copyright 2026 Mads Marquart
   38.19   Copyright 2026 Mads Marquart
-  38.20   Copyright 2023 The Fuchsia Authors
+  38.20   Copyright 2026 Mads Marquart
+  38.21   Copyright 2023 The Fuchsia Authors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -2202,13 +2210,13 @@ they were built from.
 - **From:** https://bottosson.github.io/posts/gamutclipping/ and https://bottosson.github.io/posts/oklab/
 - **Files:** [baud-render/src/color.rs](baud-render/src/color.rs)
 
-### Tables generated from the Unicode Character Database files pinned in the manifest: the text-default emoji a VS16 widens; and, in baud.metallib, compiled, what SGR 64's stress mark skips, the table the builds of baud-render and baud-present-macos compile from baud-render/data/ and write into the shader it is compiled from
+### Tables generated from the Unicode Character Database files pinned in the manifest: the text-default emoji a VS16 widens; and, in baud.metallib and the Linux cell shaders' SPIR-V, compiled, what SGR 64's stress mark skips, the table the builds of baud-render and baud-present-macos compile from baud-render/data/ and write into the shader it is compiled from, and that baud-present-vulkan's cell shaders include
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** Unicode-3.0
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
 - **From:** https://www.unicode.org/Public/
-- **Files:** [baud-domain/src/vs16.rs](baud-domain/src/vs16.rs), [baud-present-macos/src/baud.metallib](baud-present-macos/src/baud.metallib)
+- **Files:** [baud-domain/src/vs16.rs](baud-domain/src/vs16.rs), [baud-present-macos/src/baud.metallib](baud-present-macos/src/baud.metallib), [baud-present-vulkan/shaders/spv/cell_bg.vert.spv](baud-present-vulkan/shaders/spv/cell_bg.vert.spv), [baud-present-vulkan/shaders/spv/cell_glyph.vert.spv](baud-present-vulkan/shaders/spv/cell_glyph.vert.spv), [baud-present-vulkan/shaders/spv/cell_shape.vert.spv](baud-present-vulkan/shaders/spv/cell_shape.vert.spv), [baud-present-vulkan/shaders/spv/cell_ring.vert.spv](baud-present-vulkan/shaders/spv/cell_ring.vert.spv)
 
 ### baud-domain's build reads the Unicode Character Database files it compiles its bidirectional, grapheme-cluster, width, line-breaking, case-folding, search-key, cursive-joining and default-ignorable tables and its named emoji variation sequences from, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files
 

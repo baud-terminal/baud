@@ -88,6 +88,8 @@ const MAKERS_IN_SRC: &[(&str, &[&str])] = &[
     ("baud-app/src/about.rs", &["build"]),
     // The probe, the presenter, and `Opening::new`, the launch's window.
     ("baud-app/src/app.rs", &["start_probe", "present", "new"]),
+    // The Linux driver's GPU arm, started at a launched window's first frame.
+    ("baud-app/src/gpu_arm.rs", &["start"]),
 ];
 
 /// The binaries this check must find, its positive control: a scan that

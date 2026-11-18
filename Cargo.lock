@@ -88,6 +88,7 @@ dependencies = [
  "baud-isa-aarch64",
  "baud-isa-x86-64",
  "baud-present-macos",
+ "baud-present-vulkan",
  "baud-present-wayland",
  "baud-render",
  "baud-wayland",

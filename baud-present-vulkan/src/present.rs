@@ -424,6 +424,11 @@ impl Presenter {
         self.counts
     }
 
+    /// **The cell uniform the frame drawn last was drawn with**.
+    pub fn uniforms(&self) -> crate::cells::Cu {
+        self.mem.uniforms(SetIx(0))
+    }
+
     /// The pipelines, for a test to hold their builds.
     pub fn pipes(&self) -> &Pipelines {
         &self.pipes

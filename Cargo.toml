@@ -105,6 +105,7 @@ baud-render = { path = "baud-render", version = "1.0.0-unstable", default-featur
 baud-xkb = { path = "baud-xkb", version = "1.0.0-unstable" }
 baud-wayland = { path = "baud-wayland", version = "1.0.0-unstable" }
 baud-present-wayland = { path = "baud-present-wayland", version = "1.0.0-unstable" }
+baud-present-vulkan = { path = "baud-present-vulkan", version = "1.0.0-unstable" }
 baud-present-macos = { path = "baud-present-macos", version = "1.0.0-unstable", default-features = false }
 
 # **Dev builds carry line tables, not full debuginfo.** Measured on this
