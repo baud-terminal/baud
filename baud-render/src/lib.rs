@@ -69,6 +69,7 @@ mod per_row;
 mod picture;
 pub mod plasma;
 pub mod print;
+pub mod print_pdf;
 mod rebreak;
 mod redraw;
 mod renderer;

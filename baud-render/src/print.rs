@@ -143,7 +143,7 @@ impl Struck {
     }
 
     /// The columns it takes.
-    fn width(&self) -> Columns {
+    pub(crate) fn width(&self) -> Columns {
         let w = self.text.chars().next().map_or(1, |c| {
             Width::of(Codepoint::from_char(c), AmbiguousWidth::Narrow).cells()
         });
