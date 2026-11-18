@@ -3764,7 +3764,8 @@ mod tests {
     /// `READ_CHUNK`, into a buffer kept at `READ_BATCH`; 70,000 take the
     /// batch's sixteen reads, 65,536 bytes, and the rest the next; an empty
     /// master gives an empty batch, and a closed one with nothing waiting
-    /// `Closed`, after the bytes it held. Perturbation: one read a drain
+    /// `Closed`, after the bytes it held, even while a copy of the
+    /// writer's fd is held elsewhere. Perturbation: one read a drain
     /// gives a batch of one read and 4,096 bytes; a fresh buffer a drain
     /// allocates.
     #[cfg(target_os = "linux")]
@@ -3807,7 +3808,13 @@ mod tests {
         );
         assert_eq!(buf, sent[READ_BATCH..], "the rest");
         w.write_all(b"last").expect("written");
-        drop(w);
+        // The writer's end closed by shutdown, not by dropping its fd: a
+        // copy of the fd held elsewhere -- a child another test forked in
+        // the same process -- keeps a dropped socket open and the master
+        // reads nothing instead of its end. `held` is that copy.
+        let held = w.try_clone().expect("a copy of the writer's fd");
+        w.shutdown(std::net::Shutdown::Write)
+            .expect("the writer's end closed");
         assert_eq!(
             drain_master(r.as_raw_fd(), &mut buf, &mut Stamp::Unasked),
             Batch::Bytes(1)
@@ -3815,8 +3822,10 @@ mod tests {
         assert_eq!(buf, b"last", "what it held before it closed");
         assert_eq!(
             drain_master(r.as_raw_fd(), &mut buf, &mut Stamp::Unasked),
-            Batch::Closed
+            Batch::Closed,
+            "closed while a copy of the writer's fd is still held"
         );
+        drop((w, held));
         // A keystroke waiting has its echo stamped at the first read, and
         // none waiting reads no clock.
         let (mut w, r) = std::os::unix::net::UnixStream::pair().expect("a socket pair");
