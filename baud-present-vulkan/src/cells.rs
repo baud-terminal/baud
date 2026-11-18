@@ -1339,11 +1339,11 @@ impl Gpu {
             _ => None,
         };
         // **The trail's draw**, where the frame has one: the fireworks by
-        // their own stages and an effect by its own fragment under the
-        // plasma's mix, each with its uniform at set 2 from the grid's pad,
-        // as the macOS path draws them; never waited for -- a pipeline still
-        // building leaves the trail undrawn, counted, and its build wakes
-        // the loop. A smear's quad has no stage here, and is counted too.
+        // their own stages, a smear by the quad's fragment, and an effect by
+        // its own fragment under the plasma's mix, each with its uniform at
+        // set 2 from the grid's pad, as the macOS path draws them; never
+        // waited for -- a pipeline still building leaves the trail undrawn,
+        // counted, and its build wakes the loop.
         let trail_pipes: Option<Vec<vk::Pipeline>> = {
             let fx_u = &mut mem.sets[set].fx_u.bytes;
             let mut put = |floats: &[f32]| {
@@ -1351,14 +1351,22 @@ impl Gpu {
                     at.copy_from_slice(&f.to_le_bytes());
                 }
             };
-            match (renderer.fireworks_uniform(boxed.pad), renderer.vfx()) {
-                (Some(u), _) => {
+            match (
+                renderer.fireworks_uniform(boxed.pad),
+                renderer.smear(),
+                renderer.vfx(),
+            ) {
+                (Some(u), _, _) => {
                     put(&u);
                     pipes
                         .ready(Fragment::Fireworks, Blend::Normal)
                         .map(|p| vec![p])
                 }
-                (None, Some(v)) => {
+                (None, Some(s), _) => {
+                    put(&s.uniform(boxed.pad));
+                    pipes.ready(Fragment::Quad, Blend::Normal).map(|p| vec![p])
+                }
+                (None, None, Some(v)) => {
                     put(&v.uniform(boxed.pad));
                     let (fx, blend) = Fx::mixed(v.effect, renderer.trail_mix());
                     self.passes(fx, blend)
@@ -1366,7 +1374,7 @@ impl Gpu {
                         .map(|(fx, blend)| pipes.ready(Fragment::Effect(fx), blend))
                         .collect()
                 }
-                (None, None) => None,
+                (None, None, None) => None,
             }
         };
         let (cell_layout, inst_layout) = (pipes.cell_layout(), pipes.layout());

@@ -102,6 +102,7 @@ expect=(
   a_target_shown_with_points_is_free_at_its_release_point_on_radv
   every_effect_is_drawn_by_the_cell_path_as_the_cpu_path_draws_it_on_radv
   the_fireworks_are_drawn_by_the_cell_path_as_the_cpu_path_draws_them_on_radv
+  a_smear_is_drawn_by_the_cell_path_as_the_cpu_path_draws_it_on_radv
 )
 for t in "${expect[@]}"; do
   grep -q "^test $t \.\.\. ok$" <<<"$out" || {

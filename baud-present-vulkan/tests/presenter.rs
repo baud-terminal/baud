@@ -277,11 +277,13 @@ fn a_gpu_frame_after_the_cpu_arm_draws_what_it_missed() {
     p.destroy(&gpu);
 }
 
-/// **An image on screen and a trail each take the CPU arm**, counted, as
-/// the cell path draws neither. The control: the same screen without them
-/// is the GPU arm's.
+/// **An image on screen takes the CPU arm, counted, as the cell path does
+/// not draw it; a smear is the GPU arm's once the quad's stage is built**:
+/// its first frame the CPU arm's while the stage builds, never waited for,
+/// then drawn, and no frame counted as a trail the path cannot draw. The
+/// control: the screen without either is the GPU arm's.
 #[test]
-fn an_image_or_a_trail_takes_the_cpu_arm() {
+fn an_image_takes_the_cpu_arm_and_a_smear_the_gpu_arm() {
     let gpu = lavapipe();
     let data = jetbrains_mono();
     let faces = [Face::parse(&data).expect("the face")];
@@ -306,8 +308,21 @@ fn an_image_or_a_trail_takes_the_cpu_arm() {
         strength: baud_render::Strength::Full,
         opacity: baud_render::Smear::OPAQUE,
     })));
-    assert_eq!(frame(&gpu, &mut p, &mut r, &mut t), Frame::Cpu(Cpu::Trail));
-    assert_eq!(p.counts().trail.0, 1);
+    assert_eq!(
+        frame(&gpu, &mut p, &mut r, &mut t),
+        Frame::Cpu(Cpu::Building),
+        "the quad's stage building"
+    );
+    let until = Instant::now() + Duration::from_secs(60);
+    loop {
+        assert!(Instant::now() < until, "the quad's stage never built");
+        if woken(&p, Duration::from_secs(30)) && p.finished() == Built::Yes {
+            if let Frame::Drew(_) = frame(&gpu, &mut p, &mut r, &mut t) {
+                break;
+            }
+        }
+    }
+    assert_eq!(p.counts().trail.0, 0, "no smear frame for the CPU arm");
     r.set_trail(None);
     assert!(
         matches!(frame(&gpu, &mut p, &mut r, &mut t), Frame::Drew(_)),

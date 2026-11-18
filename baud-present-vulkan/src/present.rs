@@ -4,11 +4,11 @@
 //! refused, so the driver draws it on the CPU arm as before.
 //!
 //! **What takes the CPU arm**, each counted ([`Cpu`]): a cell pipeline still
-//! building, an effect's or the fireworks' among them, which is never waited
-//! for -- its build runs on the worker and wakes the loop through
-//! [`Presenter::ready_fd`]; an image on screen; and a smear trail's quad,
-//! neither of which the cell path draws. An effect trail and the fireworks
-//! are drawn in the cell pass by their own stages. A frame on
+//! building, a trail's among them, which is never waited for -- its build
+//! runs on the worker and wakes the loop through [`Presenter::ready_fd`];
+//! and an image on screen, which the cell path does not draw. A smear, an
+//! effect trail and the fireworks are drawn in the cell pass by their own
+//! stages. A frame on
 //! the CPU arm leaves both targets lacking what it changed
 //! ([`Presenter::drawn_elsewhere`]).
 //!
@@ -57,7 +57,8 @@ pub enum Cpu {
     Building,
     /// An image is on screen.
     Images,
-    /// A smear is drawn: the quad has no stage on this path.
+    /// A trail's records that no stage of this path draws: none of the
+    /// smear, the effects and the fireworks.
     Trail,
 }
 
@@ -249,29 +250,33 @@ impl Presenter {
             self.counts.images.0 += 1;
             return Ok(Frame::Cpu(Cpu::Images));
         }
-        // An effect and the fireworks are drawn in the cell pass by their
-        // own stages, which a frame never waits for: while one builds, the
-        // frame is the CPU arm's. A smear's quad has no stage here.
+        // A smear, an effect and the fireworks are drawn in the cell pass by
+        // their own stages, which a frame never waits for: while one builds,
+        // the frame is the CPU arm's.
         let trail = renderer
             .trail()
             .iter()
             .any(|r| matches!(r.kind, Kind::Quad | Kind::Band | Kind::Particle));
         if trail {
-            let needs: Vec<(Fragment, PipeBlend)> =
-                match (renderer.fireworks_uniform([0.0; 2]), renderer.vfx()) {
-                    (Some(_), _) => vec![(Fragment::Fireworks, PipeBlend::Normal)],
-                    (None, Some(v)) => {
-                        let (fx, blend) = Fx::mixed(v.effect, renderer.trail_mix());
-                        gpu.passes(fx, blend)
-                            .into_iter()
-                            .map(|(fx, b)| (Fragment::Effect(fx), b))
-                            .collect()
-                    }
-                    (None, None) => {
-                        self.counts.trail.0 += 1;
-                        return Ok(Frame::Cpu(Cpu::Trail));
-                    }
-                };
+            let needs: Vec<(Fragment, PipeBlend)> = match (
+                renderer.fireworks_uniform([0.0; 2]),
+                renderer.smear(),
+                renderer.vfx(),
+            ) {
+                (Some(_), _, _) => vec![(Fragment::Fireworks, PipeBlend::Normal)],
+                (None, Some(_), _) => vec![(Fragment::Quad, PipeBlend::Normal)],
+                (None, None, Some(v)) => {
+                    let (fx, blend) = Fx::mixed(v.effect, renderer.trail_mix());
+                    gpu.passes(fx, blend)
+                        .into_iter()
+                        .map(|(fx, b)| (Fragment::Effect(fx), b))
+                        .collect()
+                }
+                (None, None, None) => {
+                    self.counts.trail.0 += 1;
+                    return Ok(Frame::Cpu(Cpu::Trail));
+                }
+            };
             let building = needs
                 .iter()
                 .filter(|(f, b)| self.pipes.ready(*f, *b).is_none())

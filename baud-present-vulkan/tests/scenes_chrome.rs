@@ -195,12 +195,9 @@ impl Want {
 enum Held {
     /// To the bars: the cell frame the instance frame, both the CPU path's.
     Bars,
-    /// To the CPU path's frame, the cell frame alone: the step draws an
-    /// effect trail, which the instance path does not draw.
+    /// To the CPU path's frame, the cell frame alone: the step draws a
+    /// smear or an effect trail, which the instance path does not draw.
     Trail,
-    /// To the cell path drawn whole alone: the step draws a smear, whose
-    /// quad the cell path has no stage for and leaves undrawn.
-    Undrawn,
 }
 
 /// One step of a by-rows run: its name, the change to the scene, what its
@@ -325,11 +322,14 @@ fn by_rows(gpu: &Gpu, arm: Arm, framing: Framing, steps: &[Step], counted: Count
     let mut owned = Owned::new(&WS);
     let mut t = term(&mut owned);
     let mut arms = Arms::new(gpu, arm, r, &t);
-    // The fire the steps light, built before any frame is drawn by rows.
-    arms.build_effect(
-        baud_present_vulkan::pipeline::Fx::Fire,
-        baud_present_vulkan::pipeline::Blend::Normal,
-    );
+    // The trails the steps draw, the quad and the fire, built before any
+    // frame is drawn by rows.
+    for fragment in [
+        baud_present_vulkan::pipeline::Fragment::Quad,
+        baud_present_vulkan::pipeline::Fragment::Effect(baud_present_vulkan::pipeline::Fx::Fire),
+    ] {
+        arms.build_trail(fragment, baud_present_vulkan::pipeline::Blend::Normal);
+    }
     let (w, h) = arms.renderer.whole_size();
     let targets: Vec<Target> = (0..TARGETS)
         .map(|_| gpu.target(Px(w.value()), Px(h.value())).expect("a target"))
@@ -372,13 +372,6 @@ fn by_rows(gpu: &Gpu, arm: Arm, framing: Framing, steps: &[Step], counted: Count
             }
             Held::Trail => {
                 arms.check_trail(&mut t, &what);
-            }
-            Held::Undrawn => {
-                let f = arms.draw(&mut t);
-                assert!(
-                    f.skipped.trails.0 > 0,
-                    "{what}: the premise, the cell path left the smear's quad undrawn"
-                );
             }
         }
     }
@@ -511,7 +504,7 @@ fn cursor_steps() -> Vec<Step> {
                 })));
             }),
             want: Want::Any,
-            held: Held::Undrawn,
+            held: Held::Trail,
         });
     }
     for ((c0, r0), (c1, r1), ages) in [

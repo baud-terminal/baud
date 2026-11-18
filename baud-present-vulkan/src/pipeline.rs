@@ -84,6 +84,10 @@ const FLAT_FRAG: Spirv = Spirv(include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/shaders/spv/flat.frag.spv"
 )));
+const QUAD_FRAG: Spirv = Spirv(include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/shaders/spv/quad.frag.spv"
+)));
 const FX_FIRE_FRAG: Spirv = Spirv(include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/shaders/spv/fx_fire.frag.spv"
@@ -143,6 +147,10 @@ pub enum Fragment {
     /// The fireworks' stars, by their own vertex and fragment stages and
     /// their `FwU` at set 2 (`fireworks.vert`, `fireworks.frag`).
     Fireworks,
+    /// A smear trail's record, the quad or the sweep, by its own fragment
+    /// over the records' vertex stage, reading `Smear::uniform` at set 2
+    /// (`quad.frag`).
+    Quad,
     /// The cell path's backgrounds, a cell an instance (`cell_bg.vert`,
     /// `flat.frag`).
     CellBg,
@@ -298,6 +306,7 @@ impl Fragment {
             Fragment::Glyph => (GLYPH_VERT, GLYPH_FRAG),
             Fragment::Effect(fx) => (GLYPH_VERT, fx.stage()),
             Fragment::Fireworks => (FIREWORKS_VERT, FIREWORKS_FRAG),
+            Fragment::Quad => (GLYPH_VERT, QUAD_FRAG),
             Fragment::CellBg => (CELL_BG_VERT, FLAT_FRAG),
             Fragment::CellGlyph => (CELL_GLYPH_VERT, GLYPH_FRAG),
             Fragment::CellShape => (CELL_SHAPE_VERT, GLYPH_FRAG),
@@ -311,6 +320,7 @@ impl Fragment {
             Fragment::Background,
             Fragment::Glyph,
             Fragment::Fireworks,
+            Fragment::Quad,
             Fragment::CellBg,
             Fragment::CellGlyph,
             Fragment::CellShape,
@@ -323,9 +333,11 @@ impl Fragment {
     /// The layout its pipeline is built against.
     pub fn layout(self) -> Layout {
         match self {
-            Fragment::Background | Fragment::Glyph | Fragment::Effect(_) | Fragment::Fireworks => {
-                Layout::Instance
-            }
+            Fragment::Background
+            | Fragment::Glyph
+            | Fragment::Effect(_)
+            | Fragment::Fireworks
+            | Fragment::Quad => Layout::Instance,
             Fragment::CellBg | Fragment::CellGlyph | Fragment::CellShape | Fragment::CellRing => {
                 Layout::Cell
             }

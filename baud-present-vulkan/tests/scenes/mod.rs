@@ -592,18 +592,18 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
         frames
     }
 
-    /// **`fx` by `blend` built now**, so a run whose frames are compared
-    /// with each other draws the effect in every one rather than only in
-    /// those after its build finished.
-    pub fn build_effect(
+    /// **A trail's `fragment` by `blend` built now**, so a run whose frames
+    /// are compared with each other draws the trail in every one rather than
+    /// only in those after its build finished.
+    pub fn build_trail(
         &mut self,
-        fx: baud_present_vulkan::pipeline::Fx,
+        fragment: baud_present_vulkan::pipeline::Fragment,
         blend: baud_present_vulkan::pipeline::Blend,
     ) {
         let held = self.held.as_mut().expect("the arms' memory");
         held.pipes
-            .get(baud_present_vulkan::pipeline::Fragment::Effect(fx), blend)
-            .expect("the effect's pipeline");
+            .get(fragment, blend)
+            .expect("the trail's pipeline");
     }
 
     /// **A frame with an effect trail, its cell frame held to the CPU

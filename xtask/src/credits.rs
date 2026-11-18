@@ -114,7 +114,7 @@ pub struct Own {
 }
 
 /// baud's own embedded files, each with its reason.
-pub const OWN: [Own; 23] = [
+pub const OWN: [Own; 24] = [
     Own {
         path: "baud-app/config.toml.example",
         from: &[],
@@ -225,6 +225,11 @@ pub const OWN: [Own; 23] = [
     },
     Own {
         path: "baud-present-vulkan/shaders/spv/glyph.frag.spv",
+        from: &[],
+        why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
+    },
+    Own {
+        path: "baud-present-vulkan/shaders/spv/quad.frag.spv",
         from: &[],
         why: "baud's own shader for the Linux GPU path, compiled from baud-present-vulkan/shaders/",
     },

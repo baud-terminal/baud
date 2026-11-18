@@ -260,3 +260,53 @@ fn the_fireworks_are_drawn_by_the_cell_path_as_the_cpu_path_draws_them() {
 fn the_fireworks_are_drawn_by_the_cell_path_as_the_cpu_path_draws_them_on_radv() {
     fireworks_on(&radv());
 }
+
+/// **A smear on `gpu`, quad and sweep, drawn by the cell path as the CPU
+/// path draws it**: the corners part way from cell (40, 6) to the cursor,
+/// over text, through the scenes' trail check (`Arms::check_trail`).
+fn smears_on(gpu: &Gpu) {
+    use baud_render::{Segment, Shape, Smear, Strength};
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let r = scenes::renderer(Stack::new(&faces).expect("a stack"), Theme::dark(), WS);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"the text under the smear\r\nand more of it");
+    let mut a = Arms::new(gpu, gpu.arm(1), r, &t);
+    for shape in [Shape::Quad, Shape::Sweep] {
+        for p in [0.1f32, 0.5] {
+            let (cr, cc) = t.cursor();
+            let hole = a.renderer.cursor_rect(cr, cc, t.cursor_style());
+            let from = a
+                .renderer
+                .cursor_rect(
+                    baud_domain::Row::from_index(6),
+                    baud_domain::Col::at_index(36),
+                    t.cursor_style(),
+                )
+                .corners();
+            a.renderer.set_trail(Some(TrailLook::Smear(Smear {
+                corners: Segment::new(from, hole).at(p),
+                hole,
+                shape,
+                strength: Strength::Full,
+                opacity: Smear::OPAQUE,
+            })));
+            a.check_trail(&mut t, &format!("the {shape:?} at {p}"));
+        }
+    }
+}
+
+/// **The quad and the sweep drawn by the cell path as the CPU path draws
+/// them**, on lavapipe. Named break: the smear left undrawn, the frame the
+/// CPU arm's.
+#[test]
+fn a_smear_is_drawn_by_the_cell_path_as_the_cpu_path_draws_it() {
+    smears_on(&lavapipe());
+}
+
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn a_smear_is_drawn_by_the_cell_path_as_the_cpu_path_draws_it_on_radv() {
+    smears_on(&radv());
+}
