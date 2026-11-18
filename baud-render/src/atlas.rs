@@ -1241,7 +1241,7 @@ impl Atlas {
             stretch,
             phase,
         };
-        let key = (glyph, flip, lean.tan().to_bits());
+        let key = (glyph, flip, lean.shear().to_bits());
         if let Some(known) = self.held.sheared.get(&key) {
             return *known;
         }
@@ -1323,7 +1323,7 @@ impl Atlas {
         // baseline, `top` being the first row's, times the lean.
         let moved = |row: usize| {
             let depth = own.top as f32 + f32::from(u16::try_from(row).unwrap_or(u16::MAX)) + 0.5;
-            (lean.tan() * depth * 256.0).round() as i32
+            (lean.shear() * depth * 256.0).round() as i32
         };
         let (a, b) = (moved(0), moved(h - 1));
         let least = a.min(b).div_euclid(256);

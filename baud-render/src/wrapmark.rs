@@ -33,6 +33,7 @@
 use baud_domain::BidiDirection;
 use baud_font::{Canvas, Extent, Point, Px};
 
+use crate::det::Det;
 use crate::units::slots;
 
 /// **Whether the continuation mark is drawn**, `[screen] wrap_marker`: on
@@ -118,7 +119,8 @@ pub(crate) fn draw(
     let arc = |radius: f32, k: u16| {
         let a =
             core::f32::consts::FRAC_PI_2 + core::f32::consts::PI * f32::from(k) / f32::from(STEPS);
-        (cx + radius * a.cos(), cy - radius * a.sin())
+        let (sin, cos) = a.det_sin_cos();
+        (cx + radius * cos, cy - radius * sin)
     };
     let mut hook: Vec<(f32, f32)> = (0..=STEPS).map(|k| arc(r + t / 2.0, k)).collect();
     hook.extend((0..=STEPS).rev().map(|k| arc(r - t / 2.0, k)));

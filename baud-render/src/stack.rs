@@ -151,7 +151,9 @@ pub struct TextFace {
 pub struct Lean(f32);
 
 impl Lean {
-    pub fn tan(self) -> f32 {
+    /// The shear: the tangent of the face's angle, which [`Stack::lean`]
+    /// computes once through `det`.
+    pub fn shear(self) -> f32 {
         self.0
     }
 }

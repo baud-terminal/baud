@@ -17,12 +17,15 @@
 //! the answer must not depend on the host. Every effect, the quad chase,
 //! the flash bound, the cursor's blink animations, the box drawing and
 //! braille glyphs baud draws itself, the `Linear` blend's tables, the
-//! screen slide's curve and an SAPV 17 slant's shear call these, and tests
-//! bar std's from their modules (`the_trails_call_no_platform_math`,
+//! screen slide's curve, an SAPV 17 slant's shear and the wrap mark's hook
+//! call these, and tests bar std's from their modules
+//! (`the_trails_call_no_platform_math`,
 //! `the_box_glyphs_and_blends_call_no_platform_math`,
 //! `the_slide_and_the_slant_call_no_platform_math`, and the app's
 //! `the_chase_calls_no_platform_math` and
-//! `the_blink_calls_no_platform_math`).
+//! `the_blink_calls_no_platform_math`) and from every source of this crate
+//! but this one (`baud_render_calls_no_platform_math_outside_det`, in
+//! `tests/platform_math.rs`).
 
 /// The functions, as methods so a call keeps its receiver: `x.det_exp()`
 /// where std's is `x.exp()`.
@@ -520,7 +523,9 @@ fn powf(x: f64, y: f64) -> f64 {
 /// `the_trails_call_no_platform_math`,
 /// `the_box_glyphs_and_blends_call_no_platform_math`,
 /// `the_slide_and_the_slant_call_no_platform_math` and the app's chase and
-/// blink hold theirs to.
+/// blink hold theirs to, and whose names
+/// `baud_render_calls_no_platform_math_outside_det` bars from every source
+/// of this crate but this one.
 pub const PLATFORM: [&str; 20] = [
     ".exp(",
     ".exp2(",

@@ -638,7 +638,7 @@ impl ClusterKey {
     /// A cell SAPV 17 slants left, by `lean`: a different cluster from the
     /// same codepoints drawn upright.
     fn sheared(self, lean: crate::stack::Lean) -> ClusterKey {
-        let bits = u64::from(lean.tan().to_bits()) << 8;
+        let bits = u64::from(lean.shear().to_bits()) << 8;
         ClusterKey((self.0 ^ 0xf9 ^ bits).wrapping_mul(ClusterKey::PRIME))
     }
 
