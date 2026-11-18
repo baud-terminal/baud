@@ -17,10 +17,15 @@
 //!   frames.
 //!
 //! Pixel bytes are four a pixel on both arms, whatever each keeps them
-//! as. The first five counters are compared ([`Counter::COMPARED`]);
-//! evicted and refused are baud-core's own and only printed. A compared
-//! counter either arm reports as "n/a" proves nothing equal: the recording
-//! is [`Verdict::Unknown`], printed UNEQUAL-UNKNOWN, its rate unquotable.
+//! as. The first five counters are compared ([`Counter::COMPARED`]). A
+//! compared counter either arm reports as "n/a" proves nothing equal: the
+//! recording is [`Verdict::Unknown`], printed UNEQUAL-UNKNOWN, its rate
+//! unquotable. Evicted and refused ([`Counter::OWN`]) are baud-core's own:
+//! none on baud-core leaves the five to decide, but an upload it refused or
+//! an image it evicted is work the other arm may have done and the five do
+//! not show, so a count above none there that the other arm does not
+//! report is unknown in the same way, and one both report and that differs
+//! differs.
 
 // Without libghostty-vt nothing is counted on the second arm.
 #![cfg_attr(not(have_ghostty), allow(dead_code))]
@@ -122,6 +127,10 @@ impl Counter {
         Counter::Frames,
     ];
 
+    /// The counters baud-core alone reports: compared only where an arm
+    /// reports one above none.
+    pub(crate) const OWN: [Counter; 2] = [Counter::Evicted, Counter::Refused];
+
     /// Every counter, in the order they are printed.
     pub(crate) const ALL: [Counter; 7] = [
         Counter::Stored,
@@ -186,20 +195,27 @@ impl std::fmt::Display for Counts {
     }
 }
 
-/// The compared counters both arms report and that differ.
+/// The counters both arms report and that differ: each compared counter,
+/// and each of baud-core's own that the other arm reports too.
 pub(crate) fn differing(a: &Counts, b: &Counts) -> Vec<Counter> {
     Counter::COMPARED
         .into_iter()
+        .chain(Counter::OWN)
         .filter(|&c| matches!((a.get(c), b.get(c)), (Some(x), Some(y)) if x != y))
         .collect()
 }
 
-/// The compared counters at least one arm reports as "n/a".
+/// The counters that leave equal work unshown: each compared counter at
+/// least one arm reports as "n/a", and each of baud-core's own that one arm
+/// reports above none and the other does not report.
 pub(crate) fn unreported(a: &Counts, b: &Counts) -> Vec<Counter> {
-    Counter::COMPARED
+    let compared = Counter::COMPARED
         .into_iter()
-        .filter(|&c| a.get(c).is_none() || b.get(c).is_none())
-        .collect()
+        .filter(|&c| a.get(c).is_none() || b.get(c).is_none());
+    let own = Counter::OWN
+        .into_iter()
+        .filter(|&c| matches!((a.get(c), b.get(c)), (Some(1..), None) | (None, Some(1..))));
+    compared.chain(own).collect()
 }
 
 /// What two arms' counts say about the work each did.
@@ -284,22 +300,44 @@ mod tests {
         assert_eq!(c.held_bytes, Some(24));
     }
 
-    /// Evicted and refused are baud-core's own: one arm reporting them
-    /// and the other not leaves the verdict to the five compared counters.
+    /// Evicted and refused are baud-core's own: none on baud-core, and the
+    /// other arm not reporting them, leaves the verdict to the five; an
+    /// upload refused or an image evicted that the other arm does not
+    /// report proves no equal work, and a compared counter that differs
+    /// outranks it; both arms reporting one, it is compared.
     #[test]
-    fn evicted_and_refused_are_not_compared() {
+    fn what_baud_core_refused_or_evicted_and_the_other_arm_does_not_report_is_unknown() {
         let mut a = Tally::default();
         a.observe(vec![held(1, 1, 1)]);
-        let ours = a.counts(Some(1), Some(3), Some(4));
         let theirs = a.counts(Some(1), None, None);
-        assert_eq!(verdict(&ours, &theirs), Verdict::Equal);
-        let theirs = a.counts(Some(2), None, None);
+        assert_eq!(
+            verdict(&a.counts(Some(1), Some(0), Some(0)), &theirs),
+            Verdict::Equal
+        );
+        let ours = a.counts(Some(1), Some(3), Some(4));
         assert_eq!(
             verdict(&ours, &theirs),
+            Verdict::Unknown(vec![Counter::Evicted, Counter::Refused])
+        );
+        assert_eq!(
+            verdict(&theirs, &ours),
+            Verdict::Unknown(vec![Counter::Evicted, Counter::Refused])
+        );
+        assert_eq!(
+            verdict(&a.counts(Some(1), Some(0), Some(4)), &theirs),
+            Verdict::Unknown(vec![Counter::Refused])
+        );
+        assert_eq!(
+            verdict(&ours, &a.counts(Some(2), None, None)),
             Verdict::Differ(vec![Counter::Frames])
         );
         assert_eq!(
-            theirs.to_string(),
+            verdict(&ours, &a.counts(Some(1), Some(3), Some(5))),
+            Verdict::Differ(vec![Counter::Refused])
+        );
+        assert_eq!(verdict(&ours, &ours), Verdict::Equal);
+        assert_eq!(
+            a.counts(Some(2), None, None).to_string(),
             "images stored 1, pixel bytes stored 4, images held 1, pixel bytes held 4, \
              animation frames held 2, evicted n/a, refused n/a"
         );

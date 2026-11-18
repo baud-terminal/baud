@@ -249,7 +249,7 @@ impl Compared {
         }
         let [ours, theirs] = &self.counts;
         let names = |list: &[Counter]| list.iter().map(|c| c.name()).collect::<Vec<_>>().join(", ");
-        let own = "; evicted and refused are baud-core's own, not compared";
+        let own = "; evicted and refused are baud-core's own, and none";
         let n = |x: &Counts, c: Counter| x.get(c).map_or("n/a".to_string(), |n| n.to_string());
         let each = |list: &[Counter], out: &mut Vec<String>| {
             for &c in list {
@@ -274,8 +274,9 @@ impl Compared {
             }
             Verdict::Unknown(missing) => {
                 out.push(format!(
-                    "{label}: UNEQUAL-UNKNOWN, rate unquotable: n/a on an arm, so equal work \
-                     is not shown: {}",
+                    "{label}: UNEQUAL-UNKNOWN, rate unquotable: n/a on an arm, or baud-core's \
+                     own above none where the other arm does not report it, so equal work is \
+                     not shown: {}",
                     names(&missing)
                 ));
                 each(&missing, &mut out);
@@ -888,7 +889,20 @@ mod ghostty {
 /// no rate and the run says so, with the reason, instead of failing; one
 /// listed here whose screens and counts agree fails the run, so the list
 /// cannot outlive its reason.
-pub(crate) const UNEQUAL: [(&str, &str); 0] = [];
+pub(crate) const UNEQUAL: [(&str, &str); 2] = [
+    (
+        "mpv-logo-40x6.raw",
+        "uploads refused (a bare ESC in an upload): mpv's status line cuts three of the \
+         capture's kitty commands, a bare ESC cancels each, and baud-core refuses what \
+         follows of its upload; ghostty reports no refusals, so equal work is not shown",
+    ),
+    (
+        "mpv-status-in-chunk.raw",
+        "uploads refused (a bare ESC in an upload): the recording is one continuation \
+         chunk that mpv's status line cuts, a bare ESC cancels it, and baud-core refuses \
+         the upload whole; ghostty reports no refusals, so equal work is not shown",
+    ),
+];
 
 /// The reason `label` is listed in [`UNEQUAL`], if it is.
 pub(crate) fn known_unequal(label: &str) -> Option<&'static str> {
