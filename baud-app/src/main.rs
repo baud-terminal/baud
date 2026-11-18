@@ -196,6 +196,8 @@ mod link;
 #[cfg(target_os = "linux")]
 mod linux;
 mod log;
+#[cfg(test)]
+mod pacer;
 // What both drivers decide about a program's notification before the
 // platform shows it: its tests run on every platform.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
