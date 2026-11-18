@@ -41,7 +41,8 @@ use crate::scale::{self, BufferScale, Mapped, Told, Viewport};
 use crate::shm::{Pool, Px};
 use crate::timing::{ClockId, Presentation, Stamp, Unseen};
 use baud_domain::{
-    EventMillis, Focus, HebrewLayout, KeyEvent, KeyEventKind, LocatorDevice, Modifiers, premultiply,
+    EventMillis, Focus, HebrewLayout, KeyEvent, KeyEventKind, LocatorDevice, Modifiers,
+    premultiply_row,
 };
 use baud_wayland::{
     Arg, Connection, Event as Wire, Fixed, Handler, Interface, ObjectId, Opcode, Read, Sender,
@@ -1671,9 +1672,7 @@ impl Window {
             for y in at(strip.top)..at(strip.bottom) {
                 let src = &frame[y * stride..y * stride + wu];
                 let dst = &mut pixels[y * dst_stride..y * dst_stride + wu];
-                for (d, &px) in dst.iter_mut().zip(src) {
-                    *d = premultiply(px);
-                }
+                premultiply_row(src, dst);
             }
         }
         pool.shown(buffer, &rows);
@@ -2864,25 +2863,36 @@ mod tests {
     /// the integer nearest `c a / 255` and the alpha passes through.
     /// `wl_shm`'s formats are premultiplied (`[[source: wayland]]`,
     /// `wl_shm.format`); one rounding on both systems gives the same
-    /// pixels on every OS. It holds `premultiply` as imported here, the
-    /// function `present` calls per pixel; a `present` that skipped it
-    /// would not be caught by this test.
+    /// pixels on every OS. It holds `premultiply_row` as imported here, the
+    /// function `present` calls per copied row; a `present` that skipped
+    /// it would not be caught by this test.
     #[test]
     fn the_buffer_word_rounds_as_on_macos() {
-        let mut wrong = 0u32;
+        let mut src = Vec::new();
         for a in 0..=255u32 {
             for c in 0..=255u32 {
-                let ok = [16u32, 8, 0].iter().all(|&shift| {
+                for shift in [16u32, 8, 0] {
                     let rest = 0x5a_c3_96 & !(0xff << shift);
-                    let got = premultiply((a << 24) | rest | (c << shift));
-                    let ch = (got >> shift) & 0xff;
-                    got >> 24 == a && (255 * ch).abs_diff(c * a) <= 127
-                });
-                if !ok {
-                    wrong += 1;
+                    src.push((a << 24) | rest | (c << shift));
                 }
             }
         }
-        assert_eq!(wrong, 0, "(C, a) pairs off the nearest, of 65536");
+        let mut row = vec![0u32; src.len()];
+        premultiply_row(&src, &mut row);
+        let mut wrong = 0u32;
+        for (i, (&s, &got)) in src.iter().zip(&row).enumerate() {
+            let shift = [16u32, 8, 0][i % 3];
+            let (a, c) = (s >> 24, (s >> shift) & 0xff);
+            let ch = (got >> shift) & 0xff;
+            if got >> 24 != a || (255 * ch).abs_diff(c * a) > 127 {
+                wrong += 1;
+            }
+        }
+        assert_eq!(
+            wrong,
+            0,
+            "(C, a, channel) words off the nearest, of {}",
+            src.len()
+        );
     }
 }

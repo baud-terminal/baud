@@ -14,6 +14,10 @@
 //! one below macOS on 31,770 of the 65,536 `(C, a)` pairs.
 
 use crate::Chan;
+use core::simd::Simd;
+
+/// The words one vector step of [`premultiply_row`] converts.
+pub const ROW_LANES: usize = 8;
 
 /// `c` scaled by the alpha `a`, rounded to the nearest byte. `c a` is never
 /// a half away from a multiple of 255, so the nearest is unique.
@@ -37,6 +41,34 @@ pub fn premultiply(word: u32) -> u32 {
     (a << 24) | ch(16) | ch(8) | ch(0)
 }
 
+/// **`src` premultiplied into `dst`**, word for word [`premultiply`]'s, over
+/// the shorter of the two: the conversion a presenter makes of each row it
+/// copies. [`ROW_LANES`] words a step, red with blue in one lane's two
+/// halves and green alone, each product rounded as `(t + (t >> 8)) >> 8`
+/// of `t = C a + 128`, which is the nearest byte for every `(C, a)`
+/// (`a_row_is_each_word_premultiplied`); the rest one word at a time. In
+/// sixteen-bit halves of 32-bit lanes it needs no feature past the
+/// target's baseline.
+pub fn premultiply_row(src: &[u32], dst: &mut [u32]) {
+    type V = Simd<u32, ROW_LANES>;
+    let n = src.len().min(dst.len());
+    let (src, dst) = (&src[..n], &mut dst[..n]);
+    let (lo, half) = (V::splat(0x00FF_00FF), V::splat(0x0080_0080));
+    let round = |t: V| ((t + ((t >> 8) & lo)) >> 8) & lo;
+    let (dv, dt) = dst.as_chunks_mut::<ROW_LANES>();
+    let (sv, st) = src.as_chunks::<ROW_LANES>();
+    for (d, s) in dv.iter_mut().zip(sv) {
+        let w = V::from_array(*s);
+        let a = w >> 24;
+        let rb = round((w & lo) * a + half);
+        let g = round(((w >> 8) & V::splat(0xFF)) * a + half);
+        *d = (a << 24 | rb | g << 8).to_array();
+    }
+    for (d, &w) in dt.iter_mut().zip(st) {
+        *d = premultiply(w);
+    }
+}
+
 /// `c a / 255` rounded, for `c` and `a` at most 255: at most 255 itself.
 ///
 /// **The division is spelled as the multiply LLVM makes of it**, `n *
@@ -52,6 +84,7 @@ const fn scale(c: u32, a: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::{vec, vec::Vec};
 
     /// **The reciprocal is the division** over every numerator `scale`
     /// can form, `255 * 255 + 127` at most, and on to `2^16`.
@@ -85,5 +118,40 @@ mod tests {
             }
         }
         assert_eq!(wrong, 0, "(C, a) pairs off the nearest, of 65536");
+    }
+
+    /// **A row is each word premultiplied**: [`premultiply_row`] gives
+    /// [`premultiply`]'s word for every `(C, a)` pair in each of R, G and
+    /// B, and for every length up to three vectors from every start, so the
+    /// vector body and the tail both meet them; over the shorter slice when
+    /// the two differ, the rest of `dst` untouched.
+    #[test]
+    fn a_row_is_each_word_premultiplied() {
+        let mut words = Vec::new();
+        for a in 0..=255u32 {
+            for c in 0..=255u32 {
+                for shift in [16u32, 8, 0] {
+                    let rest = 0x5a_c3_96 & !(0xff << shift);
+                    words.push((a << 24) | rest | (c << shift));
+                }
+            }
+        }
+        let want: Vec<u32> = words.iter().map(|&w| premultiply(w)).collect();
+        let mut got = vec![0u32; words.len()];
+        premultiply_row(&words, &mut got);
+        let wrong = got.iter().zip(&want).filter(|(g, w)| g != w).count();
+        assert_eq!(wrong, 0, "words off premultiply, of {}", words.len());
+        for start in 0..ROW_LANES {
+            for len in 0..=3 * ROW_LANES {
+                let at = start * 977;
+                let mut dst = vec![0u32; len];
+                premultiply_row(&words[at..at + len], &mut dst);
+                assert_eq!(dst, want[at..at + len], "from {start}, {len} words");
+                let mut long = vec![7u32; len + ROW_LANES + 1];
+                premultiply_row(&words[at..at + len], &mut long);
+                assert_eq!(long[..len], want[at..at + len], "dst longer, {len}");
+                assert!(long[len..].iter().all(|&w| w == 7), "past src, {len}");
+            }
+        }
     }
 }
