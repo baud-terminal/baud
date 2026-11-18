@@ -22,7 +22,7 @@ use crate::damage::{self, BANDS, Stale, TARGETS, TargetIx};
 use crate::draw::Buffer;
 use crate::frame::{Failed, Gpu, Recorder, Target};
 use crate::lend::{Arm, Elems, Lent, Uploaded};
-use crate::pipeline::{Blend, Fragment, Pipelines, Skipped};
+use crate::pipeline::{Blend, Fragment, Fx, Pipelines, Skipped};
 use crate::sheets::Sheets;
 use ash::vk;
 use baud_domain::themefile::CellPaint;
@@ -143,6 +143,9 @@ const INSTANCE_US: usize = 4;
 const U_PITCH: usize = 256;
 /// `U`'s bytes, twelve floats.
 const U_BYTES: usize = 48;
+/// The effect trail's uniform's bytes: `EffectU`'s 36 floats, which the
+/// fireworks' `FwU` fits inside.
+const FX_U_BYTES: usize = 144;
 /// The fewest records a set's buffer holds.
 const RECORDS_FLOOR: usize = 256;
 
@@ -164,6 +167,10 @@ struct CellSet {
     inst: [vk::DescriptorSet; INSTANCE_US],
     records: Mapped,
     us: Mapped,
+    /// The effect trail's uniform, `EffectU` or the fireworks' `FwU`, and
+    /// set 2 of the instance layout over it.
+    fx_u: Mapped,
+    fx_set: vk::DescriptorSet,
     map_bound: Option<MapSide>,
     last: Cu,
     /// Under staging, what the device's copies hold: the screen its grid
@@ -514,9 +521,9 @@ impl CellMemory {
         let d = &gpu.device;
         let storage = vk::BufferUsageFlags::STORAGE_BUFFER;
         let per_set = 1 + INSTANCE_US;
-        let n_sets = u32::try_from(SETS * per_set + 1).unwrap_or(u32::MAX);
+        let n_sets = u32::try_from(SETS * (per_set + 1) + 1).unwrap_or(u32::MAX);
         let n_storage = u32::try_from(SETS * (5 + INSTANCE_US) + 1).unwrap_or(u32::MAX);
-        let n_uniform = u32::try_from(SETS * (1 + INSTANCE_US)).unwrap_or(u32::MAX);
+        let n_uniform = u32::try_from(SETS * (2 + INSTANCE_US)).unwrap_or(u32::MAX);
         let pool_sizes = [
             vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
@@ -571,6 +578,7 @@ impl CellMemory {
                 pipes.sets[0],
                 pipes.sets[0],
                 pipes.sets[0],
+                pipes.sets[2],
             ];
             let alloc = vk::DescriptorSetAllocateInfo::default()
                 .descriptor_pool(pool)
@@ -582,6 +590,7 @@ impl CellMemory {
                 Elems(INSTANCE_US * U_PITCH),
                 vk::BufferUsageFlags::UNIFORM_BUFFER,
             )?;
+            let fx_u = gpu.mapped(Elems(FX_U_BYTES), vk::BufferUsageFlags::UNIFORM_BUFFER)?;
             let set = CellSet {
                 grid,
                 grid_len,
@@ -597,6 +606,8 @@ impl CellMemory {
                 inst: [made[1], made[2], made[3], made[4]],
                 records,
                 us,
+                fx_u,
+                fx_set: made[5],
                 map_bound: None,
                 last: Cu([Word(0); CU_WORDS]),
                 holds: None,
@@ -676,6 +687,7 @@ impl CellMemory {
             s.seg_base.destroy(gpu);
             gpu.drop_buffer(s.records.buffer);
             gpu.drop_buffer(s.us.buffer);
+            gpu.drop_buffer(s.fx_u.buffer);
         }
         for m in self.maps {
             m.destroy(gpu);
@@ -937,7 +949,17 @@ impl CellSet {
                     .range(vk::DeviceSize::try_from(U_BYTES).unwrap_or(0))]
             })
             .collect();
-        let mut writes = Vec::with_capacity(2 * INSTANCE_US);
+        let fx = [vk::DescriptorBufferInfo::default()
+            .buffer(self.fx_u.buffer.buffer)
+            .range(vk::WHOLE_SIZE)];
+        let mut writes = Vec::with_capacity(2 * INSTANCE_US + 1);
+        writes.push(
+            vk::WriteDescriptorSet::default()
+                .dst_set(self.fx_set)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&fx),
+        );
         for (set, u) in self.inst.iter().zip(&us) {
             writes.push(
                 vk::WriteDescriptorSet::default()
@@ -1316,6 +1338,37 @@ impl Gpu {
             CursorKind::Hollow => Some(pipes.get(Fragment::CellRing, Blend::Normal)?),
             _ => None,
         };
+        // **The trail's draw**, where the frame has one: the fireworks by
+        // their own stages and an effect by its own fragment under the
+        // plasma's mix, each with its uniform at set 2 from the grid's pad,
+        // as the macOS path draws them; never waited for -- a pipeline still
+        // building leaves the trail undrawn, counted, and its build wakes
+        // the loop. A smear's quad has no stage here, and is counted too.
+        let trail_pipes: Option<Vec<vk::Pipeline>> = {
+            let fx_u = &mut mem.sets[set].fx_u.bytes;
+            let mut put = |floats: &[f32]| {
+                for (at, f) in fx_u.as_chunks_mut::<4>().0.iter_mut().zip(floats) {
+                    at.copy_from_slice(&f.to_le_bytes());
+                }
+            };
+            match (renderer.fireworks_uniform(boxed.pad), renderer.vfx()) {
+                (Some(u), _) => {
+                    put(&u);
+                    pipes
+                        .ready(Fragment::Fireworks, Blend::Normal)
+                        .map(|p| vec![p])
+                }
+                (None, Some(v)) => {
+                    put(&v.uniform(boxed.pad));
+                    let (fx, blend) = Fx::mixed(v.effect, renderer.trail_mix());
+                    self.passes(fx, blend)
+                        .into_iter()
+                        .map(|(fx, blend)| pipes.ready(Fragment::Effect(fx), blend))
+                        .collect()
+                }
+                (None, None) => None,
+            }
+        };
         let (cell_layout, inst_layout) = (pipes.cell_layout(), pipes.layout());
         let range = vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -1414,6 +1467,7 @@ impl Gpu {
         let atlas = mem.atlas;
         let s = &mem.sets[set];
         let (cell_sets, inst_sets) = ([s.set, atlas], s.inst.map(|i| [i, atlas]));
+        let fx_set = [s.fx_set];
         let target_size = (t.width, t.height);
         let mut skipped = 0u64;
         let clips = &clips[..n_clips];
@@ -1485,7 +1539,34 @@ impl Gpu {
                     Some((a, b)) if a < to && a >= from => {
                         let b = b.min(to);
                         run(from, a);
-                        skipped += u64::try_from(b - a).unwrap_or(0);
+                        match &trail_pipes {
+                            // SAFETY: as above; the sets match the instance
+                            // layout, set 2 the trail's uniform, and the
+                            // records `a..b` lie inside the buffer.
+                            Some(passes) => unsafe {
+                                for &p in passes {
+                                    d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, p);
+                                    d.cmd_bind_descriptor_sets(
+                                        cb,
+                                        vk::PipelineBindPoint::GRAPHICS,
+                                        inst_layout,
+                                        0,
+                                        &inst_sets[k],
+                                        &[],
+                                    );
+                                    d.cmd_bind_descriptor_sets(
+                                        cb,
+                                        vk::PipelineBindPoint::GRAPHICS,
+                                        inst_layout,
+                                        2,
+                                        &fx_set,
+                                        &[],
+                                    );
+                                    d.cmd_draw(cb, 4, n32(Elems(b - a)).0, 0, n32(Elems(a)).0);
+                                }
+                            },
+                            None => skipped += u64::try_from(b - a).unwrap_or(0),
+                        }
                         run(b, to);
                     }
                     _ => run(from, to),

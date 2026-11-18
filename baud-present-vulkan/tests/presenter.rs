@@ -496,3 +496,64 @@ fn linux_draws_no_pan_and_no_leaving_row() {
     }
     p.destroy(&gpu);
 }
+
+/// **An effect trail is drawn on the GPU arm once its pipeline is built**:
+/// the first frame that lights the fire starts its build and is the CPU
+/// arm's, counted as building, never waited for; the build wakes the loop,
+/// and the next frame is the GPU arm's, the trail drawn in the cell pass.
+/// Named break: an effect frame handed to the CPU arm for good.
+#[test]
+fn an_effect_trail_is_drawn_on_the_gpu_arm_once_built() {
+    use baud_render::effect::{Effect, Ignition, Seed, Vfx};
+    let gpu = lavapipe();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = warm(&gpu, &mut r, &mut t);
+    let (w, h) = (
+        r.metrics().cell_w.value() as f32,
+        r.metrics().cell_h.value() as f32,
+    );
+    let rect = |c: f32, row: f32| baud_render::Rect {
+        left: c * w,
+        top: row * h,
+        right: (c + 1.0) * w,
+        bottom: (row + 1.0) * h,
+    };
+    let (from, to) = (rect(1.0, 1.0), rect(20.0, 4.0));
+    let tail = baud_render::Pt {
+        x: (from.left + from.right) * 0.5,
+        y: (from.top + from.bottom) * 0.5,
+    };
+    r.set_trail(Some(baud_render::TrailLook::Vfx(Vfx {
+        effect: Effect::Fire,
+        emitter: baud_render::Smear {
+            corners: from.corners(),
+            hole: to,
+            shape: baud_render::Shape::Quad,
+            strength: baud_render::Strength::Full,
+            opacity: baud_render::Smear::OPAQUE,
+        },
+        ignition: Ignition::ignite(tail, to, Seed(3), h).at(0.1),
+        axis: baud_render::Pt { x: 1.0, y: 0.0 },
+    })));
+    let at = Instant::now();
+    assert_eq!(
+        frame(&gpu, &mut p, &mut r, &mut t),
+        Frame::Cpu(Cpu::Building)
+    );
+    assert!(at.elapsed() < Duration::from_secs(1), "the frame waited");
+    let until = Instant::now() + Duration::from_secs(60);
+    loop {
+        assert!(Instant::now() < until, "the fire's pipeline never built");
+        if woken(&p, Duration::from_secs(30)) && p.finished() == Built::Yes {
+            if let Frame::Drew(_) = frame(&gpu, &mut p, &mut r, &mut t) {
+                break;
+            }
+        }
+    }
+    assert_eq!(p.counts().trail.0, 0, "no trail frame for the CPU arm");
+    p.destroy(&gpu);
+}

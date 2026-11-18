@@ -19,7 +19,7 @@ pub enum Drawn {
 impl Gpu {
     /// The passes `fx` by `blend` is drawn in on this device: one, or the
     /// two of [`Blend::Multiply`] where there is no second source.
-    fn passes(&self, fx: Fx, blend: Blend) -> Vec<(Fx, Blend)> {
+    pub(crate) fn passes(&self, fx: Fx, blend: Blend) -> Vec<(Fx, Blend)> {
         match (blend, self.multiply) {
             (Blend::Multiply, Multiply::TwoPass) => vec![
                 (Fx::PlasmaFactor, Blend::MultiplyFactor),

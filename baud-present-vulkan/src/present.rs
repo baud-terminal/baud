@@ -4,9 +4,11 @@
 //! refused, so the driver draws it on the CPU arm as before.
 //!
 //! **What takes the CPU arm**, each counted ([`Cpu`]): a cell pipeline still
-//! building, which is never waited for -- its build runs on the worker and
-//! wakes the loop through [`Presenter::ready_fd`]; an image on screen; and an
-//! effect trail's records, neither of which the cell path draws. A frame on
+//! building, an effect's or the fireworks' among them, which is never waited
+//! for -- its build runs on the worker and wakes the loop through
+//! [`Presenter::ready_fd`]; an image on screen; and a smear trail's quad,
+//! neither of which the cell path draws. An effect trail and the fireworks
+//! are drawn in the cell pass by their own stages. A frame on
 //! the CPU arm leaves both targets lacking what it changed
 //! ([`Presenter::drawn_elsewhere`]).
 //!
@@ -24,7 +26,7 @@ use crate::cells::{CellDraw, CellMemory, CellSizes, CellSlices, MapSide};
 use crate::damage::{TARGETS, TargetIx};
 use crate::frame::{Failed, Gpu, Target, Timeline};
 use crate::lend::Elems;
-use crate::pipeline::{Blend as PipeBlend, Fragment, Pipelines, Skipped};
+use crate::pipeline::{Blend as PipeBlend, Fragment, Fx, Pipelines, Skipped};
 use crate::sheets::Sheets;
 use baud_core::{Seal, Term};
 use baud_domain::{Codepoint, Col, PackedCell, Row, RowExtent, Rows};
@@ -34,7 +36,7 @@ use baud_present_wayland::{Changed, Px};
 use baud_render::cell_frame::{CellInputs, CellParts, build};
 use baud_render::screens::{SETS, Screens, SetIx};
 use baud_render::{
-    Candidate, Composition, GlyphMap, Highlight, Instance, Leaving, Lent, Overlay, Redraw,
+    Candidate, Composition, GlyphMap, Highlight, Instance, Kind, Leaving, Lent, Overlay, Redraw,
     Renderer, StyleStamp,
 };
 use std::os::fd::BorrowedFd;
@@ -55,7 +57,7 @@ pub enum Cpu {
     Building,
     /// An image is on screen.
     Images,
-    /// A trail or the fireworks are drawn.
+    /// A smear is drawn: the quad has no stage on this path.
     Trail,
 }
 
@@ -247,9 +249,37 @@ impl Presenter {
             self.counts.images.0 += 1;
             return Ok(Frame::Cpu(Cpu::Images));
         }
-        if !renderer.trail().is_empty() {
-            self.counts.trail.0 += 1;
-            return Ok(Frame::Cpu(Cpu::Trail));
+        // An effect and the fireworks are drawn in the cell pass by their
+        // own stages, which a frame never waits for: while one builds, the
+        // frame is the CPU arm's. A smear's quad has no stage here.
+        let trail = renderer
+            .trail()
+            .iter()
+            .any(|r| matches!(r.kind, Kind::Quad | Kind::Band | Kind::Particle));
+        if trail {
+            let needs: Vec<(Fragment, PipeBlend)> =
+                match (renderer.fireworks_uniform([0.0; 2]), renderer.vfx()) {
+                    (Some(_), _) => vec![(Fragment::Fireworks, PipeBlend::Normal)],
+                    (None, Some(v)) => {
+                        let (fx, blend) = Fx::mixed(v.effect, renderer.trail_mix());
+                        gpu.passes(fx, blend)
+                            .into_iter()
+                            .map(|(fx, b)| (Fragment::Effect(fx), b))
+                            .collect()
+                    }
+                    (None, None) => {
+                        self.counts.trail.0 += 1;
+                        return Ok(Frame::Cpu(Cpu::Trail));
+                    }
+                };
+            let building = needs
+                .iter()
+                .filter(|(f, b)| self.pipes.ready(*f, *b).is_none())
+                .count();
+            if building > 0 {
+                self.counts.building.0 += 1;
+                return Ok(Frame::Cpu(Cpu::Building));
+            }
         }
         renderer.place_lights(term);
         let live_screen = term.looking_back(inputs.back).index() == 0;

@@ -152,10 +152,8 @@ pub fn assert_frame_of(
 }
 
 /// **[`assert_frame_of`], with the pixels two or more blends stack on**:
-/// where each term of each blend is rounded to a byte
-/// ([`Rounding::TermByTerm`]) such a pixel may take a second step, as an
-/// effect's records stacked on lavapipe do (`effect_pixels.rs`); a device
-/// that rounds the sum once holds it to one.
+/// [`assert_frame_covered`] with those pixels covered twice and the other
+/// blended ones once.
 pub fn assert_frame_stacked(
     what: &str,
     got: &[u32],
@@ -164,26 +162,79 @@ pub fn assert_frame_stacked(
     bar: Bar,
     width: Px,
 ) {
+    assert_eq!(
+        (blended.len(), stacked.len()),
+        (got.len(), got.len()),
+        "{what}: the masks' sizes"
+    );
+    let covers: Vec<Cover> = blended
+        .iter()
+        .zip(stacked)
+        .map(|(&b, &s)| Cover(u8::from(b) + u8::from(b && s)))
+        .collect();
+    assert_frame_covered(what, got, want, &covers, bar, width);
+}
+
+/// How many of a scene's records blend a pixel: draw it at a coverage
+/// strictly between nothing and all, counted from the scene, never from
+/// the frames compared.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct Cover(pub u8);
+
+/// **The steps a pixel `n` records blend may be off by**: none unblended;
+/// where each term of each blend is rounded to a byte
+/// ([`Rounding::TermByTerm`]), a step a record -- each blend adds up to a
+/// step and the carried error shrinks by `1 - a`, so `n` records leave at
+/// most `n` steps, and a third step is open where the third record's alpha
+/// is at most a quarter; a step on a device that rounds the sum once. The
+/// bound holds while both arms blend each record with the same source and
+/// the same float alpha over an equal page byte under the first record
+/// (`cell_effects.rs`, `the_allowance_is_the_bound_term_by_term_rounding_reaches`).
+pub fn allowance(n: Cover, rounding: Rounding) -> u32 {
+    match (n.0, rounding) {
+        (0, _) => 0,
+        (n, Rounding::TermByTerm) => u32::from(n),
+        (_, Rounding::OnceAtTies) => 1,
+    }
+}
+
+/// **`got` against `want`, each pixel within the [`allowance`] its cover
+/// gives**, each failure named by `what`; under [`Rounding::TermByTerm`],
+/// as the control, some blended pixel must take a step. How many pixels
+/// sit at their cap, by cover, is reported, so a device that pins many
+/// there shows as a number. The lean over the blended pixels is held to
+/// [`BIAS`] where [`bias_gated`] says.
+pub fn assert_frame_covered(
+    what: &str,
+    got: &[u32],
+    want: &[u32],
+    covers: &[Cover],
+    bar: Bar,
+    width: Px,
+) {
     let width = usize::try_from(width.0).expect("a width");
     let Bar { rounding, driver } = bar;
     assert_eq!(
-        (got.len(), want.len(), blended.len(), stacked.len()),
-        (want.len(), blended.len(), got.len(), got.len()),
+        (got.len(), want.len(), covers.len()),
+        (want.len(), covers.len(), got.len()),
         "{what}: the frames' sizes"
     );
+    let blended: Vec<bool> = covers.iter().map(|c| c.0 > 0).collect();
     let mut wrong = Vec::new();
     let mut stepped = 0;
-    for (i, (((&g, &w), &b), &s)) in got.iter().zip(want).zip(blended).zip(stacked).enumerate() {
-        let steps = match (b, s, rounding) {
-            (false, _, _) => 0,
-            (true, true, Rounding::TermByTerm) => 2,
-            (true, _, _) => 1,
-        };
-        stepped += usize::from(b && g != w);
-        if spread(g, w) > steps {
+    let mut capped = std::collections::BTreeMap::<Cover, usize>::new();
+    for (i, ((&g, &w), &n)) in got.iter().zip(want).zip(covers).enumerate() {
+        let steps = allowance(n, rounding);
+        let off = spread(g, w);
+        stepped += usize::from(n.0 > 0 && g != w);
+        if steps > 0 && off == steps {
+            *capped.entry(n).or_default() += 1;
+        }
+        if off > steps {
             wrong.push(format!("({}, {}, {g:08x}, {w:08x})", i % width, i / width));
         }
     }
+    eprintln!("{what}: pixels at their cap, by cover: {capped:?}");
     assert!(
         wrong.is_empty(),
         "{what}: {} pixels wrong, the first (x, y, got, want) {}",
@@ -194,7 +245,7 @@ pub fn assert_frame_stacked(
         rounding == Rounding::OnceAtTies || stepped > 0,
         "{what}: no blended pixel took the step: the allowance tested nothing"
     );
-    let bias = mean_signed(got, want, blended);
+    let bias = mean_signed(got, want, &blended);
     if !bias_gated(driver) {
         eprintln!(
             "{what}: bias (b, g, r, a) on VkDriverId {}, reported and not gated: {bias:?}",

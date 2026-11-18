@@ -8,12 +8,12 @@
 //! - the cell frame is the instance frame, pixel for pixel, on every
 //!   device ([`Frames::cell_is_instance`]);
 //! - the cell frame and the instance frame are each the CPU path's
-//!   premultiplied frame through `common::assert_frame_stacked`: exact where
+//!   premultiplied frame through `common::assert_frame_covered`: exact where
 //!   no record blends, within a step a channel where one does, the step
-//!   rounded term by term on llvmpipe and once, a step off only at a tie,
-//!   everywhere else, and on llvmpipe two steps where two or more records
-//!   blend over each other, as an effect's stacked records are held; the
-//!   lean gated everywhere but on llvmpipe
+//!   rounded term by term on llvmpipe and once
+//!   everywhere else, and on llvmpipe a step a record where records blend
+//!   over each other (`common::allowance`); the lean gated everywhere but
+//!   on llvmpipe
 //!   ([`Frames::against_cpu`]).
 //!
 //! **A pixel is blended** where a record of the instance path's frame
@@ -42,7 +42,7 @@
 
 #![allow(dead_code)]
 
-use crate::common::{Bar, Rounding, assert_frame_stacked};
+use crate::common::{Bar, Cover, Rounding, assert_frame_covered};
 use baud_core::Term;
 use baud_domain::{BytePos, Codepoint, Col, PackedCell, ReadLen, Row, RowExtent, Rows, WinSize};
 use baud_font::Px as FontPx;
@@ -116,8 +116,8 @@ pub struct Frames {
     pub instance: Vec<u32>,
     pub cell: Vec<u32>,
     pub blended: Vec<bool>,
-    /// The blended pixels two or more records blend over each other.
-    pub stacked: Vec<bool>,
+    /// How many records blend each pixel, counted from the scene's records.
+    pub covers: Vec<Cover>,
     pub width: Px,
     /// Images and effect records the cell frame left undrawn.
     pub skipped: Skips,
@@ -174,11 +174,11 @@ impl Frames {
             ("the cell frame", &self.cell),
             ("the instance frame", &self.instance),
         ] {
-            assert_frame_stacked(
+            assert_frame_covered(
                 &format!("{scene}, {path} against the CPU path's"),
                 got,
                 &self.cpu,
-                (&self.blended, &self.stacked),
+                &self.covers,
                 bar,
                 self.width,
             );
@@ -567,9 +567,9 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
         let (cell, skipped) = self.cell_frame(t);
         let (instance, blended) = self.instance_frame(t);
         let (w, h) = self.renderer.whole_size();
-        let stacked = covers(&self.renderer, (w.value(), h.value()))
+        let covers = covers(&self.renderer, (w.value(), h.value()))
             .into_iter()
-            .map(|c| c > 1)
+            .map(Cover)
             .collect();
         let cpu = self.cpu_frame(t);
         Frames {
@@ -577,7 +577,7 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
             instance,
             cell,
             blended,
-            stacked,
+            covers,
             width: Px(w.value()),
             skipped,
         }
@@ -589,6 +589,50 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
         let frames = self.draw(t);
         frames.cell_is_instance(scene);
         frames.against_cpu(scene, self.bar);
+        frames
+    }
+
+    /// **`fx` by `blend` built now**, so a run whose frames are compared
+    /// with each other draws the effect in every one rather than only in
+    /// those after its build finished.
+    pub fn build_effect(
+        &mut self,
+        fx: baud_present_vulkan::pipeline::Fx,
+        blend: baud_present_vulkan::pipeline::Blend,
+    ) {
+        let held = self.held.as_mut().expect("the arms' memory");
+        held.pipes
+            .get(baud_present_vulkan::pipeline::Fragment::Effect(fx), blend)
+            .expect("the effect's pipeline");
+    }
+
+    /// **A frame with an effect trail, its cell frame held to the CPU
+    /// path's**: the cell path draws the trail's records by the effect's
+    /// own stages once their pipelines are built -- the frames until then
+    /// leave it undrawn, and are drawn again -- and none is left undrawn.
+    /// The instance path draws no effect, so only the cell frame is held.
+    pub fn check_trail(&mut self, t: &mut Term<'_>, scene: &str) -> Frames {
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while self.cell_frame(t).1.trails.0 > 0 {
+            assert!(
+                std::time::Instant::now() < until,
+                "{scene}: the trail's pipelines never built"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let frames = self.draw(t);
+        assert_eq!(
+            frames.skipped.trails.0, 0,
+            "{scene}: the cell path left the trail's records undrawn"
+        );
+        assert_frame_covered(
+            &format!("{scene}, the cell frame against the CPU path's"),
+            &frames.cell,
+            &frames.cpu,
+            &frames.covers,
+            self.bar,
+            frames.width,
+        );
         frames
     }
 }

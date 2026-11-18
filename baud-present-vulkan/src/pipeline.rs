@@ -251,6 +251,31 @@ impl Fx {
         Fx::Liquid,
     ];
 
+    /// The fragment shader that draws `effect`.
+    pub fn of(effect: baud_render::effect::Effect) -> Fx {
+        use baud_render::effect::Effect;
+        match effect {
+            Effect::Fire => Fx::Fire,
+            Effect::Plasma => Fx::Plasma,
+            Effect::Lightning => Fx::Lightning,
+            Effect::Ice => Fx::Ice,
+            Effect::Ufo => Fx::Ufo,
+            Effect::Orb => Fx::Orb,
+            Effect::Liquid => Fx::Liquid,
+        }
+    }
+
+    /// **The shader and blend `effect` is drawn by under `mix`**
+    /// (`Renderer::trail_mix`): its own over the target, or the plasma
+    /// screened or multiplied, as the macOS path picks its pipeline.
+    pub fn mixed(effect: baud_render::effect::Effect, mix: baud_render::Mix) -> (Fx, Blend) {
+        match mix {
+            baud_render::Mix::Normal => (Fx::of(effect), Blend::Normal),
+            baud_render::Mix::Screen => (Fx::Plasma, Blend::Screen),
+            baud_render::Mix::Multiply => (Fx::Plasma, Blend::Multiply),
+        }
+    }
+
     fn stage(self) -> Spirv {
         match self {
             Fx::Fire => FX_FIRE_FRAG,

@@ -195,8 +195,11 @@ impl Want {
 enum Held {
     /// To the bars: the cell frame the instance frame, both the CPU path's.
     Bars,
-    /// To the cell path drawn whole alone: the step draws an effect trail,
-    /// whose records the cell path leaves undrawn.
+    /// To the CPU path's frame, the cell frame alone: the step draws an
+    /// effect trail, which the instance path does not draw.
+    Trail,
+    /// To the cell path drawn whole alone: the step draws a smear, whose
+    /// quad the cell path has no stage for and leaves undrawn.
     Undrawn,
 }
 
@@ -322,6 +325,11 @@ fn by_rows(gpu: &Gpu, arm: Arm, framing: Framing, steps: &[Step], counted: Count
     let mut owned = Owned::new(&WS);
     let mut t = term(&mut owned);
     let mut arms = Arms::new(gpu, arm, r, &t);
+    // The fire the steps light, built before any frame is drawn by rows.
+    arms.build_effect(
+        baud_present_vulkan::pipeline::Fx::Fire,
+        baud_present_vulkan::pipeline::Blend::Normal,
+    );
     let (w, h) = arms.renderer.whole_size();
     let targets: Vec<Target> = (0..TARGETS)
         .map(|_| gpu.target(Px(w.value()), Px(h.value())).expect("a target"))
@@ -362,11 +370,14 @@ fn by_rows(gpu: &Gpu, arm: Arm, framing: Framing, steps: &[Step], counted: Count
             Held::Bars => {
                 arms.check(&mut t, &what);
             }
+            Held::Trail => {
+                arms.check_trail(&mut t, &what);
+            }
             Held::Undrawn => {
                 let f = arms.draw(&mut t);
                 assert!(
                     f.skipped.trails.0 > 0,
-                    "{what}: the premise, the cell path left the trail's records undrawn"
+                    "{what}: the premise, the cell path left the smear's quad undrawn"
                 );
             }
         }
@@ -523,7 +534,7 @@ fn cursor_steps() -> Vec<Step> {
                         .set_trail(Some(fire_trail(a, ((c0, r0), (c1, r1)), age)));
                 }),
                 want: Want::Any,
-                held: Held::Undrawn,
+                held: Held::Trail,
             });
         }
     }
@@ -2018,18 +2029,14 @@ fn splash_renderer<'f, 'a>(faces: &'f [Face<'a>]) -> Renderer<'f, 'a> {
     )
 }
 
-/// **The plasma's ages, each drawn by effect records the cell path leaves
-/// undrawn**: the premise that keeps them out of the bars, checked.
-fn plasma_is_undrawn(arms: &mut Arms<'_, '_, '_>, t: &mut Term<'_>, ages: &[f32], what: &str) {
+/// **The plasma's ages, each drawn by the cell path as the CPU path draws
+/// it** (`Arms::check_trail`).
+fn plasma_is_drawn(arms: &mut Arms<'_, '_, '_>, t: &mut Term<'_>, ages: &[f32], what: &str) {
     for &age in ages {
         arms.renderer.set_splash(Some(SplashLook {
             phase: SplashPhase::Plasma(age),
         }));
-        let f = arms.draw(t);
-        assert!(
-            f.skipped.trails.0 > 0,
-            "{what}, the plasma at {age}: the premise, its records are left undrawn"
-        );
+        arms.check_trail(t, &format!("{what}, the plasma at {age}"));
     }
 }
 
@@ -2099,7 +2106,7 @@ fn splash(gpu: &Gpu, arm: Arm) {
                 }
             }
         }
-        plasma_is_undrawn(
+        plasma_is_drawn(
             &mut arms,
             &mut t,
             &[0.0, 0.03, out, out + 0.1],
@@ -2204,7 +2211,7 @@ fn shell_in_front(gpu: &Gpu, arm: Arm) {
         "the control: the output reaches the logo's rows and columns"
     );
     let out = baud_render::splash::OUT;
-    plasma_is_undrawn(
+    plasma_is_drawn(
         &mut arms,
         &mut t,
         &[0.03, out, out + 0.1],

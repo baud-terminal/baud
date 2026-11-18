@@ -27,7 +27,7 @@ grep -q '^Gpu ' <<<"$probe" || {
   exit 1
 }
 
-out=$(cargo test -p baud-present-vulkan --test radv --test instance_path --test effect_pixels --test fireworks_pixels --test layouts --test sheets --test lend --test cell_path --test scenes_basic --test scenes_bidi --test scenes_compose --test scenes_fonts --test scenes_chrome --test blend_rounding --test presenter -- --ignored 2>&1) || {
+out=$(cargo test -p baud-present-vulkan --test radv --test instance_path --test effect_pixels --test fireworks_pixels --test layouts --test sheets --test lend --test cell_path --test scenes_basic --test scenes_bidi --test scenes_compose --test scenes_fonts --test scenes_chrome --test blend_rounding --test presenter --test cell_effects -- --ignored 2>&1) || {
   echo "$out" >&2
   exit 1
 }
@@ -100,6 +100,8 @@ expect=(
   the_splash_draws_alike_on_every_arm_on_radv
   the_shell_is_drawn_in_front_of_the_splash_on_every_arm_on_radv
   a_target_shown_with_points_is_free_at_its_release_point_on_radv
+  every_effect_is_drawn_by_the_cell_path_as_the_cpu_path_draws_it_on_radv
+  the_fireworks_are_drawn_by_the_cell_path_as_the_cpu_path_draws_them_on_radv
 )
 for t in "${expect[@]}"; do
   grep -q "^test $t \.\.\. ok$" <<<"$out" || {
