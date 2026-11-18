@@ -42,9 +42,15 @@
 //! that: every size set back to back, then one drain, recorded as zero-byte
 //! steps and one step with the bytes. `enter` writes a carriage return and
 //! drains, so a fixture can carry what a user does between resizes.
+//!
+//! `--answer QUERY=REPLY` answers a query the shell writes, as
+//! `capture-tui`'s does (`super::answers`): fish draws no prompt until its
+//! `DA1` is answered. The answers are written to the shell, not the `.raw`,
+//! which holds only what the shell wrote.
 
 use std::ffi::OsString;
 
+use super::answers::Answers;
 use super::args::{Conv, Need, Opt, Parser, Rest, Takes};
 use super::pty::{Child, Environ, Lookup, Spawn, clock};
 use super::py;
@@ -53,6 +59,7 @@ const PARSER: Parser = Parser {
     prog: "capture-resize",
     usage: "usage: capture-resize [-h] --sizes SIZES --out OUT [--settle SETTLE]
                       [--step STEP] [--tail TAIL] [--gap GAP]
+                      [--answer ANSWER]
                       ...
 ",
     help: "
@@ -70,6 +77,8 @@ options:
                    a display-link tick apart, so the shell redraws once per
                    size and every redraw but the last is computed for a width
                    the screen has left. Zero coalesces them into one redraw.
+  --answer ANSWER  QUERY=REPLY: answer QUERY with REPLY each time the shell
+                   writes it (repeatable)
 ",
     opts: &[
         Opt {
@@ -100,6 +109,11 @@ options:
         Opt {
             flag: "--gap",
             takes: Takes::One(Conv::Float),
+            need: Need::Optional,
+        },
+        Opt {
+            flag: "--answer",
+            takes: Takes::Append,
             need: Need::Optional,
         },
     ],
@@ -166,7 +180,7 @@ pub fn parse_sizes(path: &str, text: &str) -> Result<Vec<Line>, String> {
 /// managed to emit in the time a gesture gave it, so the window is fixed and
 /// a shell that is still redrawing when it closes is the case under test
 /// rather than a capture to retry.
-fn drain(child: &Child, seconds: f64) -> Result<Vec<u8>, String> {
+fn drain(child: &Child, seconds: f64, answers: &mut Answers) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     let end = clock() + seconds;
     while clock() < end {
@@ -174,7 +188,12 @@ fn drain(child: &Child, seconds: f64) -> Result<Vec<u8>, String> {
             continue;
         }
         match child.read(65536) {
-            Ok(chunk) if !chunk.is_empty() => out.extend_from_slice(&chunk),
+            Ok(chunk) if !chunk.is_empty() => {
+                for (_, reply) in answers.owed(&chunk)? {
+                    child.write(&reply)?;
+                }
+                out.extend_from_slice(&chunk);
+            }
             _ => break,
         }
     }
@@ -211,6 +230,7 @@ fn capture(parsed: &super::args::Parsed, cmd: &[OsString]) -> Result<(), String>
         })
         .expect("parse_sizes found a size");
 
+    let mut answers = Answers::parse(&parsed.all("--answer"))?;
     let mut env = Environ::current();
     env.set_default("TERM", "xterm-256color");
     let spawn = Spawn::new(Lookup::Path, cmd, None, &env, 1)?;
@@ -220,7 +240,10 @@ fn capture(parsed: &super::args::Parsed, cmd: &[OsString]) -> Result<(), String>
     child.set_size(first.0, first.1, 0, 0)?;
     // The shell's own startup, at the first size: a fixture that began
     // mid-prompt would be a recording of a terminal nobody has.
-    steps.push((first, drain(&child, parsed.float("--settle", 2.5))?));
+    steps.push((
+        first,
+        drain(&child, parsed.float("--settle", 2.5), &mut answers)?,
+    ));
     let step = parsed.float("--step", 0.05);
     let gap = parsed.float("--gap", 0.02);
     let mut at = first;
@@ -228,7 +251,7 @@ fn capture(parsed: &super::args::Parsed, cmd: &[OsString]) -> Result<(), String>
         let burst = match line {
             Line::Enter => {
                 child.write(b"\r")?;
-                steps.push((at, drain(&child, step)?));
+                steps.push((at, drain(&child, step, &mut answers)?));
                 continue;
             }
             Line::Sizes(burst) => burst,
@@ -243,9 +266,12 @@ fn capture(parsed: &super::args::Parsed, cmd: &[OsString]) -> Result<(), String>
         }
         at = *last;
         child.set_size(at.0, at.1, 0, 0)?;
-        steps.push((at, drain(&child, step)?));
+        steps.push((at, drain(&child, step, &mut answers)?));
     }
-    steps.push((at, drain(&child, parsed.float("--tail", 2.0))?));
+    steps.push((
+        at,
+        drain(&child, parsed.float("--tail", 2.0), &mut answers)?,
+    ));
     child.stop()?;
     child.close();
 

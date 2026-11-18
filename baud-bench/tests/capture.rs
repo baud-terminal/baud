@@ -1306,6 +1306,38 @@ fn each_size_is_a_step_and_a_burst_drains_once() {
     );
 }
 
+/// fish draws no prompt until its `DA1` is answered, so a resize capture
+/// answers a query its program writes, as `capture-tui` does.
+#[test]
+fn a_resize_capture_answers_a_query() {
+    let s = Scratch::new("resize-answer");
+    let sizes = s.at("s.sizes");
+    fs::write(&sizes, "80x20\n").unwrap();
+    let out = s.at("r");
+    let r = tool(
+        "capture-resize",
+        &with_cmd(
+            &[
+                "--sizes",
+                &sizes,
+                "--out",
+                &out,
+                "--settle",
+                "30",
+                "--step",
+                "0",
+                "--tail",
+                "0",
+                "--answer",
+                r"\x1b[c=yes\n",
+            ],
+            &s.bash(r#"stty -echo; printf '\033[c'; read x; printf 'R:%s' "$x""#),
+        ),
+    );
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    assert_eq!(read(&format!("{out}.raw")), b"\x1b[cR:yes");
+}
+
 /// `TERM` is given only where it is unset.
 #[test]
 fn the_resize_tool_keeps_term_or_gives_it() {

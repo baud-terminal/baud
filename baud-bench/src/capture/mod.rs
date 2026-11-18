@@ -23,6 +23,7 @@
 //! they replaced; `MEASUREMENTS.md`, "The capture tools are examples", lists
 //! what differs.
 
+pub mod answers;
 pub mod args;
 pub mod deflate;
 pub mod draws;

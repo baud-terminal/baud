@@ -36,6 +36,7 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io::Write;
 
+use super::answers::Answers;
 use super::args::{Conv, Need, Opt, Parser, Rest, Takes};
 use super::pty::{Child, Environ, Lookup, Spawn, clock};
 use super::py;
@@ -189,22 +190,7 @@ fn capture(parsed: &super::args::Parsed, cmd: &[OsString], env: &Environ) -> Res
     let mut next_key = clock() + first;
     let mut ki = 0;
 
-    // A word with no `=` is a tuple of one, which dies at the first read.
-    let mut answers: Vec<Vec<Vec<u8>>> = Vec::new();
-    for a in parsed.all("--answer") {
-        let text = args_text(Some(a))?;
-        let mut parts = Vec::new();
-        match text.split_once('=') {
-            Some((q, r)) => {
-                parts.push(py::unescape(q)?);
-                parts.push(py::unescape(r)?);
-            }
-            None => parts.push(py::unescape(&text)?),
-        }
-        answers.push(parts);
-    }
-    let mut answered = vec![0usize; answers.len()];
-    let mut seen: Vec<u8> = Vec::new();
+    let mut answers = Answers::parse(&parsed.all("--answer"))?;
 
     let mut end = clock() + parsed.float("--seconds", 10.0);
     let mut total = 0usize;
@@ -236,20 +222,13 @@ fn capture(parsed: &super::args::Parsed, cmd: &[OsString], env: &Environ) -> Res
         f.write_all(&chunk).map_err(|e| format!("write: {e}"))?;
         total += chunk.len();
         steps.push(format!("{cols}x{rows} {}", chunk.len()));
-        seen.extend_from_slice(&chunk);
-        for (i, a) in answers.iter().enumerate() {
-            let [q, r] = a.as_slice() else {
-                return Err("not enough values to unpack (expected 2, got 1)".to_string());
-            };
-            while py::count(&seen, q) > answered[i] {
-                child.write(r)?;
-                answered[i] += 1;
-                steps.push(format!(
-                    "# answered {} with {}",
-                    py::bytes_repr(q),
-                    py::bytes_repr(r)
-                ));
-            }
+        for (q, r) in answers.owed(&chunk)? {
+            child.write(&r)?;
+            steps.push(format!(
+                "# answered {} with {}",
+                py::bytes_repr(&q),
+                py::bytes_repr(&r)
+            ));
         }
     }
     drop(f);
