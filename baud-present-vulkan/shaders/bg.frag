@@ -16,5 +16,8 @@ void main() {
         return;
     }
     vec4 c = texelFetch(bg, ivec2(cf), 0);
-    out_color = vec4(c.rgb * c.a, c.a);
+    // No blend follows: each channel is rounded to its byte here, the
+    // nearest to `c a / 255` as `premultiply_chan` rounds it, so the store
+    // holds an exact k/255 and never meets a half.
+    out_color = vec4(floor(c.rgb * c.a * 255.0 + 0.5) / 255.0, c.a);
 }

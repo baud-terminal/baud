@@ -33,5 +33,9 @@ void main() {
                   (float(lrow) + c.y) * float(u.cell.y) + float(u.pan));
     gl_Position = clip(p);
     vec4 bg = unpack(bgw);
-    out_color = ground_pass == GROUND_CLEAR_SET && set ? vec4(0.0) : vec4(bg.rgb * bg.a, bg.a);
+    // No blend follows: each channel is rounded to its byte here, the
+    // nearest to `c a / 255` as `premultiply_chan` rounds it, so the store
+    // holds an exact k/255 and never meets a half.
+    vec3 rgb = floor(bg.rgb * bg.a * 255.0 + 0.5) / 255.0;
+    out_color = ground_pass == GROUND_CLEAR_SET && set ? vec4(0.0) : vec4(rgb, bg.a);
 }

@@ -27,7 +27,7 @@ grep -q '^Gpu ' <<<"$probe" || {
   exit 1
 }
 
-out=$(cargo test -p baud-present-vulkan --test radv --test instance_path --test effect_pixels --test fireworks_pixels --test layouts --test sheets --test lend --test cell_path --test scenes_basic --test scenes_bidi --test scenes_compose --test scenes_fonts --test scenes_chrome --test blend_rounding --test presenter --test cell_effects -- --ignored 2>&1) || {
+out=$(cargo test -p baud-present-vulkan --test radv --test instance_path --test effect_pixels --test fireworks_pixels --test layouts --test sheets --test lend --test cell_path --test scenes_basic --test scenes_bidi --test scenes_compose --test scenes_fonts --test scenes_chrome --test blend_rounding --test premultiply_store --test presenter --test cell_effects -- --ignored 2>&1) || {
   echo "$out" >&2
   exit 1
 }
@@ -50,6 +50,8 @@ expect=(
   every_cell_pipeline_builds_on_radv
   the_sheets_persist_and_a_glyph_is_copied_as_its_rectangle_on_radv
   lent_memory_is_read_as_owed_on_radv
+  bg_fragment_stores_every_channel_at_every_alpha_as_the_cpu_on_radv
+  a_page_at_a_tie_is_stored_as_the_cpu_on_both_paths_on_radv
   the_cell_path_is_the_instance_path_on_radv
   the_cell_path_is_the_cpu_path_on_radv
   two_targets_in_turn_are_each_the_whole_frame_on_radv
