@@ -892,9 +892,12 @@ mod ghostty {
 pub(crate) const UNEQUAL: [(&str, &str); 3] = [
     (
         "mpv-logo-40x6.raw",
-        "uploads refused (a bare ESC in an upload): mpv's status line cuts three of the \
-         capture's kitty commands, a bare ESC cancels each, and baud-core refuses what \
-         follows of its upload; ghostty reports no refusals, so equal work is not shown",
+        "uploads a bare ESC cuts, dropped by both arms at different stages: mpv's status \
+         line cuts two uploads a replay inside a chunk; baud-core cancels the chunk at the \
+         ESC and refuses the next for having no size, decoding nothing after it, while \
+         ghostty takes the ESC as the chunk's end, decodes the rest of the upload and drops \
+         it when its length falls short at the last chunk; neither stores it, and the work \
+         is not equal",
     ),
     (
         "mpv-status-in-chunk.raw",
@@ -907,7 +910,8 @@ pub(crate) const UNEQUAL: [(&str, &str); 3] = [
         "the terminals size the image quota differently (frame data accounting); both \
          evict unplaced images first: each replay is a new image under one image number, \
          both store every one, and ghostty's quota fills sooner, so it holds and places \
-         only the newest of what baud-core still places",
+         only the newest of what baud-core still places; baud-core's pixel bytes held counts \
+         each image's base frame only, not what its quota charges, which holds every frame",
     ),
 ];
 
@@ -1151,6 +1155,40 @@ mod tests {
         assert!(
             super::known_unequal("icat-logo-dark-140.raw").is_some_and(|w| w.contains("quota")),
             "listed, with the quota as its reason"
+        );
+    }
+
+    /// **An upload a bare ESC cuts is dropped by both arms, at different
+    /// stages**: a 3x2 RGB upload whose first chunk is cut after half its
+    /// data, the rest of it printed as text, then a last chunk. baud-core
+    /// cancels at the ESC and refuses the last chunk for having no size;
+    /// ghostty takes the ESC as the chunk's end, keeps its half and the last
+    /// chunk, and drops the upload when 12 bytes arrive for 18. Neither
+    /// stores it, the screens agree, and only baud-core counts a refusal:
+    /// mpv-logo is listed for that reason.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn an_upload_a_bare_esc_cuts_is_dropped_by_both_arms_at_different_stages() {
+        let p =
+            b"\x1b_Ga=T,f=24,s=3,v=2,q=2,m=1;AAAAAAAA\x1b[0mAAAAAAAA\x1b\\\x1b_Gm=0;AAAAAAAA\x1b\\";
+        let _hook = HOOK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::ffi::ghostty::set_png_decoder(crate::ffi::ghostty::PngDecoder::Registered);
+        let c = super::check(p, p.len()).expect("libghostty-vt is linked");
+        let report = c.report("cut-upload").join("\n");
+        let [ours, theirs] = &c.counts;
+        assert_eq!(ours.stored, Some(0), "baud-core stores nothing\n{report}");
+        assert_eq!(theirs.stored, Some(0), "ghostty stores nothing\n{report}");
+        assert_eq!(
+            ours.refused,
+            Some(1),
+            "baud-core refuses the last chunk\n{report}"
+        );
+        assert_eq!(theirs.refused, None, "ghostty counts no refusal\n{report}");
+        assert_eq!(c.cells_differing, 0, "the screens agree\n{report}");
+        assert!(
+            super::known_unequal("mpv-logo-40x6.raw")
+                .is_some_and(|w| w.contains("different stages")),
+            "mpv-logo listed for that reason"
         );
     }
 
