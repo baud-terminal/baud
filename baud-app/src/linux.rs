@@ -384,6 +384,11 @@ struct Driver {
     /// The session bus, for the portal's appearance and the file
     /// manager's reveal; `None` once it is gone or was never there.
     bus: Option<crate::bus::Bus>,
+    /// `[screen] printing`, the jobs taken from the core, and the print
+    /// portal's dialog: one at a time (`print.rs`).
+    printing: crate::config::Printing,
+    prints: crate::print::Prints,
+    print_dialog: PrintDialog,
     /// The config's `theme`, the half drawn, and what rebuilds a half: the
     /// theme files' schemes, `[glass]`'s dims and the contrast floor.
     theme_choice: crate::config::ThemeChoice,
@@ -667,6 +672,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         Owned::with_geometry(&MAX_GRID, &geom)
             .with_images(cfg.images)
             .with_clipboard(cfg.clipboard.budget)
+            .with_printer(crate::print::budget(cfg.printing))
             .with_notices(crate::notify::BUDGET),
     ));
     let mut term = Term::new(owned.storage(), &first);
@@ -691,13 +697,19 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     // so the answer usually lands before the first frame and never holds
     // it. Until it does, and with no bus, `auto` draws dark, as on macOS
     // before the system has said anything.
-    let bus = match crate::bus::Bus::connect() {
+    let mut bus = match crate::bus::Bus::connect() {
         Ok(b) => Some(b),
         Err(e) => {
             crate::info!("{e}: theme = \"auto\" draws dark, and a file: link is not revealed");
             None
         }
     };
+    // **The printer is the print portal**: asked for now, and listed to the
+    // core when it answers (`print.rs`); until then, and with no bus, a
+    // print is "no printer".
+    if let (Some(bus), crate::config::Printing::On) = (bus.as_mut(), cfg.printing) {
+        bus.ask_print_portal();
+    }
     let half = crate::appearance::half_for(cfg.theme, None);
     // Both halves are read, so a mistake in the one not drawn is still
     // reported; only the half drawn is built.
@@ -968,6 +980,9 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                 cfg.launch_splash,
             )),
         bus,
+        printing: cfg.printing,
+        prints: crate::print::Prints::new(),
+        print_dialog: PrintDialog::Idle,
         theme_choice: cfg.theme,
         half,
         halves,
@@ -1623,6 +1638,9 @@ impl Driver {
         // A program's notifications, taken read by read: the core keeps
         // eight a read (`notify.rs`).
         let icons = &mut self.notes.icons;
+        // A program's print jobs, taken part by part: the core keeps
+        // `PRINT_QUEUE` of them (`print.rs`).
+        let prints = &mut self.prints;
         let mut posted = Vec::new();
         // A reply the core queued while it read, which nobody typed: AA.
         let mut answered = Answered::No;
@@ -1668,6 +1686,7 @@ impl Driver {
                 asked.extend_from_slice(t.window_requests());
                 t.clear_window_requests();
                 posted.extend(t.notices().map(|n| crate::notify::Posted::of(&n, icons)));
+                prints.take(t);
                 t.clear_notices();
             },
             &mut self.hostlog,
@@ -1676,6 +1695,8 @@ impl Driver {
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.
         self.pty.follow(self.term.input_encoding());
+        // The jobs this read finished, onto the print portal's dialog.
+        self.print_next();
         // RD and HS for the read, AA for a reply it brought.
         let now = self.timed.clock.host(Instant::now());
         self.lights.read(bytes, now);
@@ -2599,6 +2620,80 @@ impl Driver {
         self.later.keep(asked);
     }
 
+    /// **The next print job onto the portal's dialog**, while none is up:
+    /// the dialog asked for, titled for the window, and the job kept for
+    /// its answer.
+    fn print_next(&mut self) {
+        if !matches!(self.print_dialog, PrintDialog::Idle) {
+            return;
+        }
+        let Some(bus) = self.bus.as_mut() else {
+            return;
+        };
+        let Some(job) = self.prints.next(self.term.printer()) else {
+            return;
+        };
+        let fallback = self
+            .derive
+            .title(
+                self.term.working_directory(),
+                std::slice::from_ref(&self.host),
+                self.home.as_deref(),
+            )
+            .unwrap_or_else(|| "baud".to_string());
+        let window =
+            crate::title::window_title(self.term.title(), self.term.title_encoding(), &fallback);
+        let title = crate::print::job_title(&window, job.cut, Default::default());
+        bus.prepare_print(&title);
+        self.print_dialog = PrintDialog::Asked { job, title };
+    }
+
+    /// **The dialog's choices: the job as a PDF on its paper, printed**
+    /// through `Print` with the token, the file unlinked so nothing is left
+    /// behind it. A job that prints nothing, or a file that cannot be made,
+    /// ends the exchange, said.
+    fn print_ready(&mut self, token: crate::bus::PrintToken, setup: crate::bus::PageSetup) {
+        let PrintDialog::Asked { job, title } =
+            std::mem::replace(&mut self.print_dialog, PrintDialog::Idle)
+        else {
+            return;
+        };
+        let built = self.fonts.configured();
+        let (regular, bold) = built.as_ref().map(print_faces).unwrap_or_default();
+        let faces = baud_render::print_pdf::Faces {
+            regular: &regular,
+            bold: &bold,
+        };
+        let Some((pdf, sheets, stripped)) = crate::print::pdf(&job.bytes, setup, faces) else {
+            crate::info!("print: the job prints nothing");
+            return self.print_next();
+        };
+        crate::info!(
+            "print: {sheets} sheets, {} bytes of PDF, {stripped} controls not printed, {} pictures reduced, {} left out",
+            pdf.len(),
+            stripped.reduced(),
+            stripped.left_out()
+        );
+        let file = match print_file(&pdf) {
+            Ok(f) => f,
+            Err(e) => {
+                crate::warn!("print: not printed: the document could not be written: {e}");
+                return self.print_next();
+            }
+        };
+        let sent = self
+            .bus
+            .as_mut()
+            .is_some_and(|b| b.print(&title, file, token));
+        match sent {
+            true => self.print_dialog = PrintDialog::Printing,
+            false => {
+                crate::warn!("print: not printed: the session bus does not pass files");
+                self.print_next();
+            }
+        }
+    }
+
     /// **What the session bus sent** (`bus.rs`): the desktop's colour
     /// scheme, read or changed, a reveal's answer, or the bus gone.
     fn pump_bus(&mut self) {
@@ -2625,6 +2720,27 @@ impl Driver {
                 );
             }
             Heard::NoScheme(_) => {}
+            Heard::PrintPortal(Ok(v)) => {
+                crate::info!("print: the print portal, version {}", v.0);
+                crate::print::set_printer(
+                    &mut self.term,
+                    self.printing,
+                    crate::print::Printers::Listed,
+                );
+            }
+            Heard::PrintPortal(Err(e)) => {
+                crate::info!("print: no print portal ({e}); a program's print is ignored");
+            }
+            Heard::PrintReady(token, setup) => self.print_ready(token, setup),
+            Heard::PrintEnded(end) => {
+                match end {
+                    crate::bus::PrintEnd::Printed => crate::info!("print: printed"),
+                    crate::bus::PrintEnd::Cancelled => crate::info!("print: cancelled"),
+                    crate::bus::PrintEnd::Failed(e) => crate::warn!("print: not printed: {e}"),
+                }
+                self.print_dialog = PrintDialog::Idle;
+                self.print_next();
+            }
             Heard::Motion(m) => {
                 self.heard_motion.0 = m;
                 let (m, a) = self.heard_motion;
@@ -4523,6 +4639,57 @@ fn board_of(b: crate::clip::Board) -> Board {
         crate::clip::Board::Clipboard => Board::Clipboard,
         crate::clip::Board::Primary => Board::Primary,
     }
+}
+
+/// **Where a print job is with the portal**: no dialog, a dialog asked for
+/// with its job and title kept for the answer, or the document printing.
+enum PrintDialog {
+    Idle,
+    Asked {
+        job: crate::print::Job,
+        title: String,
+    },
+    Printing,
+}
+
+/// **The face chains a print is drawn from**: the stack's fallback faces in
+/// order for plain text, and its bold face ahead of them for bold.
+fn print_faces(
+    b: &crate::fonts::Built,
+) -> (Vec<baud_font::Face<'static>>, Vec<baud_font::Face<'static>>) {
+    use baud_render::{FaceRole, FaceStyle};
+    let with = |want: fn(&FaceRole) -> bool| -> Vec<baud_font::Face<'static>> {
+        b.faces
+            .iter()
+            .zip(&b.roles)
+            .filter(|(_, r)| want(r))
+            .map(|(f, _)| f.clone())
+            .collect()
+    };
+    let plain = with(|r| matches!(r, FaceRole::Fallback));
+    let mut bold = with(|r| matches!(r, FaceRole::Style(FaceStyle::Bold)));
+    bold.extend(plain.iter().cloned());
+    (plain, bold)
+}
+
+/// **A document the portal reads**: written to a file in the runtime
+/// directory, unlinked at once so nothing is left behind, and rewound to
+/// its start, "open for reading" (`[[source: xdg-portal-print]]`).
+fn print_file(pdf: &[u8]) -> std::io::Result<std::os::fd::OwnedFd> {
+    use std::io::{Seek, SeekFrom, Write};
+    let dir = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let path = dir.join(format!("baud-print-{}.pdf", std::process::id()));
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&path)?;
+    let _ = std::fs::remove_file(&path);
+    file.write_all(pdf)?;
+    file.seek(SeekFrom::Start(0))?;
+    Ok(file.into())
 }
 
 /// **A program's `OSC 52` write on the seat's selections**: each it names

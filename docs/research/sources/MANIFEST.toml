@@ -31864,6 +31864,36 @@ status = "external"
 group  = "J"
 # Fetched 2026-10-21 (lane b134): where the Settings portal is on the bus.
 
+[sources.xdg-portal-print]
+key    = "xdg-portal-print"
+title  = "xdg-desktop-portal ee298d1, data/org.freedesktop.portal.Print.xml -- version 4: PreparePrint (handle_token, supported_output_file_formats; its Response's settings, page-setup and token) and Print (fd 'open for reading', token)"
+author = "the xdg-desktop-portal contributors"
+year   = 2026
+venue  = "flatpak/xdg-desktop-portal (LGPL-2.1-or-later)"
+url    = "https://raw.githubusercontent.com/flatpak/xdg-desktop-portal/ee298d1817fed18c208c9ddb638a4aef7bcecc9b/data/org.freedesktop.portal.Print.xml"
+file   = ""
+sha256 = "6b9e2ba951cab511bb8af5b1ee6d9eed117cc6542718c95f6596869de7295497"
+bytes  = 10146
+status = "external"
+group  = "J"
+# Fetched 2026-11-16 (A76): what baud-app/src/bus.rs calls for a print.
+# Not committed: the file is LGPL, a licence no group here carries.
+
+[sources.xdg-portal-request]
+key    = "xdg-portal-request"
+title  = "xdg-desktop-portal ee298d1, data/org.freedesktop.portal.Request.xml -- the Request path /org/freedesktop/portal/desktop/request/SENDER/TOKEN, predictable so a client subscribes to Response first; Response's codes 0, 1 and 2"
+author = "the xdg-desktop-portal contributors"
+year   = 2026
+venue  = "flatpak/xdg-desktop-portal (LGPL-2.1-or-later)"
+url    = "https://raw.githubusercontent.com/flatpak/xdg-desktop-portal/ee298d1817fed18c208c9ddb638a4aef7bcecc9b/data/org.freedesktop.portal.Request.xml"
+file   = ""
+sha256 = "fb6ce15cb23073a3d1f5ec6bd297a60edc3cb93f1a094c2bdd732fc93f736a8d"
+bytes  = 3003
+status = "external"
+group  = "J"
+# Fetched 2026-11-16 (A76): the Response a print exchange waits for.
+# Not committed, for the reason the Print interface is not.
+
 [sources.dbus-spec]
 key    = "dbus-spec"
 title  = "D-Bus Specification 0.43 (dbus 1.16.2, doc/dbus-specification.xml) -- marshalling, the message header and its fields, SASL EXTERNAL, unix: addresses, the session bus address"

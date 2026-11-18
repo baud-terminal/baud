@@ -8,7 +8,9 @@
 //! again. Anywhere else it answers "no printer" and every print is ignored
 //! and counted, as 070-7 § 7.3.2 ties the two. `[screen]
 //! printing` is read once, at launch, so "off" is never a lost printer.
-//! The Linux driver has no print panel, so its core never has a printer.
+//! On Linux the printer is the desktop's print portal: listed once its
+//! `version` answers (`bus.rs`), and each job a PDF ([`pdf`]) handed to its
+//! dialog.
 //!
 //! **The list is read again when a program asks, off the main thread**
 //! ([`Watch`]): on macOS a DSR `?15` stops the read (`PrinterHold::On`),
@@ -27,13 +29,10 @@
 //! goes on printing gets a panel each time the one before closes.
 
 use crate::config::Printing;
-#[cfg(any(target_os = "macos", test))]
 use baud_core::{PrintBudget, PrintCut};
 use baud_core::{PrinterPort, Term};
-#[cfg(any(target_os = "macos", test))]
 use baud_render::print::{Layout, Page, PictureBudget, Pictures, Stripped};
 
-#[cfg(any(target_os = "macos", test))]
 /// **The pixels a job's pictures may hold together**, 2^25, 128 MiB of
 /// picture and as much again in the panel's bitmaps: a hard copy of the
 /// whole text area of a 6K display, about 20 million pixels, fits whole,
@@ -41,19 +40,16 @@ use baud_render::print::{Layout, Page, PictureBudget, Pictures, Stripped};
 /// would have done to it anyway.
 pub const PICTURE_PIXELS: PictureBudget = PictureBudget(1 << 25);
 
-#[cfg(any(target_os = "macos", test))]
 /// The core's print area: the jobs one read finishes and the one being
 /// collected, about 500 pages of text. A printer controller run past it
 /// prints what fit, marked cut.
 pub const BUDGET: PrintBudget = PrintBudget::of_bytes(2 << 20);
 
-#[cfg(any(target_os = "macos", test))]
 /// The most a waiting job holds: one full area, which a release build lays
 /// out in 63 ms off the main thread (534 ms at 16 MiB); the text views
 /// AppKit then builds on the main thread are unmeasured.
 pub const WAITING_MAX: usize = 2 << 20;
 
-#[cfg(any(target_os = "macos", test))]
 /// The area the core is given: [`BUDGET`] while printing is on, none while
 /// it is off, as the core then never collects a job.
 pub fn budget(p: Printing) -> PrintBudget {
@@ -66,8 +62,7 @@ pub fn budget(p: Printing) -> PrintBudget {
 /// Whether the system lists a printer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Printers {
-    /// Never on Linux, whose driver has no print panel.
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    /// On macOS a printer `printerNames` lists; on Linux the print portal.
     Listed,
     None,
 }
@@ -197,7 +192,6 @@ impl Watch {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
 /// A job for the panel: 070-7's print stream, and whether any of it was
 /// cut at the core's bound or dropped here.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -206,26 +200,22 @@ pub struct Job {
     pub cut: PrintCut,
 }
 
-#[cfg(any(target_os = "macos", test))]
 /// Jobs dropped because the waiting job was full.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Dropped(usize);
 
-#[cfg(any(target_os = "macos", test))]
 impl std::fmt::Display for Dropped {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
 /// The jobs taken from the core and not yet on a panel.
 pub struct Prints {
     waiting: Option<Job>,
     pub dropped: Dropped,
 }
 
-#[cfg(any(target_os = "macos", test))]
 impl Prints {
     pub fn new() -> Prints {
         Prints {
@@ -279,7 +269,6 @@ impl Prints {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
 /// **A job laid out for the panel's paper**: read as baud's printer reads
 /// it, the type sized to its widest line, on sheets of the lines that fit
 /// (`baud_render::print`). `width` and `height` are the sheet's printable
@@ -306,7 +295,6 @@ pub fn pages(
     )
 }
 
-#[cfg(any(target_os = "macos", test))]
 /// What the panel names the job: the window's title, so it says which
 /// window printed, and a word for each way some of it was lost: the job
 /// cut short, pictures reduced to fit [`PICTURE_PIXELS`], pictures left
@@ -328,6 +316,64 @@ pub fn job_title(window: &str, cut: PrintCut, stripped: Stripped) -> String {
     }
 }
 
+#[cfg(any(target_os = "linux", test))]
+/// Points in a millimetre, as the portal's page setup is in millimetres.
+const POINTS_PER_MM: f64 = 72.0 / 25.4;
+
+#[cfg(any(target_os = "linux", test))]
+/// **The sheet the dialog chose**, in points: its paper and margins, A4
+/// with one-inch margins for what it left out, and the printable width and
+/// height between the margins.
+pub fn sheet(setup: crate::bus::PageSetup) -> (baud_render::print_pdf::Sheet, f64, f64) {
+    let mm = |v: Option<f64>, or: f64| v.filter(|v| v.is_finite() && *v >= 0.0).unwrap_or(or);
+    let (width, height) = (mm(setup.width, 210.0), mm(setup.height, 297.0));
+    let (top, left) = (mm(setup.top, 25.4), mm(setup.left, 25.4));
+    let (bottom, right) = (mm(setup.bottom, 25.4), mm(setup.right, 25.4));
+    // Margins that leave no room are dropped rather than printing nothing.
+    let (left, right) = match left + right < width {
+        true => (left, right),
+        false => (0.0, 0.0),
+    };
+    let (top, bottom) = match top + bottom < height {
+        true => (top, bottom),
+        false => (0.0, 0.0),
+    };
+    let sheet = baud_render::print_pdf::Sheet {
+        width: width * POINTS_PER_MM,
+        height: height * POINTS_PER_MM,
+        left: left * POINTS_PER_MM,
+        top: top * POINTS_PER_MM,
+    };
+    (
+        sheet,
+        (width - left - right) * POINTS_PER_MM,
+        (height - top - bottom) * POINTS_PER_MM,
+    )
+}
+
+#[cfg(any(target_os = "linux", test))]
+/// **A job as a PDF on the dialog's sheet**, laid out as the panel lays it
+/// ([`pages`]) at the faces' own advance and line height, and the counts
+/// of what did not print; `None` for a job that prints nothing.
+pub fn pdf(
+    job: &[u8],
+    setup: crate::bus::PageSetup,
+    faces: baud_render::print_pdf::Faces<'_, '_>,
+) -> Option<(Vec<u8>, usize, Stripped)> {
+    let first = faces.regular.first()?;
+    let (advance, leading) = baud_render::print_pdf::measures(first);
+    let (sheet, width, height) = sheet(setup);
+    let (pages, layout, stripped) = pages(job, width, height, advance, leading);
+    if pages.is_empty() {
+        return None;
+    }
+    let n = pages.len();
+    Some((
+        baud_render::print_pdf::write(&pages, layout, sheet, faces),
+        n,
+        stripped,
+    ))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -600,10 +646,11 @@ mod tests {
         assert!(app.contains("dispatch2::DispatchQueue::main().exec_async(move || {"));
     }
 
-    /// **Both drivers tell the core**, and the Linux one that it has no
-    /// printer, having no print panel.
+    /// **Both drivers tell the core**, and the Linux one that it has a
+    /// printer once the print portal answers: no printer at launch, a print
+    /// area, the portal asked for, and the printer listed by its answer.
     #[test]
-    fn both_drivers_tell_the_core_and_linux_has_no_printer() {
+    fn both_drivers_tell_the_core_and_linux_lists_the_portal() {
         let mac = crate::app_source::app_source();
         assert!(mac.contains("crate::print::set_printer(&mut term, printing, printers_listed());"));
         assert!(mac.contains(".with_printer(crate::print::budget(printing))"));
@@ -612,9 +659,61 @@ mod tests {
             "crate::print::set_printer(&mut term, cfg.printing, crate::print::Printers::None);"
         ));
         assert!(
-            !linux.contains("with_printer("),
-            "no area: no job is ever collected"
+            linux.contains(".with_printer(crate::print::budget(cfg.printing))"),
+            "an area, or no job is ever collected"
         );
+        assert!(linux.contains("bus.ask_print_portal();"));
+        // The call is wrapped by the formatter: its argument, which only
+        // the portal's answer passes.
+        assert_eq!(linux.matches("crate::print::Printers::Listed,").count(), 1);
+    }
+
+    /// **The dialog's paper, in points**: A4 is 595 by 842; what the
+    /// dialog leaves out is A4 with one-inch margins; margins that leave no
+    /// room are dropped.
+    #[test]
+    fn the_sheet_is_the_dialog_s_paper() {
+        use crate::bus::PageSetup;
+        let near = |a: f64, b: f64| (a - b).abs() < 0.01;
+        let (s, w, h) = sheet(PageSetup {
+            width: Some(210.0),
+            height: Some(297.0),
+            top: Some(0.0),
+            bottom: Some(0.0),
+            left: Some(0.0),
+            right: Some(0.0),
+        });
+        assert!(near(s.width, 595.28) && near(s.height, 841.89), "{s:?}");
+        assert!(near(w, s.width) && near(h, s.height));
+        let (s, w, _) = sheet(PageSetup::default());
+        assert!(near(s.left, 72.0) && near(s.top, 72.0) && near(w, 595.28 - 144.0));
+        let (s, w, _) = sheet(PageSetup {
+            width: Some(100.0),
+            left: Some(60.0),
+            right: Some(60.0),
+            ..PageSetup::default()
+        });
+        assert!(near(s.left, 0.0) && near(w, s.width), "{s:?}");
+    }
+
+    /// **A job is a PDF; a job of no text is none.**
+    #[test]
+    fn a_job_is_a_pdf_and_an_empty_one_is_none() {
+        let data = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fonts/built/Regular.ttf"
+        ))
+        .unwrap();
+        let regular = [baud_font::Face::parse(&data).unwrap()];
+        let faces = baud_render::print_pdf::Faces {
+            regular: &regular,
+            bold: &regular,
+        };
+        let setup = crate::bus::PageSetup::default();
+        let (bytes, sheets, _) = pdf(b"one\r\n\x0ctwo\r\n", setup, faces).expect("a document");
+        assert!(bytes.starts_with(b"%PDF-1.4"));
+        assert_eq!(sheets, 2);
+        assert!(pdf(b"\x1b[0;1m\x1b[0m", setup, faces).is_none());
     }
 
     #[test]
