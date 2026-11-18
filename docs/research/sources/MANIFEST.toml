@@ -33620,6 +33620,45 @@ bytes  = 32778
 status = "external"
 group  = "J"
 
+[sources.fontconfig-fcdefault-2-15-0]
+key    = "fontconfig-fcdefault-2-15-0"
+title  = "fontconfig 2.15.0, src/fcdefault.c -- FcGetDefaultLangs (line 50): the first of FC_LANG, LC_ALL, LC_CTYPE (passed over when it is just UTF-8) and LANG that is set and not empty, through FcStrSetAddLangs, else en"
+author = "Keith Packard and fontconfig contributors"
+year   = 2023
+venue  = "gitlab.freedesktop.org/fontconfig/fontconfig, tag 2.15.0 (MIT-style)"
+url    = "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fcdefault.c"
+file   = ""
+sha256 = "141c6b7694844b16b1204ec11003c0b58be8926e7732d4a5e6900cb42f575d32"
+bytes  = 11221
+status = "external"
+group  = "J"
+
+[sources.fontconfig-fclang-2-15-0]
+key    = "fontconfig-fclang-2-15-0"
+title  = "fontconfig 2.15.0, src/fclang.c -- FcLangNormalize (line 182): C, C.UTF-8, C.utf8 and POSIX as en; the codeset dropped; a territory, then a modifier, kept only where FcLangSetIndex finds the tag; a language the table lacks kept whole, lowercased; a language of other than two or three letters, or a territory of other than two or three (or a z and up to four), refused"
+author = "Keith Packard and fontconfig contributors"
+year   = 2023
+venue  = "gitlab.freedesktop.org/fontconfig/fontconfig, tag 2.15.0 (MIT-style)"
+url    = "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fclang.c"
+file   = ""
+sha256 = "18e88ba893d0a5e6492938ab7fb025ec37cd805aa74013ba0e6619ed257317c9"
+bytes  = 24521
+status = "external"
+group  = "J"
+
+[sources.fontconfig-fc-lang-meson-2-15-0]
+key    = "fontconfig-fc-lang-meson-2-15-0"
+title  = "fontconfig 2.15.0, fc-lang/meson.build -- orth_files: the 279 .orth files the language table is generated from, each name a language tag with _ for -"
+author = "Keith Packard and fontconfig contributors"
+year   = 2023
+venue  = "gitlab.freedesktop.org/fontconfig/fontconfig, tag 2.15.0 (MIT-style)"
+url    = "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/fc-lang/meson.build"
+file   = ""
+sha256 = "8bde9223916ec462aded017836be504228209978ae0561c2d45f0663ae7e2deb"
+bytes  = 4104
+status = "external"
+group  = "J"
+
 [sources.freetype-sfobjs-2-13-3]
 key    = "freetype-sfobjs-2-13-3"
 title  = "FreeType 2.13.3, src/sfnt/sfobjs.c -- sfnt_load_face: has_outline is glyf, CFF or CFF2 (867), false when CBLC or CBDT is present (900-903); FT_FACE_FLAG_COLOR for a CBLC or sbix sbit table, COLR or SVG (1094-1098); with outlines sbix gives FT_FACE_FLAG_SBIX, else SCALABLE (1100-1107); no bitmaps and no outlines is scalable (1319-1322)"

@@ -59,8 +59,9 @@
 //! * **`<alias>`** (`[[source: fontconfig-fcxml-2-15-0]]` `FcParseAlias`,
 //!   `[[source: fontconfig-fccfg-2-15-0]]` `FcConfigSubstitute`): each, in
 //!   any file read, is a rule that puts other families before, after and
-//!   at the end of a family it names, which a name no installed face
-//!   answers to is looked up through ([`Aliases`]).
+//!   at the end of a family it names, each bound as the rule says, which
+//!   a name is looked up through in the order fontconfig's match ranks
+//!   them ([`Aliases`]).
 //!
 //! **Departures in the patterns, open.** A pattern that names any other
 //! object -- `lang`, `charset`, `style`, `weight` and the rest a face has --
@@ -115,6 +116,7 @@ pub struct Env {
     pub path: Option<OsString>,
     pub config_dir: PathBuf,
     pub cwd: Option<PathBuf>,
+    pub locale: Locale,
 }
 
 impl Env {
@@ -130,9 +132,156 @@ impl Env {
             path: var("FONTCONFIG_PATH"),
             config_dir: CONFIG_DIR.into(),
             cwd: std::env::current_dir().ok(),
+            locale: Locale {
+                fc_lang: var("FC_LANG"),
+                lc_all: var("LC_ALL"),
+                lc_ctype: var("LC_CTYPE"),
+                lang: var("LANG"),
+            },
         }
     }
 }
+
+/// **The variables fontconfig reads its default languages from**, as the
+/// process had them when the configuration was read.
+#[derive(Clone, Default)]
+pub struct Locale {
+    /// `FC_LANG`.
+    pub fc_lang: Option<OsString>,
+    /// `LC_ALL`.
+    pub lc_all: Option<OsString>,
+    /// `LC_CTYPE`.
+    pub lc_ctype: Option<OsString>,
+    /// `LANG`.
+    pub lang: Option<OsString>,
+}
+
+impl Locale {
+    /// **The `lang` values fontconfig puts in a pattern before its
+    /// `<alias>` rules test it**: `FcGetDefaultLangs`
+    /// (`[[source: fontconfig-fcdefault-2-15-0]]` line 50) reads the first
+    /// of `FC_LANG`, `LC_ALL`, `LC_CTYPE` (unless it is just `UTF-8`) and
+    /// `LANG` that is set and not empty, splits it at `:`, and keeps each
+    /// part `FcLangNormalize` makes a tag of (`FcStrSetAddLangs`,
+    /// `[[source: fontconfig-fcstr-2-15-0]]` line 1499), or `en` when none
+    /// is; `FcConfigSubstituteWithPat`
+    /// (`[[source: fontconfig-fccfg-2-15-0]]` lines 1985-2033) adds them in
+    /// order, stopping at the first the pattern already holds, caseless, or
+    /// at `und`.
+    pub fn langs(&self) -> Vec<String> {
+        let set = |v: &Option<OsString>| v.clone().filter(|v| !v.is_empty());
+        let ctype = self
+            .lc_ctype
+            .clone()
+            .filter(|v| !v.eq_ignore_ascii_case("UTF-8"));
+        let langs = set(&self.fc_lang)
+            .or_else(|| set(&self.lc_all))
+            .or_else(|| set(&ctype))
+            .or_else(|| set(&self.lang));
+        let mut tags: Vec<String> = Vec::new();
+        let text = langs.map(|l| l.to_string_lossy().into_owned());
+        for part in text.iter().flat_map(|t| t.split(':')) {
+            match normalize_lang(part) {
+                Some(t) if !tags.contains(&t) => tags.push(t),
+                _ => {}
+            }
+        }
+        if tags.is_empty() {
+            tags.push("en".to_owned());
+        }
+        let mut pattern: Vec<String> = Vec::new();
+        for t in tags {
+            if pattern
+                .iter()
+                .any(|v| caseless(v, &t) || caseless(v, "und"))
+            {
+                break;
+            }
+            pattern.push(t);
+        }
+        pattern
+    }
+}
+
+/// **A locale name as fontconfig makes a language tag of it**
+/// (`FcLangNormalize`, `[[source: fontconfig-fclang-2-15-0]]` line 182):
+/// `C`, `C.UTF-8`, `C.utf8` and `POSIX` are `en`; otherwise
+/// `language[_territory][.codeset][@modifier]`, the codeset dropped, the
+/// territory joined by `-`, kept only where fontconfig's own table has the
+/// tag with it ([`LANG_TAGS`]), the modifier likewise; a language not in
+/// the table is kept whole, lowercased. An empty name, a language of other
+/// than two or three letters, or a territory of other than two or three
+/// (or a `z` and up to four), is no tag.
+fn normalize_lang(name: &str) -> Option<String> {
+    if name.is_empty() {
+        return None;
+    }
+    if ["C", "C.UTF-8", "C.utf8", "POSIX"]
+        .iter()
+        .any(|c| caseless(name, c))
+    {
+        return Some("en".to_owned());
+    }
+    let (rest, modifier) = match name.split_once('@') {
+        Some((r, m)) => (r, Some(m)),
+        None => (name, None),
+    };
+    let rest = rest.split_once('.').map_or(rest, |(r, _)| r);
+    let (language, territory) = match rest.split_once('_').or_else(|| rest.split_once('-')) {
+        Some((l, t)) => (l, Some(t)),
+        None => (rest, None),
+    };
+    let tag_len = |s: &str| (2..=3).contains(&s.len());
+    let region = |t: &str| tag_len(t) || (t.starts_with('z') && t.len() < 5);
+    if !tag_len(language) || !territory.is_none_or(region) {
+        return None;
+    }
+    let with = |t: Option<&str>, m: Option<&str>| {
+        let mut s = language.to_owned();
+        for (mark, part) in [('-', t), ('@', m)] {
+            if let Some(p) = part {
+                s.push(mark);
+                s.push_str(p);
+            }
+        }
+        s
+    };
+    let known = |s: &str| LANG_TAGS.iter().any(|tag| caseless(tag, s));
+    let tried = [
+        territory.map(|t| with(Some(t), modifier)),
+        modifier.map(|m| with(None, Some(m))),
+        Some(language.to_owned()),
+    ];
+    let found = tried.into_iter().flatten().find(|s| known(s));
+    Some(found.unwrap_or_else(|| with(territory, modifier).to_lowercase()))
+}
+
+/// **The language tags fontconfig's table holds**: the `.orth` files
+/// `fc-lang/meson.build` builds it from
+/// (`[[source: fontconfig-fc-lang-meson-2-15-0]]`), each name's `_` written
+/// `-`, as `FcLangSetIndex` compares them, caseless.
+const LANG_TAGS: [&str; 279] = [
+    "aa", "ab", "af", "agr", "ak", "am", "an", "anp", "ar", "as", "ast", "av", "ay", "ayc",
+    "az-az", "az-ir", "ba", "be", "bem", "ber-dz", "ber-ma", "bg", "bh", "bhb", "bho", "bi", "bin",
+    "bm", "bn", "bo", "br", "brx", "bs", "bua", "byn", "ca", "ce", "ch", "chm", "chr", "ckb",
+    "cmn", "co", "crh", "cs", "csb", "cu", "cv", "cy", "da", "de", "doi", "dsb", "dv", "dz", "ee",
+    "el", "en", "eo", "es", "et", "eu", "fa", "fat", "ff", "fi", "fil", "fj", "fo", "fr", "fur",
+    "fy", "ga", "gd", "gez", "gl", "gn", "gu", "gv", "ha", "hak", "haw", "he", "hi", "hif", "hne",
+    "ho", "hr", "hsb", "ht", "hu", "hy", "hz", "ia", "id", "ie", "ig", "ii", "ik", "io", "is",
+    "it", "iu", "ja", "jv", "ka", "kaa", "kab", "ki", "kj", "kk", "kl", "km", "kn", "ko", "kok",
+    "kr", "ks", "ku-am", "ku-iq", "ku-ir", "kum", "ku-tr", "kv", "kw", "kwm", "ky", "la", "lah",
+    "lb", "lez", "lg", "li", "lij", "ln", "lo", "lt", "lv", "lzh", "mag", "mai", "mfe", "mg", "mh",
+    "mhr", "mi", "miq", "mjw", "mk", "ml", "mn-cn", "mni", "mn-mn", "mnw", "mo", "mr", "ms", "mt",
+    "my", "na", "nan", "nb", "nds", "ne", "ng", "nhn", "niu", "nl", "nn", "no", "nqo", "nr", "nso",
+    "nv", "ny", "oc", "om", "or", "os", "ota", "pa", "pap-an", "pap-aw", "pa-pk", "pl", "ps-af",
+    "ps-pk", "pt", "qu", "quz", "raj", "rif", "rm", "rn", "ro", "ru", "rw", "sa", "sah", "sat",
+    "sc", "sco", "sd", "se", "sel", "sg", "sgs", "sh", "shn", "shs", "si", "sid", "sk", "sl", "sm",
+    "sma", "smj", "smn", "sms", "sn", "so", "sq", "sr", "ss", "st", "su", "sv", "sw", "syr", "szl",
+    "ta", "tcy", "te", "tg", "th", "the", "ti-er", "ti-et", "tig", "tk", "tl", "tn", "to", "tpi",
+    "tr", "ts", "tt", "tw", "ty", "tyv", "ug", "uk", "und-zmth", "und-zsye", "unm", "ur", "uz",
+    "ve", "vi", "vo", "vot", "wa", "wae", "wal", "wen", "wo", "xh", "yap", "yi", "yo", "yue",
+    "yuw", "za", "zh-cn", "zh-hk", "zh-mo", "zh-sg", "zh-tw", "zu",
+];
 
 /// **The font directories fontconfig's configuration names**, in its
 /// order; `None` when no configuration file is found, where fontconfig
@@ -160,7 +309,7 @@ pub fn load(env: &Env) -> Option<Config> {
         read: HashSet::new(),
         dirs: Vec::new(),
         select: Select::default(),
-        aliases: Aliases::default(),
+        aliases: Aliases::of_locale(&env.locale),
         pending: Pending::default(),
     };
     let root = load.filename(&name)?;
@@ -189,7 +338,8 @@ struct Load<'e> {
 /// element that takes them: a `<patelt>`'s values, a `<pattern>`'s
 /// elements, an `<acceptfont>`'s or `<rejectfont>`'s globs and patterns;
 /// an `<alias>`'s own families, its `<prefer>`, `<accept>` and `<default>`,
-/// the families inside one of those, and whether it has a `<test>`.
+/// the families inside one of those, its `<test>`s, and the values inside
+/// a `<test>`.
 #[derive(Default)]
 struct Pending {
     values: Vec<Value>,
@@ -200,56 +350,252 @@ struct Pending {
     prefer: Option<Vec<String>>,
     accept: Option<Vec<String>>,
     default: Option<Vec<String>>,
-    alias_test: Tested,
+    alias_tests: Vec<TestRead>,
+    test_values: Vec<Literal>,
 }
 
-/// Whether the `<alias>` being read has a `<test>`.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum Tested {
-    #[default]
-    No,
-    Yes,
+/// A value inside a `<test>`: a `<string>`'s text, or any other expression.
+enum Literal {
+    Str(String),
+    Other,
+}
+
+/// An alias's `<test>` as read: one baud evaluates, or one it does not.
+enum TestRead {
+    Evaluated(Test),
+    Unevaluated,
+}
+
+/// **An `<alias>`'s `<test>`** (`FcParseTest`,
+/// `[[source: fontconfig-fcxml-2-15-0]]` line 2704): the object it reads,
+/// how it compares, which of the object's values must match, and the one
+/// string it compares them with.
+struct Test {
+    qual: Qual,
+    object: Object,
+    compare: Compare,
+    blanks: Blanks,
+    string: String,
+}
+
+/// A test's `qual`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Qual {
+    Any,
+    All,
+    First,
+    NotFirst,
+}
+
+/// The pattern object a test reads: the three a pattern baud substitutes
+/// holds, or one it does not.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Object {
+    Family,
+    Lang,
+    Prgname,
+    Absent,
+}
+
+/// A test's `compare` (`FcConfigLexCompare`, line 2698), as
+/// `FcConfigCompareValue` (`[[source: fontconfig-fccfg-2-15-0]]` line 955)
+/// applies it to two strings: `less`, `less_eq`, `more` and `more_eq`
+/// compare no string, so are never true.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Compare {
+    Eq,
+    NotEq,
+    Contains,
+    NotContains,
+    Ordered,
+}
+
+/// Whether a test's `ignore-blanks` is on.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Blanks {
+    Kept,
+    Ignored,
+}
+
+impl Test {
+    /// **The test, read** from its attributes and the values inside it:
+    /// `Err` where fontconfig drops it with a warning, so the alias goes
+    /// on without it -- a `target`, `qual` or `compare` it does not know,
+    /// no `name`, no value; `Ok(Unevaluated)` where it is a test baud does
+    /// not evaluate: a `target` of `font` or `scan`, or an expression other
+    /// than one `<string>`.
+    fn read(e: &Element, values: Vec<Literal>) -> Result<TestRead, ()> {
+        let target = match e.attr("target") {
+            None | Some("default" | "pattern") => true,
+            Some("font" | "scan") => false,
+            Some(_) => return Err(()),
+        };
+        let qual = match e.attr("qual") {
+            None | Some("any") => Qual::Any,
+            Some("all") => Qual::All,
+            Some("first") => Qual::First,
+            Some("not_first") => Qual::NotFirst,
+            Some(_) => return Err(()),
+        };
+        let object = match e.attr("name").ok_or(())? {
+            "family" => Object::Family,
+            "lang" => Object::Lang,
+            "prgname" => Object::Prgname,
+            _ => Object::Absent,
+        };
+        let compare = match e.attr("compare") {
+            None | Some("eq") => Compare::Eq,
+            Some("not_eq") => Compare::NotEq,
+            Some("contains") => Compare::Contains,
+            Some("not_contains") => Compare::NotContains,
+            Some("less" | "less_eq" | "more" | "more_eq") => Compare::Ordered,
+            Some(_) => return Err(()),
+        };
+        let blanks = match e.attr("ignore-blanks").map(name_bool) {
+            Some(Fc3::True) => Blanks::Ignored,
+            _ => Blanks::Kept,
+        };
+        let string = match (values.len(), values.into_iter().next()) {
+            (0, _) => return Err(()),
+            (1, Some(Literal::Str(s))) if target => s,
+            _ => return Ok(TestRead::Unevaluated),
+        };
+        Ok(TestRead::Evaluated(Test {
+            qual,
+            object,
+            compare,
+            blanks,
+            string,
+        }))
+    }
+
+    /// Whether `value` compares with the test's string.
+    fn compares(&self, value: &str) -> bool {
+        let equal = match self.blanks {
+            Blanks::Ignored => blank_caseless(value, &self.string),
+            Blanks::Kept => caseless(value, &self.string),
+        };
+        match self.compare {
+            Compare::Eq => equal,
+            Compare::NotEq => !equal,
+            Compare::Contains => caseless_contains(value, &self.string),
+            Compare::NotContains => !caseless_contains(value, &self.string),
+            Compare::Ordered => false,
+        }
+    }
+
+    /// **Where the test matches `values`**, the object's values in the
+    /// pattern, as `FcConfigMatchValueList` (line 1679) and its caller
+    /// decide: the first value that compares (under `all`, the first value,
+    /// every one comparing), `first` and `not_first` held to it being, or
+    /// not being, the first; `None` when the rule fails. An object the
+    /// pattern does not hold matches under `all` alone, at no value.
+    fn at(&self, values: &[&str]) -> Option<Matched> {
+        if values.is_empty() {
+            return (self.qual == Qual::All).then_some(Matched::Nowhere);
+        }
+        let mut at = None;
+        for (k, v) in values.iter().enumerate() {
+            if self.compares(v) {
+                at = at.or(Some(k));
+                if self.qual != Qual::All {
+                    break;
+                }
+            } else if self.qual == Qual::All {
+                return None;
+            }
+        }
+        match (at, self.qual) {
+            (Some(0), Qual::NotFirst) => None,
+            (Some(1..), Qual::First) => None,
+            (at, _) => at.map(Matched::At),
+        }
+    }
+}
+
+/// Where a test matched: at a value's place, or, for an object the pattern
+/// does not hold, nowhere.
+#[derive(Clone, Copy)]
+enum Matched {
+    At(usize),
+    Nowhere,
 }
 
 /// **fontconfig's `<alias>` rules, in the order they were read**
-/// (`[[source: fontconfig-fcxml-2-15-0]]` `FcParseAlias`): each tests a
-/// family name and edits the family list as `[[source:
-/// fontconfig-fccfg-2-15-0]]` `FcConfigSubstitute` applies it
-/// ([`Aliases::expand`]).
+/// (`[[source: fontconfig-fcxml-2-15-0]]` `FcParseAlias`, line 1933): each
+/// tests the pattern a family is asked for by and edits its family list as
+/// `[[source: fontconfig-fccfg-2-15-0]]` `FcConfigSubstitute` applies it
+/// ([`Aliases::order`]).
 ///
 /// * An alias whose `binding` is not `weak`, `strong` or `same` is dropped,
 ///   as `FcConfigLexBinding` refuses it. Otherwise its binding is set on
-///   the families it adds (fccfg.c 1772, `same` taken from the matched
-///   family at 1822-1827) and nothing places a value by it, so it changes
-///   no order; it weighs only in fontconfig's own scoring of a match, which
-///   baud does not do, and is not kept.
+///   the families it adds (`FcConfigAdd`, line 1785: `same` takes the
+///   binding of the family it is placed by, weak at the end), and it
+///   decides which family a face is drawn from ([`Aliases::order`]).
 /// * An alias with no `<prefer>`, `<accept>` or `<default>` is no rule;
 ///   one with no `<family>` is an error and no rule. Of several
 ///   `<prefer>`s (or the others) the first is kept, as the parse stack
 ///   keeps the last it pops.
+/// * Its `<test>`s are evaluated against the pattern baud asks with: the
+///   family, bound strong, the languages of the locale ([`Locale::langs`])
+///   and `prgname` `baud`, fontconfig's pattern before its rules; a test of
+///   any other object finds none.
+/// * Several `<family>`s, which fontconfig warns "isn't supported and may
+///   not work as expected", match as `FcConfigMatchValueList` walks them:
+///   only when the last is in the list.
 ///
-/// **Departures, open.** An alias with a `<test>` is not applied: its
-/// test is fontconfig's expression grammar, which baud does not
-/// evaluate. Nor is one with more than one `<family>`, whose combined test
-/// fontconfig warns "isn't supported and may not work as expected": as
-/// `FcConfigMatchValueList` evaluates it, whether it matches turns on
-/// the last family alone. And baud follows the aliases only for a name no
-/// installed face answers to ([`crate::discover::Catalogue::lookup`]): a
-/// name that is an installed family is drawn as it is, where fontconfig
-/// would put an alias's `<prefer>` ahead of it.
+/// **A departure, open.** A `<test>` whose expression is anything but one
+/// `<string>`, or whose `target` is `font` or `scan`, is not evaluated, and
+/// its alias is not applied, with a warning that says how many were not
+/// ([`Aliases::unapplied`]).
 ///
 /// They are read once, with the rest of the configuration, when the
 /// installed fonts are first looked at; an expansion is at most
 /// [`ALIAS_LIST_MAX`] families.
 #[derive(Default)]
-pub struct Aliases(Vec<Alias>);
+pub struct Aliases {
+    rules: Vec<Alias>,
+    /// The pattern's `lang` values.
+    langs: Vec<String>,
+    /// Each alias not applied for a test baud does not evaluate.
+    unapplied: Vec<Unapplied>,
+}
 
-/// One `<alias>`: the family it tests and the three lists it adds.
+/// An alias not applied: one of its tests is not evaluated.
+struct Unapplied;
+
+/// One `<alias>`: its tests, the families it tests for, its binding, and
+/// the three lists it adds.
 struct Alias {
-    family: String,
+    tests: Vec<Test>,
+    families: Vec<String>,
+    binding: Binding,
     prefer: Vec<String>,
     accept: Vec<String>,
     default: Vec<String>,
+}
+
+/// An alias's `binding`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Binding {
+    Weak,
+    Strong,
+    Same,
+}
+
+/// How a family in the pattern is bound: the name asked for strong, the
+/// families an alias adds as its binding says.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Bound {
+    Weak,
+    Strong,
+}
+
+/// A family in the pattern, and how it is bound.
+#[derive(Clone)]
+struct Family {
+    name: String,
+    bound: Bound,
 }
 
 /// The most families an expansion holds. fontconfig sets no bound; the
@@ -259,36 +605,147 @@ struct Alias {
 const ALIAS_LIST_MAX: usize = 256;
 
 impl Aliases {
-    /// **The family list `name` becomes** under fontconfig's aliases:
-    /// `name` alone at first, then for each alias in order, where a family
-    /// in the list equals its own by `FcStrCmpIgnoreBlanksAndCase` (fccfg.c
-    /// 1085; the first such, as the test's qualifier is `any`), its
-    /// `<prefer>` goes before that family, its `<accept>` after it and its
-    /// `<default>` at the end (`FcOpPrepend`, `FcOpAppend`,
-    /// `FcOpAppendLast`). Each alias is applied once, so one that names
-    /// another adds what that one adds only where that one comes later, and
-    /// a cycle ends with the list. A family may appear twice, as fontconfig
-    /// keeps it; the first is the one that counts. At most
-    /// [`ALIAS_LIST_MAX`] families.
-    pub fn expand(&self, name: &str) -> Vec<String> {
-        let mut list = vec![name.to_owned()];
-        for a in &self.0 {
-            let Some(at) = list.iter().position(|f| blank_caseless(f, &a.family)) else {
+    /// No rules yet, for a pattern of the locale's languages.
+    fn of_locale(locale: &Locale) -> Aliases {
+        Aliases {
+            rules: Vec::new(),
+            langs: locale.langs(),
+            unapplied: Vec::new(),
+        }
+    }
+
+    /// **The pattern's family list `name` becomes** under fontconfig's
+    /// aliases: `name` alone at first, bound strong, then each alias in
+    /// order, over the list the ones before it left. An alias applies when
+    /// each of its tests matches and its family test does: the families it
+    /// names are looked up in order, each where the list first holds it by
+    /// `FcStrCmpIgnoreBlanksAndCase`, one missing undoing the matches
+    /// before it, so it applies only when the last is there, at the first
+    /// of the run of matches that ends with it. Its `<prefer>` goes before
+    /// that family -- or before the family a `<test name="family">` matched
+    /// first, as the rule's first family test places the edits -- its
+    /// `<accept>` after it and its `<default>` at the end (`FcOpPrepend`,
+    /// `FcOpAppend`, `FcOpAppendLast`). Each alias is applied once, so one
+    /// that names another adds what that one adds only where that one comes
+    /// later, and a cycle ends with the list. A family may appear twice, as
+    /// fontconfig keeps it. At most [`ALIAS_LIST_MAX`] families.
+    fn pattern(&self, name: &str) -> Vec<Family> {
+        let mut list = vec![Family {
+            name: name.to_owned(),
+            bound: Bound::Strong,
+        }];
+        let langs: Vec<&str> = self.langs.iter().map(String::as_str).collect();
+        for a in &self.rules {
+            let names: Vec<&str> = list.iter().map(|f| f.name.as_str()).collect();
+            let mut placed = None;
+            let tested = a.tests.iter().all(|t| {
+                let values: &[&str] = match t.object {
+                    Object::Family => &names,
+                    Object::Lang => &langs,
+                    Object::Prgname => &["baud"],
+                    Object::Absent => &[],
+                };
+                match t.at(values) {
+                    Some(Matched::At(k)) if t.object == Object::Family => {
+                        placed = placed.or(Some(k));
+                        true
+                    }
+                    Some(_) => true,
+                    None => false,
+                }
+            });
+            let mut walked = None;
+            for family in &a.families {
+                match names.iter().position(|n| blank_caseless(n, family)) {
+                    Some(k) => walked = walked.or(Some(k)),
+                    None => walked = None,
+                }
+            }
+            let (true, Some(walked)) = (tested, walked) else {
                 continue;
             };
-            list.splice(at..at, a.prefer.iter().cloned());
+            let at = placed.unwrap_or(walked);
+            let (by, end) = match a.binding {
+                Binding::Weak => (Bound::Weak, Bound::Weak),
+                Binding::Strong => (Bound::Strong, Bound::Strong),
+                Binding::Same => (list[at].bound, Bound::Weak),
+            };
+            let bound = |names: &[String], bound: Bound| -> Vec<Family> {
+                names
+                    .iter()
+                    .map(|n| Family {
+                        name: n.clone(),
+                        bound,
+                    })
+                    .collect()
+            };
+            list.splice(at..at, bound(&a.prefer, by));
             let after = at + a.prefer.len() + 1;
-            list.splice(after..after, a.accept.iter().cloned());
-            list.extend(a.default.iter().cloned());
+            list.splice(after..after, bound(&a.accept, by));
+            list.extend(bound(&a.default, end));
             list.truncate(ALIAS_LIST_MAX);
         }
         list
     }
 
+    /// **The family list `name` becomes** ([`Aliases::pattern`]), by name.
+    #[cfg(test)]
+    pub fn expand(&self, name: &str) -> Vec<String> {
+        self.pattern(name).into_iter().map(|f| f.name).collect()
+    }
+
+    /// **The families a face is looked for by, in the order fontconfig's
+    /// match ranks them** (`[[source: fontconfig-fcmatch-2-15-0]]` lines
+    /// 323-350): the strong-bound families in the list's order, then the
+    /// weak-bound ones, each once. A family bound strong ranks above
+    /// every weak one, so a `<prefer>` bound `strong`, or `same` by a strong
+    /// family, goes ahead of an installed family it is placed before, and
+    /// a weak one does not. Between the two, fontconfig's match ranks a
+    /// face's languages, which baud does not score.
+    pub fn order(&self, name: &str) -> Vec<String> {
+        let list = self.pattern(name);
+        let mut out: Vec<String> = Vec::new();
+        for bound in [Bound::Strong, Bound::Weak] {
+            for f in list.iter().filter(|f| f.bound == bound) {
+                if !out.iter().any(|o| blank_caseless(o, &f.name)) {
+                    out.push(f.name.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// The families [`Aliases::order`] adds to `name`, each once, in its
+    /// order: what is tried when `name` itself is no installed font.
+    pub fn instead_of(&self, name: &str) -> Vec<String> {
+        let mut out = self.order(name);
+        out.retain(|f| !blank_caseless(f, name));
+        out
+    }
+
+    /// **What to say of the aliases not applied** for a test baud does not
+    /// evaluate, when there are any.
+    pub fn unapplied(&self) -> Option<String> {
+        match self.unapplied.len() {
+            0 => None,
+            n => Some(format!(
+                "fontconfig: {n} <alias> rule{} not applied: a <test> with an expression \
+                 other than one <string>, or with target font or scan, is not evaluated",
+                if n == 1 { "" } else { "s" }
+            )),
+        }
+    }
+
     /// The `<alias>` rules of one document, as a file of the configuration
-    /// holding only it gives them.
+    /// holding only it gives them, under no locale.
     #[cfg(test)]
     pub fn of_document(xml: &str) -> Aliases {
+        Aliases::of_document_in(xml, &Locale::default())
+    }
+
+    /// [`Aliases::of_document`] under `locale`.
+    #[cfg(test)]
+    pub fn of_document_in(xml: &str, locale: &Locale) -> Aliases {
         let env = Env {
             home: None,
             xdg_data_home: None,
@@ -298,29 +755,18 @@ impl Aliases {
             path: None,
             config_dir: PathBuf::new(),
             cwd: None,
+            locale: locale.clone(),
         };
         let mut load = Load {
             env: &env,
             read: HashSet::new(),
             dirs: Vec::new(),
             select: Select::default(),
-            aliases: Aliases::default(),
+            aliases: Aliases::of_locale(&env.locale),
             pending: Pending::default(),
         };
         load.read_bytes(xml.as_bytes(), Path::new("/fonts.conf"));
         load.aliases
-    }
-
-    /// The families [`Aliases::expand`] adds to `name`, each once, in
-    /// order: what is tried when `name` itself is no installed font.
-    pub fn instead_of(&self, name: &str) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        for f in self.expand(name) {
-            if !blank_caseless(&f, name) && !out.iter().any(|o| blank_caseless(o, &f)) {
-                out.push(f);
-            }
-        }
-        out
     }
 }
 
@@ -331,6 +777,19 @@ fn blank_caseless(a: &str, b: &str) -> bool {
         a.chars().filter(|&c| c != ' '),
         b.chars().filter(|&c| c != ' '),
     )
+}
+
+/// `FcStrCmpIgnoreCase`'s equality, by default caseless match.
+fn caseless(a: &str, b: &str) -> bool {
+    baud_domain::caseless_eq(a.chars(), b.chars())
+}
+
+/// `FcStrStrIgnoreCase`: whether `hay` holds `needle`, by default caseless
+/// match.
+fn caseless_contains(hay: &str, needle: &str) -> bool {
+    let fold = |s: &str| -> Vec<char> { s.chars().flat_map(baud_domain::case_fold).collect() };
+    let (hay, needle) = (fold(hay), fold(needle));
+    needle.is_empty() || hay.windows(needle.len()).any(|w| w == needle.as_slice())
 }
 
 /// One `<acceptfont>` or `<rejectfont>` child.
@@ -947,12 +1406,22 @@ impl Load<'_> {
     /// **A part of an `<alias>`, or the alias itself** (`FcParseFamily`,
     /// `FcParseFamilies`, `FcParseAlias`): a `<family>` inside a
     /// `<prefer>`, `<accept>` or `<default>` waits for it, and one directly
-    /// inside the alias for the alias; each of the three lists, and any
-    /// `<test>`, waits for the alias, which takes them as it ends ([`Aliases`]).
-    /// Whether `e` was one.
+    /// inside the alias for the alias; each value inside a `<test>` waits
+    /// for the test; each of the three lists, and each `<test>`, waits for
+    /// the alias, which takes them as it ends ([`Aliases`]). Whether `e`
+    /// was one.
     fn alias_part(&mut self, e: &Element) -> bool {
         let p = &mut self.pending;
         match (e.name.as_str(), e.parent.as_deref()) {
+            ("string", Some("test")) => p.test_values.push(Literal::Str(e.text.clone())),
+            (_, Some("test")) => p.test_values.push(Literal::Other),
+            ("test", Some("alias")) => {
+                let values = core::mem::take(&mut p.test_values);
+                if let Ok(t) = Test::read(e, values) {
+                    p.alias_tests.push(t);
+                }
+            }
+            ("test", _) => p.test_values.clear(),
             ("family", Some("prefer" | "accept" | "default")) => p.families.push(e.text.clone()),
             ("family", Some("alias")) => p.alias_families.push(e.text.clone()),
             (which @ ("prefer" | "accept" | "default"), Some("alias")) => {
@@ -964,24 +1433,40 @@ impl Load<'_> {
                 };
                 slot.get_or_insert(list);
             }
-            ("test", Some("alias")) => p.alias_test = Tested::Yes,
             ("alias", _) => {
                 let families = core::mem::take(&mut p.alias_families);
                 let (prefer, accept, default) =
                     (p.prefer.take(), p.accept.take(), p.default.take());
-                let tested = core::mem::take(&mut p.alias_test);
+                let read = core::mem::take(&mut p.alias_tests);
                 p.families.clear();
-                let binding = matches!(e.attr("binding"), None | Some("weak" | "strong" | "same"));
+                let binding = match e.attr("binding") {
+                    None | Some("weak") => Some(Binding::Weak),
+                    Some("strong") => Some(Binding::Strong),
+                    Some("same") => Some(Binding::Same),
+                    Some(_) => None,
+                };
                 let edits = prefer.is_some() || accept.is_some() || default.is_some();
-                if let ([family], true, true, Tested::No) = (&families[..], binding, edits, tested)
-                {
-                    self.aliases.0.push(Alias {
-                        family: family.clone(),
-                        prefer: prefer.unwrap_or_default(),
-                        accept: accept.unwrap_or_default(),
-                        default: default.unwrap_or_default(),
-                    });
+                let (Some(binding), false, true) = (binding, families.is_empty(), edits) else {
+                    return true;
+                };
+                let mut tests = Vec::new();
+                for t in read {
+                    match t {
+                        TestRead::Evaluated(t) => tests.push(t),
+                        TestRead::Unevaluated => {
+                            self.aliases.unapplied.push(Unapplied);
+                            return true;
+                        }
+                    }
                 }
+                self.aliases.rules.push(Alias {
+                    tests,
+                    families,
+                    binding,
+                    prefer: prefer.unwrap_or_default(),
+                    accept: accept.unwrap_or_default(),
+                    default: default.unwrap_or_default(),
+                });
             }
             _ => return false,
         }
@@ -1435,6 +1920,7 @@ mod tests {
             path: None,
             config_dir: root.join("etc/fonts"),
             cwd: Some(root.join("cwd")),
+            locale: Locale::default(),
         }
     }
 
@@ -2007,9 +2493,11 @@ mod tests {
     /// family it equals (blanks and case aside), its `<accept>` after it,
     /// its `<default>` at the end. An alias that tests a family only a later
     /// one adds is not applied; one that adds the name asked for ends with
-    /// the list. Not rules: an unknown `binding`, a `<test>`, two
-    /// `<family>`s, no edits. What is tried in place of the name is the
-    /// rest, each once.
+    /// the list. Not rules: an unknown `binding`, no edits. Not applied: a
+    /// `<test>` of `ja` under no locale, which is `en`, and two `<family>`s
+    /// whose last is not in the list. What is tried in place of the name is
+    /// the rest, each once, the strong-bound first: `C2`, which an alias
+    /// bound `strong` adds.
     #[test]
     fn aliases_edit_the_family_list_as_fontconfig_does() {
         let a = Aliases::of_document(
@@ -2050,7 +2538,7 @@ mod tests {
         );
         assert_eq!(
             a.instead_of("Monospace"),
-            ["A2", "A Mono", "B Mono", "E", "C Mono", "C2", "D Mono"]
+            ["C2", "A2", "A Mono", "B Mono", "E", "C Mono", "D Mono"]
         );
         assert_eq!(a.expand("serif"), ["serif"], "no alias for it");
         assert!(a.instead_of("serif").is_empty());
@@ -2092,5 +2580,172 @@ mod tests {
             ["My Mono", "System Mono", "monospace"]
         );
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A locale of `LANG` alone, or of the four variables.
+    fn locale(
+        fc_lang: Option<&str>,
+        lc_all: Option<&str>,
+        lc_ctype: Option<&str>,
+        lang: Option<&str>,
+    ) -> Locale {
+        let var = |v: Option<&str>| v.map(OsString::from);
+        Locale {
+            fc_lang: var(fc_lang),
+            lc_all: var(lc_all),
+            lc_ctype: var(lc_ctype),
+            lang: var(lang),
+        }
+    }
+
+    /// **A pattern's languages are the locale's, as `FcGetDefaultLangs`
+    /// and `FcLangNormalize` make them**: the codeset dropped, a territory
+    /// kept only where fontconfig's table has the tag with it (`zh-TW`, not
+    /// `ja-JP`), `C` as `en`, a language the table lacks kept whole,
+    /// lowercased; `FC_LANG` first, an empty variable and an `LC_CTYPE` of
+    /// just `UTF-8` passed over; `en` where nothing makes a tag; the list
+    /// ending at a language already in it, caseless. Breaks: keep every
+    /// territory, and `ja_JP.UTF-8` reads `ja-JP`.
+    #[test]
+    fn a_pattern_s_languages_are_the_locale_s_as_fontconfig_reads_it() {
+        let lang = |l: &str| locale(None, None, None, Some(l)).langs();
+        assert_eq!(lang("ja_JP.UTF-8"), ["ja"]);
+        assert_eq!(lang("zh_TW.UTF-8"), ["zh-TW"]);
+        assert_eq!(lang("C.UTF-8"), ["en"]);
+        assert_eq!(lang("xx_YY"), ["xx-yy"], "not in the table: kept whole");
+        assert_eq!(lang("x"), ["en"], "no tag");
+        assert_eq!(locale(None, None, None, None).langs(), ["en"]);
+        assert_eq!(
+            locale(Some("ja:ko"), None, None, Some("de_DE")).langs(),
+            ["ja", "ko"]
+        );
+        assert_eq!(
+            locale(None, Some(""), Some("UTF-8"), Some("de_DE.UTF-8")).langs(),
+            ["de"]
+        );
+        assert_eq!(
+            locale(None, Some("fr_CA"), None, Some("de")).langs(),
+            ["fr"]
+        );
+        assert_eq!(
+            locale(Some("en:fr:EN:de"), None, None, None).langs(),
+            ["en", "fr"],
+            "ends at a language already held"
+        );
+    }
+
+    /// **An alias's `<test>`s are evaluated against the pattern**: a
+    /// `lang` that contains `ja` applies under `ja_JP.UTF-8` and not under
+    /// `en_US`; a test of an object the pattern does not hold applies under
+    /// `qual="all"` and not under `any`; `prgname` is `baud`; `less` never
+    /// compares a string; a test fontconfig drops (an unknown `qual`) leaves
+    /// its alias untested. A test of other than one `<string>`, or with
+    /// `target="font"`, is not evaluated, its alias not applied, and the
+    /// warning counts them. Breaks: read an absent object as matching under
+    /// every qual, and `Absent Any` is applied.
+    #[test]
+    fn an_alias_s_tests_are_evaluated_against_the_pattern() {
+        let doc = r#"<fontconfig>
+  <alias><test name="lang" compare="contains"><string>ja</string></test>
+    <family>monospace</family><prefer><family>JP Mono</family></prefer></alias>
+  <alias><test name="spacing" qual="all"><string>x</string></test>
+    <family>monospace</family><prefer><family>Absent All</family></prefer></alias>
+  <alias><test name="spacing"><string>x</string></test>
+    <family>monospace</family><prefer><family>Absent Any</family></prefer></alias>
+  <alias><test name="prgname"><string>baud</string></test>
+    <family>monospace</family><prefer><family>Baud Mono</family></prefer></alias>
+  <alias><test name="prgname" compare="not_eq"><string>baud</string></test>
+    <family>monospace</family><prefer><family>Not Baud</family></prefer></alias>
+  <alias><test name="lang" compare="less"><string>zz</string></test>
+    <family>monospace</family><prefer><family>Less</family></prefer></alias>
+  <alias><test name="lang" qual="bogus"><string>zz</string></test>
+    <family>monospace</family><prefer><family>Untested</family></prefer></alias>
+  <alias><test name="size"><double>12</double></test>
+    <family>monospace</family><prefer><family>Double</family></prefer></alias>
+  <alias><test name="lang" target="font"><string>ja</string></test>
+    <family>monospace</family><prefer><family>Font</family></prefer></alias>
+</fontconfig>"#;
+        let ja = Aliases::of_document_in(doc, &locale(None, None, None, Some("ja_JP.UTF-8")));
+        assert_eq!(
+            ja.expand("monospace"),
+            [
+                "JP Mono",
+                "Absent All",
+                "Baud Mono",
+                "Untested",
+                "monospace"
+            ]
+        );
+        let en = Aliases::of_document_in(doc, &locale(None, None, None, Some("en_US.UTF-8")));
+        assert_eq!(
+            en.expand("monospace"),
+            ["Absent All", "Baud Mono", "Untested", "monospace"]
+        );
+        assert_eq!(
+            en.unapplied().as_deref(),
+            Some(
+                "fontconfig: 2 <alias> rules not applied: a <test> with an expression other \
+                 than one <string>, or with target font or scan, is not evaluated"
+            )
+        );
+        assert_eq!(Aliases::of_document("<fontconfig/>").unapplied(), None);
+    }
+
+    /// **Aliases run in order over one pattern that keeps each family's
+    /// binding**: alias A, bound `strong`, puts `P1` before `monospace`, and
+    /// alias B, naming `P1` and `monospace`, applies because `monospace`,
+    /// the last, is in the list, placing `Q` at `P1`, the first of the run
+    /// of matches ending with it. An alias whose earlier family is missing
+    /// applies at the last; one whose last is missing does not. `same`
+    /// takes the binding of the family it is placed by -- strong by `P1`,
+    /// weak by `Q` -- and weak at the end. Breaks: take the first family's
+    /// match, and `Never` is applied; bind `same` strong, and `T` ranks
+    /// with the strong.
+    #[test]
+    fn aliases_run_in_order_over_one_pattern_with_its_bindings() {
+        let a = Aliases::of_document(
+            r#"<fontconfig>
+  <alias binding="strong"><family>monospace</family><prefer><family>P1</family></prefer></alias>
+  <alias><family>P1</family><family>monospace</family><prefer><family>Q</family></prefer></alias>
+  <alias><family>nope</family><family>monospace</family><prefer><family>R</family></prefer></alias>
+  <alias><family>monospace</family><family>nope</family><prefer><family>Never</family></prefer></alias>
+  <alias binding="same"><family>P1</family><prefer><family>S</family></prefer></alias>
+  <alias binding="same"><family>Q</family><prefer><family>T</family></prefer>
+    <default><family>U</family></default></alias>
+</fontconfig>"#,
+        );
+        assert_eq!(
+            a.expand("monospace"),
+            ["T", "Q", "S", "P1", "R", "monospace", "U"]
+        );
+        assert_eq!(
+            a.order("monospace"),
+            ["S", "P1", "monospace", "T", "Q", "R", "U"]
+        );
+    }
+
+    /// **An installed family gives way only to a `<prefer>` bound strong**:
+    /// against a fake set of installed families, `Foo` is drawn as itself
+    /// under a weak alias that prefers `Bar`, and as `Bar` under the same
+    /// alias bound `strong` or `same`; a name nothing installed answers to
+    /// takes `Bar` either way. Breaks: rank by the list alone, and the weak
+    /// alias draws `Bar`.
+    #[test]
+    fn an_installed_family_gives_way_only_to_a_strong_prefer() {
+        let installed = ["Foo", "Bar"];
+        let drawn = |binding: &str, name: &str| {
+            let a = Aliases::of_document(&format!(
+                "<fontconfig><alias{binding}><family>{name}</family>\
+                 <prefer><family>Bar</family></prefer></alias></fontconfig>"
+            ));
+            a.order(name)
+                .into_iter()
+                .find(|f| installed.iter().any(|i| blank_caseless(i, f)))
+        };
+        assert_eq!(drawn("", "Foo").as_deref(), Some("Foo"));
+        assert_eq!(drawn(r#" binding="weak""#, "Foo").as_deref(), Some("Foo"));
+        assert_eq!(drawn(r#" binding="strong""#, "Foo").as_deref(), Some("Bar"));
+        assert_eq!(drawn(r#" binding="same""#, "Foo").as_deref(), Some("Bar"));
+        assert_eq!(drawn("", "Missing").as_deref(), Some("Bar"));
     }
 }

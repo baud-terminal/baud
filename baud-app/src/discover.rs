@@ -580,12 +580,13 @@ impl Catalogue {
     /// name "specifies a single font, not an entire font family"
     /// (`[[source: css-fonts-3]]` 4.3).
     ///
-    /// **A name no face answers to is looked up through fontconfig's
-    /// aliases** ([`Catalogue::instead_of`]): each family they add, in
-    /// order, as `name` itself is, and the first that names a face is what
-    /// `name` names. A name that names a face is not expanded, where
-    /// fontconfig would also put an alias's `<prefer>` ahead of it: an
-    /// installed face asked for by its own name is drawn. A departure, open.
+    /// **A name is looked up through fontconfig's aliases**
+    /// ([`crate::fontconf::Aliases::order`]): `name` and each family they
+    /// add, in the order fontconfig's match ranks them, each as `name`
+    /// itself is, and the first that names a face is what `name` names. So
+    /// a name no face answers to takes the first installed family its
+    /// aliases add, and an installed one gives way only to a family an
+    /// alias bound `strong` (or `same` by it) places ahead of it.
     pub fn lookup(&self, name: &str) -> Named<'_> {
         match self.lookup_at(name) {
             NamedAt::Face(i) => Named::Face(&self.faces[i]),
@@ -598,15 +599,12 @@ impl Catalogue {
     /// caller that keeps its own record of each face: a program's
     /// `OSC 50`, which names a face among those loaded (`fonts.rs`).
     pub fn lookup_at(&self, name: &str) -> NamedAt {
-        match self.named_at(name) {
-            NamedAt::Nothing => self
-                .instead_of(name)
-                .iter()
-                .map(|n| self.named_at(n))
-                .find(|n| !matches!(n, NamedAt::Nothing))
-                .unwrap_or(NamedAt::Nothing),
-            found => found,
-        }
+        self.aliases
+            .order(name)
+            .iter()
+            .map(|n| self.named_at(n))
+            .find(|n| !matches!(n, NamedAt::Nothing))
+            .unwrap_or(NamedAt::Nothing)
     }
 
     /// [`Catalogue::lookup_at`] for `name` alone, no alias followed.
@@ -1028,7 +1026,12 @@ fn system_config() -> (Vec<PathBuf>, Select, Aliases) {
         // fontconfig's own list where its configuration is found; the
         // fixed list where there is none.
         match crate::fontconf::load(&crate::fontconf::Env::from_process()) {
-            Some(c) => (c.dirs, c.select, c.aliases),
+            Some(c) => {
+                if let Some(s) = c.aliases.unapplied() {
+                    crate::warn!("{s}");
+                }
+                (c.dirs, c.select, c.aliases)
+            }
             None => (
                 xdg_dirs(
                     home,
@@ -1389,6 +1392,7 @@ mod tests {
             path: None,
             config_dir: root.join("etc"),
             cwd: Some(root.clone()),
+            locale: crate::fontconf::Locale::default(),
         };
         let mut rows: Vec<[f64; 5]> = Vec::new();
         for round in 0..11 {
@@ -1490,6 +1494,7 @@ mod tests {
                 path: None,
                 config_dir: root.join("etc"),
                 cwd: Some(root.clone()),
+                locale: crate::fontconf::Locale::default(),
             };
             let c = crate::fontconf::load(&env).unwrap();
             let cat = Catalogue::scan_selected(&c.dirs, &c.select);
