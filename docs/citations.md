@@ -9792,6 +9792,7 @@ Vulkan Memory Allocator: Recommended usage patterns. AMD / Adam Sawicki, 2026, g
 - **URL:** <https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/usage_patterns.html>
 - **sha256:** `45519f8822d0ffe30766a45e1d1984f8852af1e6d6a7ef24322ad15cebec7ce6` (38114 bytes)
 - **Copy:** [docs/research/sources/vma-usage-patterns.html](research/sources/vma-usage-patterns.html)
+- **Cited in:** `baud-present-vulkan/src/lend.rs`
 
 <a id="vscode-shell-integration"></a>
 ### vscode-shell-integration

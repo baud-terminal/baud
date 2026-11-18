@@ -2,11 +2,11 @@
 //! reads, and the slice `baud_render::cell_frame::build` writes, on one of
 //! two arms chosen from the device's heaps.
 //!
-//! - **In place**: memory that is device-local, host-visible and coherent
-//!   (unified memory, or a BAR the whole of VRAM is mapped through). The
-//!   slice is the buffer's own mapping, as Metal's shared buffers are, and
-//!   a frame copies nothing.
-//! - **Staging**: the slice is a host-visible buffer of the same size, and
+//! - **In place**: memory that is device-local, host-visible, coherent and
+//!   host-cached (unified memory). The slice is the buffer's own mapping,
+//!   and a frame copies nothing.
+//! - **Staging**: the slice is a host-visible buffer of the same size,
+//!   host-cached where the device has such a type, and
 //!   the device-local buffer the stage reads takes the ranges a frame owes
 //!   ([`Lent::owe`]) by `vkCmdCopyBuffer`, recorded ahead of the frame's
 //!   draws behind a transfer-to-vertex barrier. A set is written only when
@@ -81,40 +81,70 @@ pub struct Lent<T: Plain> {
     _of: PhantomData<T>,
 }
 
+/// **Lent in place only where the CPU's reads are cached**: the CPU reads
+/// the slices back every frame -- the glyph map's probes, a copy's row
+/// compare, the overlay's -- and memory the CPU reads is host-cached
+/// (`[[source: vma-usage-patterns]]`, Readback).
 const PROPS_IN_PLACE: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_raw(
     vk::MemoryPropertyFlags::DEVICE_LOCAL.as_raw()
         | vk::MemoryPropertyFlags::HOST_VISIBLE.as_raw()
-        | vk::MemoryPropertyFlags::HOST_COHERENT.as_raw(),
+        | vk::MemoryPropertyFlags::HOST_COHERENT.as_raw()
+        | vk::MemoryPropertyFlags::HOST_CACHED.as_raw(),
 );
 const PROPS_HOST: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_raw(
     vk::MemoryPropertyFlags::HOST_VISIBLE.as_raw()
         | vk::MemoryPropertyFlags::HOST_COHERENT.as_raw(),
 );
+const PROPS_HOST_CACHED: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_raw(
+    PROPS_HOST.as_raw() | vk::MemoryPropertyFlags::HOST_CACHED.as_raw(),
+);
+
+/// **The arm `props` allow**: in place where some memory type has
+/// [`PROPS_IN_PLACE`] and its heap is at least `need` bytes; staging
+/// otherwise.
+fn arm_of(props: &vk::PhysicalDeviceMemoryProperties, need: vk::DeviceSize) -> Arm {
+    let n = usize::try_from(props.memory_type_count).unwrap_or(0);
+    let fits = props.memory_types[..n.min(props.memory_types.len())]
+        .iter()
+        .any(|t| {
+            let heap = usize::try_from(t.heap_index)
+                .ok()
+                .and_then(|h| props.memory_heaps.get(h));
+            t.property_flags.contains(PROPS_IN_PLACE) && heap.is_some_and(|h| h.size >= need)
+        });
+    match fits {
+        true => Arm::InPlace,
+        false => Arm::Staging,
+    }
+}
+
+/// **What staging's host buffer is allocated with**: [`PROPS_HOST_CACHED`]
+/// where some memory type of `props` has it, [`PROPS_HOST`] otherwise.
+fn host_props(props: &vk::PhysicalDeviceMemoryProperties) -> vk::MemoryPropertyFlags {
+    let n = usize::try_from(props.memory_type_count).unwrap_or(0);
+    match props.memory_types[..n.min(props.memory_types.len())]
+        .iter()
+        .any(|t| t.property_flags.contains(PROPS_HOST_CACHED))
+    {
+        true => PROPS_HOST_CACHED,
+        false => PROPS_HOST,
+    }
+}
 
 impl Gpu {
-    /// **The arm this device's heaps allow**: in place where some memory
-    /// type is device-local, host-visible and coherent, and its heap is
-    /// at least `need` bytes; staging otherwise.
-    #[allow(unsafe_code)]
+    /// **The arm this device's heaps allow** ([`arm_of`]).
     pub fn arm(&self, need: vk::DeviceSize) -> Arm {
+        arm_of(&self.memory(), need)
+    }
+
+    /// This device's memory types and heaps.
+    #[allow(unsafe_code)]
+    fn memory(&self) -> vk::PhysicalDeviceMemoryProperties {
         // SAFETY: a physical device of this instance.
-        let props = unsafe {
+        unsafe {
             self.vulkan
                 .instance
                 .get_physical_device_memory_properties(self.physical)
-        };
-        let n = usize::try_from(props.memory_type_count).unwrap_or(0);
-        let fits = props.memory_types[..n.min(props.memory_types.len())]
-            .iter()
-            .any(|t| {
-                let heap = usize::try_from(t.heap_index)
-                    .ok()
-                    .and_then(|h| props.memory_heaps.get(h));
-                t.property_flags.contains(PROPS_IN_PLACE) && heap.is_some_and(|h| h.size >= need)
-            });
-        match fits {
-            true => Arm::InPlace,
-            false => Arm::Staging,
         }
     }
 
@@ -191,14 +221,17 @@ impl Gpu {
                     usage | vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::TRANSFER_SRC,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                 )?;
-                let (h, at) =
-                    match self.bound(bytes, vk::BufferUsageFlags::TRANSFER_SRC, PROPS_HOST) {
-                        Ok(made) => made,
-                        Err(e) => {
-                            self.drop_buffer(d);
-                            return Err(e);
-                        }
-                    };
+                let (h, at) = match self.bound(
+                    bytes,
+                    vk::BufferUsageFlags::TRANSFER_SRC,
+                    host_props(&self.memory()),
+                ) {
+                    Ok(made) => made,
+                    Err(e) => {
+                        self.drop_buffer(d);
+                        return Err(e);
+                    }
+                };
                 (d, Some(h), at)
             }
         };
@@ -385,5 +418,54 @@ impl Gpu {
         });
         self.drop_buffer(back);
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vk::MemoryPropertyFlags as F;
+
+    /// A device's memory: each type's flags and its heap's size in GiB.
+    fn memory(types: &[(F, u64)]) -> vk::PhysicalDeviceMemoryProperties {
+        let mut p = vk::PhysicalDeviceMemoryProperties::default();
+        for (i, &(flags, gib)) in types.iter().enumerate() {
+            p.memory_types[i] = vk::MemoryType {
+                property_flags: flags,
+                heap_index: u32::try_from(i).unwrap_or(0),
+            };
+            p.memory_heaps[i] = vk::MemoryHeap {
+                size: gib << 30,
+                flags: vk::MemoryHeapFlags::empty(),
+            };
+        }
+        p.memory_type_count = u32::try_from(types.len()).unwrap_or(0);
+        p.memory_heap_count = p.memory_type_count;
+        p
+    }
+
+    /// **A discrete device's mapped VRAM is not where the CPU reads**: its
+    /// device-local, host-visible type is uncached, so the cell path
+    /// stages, through a host-visible type that is cached; a device whose
+    /// device-local memory is host-cached, as unified memory is, lends in
+    /// place. The discrete table is a Radeon RX 9070's under RADV.
+    #[test]
+    fn the_cpu_reads_only_cached_memory() {
+        let (local, host) = (F::DEVICE_LOCAL, F::HOST_VISIBLE | F::HOST_COHERENT);
+        let discrete = memory(&[
+            (local, 16),
+            (local, 16),
+            (host, 94),
+            (local | host, 16),
+            (local | host, 16),
+            (host | F::HOST_CACHED, 94),
+            (host | F::HOST_CACHED, 94),
+        ]);
+        assert_eq!(arm_of(&discrete, 1 << 20), Arm::Staging);
+        assert!(host_props(&discrete) == PROPS_HOST_CACHED, "discrete host");
+        let unified = memory(&[(local | host | F::HOST_CACHED, 188)]);
+        assert_eq!(arm_of(&unified, 1 << 20), Arm::InPlace);
+        let uncached = memory(&[(local, 8), (host, 8)]);
+        assert!(host_props(&uncached) == PROPS_HOST, "uncached host");
     }
 }
