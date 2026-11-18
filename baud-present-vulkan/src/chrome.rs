@@ -59,15 +59,16 @@ pub(crate) struct Boxed {
     pub(crate) rows: View,
 }
 
-/// **The whole frame centred in the target**, then the grid's viewport and
+/// **The whole frame centred in the target**, on whole pixels, the odd one
+/// right and bottom as the drivers place it; then the grid's viewport and
 /// pad the margin and the strip in from the whole's left and the grid's
 /// top down, the strip's viewport past the left margin over the grid's
 /// rows, the line's across the whole width at its rows, and the grid's rows
 /// across the whole width.
 fn letterbox_whole(target: (f64, f64), whole: (f64, f64), parts: &Parts) -> Boxed {
     let vp = View {
-        x: (target.0 - whole.0).max(0.0) / 2.0,
-        y: (target.1 - whole.1).max(0.0) / 2.0,
+        x: ((target.0 - whole.0).max(0.0) / 2.0).floor(),
+        y: ((target.1 - whole.1).max(0.0) / 2.0).floor(),
         w: whole.0,
         h: whole.1,
     };

@@ -432,3 +432,42 @@ fn a_target_shown_with_points_is_free_at_its_release_point_on_radv() {
     );
     p.destroy(&gpu);
 }
+
+/// **A target larger than the frame by an odd number of pixels holds the
+/// frame on whole pixels**, the odd one right and bottom, as the Linux
+/// driver's CPU arm places it (`origin.rs`): every pixel of the frame drawn
+/// into a target 17 by 9 pixels larger is the frame drawn into one of its
+/// own size, moved 8 right and 4 down. Named break: the frame centred on
+/// half a pixel, every glyph resampled.
+#[test]
+fn a_frame_sits_on_whole_pixels_in_a_larger_target() {
+    let gpu = lavapipe();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"whole pixels\r\nonly");
+    let mut p = warm(&gpu, &mut r, &mut t);
+    let (w, h) = size(&r);
+    let mut drawn = |p: &mut Presenter, at: (Px, Px)| {
+        p.fit(&gpu, at).expect("targets");
+        let Frame::Drew(k) = frame(&gpu, p, &mut r, &mut t) else {
+            panic!("drawn")
+        };
+        p.shown(k, DmabufShown::No);
+        let (tg, _) = p.target(k).expect("a target");
+        gpu.read(tg).expect("read back")
+    };
+    let own = drawn(&mut p, (w, h));
+    let big = (Px(w.0 + 17), Px(h.0 + 9));
+    let moved = drawn(&mut p, big);
+    let side = |p: Px| usize::try_from(p.0).expect("a side");
+    let (fw, fh, bw) = (side(w), side(h), side(big.0));
+    let apart = (0..fh)
+        .flat_map(|y| (0..fw).map(move |x| (x, y)))
+        .filter(|&(x, y)| moved[(y + 4) * bw + x + 8] != own[y * fw + x])
+        .count();
+    assert_eq!(apart, 0, "pixels apart from the frame moved (8, 4)");
+    p.destroy(&gpu);
+}
