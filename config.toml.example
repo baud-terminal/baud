@@ -538,10 +538,20 @@
 # is off in macOS's Accessibility settings (on Linux, unless the desktop's
 # reduced-motion setting is on); "on" always plays it; "off" holds every one
 # at the frame it shows.
+#
+# kitty_string_end: where a picture command of kitty's protocol ends.
+# "standard", the default, reads it as every other control string: only
+# ESC \ ends it, and a bare ESC, CAN or SUB inside it cancels it, so what a
+# program writes into a command -- a player's status line, or the sequences
+# that restore the screen when it quits -- runs and prints, and a picture
+# cut that way is not shown. "kitty" ends it only at BEL or ESC \: every
+# other byte is part of the command, nothing inside it runs or prints, and
+# a command left open swallows what follows until a BEL or ESC \ arrives.
 # [images]
 # pixels_mb = 95
 # advertise_sixel = false
 # animation = "os"
+# kitty_string_end = "standard"
 
 # Whether a program can put text on the clipboard with OSC 52: remote
 # Neovim, tmux's copy mode or a multiplexer over ssh, which have no other way

@@ -12,17 +12,23 @@
 //! sequences", and the introducer "continues where it left off" (PDF p. 144).
 
 use baud_core::*;
-use baud_domain::ImageBudget;
+use baud_domain::{ControlStringEnd, ImageBudget};
 
 /// A terminal fed `bytes` in reads of `size`, handed to `f` while it lives.
 fn fed<R>(bytes: &[u8], size: usize, f: impl FnOnce(&Term<'_>) -> R) -> R {
+    fed_under(ControlStringEnd::Standard, bytes, size, f)
+}
+
+/// [`fed`], with an `APC G` ending where `end` says.
+fn fed_under<R>(e: ControlStringEnd, b: &[u8], size: usize, f: impl FnOnce(&Term<'_>) -> R) -> R {
     let ws = WinSize {
         ws_row: 6,
         ws_col: 40,
     };
     let mut s = Owned::new(&ws).with_images(ImageBudget::of(64 * 64));
     let mut t = Term::new(s.storage(), &ws);
-    for part in bytes.chunks(size) {
+    t.set_control_string_end(e);
+    for part in b.chunks(size) {
         t.write_at(BytePos::ZERO, part);
         t.feed(BytePos::ZERO, ReadLen::from_index(part.len()));
     }
@@ -41,13 +47,18 @@ const HORIZONTAL: u32 = 0x2500;
 
 /// Every kind of string, each with `{}` where the shift goes, and what it
 /// leaves that the shift must not change: the title, the reply.
-const STRINGS: [(&str, &[u8], &[u8]); 7] = [
+const STRINGS: [(&str, &[u8], &[u8]); 8] = [
     ("OSC 0", b"\x1b]0;t", b"i\x1b\\"),
     ("OSC 0 ended by BEL", b"\x1b]0;t", b"i\x07"),
     ("DECRQSS", b"\x1bP$q", b"m\x1b\\"),
     ("another DCS", b"\x1bP0;1|", b"17/31\x1b\\"),
     ("a Sixel", b"\x1bPq#1;2;100;0;0", b"~\x1b\\"),
     ("APC", b"\x1b_H", b"x\x1b\\"),
+    (
+        "a kitty graphics command",
+        b"\x1b_Ga=q,i=1,f=24,s=1,v=1;",
+        b"AAAA\x1b\\",
+    ),
     ("PM and SOS", b"\x1b^", b"x\x1b\\\x1bXy\x1b\\"),
 ];
 
@@ -116,13 +127,14 @@ fn a_shift_inside_a_control_string_shifts_the_text_after_it() {
         }
     }
 }
-/// **A shift inside a kitty graphics command is its payload and shifts
-/// nothing**: kitty keeps every byte but `BEL` and `ESC \\` in the command
-/// (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`), and an `APC G`
-/// is read as kitty reads it, so the `q` after it stays a `q` under `SO` and
-/// becomes the line under `SI`, where the `SO` before the command still
-/// holds. The `SO` lands in the keys and the command is refused, as kitty
-/// refuses it. Every read size.
+/// **Under `ControlStringEnd::Kitty` a shift inside a kitty graphics
+/// command is its payload and shifts nothing**: the setting keeps every
+/// byte but `BEL` and `ESC \\` in the command (`find_st_terminator`,
+/// `[[source: kitty-vt-parser-c]]`), so the `q` after it stays a `q`
+/// under `SO` and becomes the line under `SI`, where the `SO` before the
+/// command still holds. The `SO` lands in the keys and the command is
+/// refused. Every read size. By default the shift shifts, as in every other
+/// string (`a_shift_inside_a_control_string_shifts_the_text_after_it`).
 #[test]
 fn a_shift_inside_a_kitty_command_is_payload_and_shifts_nothing() {
     for (shift, before, want) in [
@@ -135,7 +147,7 @@ fn a_shift_inside_a_kitty_command_is_payload_and_shifts_nothing() {
         bytes.push(shift);
         bytes.extend_from_slice(b"a=q,i=1\x1b\\q");
         for size in 1..=bytes.len() {
-            fed(&bytes, size, |t| {
+            fed_under(ControlStringEnd::Kitty, &bytes, size, |t| {
                 assert_eq!(t.cursor().1.index(), 1, "{shift:#04x}, read size {size}");
                 assert_eq!(
                     at(t, 0),

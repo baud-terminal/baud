@@ -21,7 +21,14 @@ const READ: usize = 1024;
 /// **The capture's window**: 40x6 cells of 7x16 pixels, `font_size = 6`
 /// at the film's two pixels a point, the 280x96 mpv sized its frames to.
 const GRID: &str = "40x6";
-const CONFIG: &str = "font_size = 6\n";
+/// **The video films' config: an `APC G` ends only at `BEL` or `ESC \\`**
+/// (`[images] kitty_string_end = "kitty"`), so a status line mpv writes
+/// into a chunk is the chunk's payload and every upload is a frame, short
+/// or whole. By default the status line cancels the chunk and prints as
+/// text, `baud-core`'s
+/// `a_status_line_inside_a_chunk_shows_as_text_by_default_and_not_under_the_setting`
+/// on the recording of one such chunk.
+const CONFIG: &str = "font_size = 6\n[images]\nkitty_string_end = \"kitty\"\n";
 
 /// **Feed `bytes` up to `to`** as the drivers feed a read, each kitty
 /// decode run out after it, and what the core owes into `replies`.
@@ -181,8 +188,8 @@ fn mpvs_kitty_video_draws_what_mpv_sent() {
     let fw = slots(gw);
     let mut frame = vec![0u32; fw * slots(gh)];
     let fw = Pixels(fw);
-    // The status lines mpv wrote inside a chunk are its payload, kitty's
-    // reading (`find_st_terminator`), and draw nothing: row 0 is what the
+    // The status lines mpv wrote inside a chunk are its payload, the
+    // setting's reading (`find_st_terminator`), and draw nothing: row 0 is what the
     // ones outside a chunk leave, at every upload.
     let inside: Vec<At> = ups
         .iter()
@@ -238,7 +245,7 @@ fn mpvs_kitty_video_draws_what_mpv_sent() {
                 first.get_or_insert(rgb.as_slice());
                 shown = Some(rgb.as_slice());
             }
-            // **A cut upload is refused short, as kitty refuses it**: the
+            // **A cut upload is refused short**: the
             // status line and the base64 after it are the chunk's payload,
             // its data ends at the status's `ESC`, and the upload comes up
             // short at its `m=0`, "ENODATA", unsaid under `q=2`. Nothing is
@@ -329,9 +336,9 @@ fn mpvs_kitty_video_draws_what_mpv_sent() {
         tails > 0,
         "the premise: a status line's tail survives an EL 1"
     );
-    // **The end of the stream is where kitty leaves it.** mpv's last write
+    // **The end of the stream is where the setting leaves it.** mpv's last write
     // is `ESC _ G a = d ;` with no terminator, so the `?1003l` and
-    // `?1049l` after it are that command's payload, as kitty reads them
+    // `?1049l` after it are that command's payload under the setting
     // (`mpvs_unterminated_exit_leaves_the_modes_set_as_kitty_does`): the
     // alternate screen stays up and the `a=d` deletes nothing.
     feed_to(&mut term, &bytes, &mut fed, At(bytes.len()), &mut replies);
@@ -441,7 +448,7 @@ fn under_a_two_frame_quota_every_upload_shows_its_own_frame() {
         term.images().images_evicted
     );
     // Every upload: the last one's status line no longer prints and
-    // scrolls the frames away, kitty's reading of a chunk it cuts.
+    // scrolls the frames away, the setting's reading of a chunk it cuts.
     assert_eq!(drawn, 13, "the premise: every upload drawn");
     assert_eq!(
         repeats,
@@ -456,16 +463,19 @@ fn under_a_two_frame_quota_every_upload_shows_its_own_frame() {
 /// (`baud-app/src/shell/zshenv.zsh`), and the container's bash's,
 /// `ESC ] 133 ; A ; BEL` (`nix/demo-container/profile`).
 ///
-/// **After the capture's quit, mpv 0.41.0's, the terminal is where kitty
-/// leaves it**: its `ESC _ G a = d ;` has no terminator, and a kitty
-/// command ends only at `BEL` or `ESC \`, so `?25h`, `?1003l` and
-/// `?1049l` are its payload (`mpvs_unterminated_exit_leaves_the_modes_set_as_kitty_does`,
+/// **After the capture's quit, mpv 0.41.0's**, whose `ESC _ G a = d ;`
+/// has no terminator: by default the `ESC` of `ESC [ ? 25 h` cancels the
+/// `a=d`, the restores run, and the primary is up with a prompt opened
+/// there; cut straight after the `a=d`, the prompt's own `ESC` cancels it,
+/// and its marks are read on the alternate screen nothing has left, as
+/// under the setting.
+/// Under `[images] kitty_string_end = "kitty"` a kitty command ends only at
+/// `BEL` or `ESC \`, so `?25h`, `?1003l` and `?1049l` are its payload
+/// (`mpvs_unterminated_exit_leaves_the_modes_set_as_kitty_does`,
 /// `baud-core/tests/kitty_string_end.rs`), and so is the prompt's first
 /// mark up to its `BEL`, which ends it. The mark after it opens a prompt
 /// on the alternate screen, which nothing has left, and the primary opens
-/// none, whole and with the capture cut straight after the `a=d`. A moved
-/// pin: until kitty's reading, the `ESC` of `ESC [ ? 25 h` cancelled the
-/// `a=d`, so the primary came back and the first mark opened a prompt there.
+/// none, whole and cut.
 ///
 /// **After the pinned mpv's quit**, 8e566099cb, which ends that `a=d`
 /// with `ESC \` (the stream below, the capture with that `ST` after its
@@ -503,9 +513,10 @@ fn the_demos_prompts_after_mpvs_exit_are_bel_ended_osc_133_marks() {
         "the premise: an ESC follows the quit"
     );
     let grid = grid_of(GRID);
-    let fed = |parts: &[&[u8]]| {
+    let fed_under = |end: baud_domain::ControlStringEnd, parts: &[&[u8]]| {
         let mut owned = Owned::new(&grid);
         let mut term = Term::new(owned.storage(), &grid);
+        term.set_control_string_end(end);
         let before = term.prompts_opened();
         for p in parts {
             for chunk in p.chunks(1024) {
@@ -520,14 +531,25 @@ fn the_demos_prompts_after_mpvs_exit_are_bel_ended_osc_133_marks() {
         }
         (term.screen(), term.prompts_opened() != before, term.zone())
     };
+    let fed = |parts: &[&[u8]]| fed_under(baud_domain::ControlStringEnd::Standard, parts);
     let ended: &[&[u8]] = &[&bytes[..cut], b"\x1b\\", &bytes[cut..]];
     for prompt in [zsh, bash] {
+        let text = String::from_utf8_lossy(prompt);
+        assert_eq!(
+            fed(&[&bytes, prompt]),
+            (baud_core::Screen::Normal, true, baud_core::Zone::Prompt),
+            "after mpv 0.41.0's exit, whole: {text}"
+        );
+        assert_eq!(
+            fed(&[&bytes[..cut], prompt]),
+            (baud_core::Screen::Alternate, false, baud_core::Zone::Prompt),
+            "after mpv 0.41.0's exit, cut after its a=d: {text}"
+        );
         for (what, exit) in [("whole", &bytes[..]), ("cut after its a=d", &bytes[..cut])] {
             assert_eq!(
-                fed(&[exit, prompt]),
+                fed_under(baud_domain::ControlStringEnd::Kitty, &[exit, prompt]),
                 (baud_core::Screen::Alternate, false, baud_core::Zone::Prompt),
-                "after mpv 0.41.0's exit, {what}: {}",
-                String::from_utf8_lossy(prompt)
+                "after mpv 0.41.0's exit, {what}, under the setting: {text}"
             );
         }
         let mut parts = ended.to_vec();

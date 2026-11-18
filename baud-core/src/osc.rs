@@ -41,9 +41,20 @@ impl Paint<'_, '_> {
     /// `OSC`'s or a Sixel's GR byte as its 7-bit byte under ISO 8859-1: taken once here,
     /// in the introducer's arm, rather than passed in the body's arm on
     /// every byte of every string, a Sixel's included.
+    ///
+    /// **And where an `APC` reads on**: its edge leads to
+    /// `Node::ApcFirst`, the standard's rule for a kitty command; under
+    /// [`ControlStringEnd::Kitty`] this moves it to `Node::KittyApcFirst`,
+    /// so an `APC G` ends only at `BEL` or `ESC \`. Read here, once per
+    /// introducer, so no table and no byte of the text path asks.
     #[cold]
     #[inline(never)]
-    pub(crate) fn str_start(&mut self, b: StreamByte, enc: InputEncoding) {
+    pub(crate) fn str_start(
+        &mut self,
+        b: StreamByte,
+        enc: InputEncoding,
+        node: &mut crate::graph::Node,
+    ) {
         // **A Sixel body that never reached its end lets its claim go
         // here.** `CAN`, an `ESC` that is not `ST` and a C1 place what it
         // received (`Paint::sixel_cut`) and `SUB` is a blank sixel, so none
@@ -55,6 +66,10 @@ impl Paint<'_, '_> {
         self.cold.str_kind = StrKind::of(b);
         self.cold.str_enc = enc;
         self.cold.str_len = ByteLen::ZERO;
+        let kitty = self.cold.string_end == ControlStringEnd::Kitty;
+        if kitty && *node == crate::graph::Node::ApcFirst {
+            *node = crate::graph::Node::KittyApcFirst;
+        }
     }
 
     /// **What a `StrPut` takes: one body byte, or a kitty payload's run.**
@@ -66,11 +81,11 @@ impl Paint<'_, '_> {
     /// printable-ASCII run is found as the text path finds one
     /// (`run_of_text`, the same vector scan) and handed to the stream
     /// whole. **The run is a subset of what the byte path would put, edge
-    /// for edge**: `20-7E` in `Node::KittyBody` is `StrPut` back to
-    /// `KittyBody` under both encodings
+    /// for edge**: `20-7E` in `Node::KittyStr` and `Node::KittyBody` is
+    /// `StrPut` back to that node under both encodings
     /// (`graph::classes::a_kitty_run_is_bytes_the_string_body_puts`), and
     /// `gr_as_gl` maps none of them. Everything else -- the `ESC` that may
-    /// begin `ST`, the `BEL` that ends the command, and the payload bytes
+    /// begin `ST`, a byte that ends or cancels the command, and the bytes
     /// the scan refuses, a C0, `DEL`, a GR byte, `9C` -- ends the run where
     /// it stands and takes its own edge, so the run is bounded by the read
     /// and by the first byte the scan does not take.
@@ -496,6 +511,20 @@ impl Paint<'_, '_> {
         if self.cold.str_kind == StrKind::Sixel {
             self.sixel_end();
             self.cold.str_kind = StrKind::Other;
+        }
+    }
+
+    /// **A Sixel or a kitty graphics command cut off before its end**
+    /// (`Act::StrCut`): the Sixel placed from what it received
+    /// ([`Paint::sixel_cut`]), the kitty command cancelled
+    /// ([`Paint::kitty_cut`]). Any other string's kind leaves nothing to do.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn str_cut(&mut self) {
+        match self.cold.str_kind {
+            StrKind::Sixel => self.sixel_cut(),
+            StrKind::Kitty => self.kitty_cut(),
+            _ => {}
         }
     }
 

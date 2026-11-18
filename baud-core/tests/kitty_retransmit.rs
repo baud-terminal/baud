@@ -18,8 +18,8 @@
 //! and no other image goes for it.
 use baud_core::*;
 use baud_domain::{
-    DecodeBudget, DecodeProgress, ImageBudget, ImageOwner, ImagePx, KITTY_BODY_MAX, KittyId,
-    KittyPlacement, Row,
+    ControlStringEnd, DecodeBudget, DecodeProgress, ImageBudget, ImageOwner, ImagePx,
+    KITTY_BODY_MAX, KittyId, KittyPlacement, Row,
 };
 
 const WS: WinSize = WinSize {
@@ -96,9 +96,19 @@ fn drawn(t: &Term<'_>) -> Drawn {
 
 /// A terminal with `budget` of arena and a 10x20 cell.
 fn with<R>(budget: ImageBudget, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
+    with_under(ControlStringEnd::Standard, budget, f)
+}
+
+/// [`with`], with an `APC G` ending where `end` says.
+fn with_under<R>(
+    end: ControlStringEnd,
+    budget: ImageBudget,
+    f: impl FnOnce(&mut Term<'_>) -> R,
+) -> R {
     let mut owned = Owned::new(&WS).with_images(budget);
     let mut t = Term::new(owned.storage(), &WS);
     t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+    t.set_control_string_end(end);
     f(&mut t)
 }
 
@@ -149,10 +159,11 @@ fn old_drawn() -> Drawn {
     }
 }
 
-/// `prior`, then `retransmit` cut in two reads at every byte: between the
-/// reads a frame shows `between`, and after the second `after`; fed whole
-/// it shows `after` too.
+/// `prior`, then `retransmit` cut in two reads at every byte, under `end`:
+/// between the reads a frame shows `between`, and after the second
+/// `after`; fed whole it shows `after` too.
 fn split_everywhere(
+    end: ControlStringEnd,
     budget: ImageBudget,
     prior: &[u8],
     retransmit: &[u8],
@@ -160,7 +171,7 @@ fn split_everywhere(
     after: &Drawn,
 ) {
     for cut in 0..=retransmit.len() {
-        with(budget, |t| {
+        with_under(end, budget, |t| {
             let mut r = Vec::new();
             feed(t, prior, &mut r);
             feed(t, &retransmit[..cut], &mut r);
@@ -178,8 +189,9 @@ fn split_everywhere(
 }
 
 /// **A one-command retransmission read in two parts draws the old image,
-/// all three placements of it, until its terminator**, `ST` or `BEL`, at
-/// every cut; then the old image and its placements are gone together, and
+/// all three placements of it, until its terminator**, `ST`, or under
+/// `ControlStringEnd::Kitty` `BEL` too, at every cut; then the old image
+/// and its placements are gone together, and
 /// the new one is drawn for `a=T` and is not for `a=t`, which "is not
 /// actually displayed until a placement for it is created".
 #[test]
@@ -204,8 +216,12 @@ fn a_retransmission_read_in_two_parts_draws_the_old_image_until_its_terminator()
         let st = apc(keys, &blue);
         let mut bel = st[..st.len() - 2].to_vec();
         bel.push(0x07);
-        for retransmit in [st, bel] {
-            split_everywhere(ROOMY, &old_image(), &retransmit, &old_drawn(), &after);
+        for (end, retransmit) in [
+            (ControlStringEnd::Standard, &st),
+            (ControlStringEnd::Kitty, &st),
+            (ControlStringEnd::Kitty, &bel),
+        ] {
+            split_everywhere(end, ROOMY, &old_image(), retransmit, &old_drawn(), &after);
         }
     }
 }
@@ -225,7 +241,9 @@ fn a_chunked_retransmission_draws_the_old_image_until_its_last_chunk_ends() {
         placed: vec![vec![BLUE; 2]],
         virtual7: None,
     };
-    split_everywhere(ROOMY, &old_image(), &s, &old_drawn(), &after);
+    for end in [ControlStringEnd::Standard, ControlStringEnd::Kitty] {
+        split_everywhere(end, ROOMY, &old_image(), &s, &old_drawn(), &after);
+    }
 }
 
 /// **The control: a retransmission whose terminator is in the read that
@@ -335,11 +353,13 @@ fn png(rgb: [u8; 3]) -> Vec<u8> {
 
 /// **A retransmission cancelled before it ends commits nothing**: the old
 /// image and its placements stay, and the new image is never stored. The
-/// cancel here is the one the parser reaches today inside a kitty upload:
-/// an inline file (`OSC 1337 ; File=`) taking the scratch from a PNG still
-/// arriving in chunks, counted cancelled (`crate::file`). A chunk the
-/// parser cancels inside its string reaches the stream the same way, as
-/// an upload abandoned before its last terminator.
+/// cancel here is an inline file (`OSC 1337 ; File=`) taking the scratch
+/// from a PNG still arriving in chunks, counted cancelled (`crate::file`).
+/// A chunk the parser cancels inside its string, by default at a bare
+/// `ESC`, reaches the stream the same way, as an upload abandoned before
+/// its last terminator
+/// (`a_retransmission_cancelled_by_a_bare_esc_keeps_the_old_image`,
+/// `tests/control_string_end.rs`).
 #[test]
 fn a_retransmission_cancelled_before_it_ends_keeps_the_old_image() {
     let coded = b64(&png([0, 0, 255]));

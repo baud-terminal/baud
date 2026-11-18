@@ -37,6 +37,39 @@ impl StringTerm {
     }
 }
 
+/// **Where a kitty graphics command, an `APC G`, ends**: the embedder's
+/// choice, no sequence changing it.
+///
+/// `Standard`, the default, reads it as every other control string.
+/// `[[source: ecma48]]` 8.3.2: "APC is used as the opening delimiter of a
+/// control string for application program use. The command string
+/// following may consist of bit combinations in the range 00/08 to 00/13
+/// and 02/00 to 07/14. The control string is closed by the terminating
+/// delimiter STRING TERMINATOR (ST)." `[[source: williams]]`: "A control
+/// string that started with DCS, OSC, PM or APC is usually terminated by
+/// the C1 control ST (String Terminator). In a 7-bit environment, ST will
+/// be represented by ESC \ (1B 5C). However, receiving the ESC character
+/// will “cancel” the control string", and its `sos/pm/apc string` state
+/// takes "event 00-17,19,1C-1F,20-7F / ignore" and leaves only on `9C`.
+/// So only `ESC \` ends the command; a bare `ESC`, one before any byte but
+/// `\`, cancels it, and that byte begins an escape sequence; `CAN`, `SUB`
+/// and, under ISO 8859-1, a C1 control cancel it as they cancel any
+/// control string; and a `BEL` is ignored, as the state ignores `07`,
+/// neither ending the command nor joining its payload. A command cancelled
+/// before its end runs nothing, and a transmission it was part of replaces
+/// no image.
+///
+/// `Kitty` ends the command only at `BEL` or `ESC \`: every other byte is
+/// its payload, a bare `ESC`, `CAN`, `SUB`, a C0 control and `9C`
+/// included, and nothing inside it runs or prints. Every control string
+/// that is not an `APC G` is read as under `Standard` either way.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ControlStringEnd {
+    #[default]
+    Standard,
+    Kitty,
+}
+
 /// Which control string a reply is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StringIntro {

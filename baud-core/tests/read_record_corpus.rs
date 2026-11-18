@@ -26,7 +26,9 @@
 mod record_check;
 
 use baud_core::*;
-use baud_domain::{Csi, FinalByte, InputEncoding, MarginMode, Marker, Param, Params, StreamByte};
+use baud_domain::{
+    ControlStringEnd, Csi, FinalByte, InputEncoding, MarginMode, Marker, Param, Params, StreamByte,
+};
 use record_check::*;
 
 /// One case: its name for a failure, whether reads are held at a page-width
@@ -35,6 +37,7 @@ use record_check::*;
 struct Case {
     name: String,
     hold: WidthHold,
+    end: ControlStringEnd,
     reads: Vec<Vec<u8>>,
 }
 
@@ -43,6 +46,7 @@ impl Case {
         Case {
             name,
             hold: WidthHold::Off,
+            end: ControlStringEnd::Standard,
             reads,
         }
     }
@@ -70,6 +74,10 @@ fn edge_cases(enc: InputEncoding, m: Margins) -> Vec<(Case, TableEdge)> {
             }
             let mut tail = e.path().to_vec();
             tail.push(e.byte().raw_byte());
+            let end = match e.root() {
+                WalkRoot::KittyEnd => ControlStringEnd::Kitty,
+                _ => ControlStringEnd::Standard,
+            };
             let hold = match e.root() {
                 WalkRoot::Ground => WidthHold::Off,
                 WalkRoot::Vt52 => {
@@ -86,6 +94,13 @@ fn edge_cases(enc: InputEncoding, m: Margins) -> Vec<(Case, TableEdge)> {
                     let mut printing = b"\x1b[5i".to_vec();
                     printing.append(&mut tail);
                     tail = printing;
+                    WidthHold::Off
+                }
+                // The setting's `APC` begins at its introducer.
+                WalkRoot::KittyEnd => {
+                    let mut apc = b"\x1b_".to_vec();
+                    apc.append(&mut tail);
+                    tail = apc;
                     WidthHold::Off
                 }
                 WalkRoot::Held => {
@@ -114,7 +129,15 @@ fn edge_cases(enc: InputEncoding, m: Margins) -> Vec<(Case, TableEdge)> {
                 e.node(),
                 e.byte().raw_byte()
             );
-            (Case { name, hold, reads }, e)
+            (
+                Case {
+                    name,
+                    hold,
+                    end,
+                    reads,
+                },
+                e,
+            )
         })
         .collect()
 }
@@ -404,6 +427,7 @@ fn mode_forms() -> Vec<(String, Vec<Vec<u8>>)> {
 fn unsaid_of(case: &Case) -> Vec<String> {
     with(|t| {
         t.set_width_hold(case.hold);
+        t.set_control_string_end(case.end);
         t.set_printer(PrinterPort::Ready);
         case.reads
             .iter()
@@ -477,6 +501,7 @@ fn the_walk_takes_every_edge_of_the_table() {
             for (case, e) in edge_cases(enc, m) {
                 with(|t| {
                     t.set_width_hold(case.hold);
+                    t.set_control_string_end(case.end);
                     t.set_printer(PrinterPort::Ready);
                     for r in &case.reads {
                         let _ = checked(t, r);

@@ -310,10 +310,10 @@ impl Csi {
 /// write eight cells to one store -- on a loop that dispatches per character.
 ///
 /// Zero only for [`Act::Resync`], [`Act::Again`], [`Act::EndCluster`] and
-/// [`Act::SixelCut`], each of which leaves the node somewhere the same byte
+/// [`Act::StrCut`], each of which leaves the node somewhere the same byte
 /// cannot produce it again: `Ground` for the first and `EndCluster`,
-/// `Escape` for `Again`, and for `SixelCut` the ground after a control or
-/// `Escape`, neither of them a Sixel's body.
+/// `Escape` for `Again`, and for `StrCut` the ground after a control or
+/// `Escape`, neither of them a Sixel's or a kitty command's body.
 ///
 /// Nine parameters because nine things vary per step and every one of them is
 /// either read or written by the dispatch. `act` is `#[inline(always)]` into
@@ -793,7 +793,7 @@ pub(crate) fn act(
             // holding the last CSI's parameters; harmless for an OSC, which
             // reads none.
             csi.reset();
-            p.str_start(StreamByte::from_stream(p.arena[from.index()]), *enc);
+            p.str_start(StreamByte::from_stream(p.arena[from.index()]), *enc, node);
             ReadLen::ONE
         }
         Act::StrPut => p.str_run(from, left),
@@ -958,8 +958,9 @@ pub(crate) fn act(
         // its intermediate, and `DCS $ ESC D` was read as `ESC $ D`.
         //
         // **Into `KittyBody`, from its `ESC` before a byte that is not `\`**:
-        // kitty keeps that `ESC` in the command (`Node::KittyEsc`), so it is
-        // put first, and the byte is read again in the body.
+        // under `ControlStringEnd::Kitty` that `ESC` is the command's
+        // (`Node::KittyEsc`), so it is put first, and the byte is read again
+        // in the body.
         Act::Again => {
             match *node {
                 Node::Escape => csi.reset(),
@@ -970,10 +971,12 @@ pub(crate) fn act(
             }
             ReadLen::ZERO
         }
-        // A Sixel cut off: placed from what it received, then the byte is
-        // read again from the edge's node (`Node::SixelStr`), as `Again`.
-        Act::SixelCut => {
-            p.sixel_cut();
+        // A Sixel or a kitty command cut off: the Sixel placed from what it
+        // received, the kitty command's upload dropped, then the byte is
+        // read again from the edge's node (`Node::SixelStr`,
+        // `Node::KittyStr`), as `Again`.
+        Act::StrCut => {
+            p.str_cut();
             ReadLen::ZERO
         }
         // **A held read**: the rest, from this byte, is the embedder's to

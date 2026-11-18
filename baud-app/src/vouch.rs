@@ -389,8 +389,20 @@ mod tests {
     /// The record of `bytes`, fed after `before`, the row it ended on and
     /// what it drew, on a terminal with image memory.
     fn taken(before: &[u8], bytes: &[u8]) -> (ReadRecord, EndRow, Drew) {
+        taken_under(baud_domain::ControlStringEnd::Standard, before, bytes)
+    }
+
+    /// [`taken`] on a terminal that ends an `APC G` where `end` says:
+    /// under `Kitty` only at `BEL` or `ESC \\`, so a picture's body can
+    /// hold a mark the core never reads.
+    fn taken_under(
+        end: baud_domain::ControlStringEnd,
+        before: &[u8],
+        bytes: &[u8],
+    ) -> (ReadRecord, EndRow, Drew) {
         let mut owned = Owned::new(&WS).with_images(baud_domain::ImageBudget::of(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
+        t.set_control_string_end(end);
         let feed = |t: &mut Term<'_>, b: &[u8]| {
             t.write_at(BytePos::ZERO, b);
             t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
@@ -487,9 +499,9 @@ mod tests {
     /// **A part re-syncs only where the core ran each mark the scan read,
     /// before the token is read at all** (`Resync::of`): the shell's `D`
     /// with its token and an `A`, re-syncing; the same bytes inside a
-    /// kitty graphics command's body (`ESC _ G a=d;`, left open), where
-    /// the core runs no mark and the scan still reads the `D` and its
-    /// token, not. The token comes from the scan alone, and is the shell's
+    /// kitty graphics command's body (`ESC _ G a=d;`, left open, on a
+    /// terminal that ends one only at `BEL` or `ESC \\`), where the core
+    /// runs no mark and the scan still reads the `D` and its token, not. The token comes from the scan alone, and is the shell's
     /// only where the core ran a mark of that letter at that offset, so
     /// the bytes were a control string and not a picture's payload. Named
     /// break: `Resync::of` without its match -- the payload's `D`
@@ -498,7 +510,7 @@ mod tests {
     fn a_tokened_d_in_a_pictures_body_does_not_re_sync() {
         let d = b"\x1b]133;D;0;baud_token=t\x07\x1b]133;A\x07";
         let resync = |bytes: &[u8]| {
-            let (rec, _, _) = taken(b"", bytes);
+            let (rec, _, _) = taken_under(baud_domain::ControlStringEnd::Kitty, b"", bytes);
             let ran = scanned(b"", bytes);
             assert!(
                 ran.marks()
@@ -516,14 +528,15 @@ mod tests {
     /// `D` in one part, synced, ends it; drifted, a part that begins at
     /// the `D` ends it and re-syncs, and one whose `D` comes after its
     /// first mark re-syncs the window from the next part and ends nothing;
-    /// a `D` inside a picture's body, where the core reads no mark, ends
+    /// a `D` inside a picture's body, where the core reads no mark (on a
+    /// terminal that ends an `APC G` only at `BEL` or `ESC \\`), ends
     /// nothing. Named break: the proof minted from the re-sync alone,
     /// without the latch's verdict -- the drifted part whose `D` comes late
     /// ends the command.
     #[test]
     fn a_part_that_re_syncs_after_its_first_mark_ends_nothing() {
         let ends = |latch: Latch, bytes: &[u8]| {
-            let (rec, _, _) = taken(b"", bytes);
+            let (rec, _, _) = taken_under(baud_domain::ControlStringEnd::Kitty, b"", bytes);
             latch.step(&rec, &scanned(b"", bytes)).2.is_some()
         };
         let d = b"\x1b]133;D;0;baud_token=t\x07\x1b]133;A\x07";

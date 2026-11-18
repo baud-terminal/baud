@@ -239,32 +239,49 @@ pub enum Node {
     /// **The first byte of an `APC`**: a `G` makes it a kitty graphics
     /// command (`[[source: kitty-graphics]]`, "All graphics escape codes are
     /// of the form: <ESC>_G<control data>;<payload><ESC>\"), read in
-    /// `KittyBody`; every other byte takes `SosStr`'s edge, so an `APC` that
-    /// is not kitty's is the `sos/pm/apc string` it was. Last, with the
-    /// next two, so no other node's index moves.
+    /// `KittyStr` by the standard's rule; every other byte takes `SosStr`'s
+    /// edge, so an `APC` that is not kitty's is the `sos/pm/apc string` it
+    /// was. Under [`ControlStringEnd::Kitty`] the introducer's arm leads to
+    /// `KittyApcFirst` instead (`Paint::str_start`). Last, with the next
+    /// two, so no other node's index moves.
     ApcFirst,
-    /// **A kitty graphics command's body, read as kitty reads it**: only a
-    /// `BEL` or `ESC \` ends it, and every other byte is the command's,
-    /// `CAN`, `SUB`, the C0 controls, `DEL`, `9C` and the rest of `80-FF`
-    /// included (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`).
-    /// kitty's graphics protocol is defined by kitty's behaviour, and this
-    /// is its error handling for its own protocol: a program that writes
-    /// into a chunk -- mpv's status line, `ESC [ 1 K CR` and its text --
-    /// adds bytes to the payload, whose decode stops at the first that is
-    /// no base64 (`KittyBase64`), and nothing of it runs or prints. Every
-    /// other control string keeps `[[source: williams]]`' rule, where an
-    /// `ESC` that is not `ST` cancels it. Ahead of the anywhere block, as
+    /// **A kitty graphics command's body under
+    /// [`ControlStringEnd::Kitty`]**: only a `BEL` or `ESC \` ends it, and
+    /// every other byte is the command's, `CAN`, `SUB`, the C0 controls,
+    /// `DEL`, `9C` and the rest of `80-FF` included (`find_st_terminator`,
+    /// `[[source: kitty-vt-parser-c]]`): bytes a program writes into a chunk
+    /// -- `ESC [ 1 K CR` and a line of text -- join the payload, whose
+    /// decode stops at the first that is no base64 (`KittyBase64`), and
+    /// nothing of them runs or prints. Ahead of the anywhere block, as
     /// `Printing` is.
     KittyBody,
     /// **An `ESC` inside a kitty command's body**: a raw `\` after it is
     /// `ST` and ends the command; any other byte makes the `ESC` payload and
     /// is read again in `KittyBody`, so `ESC ESC \` ends at the second, a
     /// `BEL` after it ends the command, and `ESC DEL \` and, under ISO
-    /// 8859-1, `ESC DC` are payload, kitty matching the `\` alone.
+    /// 8859-1, `ESC DC` are payload, the setting matching the `\` alone.
     KittyEsc,
+    /// **A kitty graphics command's body by the standard's rule**,
+    /// [`ControlStringEnd::Standard`]: `SosStr`'s row, every byte that stays
+    /// in the string staying here, and every byte that cancels it -- `CAN`,
+    /// `SUB`, a C1 control under ISO 8859-1 -- cutting the command first
+    /// (`Act::StrCut`), so its upload is dropped and the byte is read again
+    /// from the ground after a control, where it runs. A `BEL` is ignored,
+    /// as the `sos/pm/apc string` row ignores `07` (`[[source: williams]]`).
+    /// Ahead of the anywhere block, as `KittyBody` is. Last, with the next
+    /// two, so no other node's index moves.
+    KittyStr,
+    /// An `ESC` inside `KittyStr`: `StrEsc`'s row, `\` ending the command;
+    /// any other byte cuts the command and is read again from the node
+    /// `StrEsc` leads it to, `Escape`, where it begins an escape sequence,
+    /// or the ground after a control for `CAN` and `SUB`.
+    KittyStrEsc,
+    /// **The first byte of an `APC` under [`ControlStringEnd::Kitty`]**:
+    /// `ApcFirst`'s row, its `G` leading to `KittyBody`.
+    KittyApcFirst,
 }
 
-pub(crate) const NNODE: usize = 42;
+pub(crate) const NNODE: usize = 45;
 
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
@@ -315,6 +332,9 @@ impl Node {
         Node::ApcFirst,
         Node::KittyBody,
         Node::KittyEsc,
+        Node::KittyStr,
+        Node::KittyStrEsc,
+        Node::KittyApcFirst,
     ];
 }
 
@@ -508,11 +528,12 @@ pub enum Act {
     /// VT, `0x0B`: the following line tabulation stop, or `LF` where none
     /// follows.
     LineTab,
-    /// A Sixel cut off by `CAN`, an `ESC` that is not `ST` or a C1: what it
-    /// received is placed, as at `ST`, and the byte is read again from the
-    /// edge's node, which performs it. Consumes nothing. Last, so no other
-    /// action's encoding moves.
-    SixelCut,
+    /// A Sixel or a kitty graphics command cut off by `CAN`, an `ESC` that
+    /// is not `ST` or a C1 (`Paint::str_cut`): a Sixel places what it
+    /// received, as at `ST`, and a kitty command drops its upload; then the
+    /// byte is read again from the edge's node, which performs it. Consumes
+    /// nothing.
+    StrCut,
     /// `Node::Printing`'s every byte: the rest of the read is a printer
     /// controller run's, up to the `CSI 4 i` that ends it.
     Printer,
@@ -579,6 +600,9 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
         Node::ApcFirst => 39,
         Node::KittyBody => 40,
         Node::KittyEsc => 41,
+        Node::KittyStr => 42,
+        Node::KittyStrEsc => 43,
+        Node::KittyApcFirst => 44,
     }] += 1;
 }
 
@@ -678,6 +702,9 @@ const fn node_name(n: Node) -> &'static str {
         Node::ApcFirst => "ApcFirst",
         Node::KittyBody => "KittyBody",
         Node::KittyEsc => "KittyEsc",
+        Node::KittyStr => "KittyStr",
+        Node::KittyStrEsc => "KittyStrEsc",
+        Node::KittyApcFirst => "KittyApcFirst",
     }
 }
 
@@ -728,7 +755,7 @@ const fn act_name(a: Act) -> &'static str {
         Act::Shifted => "Shifted",
         Act::Del => "Del",
         Act::LineTab => "LineTab",
-        Act::SixelCut => "SixelCut",
+        Act::StrCut => "StrCut",
         Act::Printer => "Printer",
         Act::Lead8 => "Lead8",
         Act::ContEnd8 => "ContEnd8",
@@ -781,7 +808,7 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Shifted,
     Act::Del,
     Act::LineTab,
-    Act::SixelCut,
+    Act::StrCut,
     Act::Printer,
     Act::Lead8,
     Act::ContEnd8,
@@ -912,7 +939,7 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::Shifted => 40,
         Act::Del => 41,
         Act::LineTab => 42,
-        Act::SixelCut => 43,
+        Act::StrCut => 43,
         Act::Printer => 44,
         Act::Lead8 => 45,
         Act::ContEnd8 => 46,
@@ -1154,12 +1181,40 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         };
     }
     // An `APC`'s first byte: `G`, or its GR spelling under ISO 8859-1, which
-    // `str_put` reads as `G` and begins kitty's command with; anything else
-    // is the first byte of an `sos/pm/apc string`, with that row's edge.
-    if matches!(node, Node::ApcFirst) {
-        return match enc.gr_as_gl(b).raw_byte() {
-            b'G' => edge(Act::StrPut, Node::KittyBody),
+    // `str_put` reads as `G` and begins kitty's command with, read on by the
+    // standard's rule or, under `ControlStringEnd::Kitty`, by the setting's;
+    // anything else is the first byte of an `sos/pm/apc string`, with that
+    // row's edge.
+    if matches!(node, Node::ApcFirst | Node::KittyApcFirst) {
+        return match (enc.gr_as_gl(b).raw_byte(), node) {
+            (b'G', Node::ApcFirst) => edge(Act::StrPut, Node::KittyStr),
+            (b'G', _) => edge(Act::StrPut, Node::KittyBody),
             _ => one(enc, Node::SosStr, b),
+        };
+    }
+    // A kitty command's body by the standard's rule (`Node::KittyStr`):
+    // `SosStr`'s row, a byte that leaves the string cutting the command
+    // first and read again from the ground after a control. A C1 `SOS`,
+    // `PM` or `APC` leaves it for a string of its own, so its `StrStart` is
+    // a cut too.
+    if matches!(node, Node::KittyStr) {
+        let e = one(enc, Node::SosStr, b);
+        return match (e.act, e.next) {
+            (Act::StrEnd, _) => e,
+            (_, Node::StrEsc) => edge(Act::Consume, Node::KittyStrEsc),
+            (Act::StrStart, _) => edge(Act::StrCut, Node::AfterControl),
+            (a, Node::SosStr) => edge(a, Node::KittyStr),
+            _ => edge(Act::StrCut, Node::AfterControl),
+        };
+    }
+    // Its `ESC`: `StrEsc`'s row, a byte that leaves cutting the command and
+    // read again from where `StrEsc` sends it.
+    if matches!(node, Node::KittyStrEsc) {
+        let e = one(enc, Node::StrEsc, b);
+        return match (e.act, e.next) {
+            (Act::StrEnd, _) => e,
+            (a, Node::StrEsc) => edge(a, Node::KittyStrEsc),
+            (_, next) => edge(Act::StrCut, next),
         };
     }
     // `[[source: williams]]`'s **anywhere** block: "CAN and SUB cancel any
@@ -1200,11 +1255,11 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
             return edge(Act::StrPut, Node::SixelStr);
         }
         if b.is(StreamByte::CAN) {
-            return edge(Act::SixelCut, Node::AfterControl);
+            return edge(Act::StrCut, Node::AfterControl);
         }
     }
     if matches!(node, Node::SixelEsc) && (b.is(StreamByte::CAN) || b.is(StreamByte::SUB)) {
-        return edge(Act::SixelCut, Node::Escape);
+        return edge(Act::StrCut, Node::Escape);
     }
     if !ground_like && (b.is(StreamByte::CAN) || b.is(StreamByte::SUB)) {
         return edge(cancel(node, b), after_control_of(node));
@@ -1281,7 +1336,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     if matches!(node, Node::SixelStr) && latin1_c1(enc, b).is_some() {
         return match b.raw_byte() {
             0x9c => edge(Act::StrEnd, Node::AfterControl),
-            _ => edge(Act::SixelCut, Node::AfterControl),
+            _ => edge(Act::StrCut, Node::AfterControl),
         };
     }
     // **And from an escape or control sequence**, the rule's other half: the
@@ -1605,7 +1660,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
             return match enc.gr_as_gl(b).raw_byte() {
                 0x5c => edge(Act::StrEnd, Node::AfterControl),
                 0x7f => edge(Act::Consume, Node::SixelEsc),
-                _ => edge(Act::SixelCut, Node::Escape),
+                _ => edge(Act::StrCut, Node::Escape),
             };
         }
         // `DcsStr`'s row, its `ESC` to `SixelEsc` and its own node kept.
@@ -1622,7 +1677,12 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         Node::Held => return edge(Act::Hold, Node::AfterControl),
         Node::Printing => return edge(Act::Printer, Node::Printing),
         // Taken at the top as well (`Node::KittyBody`).
-        Node::ApcFirst | Node::KittyBody | Node::KittyEsc => return edge(Act::Bad, Node::Ground),
+        Node::ApcFirst
+        | Node::KittyBody
+        | Node::KittyEsc
+        | Node::KittyStr
+        | Node::KittyStrEsc
+        | Node::KittyApcFirst => return edge(Act::Bad, Node::Ground),
         Node::Ground | Node::Vt52Ground => {}
     }
 
@@ -2383,6 +2443,9 @@ pub enum WalkRoot {
     /// Printer controller mode, after `CSI 5 i`: every byte the printer's
     /// until `CSI 4 i`.
     Printer,
+    /// An `APC`'s first byte under `ControlStringEnd::Kitty`, after `ESC _`
+    /// with the setting set (`Paint::str_start`).
+    KittyEnd,
 }
 
 /// The longest walk to a node, in bytes.
@@ -2451,6 +2514,7 @@ fn reached(enc: InputEncoding) -> [Option<Reach>; NNODE] {
         (WalkRoot::Vt52, Node::Vt52Ground),
         (WalkRoot::Held, Node::Held),
         (WalkRoot::Printer, Node::Printing),
+        (WalkRoot::KittyEnd, Node::KittyApcFirst),
     ] {
         if let Some(i) = slot(node) {
             seen[i] = Some(Reach {
@@ -3013,7 +3077,7 @@ mod classes {
         // at strides 3 and 4. **A Sixel's body is a node of its own, and
         // its `ESC` another** (2026-10-19): `SUB` there is a blank sixel,
         // and `CAN`, a C1 and a byte after its `ESC` that is not `\` place
-        // the image first (`Act::SixelCut`). 55 -> 56, 2,248 -> 2,342,
+        // the image first (`Act::StrCut`). 55 -> 56, 2,248 -> 2,342,
         // 67,669 -> 71,712 and 1,805,035 -> 1,945,172 at strides 1 to 4,
         // +7.8% at stride 4. **ReGIS's `p` after a `DCS`** (2026-10-20):
         // `70` and, under ISO 8859-1, `F0` in `Dcs` lead to the body as
@@ -3060,10 +3124,17 @@ mod classes {
         // 89,962 and 2,324,725 -> 2,503,081 at strides 1 to 4, +7.7% at
         // stride 4. The ingest loop's table is one byte wide and does not
         // grow by a class; it grows by three rows.
+        // **A kitty graphics command by the standard's rule**: `ApcFirst`'s
+        // `G` leads to `KittyStr`, whose row and its `ESC`'s are `SosStr`'s
+        // and `StrEsc`'s with a cut where those leave the string, and
+        // `KittyApcFirst` is `ApcFirst`'s row. They part no byte: 66 and
+        // 2,905 at strides 1 and 2, 89,962 -> 89,964 and 2,503,081 ->
+        // 2,503,266 at strides 3 and 4. The ingest loop's table grows by
+        // three rows and no class.
         assert_eq!(one.len(), CLASSES, "stride 1");
         assert_eq!(two.len(), 2_905, "stride 2");
-        assert_eq!(three.len(), 89_962, "stride 3");
-        assert_eq!(four.len(), 2_503_081, "stride 4");
+        assert_eq!(three.len(), 89_964, "stride 3");
+        assert_eq!(four.len(), 2_503_266, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -3246,12 +3317,18 @@ mod classes {
                             got,
                             match (node, b.raw_byte()) {
                                 (Node::SixelStr, 0x1a) => edge(Act::StrPut, Node::SixelStr),
-                                (Node::SixelStr, _) => edge(Act::SixelCut, Node::AfterControl),
-                                (Node::SixelEsc, _) => edge(Act::SixelCut, Node::Escape),
-                                // A kitty command keeps both as payload,
-                                // kitty's `find_st_terminator` (`Node::KittyBody`).
+                                (Node::SixelStr, _) => edge(Act::StrCut, Node::AfterControl),
+                                (Node::SixelEsc, _) => edge(Act::StrCut, Node::Escape),
+                                // A kitty command keeps both as payload
+                                // under the setting (`Node::KittyBody`).
                                 (Node::KittyBody, _) => edge(Act::StrPut, Node::KittyBody),
                                 (Node::KittyEsc, _) => edge(Act::Again, Node::KittyBody),
+                                // By the standard's rule both cancel it,
+                                // the command cut first and the byte read
+                                // again where the cancel leads.
+                                (Node::KittyStr | Node::KittyStrEsc, _) => {
+                                    edge(Act::StrCut, Node::AfterControl)
+                                }
                                 _ => edge(act, after_control_of(node)),
                             },
                             "{node:?} {enc:?} byte {:#04x} does not cancel",
@@ -3390,8 +3467,11 @@ mod classes {
     /// * a control string's `ESC` is the first half of `ST` -- sent to
     ///   `Escape`, every OSC, DECRQSS and Sixel ended by `ST` would be lost;
     /// * `StrEsc` already re-dispatches any byte but `\` into `Escape`;
-    /// * a kitty graphics command's `ESC` before a byte that is not `\` is
-    ///   its payload, kitty's handling of its own protocol (`Node::KittyBody`);
+    /// * a kitty graphics command's `ESC` may begin `ST`: by the standard's
+    ///   rule a byte after it that is not `\` cuts the command and begins an
+    ///   escape sequence (`Node::KittyStrEsc`), and under
+    ///   `ControlStringEnd::Kitty` it is the command's payload
+    ///   (`Node::KittyBody`);
     /// * mid-character, the partial character becomes a replacement and the
     ///   `ESC` is re-dispatched from ground, which is the same outcome;
     /// * VT52 has no `CSI`: its escape restarts on a second `ESC`, and a
@@ -3429,16 +3509,21 @@ mod classes {
                     | Node::OscStr
                     | Node::DcsStr
                     | Node::SosStr
-                    | Node::ApcFirst => edge(Act::Consume, Node::StrEsc),
+                    | Node::ApcFirst
+                    | Node::KittyApcFirst => edge(Act::Consume, Node::StrEsc),
                     Node::StrEsc => edge(Act::Again, Node::Escape),
-                    // A kitty command's: its `ESC` may begin `ST`, and after
-                    // it any other byte makes it payload, kitty's rule.
+                    // A kitty command's under the setting: its `ESC` may
+                    // begin `ST`, and after it any other byte is payload.
                     Node::KittyBody => edge(Act::Consume, Node::KittyEsc),
                     Node::KittyEsc => edge(Act::Again, Node::KittyBody),
+                    // By the standard's rule: its `ESC` may begin `ST`, and
+                    // after it any other byte cuts the command first.
+                    Node::KittyStr => edge(Act::Consume, Node::KittyStrEsc),
+                    Node::KittyStrEsc => edge(Act::StrCut, Node::Escape),
                     // A Sixel's: its `ESC` may begin `ST`, and after it the
                     // byte places the image first.
                     Node::SixelStr => edge(Act::Consume, Node::SixelEsc),
-                    Node::SixelEsc => edge(Act::SixelCut, Node::Escape),
+                    Node::SixelEsc => edge(Act::StrCut, Node::Escape),
                     Node::Vt52Ground | Node::Vt52AfterControl | Node::Vt52Escape => {
                         edge(Act::Consume, Node::Vt52Escape)
                     }
@@ -3596,12 +3681,19 @@ mod classes {
                 let n = walk(body);
                 assert_eq!(bel(n), edge(Act::Consume, n), "{enc:?} {body:?}");
             }
-            // A kitty graphics command ends at a `BEL` as at `ST`, kitty's
-            // `find_st_terminator` (`Node::KittyBody`).
+            // A kitty graphics command ignores it by the standard's rule,
+            // as the `sos/pm/apc string` row does (`Node::KittyStr`), and
+            // ends at it under `ControlStringEnd::Kitty` (`Node::KittyBody`),
+            // which the introducer's arm leads to (`Paint::str_start`).
             assert_eq!(
                 bel(walk(b"\x1b_G")),
-                edge(Act::StrEnd, Node::AfterControl),
+                edge(Act::Consume, Node::KittyStr),
                 "{enc:?}: APC G"
+            );
+            assert_eq!(
+                bel(Edge::of(enc, Node::KittyApcFirst, StreamByte::from_stream(b'G')).next),
+                edge(Act::StrEnd, Node::AfterControl),
+                "{enc:?}: APC G under the setting"
             );
         }
     }
@@ -4534,26 +4626,31 @@ mod classes {
 
     /// **The bytes `Paint::str_run` hands a kitty stream as one run are
     /// bytes the body puts, edge for edge**: a run is `run_of_text`'s,
-    /// printable ASCII, and each such byte in a kitty command's body, the
-    /// node `ESC _ G` leads to, is `StrPut` back to `KittyBody` under both
-    /// encodings, so taking a run of them in one step leaves the parser
-    /// where taking them one at a time would. Every byte the run stops at
-    /// is checked to be one the scan refuses.
+    /// printable ASCII, and each such byte in a kitty command's body --
+    /// `KittyStr`, the node `ESC _ G` leads to, and `KittyBody`, the one
+    /// `KittyApcFirst`'s `G` leads to under the setting -- is `StrPut` back
+    /// to that body under both encodings, so taking a run of them in one
+    /// step leaves the parser where taking them one at a time would. Every
+    /// byte the run stops at is checked to be one the scan refuses.
     #[test]
     fn a_kitty_run_is_bytes_the_string_body_puts() {
         for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
             let body = [0x1b, b'_', b'G'].iter().fold(Node::Ground, |n, &b| {
                 Edge::of(enc, n, StreamByte::from_stream(b)).next
             });
-            assert_eq!(body, Node::KittyBody, "{enc:?}: ESC _ G");
-            for &b in StreamByte::ALL.iter() {
-                if b.is_printable_ascii() {
-                    assert_eq!(
-                        Edge::of(enc, body, b),
-                        edge(Act::StrPut, Node::KittyBody),
-                        "{enc:?} {:#04x}",
-                        b.raw_byte()
-                    );
+            assert_eq!(body, Node::KittyStr, "{enc:?}: ESC _ G");
+            let set = Edge::of(enc, Node::KittyApcFirst, StreamByte::from_stream(b'G')).next;
+            assert_eq!(set, Node::KittyBody, "{enc:?}: G under the setting");
+            for body in [body, set] {
+                for &b in StreamByte::ALL.iter() {
+                    if b.is_printable_ascii() {
+                        assert_eq!(
+                            Edge::of(enc, body, b),
+                            edge(Act::StrPut, body),
+                            "{enc:?} {body:?} {:#04x}",
+                            b.raw_byte()
+                        );
+                    }
                 }
             }
         }

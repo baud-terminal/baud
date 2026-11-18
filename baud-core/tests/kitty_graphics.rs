@@ -10,8 +10,8 @@
 
 use baud_core::*;
 use baud_domain::{
-    CacheGeometry, DecodeBudget, DecodeProgress, Depth, ImageAlpha, ImageBudget, ImagePx,
-    KittyPlacement, LineIdx, Pixel,
+    CacheGeometry, ControlStringEnd, DecodeBudget, DecodeProgress, Depth, ImageAlpha, ImageBudget,
+    ImagePx, KittyPlacement, LineIdx, Pixel,
 };
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -23,9 +23,15 @@ const WS: WinSize = WinSize {
 
 /// A terminal with `pixels` of arena and a 10x20 cell.
 fn with<R>(pixels: usize, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
+    with_under(ControlStringEnd::Standard, pixels, f)
+}
+
+/// [`with`], with an `APC G` ending where `end` says.
+fn with_under<R>(end: ControlStringEnd, pixels: usize, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
     let mut owned = Owned::new(&WS).with_images(ImageBudget::of(pixels));
     let mut t = Term::new(owned.storage(), &WS);
     t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+    t.set_control_string_end(end);
     f(&mut t)
 }
 
@@ -244,7 +250,13 @@ fn placed_pixels(t: &Term<'_>) -> Vec<u32> {
 /// fed whole is the state after it fed `n` bytes at a time for every `n`,
 /// and in two reads cut at every byte.
 fn invariant(pixels: usize, stream: &[u8], every_split: Splits) {
-    let whole = with(pixels, |t| {
+    invariant_under(ControlStringEnd::Standard, pixels, stream, every_split)
+}
+
+/// [`invariant`], with an `APC G` ending where `end` says.
+fn invariant_under(end: ControlStringEnd, pixels: usize, stream: &[u8], every_split: Splits) {
+    let with = |pixels, f: &dyn Fn(&mut Term<'_>) -> String| with_under(end, pixels, f);
+    let whole = with(pixels, &|t| {
         let mut r = Vec::new();
         feed(t, stream, &mut r);
         settle(t, &mut r);
@@ -255,7 +267,7 @@ fn invariant(pixels: usize, stream: &[u8], every_split: Splits) {
         Splits::Some => vec![1, 2, 3, 5, 7, 64, 1023, 1024, 4095, 4096, 65536],
     };
     for n in sizes {
-        let got = with(pixels, |t| {
+        let got = with(pixels, &|t| {
             let mut r = Vec::new();
             for piece in stream.chunks(n) {
                 feed(t, piece, &mut r);
@@ -270,7 +282,7 @@ fn invariant(pixels: usize, stream: &[u8], every_split: Splits) {
         Splits::Some => (1..stream.len()).step_by(stream.len() / 97 + 1).collect(),
     };
     for cut in cuts {
-        let got = with(pixels, |t| {
+        let got = with(pixels, &|t| {
             let mut r = Vec::new();
             feed(t, &stream[..cut], &mut r);
             feed(t, &stream[cut..], &mut r);
@@ -756,15 +768,15 @@ fn a_delete_aborts_an_upload_in_flight() {
     });
 }
 
-/// **A `CAN` at the end of a kitty chunk is its payload, and so is the
-/// command after it, up to that command's `ST`**: kitty ends a command only
-/// at `BEL` or `ESC \` (`find_st_terminator`, `[[source:
-/// kitty-vt-parser-c]]`), so the second chunk runs on through `ESC _ G` and
-/// ends at the next command's `ST`, its data ending at the `CAN` with the
-/// first chunk's six octets and its own three: nine of twelve, refused
-/// short. The command after it never runs, and nothing is cancelled. Under
-/// Williams' rule the `CAN` cancelled the chunk and aborted its upload, and
-/// was counted.
+/// **Under `ControlStringEnd::Kitty` a `CAN` at the end of a kitty chunk
+/// is its payload, and so is the command after it, up to that command's
+/// `ST`**: the setting ends a command only at `BEL` or `ESC \`
+/// (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`), so the second
+/// chunk runs on through `ESC _ G` and ends at the next command's `ST`, its
+/// data ending at the `CAN` with the first chunk's six octets and its own
+/// three: nine of twelve, refused short. The command after it never runs,
+/// and nothing is cancelled. By default the `CAN` cancels the chunk and its
+/// upload, counted, and the command after it runs.
 #[test]
 fn a_can_ending_a_kitty_chunk_is_payload_up_to_the_next_st() {
     let data = b64(&[7u8; 12]);
@@ -775,6 +787,18 @@ fn a_can_ending_a_kitty_chunk_is_payload_up_to_the_next_st() {
     s.extend(apc("a=T,f=24,s=1,v=1,i=2", &b64(&[1, 2, 3])));
     invariant(64, &s, Splits::Every);
     with(64, |t| {
+        let mut r = Vec::new();
+        feed(t, &s, &mut r);
+        assert_eq!(t.kitty().cancelled, 1, "the chunk cancelled");
+        assert_eq!(String::from_utf8_lossy(&r), "\x1b_Gi=2;OK\x1b\\");
+        assert_eq!(
+            t.images().placements().count(),
+            1,
+            "the next command placed"
+        );
+    });
+    invariant_under(ControlStringEnd::Kitty, 64, &s, Splits::Every);
+    with_under(ControlStringEnd::Kitty, 64, |t| {
         let mut r = Vec::new();
         feed(t, &s, &mut r);
         assert_eq!(t.kitty().cancelled, 0);
@@ -2252,15 +2276,16 @@ fn spliced(at: usize, extra: &[u8]) -> (Vec<u8>, Vec<u8>) {
 }
 
 /// **A byte inside the payload that is no base64 ends the data there, the
-/// bulk path as the byte path**: kitty keeps a C0, `DEL`, `=`, `*` and `;`
-/// in the command (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`)
-/// and its decode stops at the first of them, keeping the octets before it
-/// (`KittyBase64`), so the 24 bytes come up short by what follows and the
-/// reply is ENODATA with what there was: `at` characters' whole octets. A
-/// `BEL` ends the command there as well, and what followed it is text. At
-/// every read size and every two-read split. These were Williams' rule
-/// until kitty's handling of its own protocol: a C0 ignored and the run
-/// going on past it, and the rest refused as base64.
+/// bulk path as the byte path**: `DEL`, `=`, `*` and `;` are payload in
+/// both readings, and the decode stops at the first of them, keeping the
+/// octets before it (`KittyBase64`), so the 24 bytes come up short by what
+/// follows and the reply is ENODATA with what there was: `at` characters'
+/// whole octets. A C0 is ignored by default, as the `sos/pm/apc string`
+/// row ignores it (`[[source: williams]]`), and the run goes on past it to
+/// a whole image; under `ControlStringEnd::Kitty` it is payload too
+/// (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`) and the data
+/// ends there, a `BEL` ending the command, what followed it text. At every
+/// read size and every two-read split.
 #[test]
 fn what_interrupts_a_payload_run_is_what_it_was_byte_by_byte() {
     for at in [1, 2, 3, 4, 13, 30] {
@@ -2279,9 +2304,25 @@ fn what_interrupts_a_payload_run_is_what_it_was_byte_by_byte() {
             b"*",
             b";",
         ] {
-            let (s, _) = spliced(at, stop);
+            let (s, data) = spliced(at, stop);
+            let c0 = stop.iter().all(|&b| b < 0x20);
             invariant(64, &s, Splits::Every);
             with(64, |t| {
+                let mut r = Vec::new();
+                feed(t, &s, &mut r);
+                match c0 {
+                    true => {
+                        assert_eq!(placed_pixels(t), rgba_pixels(&data), "{at} {stop:?}");
+                        assert_eq!(String::from_utf8_lossy(&r), "\x1b_Gi=7;OK\x1b\\");
+                    }
+                    false => {
+                        assert_eq!(t.images().placements().count(), 0, "{at} {stop:?}");
+                        assert_eq!(String::from_utf8_lossy(&r), short, "{at} {stop:?}");
+                    }
+                }
+            });
+            invariant_under(ControlStringEnd::Kitty, 64, &s, Splits::Every);
+            with_under(ControlStringEnd::Kitty, 64, |t| {
                 let mut r = Vec::new();
                 feed(t, &s, &mut r);
                 assert_eq!(t.images().placements().count(), 0, "{at} {stop:?}");
@@ -2291,14 +2332,15 @@ fn what_interrupts_a_payload_run_is_what_it_was_byte_by_byte() {
     }
 }
 
-/// **`CAN`, `SUB` and an `ESC` that is not `ST` are payload of a kitty
-/// command, mid-run as anywhere**: kitty ends the command only at `BEL` or
-/// `ESC \` (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`), so each
-/// stays in the payload, the data ends at it with nine characters' six
-/// octets (`KittyBase64`), and the command it would have cancelled is
-/// refused short at its own `ST`; the next command is its own. Nothing is
-/// cancelled. At every split. Under Williams' rule each cancelled the chunk;
-/// this was the test a cancel inside a payload run ends it where it stands.
+/// **`CAN`, `SUB` and an `ESC` that is not `ST` inside a payload run**:
+/// by default each cancels the command where it stands, mid-run as
+/// anywhere, counted, so the image is never stored and the next command is
+/// its own. Under `ControlStringEnd::Kitty` each is payload: the setting
+/// ends the command only at `BEL` or `ESC \` (`find_st_terminator`,
+/// `[[source: kitty-vt-parser-c]]`), so each stays in the payload, the data
+/// ends at it with nine characters' six octets (`KittyBase64`), and the
+/// command is refused short at its own `ST`; the next command is its own.
+/// Nothing is cancelled. At every split.
 #[test]
 fn a_cancel_inside_a_payload_run_is_payload_and_ends_the_data() {
     for cancel in [&b"\x18"[..], b"\x1a", b"\x1bX", b"\x1b7", b"\x1b_G"] {
@@ -2306,6 +2348,16 @@ fn a_cancel_inside_a_payload_run_is_payload_and_ends_the_data() {
         s.extend(apc("a=T,f=24,s=1,v=1,i=2", &b64(&[1, 2, 3])));
         invariant(64, &s, Splits::Every);
         with(64, |t| {
+            let mut r = Vec::new();
+            feed(t, &s, &mut r);
+            let r = String::from_utf8_lossy(&r);
+            assert_eq!(t.kitty().cancelled, 1, "{cancel:?}");
+            assert!(!r.contains("i=7;"), "{cancel:?}: id 7 answered: {r:?}");
+            assert!(r.ends_with("\x1b_Gi=2;OK\x1b\\"), "{cancel:?}: {r:?}");
+            assert_eq!(t.images().placements().count(), 1, "{cancel:?}");
+        });
+        invariant_under(ControlStringEnd::Kitty, 64, &s, Splits::Every);
+        with_under(ControlStringEnd::Kitty, 64, |t| {
             let mut r = Vec::new();
             feed(t, &s, &mut r);
             assert_eq!(t.kitty().cancelled, 0, "{cancel:?}");
@@ -2318,14 +2370,15 @@ fn a_cancel_inside_a_payload_run_is_payload_and_ends_the_data() {
     }
 }
 
-/// **Under ISO 8859-1 a GR byte of the body is its 7-bit byte, and `9C` is
-/// payload in both encodings**: `[[source: dec-std-070]]` 3.5.4.5 for the
-/// first; for the second kitty ends a command only at `BEL` or `ESC \`
-/// (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`), so `9C` is no
-/// `ST` inside one, and no base64, so the data ends at it: ten characters'
-/// seven octets of the 24. The run the bulk path takes is GL only, so these
-/// bytes take the byte path, at every split. Under ISO 8859-1 `9C` was the
-/// 8-bit `ST` here until kitty's handling of its own protocol.
+/// **Under ISO 8859-1 a GR byte of the body is its 7-bit byte, and the
+/// data ends at a `9C`**: `[[source: dec-std-070]]` 3.5.4.5 for the first.
+/// For the second, under UTF-8 `9C` is a continuation byte, payload, and no
+/// base64; under ISO 8859-1 it is the 8-bit `ST` by default, ending the
+/// command, and payload under `ControlStringEnd::Kitty`, which ends a
+/// command only at `BEL` or `ESC \` (`find_st_terminator`,
+/// `[[source: kitty-vt-parser-c]]`). Either way the data ends at it: ten
+/// characters' seven octets of the 24. The run the bulk path takes is GL
+/// only, so these bytes take the byte path, at every split, under both.
 #[test]
 fn gr_payload_and_the_one_byte_st_keep_their_meaning_beside_a_run() {
     let data = bytes(3 * 2 * 4, 41);
@@ -2343,15 +2396,18 @@ fn gr_payload_and_the_one_byte_st_keep_their_meaning_beside_a_run() {
         assert_eq!(placed_pixels(t), rgba_pixels(&data));
         assert_eq!(r, b"\x1b_Gi=8;OK\x1b\\");
     });
-    for head in [&b""[..], b"\x1b%@"] {
+    for (head, end) in [&b""[..], b"\x1b%@"]
+        .into_iter()
+        .flat_map(|h| [ControlStringEnd::Standard, ControlStringEnd::Kitty].map(|e| (h, e)))
+    {
         let mut c1 = head.to_vec();
         c1.extend_from_slice(b"\x1b_Ga=T,f=32,s=3,v=2,i=8;");
         c1.extend_from_slice(&enc[..10]);
         c1.push(0x9c);
         c1.extend_from_slice(&enc[10..]);
         c1.extend_from_slice(b"\x1b\\");
-        invariant(64, &c1, Splits::Every);
-        with(64, |t| {
+        invariant_under(end, 64, &c1, Splits::Every);
+        with_under(end, 64, |t| {
             let mut r = Vec::new();
             feed(t, &c1, &mut r);
             assert_eq!(t.images().placements().count(), 0, "{head:?}");

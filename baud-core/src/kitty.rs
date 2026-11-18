@@ -46,6 +46,19 @@ impl Paint<'_, '_> {
         self.rehook();
     }
 
+    /// **A kitty chunk cancelled before its `ST`** (`Node::KittyStr`):
+    /// the command runs nothing, and the upload it began or continued is
+    /// dropped and counted ([`KittyStream::cancel`]), so a retransmission
+    /// it was part of replaces no image.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn kitty_cut(&mut self) {
+        self.cold.str_kind = StrKind::Other;
+        let s = &mut *self.strs;
+        s.kitty.cancel(self.images, s.kitty_scratch);
+        self.rehook();
+    }
+
     /// The `n` body bytes at `from`, which the graph puts, at once
     /// (`Paint::str_run`).
     pub(crate) fn kitty_run(&mut self, from: BytePos, n: ByteLen) {

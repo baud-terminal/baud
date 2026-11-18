@@ -1,8 +1,8 @@
-//! **A kitty graphics command ends where kitty ends it, and its payload
-//! decodes as kitty decodes it.**
-//!
-//! kitty's graphics protocol is defined by kitty's behaviour, and these are
-//! its error handling for its own protocol, taken for `APC G` alone:
+//! **Under `ControlStringEnd::Kitty`, a kitty graphics command ends only at
+//! `BEL` or `ESC \`, and its payload decodes as the protocol's reference
+//! decoder decodes it.** Every test here sets the setting; the default,
+//! the standard's rule, is `tests/control_string_end.rs`'s, on these
+//! streams too. The setting, for `APC G` alone:
 //!
 //! * the command ends only at `BEL` or `ESC \` (`find_st_terminator`,
 //!   `[[source: kitty-vt-parser-c]]`), so an `ESC` that is not `ST`, a
@@ -16,14 +16,16 @@
 //!
 //! mpv's `--vo=kitty` writes its status line from another thread, and it
 //! lands inside a chunk: `ESC [ 1 K CR ESC [ 0 m <status> ESC [ 0 m`, then
-//! the chunk's remaining base64 and its `ESC \`. Read by
-//! `[[source: williams]]`' rule, the `ESC` cancelled the command, and the
-//! status and the base64 after it printed as a line of text under the
-//! picture. Three levels, each fed whole and in every two-read split:
+//! the chunk's remaining base64 and its `ESC \`. Under the setting all of
+//! it is the chunk's payload; by `[[source: williams]]`' rule, the default,
+//! the `ESC` cancels the command, and the status and the base64 after it
+//! print as text. Three levels, each fed whole and in every two-read split:
 //! the chunk as mpv wrote it, the smallest stream with the same shape, and a
 //! generator held to a model of kitty's two functions written out below.
 use baud_core::*;
-use baud_domain::{DecodeBudget, DecodeProgress, ImageBudget, ImagePx, KittyCounts, Row};
+use baud_domain::{
+    ControlStringEnd, DecodeBudget, DecodeProgress, ImageBudget, ImagePx, KittyCounts, Row,
+};
 
 const WS: WinSize = WinSize {
     ws_row: 12,
@@ -52,6 +54,7 @@ fn run(stream: &[u8], cuts: &[usize]) -> Left {
     let mut owned = Owned::new(&WS).with_images(ImageBudget::of(1 << 16));
     let mut t = Term::new(owned.storage(), &WS);
     t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+    t.set_control_string_end(ControlStringEnd::Kitty);
     let mut replies = Vec::new();
     let mut from = 0;
     for &c in cuts.iter().chain(core::iter::once(&stream.len())) {
@@ -485,6 +488,7 @@ fn mpvs_unterminated_exit_leaves_the_modes_set_as_kitty_does() {
             };
             let mut owned = Owned::new(&ws).with_images(ImageBudget::of(1 << 20));
             let mut t = Term::new(owned.storage(), &ws);
+            t.set_control_string_end(ControlStringEnd::Kitty);
             let mut replies = Vec::new();
             for piece in s.chunks(read) {
                 t.write_at(BytePos::ZERO, piece);

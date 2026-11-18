@@ -22,6 +22,7 @@
 mod support;
 
 use baud_core::*;
+use baud_domain::ControlStringEnd;
 
 /// `[[source: williams]]` names the four string types; each is introduced
 /// differently and all end at `ST`.
@@ -102,13 +103,19 @@ fn a_control_string_survives_a_read_boundary() {
 
 /// A terminal fed `bytes` in reads of `size`, handed to `f` while it lives.
 fn fed<R>(bytes: &[u8], size: usize, f: impl FnOnce(&Term<'_>) -> R) -> R {
+    fed_under(ControlStringEnd::Standard, bytes, size, f)
+}
+
+/// [`fed`], with an `APC G` ending where `end` says.
+fn fed_under<R>(e: ControlStringEnd, b: &[u8], size: usize, f: impl FnOnce(&Term<'_>) -> R) -> R {
     let ws = WinSize {
         ws_row: 6,
         ws_col: 40,
     };
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
-    for part in bytes.chunks(size) {
+    t.set_control_string_end(e);
+    for part in b.chunks(size) {
         t.write_at(BytePos::ZERO, part);
         t.feed(BytePos::ZERO, ReadLen::from_index(part.len()));
     }
@@ -412,23 +419,27 @@ fn a_bel_in_sos_pm_or_apc_is_ignored_and_only_st_ends_it() {
         }
     }
 
-    // **An `APC G` is a kitty graphics command, which a `BEL` ends** as an
-    // `ESC \` does (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`,
-    // kitty's handling of its own protocol): `a` is malformed and refused,
-    // and the `X` after the `BEL` is text, the `ST` after it a bare `ST`.
-    // Until then it ignored the `BEL` as the other three do.
+    // **An `APC G` is a kitty graphics command.** By default it ignores the
+    // `BEL` as the other three do, and only `ST` ends it: `aX` is its
+    // malformed control data, refused at the `ST`. Under
+    // `ControlStringEnd::Kitty` a `BEL` ends it as an `ESC \` does
+    // (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`): `a` is
+    // refused, and the `X` after the `BEL` is text, the `ST` after it a
+    // bare `ST`.
     let bytes: &[u8] = b"\x1b_Ga\x07X\x1b\\AFTER";
-    for size in 1..=bytes.len() {
-        assert_eq!(
-            left(bytes, size).screen,
-            left(b"XAFTER", 6).screen,
-            "APC G: screen"
-        );
-        fed(bytes, size, |t| {
-            assert_eq!(t.strings_ignored, 0, "APC G: read, read size {size}");
-            assert_eq!(t.kitty().refused, 1, "APC G: refused, read size {size}");
-            assert_eq!(t.bells, 0, "APC G: no bell, read size {size}");
-        });
+    for (end, drawn) in [
+        (ControlStringEnd::Standard, &b"AFTER"[..]),
+        (ControlStringEnd::Kitty, b"XAFTER"),
+    ] {
+        let want = left(drawn, drawn.len()).screen;
+        for size in 1..=bytes.len() {
+            fed_under(end, bytes, size, |t| {
+                assert_eq!(support::screen(t), want, "APC G, {end:?}: screen");
+                assert_eq!(t.strings_ignored, 0, "APC G, {end:?}: read, size {size}");
+                assert_eq!(t.kitty().refused, 1, "APC G, {end:?}: refused, size {size}");
+                assert_eq!(t.bells, 0, "APC G, {end:?}: no bell, size {size}");
+            });
+        }
     }
 
     // `OSC_MAX` printable bytes and a BEL, against `OSC_MAX + 1` and none.

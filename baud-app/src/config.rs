@@ -521,6 +521,13 @@ pub struct Config {
     /// system's motion and Animated Images settings say, by default, or
     /// always, or never ([`ImageAnimation`]).
     pub image_animation: ImageAnimation,
+    /// `[images] kitty_string_end`: where a kitty graphics command, an
+    /// `APC G`, ends ([`baud_domain::ControlStringEnd`]). `"standard"`, the
+    /// default, ends it only at `ESC \`, a bare `ESC` or `CAN` cancelling
+    /// it as any control string, so what a program writes into a command
+    /// runs and prints; `"kitty"` ends it only at `BEL` or `ESC \`, every
+    /// other byte its payload.
+    pub kitty_string_end: baud_domain::ControlStringEnd,
     /// `vs16_width`: whether a `U+FE0F` makes a text-default emoji two cells,
     /// `"two"` by default, the width tmux 3.6+, fish and helix assume, or
     /// one for a session whose programs measure with a legacy `wcwidth`; a
@@ -1339,6 +1346,7 @@ impl Config {
             shell_program: None,
             set_up: baud_domain::SetUp::FACTORY,
             checksum: baud_domain::ChecksumReport::On,
+            kitty_string_end: baud_domain::ControlStringEnd::Standard,
             substitute: Substitute::DEFAULT,
             prompt_at_bottom: baud_domain::PromptAtBottom::Off,
             logging: baud_domain::Logging::On,
@@ -2554,6 +2562,19 @@ impl Config {
                                 "config: [images] advertise_sixel = {other:?} is not true or false; it stays off"
                             ));
                             baud_domain::SixelClaim::No
+                        }
+                    };
+                }
+                ("images", "kitty_string_end") => {
+                    self.kitty_string_end = match value.trim().trim_matches('"') {
+                        "standard" => baud_domain::ControlStringEnd::Standard,
+                        "kitty" => baud_domain::ControlStringEnd::Kitty,
+                        other => {
+                            said.push(format!(
+                                "config: [images] kitty_string_end {other:?} is not standard or \
+                                 kitty; using standard"
+                            ));
+                            baud_domain::ControlStringEnd::Standard
                         }
                     };
                 }
@@ -5989,6 +6010,42 @@ mod reader {
         );
     }
 
+    /// **A kitty graphics command ends by the standard's rule unless
+    /// `[images] kitty_string_end = "kitty"`**, quoted or bare; any other
+    /// value keeps the default and says so, and the key is the `[images]`
+    /// section's, not the top level's.
+    #[test]
+    fn a_kitty_command_ends_by_the_standard_unless_set_to_kitty() {
+        use baud_domain::ControlStringEnd;
+        assert_eq!(
+            Config::defaults().kitty_string_end,
+            ControlStringEnd::Standard
+        );
+        assert_eq!(read("").kitty_string_end, ControlStringEnd::Standard);
+        for kitty in ["\"kitty\"", "kitty"] {
+            let text = format!("[images]\nkitty_string_end = {kitty}\n");
+            assert_eq!(
+                read(&text).kitty_string_end,
+                ControlStringEnd::Kitty,
+                "{kitty}"
+            );
+        }
+        assert_eq!(
+            read("[images]\nkitty_string_end = \"standard\"\n").kitty_string_end,
+            ControlStringEnd::Standard
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[images]\nkitty_string_end = \"bel\"\n");
+        assert_eq!(c.kitty_string_end, ControlStringEnd::Standard);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("kitty_string_end"), "{said:?}");
+        assert_eq!(
+            read("kitty_string_end = \"kitty\"\n").kitty_string_end,
+            ControlStringEnd::Standard,
+            "not a top-level key"
+        );
+    }
+
     /// Scroll is smooth unless `[scroll] mode = normal`, and a value that is
     /// neither `normal` nor `smooth` falls back to the default, smooth, with
     /// a warning. The quoted form is the one `config.toml.example` writes,
@@ -7920,6 +7977,7 @@ mod example {
             shell_program,
             set_up,
             checksum,
+            kitty_string_end,
             substitute,
             prompt_at_bottom,
             logging,
@@ -8007,6 +8065,7 @@ mod example {
             shell_program,
             set_up,
             checksum,
+            kitty_string_end,
             substitute,
             prompt_at_bottom,
             logging,

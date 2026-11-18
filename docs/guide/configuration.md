@@ -73,7 +73,8 @@ and what programs may do
 `[message]`, `[message.copy]`, `[message.held]` and `[message.link]`, `[link]`,
 `[launch] splash` turned off while the logo shows,
 `[screen]`'s logging, checksum, substitute mark, notifications and print
-choices, `[pointer]`), and `[images] animation`.
+choices, `[pointer]`), and `[images] animation` and `kitty_string_end`,
+which the next picture command a program sends follows.
 
 These keep their old value in the windows already open, because each was
 built with them, and a new window (Cmd-N, or Ctrl+Shift+N on Linux) takes
@@ -225,6 +226,7 @@ unless you name a trail here.
 |---|---|---|---|
 | `pixels_mb` | number, MiB | `95` | How much memory pictures shown in the terminal may use. The default holds three full 4K screens. A picture that does not fit is refused with a warning rather than shown in part. On macOS it also bounds the picture a program written for iTerm2 names for a notification: a larger one is left out, and the notification's text still shows. |
 | `animation` | `"os"`, `"on"`, `"off"` | `"os"` | Whether animated pictures play. `"os"` plays them unless Reduce Motion is on or "Auto-play animated images" is off in macOS's Accessibility settings, or on Linux the desktop's reduced-motion setting is on. `"on"` always plays them, and `"off"` keeps each one still at the frame it shows. A change shows at once, and so does a change to either macOS setting. |
+| `kitty_string_end` | `"standard"`, `"kitty"` | `"standard"` | Where a picture command of kitty's protocol ends. `"standard"` reads it as every other control string: only `ESC \` ends it, and a bare `ESC`, `CAN` or `SUB` inside it cancels it, so what a program writes into the middle of a command shows -- a video player's status line prints as text, and the sequences a player sends as it quits put the screen back, even when its last picture command was never ended; a picture cut that way is not shown, and the one it was replacing stays. `"kitty"` ends it only at `BEL` or `ESC \`: every other byte is part of the command, so such a status line never prints and the picture comes up short, and a command left open swallows what follows, a player's screen restore included, until a BEL or `ESC \` arrives. |
 | `advertise_sixel` | `true`, `false` | `false` | Tell programs that baud can show Sixel pictures. Turn it on so a file manager such as yazi shows real image previews instead of a picture made of text characters. `kitten icat` needs no setting: it accepts baud's default answer to its terminal question and draws with kitty's own protocol. |
 
 ## [clipboard]

@@ -1358,6 +1358,9 @@ pub struct Cold {
     /// Whether DECRQCRA is answered ([`Term::set_checksum_report`]). The
     /// embedder's, so `RIS` and `DECSTR` leave it as it is.
     pub(crate) checksum_report: ChecksumReport,
+    /// Where an `APC G` ends ([`Term::set_control_string_end`]). The
+    /// embedder's, so `RIS` and `DECSTR` leave it as it is.
+    pub(crate) string_end: ControlStringEnd,
     /// XTCHECKSUM's bits ([`baud_domain::ChecksumExtension`]), `csDEC` at
     /// power-on and after either reset.
     pub(crate) checksum_ext: baud_domain::ChecksumExtension,
@@ -2307,6 +2310,7 @@ impl Cold {
             widths: WidthPolicy::DEFAULT,
             sixel_claim: SixelClaim::No,
             checksum_report: ChecksumReport::On,
+            string_end: ControlStringEnd::Standard,
             checksum_ext: baud_domain::ChecksumExtension::DEC,
             pointer: None,
             cursor_style: CursorStyle::BlinkingBlock,
@@ -5092,6 +5096,22 @@ impl<'b> Term<'b> {
     /// What [`Term::set_checksum_report`] last set.
     pub fn checksum_report(&self) -> ChecksumReport {
         self.cold.checksum_report
+    }
+
+    /// **Where a kitty graphics command, an `APC G`, ends**
+    /// ([`ControlStringEnd`]): `Standard`, the default, only at `ESC \`,
+    /// a bare `ESC`, `CAN`, `SUB` or a C1 control cancelling it and a
+    /// `BEL` ignored, as in every control string; `Kitty` only at `BEL`
+    /// or `ESC \`, every other byte its payload. Taken by the next `APC`
+    /// to begin. The embedder's choice: no sequence changes it, `RIS`
+    /// included.
+    pub fn set_control_string_end(&mut self, e: ControlStringEnd) {
+        self.cold.string_end = e;
+    }
+
+    /// What [`Term::set_control_string_end`] last set.
+    pub fn control_string_end(&self) -> ControlStringEnd {
+        self.cold.string_end
     }
 
     /// **What a `SUB` draws where it arrives**: nothing, the default, or

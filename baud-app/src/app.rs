@@ -1057,6 +1057,8 @@ struct Boot {
     vs16_width: baud_domain::Vs16Width,
     /// Whether DECRQCRA is answered, from `[screen] checksum`.
     checksum: baud_domain::ChecksumReport,
+    /// Where an `APC G` ends, from `[images] kitty_string_end`.
+    kitty_string_end: baud_domain::ControlStringEnd,
     /// The Set-up modes, from `[keyboard]`.
     set_up: baud_domain::SetUp,
     /// What a `SUB` draws, from `[screen] substitute_mark` and
@@ -1242,6 +1244,7 @@ impl Boot {
             sixel: cfg.sixel,
             vs16_width: cfg.vs16_width,
             checksum: cfg.checksum,
+            kitty_string_end: cfg.kitty_string_end,
             set_up: cfg.set_up,
             substitute: cfg.substitute,
             prompt_at_bottom: cfg.prompt_at_bottom,
@@ -1372,6 +1375,7 @@ impl App {
             sixel,
             vs16_width,
             checksum,
+            kitty_string_end,
             set_up,
             substitute,
             prompt_at_bottom,
@@ -1578,6 +1582,7 @@ impl App {
         term.set_sixel_claim(sixel);
         crate::host::set_widths(&mut term, vs16_width, ambiguous_width, join_spacing_marks);
         crate::host::set_checksum(&mut term, checksum);
+        crate::host::set_control_string_end(&mut term, kitty_string_end);
         crate::host::set_up(&mut term, set_up);
         crate::host::set_substitute(&mut term, substitute);
         crate::host::set_prompt_at_bottom(&mut term, prompt_at_bottom);

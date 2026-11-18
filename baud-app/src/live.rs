@@ -66,7 +66,8 @@ pub enum Part {
     /// What the core is told: `[screen] checksum`, `substitute_mark`,
     /// `substitute_character`, `prompt_at_bottom`, `logging` and `print_*`,
     /// `[window] operations`, `[pointer] hide_while_typing`,
-    /// `[font] changes` and `[clipboard] osc52`.
+    /// `[font] changes`, `[clipboard] osc52` and `[images]
+    /// kitty_string_end`.
     TermOptions,
     /// `[keyboard]`: the Set-up modes, each whose value changed taking it
     /// in the running terminal now (`Term::change_set_up`).
@@ -260,6 +261,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         screen_transition,
         exit_status,
         checksum,
+        kitty_string_end,
         substitute,
         prompt_at_bottom,
         logging,
@@ -363,6 +365,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     );
     part(
         old.checksum != *checksum
+            || old.kitty_string_end != *kitty_string_end
             || old.substitute != *substitute
             || old.prompt_at_bottom != *prompt_at_bottom
             || old.logging != *logging
@@ -433,6 +436,7 @@ pub fn term_options(
     abilities: baud_core::WindowAbilities,
 ) {
     crate::host::set_checksum(term, c.checksum);
+    crate::host::set_control_string_end(term, c.kitty_string_end);
     crate::host::set_substitute(term, c.substitute);
     crate::host::set_prompt_at_bottom(term, c.prompt_at_bottom);
     crate::host::set_window_ops(term, c.window_ops);
@@ -584,6 +588,10 @@ mod tests {
             ("[cursor]\nguide = \"on\"\n", Part::CursorGuide),
             ("[images]\nanimation = \"off\"\n", Part::ImageAnimation),
             ("[screen]\nchecksum = \"off\"\n", Part::TermOptions),
+            (
+                "[images]\nkitty_string_end = \"kitty\"\n",
+                Part::TermOptions,
+            ),
             ("[screen]\nsubstitute_mark = \"on\"\n", Part::TermOptions),
             ("[screen]\nprompt_at_bottom = \"on\"\n", Part::TermOptions),
             (

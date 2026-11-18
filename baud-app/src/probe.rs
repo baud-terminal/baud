@@ -4216,6 +4216,8 @@ mod tests {
         /// What `ssh -G` prints, and every argv it was run with, by group.
         printout: Option<Vec<u8>>,
         resolves: Resolves,
+        /// Where the terminal the test feeds ends an `APC G`.
+        string_end: baud_domain::ControlStringEnd,
     }
 
     /// Every `ssh -G` a [`Fake`] ran, as the group and its argv.
@@ -4260,6 +4262,16 @@ mod tests {
                     .collect(),
                 program: vec!["zsh".into()],
                 ..Fake::default()
+            }
+        }
+
+        /// The same, its terminal ending an `APC G` only at `BEL` or
+        /// `ESC \\` (`[images] kitty_string_end = "kitty"`), where a
+        /// picture's body can hold a mark the core never reads.
+        fn kitty_ending(self) -> Fake {
+            Fake {
+                string_end: baud_domain::ControlStringEnd::Kitty,
+                ..self
             }
         }
 
@@ -7850,6 +7862,7 @@ mod tests {
     ) -> Taken<R> {
         let mut midway = Vec::new();
         let mut midway_origins = Vec::new();
+        let string_end = f.string_end;
         let (mut pr, _) = probes(f);
         let most = reads
             .iter()
@@ -7872,6 +7885,7 @@ mod tests {
         };
         let mut owned = Owned::new(&most).with_images(baud_domain::ImageBudget::of(1 << 16));
         let mut t = Term::new(owned.storage(), &ws);
+        t.set_control_string_end(string_end);
         if asks {
             t.set_width_hold(baud_core::WidthHold::On);
         }
@@ -11032,14 +11046,18 @@ mod tests {
     }
 
     /// Whether a terminal fed `bytes` whole records a `C`.
-    fn core_reads_c(bytes: &[u8]) -> bool {
+    fn core_reads_c(end: baud_domain::ControlStringEnd, bytes: &[u8]) -> bool {
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
+        t.set_control_string_end(end);
         let _ = t.take_record();
         t.write_at(BytePos::ZERO, bytes);
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
         t.take_record().marks().iter().any(|m| m.letter == b'C')
     }
+
+    /// The core's reading under which a picture's body holds a mark.
+    const KITTY: baud_domain::ControlStringEnd = baud_domain::ControlStringEnd::Kitty;
 
     /// The shell's `C` naming `cat y` here, with the window's token, ended
     /// by `end`, `BEL` or `ST`.
@@ -11052,8 +11070,10 @@ mod tests {
     }
 
     /// **After a mark the app read and the core did not, the window's marks
-    /// are not trusted** (`vouch::Latch`): an unterminated kitty graphics
-    /// command (`ESC _ G a=d;`, as mpv leaves one at its exit), then the
+    /// are not trusted** (`vouch::Latch`), on a terminal set to end an
+    /// `APC G` only at `BEL` or `ESC \\` ([`Fake::kitty_ending`]), the
+    /// one reading under which a control string's body can hold a mark: an
+    /// unterminated kitty graphics command (`ESC _ G a=d;`), then the
     /// shell's `C` naming `cat y` here with its token, and a `ST` -- which
     /// the core reads inside the command's body, so it runs no `C`, where
     /// the app's scan reads one and believes `cat` runs here -- cut into
@@ -11068,7 +11088,7 @@ mod tests {
     fn a_mark_the_core_did_not_read_leaves_the_window_untrusted() {
         let lit = |first: &[u8], cut: usize| {
             !lit_reads(
-                named_groups(),
+                named_groups().kitty_ending(),
                 &[
                     read(&first[..cut], 1),
                     read(&first[cut..], 1),
@@ -11082,7 +11102,7 @@ mod tests {
             let control = cat_here(end);
             assert!(lit(&control, control.len()), "the control, st {st}");
             let first = [b"\x1b_Ga=d;".as_slice(), &cat_here(end), b"\x1b\\"].concat();
-            let core = core_reads_c(&first);
+            let core = core_reads_c(KITTY, &first);
             for cut in 0..=first.len() {
                 assert_eq!(lit(&first, cut), core, "st {st}, cut at {cut}");
             }
@@ -11099,10 +11119,10 @@ mod tests {
     #[test]
     fn a_matched_mark_that_is_not_the_shells_d_leaves_the_window_untrusted() {
         let drift = [b"\x1b_Ga=d;".as_slice(), &cat_here(b"\x07"), b"\x1b\\"].concat();
-        assert!(!core_reads_c(&drift), "the core runs no C here");
+        assert!(!core_reads_c(KITTY, &drift), "the core runs no C here");
         let tokenless = b"\x1b]133;C;cmdline=cat\\ y\x07";
         let lit = lit_reads(
-            named_groups(),
+            named_groups().kitty_ending(),
             &[read(&drift, 1), read(tokenless, 1), read(b"/etc/hosts", 6)],
         );
         assert_eq!(lit, Vec::<usize>::new());
@@ -11136,7 +11156,8 @@ mod tests {
     }
 
     /// **The shell's `D` inside a picture's body does not re-sync the
-    /// window** (`vouch::Resync`, its match first): after the drift above,
+    /// window** (`vouch::Resync`, its match first), on a terminal set to
+    /// end an `APC G` only at `BEL` or `ESC \\`: after the drift above,
     /// the shell's `D` with its token and its prompt inside a kitty
     /// graphics command left open, where the core runs no mark and the
     /// scan reads the `D` and the token, and a `ST`; then its `C` naming
@@ -11154,7 +11175,7 @@ mod tests {
         let drift = [b"\x1b_Ga=d;".as_slice(), &cat_here(b"\x07"), b"\x1b\\\r\n"].concat();
         let lit = |d: &[u8]| {
             !lit_reads(
-                named_groups(),
+                named_groups().kitty_ending(),
                 &[
                     read(&drift, 6),
                     read(d, 1),
@@ -11167,7 +11188,7 @@ mod tests {
         let d = prompt_after("x\r\n");
         assert!(lit(&d), "the control");
         let inside = [b"\x1b_Ga=d;".as_slice(), &d, b"\x1b\\"].concat();
-        assert!(!core_reads_c(&inside) && !lit(&inside));
+        assert!(!core_reads_c(KITTY, &inside) && !lit(&inside));
     }
 
     /// **A row written below and climbed back from is off the read's
@@ -13546,9 +13567,11 @@ mod tests {
     /// pace.
     fn timed(f: Fake, mut sampler: Sampler, steps: &[Step<'_>]) -> Timed {
         let log = Arc::clone(&f.log);
+        let string_end = f.string_end;
         let (mut pr, _) = probes(f);
         let mut owned = Owned::new(&ROOMY);
         let mut t = Term::new(owned.storage(), &ROOMY);
+        t.set_control_string_end(string_end);
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
@@ -13925,8 +13948,10 @@ mod tests {
         assert_eq!(got.counts.by_ended, 0, "{:?}", got.counts);
     }
 
-    /// **P5: the shell's `D` inside a picture's body grants nothing**:
-    /// after a drift (a picture's body left open over the shell's `C`),
+    /// **P5: the shell's `D` inside a picture's body grants nothing**, on a
+    /// terminal set to end an `APC G` only at `BEL` or `ESC \\`
+    /// ([`Fake::kitty_ending`]): after a drift (a picture's body left open
+    /// over the shell's `C`),
     /// the `D` with its token and the prompt inside another picture's body,
     /// where the core reads no mark and the scan reads the `D`, then
     /// `/etc/hosts` typed after the body, a path the prompt's naming makes
@@ -13947,7 +13972,7 @@ mod tests {
         let outside = [d.as_slice(), b"/etc/hosts"].concat();
         let run = |part: &[u8]| {
             timed(
-                named_groups(),
+                named_groups().kitty_ending(),
                 shells_sampler(),
                 &[
                     Step::Drain(0, vec![(drift.as_slice(), Some(6))]),

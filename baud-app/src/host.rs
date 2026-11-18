@@ -239,6 +239,7 @@ pub fn set_up_term<'t>(
         cfg.join_spacing_marks,
     );
     crate::host::set_checksum(&mut term, cfg.checksum);
+    crate::host::set_control_string_end(&mut term, cfg.kitty_string_end);
     crate::host::set_up(&mut term, cfg.set_up);
     crate::host::set_substitute(&mut term, cfg.substitute);
     crate::host::set_prompt_at_bottom(&mut term, cfg.prompt_at_bottom);
@@ -693,6 +694,13 @@ pub fn set_widths(
 /// drivers, called after `Term::new` and before the first feed.
 pub fn set_checksum(term: &mut baud_core::Term<'_>, checksum: baud_domain::ChecksumReport) {
     term.set_checksum_report(checksum);
+}
+
+/// Tell the core where a kitty graphics command ends, from `[images]
+/// kitty_string_end`. One function for both drivers, called after
+/// `Term::new` and before the first feed.
+pub fn set_control_string_end(term: &mut baud_core::Term<'_>, end: baud_domain::ControlStringEnd) {
+    term.set_control_string_end(end);
 }
 
 /// Tell the core the Set-up modes, from `[keyboard]`: DECARM, DECCKM and
@@ -1981,6 +1989,53 @@ mod tests {
             let want = format!("\x1b[?1021;{rqm}$y");
             assert_eq!(t.reply(), want.as_bytes(), "{ambiguous:?}");
         }
+    }
+
+    /// **`[images] kitty_string_end` reaches the core, from both
+    /// drivers.** The config text read into a `Config`, handed to
+    /// `set_control_string_end`, decides where an `APC G` ends: by default
+    /// a bare `ESC` cancels it and the `CUP` after it runs; with `"kitty"`
+    /// the `CUP` is the command's payload. Both drivers' calls are held in
+    /// the source, as `the_checksum_setting_reaches_the_core` holds theirs.
+    #[test]
+    fn the_kitty_string_end_setting_reaches_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (text, row) in [("", 2), ("[images]\nkitty_string_end = \"kitty\"\n", 0)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_control_string_end(&mut t, cfg.kitty_string_end);
+            feed(&mut t, b"\x1b_Ga=q;\x1b[3;1H\x1b\\");
+            assert_eq!(t.cursor().0.index(), row, "{text:?}");
+        }
+        const CALL: &str = concat!("crate::host::", "set_control_string_end(&mut term, ");
+        for (driver, src, arg) in [
+            ("macOS", include_str!("app.rs"), "kitty_string_end);"),
+            (
+                "Linux",
+                &super::linux_driver_src(),
+                "cfg.kitty_string_end);",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+        }
+        assert_eq!(
+            include_str!("app.rs")
+                .matches("kitty_string_end: cfg.kitty_string_end,")
+                .count(),
+            1,
+            "macOS carries it from the config"
+        );
     }
 
     /// **`[screen] checksum` reaches the core, from both drivers.** The

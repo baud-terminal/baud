@@ -10330,6 +10330,11 @@ fn mpvs_kitty_video_draws_alike_on_every_arm() {
     // Every frame, and the one a cut upload reserves before it comes up
     // short.
     arms!(renderer => arms, t, ImageBudget::of((frames + 1) * s * v + 64));
+    // A status line mpv writes into a chunk is the chunk's payload, every
+    // upload a frame, short or whole: the setting ending an `APC G` only at
+    // `BEL` or `ESC \`. By default it cancels the chunk and prints, which
+    // `baud-core`'s `tests/control_string_end.rs` holds.
+    t.set_control_string_end(baud_domain::ControlStringEnd::Kitty);
     // The glyph map in use before the first frame, whose screen is blank;
     // and the cell arm reading the window's copy, as the app's does on the
     // alternate screen, where mpv draws every frame.
@@ -10467,6 +10472,8 @@ fn under_a_two_frame_quota_mpvs_video_draws_alike_on_every_arm() {
     )
     .unwrap();
     arms!(renderer => arms, t, ImageBudget::of(2 * s * v + 64));
+    // Under the setting, as in `mpvs_kitty_video_draws_alike_on_every_arm`.
+    t.set_control_string_end(baud_domain::ControlStringEnd::Kitty);
     arms.warm(&mut t);
     feed(&mut t, b"\x1bc");
     arms.reads = Reads::Copy;

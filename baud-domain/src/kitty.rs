@@ -961,9 +961,9 @@ pub struct KittyCounts {
     pub ignored: usize,
     /// Uploads abandoned before their last chunk: a PNG loading across
     /// chunks when another stream takes the scratch
-    /// ([`KittyStream::yield_scratch`]), and a chunk still open when another
-    /// `APC G` begins. No byte inside a command leaves it open since it is
-    /// read as kitty reads it, where only `BEL` and `ESC \` end it.
+    /// ([`KittyStream::yield_scratch`]), a chunk the parser cancels
+    /// ([`KittyStream::cancel`]), and a chunk still open when another
+    /// `APC G` begins.
     pub cancelled: usize,
     /// Images stored whole.
     pub images: usize,
@@ -1477,8 +1477,9 @@ impl KittyStream {
 
     /// **An `APC G` began.** A chunk still open was abandoned with no
     /// terminator, and its upload goes with it: half a chunk is not data the
-    /// client sent. Inside a command every byte but its terminator is its
-    /// payload, so none leaves a chunk open. `screen`
+    /// client sent. A chunk the parser cancels is closed then
+    /// ([`KittyStream::cancel`]), so one open here had neither its
+    /// terminator nor a cancel. `screen`
     /// is the live screen, whose images the chunk's command names; a chunk
     /// continuing an upload adds to the image its first chunk named.
     pub fn begin(&mut self, screen: ImageScreen, store: &mut ImageStore, scratch: &mut [u8]) {
@@ -1517,6 +1518,26 @@ impl KittyStream {
             Load::Refused(_) => ChunkMark::Refused,
             Load::RawZ { .. } | Load::PngZ { .. } => ChunkMark::Fixed,
         };
+    }
+
+    /// **The open chunk was cancelled before its terminator**: a bare
+    /// `ESC`, `CAN`, `SUB` or a C1 control inside an `APC G` read by the
+    /// standard's rule ([`ControlStringEnd::Standard`]). The chunk runs
+    /// nothing, and the upload it began or continued goes with it, counted
+    /// cancelled, as a chunk the next `APC G` finds open
+    /// ([`KittyStream::begin`]); the image a retransmission would have
+    /// replaced stays ([`Replaces`]). No chunk open, nothing happens.
+    ///
+    /// [`ControlStringEnd::Standard`]: crate::ControlStringEnd::Standard
+    pub fn cancel(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
+        if self.chunk == Chunk::Closed {
+            return;
+        }
+        self.counts.cancelled += 1;
+        self.abort(store);
+        self.settle(store, scratch);
+        self.b64 = KittyBase64::NEW;
+        self.chunk = Chunk::Closed;
     }
 
     /// **`n` more body bytes, and whether they took the chunk past
