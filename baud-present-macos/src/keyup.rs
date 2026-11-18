@@ -104,6 +104,62 @@ mod tests {
         assert!(!forwards(F::Command, KeyWindow::Other));
     }
 
+    /// **Whether a test that needs the window server can be asked here.**
+    #[derive(Debug, PartialEq, Eq)]
+    enum Asked {
+        Here,
+        Excluded(&'static str),
+    }
+
+    /// **Whether the probe found a login session**, its `session=` line.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Session {
+        Present,
+        Absent,
+    }
+
+    /// What the probe's session means: an app's event queue is the window
+    /// server's, so with no login session a posted event never comes back
+    /// and nothing the probe prints says anything about AppKit.
+    fn asked(session: Session) -> Asked {
+        match session {
+            Session::Present => Asked::Here,
+            Session::Absent => {
+                Asked::Excluded("no login session: an app's event queue is the window server's")
+            }
+        }
+    }
+
+    /// **Says that `test` was not asked, and why**: the line
+    /// `EXCLUDED (<why>): <test>` on stderr, and, where the run names a
+    /// directory for them (`BAUD_EXCLUDED_DIR`), a file named for the test
+    /// holding the reason, which the run's own count reads, so the test
+    /// gives the same answer wherever it runs: asked, or excluded by name.
+    fn exclude(test: &str, why: &str, dir: Option<&std::path::Path>) {
+        eprintln!("EXCLUDED ({why}): {test}");
+        if let Some(dir) = dir {
+            std::fs::create_dir_all(dir).expect("the exclusions directory");
+            std::fs::write(dir.join(test), why).expect("the exclusion");
+        }
+    }
+
+    /// **A run with no login session is excluded, not judged**: the
+    /// probe's `session=0` is an exclusion with its reason, written where
+    /// the run reads exclusions, and `session=1` is a run.
+    #[test]
+    fn a_run_with_no_login_session_is_excluded_not_judged() {
+        assert_eq!(asked(Session::Present), Asked::Here);
+        let Asked::Excluded(why) = asked(Session::Absent) else {
+            panic!("no session is not an exclusion");
+        };
+        assert!(why.contains("no login session"), "{why}");
+        let dir = std::env::temp_dir().join(format!("baud-excluded-{}", std::process::id()));
+        exclude("a::test", why, Some(&dir));
+        let said = std::fs::read_to_string(dir.join("a::test")).expect("the exclusion file");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(said, why);
+    }
+
     /// **Inside a key-up monitor `NSApplication.currentEvent` is that
     /// key-up, with its Caps Lock flag**, which is where the responder
     /// reads Caps Lock for a release (`current_event_flags` in the app).
@@ -111,14 +167,23 @@ mod tests {
     /// with and without the lock to its own queue, dequeues and sends it as
     /// `-[NSApplication run]` does, and prints what its monitor saw. No
     /// window is made and the app may not activate, so nothing is shown.
+    /// An app's event queue is the window server's, so the probe needs the
+    /// login session's: it says whether it has one
+    /// (`CGSessionCopyCurrentDictionary`) and whether each posted key-up
+    /// came back, and a run without one fails on that, not on a value the
+    /// monitor never set.
     /// Perturbation: have the probe's monitor read a key-up made apart
     /// from the dispatched one and `current` reads 0.
     #[test]
     fn a_key_up_a_monitor_is_handed_is_the_current_event() {
         const PROBE: &str = r#"
             #import <AppKit/AppKit.h>
+            #import <CoreGraphics/CoreGraphics.h>
             int main(void) {
                 @autoreleasepool {
+                    CFDictionaryRef session = CGSessionCopyCurrentDictionary();
+                    printf("session=%d\n", session != NULL);
+                    if (session != NULL) CFRelease(session);
                     [NSApplication sharedApplication];
                     [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
                     [NSApp finishLaunching];
@@ -142,9 +207,10 @@ mod tests {
                         NSEvent *got = [NSApp nextEventMatchingMask:NSEventMaskAny
                             untilDate:[NSDate dateWithTimeIntervalSinceNow:2]
                             inMode:NSDefaultRunLoopMode dequeue:YES];
+                        printf("got%d=%d\n", i, got != nil);
                         current = -1;
                         caps = -1;
-                        [NSApp sendEvent:got];
+                        if (got != nil) [NSApp sendEvent:got];
                         printf("current%d=%ld\ncaps%d=%ld\n", i, current, i, caps);
                     }
                     [NSEvent removeMonitor:m];
@@ -158,7 +224,14 @@ mod tests {
         std::fs::write(&src, PROBE).expect("write the probe");
         let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
         let out = std::process::Command::new(&cc)
-            .args(["-fobjc-arc", "-framework", "AppKit", "-o"])
+            .args([
+                "-fobjc-arc",
+                "-framework",
+                "AppKit",
+                "-framework",
+                "CoreGraphics",
+                "-o",
+            ])
             .arg(&bin)
             .arg(&src)
             .output()
@@ -176,7 +249,26 @@ mod tests {
             .filter_map(|l| l.split_once('='))
             .filter_map(|(k, v)| v.parse().ok().map(|n| (k, n)))
             .collect();
-        assert_eq!(said.len(), 4, "the probe's four values: {text}");
+        assert_eq!(said.len(), 7, "the probe's seven values: {text}");
+        let session = match said["session"] {
+            1 => Session::Present,
+            _ => Session::Absent,
+        };
+        if let Asked::Excluded(why) = asked(session) {
+            exclude(
+                "keyup::tests::a_key_up_a_monitor_is_handed_is_the_current_event",
+                why,
+                std::env::var_os("BAUD_EXCLUDED_DIR")
+                    .as_deref()
+                    .map(std::path::Path::new),
+            );
+            return;
+        }
+        assert_eq!(
+            (said["got0"], said["got1"]),
+            (1, 1),
+            "a posted key-up did not come back from the queue"
+        );
         assert_eq!((said["current0"], said["caps0"]), (1, 1), "the lock on");
         assert_eq!((said["current1"], said["caps1"]), (1, 0), "the lock off");
     }
