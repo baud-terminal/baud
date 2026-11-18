@@ -2342,6 +2342,16 @@ fn configured(states: &[u32]) -> (Connection, Server, Window, ObjectId, ObjectId
 /// A session up to its first configure, `before` run on the window as soon
 /// as it is open: the toplevel and its xdg surface, nothing configured.
 fn opened(before: impl FnOnce(&mut Window)) -> (Connection, Server, Window, ObjectId, ObjectId) {
+    let (conn, server, w, top, xdg, _) = opened_with(before, &[]);
+    (conn, server, w, top, xdg)
+}
+
+/// [`opened`], with the globals `extra` offered after the three every
+/// session has, and every request the client sent before its first commit.
+fn opened_with(
+    before: impl FnOnce(&mut Window),
+    extra: &[(&str, u32)],
+) -> (Connection, Server, Window, ObjectId, ObjectId, Vec<Request>) {
     let (c, s) = UnixStream::pair().unwrap();
     let mut conn = Connection::over(c);
     let mut server = Server::new(s);
@@ -2357,21 +2367,18 @@ fn opened(before: impl FnOnce(&mut Window)) -> (Connection, Server, Window, Obje
         .insert(registry, Interface::named("wl_registry").unwrap());
     let r = server.expect("wl_display", "sync");
     let Val::New(sync) = r.args[0] else { panic!() };
-    for (name, iface, version) in [
-        (1u32, "wl_compositor", 6u32),
-        (2, "wl_shm", 2),
-        (3, "xdg_wm_base", 6),
-    ] {
+    let globals = [("wl_compositor", 6u32), ("wl_shm", 2), ("xdg_wm_base", 6)];
+    for (name, (iface, version)) in (1u32..).zip(globals.iter().chain(extra)) {
         server.send(
             registry,
             "wl_registry",
             "global",
-            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(version)],
+            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(*version)],
         );
     }
     server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
     pump(&mut conn, &mut w);
-    let (mut xdg, mut top) = (None, None);
+    let (mut xdg, mut top, mut sent) = (None, None, Vec::new());
     loop {
         let r = server.next();
         match (r.iface, r.name, &r.args[..]) {
@@ -2380,9 +2387,74 @@ fn opened(before: impl FnOnce(&mut Window)) -> (Connection, Server, Window, Obje
             ("wl_surface", "commit", _) => break,
             _ => {}
         }
+        sent.push(r);
     }
     let (xdg, top) = (xdg.expect("xdg surface"), top.expect("toplevel"));
-    (conn, server, w, top, xdg)
+    (conn, server, w, top, xdg, sent)
+}
+
+/// **The window asks for server-side decorations where the compositor
+/// offers them, and follows its answer** (`[[source:
+/// wp-xdg-decoration-unstable-v1]]`): `get_toplevel_decoration` for the
+/// toplevel and `set_mode(server_side)` go before the first commit, so the
+/// first configure carries the mode. The mode the compositor configures,
+/// which "must be obeyed by the client", is the window's once that
+/// configure is acknowledged, whichever it chose, and nothing asks again.
+/// Without the global nothing is sent and the window's decorations are the
+/// client's.
+#[test]
+fn the_window_asks_for_server_side_decorations_and_follows_the_answer() {
+    const CLIENT_SIDE: u32 = 1;
+    const SERVER_SIDE: u32 = 2;
+    let manager = [("zxdg_decoration_manager_v1", 2)];
+    for (answer, want) in [
+        (SERVER_SIDE, Decoration::Server),
+        (CLIENT_SIDE, Decoration::Client),
+    ] {
+        let (mut conn, mut server, mut w, top, xdg, sent) = opened_with(|_| {}, &manager);
+        let deco = sent
+            .iter()
+            .find_map(|r| match (r.iface, r.name, &r.args[..]) {
+                (
+                    "zxdg_decoration_manager_v1",
+                    "get_toplevel_decoration",
+                    [Val::New(id), Val::Obj(t)],
+                ) if *t == top => Some(*id),
+                _ => None,
+            })
+            .expect("a decoration for the toplevel, before the first commit");
+        assert!(
+            sent.iter().any(|r| r.sender == deco
+                && r.name == "set_mode"
+                && matches!(r.args[..], [Val::Uint(SERVER_SIDE)])),
+            "server-side asked for, before the first commit"
+        );
+        assert_eq!(w.decoration(), Decoration::Client, "before a configure");
+        server.send(
+            deco,
+            "zxdg_toplevel_decoration_v1",
+            "configure",
+            &[Arg::Uint(answer)],
+        );
+        configure(&mut server, top, xdg, 640, 480, &[]);
+        pump(&mut conn, &mut w);
+        server.expect("xdg_surface", "ack_configure");
+        assert_eq!(w.decoration(), want, "the compositor's answer, {answer}");
+        // Nothing asks again: the next request is the title.
+        w.set_title(&mut conn.sender(), "after");
+        conn.flush().unwrap();
+        server.expect("xdg_toplevel", "set_title");
+    }
+
+    let (mut conn, mut server, mut w, top, xdg, sent) = opened_with(|_| {}, &[]);
+    assert!(
+        sent.iter().all(|r| !r.iface.starts_with("zxdg_")),
+        "nothing sent without the global"
+    );
+    configure(&mut server, top, xdg, 640, 480, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert_eq!(w.decoration(), Decoration::Client);
 }
 
 /// **A size preferred before the first configure is the window's size when

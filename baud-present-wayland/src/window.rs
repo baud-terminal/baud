@@ -166,6 +166,21 @@ enum Picture {
     Same,
 }
 
+/// **Who draws the window's decorations**, as the compositor last
+/// configured them through `xdg-decoration-unstable-v1`
+/// ([`Window::decoration`]): "The specified mode must be obeyed by the
+/// client" (`[[source: wp-xdg-decoration-unstable-v1]]`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Decoration {
+    /// The client's, as every window's is where the protocol is not
+    /// negotiated: baud draws none, and its title is shown wherever the
+    /// compositor shows titles.
+    #[default]
+    Client,
+    /// The compositor's, whose titlebar carries the window's title.
+    Server,
+}
+
 /// Whether a bell reached the compositor ([`Window::ring_bell`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rung {
@@ -389,6 +404,10 @@ struct Globals {
     system_bell: Option<ObjectId>,
     /// the `xdg-activation-v1` global, where the compositor offers it.
     activation: Option<ObjectId>,
+    /// `xdg-decoration-unstable-v1`'s manager, where the compositor offers
+    /// it, and the version bound: from 2 a decoration may be made for a
+    /// toplevel that has already committed.
+    decoration: Option<(ObjectId, u32)>,
     scaling: Scaling,
     /// Every `wl_output`, bound at version 2 for its `scale` event, which
     /// the window and the pointer's image are drawn at below
@@ -485,6 +504,12 @@ pub struct Window {
     /// acknowledged one did.
     pending_shown: Shown,
     shown: Shown,
+    /// The decoration mode the last decoration configure carried, and the
+    /// one the last acknowledged configure made the window's.
+    pending_decoration: Decoration,
+    decoration: Decoration,
+    /// The toplevel's decoration object, once made ([`Window::decorate`]).
+    decorated: Option<ObjectId>,
     /// `xdg_toplevel.configure_bounds`: "the bounds a window geometry size
     /// is recommended to constrain to", such as "the size of a monitor
     /// excluding any panels"; `None` while unknown.
@@ -621,6 +646,9 @@ impl Window {
             size: None,
             pending_shown: Shown::Floating,
             shown: Shown::Floating,
+            pending_decoration: Decoration::Client,
+            decoration: Decoration::Client,
+            decorated: None,
             bounds: None,
             pool: None,
             owed: RowSet::default(),
@@ -733,9 +761,9 @@ impl Window {
     /// takes effect when the compositor receives it: the pinned xdg-shell
     /// does not double-buffer the title, where it says so of the state it
     /// does. The driver's loop flushes it at the end of the iteration that
-    /// set it. Where it is shown is the compositor's: a titlebar only under
-    /// server-side decorations, which baud does not negotiate, else a task
-    /// bar or window list.
+    /// set it. Where it is shown is the compositor's: its titlebar under
+    /// server-side decorations, which the window asks for
+    /// ([`Window::decoration`]), else a task bar or window list.
     pub fn set_title(&mut self, s: &mut Sender<'_>, title: &str) {
         self.title = title.to_string();
         if let Some(top) = self.toplevel {
@@ -1092,6 +1120,12 @@ impl Window {
         self.shown
     }
 
+    /// Who draws the window's decorations, as the last acknowledged
+    /// configure left them.
+    pub fn decoration(&self) -> Decoration {
+        self.decoration
+    }
+
     /// The compositor's recommended bound on the window's size, the
     /// monitor's less its panels, once it has sent one.
     pub fn bounds(&self) -> Option<(Px, Px)> {
@@ -1373,6 +1407,8 @@ impl Window {
             Opcode(protocol::xdg_toplevel::request::SET_APP_ID),
             &[Arg::Str(Some(&self.app_id))],
         );
+        self.toplevel = Some(top);
+        self.decorate(s);
         // The pacing objects whose globals are already bound are made
         // before the first commit, so every content update can carry them;
         // a global bound later, and the tearing control, get theirs when
@@ -1381,7 +1417,42 @@ impl Window {
         self.surface_objects(s);
         let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
         self.xdg_surface = Some(xdg);
-        self.toplevel = Some(top);
+    }
+
+    /// **Server-side decorations asked for**, once the decoration manager
+    /// and the toplevel both exist, whichever came second: the compositor's
+    /// titlebar carries the window's title. Made before the first commit
+    /// where the manager is already bound, so the first configure carries
+    /// the mode. After it only from version 2, which allows a decoration
+    /// for a toplevel "which has a buffer attached or committed"; at
+    /// version 1 that "is a client error", and the window stays the
+    /// client's. One `set_mode`, never repeated: clients "must make sure
+    /// not to send multiple successive set_mode requests with the same
+    /// decoration mode", and whatever mode the compositor configures is
+    /// the window's (`[[source: wp-xdg-decoration-unstable-v1]]`).
+    fn decorate(&mut self, s: &mut Sender<'_>) {
+        let (Some((manager, version)), Some(top), None) =
+            (self.globals.decoration, self.toplevel, self.decorated)
+        else {
+            return;
+        };
+        if self.surface.is_some() && version < 2 {
+            return;
+        }
+        let id = s.new_id(Interface::named("zxdg_toplevel_decoration_v1").expect("pinned"));
+        let _ = s.request(
+            manager,
+            Opcode(protocol::zxdg_decoration_manager_v1::request::GET_TOPLEVEL_DECORATION),
+            &[Arg::NewId(id), Arg::Object(top)],
+        );
+        let _ = s.request(
+            id,
+            Opcode(protocol::zxdg_toplevel_decoration_v1::request::SET_MODE),
+            &[Arg::Uint(
+                protocol::zxdg_toplevel_decoration_v1::mode::SERVER_SIDE,
+            )],
+        );
+        self.decorated = Some(id);
     }
 
     /// **The surface's pacing and scale objects**, each once both its
@@ -2223,6 +2294,13 @@ impl Handler for Window {
                         self.globals.activation =
                             Window::bind(s, self.registry, name, iface, version.min(1));
                     }
+                    "zxdg_decoration_manager_v1" => {
+                        let version = version.min(2);
+                        self.globals.decoration =
+                            Window::bind(s, self.registry, name, iface, version)
+                                .map(|id| (id, version));
+                        self.decorate(s);
+                    }
                     // An output's scale, which a compositor older than
                     // version 6 leaves the pointer's image to: `wl_output`
                     // has `scale` from version 2.
@@ -2380,6 +2458,14 @@ impl Handler for Window {
                 };
             }
             ("xdg_toplevel", "close", _) => self.events.push_back(Event::Closed),
+            // Applied with the xdg_surface configure that follows it: "The
+            // configured state should not be applied immediately."
+            ("zxdg_toplevel_decoration_v1", "configure", [Read::Uint(mode)]) => {
+                self.pending_decoration = match *mode {
+                    protocol::zxdg_toplevel_decoration_v1::mode::SERVER_SIDE => Decoration::Server,
+                    _ => Decoration::Client,
+                };
+            }
             ("xdg_surface", "configure", [Read::Uint(serial)]) => {
                 let _ = s.request(
                     ev.object,
@@ -2387,6 +2473,7 @@ impl Handler for Window {
                     &[Arg::Uint(*serial)],
                 );
                 self.shown = self.pending_shown;
+                self.decoration = self.pending_decoration;
                 self.size = Some(self.pending);
                 self.announce();
             }
