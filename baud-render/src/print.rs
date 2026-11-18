@@ -426,6 +426,9 @@ struct Head {
     unit: f64,
     /// What is left of the job's picture budget.
     budget: PictureBudget,
+    /// The column of the strike made last on this line, which a mark
+    /// joins; none once the head leaves the line.
+    last: Option<Columns>,
 }
 
 impl Head {
@@ -441,18 +444,21 @@ impl Head {
     }
 
     fn put(&mut self, c: char) {
-        let (line, col, look) = (self.line.0, self.col.0, self.look);
+        let (line, col, look, last) = (self.line.0, self.col.0, self.look, self.last);
         let lines = self.lines();
         let cells = &mut lines[line].cells;
         let w = Width::of(Codepoint::from_char(c), AmbiguousWidth::Narrow).cells();
         if w == 0 {
-            // A mark joins the character struck last before it.
+            // A mark joins the character struck last, wherever the head
+            // went after it -- after `BS` that is the one under the head --
+            // and with none on this line, the last struck before the head.
+            let struck = |i: &usize| cells.get(*i).is_some_and(|c| !c.strikes.is_empty());
             let before = col.min(cells.len());
-            if let Some(prev) = cells[..before]
-                .iter_mut()
-                .rev()
-                .find_map(|c| c.strikes.last_mut())
-            {
+            let at = last
+                .map(|at| at.0)
+                .filter(struck)
+                .or_else(|| cells[..before].iter().rposition(|c| !c.strikes.is_empty()));
+            if let Some(prev) = at.and_then(|i| cells[i].strikes.last_mut()) {
                 prev.text.push(c);
             }
             return;
@@ -464,11 +470,15 @@ impl Head {
             text: c.into(),
             look,
         };
-        if strike.inks() {
+        let inks = strike.inks();
+        if inks {
             cells[col].strikes.push(strike);
         }
         if w == 2 {
             cells[col + 1].half = Half::Tail;
+        }
+        if inks {
+            self.last = Some(Columns(col));
         }
         self.col.0 += w;
     }
@@ -478,8 +488,12 @@ impl Head {
             '\r' => self.col = Columns(0),
             // The line is made when something is printed on it or its size
             // is set, so a job's last `LF` leaves no empty line behind it.
-            '\n' | '\u{b}' => self.line.0 += 1,
+            '\n' | '\u{b}' => {
+                self.line.0 += 1;
+                self.last = None;
+            }
             '\u{c}' => {
+                self.last = None;
                 self.forms.push(Vec::new());
                 self.line = Lines(0);
             }
@@ -577,6 +591,7 @@ impl Head {
             column,
         });
         self.line = Lines(at + 1);
+        self.last = None;
         self.col = Columns(0);
     }
 
@@ -647,6 +662,7 @@ pub fn read(job: &[u8], budget: PictureBudget) -> (Vec<Vec<Line>>, Stripped) {
         stripped: Stripped::default(),
         unit: 0.1,
         budget,
+        last: None,
     };
     let mut state = State::Ground;
     let mut params = String::new();
@@ -1002,6 +1018,28 @@ mod tests {
         assert_eq!(at(100).size, 8.0);
         assert_eq!(at(1000).size, 4.0);
         assert_eq!(widest(&read(b"ab\r\n\x1b#6abc").0), Columns(6));
+    }
+
+    /// **A mark sent after `BS` joins the character the head came back
+    /// over**, the one struck last, as `[[source: ecma48]]` A.2's "= BS /"
+    /// composes: `e`, `BS` and U+0301 is the `e` accented, not the
+    /// character before it -- here the `r` two columns left, past a blank.
+    /// A line feed leaves the strike before it behind: a mark on the new
+    /// line joins what is struck there.
+    #[test]
+    fn a_mark_after_bs_joins_the_character_under_the_head() {
+        let (forms, _) = read("under e\u{8}\u{301}".as_bytes());
+        let text = |i: usize| forms[0][0].cells[i].strikes[0].text.clone();
+        assert_eq!(text(4), "r", "the r keeps no mark");
+        assert_eq!(text(6), "e\u{301}");
+        let (forms, _) = read("ab\u{8}\u{8}\u{301}".as_bytes());
+        assert_eq!(
+            forms[0][0].cells[1].strikes[0].text, "b\u{301}",
+            "the last struck"
+        );
+        let (forms, _) = read("x\ny\u{8}\u{301}".as_bytes());
+        assert_eq!(forms[0][1].cells[1].strikes[0].text, "y\u{301}");
+        assert_eq!(forms[0][0].cells[0].strikes[0].text, "x");
     }
 
     /// **A character the head comes back over is struck over**: `BS` and
