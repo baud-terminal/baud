@@ -44,6 +44,41 @@ pub(crate) struct WindowGen(u64);
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct SlotIx(usize);
 
+/// **How a draw row's cells index the resolved table**: taken once a row
+/// ([`BandWindow::row_read`]), so each of its cells resolves as one load.
+/// A row of a terminal of one band reads the whole table ([`WholeTable`]),
+/// and a row of a window that placed bands reads from its base
+/// ([`RowBase`]); a reader generic over the two is compiled once for
+/// each, and the one-band path adds nothing to an id.
+pub(crate) trait RowRead: Copy {
+    /// Id `id`'s entry in the resolved table `all`, if it holds one.
+    fn entry<T>(self, all: &[T], id: StyleId) -> Option<&T>;
+}
+
+/// **The whole resolved table, every id at its own index**: how every row
+/// of a terminal of one band reads it, where no band is placed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) struct WholeTable;
+
+impl RowRead for WholeTable {
+    #[inline(always)]
+    fn entry<T>(self, all: &[T], id: StyleId) -> Option<&T> {
+        all.get(id.index())
+    }
+}
+
+/// **Where a draw row's entries start in the resolved table**
+/// ([`BandWindow::base`]): its base, 0 past the rows placed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) struct RowBase(usize);
+
+impl RowRead for RowBase {
+    #[inline(always)]
+    fn entry<T>(self, all: &[T], id: StyleId) -> Option<&T> {
+        all.get(self.0 + id.index())
+    }
+}
+
 /// **The entries a buffer set's resolved table is allocated with**
 /// ([`cell_styles_len`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -414,8 +449,25 @@ impl BandWindow {
 
     /// Draw row `r`'s entries on from its base: from 0 past the rows placed.
     fn rows_from(&self, r: Row) -> core::ops::RangeFrom<usize> {
+        self.base(r).0..
+    }
+
+    /// **Draw row `r`'s base**, 0 past the rows placed and on a terminal
+    /// of one band, which places none.
+    pub(crate) fn base(&self, r: Row) -> RowBase {
         let b = self.bases.get(r.index()).copied().unwrap_or(0);
-        usize::try_from(b).unwrap_or(0)..
+        RowBase(usize::try_from(b).unwrap_or(0))
+    }
+
+    /// **How draw row `r` reads the resolved table**: from its base where
+    /// the window placed bands, and `None`, the whole table
+    /// ([`WholeTable`]), where it placed none, which is every frame of a
+    /// terminal of one band.
+    pub(crate) fn row_read(&self, r: Row) -> Option<RowBase> {
+        match self.bases.is_empty() {
+            true => None,
+            false => Some(self.base(r)),
+        }
     }
 
     /// **The loose region**: where in the resolved table the joined lines'

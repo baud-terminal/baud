@@ -2,6 +2,7 @@
 
 use crate::atlas::{Atlas, AtlasStats, Code, Flip, Kind, Rescaled, SizeKey, Stretch, Tex};
 use crate::badge::{self, BadgeLook};
+use crate::band_window::{RowBase, RowRead, WholeTable};
 use crate::cache::{
     CacheStats, CellIx, ClusterMemo, Cover, Key, PLACED_MAX, Placed, Question, RUN_CELLS, RunCache,
     Shaped,
@@ -5307,13 +5308,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// is a second read of a few codepoints a marked cell may pay -- onto
     /// the stack, a base and the most the cluster store holds
     /// (`ClusterSlot::CAPACITY`), so the read allocates nothing.
-    fn face_of_cell(
+    fn face_of_cell<R: RowRead>(
         &mut self,
         (term, words): (&Term<'_>, Words<'_>),
-        (r, cell): (Row, PackedCell),
+        (at, cell): (R, PackedCell),
         base: Codepoint,
     ) -> FaceIx {
-        let style = self.face_style(r, cell);
+        let style = self.face_style(at, cell);
         self.face_of_cell_in((term, words), cell, base, style)
     }
 
@@ -13301,7 +13302,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let Some(&first) = row.get(s.at.index()) else {
             return;
         };
-        let style = self.face_style(r, first);
+        let style = self.face_style(self.row_base(r), first);
         let st = Stretch::of(self.size_of(r));
         let g = self.syllable(&cps, style, s.cells, st);
         self.emit_glyphs(r, s.at, &g, out);
@@ -14253,9 +14254,27 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// The face style and font a cell's text is drawn from, from its
-    /// resolved slot.
-    fn face_style(&self, r: Row, cell: PackedCell) -> TextFace {
-        crate::cellmap::face_of(self.styles_at(r), cell)
+    /// resolved slot, read as its row reads the table (`at`,
+    /// [`crate::band_window::RowRead`]).
+    fn face_style<R: RowRead>(&self, at: R, cell: PackedCell) -> TextFace {
+        at.entry(&self.styles, cell.style)
+            .map_or(TextFace::default(), |s| s.shapes.text_face())
+    }
+
+    /// **Cell `cell`'s resolved rendition**, read as its row reads the
+    /// table (`at`, [`crate::band_window::RowRead`]): the default where
+    /// the table holds none.
+    fn resolved_at<R: RowRead>(&self, at: R, cell: PackedCell) -> Resolved {
+        at.entry(&self.styles, cell.style)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// **Where row `r` of the frame reads the resolved table from**
+    /// ([`crate::band_window::BandWindow::base`]): taken once a row, so a
+    /// cell of it resolves as one load; 0 on a terminal of one band.
+    fn row_base(&self, r: Row) -> RowBase {
+        self.window.base(r)
     }
 
     /// **The resolved table as row `r` of the frame reads it**: from its
@@ -14640,6 +14659,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// Resolves one row's colours and glyphs.
     fn convert_row(&mut self, term: &Term<'_>, r: Row, cursor: Cursor, exc: &mut Exceptions) {
+        match self.window.row_read(r) {
+            None => self.convert_row_in(term, (r, WholeTable), cursor, exc),
+            Some(b) => self.convert_row_in(term, (r, b), cursor, exc),
+        }
+    }
+
+    /// [`Renderer::convert_row`] for row `r`, whose cells read the resolved
+    /// table as `base` says.
+    fn convert_row_in<R: RowRead>(
+        &mut self,
+        term: &Term<'_>,
+        (r, base): (Row, R),
+        cursor: Cursor,
+        exc: &mut Exceptions,
+    ) {
         let range = self.row_cells(r);
         crate::counters::add(
             Counter::CellsConverted,
@@ -14825,11 +14859,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         for (c, cell) in row.iter().enumerate().take(chars) {
             let col = Col::at_index(c);
             // One load from the resolved table, which `sync_styles` keeps.
-            let res = self
-                .styles_at(r)
-                .get(cell.style.index())
-                .copied()
-                .unwrap_or_default();
+            let res = self.resolved_at(base, *cell);
             blinks = blinks.with(Blinking::of(res.shapes));
             // A wide tail follows its lead, so a block's edge never cuts a
             // character in two: `Highlight::selects`.
@@ -15137,6 +15167,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // The words of the frame's lent slots (`crate::frozen`), held so the
         // runs may borrow the renderer mutably while they read them.
         let held = self.cpu_lent.held();
+        // The row's base into the resolved table, once for all its cells.
+        let row_from = self.row_base(r);
         let seam = |v: usize| seams.get(v).copied().unwrap_or(false);
         let joined = |v: usize| match LAID {
             true => joins.get(v).copied().flatten(),
@@ -15260,7 +15292,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 c += 1;
                 continue;
             }
-            let style = self.face_style(r, row[c]);
+            let style = self.face_style(row_from, row[c]);
             let lean = match slanted(c) {
                 true => self.lean(style),
                 false => None,
@@ -15338,7 +15370,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                                 || syl.at(Col::at_index(c)).is_some()
                                 || word_starts(c)))
                         || crate::boxes::covers(cp)
-                        || self.face_of_cell((term, held.words()), (r, cell), cp) != face
+                        || self.face_of_cell((term, held.words()), (row_from, cell), cp) != face
                         || (varies == Varies::Yes
                             && self.script_at(face, Col::at_index(c)).1 != selection))
                 {
@@ -15779,6 +15811,24 @@ impl<'f, 'a> Renderer<'f, 'a> {
         shaped: &Shaped,
         exc: &mut Exceptions,
     ) {
+        match self.window.row_read(r) {
+            None => self.count_differs_in(term, (r, WholeTable), start, clusters, shaped, exc),
+            Some(b) => self.count_differs_in(term, (r, b), start, clusters, shaped, exc),
+        }
+    }
+
+    /// [`Renderer::count_differs`] for row `r`, whose cells read the
+    /// resolved table as `base` says.
+    #[cfg(feature = "exceptions")]
+    fn count_differs_in<R: RowRead>(
+        &mut self,
+        term: &Term<'_>,
+        (r, base): (Row, R),
+        start: Col,
+        clusters: Clusters<'_>,
+        shaped: &Shaped,
+        exc: &mut Exceptions,
+    ) {
         let range = self.row_cells(r);
         for (_, at) in clusters.iter() {
             let col = start.index() + usize::from(at.0);
@@ -15788,7 +15838,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let Some(cp) = drawn_base(term, cell) else {
                 continue;
             };
-            let style = self.face_style(r, cell);
+            let style = self.face_style(base, cell);
             // The single-codepoint answer depends on the style, so the memo
             // keys on both; a codepoint is 21 bits and the style sits above.
             let memo = crate::cellmap::CellKey::of(cp, style, CellSpan::One).0;
@@ -16137,7 +16187,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             PairPart::Lam(n, e) | PairPart::Alef(n, e) => (n, e),
             PairPart::LamWrapped(alef) => {
                 let lam = row[c];
-                let style = self.face_style(r, lam);
+                let style = self.face_style(self.row_base(r), lam);
                 if !self.wrapped_ligates(term, (lam, alef), kind, style, st) {
                     return false;
                 }
@@ -16169,7 +16219,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 return true;
             }
             PairPart::AlefWrapped(lam) => {
-                let style = self.face_style(r, lam);
+                let style = self.face_style(self.row_base(r), lam);
                 return self.wrapped_ligates(term, (lam, row[c]), kind, style, st);
             }
         };
@@ -16199,7 +16249,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let held = self.cpu_lent.held();
         let lam_cps = cell_cps(term, held.words(), lam_cell);
         let alef_cps = cell_cps(term, held.words(), alef_cell);
-        let style = self.face_style(r, lam_cell);
+        let style = self.face_style(self.row_base(r), lam_cell);
         let lean = self.slant_at(r, Col::at_index(lam_c), style);
         let style = lean.map_or(style, |_| style.upright());
         let lam_at = match lam_c > alef_c {
