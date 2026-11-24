@@ -2017,12 +2017,6 @@ impl<'b> Storage<'b> {
         self
     }
 
-    /// **Lend the status line its row**: at least the pitch of cells and one
-    /// extent, or an empty row to decline it. A storage without one shows no
-    /// status line, and DECSSDT 1 and 2 are counted (`status.rs`).
-    ///
-    /// # Panics
-    /// If `row` is shorter than the pitch or has no extent, and is not empty.
     /// **The live tables `surface`'s rows resolve through**: its bands'
     /// tables, or the single mode's one.
     pub(crate) fn live_bands(&self, surface: crate::bands::Surface) -> baud_domain::LiveBands<'_> {
@@ -2055,6 +2049,12 @@ impl<'b> Storage<'b> {
         self
     }
 
+    /// **Lend the status line its row**: at least the pitch of cells and one
+    /// extent, or an empty row to decline it. A storage without one shows no
+    /// status line, and DECSSDT 1 and 2 are counted (`status.rs`).
+    ///
+    /// # Panics
+    /// If `row` is shorter than the pitch or has no extent, and is not empty.
     pub fn with_status_line(mut self, row: crate::status::StatusBuf<'b>) -> Storage<'b> {
         // **The row's one move into the store**, its only use: from here on
         // the status line is the store's third surface and written only
