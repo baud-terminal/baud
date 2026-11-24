@@ -2088,7 +2088,7 @@ fn the_folder_is_reported_and_read_against(sh: Sh) {
         let _ = p.observe(&s.term, at);
         let (mut l, mut u) = (Lines::default(), Uris::default());
         p.begin_collect();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &s.term,
             at,
             &mut Links {
@@ -2109,7 +2109,7 @@ fn the_folder_is_reported_and_read_against(sh: Sh) {
         if p.merge(answers) == Moved::Yes {
             l.forget();
         }
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &s.term,
             at,
             &mut Links {

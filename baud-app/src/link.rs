@@ -80,6 +80,7 @@
 
 use baud_core::{Focus, LINK_MAX, PointerShape, Term};
 
+use crate::lined::Fresh;
 #[cfg(test)]
 pub use crate::paths::NoPaths;
 pub use crate::paths::{Gone, PathsAt};
@@ -88,7 +89,7 @@ use baud_render::MessagePlace;
 
 use baud_domain::{
     AdmittedUri, Attrs, ClusterEpoch, Codepoint, Col, Cols, DirectoryReport, FileHost, FileUri,
-    LineRendition, LinkEpoch, LinkId, PackedCell, Row, Rows, Wrap,
+    LineRendition, LinkEpoch, LinkId, PackedCell, Row, Rows, WalkSteps, Wrap,
 };
 use baud_render::{
     AbsLine, Field, Hints, HoverPaint, LinkHover, LinkLook, LinkSpan, Point, Scrolled, row_of,
@@ -1722,12 +1723,25 @@ impl Osc8 {
     }
 
     /// **The rows of its view holding its slot**, top first: every cell its
-    /// look draws is on one ([`crate::lined::SlotRows`]).
-    pub fn view_rows(&self, term: &Term<'_>) -> Vec<AbsLine> {
+    /// look draws is on one. Read from `views` while they are of its view,
+    /// with no cell read; else from the view's cells
+    /// ([`crate::lined::SlotRows`]), each cell counted in `read`.
+    pub fn view_rows(
+        &self,
+        term: &Term<'_>,
+        views: Option<&Fresh<'_>>,
+        read: &mut WalkSteps,
+    ) -> Vec<AbsLine> {
         let (scrolled, back) = self.view;
-        crate::lined::SlotRows::of(term, scrolled, back, Some(self.id))
-            .rows(self.id)
-            .to_vec()
+        match views.filter(|f| f.shows(scrolled, back)) {
+            Some(f) => self
+                .id
+                .slot()
+                .map_or_else(Vec::new, |s| f.rows_of(s).collect()),
+            None => crate::lined::SlotRows::of(term, scrolled, back, Some(self.id), read)
+                .rows(self.id)
+                .to_vec(),
+        }
     }
 
     /// Its target, while no sweep has freed a slot since it was read.
@@ -2511,13 +2525,23 @@ pub fn tip_at(spans: &[LinkSpan], width: Cols, cols: Cols, rows: Rows) -> Option
 /// [`preview_with`], so only tests call it.
 #[cfg(test)]
 pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: &MachineNames) -> Option<LinkLook> {
-    preview_with(term, spot, link, host, &NoPaths, MessagePlace::default())
+    preview_with(
+        term,
+        spot,
+        link,
+        host,
+        &NoPaths,
+        MessagePlace::default(),
+        None,
+    )
 }
 
 /// [`preview`], with what `paths` found gone said as the reason, and the
 /// link admitted with the rules `paths` holds, the address shown where
 /// `place` says: **every rule's link shows its address in the same box**,
 /// which no rule turns off, since it is the check on where a click goes.
+/// The rows holding an `OSC 8` link's slot are read from `views` while
+/// they are of `spot`'s view.
 pub fn preview_with(
     term: &Term<'_>,
     spot: Spot,
@@ -2525,10 +2549,11 @@ pub fn preview_with(
     host: &MachineNames,
     paths: &dyn PathsAt,
     place: MessagePlace,
+    views: Option<&Fresh<'_>>,
 ) -> Option<LinkLook> {
     let view = term.view(spot.back);
     let (rows, cols) = (view.rows().index(), view.cols().index());
-    let printed = paths.printed(term, link);
+    let printed = paths.printed_in(term, link, views);
     let text = preview_text_with(
         link,
         term,
@@ -2815,11 +2840,13 @@ impl Hover {
         focus: Focus,
         host: &MachineNames,
     ) -> bool {
-        self.update_with(term, at, scrolled, chord, focus, host, &NoPaths)
+        self.update_with(term, at, scrolled, chord, focus, host, &NoPaths, None)
     }
 
     /// [`Hover::update`], with the printed paths `paths` has answers for
-    /// read as links: read again when their answers move, with no byte.
+    /// read as links: read again when their answers move, with no byte. The
+    /// rows holding an `OSC 8` link's slot are read from `views` while
+    /// they are of the view read, with no cell read.
     #[allow(clippy::too_many_arguments)]
     pub fn update_with(
         &mut self,
@@ -2830,6 +2857,7 @@ impl Hover {
         focus: Focus,
         host: &MachineNames,
         paths: &dyn PathsAt,
+        views: Option<&Fresh<'_>>,
     ) -> bool {
         self.at = at;
         let inputs = (at, scrolled, chord, focus);
@@ -2886,7 +2914,7 @@ impl Hover {
                 if matches!(link, Under::Osc8(_)) {
                     text = Text::Slot;
                 }
-                let printed = paths.printed(term, &link);
+                let printed = paths.printed_in(term, &link, views);
                 let opens = matches!(
                     verdict(&link, term, host, paths, printed),
                     Some((_, Ok(())))
@@ -2914,7 +2942,7 @@ impl Hover {
                         }
                     });
                 let look = match previewing {
-                    true => preview_with(term, s, &link, host, paths, place),
+                    true => preview_with(term, s, &link, host, paths, place, views),
                     false => None,
                 };
                 let opens = match (look.is_some(), opens) {
@@ -3022,10 +3050,12 @@ impl Hover {
         focus: Focus,
         host: &MachineNames,
     ) -> bool {
-        self.refresh_with(term, scrolled, chord, focus, host, &NoPaths)
+        self.refresh_with(term, scrolled, chord, focus, host, &NoPaths, None)
     }
 
-    /// [`Hover::refresh`], with `paths`' printed paths read as links.
+    /// [`Hover::refresh`], with `paths`' printed paths read as links, and
+    /// `views` as [`Hover::update_with`] reads them.
+    #[allow(clippy::too_many_arguments)]
     pub fn refresh_with(
         &mut self,
         term: &Term<'_>,
@@ -3034,9 +3064,12 @@ impl Hover {
         focus: Focus,
         host: &MachineNames,
         paths: &dyn PathsAt,
+        views: Option<&Fresh<'_>>,
     ) -> bool {
         match self.at {
-            Some(at) => self.update_with(term, Some(at), scrolled, chord, focus, host, paths),
+            Some(at) => {
+                self.update_with(term, Some(at), scrolled, chord, focus, host, paths, views)
+            }
             None => false,
         }
     }
@@ -5591,7 +5624,16 @@ mod tests {
         )]));
         let mut h = Hover::default();
         let at = Some((Row::ZERO, Col::at_index(8)));
-        h.update_with(&t, at, Scrolled::START, Chord::Cmd, Focus::Gained, NONE, &r);
+        h.update_with(
+            &t,
+            at,
+            Scrolled::START,
+            Chord::Cmd,
+            Focus::Gained,
+            NONE,
+            &r,
+            None,
+        );
         let look = h.look().expect("a look under the modifier");
         assert!(
             bar_string(look).contains("tel:+15551234"),
@@ -5614,6 +5656,7 @@ mod tests {
             Focus::Gained,
             NONE,
             &NoPaths,
+            None,
         );
         assert_eq!(h.look(), None);
     }

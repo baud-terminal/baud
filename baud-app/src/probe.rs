@@ -2518,6 +2518,8 @@ pub struct Probes<T> {
     /// What the rows drew before a batch's scan, kept between batches so
     /// the compare that decides its frame allocates nothing once grown.
     before: Before,
+    /// The view's link slots as a batch's scan last read them.
+    views: crate::lined::ViewLinks,
     pub counts: Counts,
     /// **The text of every path a batch asked about**, in order, for the
     /// frame rig under the probe only: [`Counts::asked`] says how many, and
@@ -2604,6 +2606,7 @@ impl<T: Moment> Probes<T> {
             programs: Vec::new(),
             programs_owed: Owed::No,
             before: Before::default(),
+            views: crate::lined::ViewLinks::default(),
             counts: Counts::default(),
             #[cfg(feature = "effect-probe")]
             asked_texts: Vec::new(),
@@ -4022,9 +4025,11 @@ impl<T: Moment> Probes<T> {
         // draws nothing.
         self.before.keep(s.lines);
         s.lines.forget();
+        let fresh = self.views.sync(s.term, s.scrolled);
         let _ = s.lines.scan(
             s.term,
             s.scrolled,
+            &fresh,
             &mut Links {
                 uris: &mut *s.uris,
                 urls: s.urls,
@@ -5680,7 +5685,7 @@ mod tests {
                     paths: &mut Paths,
                     lines: &mut Lines,
                     uris: &mut Uris| {
-            let _ = lines.scan(
+            let _ = lines.scan_alone(
                 &t,
                 s,
                 &mut Links {
@@ -5852,7 +5857,7 @@ mod tests {
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
         let t0 = Instant::now();
         assert_eq!(pr.deadline(&paths, t0), None, "nothing owed");
-        let _ = lines.scan(
+        let _ = lines.scan_alone(
             &t,
             Scrolled::START,
             &mut Links {
@@ -5914,7 +5919,7 @@ mod tests {
                     paths: &mut Paths,
                     lines: &mut Lines,
                     uris: &mut Uris| {
-            let _ = lines.scan(
+            let _ = lines.scan_alone(
                 &t,
                 s,
                 &mut Links {
@@ -5971,7 +5976,7 @@ mod tests {
         }
         assert_eq!(asked.lock().unwrap()[3..], fixed, "owed: asked once more");
         lines.forget();
-        let _ = lines.scan(
+        let _ = lines.scan_alone(
             &t,
             s,
             &mut Links {
@@ -6054,7 +6059,7 @@ mod tests {
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
         let t0 = Instant::now();
         for k in 0..5u64 {
-            let _ = lines.scan(
+            let _ = lines.scan_alone(
                 &t,
                 Scrolled::START,
                 &mut Links {
@@ -6104,7 +6109,7 @@ mod tests {
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
         let t0 = Instant::now();
         for k in 0..5u64 {
-            let _ = lines.scan(
+            let _ = lines.scan_alone(
                 &t,
                 Scrolled::START,
                 &mut Links {
@@ -6161,7 +6166,7 @@ mod tests {
             pr.read_taken(&mut paths, Writers::at(Some(at_read)), span, Linked::No);
             let t0 = Instant::now();
             let mut turn = |pr: &mut Probes<Instant>, now: Instant| {
-                let _ = lines.scan(
+                let _ = lines.scan_alone(
                     &t,
                     s,
                     &mut Links {
@@ -6186,7 +6191,7 @@ mod tests {
             while turn(&mut pr, t0 + Duration::from_millis(300)).frame != Owed::Yes {
                 std::thread::yield_now();
             }
-            let _ = lines.scan(
+            let _ = lines.scan_alone(
                 &t,
                 s,
                 &mut Links {
@@ -6221,7 +6226,7 @@ mod tests {
         let s = Scrolled::START;
         let t0 = Instant::now();
         assert_eq!(pr.deadline(&paths, t0), None, "nothing owed");
-        let _ = lines.scan(
+        let _ = lines.scan_alone(
             &t,
             s,
             &mut Links {
@@ -6298,7 +6303,7 @@ mod tests {
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
         let s = Scrolled::START;
         let t0 = Instant::now();
-        let _ = lines.scan(
+        let _ = lines.scan_alone(
             &t,
             s,
             &mut Links {
@@ -6352,7 +6357,7 @@ mod tests {
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
         let s = Scrolled::START;
         let t0 = Instant::now();
-        let _ = lines.scan(
+        let _ = lines.scan_alone(
             &t,
             s,
             &mut Links {
@@ -6401,7 +6406,7 @@ mod tests {
             std::thread::yield_now();
         };
         assert_eq!(r.frame, Owed::Yes);
-        let scan = lines.scan(
+        let scan = lines.scan_alone(
             &t,
             s,
             &mut Links {
@@ -6598,7 +6603,7 @@ mod tests {
             };
             let _ = pr.turn(now, seen, || Some(batch(step)));
             let _ = paths.observe(&t, s);
-            let _ = lines.scan(
+            let _ = lines.scan_alone(
                 &t,
                 s,
                 &mut Links {
@@ -6631,7 +6636,7 @@ mod tests {
             };
             let _ = pr.answers(&mut seen);
             let _ = paths.observe(&t, s);
-            let _ = lines.scan(
+            let _ = lines.scan_alone(
                 &t,
                 s,
                 &mut Links {
@@ -7094,7 +7099,7 @@ mod tests {
             pr.read_taken(&mut paths, later, LineSpan::of(row(2), row(2)), Linked::No);
             let t0 = Instant::now();
             let mut turn = |pr: &mut Probes<Instant>, now: Instant| {
-                let _ = lines.scan(
+                let _ = lines.scan_alone(
                     &t,
                     s,
                     &mut Links {
@@ -7118,7 +7123,7 @@ mod tests {
             while turn(&mut pr, t0 + Duration::from_millis(300)).frame != Owed::Yes {
                 std::thread::yield_now();
             }
-            let _ = lines.scan(
+            let _ = lines.scan_alone(
                 &t,
                 s,
                 &mut Links {
@@ -7718,7 +7723,7 @@ mod tests {
                 for _ in 0..20 {
                     p.begin_collect();
                     l.forget();
-                    let _ = l.scan(
+                    let _ = l.scan_alone(
                         &t,
                         scrolled,
                         &mut Links {
@@ -7970,7 +7975,7 @@ mod tests {
     ) {
         for _ in 0..4 {
             now += Duration::from_secs(1);
-            let _ = lines.scan(
+            let _ = lines.scan_alone(
                 t,
                 s,
                 &mut Links {
@@ -8028,7 +8033,7 @@ mod tests {
         // it comes, with nothing sent meanwhile.
         took_out(pr, (t, s), (&mut *lines, &mut *uris, &mut *paths));
         let mut turn = |pr: &mut Probes<Instant>, now: Instant| {
-            let _ = lines.scan(
+            let _ = lines.scan_alone(
                 t,
                 s,
                 &mut Links {
@@ -8244,7 +8249,7 @@ mod tests {
             }
             if drain[n - 1].then == Then::Took {
                 took_out(&mut pr, (&t, s), (&mut lines, &mut uris, &mut paths));
-                let _ = lines.scan(
+                let _ = lines.scan_alone(
                     &t,
                     s,
                     &mut Links {
@@ -8289,7 +8294,7 @@ mod tests {
             );
             lines.forget();
         }
-        let _ = lines.scan(
+        let _ = lines.scan_alone(
             &t,
             s,
             &mut Links {
@@ -10619,7 +10624,7 @@ mod tests {
         let s = Scrolled::START;
         let mut sent = Owed::No;
         loop {
-            let _ = lines.scan(
+            let _ = lines.scan_alone(
                 t,
                 s,
                 &mut Links {
@@ -10765,7 +10770,7 @@ mod tests {
             }
             assert!(k < 100, "no batch within a second of the last key");
         }
-        let _ = lines.scan(
+        let _ = lines.scan_alone(
             &t,
             Scrolled::START,
             &mut Links {
@@ -14494,7 +14499,7 @@ mod tests {
                             urls: Turned::On,
                             paths: &mut paths,
                         };
-                        let _ = lines.scan(&t, s, &mut links);
+                        let _ = lines.scan_alone(&t, s, &mut links);
                         let before = pr.counts;
                         let seen = Seen {
                             term: &t,
@@ -14538,7 +14543,7 @@ mod tests {
                 ),
             }
         }
-        let _ = lines.scan(
+        let _ = lines.scan_alone(
             &t,
             s,
             &mut Links {

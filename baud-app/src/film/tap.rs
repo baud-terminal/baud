@@ -186,6 +186,7 @@ impl crate::probe::Fs for SessionFs {
 pub(crate) struct Tap {
     dir: PathBuf,
     lines: crate::lined::Lines,
+    views: crate::lined::ViewLinks,
     uris: crate::lined::Uris,
     paths: crate::paths::Paths,
     config: crate::config::Link,
@@ -261,6 +262,7 @@ impl Tap {
         Tap {
             dir: dir.to_path_buf(),
             lines: crate::lined::Lines::default(),
+            views: crate::lined::ViewLinks::default(),
             uris,
             paths,
             config: link,
@@ -361,7 +363,7 @@ impl Tap {
             Instant::now(),
             Some(self.master),
         );
-        let _ = crate::link_layer::frame(&mut layer);
+        let _ = crate::link_layer::frame(&mut layer, &mut self.views);
         self.frame = FrameNo(self.frame.0 + 1);
         if answered.frame == crate::paths::Owed::Yes {
             self.report.answered.push(self.frame);

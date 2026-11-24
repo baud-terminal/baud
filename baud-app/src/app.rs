@@ -669,6 +669,8 @@ struct App {
     hover_owed: crate::link::HoverOwed,
     /// The lines at rest the frame draws, and what reads them (`lined.rs`).
     lines: crate::lined::Lines,
+    /// The view's link slots, which the scan and the link preview read.
+    views: crate::lined::ViewLinks,
     uris: crate::lined::Uris,
     /// The printed paths the lines read (`paths.rs`), and the worker that
     /// asks whether each exists (`probe.rs`), never waited on.
@@ -1736,6 +1738,7 @@ impl App {
             link_chord: crate::link::Chord::Other,
             hover_owed: crate::link::HoverOwed::No,
             lines: crate::lined::Lines::default(),
+            views: crate::lined::ViewLinks::default(),
             uris: {
                 let mut u = crate::lined::Uris::default();
                 u.set_rules(link_config.rules.clone());
@@ -2174,6 +2177,7 @@ impl App {
         // Every read under the pointer, counted for the frame rig.
         #[cfg(feature = "effect-probe")]
         baud_present_macos::probe::hover_read();
+        let views = self.views.fresh(&self.term, self.scrolled);
         let changed = self.hover.refresh_with(
             &self.term,
             self.scrolled,
@@ -2181,6 +2185,7 @@ impl App {
             self.focus,
             self.uris.names(),
             &self.paths,
+            views.as_ref(),
         );
         self.recheck_entered();
         if changed {
@@ -2266,14 +2271,17 @@ impl App {
     fn scan_lines(&mut self) {
         // The reported folder, which a `./` is read against, read before the
         // rows are (`Paths::observe`), then the rows (`link_layer::frame`).
-        let style = crate::link_layer::frame(&mut crate::link_layer::Layer {
-            term: &self.term,
-            scrolled: self.scrolled,
-            lines: &mut self.lines,
-            uris: &mut self.uris,
-            paths: &mut self.paths,
-            config: &self.link_config,
-        });
+        let style = crate::link_layer::frame(
+            &mut crate::link_layer::Layer {
+                term: &self.term,
+                scrolled: self.scrolled,
+                lines: &mut self.lines,
+                uris: &mut self.uris,
+                paths: &mut self.paths,
+                config: &self.link_config,
+            },
+            &mut self.views,
+        );
         match style {
             Some(style) => {
                 self.renderer.set_link_lines(self.lines.lines(), style);
@@ -2631,7 +2639,10 @@ impl App {
         // now where it is owed: a wheel, a drag of the thumb, a find or a
         // resize may have moved what is under it since the turn's read
         // (`Driver::poll_hover`), which the copy of what that read went over
-        // tells with no text read.
+        // tells with no text read. The view's link slots are brought to the
+        // view shown first, so the read and the scan take the rows holding a
+        // slot from them.
+        let _ = self.views.sync(&self.term, self.scrolled);
         self.owe_hover_if_moved();
         if self.read_owed_hover() {
             self.owe_frame();
@@ -18905,6 +18916,7 @@ impl Driver {
         let pressed =
             app.hover
                 .set_left_press(crate::bar::left_press(&app.term, strip, app.bar_ctx()));
+        let views = app.views.fresh(&app.term, app.scrolled);
         let hovered = app.hover.update_with(
             &app.term,
             at,
@@ -18913,6 +18925,7 @@ impl Driver {
             app.focus,
             app.uris.names(),
             &app.paths,
+            views.as_ref(),
         );
         app.link_chord = chord;
         app.recheck_entered();

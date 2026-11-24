@@ -423,6 +423,8 @@ struct Driver {
     copied: crate::copied::Signal<Instant>,
     /// The lines at rest the frame draws, and what reads them (`lined.rs`).
     lines: crate::lined::Lines,
+    /// The view's link slots, which the scan and the link preview read.
+    views: crate::lined::ViewLinks,
     uris: crate::lined::Uris,
     /// The worker that asks whether each printed path exists (`probe.rs`);
     /// the paths themselves are the seat's, which its pointer reads. The
@@ -1014,6 +1016,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         line_tip: crate::line_tip::LineTip::default(),
         copied: crate::copied::Signal::new(cfg.message),
         lines: crate::lined::Lines::default(),
+        views: crate::lined::ViewLinks::default(),
         uris: {
             let mut u = crate::lined::Uris::default();
             u.set_rules(cfg.link.rules.clone());
@@ -2004,7 +2007,8 @@ impl Driver {
         let left = self.timed.bar.left_press(&self.term, f, now);
         let pressed = self.seat.hover_press(left);
         let host = self.uris.names();
-        let hovered = self.seat.hover(&self.term, mods, g, host);
+        let views = self.views.fresh(&self.term, self.seat.scrolled());
+        let hovered = self.seat.hover(&self.term, mods, g, host, views.as_ref());
         if hovered {
             self.pending = Pending::Dirty;
         }
@@ -2136,7 +2140,8 @@ impl Driver {
     fn modifiers(&mut self, mods: baud_domain::Modifiers) {
         let g = self.seat_geometry();
         let host = self.uris.names();
-        if self.seat.hover(&self.term, mods, g, host) {
+        let views = self.views.fresh(&self.term, self.seat.scrolled());
+        if self.seat.hover(&self.term, mods, g, host, views.as_ref()) {
             self.pending = Pending::Dirty;
             self.show_pointer();
         }
@@ -4310,23 +4315,27 @@ impl Driver {
         });
         let field = look.as_ref().map(|l| l.field.clone());
         self.renderer.set_find(&self.term, look);
+        // The view's link slots, brought to the view shown now: the link
+        // preview and the scan read the rows holding a slot from them.
+        let scrolled = self.seat.scrolled();
+        let views = self.views.sync(&self.term, scrolled);
         // The link preview, read again where the pointer is while Ctrl is
         // held: a read may have changed what is under it.
         let host = self.uris.names();
         let mods = self.window.modifiers();
-        if self.seat.hover_refresh(&self.term, mods, host) {
-            self.show_pointer();
-        }
+        let previewed = self
+            .seat
+            .hover_refresh(&self.term, mods, host, Some(&views));
         // The lines at rest for this frame (`lined.rs`).
         match self.link_config.lines() {
             Some(style) => {
-                let scrolled = self.seat.scrolled();
                 if self.seat.paths.observe(&self.term, scrolled) == crate::paths::Moved::Yes {
                     self.lines.forget();
                 }
                 self.lines.scan(
                     &self.term,
                     scrolled,
+                    &views,
                     &mut crate::paths::Links {
                         uris: &mut self.uris,
                         urls: self.link_config.urls_read(),
@@ -4345,6 +4354,11 @@ impl Driver {
                 self.renderer
                     .set_link_strikes(&[], self.seat.hover_struck());
             }
+        }
+        // The pointer shown for the preview read above, once the scan is done
+        // with the view's slots.
+        if previewed {
+            self.show_pointer();
         }
         self.renderer
             .set_link_missing(self.link_config.missing_color);

@@ -685,6 +685,7 @@ fn main() {
             allocs: Vec::with_capacity(data.len() / 4096 + 1),
         };
         let mut lines = lined::Lines::default();
+        let mut views = lined::ViewLinks::default();
         let mut uris = lined::Uris::default();
         // No home, no names: `~/` and `./` resolve to nothing, as they would
         // before a window knows either; `/` is read as the app reads it.
@@ -780,6 +781,7 @@ fn main() {
                     let s = lines.scan(
                         &t,
                         scrolled,
+                        &views.sync(&t, scrolled),
                         &mut paths::Links {
                             uris: &mut uris,
                             urls: paths::Turned::On,
@@ -799,6 +801,7 @@ fn main() {
                         let c = lines.scan(
                             &t,
                             scrolled,
+                            &views.sync(&t, scrolled),
                             &mut paths::Links {
                                 uris: &mut uris,
                                 urls: paths::Turned::On,

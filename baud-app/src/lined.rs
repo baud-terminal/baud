@@ -58,8 +58,9 @@ use core::ops::Range;
 
 use baud_core::{Screen, Term};
 use baud_domain::{
-    Attrs, ClusterEpoch, Col, LineRendition, LinkEpoch, LinkId, LinkSet, PackedCell, Row, RowGens,
-    RowStyles, Rows, Seal, SlotMarks, StyleWord, WindowAt, Wrap,
+    Attrs, ClusterEpoch, Col, Cols, LineRendition, LinkEpoch, LinkId, LinkSet, LinkSlot,
+    PackedCell, Row, RowGens, RowStyles, Rows, Seal, SlotMarks, StyleWord, WalkSteps, WindowAt,
+    Wrap,
 };
 use baud_render::{AbsLine, LinkLine, Point, Scrolled, row_of, row_styles_of};
 
@@ -234,14 +235,28 @@ pub struct SlotRows {
 }
 
 impl SlotRows {
-    /// **The view's rows holding a slot**: every slot's, or `only`'s.
-    pub fn of(term: &Term<'_>, scrolled: Scrolled, back: Rows, only: Option<LinkId>) -> SlotRows {
+    /// **The view's rows holding a slot**: every slot's, or `only`'s, each
+    /// cell read counted in `read`.
+    pub fn of(
+        term: &Term<'_>,
+        scrolled: Scrolled,
+        back: Rows,
+        only: Option<LinkId>,
+        read: &mut WalkSteps,
+    ) -> SlotRows {
         let mut s = SlotRows::default();
-        s.fill(term, scrolled, back, only);
+        s.fill(term, scrolled, back, only, read);
         s
     }
 
-    fn fill(&mut self, term: &Term<'_>, scrolled: Scrolled, back: Rows, only: Option<LinkId>) {
+    fn fill(
+        &mut self,
+        term: &Term<'_>,
+        scrolled: Scrolled,
+        back: Rows,
+        only: Option<LinkId>,
+        read: &mut WalkSteps,
+    ) {
         self.pairs.clear();
         let rows = term.view(back).rows().index();
         for y in 0..rows {
@@ -251,6 +266,7 @@ impl SlotRows {
             };
             let start = self.pairs.len();
             for c in cells {
+                read.bump();
                 let id = c.flags.link();
                 let wanted = id != LinkId::NONE && only.is_none_or(|o| o == id);
                 if wanted && !self.pairs[start..].iter().any(|&(i, _)| i == id.index()) {
@@ -524,8 +540,9 @@ pub struct Scan {
     /// Batches of answers that read every row again instead: one changed a
     /// run across a row its writer ended.
     pub rereads: usize,
-    /// Cells read for the link slots they name: a row's, when the row is
-    /// read again.
+    /// Cells read for the link slots they name, by the view's syncs after
+    /// the last scan ([`ViewLinks::sync`]): a row's, when it was written or
+    /// came into view.
     pub slot_cells: usize,
 }
 
@@ -567,6 +584,206 @@ enum Held {
     Open,
 }
 
+/// **What the view's link slots were read under**: the count of lines
+/// retired, how far it looks back, the grid, what names a slot, and the
+/// core's counts of bytes taken and cells written. Each of them the same is
+/// a view no byte, write, resize or sweep has touched after the read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct ViewKey {
+    scrolled: Scrolled,
+    back: Rows,
+    geometry: (Cols, Rows),
+    epoch: LinkEpoch,
+    taken: crate::link::Taken,
+    written: crate::link::Taken,
+}
+
+impl ViewKey {
+    fn of(term: &Term<'_>, scrolled: Scrolled) -> ViewKey {
+        let (taken, written) = term.amplification();
+        ViewKey {
+            scrolled,
+            back: term.window_back(),
+            geometry: term.geometry(),
+            epoch: term.link_epoch(),
+            taken: crate::link::Taken(taken),
+            written: crate::link::Taken(written),
+        }
+    }
+}
+
+/// The seal and the window a [`ViewLinks`] read its rows under, and the
+/// view it read.
+#[derive(Clone, Copy, Debug)]
+struct Synced {
+    seal: Seal,
+    window: WindowAt,
+    key: ViewKey,
+}
+
+/// **The link slots each row of the view shows**, one [`LinkSet`] a row,
+/// kept by the rows' write generations: a row's cells are read again only
+/// when a store touched the row after the seal it was read under, a move of
+/// the window brought it in, or a sweep moved what a slot names. What the
+/// scan ([`Lines::scan`]) and the link under the pointer
+/// ([`crate::link::Osc8::view_rows`]) read the rows holding a slot from,
+/// through a [`Fresh`].
+#[derive(Debug, Default)]
+pub struct ViewLinks {
+    sets: Vec<LinkSet>,
+    /// Whether each row's set is of the physical row the window shows
+    /// there, as read: a row a move of the window brought in is not.
+    held: Vec<Held>,
+    synced: Option<Synced>,
+    /// Cells read for the slots they name that no scan has counted yet
+    /// ([`Scan::slot_cells`]).
+    unscanned: core::cell::Cell<usize>,
+}
+
+impl ViewLinks {
+    /// **The sets brought to the view shown now**, `scrolled` the driver's
+    /// count of lines retired: at once, reading nothing, while the view is
+    /// the one last read; else the rows the window's move kept are moved
+    /// with it, and each row brought in or written after the last read's
+    /// seal is read again.
+    pub fn sync<'v>(&'v mut self, term: &Term<'_>, scrolled: Scrolled) -> Fresh<'v> {
+        let key = ViewKey::of(term, scrolled);
+        if let Some(s) = self.synced.as_mut().filter(|s| s.key == key) {
+            // Nothing written after the read: what a later seal closes was
+            // read, so the rows are kept under it.
+            s.seal = term.sealed();
+            return Fresh { links: self, key };
+        }
+        let back = key.back;
+        let view = term.view(back);
+        let (cols, rows) = (view.cols().index(), view.rows().index());
+        let gens = term.row_gens(back);
+        let now = gens.window();
+        let kept = match self.synced {
+            Some(s) if s.key.geometry == key.geometry && s.key.epoch == key.epoch => {
+                self.moved(s.window, now)
+            }
+            _ => Kept::Nothing,
+        };
+        if kept == Kept::Nothing || self.sets.len() != rows {
+            self.sets.clear();
+            self.sets.resize(rows, LinkSet::EMPTY);
+            self.held.clear();
+            self.held.resize(rows, Held::Open);
+        }
+        for y in 0..rows {
+            let r = Row::from_index(y);
+            let written = self.synced.is_none_or(|s| gens.after(r, &s.seal));
+            if self.held[y] == Held::Open || written {
+                self.sets[y] = LinkSet::of_cells(view.row(r));
+                self.unscanned.set(self.unscanned.get() + cols);
+            }
+        }
+        self.held.fill(Held::Copy);
+        self.synced = Some(Synced {
+            seal: term.sealed(),
+            window: now,
+            key,
+        });
+        Fresh { links: self, key }
+    }
+
+    /// **The sets as last read, while the view shown now is the one they
+    /// were read of**; none once a byte, a write, a resize, a sweep or a
+    /// move of the window came after.
+    pub fn fresh(&self, term: &Term<'_>, scrolled: Scrolled) -> Option<Fresh<'_>> {
+        let key = ViewKey::of(term, scrolled);
+        self.synced
+            .filter(|s| s.key == key)
+            .map(|_| Fresh { links: self, key })
+    }
+
+    /// **The rows `was` showed moved to where `now` shows them**: the
+    /// window moved by fewer rows than it has over one ring, and the rows
+    /// it brought in marked to be read. Nothing kept where the window is
+    /// on another screen, another ring or another height, or moved a
+    /// window or more.
+    fn moved(&mut self, was: WindowAt, now: WindowAt) -> Kept {
+        if was == now {
+            return Kept::Rows;
+        }
+        if was.screen != now.screen || was.ring != now.ring || was.rows != now.rows {
+            return Kept::Nothing;
+        }
+        let (ring, rows) = (now.ring.index(), now.rows.index());
+        if self.sets.len() != rows || ring == 0 {
+            return Kept::Nothing;
+        }
+        let d = (now.top.index() + ring - was.top.index()) % ring;
+        if d < rows {
+            self.sets.copy_within(d.., 0);
+            self.held.copy_within(d.., 0);
+            self.held[rows - d..].fill(Held::Open);
+        } else if ring - d < rows {
+            let k = ring - d;
+            self.sets.copy_within(..rows - k, k);
+            self.held.copy_within(..rows - k, k);
+            self.held[..k].fill(Held::Open);
+        } else {
+            return Kept::Nothing;
+        }
+        Kept::Rows
+    }
+}
+
+/// Whether a move of the window kept any row's set.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Kept {
+    Nothing,
+    Rows,
+}
+
+/// **The view's link slots, read for the view shown now**: made only by
+/// [`ViewLinks::sync`], or by [`ViewLinks::fresh`] while nothing moved.
+/// A reader holding one reads the rows holding a slot with no cell read.
+#[derive(Clone, Copy, Debug)]
+pub struct Fresh<'v> {
+    links: &'v ViewLinks,
+    key: ViewKey,
+}
+
+impl<'v> Fresh<'v> {
+    /// Row `r`'s slots; none past the view.
+    pub fn row(&self, r: Row) -> LinkSet {
+        self.links
+            .sets
+            .get(r.index())
+            .copied()
+            .unwrap_or(LinkSet::EMPTY)
+    }
+
+    /// **The lines of the rows showing slot `s`**, top first.
+    pub fn rows_of(&self, s: LinkSlot) -> impl Iterator<Item = AbsLine> + 'v {
+        let (scrolled, back) = (self.key.scrolled, self.key.back);
+        self.links
+            .sets
+            .iter()
+            .enumerate()
+            .filter(move |(_, set)| set.has(s))
+            .map(move |(y, _)| scrolled.line(back, Row::from_index(y)))
+    }
+
+    /// The rows showing a slot of `set`, top first.
+    pub fn meeting(&self, set: LinkSet) -> impl Iterator<Item = Row> + 'v {
+        self.links
+            .sets
+            .iter()
+            .enumerate()
+            .filter(move |(_, s)| s.meets(set))
+            .map(|(y, _)| Row::from_index(y))
+    }
+
+    /// Whether these are the slots of the view `scrolled` lines retired and
+    /// `back` lines into the history.
+    pub fn shows(&self, scrolled: Scrolled, back: Rows) -> bool {
+        (self.key.scrolled, self.key.back) == (scrolled, back)
+    }
+}
 /// **The lines on the window, and the window as the last scan saw it.**
 #[derive(Debug, Default)]
 pub struct Lines {
@@ -579,8 +796,8 @@ pub struct Lines {
     /// did, or on a row read again: every row showing one is read again.
     slots_moved: LinkSet,
     cells: Vec<PackedCell>,
-    /// The slots each row of `cells` names, built when the row is copied
-    /// and moved with it.
+    /// The slots each row of `cells` names, the view's for the row when
+    /// the row is copied, and moved with it.
     sets: Vec<LinkSet>,
     wraps: Vec<Wrap>,
     sizes: Vec<LineRendition>,
@@ -666,6 +883,23 @@ enum Below {
     Apart,
     Joined,
     Held,
+}
+
+#[cfg(test)]
+impl Lines {
+    /// A scan through the view's slots read for it alone, whose reads are
+    /// the sync's and not the scan's.
+    pub(crate) fn scan_alone<R: Reader>(
+        &mut self,
+        term: &Term<'_>,
+        scrolled: Scrolled,
+        reader: &mut R,
+    ) -> Scan {
+        let mut views = ViewLinks::default();
+        let fresh = views.sync(term, scrolled);
+        fresh.links.unscanned.set(0);
+        self.scan(term, scrolled, &fresh, reader)
+    }
 }
 
 impl Lines {
@@ -917,12 +1151,25 @@ impl Lines {
     }
 
     /// **The scan**, on the view shown now, `scrolled` the driver's count of
-    /// lines retired. Allocates nothing once its buffers have grown to the
-    /// window and to the longest line read.
-    pub fn scan<R: Reader>(&mut self, term: &Term<'_>, scrolled: Scrolled, reader: &mut R) -> Scan {
+    /// lines retired, `fresh` the view's link slots read for it. Allocates
+    /// nothing once its buffers have grown to the window and to the longest
+    /// line read.
+    pub fn scan<R: Reader>(
+        &mut self,
+        term: &Term<'_>,
+        scrolled: Scrolled,
+        fresh: &Fresh<'_>,
+        reader: &mut R,
+    ) -> Scan {
         self.slots_read = SlotsRead::No;
         self.slots_moved = LinkSet::EMPTY;
-        let mut scan = Scan::default();
+        // The slots the view's rows name are read before the scan, by the
+        // syncs that made `fresh` and those before it: their reads not yet
+        // counted are this scan's.
+        let mut scan = Scan {
+            slot_cells: fresh.links.unscanned.take(),
+            ..Scan::default()
+        };
         self.compared = Compared::default();
         let back = term.window_back();
         let view = term.view(back);
@@ -1025,8 +1272,7 @@ impl Lines {
                 kept.copy_from_slice(&row[..n]);
                 // A slot on the row before or after is shown on other rows
                 // now.
-                let now = LinkSet::of_cells(&self.cells[y * cols..(y + 1) * cols]);
-                scan.slot_cells += cols;
+                let now = fresh.row(r);
                 self.slots_moved = self.slots_moved.union(self.sets[y]).union(now);
                 self.sets[y] = now;
                 self.wraps[y] = wrap;
@@ -1132,9 +1378,9 @@ impl Lines {
             }
         }
         if !self.slots_moved.is_empty() {
-            for y in 0..rows {
-                if self.again[y] == Read::Kept && self.sets[y].meets(self.slots_moved) {
-                    self.again[y] = Read::Again;
+            for r in fresh.meeting(self.slots_moved) {
+                if self.again[r.index()] == Read::Kept {
+                    self.again[r.index()] = Read::Again;
                     any = true;
                 }
             }
@@ -1190,10 +1436,8 @@ impl Lines {
             if self.slots_moved == seen {
                 break;
             }
-            for y in 0..rows {
-                if self.sets[y].meets(self.slots_moved) {
-                    self.again[y] = Read::Again;
-                }
+            for r in fresh.meeting(self.slots_moved) {
+                self.again[r.index()] = Read::Again;
             }
         }
         let again = &self.again;
@@ -1757,7 +2001,7 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, bytes);
         let mut l = Lines::default();
-        let _ = l.scan(&t, at(), &mut Uris::default());
+        let _ = l.scan_alone(&t, at(), &mut Uris::default());
         runs(&l)
     }
 
@@ -1766,7 +2010,7 @@ mod tests {
     fn scan_apart(l: &mut Lines, t: &Term<'_>, u: &mut Uris) -> Scan {
         let mut p = crate::paths::Paths::default();
         let _ = p.set_join(crate::paths::Turned::Off);
-        l.scan(
+        l.scan_alone(
             t,
             at(),
             &mut crate::paths::Links {
@@ -1877,7 +2121,7 @@ mod tests {
         let mut t = Term::new(owned.storage(), &ws);
         feed(&mut t, bytes);
         let mut l = Lines::default();
-        let _ = l.scan(&t, at(), &mut Uris::default());
+        let _ = l.scan_alone(&t, at(), &mut Uris::default());
         let on = at().line(Rows::ZERO, row);
         let w = window(&t, at(), on, col).expect("a window");
         let bare = w.bare().expect("a URI under the click");
@@ -1932,16 +2176,16 @@ mod tests {
         feed(&mut t, b"see https://a.example/");
         feed(&mut t, &[b'b'; 30]);
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [(0, 4, 39), (1, 0, 11)], "the control");
         // The row is one logical line with the next; only row 0's cells move.
         feed(&mut t, b"\x1b[1;5HX");
-        let s = l.scan(&t, at(), &mut u);
+        let s = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [], "the second row did not change, and goes");
         assert_eq!(s.rows, 2, "the logical line's rows, no more");
         // And a change on the second row reads the first.
         feed(&mut t, b"\x1b[1;5Hh\x1b[2;6H ");
-        let s = l.scan(&t, at(), &mut u);
+        let s = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [(0, 4, 39), (1, 0, 4)]);
         assert_eq!(s.rows, 2);
     }
@@ -1981,10 +2225,10 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         wrapped(&mut t);
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [(0, 4, 39), (1, 0, 11)], "the control");
         feed(&mut t, b"\x1b[1;1H\x1b[2K");
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [], "no fragment stays underlined");
     }
 
@@ -2005,7 +2249,7 @@ mod tests {
         );
         let (mut l, mut u) = (Lines::default(), Uris::default());
         assert!(!u.host_known());
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(
             runs(&l),
             [(1, 0, 8), (2, 0, 17)],
@@ -2013,10 +2257,10 @@ mod tests {
         );
         u.set_names(crate::link::MachineNames::one("here.example"));
         assert!(u.host_known());
-        let s = l.scan(&t, at(), &mut u);
+        let s = l.scan_alone(&t, at(), &mut u);
         assert_eq!(s, Scan::default(), "nothing changed, so nothing is read");
         l.forget();
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(
             runs(&l),
             [(0, 0, 20), (1, 0, 8), (2, 0, 17)],
@@ -2101,14 +2345,14 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, b"https://a.example\r\nand more");
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let first = l.scan(&t, at(), &mut u);
+        let first = l.scan_alone(&t, at(), &mut u);
         assert_eq!(
             first.rows, 6,
             "the control: the first scan reads the window"
         );
         assert_eq!(first.spans, 1);
         feed(&mut t, b"\x1b[3;3H");
-        let s = l.scan(&t, at(), &mut u);
+        let s = l.scan_alone(&t, at(), &mut u);
         assert_eq!(s, Scan::default(), "no row, no cell, no candidate");
         assert_eq!(runs(&l), [(0, 0, 16)], "and the line stays");
     }
@@ -2143,7 +2387,7 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, b"https://a.example");
         let mut l = Lines::default();
-        let _ = l.scan(&t, at(), &mut Uris::default());
+        let _ = l.scan_alone(&t, at(), &mut Uris::default());
         assert!(!l.lines().is_empty());
         l.off();
         assert!(l.lines().is_empty());
@@ -2202,7 +2446,7 @@ mod tests {
         let flood = "https://x ".repeat(20_000);
         feed(&mut t, flood.as_bytes());
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let s = l.scan(&t, at(), &mut u);
+        let s = l.scan_alone(&t, at(), &mut u);
         let (cols, rows) = (usize::from(WS.ws_col), usize::from(WS.ws_row));
         let limit = cols * rows + 2 * (MAX + 2 * cols);
         assert!(s.cells <= limit, "{} cells read, past {limit}", s.cells);
@@ -2212,7 +2456,7 @@ mod tests {
         let long = format!("https://a.example/{}", "b".repeat(2 * MAX + 100));
         feed(&mut t, long.as_bytes());
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let s = l.scan(&t, at(), &mut u);
+        let s = l.scan_alone(&t, at(), &mut u);
         assert!(s.cells <= limit, "{} cells read, past {limit}", s.cells);
         assert_eq!(runs(&l), [], "past the cap, refused whole");
         // A run of closers costs one pass (`found_in`'s counts).
@@ -2221,7 +2465,7 @@ mod tests {
         let closers = format!("https://a.example/{}", ")".repeat(200));
         feed(&mut t, closers.as_bytes());
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [(0, 0, 17)], "the closers are prose");
     }
 
@@ -2238,7 +2482,7 @@ mod tests {
             b"a (https://a.example/x) b https://c.example/ mailto:me@d.example.\r\n",
         );
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert!(!l.lines().is_empty(), "the control");
         for line in l.lines() {
             for x in line.from.index()..=line.to.index() {
@@ -2310,10 +2554,10 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, format!("{edge}\x1b[2;1Hcontinued").as_bytes());
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [(0, 0, 39), (1, 0, 8)]);
         feed(&mut t, b"\x1b[2;1H ");
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(
             runs(&l),
             [(0, 0, 39)],
@@ -2335,12 +2579,20 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, screen.as_bytes());
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [(0, 4, 22)], "the control");
         feed(&mut t, b"\x1b[2;20Hx");
-        assert_eq!(l.scan(&t, at(), &mut u).rows, 2, "row 1 and the row above");
+        assert_eq!(
+            l.scan_alone(&t, at(), &mut u).rows,
+            2,
+            "row 1 and the row above"
+        );
         feed(&mut t, b"\x1b[5;20Hx");
-        assert_eq!(l.scan(&t, at(), &mut u).rows, 2, "row 4 and the row above");
+        assert_eq!(
+            l.scan_alone(&t, at(), &mut u).rows,
+            2,
+            "row 4 and the row above"
+        );
     }
 
     /// **A trim of the history above the window reads its top row again**:
@@ -2404,7 +2656,7 @@ mod tests {
         let last = parts[parts.len() - 1];
         let link = last.find(' ').unwrap_or(last.len());
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, scrolled, &mut u);
+        let _ = l.scan_alone(&t, scrolled, &mut u);
         assert_eq!(
             runs(&l),
             [(0, 0, link - 1)],
@@ -2417,9 +2669,9 @@ mod tests {
             last,
             "the control, the window still on the link's last part"
         );
-        let _ = l.scan(&t, scrolled, &mut u);
+        let _ = l.scan_alone(&t, scrolled, &mut u);
         let mut fresh = Lines::default();
-        let _ = fresh.scan(&t, scrolled, &mut Uris::default());
+        let _ = fresh.scan_alone(&t, scrolled, &mut Uris::default());
         assert_eq!(runs(&fresh), [], "the control, a scan from nothing");
         (runs(&l), runs(&fresh))
     }
@@ -2482,11 +2734,11 @@ mod tests {
             feed(&mut t, b"plain\r\n");
         }
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [], "the control: off the screen");
         // Fourteen lines on a screen of six: eight behind it.
         t.set_window_back(Rows::of_count(8));
-        let s = l.scan(&t, at(), &mut u);
+        let s = l.scan_alone(&t, at(), &mut u);
         assert_eq!(
             s.rows, 3,
             "every row the window changed read, and none else"
@@ -2511,11 +2763,13 @@ mod tests {
     /// 200x50, a link of its own on every row, one line more scrolls the
     /// window by a row, and the scan reads the slots of the one row that
     /// changed, not every row's cells again, while what it keeps is what a
-    /// scan from nothing finds and each row's slots are its cells'. The
-    /// control: the line scrolled in holds a link, and it is underlined.
-    /// Named breaks: build every row's slots at each scan -- 10,200 cells
-    /// read; leave the slots where they were in `shift` -- a row holds the
-    /// slots of the row below it.
+    /// scan from nothing finds and each row's slots, kept and synced, are
+    /// its cells'. Two frames settle the view first, as a driver's leave it:
+    /// a row written before a frame's seal is read once more at the next.
+    /// The control: the line scrolled in holds a link, and it is
+    /// underlined. Named breaks: read every row at each sync -- 10,000
+    /// cells read; leave the sets where they were in `ViewLinks::moved` --
+    /// a synced row holds the slots of the row below it.
     #[test]
     fn a_scrolled_line_reads_one_row_of_slots() {
         let mut owned = Owned::new(&WIDE);
@@ -2536,27 +2790,35 @@ mod tests {
                 linked_line(Row::from_index(n)).as_bytes(),
             );
         }
-        let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, scrolled, &mut u);
-        let _ = t.seal_writes();
+        let (mut l, mut u, mut views) = (Lines::default(), Uris::default(), ViewLinks::default());
+        // A driver's frame: the view's slots synced, the scan, the seal.
+        let mut frame = |t: &mut Term<'_>, scrolled: Scrolled| {
+            let s = l.scan(t, scrolled, &views.sync(t, scrolled), &mut u);
+            let _ = t.seal_writes();
+            s
+        };
+        let _ = frame(&mut t, scrolled);
+        let _ = frame(&mut t, scrolled);
         fed(
             &mut t,
             &mut scrolled,
             linked_line(Row::from_index(rows)).as_bytes(),
         );
-        let s = l.scan(&t, scrolled, &mut u);
-        let _ = t.seal_writes();
-        let mut fresh = Lines::default();
-        let _ = fresh.scan(&t, scrolled, &mut Uris::default());
+        let s = frame(&mut t, scrolled);
+        let mut anew = Lines::default();
+        let _ = anew.scan_alone(&t, scrolled, &mut Uris::default());
         assert_eq!(
             runs(&l),
-            runs(&fresh),
+            runs(&anew),
             "kept is what a scan from nothing finds"
         );
         let view = t.view(t.window_back());
+        let synced = views.fresh(&t, scrolled).expect("the view as synced");
         for (y, &set) in l.sets.iter().enumerate() {
-            let cells = view.row(Row::from_index(y));
-            assert_eq!(set, LinkSet::of_cells(cells), "row {y}'s slots");
+            let r = Row::from_index(y);
+            let cells = LinkSet::of_cells(view.row(r));
+            assert_eq!(set, cells, "row {y}'s slots, kept");
+            assert_eq!(synced.row(r), cells, "row {y}'s slots, synced");
         }
         assert!(
             runs(&l).iter().any(|&(row, _, _)| row == rows - 1),
@@ -2705,11 +2967,11 @@ mod tests {
         feed(&mut t, bytes);
         let mut l = Lines::default();
         let mut u = Uris::default();
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [], "the control: no rule, no line");
         u.set_rules(rules);
         l.forget();
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [(0, 0, 12), (1, 0, 20)]);
     }
 
@@ -2725,7 +2987,7 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, bytes);
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [(0, 0, 17), (1, 0, 6), (2, 0, 16)], "the control");
         let sections = [crate::rules::Section {
             name: "mailto".into(),
@@ -2735,7 +2997,7 @@ mod tests {
         assert_eq!(said, Vec::<String>::new());
         u.set_rules(rules);
         l.forget();
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [(2, 0, 16)]);
     }
 
@@ -2763,7 +3025,7 @@ mod tests {
         assert_eq!(said, Vec::<String>::new());
         let (mut l, mut u) = (Lines::default(), Uris::default());
         u.set_rules(rules);
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = l.scan_alone(&t, at(), &mut u);
         assert_eq!(runs(&l), [(0, 0, 12)], "the control: the line is up");
         assert_eq!(checksum(&mut t), before, "the same with the line up");
         feed(&mut t, b"\x1b[1;1HX");
@@ -2915,7 +3177,7 @@ mod tests {
             found: vec![b"/p13".to_vec()],
         };
         let (mut l, mut r) = (Lines::default(), found());
-        let _ = l.scan(&t, at, &mut r);
+        let _ = l.scan_alone(&t, at, &mut r);
         let runs = |l: &Lines| -> Vec<_> {
             l.lines()
                 .iter()
@@ -2924,12 +3186,12 @@ mod tests {
         };
         assert_eq!(runs(&l), [(5, 37, 39)], "the control: /p13 runs on below");
         fed(&mut t, &mut at, b"\x1b[4;1H\x1b[2K/p10");
-        let _ = l.scan(&t, at, &mut r);
+        let _ = l.scan_alone(&t, at, &mut r);
         let mut fresh = Lines::default();
-        let _ = fresh.scan(&t, at, &mut found());
+        let _ = fresh.scan_alone(&t, at, &mut found());
         assert_eq!(runs(&fresh), [], "a scan from nothing: /p1/p10 is none");
         assert_eq!(runs(&l), runs(&fresh));
-        let s = l.scan(&t, at, &mut r);
+        let s = l.scan_alone(&t, at, &mut r);
         assert_eq!(s, Scan::default(), "seen once, read once");
     }
 
@@ -2960,7 +3222,7 @@ mod tests {
             found: vec![b"/p13".to_vec()],
         };
         let (mut l, mut r) = (Lines::default(), found());
-        let _ = l.scan(&t, at, &mut r);
+        let _ = l.scan_alone(&t, at, &mut r);
         let runs = |l: &Lines| -> Vec<_> {
             l.lines()
                 .iter()
@@ -2969,13 +3231,13 @@ mod tests {
         };
         assert_eq!(runs(&l), [(3, 37, 39), (4, 0, 0)], "the control: /p13");
         t.set_window_back(Rows::of_count(2));
-        let s = l.scan(&t, at, &mut r);
+        let s = l.scan_alone(&t, at, &mut r);
         assert_eq!(runs(&l), [(5, 37, 39)], "moved down two");
         assert!(s.rows <= 2, "the rows brought in at the top: {}", s.rows);
         fed(&mut t, &mut at, b"\x1b[5;1H\x1b[2K/p10");
-        let _ = l.scan(&t, at, &mut r);
+        let _ = l.scan_alone(&t, at, &mut r);
         let mut fresh = Lines::default();
-        let _ = fresh.scan(&t, at, &mut found());
+        let _ = fresh.scan_alone(&t, at, &mut found());
         assert_eq!(runs(&fresh), [], "a scan from nothing: /p1/p10 is none");
         assert_eq!(runs(&l), runs(&fresh));
     }
@@ -3097,7 +3359,7 @@ mod tests {
             found: reader.found.clone(),
             ..Answering::default()
         };
-        let _ = l.scan(t, scrolled, &mut again);
+        let _ = l.scan_alone(t, scrolled, &mut again);
         (l.lines().to_vec(), l.struck().to_vec())
     }
 
@@ -3113,7 +3375,7 @@ mod tests {
         let mut at = at();
         fed(&mut t, &mut at, b"see /p1 and /p2 ok\r\nplain");
         let (mut l, mut r) = (Lines::default(), Answering::default());
-        let s = l.scan(&t, at, &mut r);
+        let s = l.scan_alone(&t, at, &mut r);
         assert!(s.rows > 0, "the control: the first scan reads");
         assert_eq!(l.lines(), &[] as &[LinkLine], "nothing found yet");
         for (path, lit) in [
@@ -3123,7 +3385,7 @@ mod tests {
         ] {
             r.toggle(path);
             l.answered();
-            let s = l.scan(&t, at, &mut r);
+            let s = l.scan_alone(&t, at, &mut r);
             assert_eq!((s.rows, s.remarks, s.rereads), (0, 1, 0), "{path}");
             let runs: Vec<_> = l
                 .lines()
@@ -3136,7 +3398,7 @@ mod tests {
                 fresh_by(&t, at, &r)
             );
         }
-        let s = l.scan(&t, at, &mut r);
+        let s = l.scan_alone(&t, at, &mut r);
         assert_eq!(s, Scan::default(), "no answer, nothing done");
     }
 
@@ -3190,7 +3452,7 @@ mod tests {
                     }
                 };
                 fed(&mut t, &mut at, bytes.as_bytes());
-                let _ = l.scan(&t, at, &mut r);
+                let _ = l.scan_alone(&t, at, &mut r);
                 assert_eq!(
                     (l.lines().to_vec(), l.struck().to_vec()),
                     fresh_by(&t, at, &r),
@@ -3203,7 +3465,7 @@ mod tests {
     /// The links and strikes a scan of `t` from nothing finds.
     fn fresh(t: &Term<'_>, scrolled: Scrolled) -> (Vec<LinkLine>, Vec<LinkLine>) {
         let mut l = Lines::default();
-        let _ = l.scan(t, scrolled, &mut Uris::default());
+        let _ = l.scan_alone(t, scrolled, &mut Uris::default());
         (l.lines().to_vec(), l.struck().to_vec())
     }
 
@@ -3228,14 +3490,18 @@ mod tests {
         }
         let mut l = Lines::default();
         let mut u = Uris::default();
-        assert_eq!(l.scan(&t, at, &mut u).rows, 6, "the control: all read");
+        assert_eq!(
+            l.scan_alone(&t, at, &mut u).rows,
+            6,
+            "the control: all read"
+        );
         fed(&mut t, &mut at, b"\r\nsee https://new.example/ ok");
-        let s = l.scan(&t, at, &mut u);
+        let s = l.scan_alone(&t, at, &mut u);
         assert_eq!(s.rows, 2, "the new row and the one above it");
         assert_eq!(runs(&l).len(), 6);
         assert_eq!((l.lines().to_vec(), l.struck().to_vec()), fresh(&t, at));
         assert_eq!(
-            l.scan(&t, at, &mut u).rows,
+            l.scan_alone(&t, at, &mut u).rows,
             0,
             "a still frame reads nothing"
         );
@@ -3265,13 +3531,13 @@ mod tests {
             );
         }
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at, &mut u);
+        let _ = l.scan_alone(&t, at, &mut u);
         fed(
             &mut t,
             &mut at,
             b"\r\nnext\x1b[3;1H\x1b[2Kgo https://over.example/",
         );
-        let _ = l.scan(&t, at, &mut u);
+        let _ = l.scan_alone(&t, at, &mut u);
         assert_eq!((l.lines().to_vec(), l.struck().to_vec()), fresh(&t, at));
         assert!(
             runs(&l).contains(&(2, 3, 23)),
@@ -3279,7 +3545,7 @@ mod tests {
             runs(&l)
         );
         t.set_window_back(Rows::of_count(1));
-        let s = l.scan(&t, at, &mut u);
+        let s = l.scan_alone(&t, at, &mut u);
         assert_eq!((l.lines().to_vec(), l.struck().to_vec()), fresh(&t, at));
         assert!(s.rows <= 2, "the row brought in, and its line: {}", s.rows);
     }
@@ -3338,7 +3604,7 @@ mod tests {
                     },
                 };
                 fed(&mut t, &mut at, bytes.as_bytes());
-                let _ = l.scan(&t, at, &mut u);
+                let _ = l.scan_alone(&t, at, &mut u);
                 assert_eq!(
                     (l.lines().to_vec(), l.struck().to_vec()),
                     fresh(&t, at),
@@ -3364,14 +3630,14 @@ mod tests {
             format!("top\r\n{:>40}\r\nrest/1 ok", "https://j1.example/aaaa").as_bytes(),
         );
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at, &mut u);
+        let _ = l.scan_alone(&t, at, &mut u);
         assert!(
             runs(&l).iter().any(|r| r.0 == 2),
             "the control: the link runs on into row 2: {:?}",
             runs(&l)
         );
         feed(&mut t, b"\x1b[2;1H\x1b[2Kplain words");
-        let _ = l.scan(&t, at, &mut u);
+        let _ = l.scan_alone(&t, at, &mut u);
         assert_eq!((l.lines().to_vec(), l.struck().to_vec()), fresh(&t, at));
         assert_eq!(runs(&l), []);
     }
@@ -3390,7 +3656,7 @@ mod tests {
         r: &mut R,
     ) -> (Scan, baud_domain::Seal) {
         let kept = t.sealed();
-        let s = l.scan(t, at, r);
+        let s = l.scan_alone(t, at, r);
         let _ = t.seal_writes();
         (s, kept)
     }
@@ -3439,7 +3705,7 @@ mod tests {
             .collect();
         feed(&mut t, screen.join("\r\n").as_bytes());
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at, &mut u);
+        let _ = l.scan_alone(&t, at, &mut u);
         assert_eq!(runs(&l).len(), rows, "the control: a link a row");
         assert_eq!(
             l.compared(),
@@ -3447,7 +3713,11 @@ mod tests {
             "a scan reading every row compares none"
         );
         feed(&mut t, b"\x1b[3;3H");
-        assert_eq!(l.scan(&t, at, &mut u), Scan::default(), "nothing read");
+        assert_eq!(
+            l.scan_alone(&t, at, &mut u),
+            Scan::default(),
+            "nothing read"
+        );
         assert_eq!(l.compared(), Rows::of_count(rows), "every row compared");
     }
 
@@ -3478,9 +3748,13 @@ mod tests {
             found: vec![b"/p13".to_vec()],
         };
         let mut l = Lines::default();
-        let _ = l.scan(&t, at, &mut r);
+        let _ = l.scan_alone(&t, at, &mut r);
         assert_eq!(runs(&l), [(5, 37, 39)], "the control: /p13 runs on below");
-        assert_eq!(l.scan(&t, at, &mut r), Scan::default(), "nothing read");
+        assert_eq!(
+            l.scan_alone(&t, at, &mut r),
+            Scan::default(),
+            "nothing read"
+        );
         assert_eq!(
             l.compared(),
             Rows::of_count(usize::from(WS.ws_row) + 1),
@@ -3735,7 +4009,7 @@ mod tests {
         let (mut l, mut a) = (Lines::default(), Answering::default());
         let (mut r, mut px) = (made(), Vec::new());
         for damage in [Damage::Full, Damage::Incremental, Damage::Incremental] {
-            let _ = l.scan(&t, at, &mut a);
+            let _ = l.scan_alone(&t, at, &mut a);
             painted(&mut r, &mut t, &l, &mut px, damage);
         }
         assert_eq!(l.lines(), &[] as &[LinkLine], "the control: none found");
@@ -3744,7 +4018,7 @@ mod tests {
         painted(&mut made(), &mut t, &l, &mut before, Damage::Full);
         a.toggle("/p1");
         l.answered();
-        let _ = l.scan(&t, at, &mut a);
+        let _ = l.scan_alone(&t, at, &mut a);
         assert_eq!(runs(&l), [(0, 4, 6)], "the control: the answer draws");
         assert_eq!(written(&t, &seal), [] as [usize; 0], "no row written");
         let mut fresh = Vec::new();
@@ -3853,7 +4127,7 @@ mod tests {
         assert_eq!(written(&t, &seal), [] as [usize; 0], "no row written");
         let _ = sealed_scan(&mut l, &mut t, at, &mut r);
         let mut apart = Lines::default();
-        let _ = apart.scan(
+        let _ = apart.scan_alone(
             &t,
             at,
             &mut Joining {
@@ -3903,7 +4177,7 @@ mod tests {
         assert_eq!(written(&t, &seal), [] as [usize; 0], "the window unwritten");
         let _ = sealed_scan(&mut l, &mut t, at, &mut r);
         let mut fresh = Lines::default();
-        let _ = fresh.scan(&t, at, &mut found());
+        let _ = fresh.scan_alone(&t, at, &mut found());
         assert_eq!(runs(&fresh), [], "a scan from nothing: /p1/p10 is none");
         assert_eq!(runs(&l), runs(&fresh));
     }
@@ -4039,6 +4313,125 @@ mod tests {
                 alternate > 0,
                 "the control, seed {seed}: the alternate screen scrolled under its count"
             );
+        }
+    }
+
+    /// **The view's synced slots are each row's cells' under seals**: from
+    /// four seeds, 1,000 steps each of `OSC 8` links on new lines, at a
+    /// cursor address and left open across a line, plain lines, erasures,
+    /// looks back, switches of screen and a resize to the same size, with
+    /// the frame sealed after the sync but one step in four; after every
+    /// sync each row's set is `LinkSet::of_cells` of the row the view shows,
+    /// and the sync is fresh until the next byte. The scan's count moves as
+    /// the app moves it (`keep::Counts`). Control: each seed moves the
+    /// window on one screen. Named breaks: leave the sets where they were in
+    /// `ViewLinks::moved`; keep the rows a move brought in as read.
+    #[test]
+    fn synced_slots_are_each_rows_cells_under_seals() {
+        for seed in [3u64, 11, 64, 2027] {
+            let mut x = seed;
+            let mut next = |m: usize| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                usize::try_from(x % u64::try_from(m).unwrap_or(1)).unwrap_or(0)
+            };
+            let mut owned = Owned::with_history(
+                &WS,
+                &baud_domain::CacheGeometry::UNKNOWN,
+                baud_domain::Depth::of(8),
+            );
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut counts = crate::keep::Counts::new(&t);
+            let mut at = counts.primary();
+            let mut views = ViewLinks::default();
+            let mut moved = 0;
+            for step in 0..1000 {
+                let (was_at, was_screen) = (at, t.screen());
+                let n = next(1000);
+                let link =
+                    |n: usize| format!("\x1b]8;;https://v{n}.example/\x1b\\v{n}\x1b]8;;\x1b\\");
+                let bytes = match next(10) {
+                    0 | 1 => format!("\r\nsee {}", link(n % 90)),
+                    2 => format!("\r\nplain {n}"),
+                    3 => format!("\x1b[{};{}H{}", 1 + next(6), 1 + next(30), link(n % 90)),
+                    4 => "\r\n\r\n\r\n".to_string(),
+                    5 => {
+                        t.set_window_back(Rows::of_count(next(4)));
+                        String::new()
+                    }
+                    6 => match next(4) {
+                        0 => "\x1b[?47h".to_string(),
+                        1 => "\x1b[?47l".to_string(),
+                        2 => "\x1b[?1049h".to_string(),
+                        _ => "\x1b[?1049l".to_string(),
+                    },
+                    7 => {
+                        let _ = t.resize(&WS);
+                        String::new()
+                    }
+                    8 => "\x1b[2J\x1b[H".to_string(),
+                    _ => format!(
+                        "\r\n\x1b]8;;https://o{n}.example/\x1b\\open\r\nstill\x1b]8;;\x1b\\"
+                    ),
+                };
+                feed(&mut t, bytes.as_bytes());
+                let rec = t.take_record();
+                at = counts.numbered(&t, Some(&rec)).scrolled();
+                if t.screen() == was_screen && at != was_at {
+                    moved += 1;
+                }
+                let fresh = views.sync(&t, at);
+                let view = t.view(t.window_back());
+                for y in 0..view.rows().index() {
+                    let r = Row::from_index(y);
+                    assert_eq!(
+                        fresh.row(r),
+                        LinkSet::of_cells(view.row(r)),
+                        "seed {seed}, step {step}, row {y}: {bytes:?}"
+                    );
+                }
+                assert!(views.fresh(&t, at).is_some(), "fresh until the next byte");
+                if next(4) != 0 {
+                    let _ = t.seal_writes();
+                }
+            }
+            assert!(moved > 0, "the control, seed {seed}: the window moved");
+        }
+    }
+
+    /// **A `Fresh` is made only by a sync, or by `ViewLinks::fresh` while
+    /// nothing moved**: no reader holds slots it did not get from the view's
+    /// own sync. baud-app runs no `compile_fail`, so the source is read:
+    /// every struct literal of it in lined.rs is in `ViewLinks::sync` or
+    /// `ViewLinks::fresh`, and no other file of the crate spells one.
+    /// Positive control: the reader finds the three those two make. Named
+    /// break: a `Fresh` built in `Lines::scan` -- found outside them.
+    #[test]
+    fn a_fresh_is_made_only_by_a_sync() {
+        // Spelled apart, so this test's own text is not what it finds.
+        let lit = concat!("Fresh", " {");
+        let src = include_str!("lined.rs");
+        let code = &src[..src.find("#[cfg(test)]\nmod tests").expect("the tests")];
+        let body = crate::no_appkit::fn_body;
+        let made = body(code, concat!("    pub fn ", "sync<'v>("))
+            .matches(lit)
+            .count()
+            + body(code, concat!("    pub fn ", "fresh(&self"))
+                .matches(lit)
+                .count();
+        assert_eq!(made, 3, "the control: sync's two and fresh's one");
+        assert_eq!(code.matches(lit).count(), made, "one made elsewhere");
+        for (name, other) in [
+            ("app.rs", crate::app_source::app_source()),
+            ("link.rs", include_str!("link.rs")),
+            ("link_layer.rs", include_str!("link_layer.rs")),
+            ("linux.rs", include_str!("linux.rs")),
+            ("paths.rs", include_str!("paths.rs")),
+            ("probe.rs", include_str!("probe.rs")),
+            ("seat.rs", include_str!("seat.rs")),
+        ] {
+            assert!(!other.contains(lit), "{name} makes one");
         }
     }
 

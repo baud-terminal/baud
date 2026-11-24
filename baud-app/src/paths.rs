@@ -1968,6 +1968,10 @@ pub struct Paths {
     /// The steps every look for a held line has taken
     /// ([`Paths::held_over`]).
     held_steps: core::cell::Cell<WalkSteps>,
+    /// The cells an `OSC 8` link's origin read for the rows holding its
+    /// slot, where no view's slots read for its view were at hand
+    /// ([`crate::link::Osc8::view_rows`]).
+    slot_cells: core::cell::Cell<WalkSteps>,
     key: Vec<u8>,
     tokens: Vec<Token>,
     /// The paths the last read found runs for, each run's [`Key::Path`] a
@@ -2820,6 +2824,12 @@ impl Paths {
         self.held_steps.get()
     }
 
+    /// The cells read for the rows holding a link's slot, so far.
+    #[cfg(test)]
+    fn slot_cells(&self) -> WalkSteps {
+        self.slot_cells.get()
+    }
+
     /// **What wrote `line` of `surface`** ([`Facts::provenance`]); none if
     /// nothing was filed over it, or it is the alternate screen's before its
     /// last clear. A line [`Paths::renumbered`] covers is at least not
@@ -3256,12 +3266,29 @@ impl Paths {
     /// machine's file just as a marked one does. A printed path is asked
     /// about by its own check, and has none. The rows are the screen's up.
     pub fn printed(&self, term: &Term<'_>, link: &crate::link::Under) -> crate::link::Printed {
+        self.printed_in(term, link, None)
+    }
+
+    /// [`Paths::printed`], with the rows holding an `OSC 8` link's slot read
+    /// from `views` while they are of the link's view, and else from the
+    /// view's cells, counted.
+    pub fn printed_in(
+        &self,
+        term: &Term<'_>,
+        link: &crate::link::Under,
+        views: Option<&crate::lined::Fresh<'_>>,
+    ) -> crate::link::Printed {
         use crate::link::{Printed, Under};
         let surface = self.surface(term.screen());
         match link {
             Under::Osc8(o) => Printed::Link {
                 origin: match o.uri(term) {
-                    Some(uri) => self.link_origin(surface, o.id(), uri, &o.view_rows(term)),
+                    Some(uri) => {
+                        let mut read = self.slot_cells.get();
+                        let rows = o.view_rows(term, views, &mut read);
+                        self.slot_cells.set(read);
+                        self.link_origin(surface, o.id(), uri, &rows)
+                    }
                     None => LinkOrigin::unknown(),
                 },
             },
@@ -4313,6 +4340,18 @@ pub trait PathsAt {
     /// line for.
     fn printed(&self, term: &Term<'_>, link: &crate::link::Under) -> crate::link::Printed;
 
+    /// [`PathsAt::printed`], with the rows holding an `OSC 8` link's slot
+    /// read from `views` while they are of the link's view.
+    fn printed_in(
+        &self,
+        term: &Term<'_>,
+        link: &crate::link::Under,
+        views: Option<&crate::lined::Fresh<'_>>,
+    ) -> crate::link::Printed {
+        let _ = views;
+        self.printed(term, link)
+    }
+
     /// The path at unit `at` of a click's window of text, `lines` its first
     /// and last line, on `screen`, if the worker found it or found it gone.
     fn at(
@@ -4389,6 +4428,15 @@ impl PathsAt for Paths {
 
     fn printed(&self, term: &Term<'_>, link: &crate::link::Under) -> crate::link::Printed {
         Paths::printed(self, term, link)
+    }
+
+    fn printed_in(
+        &self,
+        term: &Term<'_>,
+        link: &crate::link::Under,
+        views: Option<&crate::lined::Fresh<'_>>,
+    ) -> crate::link::Printed {
+        Paths::printed_in(self, term, link, views)
     }
 
     /// On, both rows of one provenance: written while the same kind of
@@ -4720,7 +4768,7 @@ mod tests {
         let (mut l, mut u) = (Lines::default(), Uris::default());
         let _ = p.observe(&t, at());
         p.begin_collect();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &t,
             at(),
             &mut Links {
@@ -4735,7 +4783,7 @@ mod tests {
             (c.path, if there { Probe::Exists } else { Probe::Missing })
         });
         let _ = p.merge_into(answers, &mut l);
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &t,
             at(),
             &mut Links {
@@ -4968,7 +5016,7 @@ mod tests {
         p.set(Turned::On);
         p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &t,
             at(),
             &mut Links {
@@ -4980,7 +5028,7 @@ mod tests {
         assert_eq!(p.owed(), Owed::Yes, "a frame owes");
         p.begin_collect();
         l.forget();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &t,
             at(),
             &mut Links {
@@ -5000,7 +5048,7 @@ mod tests {
         feed(&mut t, b"\x1b[2J\x1b[H/a /c\r\n");
         p.begin_collect();
         l.forget();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &t,
             at(),
             &mut Links {
@@ -5058,7 +5106,7 @@ mod tests {
         let mut ask = |p: &mut Paths, t: &Term<'_>| {
             p.begin_collect();
             l.forget();
-            let _ = l.scan(
+            let _ = l.scan_alone(
                 t,
                 at(),
                 &mut Links {
@@ -5116,7 +5164,7 @@ mod tests {
         let mut ask = |p: &mut Paths| {
             p.begin_collect();
             l.forget();
-            let _ = l.scan(
+            let _ = l.scan_alone(
                 &t,
                 at(),
                 &mut Links {
@@ -5162,7 +5210,7 @@ mod tests {
         p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
         let mut scan = |p: &mut Paths, l: &mut Lines| {
-            l.scan(
+            l.scan_alone(
                 &t,
                 at(),
                 &mut Links {
@@ -5203,7 +5251,7 @@ mod tests {
     impl Pended<'_> {
         /// A frame's scan.
         fn frame(&mut self) {
-            let _ = self.l.scan(
+            let _ = self.l.scan_alone(
                 &self.t,
                 at(),
                 &mut Links {
@@ -5478,7 +5526,7 @@ mod tests {
         p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
         p.begin_collect();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &t,
             at(),
             &mut Links {
@@ -5592,6 +5640,7 @@ mod tests {
                 Focus::Gained,
                 &crate::link::MachineNames::NONE,
                 &p,
+                None,
             );
             h.over().is_some()
         };
@@ -5612,7 +5661,7 @@ mod tests {
         p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
         p.begin_collect();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &t,
             at(),
             &mut Links {
@@ -5624,7 +5673,7 @@ mod tests {
         let asked = p.end_collect();
         let _ = p.merge(asked.into_iter().map(|c| (c.path, Probe::Exists)));
         l.forget();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &t,
             at(),
             &mut Links {
@@ -5658,7 +5707,7 @@ mod tests {
         p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
         p.begin_collect();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &t,
             at(),
             &mut Links {
@@ -5670,7 +5719,7 @@ mod tests {
         let asked = p.end_collect();
         let _ = p.merge(asked.into_iter().map(|c| (c.path, Probe::Exists)));
         l.forget();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &t,
             at(),
             &mut Links {
@@ -5728,7 +5777,7 @@ mod tests {
         let _ = p.observe(&t, at());
         p.begin_collect();
         let mut links = |p: &mut Paths, l: &mut Lines| {
-            let _ = l.scan(
+            let _ = l.scan_alone(
                 &t,
                 at(),
                 &mut Links {
@@ -5772,7 +5821,7 @@ mod tests {
         feed(&mut t, b"/etc/hosts again\r\n");
         frame(&t, &mut p, &mut l, &mut u);
         let mut scan = |p: &mut Paths, l: &mut Lines| {
-            l.scan(
+            l.scan_alone(
                 &t,
                 at(),
                 &mut Links {
@@ -5784,7 +5833,7 @@ mod tests {
         };
         let fresh = |p: &mut Paths| {
             let mut l = Lines::default();
-            let _ = l.scan(
+            let _ = l.scan_alone(
                 &t,
                 at(),
                 &mut Links {
@@ -6180,7 +6229,7 @@ mod tests {
         let mut l = Lines::default();
         let mut scan = |p: &mut Paths, l: &mut Lines| {
             l.forget();
-            let _ = l.scan(
+            let _ = l.scan_alone(
                 &t,
                 at(),
                 &mut Links {
@@ -6208,7 +6257,7 @@ mod tests {
         p.close();
         assert_eq!(p.result(b"/x"), None, "a hang drops the answer");
         let mut l = Lines::default();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &t,
             at(),
             &mut Links {
@@ -6293,6 +6342,7 @@ mod tests {
                 Focus::Gained,
                 &crate::link::MachineNames::one(HERE),
                 &p,
+                None,
             );
             assert!(h.struck().is_empty(), "{uri}: no chord, no strike");
             let _ = h.update_with(
@@ -6303,6 +6353,7 @@ mod tests {
                 Focus::Gained,
                 &crate::link::MachineNames::one(HERE),
                 &p,
+                None,
             );
             assert_eq!(h.struck().len(), 1, "{uri}: struck under the chord");
             assert_eq!(h.take_entered(), Some(Gone::File(b"/gone".to_vec())));
@@ -6360,7 +6411,7 @@ mod tests {
         let mut l = Lines::default();
         p.begin_collect();
         let mut scan = |p: &mut Paths, l: &mut Lines| {
-            let _ = l.scan(
+            let _ = l.scan_alone(
                 &t,
                 at(),
                 &mut Links {
@@ -6465,6 +6516,7 @@ mod tests {
             Focus::Gained,
             &crate::link::MachineNames::NONE,
             &p,
+            None,
         );
         assert_eq!(h.struck().len(), 1, "on: struck under the chord");
         let _ = p.set_missing(Turned::Off);
@@ -6476,6 +6528,7 @@ mod tests {
             Focus::Gained,
             &crate::link::MachineNames::NONE,
             &p,
+            None,
         );
         assert!(h.struck().is_empty(), "off: not struck");
         assert!(h.look().is_some(), "and the bar still says why");
@@ -6572,7 +6625,7 @@ mod tests {
         let mut u = Uris::default();
         u.set_rules(c.link.rules.clone());
         let mut l = Lines::default();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             &t,
             at(),
             &mut Links {
@@ -6691,7 +6744,7 @@ mod tests {
         let mut l = Lines::default();
         let scan = |p: &mut Paths, l: &mut Lines, u: &mut Uris| {
             l.forget();
-            let _ = l.scan(
+            let _ = l.scan_alone(
                 &t,
                 at(),
                 &mut Links {
@@ -6951,7 +7004,7 @@ mod tests {
                     // The look at rest, as the scan draws it, for either form.
                     let mark = {
                         let mut l = Lines::default();
-                        let _ = l.scan(
+                        let _ = l.scan_alone(
                             &t,
                             at(),
                             &mut Links {
@@ -7029,7 +7082,7 @@ mod tests {
                     p.written_under(seen, LineSpan::of(second, second));
                 }
                 let mut l = Lines::default();
-                let _ = l.scan(
+                let _ = l.scan_alone(
                     &t,
                     at(),
                     &mut Links {
@@ -7089,7 +7142,7 @@ mod tests {
         (row, col): (baud_domain::Row, baud_domain::Col),
     ) -> (bool, bool, bool) {
         let mut l = Lines::default();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             t,
             at(),
             &mut Links {
@@ -7214,7 +7267,7 @@ mod tests {
         scrolled: Scrolled,
         (row, col): (baud_domain::Row, baud_domain::Col),
     ) -> (bool, bool) {
-        let _ = l.scan(
+        let _ = l.scan_alone(
             t,
             scrolled,
             &mut Links {
@@ -7867,7 +7920,7 @@ mod tests {
                 uris.set_names(MachineNames::one(HERE));
                 uris.set_rules(p.rules().clone());
                 let mut l = Lines::default();
-                let _ = l.scan(
+                let _ = l.scan_alone(
                     t,
                     at(),
                     &mut Links {
@@ -8274,7 +8327,7 @@ mod tests {
                 uris.set_rules(p.rules().clone());
                 let read = |p: &mut Paths, uris: &mut crate::lined::Uris| {
                     let mut l = Lines::default();
-                    let _ = l.scan(
+                    let _ = l.scan_alone(
                         t,
                         at(),
                         &mut Links {
@@ -8430,7 +8483,7 @@ mod tests {
                     uris.set_names(MachineNames::one(HERE));
                     uris.set_rules(p.rules().clone());
                     let mut l = Lines::default();
-                    let _ = l.scan(
+                    let _ = l.scan_alone(
                         t,
                         at(),
                         &mut Links {
@@ -8591,7 +8644,7 @@ mod tests {
             let mut l = Lines::default();
             let _ = p.observe(&t, at());
             p.begin_collect();
-            let _ = l.scan(
+            let _ = l.scan_alone(
                 &t,
                 at(),
                 &mut Links {
@@ -8968,6 +9021,84 @@ mod tests {
         let (readable, steps) = read(&p, 1_001, 1_002);
         assert!(!readable, "its last line held");
         assert!((1..=11).contains(&steps), "{steps} steps");
+    }
+
+    /// **A resting hover reads no cell for its link's rows while the view's
+    /// slots are fresh**: at 200x50, Ctrl held over an `OSC 8` link and its
+    /// preview shown, a byte written on another row; the frame syncs the
+    /// view's slots and reads the hover again through them, and the rows
+    /// holding the link's slot cost no cell, its origin unchanged. The
+    /// control: another byte and the read again with no sync, as a pointer
+    /// event between a read and the next frame reads -- no slots of the
+    /// view shown at hand -- falls back to the view's cells, two reads of
+    /// 10,000 under the chord (the hover's and the preview's), counted. Named break: read the rows from the
+    /// view's cells whatever `views` holds in `Osc8::view_rows` -- 20,000.
+    #[test]
+    fn a_resting_hover_reads_no_slot_cells() {
+        use crate::lined::ViewLinks;
+        use crate::link::{Chord, Hover, Spot, hovered};
+        use baud_core::Focus;
+        use baud_domain::{Col, Row};
+        const WIDE: WinSize = WinSize {
+            ws_col: 200,
+            ws_row: 50,
+        };
+        let mut owned = Owned::new(&WIDE);
+        let mut t = Term::new(owned.storage(), &WIDE);
+        feed(
+            &mut t,
+            b"\x1b]8;;https://e.example/x\x1b\\the link\x1b]8;;\x1b\\\r\n",
+        );
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        let host = crate::link::MachineNames::one(HERE);
+        let at_cell = Some((Row::ZERO, Col::at_index(1)));
+        let spot = Spot {
+            scrolled: at(),
+            back: Rows::ZERO,
+            row: Row::ZERO,
+            col: Col::at_index(1),
+        };
+        let (mut h, mut views) = (Hover::default(), ViewLinks::default());
+        let fresh = views.sync(&t, at());
+        let _ = h.update_with(
+            &t,
+            at_cell,
+            at(),
+            Chord::Cmd,
+            Focus::Gained,
+            &host,
+            &p,
+            Some(&fresh),
+        );
+        assert!(h.look().is_some(), "the control: the link previewed");
+        let link = hovered(&t, spot).expect("the link");
+        let was = p.printed_in(&t, &link, Some(&fresh));
+        feed(&mut t, b"\x1b[30;5Hx");
+        let fresh = views.sync(&t, at());
+        let before = p.slot_cells().get();
+        let _ = h.refresh_with(&t, at(), Chord::Cmd, Focus::Gained, &host, &p, Some(&fresh));
+        assert_eq!(p.slot_cells().get() - before, 0, "slot cells read");
+        assert_eq!(p.printed_in(&t, &link, Some(&fresh)), was, "origin");
+        assert!(h.look().is_some(), "still previewed");
+        // The control: the views at hand are not of the view shown, as a
+        // driver's are between a byte and the next frame.
+        feed(&mut t, b"\x1b[31;5Hy");
+        let before = p.slot_cells().get();
+        let _ = h.refresh_with(
+            &t,
+            at(),
+            Chord::Cmd,
+            Focus::Gained,
+            &host,
+            &p,
+            views.fresh(&t, at()).as_ref(),
+        );
+        assert_eq!(
+            p.slot_cells().get() - before,
+            2 * 200 * 50,
+            "the control: read from the cells, counted"
+        );
     }
 
     /// **Spans of one origin that touch are one, and a span gone from
@@ -9493,7 +9624,7 @@ mod tests {
     fn collect(t: &Term<'_>, p: &mut Paths, l: &mut Lines, u: &mut Uris) -> Vec<Candidate> {
         p.begin_collect();
         l.forget();
-        let _ = l.scan(
+        let _ = l.scan_alone(
             t,
             at(),
             &mut Links {
@@ -9507,7 +9638,7 @@ mod tests {
 
     /// A frame's scan of `t`, outside a collection.
     fn frame(t: &Term<'_>, p: &mut Paths, l: &mut Lines, u: &mut Uris) {
-        let _ = l.scan(
+        let _ = l.scan_alone(
             t,
             at(),
             &mut Links {
@@ -9721,6 +9852,7 @@ mod tests {
                 Focus::Gained,
                 &crate::link::MachineNames::NONE,
                 &p,
+                None,
             );
             assert!(
                 h.over().is_some(),
@@ -9781,6 +9913,7 @@ mod tests {
                 Focus::Gained,
                 &crate::link::MachineNames::NONE,
                 &p,
+                None,
             );
             assert!(h.over().is_some(), "{what:?}: lit under the pointer");
         }
@@ -9885,7 +10018,7 @@ mod tests {
         let (mut l, mut u) = (Lines::default(), Uris::default());
         let mut scan = |p: &mut Paths, l: &mut Lines, t: &Term<'_>, at: Scrolled| {
             let _ = p.observe(t, at);
-            l.scan(
+            l.scan_alone(
                 t,
                 at,
                 &mut Links {
@@ -9978,7 +10111,7 @@ mod joined_rows {
     fn scan(t: &Term<'_>, p: &mut Paths, l: &mut Lines) -> Runs {
         let mut u = Uris::default();
         let mut once = |p: &mut Paths, l: &mut Lines| {
-            let _ = l.scan(
+            let _ = l.scan_alone(
                 t,
                 at(),
                 &mut Links {
@@ -10019,6 +10152,7 @@ mod joined_rows {
             Focus::Gained,
             &crate::link::MachineNames::NONE,
             p,
+            None,
         );
         let over = h.over().map(|o| spans(&o.spans)).unwrap_or_default();
         let mut h = Hover::default();
@@ -10030,6 +10164,7 @@ mod joined_rows {
             Focus::Gained,
             &crate::link::MachineNames::NONE,
             p,
+            None,
         );
         let chord = h.look().map(|o| spans(&o.spans)).unwrap_or_default();
         let spot = Spot {
@@ -10354,7 +10489,7 @@ mod joined_rows {
             let (mut p, mut l) = (paths(), Lines::default());
             let _ = p.set_join(join);
             let mut u = Uris::default();
-            let _ = l.scan(
+            let _ = l.scan_alone(
                 &t,
                 at(),
                 &mut Links {
@@ -10409,6 +10544,7 @@ mod joined_rows {
             Focus::Gained,
             &crate::link::MachineNames::NONE,
             &p,
+            None,
         );
         let over = h.over().map(|o| spans(&o.spans));
         assert_eq!(
@@ -10431,6 +10567,7 @@ mod joined_rows {
             Focus::Gained,
             &crate::link::MachineNames::NONE,
             &p,
+            None,
         );
         assert!(moved, "read again");
         assert_eq!(h.over(), None, "parted: the cut address has no look");
@@ -10463,7 +10600,7 @@ mod joined_rows {
         p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
         let mut scan = |t: &Term<'_>, p: &mut Paths, l: &mut Lines| {
-            let _ = l.scan(
+            let _ = l.scan_alone(
                 t,
                 at(),
                 &mut Links {

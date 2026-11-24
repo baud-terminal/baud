@@ -296,13 +296,15 @@ impl Seat {
     /// modifiers**: with Ctrl held and not Shift -- the link gesture's
     /// chord -- the link under the pointer is underlined and its address
     /// shown; otherwise, or off the surface, nothing. Whether the frame
-    /// changed.
+    /// changed. The rows holding an `OSC 8` link's slot are read from
+    /// `views` while they are of the view shown.
     pub(crate) fn hover(
         &mut self,
         term: &Term<'_>,
         mods: Modifiers,
         g: Geometry,
         host: &crate::link::MachineNames,
+        views: Option<&crate::lined::Fresh<'_>>,
     ) -> bool {
         use crate::link::Chord;
         self.hover
@@ -326,17 +328,19 @@ impl Seat {
             self.focus,
             host,
             &self.paths,
+            views,
         )
     }
 
     /// The preview read again under the pointer where it rests, after a
     /// read, on the view shown now and with the modifiers held now:
-    /// whether the frame changed.
+    /// whether the frame changed, `views` as [`Seat::hover`] reads them.
     pub(crate) fn hover_refresh(
         &mut self,
         term: &Term<'_>,
         mods: Modifiers,
         host: &crate::link::MachineNames,
+        views: Option<&crate::lined::Fresh<'_>>,
     ) -> bool {
         use crate::link::Chord;
         let chord = match mods.has(Modifiers::CTRL) && !mods.has(Modifiers::SHIFT) {
@@ -344,9 +348,15 @@ impl Seat {
             false => Chord::Other,
         };
         self.hover.over_text()
-            && self
-                .hover
-                .refresh_with(term, self.scrolled, chord, self.focus, host, &self.paths)
+            && self.hover.refresh_with(
+                term,
+                self.scrolled,
+                chord,
+                self.focus,
+                host,
+                &self.paths,
+                views,
+            )
     }
 
     /// Where a link's address shows, `[message.link] place`.
@@ -2635,9 +2645,15 @@ mod tests {
         let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
         let host = &crate::link::MachineNames::NONE;
         put(&mut seat, &mut t, Input::Moved(15.0, 5.0), NONE);
-        assert!(!seat.hover(&t, ctrl, G, host), "no keyboard, no preview");
+        assert!(
+            !seat.hover(&t, ctrl, G, host, None),
+            "no keyboard, no preview"
+        );
         seat.focused(Focus::Gained);
-        assert!(seat.hover(&t, ctrl, G, host), "Ctrl held over the link");
+        assert!(
+            seat.hover(&t, ctrl, G, host, None),
+            "Ctrl held over the link"
+        );
         let look = seat.hover_look().cloned().expect("a preview");
         let span = |r: usize, a: usize, b: usize| LinkSpan {
             row: Row::from_index(r),
@@ -2656,45 +2672,45 @@ mod tests {
             text, " https://\u{2026}ple.com\u{2026}/ ",
             "shortened to the row"
         );
-        assert!(seat.hover(&t, NONE, G, host), "Ctrl let go");
+        assert!(seat.hover(&t, NONE, G, host, None), "Ctrl let go");
         assert!(seat.hover_look().is_none());
         let shift_ctrl = ctrl.with(Modifiers::SHIFT);
         assert!(
-            !seat.hover(&t, shift_ctrl, G, host),
+            !seat.hover(&t, shift_ctrl, G, host, None),
             "Shift is the selection's"
         );
         // The URI in the text, from column 5 of the first row over the wrap
         // to column 3 of the second.
         put(&mut seat, &mut t, Input::Moved(75.0, 5.0), NONE);
-        assert!(seat.hover(&t, ctrl, G, host));
+        assert!(seat.hover(&t, ctrl, G, host, None));
         let look = seat.hover_look().cloned().expect("a preview");
         assert_eq!(look.spans, vec![span(0, 5, 19), span(1, 0, 3)]);
         // Leaving takes it away, and so does losing the keyboard.
         put(&mut seat, &mut t, Input::Left, NONE);
-        assert!(seat.hover(&t, ctrl, G, host), "the pointer left");
+        assert!(seat.hover(&t, ctrl, G, host, None), "the pointer left");
         put(&mut seat, &mut t, Input::Moved(15.0, 5.0), NONE);
-        assert!(seat.hover(&t, ctrl, G, host));
+        assert!(seat.hover(&t, ctrl, G, host, None));
         seat.focused(Focus::Lost);
         assert!(seat.hover_look().is_none(), "the keyboard gone");
-        assert!(!seat.hover_refresh(&t, ctrl, host));
+        assert!(!seat.hover_refresh(&t, ctrl, host, None));
         // **A read under a pointer whose Ctrl went up unreported draws no
         // preview**: Ctrl held over plain text, then a link written under
         // the resting pointer, read again with Ctrl up. The control: with
         // Ctrl still held, the link is previewed.
         seat.focused(Focus::Gained);
         put(&mut seat, &mut t, Input::Moved(15.0, 45.0), NONE);
-        assert!(!seat.hover(&t, ctrl, G, host), "plain text under it");
+        assert!(!seat.hover(&t, ctrl, G, host, None), "plain text under it");
         feed(
             &mut t,
             b"\x1b[5;1H\x1b]8;;https://c.example/\x1b\\later\x1b]8;;\x1b\\",
         );
         assert!(
-            !seat.hover_refresh(&t, NONE, host),
+            !seat.hover_refresh(&t, NONE, host, None),
             "Ctrl up: nothing drawn"
         );
         assert!(seat.hover_look().is_none());
         assert!(
-            seat.hover_refresh(&t, ctrl, host),
+            seat.hover_refresh(&t, ctrl, host, None),
             "the control: Ctrl held, the pointer resting"
         );
     }
@@ -2727,7 +2743,7 @@ mod tests {
         let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
         let host = &crate::link::MachineNames::NONE;
         put(&mut seat, &mut t, Input::Moved(5.0, 5.0), NONE);
-        assert!(seat.hover(&t, ctrl, G, host));
+        assert!(seat.hover(&t, ctrl, G, host, None));
         let bar = |seat: &Seat| -> String {
             let look = seat.hover_look().expect("a preview");
             look.bar
@@ -2737,9 +2753,9 @@ mod tests {
                 .collect()
         };
         let shown = bar(&seat);
-        assert!(!seat.hover_refresh(&t, ctrl, host), "the control");
+        assert!(!seat.hover_refresh(&t, ctrl, host, None), "the control");
         feed(&mut t, b"more\r\nmore\r\n");
-        let _ = seat.hover_refresh(&t, ctrl, host);
+        let _ = seat.hover_refresh(&t, ctrl, host, None);
         assert_eq!(bar(&seat), shown, "the link drawn under the pointer");
     }
 
@@ -2884,11 +2900,11 @@ mod tests {
         seat.focused(Focus::Gained);
         let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
         put(&mut seat, &mut t, Input::Moved(15.0, 5.0), NONE);
-        assert!(seat.hover(&t, ctrl, G, &crate::link::MachineNames::NONE));
+        assert!(seat.hover(&t, ctrl, G, &crate::link::MachineNames::NONE, None));
         assert_eq!(seat.pointer_shape(asked), Some(PointerShape::Hand2));
-        assert!(seat.hover(&t, NONE, G, &crate::link::MachineNames::NONE));
+        assert!(seat.hover(&t, NONE, G, &crate::link::MachineNames::NONE, None));
         assert_eq!(seat.pointer_shape(asked), asked, "Ctrl let go");
-        assert!(seat.hover(&t, ctrl, G, &crate::link::MachineNames::NONE));
+        assert!(seat.hover(&t, ctrl, G, &crate::link::MachineNames::NONE, None));
         seat.focused(Focus::Lost);
         assert_eq!(seat.pointer_shape(asked), asked, "the keyboard gone");
     }
@@ -2971,7 +2987,7 @@ mod tests {
                 },
             );
             let pressed = seat.hover_press(b.left_press(t, f, at(ms)));
-            let hovered = seat.hover(t, ctrl, G, host);
+            let hovered = seat.hover(t, ctrl, G, host, None);
             (pressed, hovered)
         };
         // A frame: the thumb drawn, who a left press goes to read again.
@@ -3008,7 +3024,7 @@ mod tests {
         t.set_window_back(baud_domain::Rows::of_count(0));
         b.reveal.reveal(at(5));
         let _ = frame(&mut seat, &t, &mut b, 5);
-        let _ = seat.hover_refresh(&t, ctrl, host);
+        let _ = seat.hover_refresh(&t, ctrl, host, None);
         assert!(seat.hover_look().is_some(), "a link on the live screen");
         assert_eq!(seat.pointer_shape(asked), asked, "the thumb held");
         let gone = (5..=2000)

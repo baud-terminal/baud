@@ -19,7 +19,7 @@ use baud_core::Term;
 use baud_render::{LineStyle, Scrolled};
 
 use crate::bell::Moment;
-use crate::lined::{Lines, Uris};
+use crate::lined::{Lines, Uris, ViewLinks};
 use crate::link::{Click, ClickOn, Refused, Target, Under};
 use crate::paths::{CoreLines, LineOn, Links, Moved, Paths};
 use crate::probe::{Asks, Linked, Probes, Sampler, Seen, Turn, WatchCell, Writers};
@@ -119,9 +119,9 @@ pub(crate) fn moved<T: Moment>(probes: &mut Probes<T>, paths: &mut Paths) {
 
 /// **The lines at rest for a frame** (`lined.rs`): the reported folder
 /// observed before the rows are read (`Paths::observe`), then the rows
-/// scanned. The style to draw them in, or none with `[link] line` off, when
-/// no line is kept.
-pub(crate) fn frame(layer: &mut Layer<'_, '_>) -> Option<LineStyle> {
+/// scanned, through `views` brought to the view shown now. The style to
+/// draw them in, or none with `[link] line` off, when no line is kept.
+pub(crate) fn frame(layer: &mut Layer<'_, '_>, views: &mut ViewLinks) -> Option<LineStyle> {
     match layer.config.lines() {
         Some(style) => {
             if layer.paths.observe(layer.term, layer.scrolled) == Moved::Yes {
@@ -130,6 +130,7 @@ pub(crate) fn frame(layer: &mut Layer<'_, '_>) -> Option<LineStyle> {
             layer.lines.scan(
                 layer.term,
                 layer.scrolled,
+                &views.sync(layer.term, layer.scrolled),
                 &mut Links {
                     uris: layer.uris,
                     urls: layer.config.urls_read(),
