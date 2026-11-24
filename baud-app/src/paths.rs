@@ -103,12 +103,15 @@ use core::ops::Range;
 use std::collections::{HashMap, HashSet};
 
 use baud_core::{FileHost, Screen, Term};
-use baud_domain::{Cols, LinkEpoch, LinkId, PendingGen, Rows};
+use baud_domain::{
+    Cols, LinkEpoch, LinkId, PendingGen, Rows, SpanSet, Spanned, Tracked, WalkSteps,
+};
 use baud_render::{AbsLine, Scrolled, Tally, row_of};
 
 use crate::lined::{At, Drawn, Key, Lines, Mark, Reader, Run, Text, Uris};
 use crate::link::{Edge, Ix, Joins, MAX, Scheme, Target, Unit, admit_link};
 use crate::rules::{NO_RULES, Rules};
+use crate::sys::Pid;
 
 /// What the bar calls this machine.
 #[cfg(target_os = "macos")]
@@ -888,8 +891,10 @@ pub enum Owed {
 /// its own count of lines and its own facts ([`Paths`]), so a line of one
 /// is never looked up, or filed, as a line of the other; and the alternate
 /// screen's count starts again at each of its clears, so a span of an
-/// earlier epoch names text that is gone, and is filed nowhere.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// earlier epoch names text that is gone, and is filed nowhere. Ordered
+/// so the spans on it sort ([`LineSpan`]): the primary, then each epoch of
+/// the alternate screen in turn.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Surface {
     Primary,
     Alternate(AltEpoch),
@@ -897,7 +902,7 @@ pub enum Surface {
 
 /// **How many times the core has cleared the alternate screen**
 /// (`ReadRecord::cleared`), from this window's start.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub struct AltEpoch(u64);
 
 impl AltEpoch {
@@ -1246,29 +1251,27 @@ impl Erased {
 /// **The lines one program wrote, first to last**, on one surface's
 /// absolute line numbers, so history scrolling and trimming leave them
 /// where they were: what a read was, from the line the cursor was on as it
-/// began to the line it ended on.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// began to the line it ended on. Ordered by surface, then first line,
+/// then last, so a set of them sorts ([`SpanSet`]).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct LineSpan {
     surface: Surface,
     first: AbsLine,
     last: AbsLine,
 }
 
-/// **Whether `b` holds the spans `a` does, in whatever order**, each two
-/// spans compared counted in `n`. Spans handed again unchanged come in the
-/// order they were kept in, so the two are walked side by side first,
-/// each pair compared once; only where they part is each held against
-/// every other.
-fn same_spans(a: &[LineSpan], b: impl Iterator<Item = LineSpan> + Clone, n: &mut Tally) -> bool {
-    let mut eq = |p: LineSpan, s: LineSpan| {
-        n.bump();
-        p == s
-    };
-    let mut side = b.clone();
-    if a.iter().all(|&p| side.next().is_some_and(|s| eq(p, s))) && side.next().is_none() {
-        return true;
+impl Spanned for LineSpan {
+    type Lane = Surface;
+    type Line = AbsLine;
+    fn lane(self) -> Surface {
+        self.surface
     }
-    b.clone().all(|s| a.iter().any(|&p| eq(p, s))) && a.iter().all(|&p| b.clone().any(|s| eq(p, s)))
+    fn first(self) -> AbsLine {
+        self.first
+    }
+    fn last(self) -> AbsLine {
+        self.last
+    }
 }
 
 impl LineSpan {
@@ -1951,15 +1954,17 @@ pub struct Paths {
     /// now** (`probe::Probes`'s: kept to send, and sent and not yet
     /// answered): a gap among them carries nothing when a read moves it
     /// ([`Paths::worst_over`]), since its span goes with the text.
-    pending: Vec<LineSpan>,
+    /// Sorted, each once, so a new set is compared with it in one walk.
+    pending: SpanSet<LineSpan, ()>,
     /// **The lines of those an answer for another writer was filed over**
     /// (`probe::Probes`'s holds): none reads as this machine's, whatever is
     /// filed over it ([`Paths::wrote`]), until its own writer is named. A
     /// span carried through a move it did not make exactly -- the hull of a
     /// move that took part of it, a band -- covers lines another writer's
     /// text may hold, so a local answer filed over it stands on them only
-    /// once their own writer's does.
-    held: Vec<LineSpan>,
+    /// once their own writer's does. Sorted, each once, whatever group
+    /// holds it.
+    held: SpanSet<LineSpan, ()>,
     /// Where those spans and the holds stood when last taken
     /// ([`Paths::pending_at`]).
     pending_at: Option<(PendingGen, PendingGen)>,
@@ -1967,7 +1972,7 @@ pub struct Paths {
     /// ([`Paths::set_pending`]), and the spans they compared: a read that
     /// moved nothing leaves both as it found them.
     publishes: Tally,
-    pending_steps: Tally,
+    pending_steps: WalkSteps,
     key: Vec<u8>,
     tokens: Vec<Token>,
     /// The paths the last read found runs for, each run's [`Key::Path`] a
@@ -2810,7 +2815,7 @@ impl Paths {
 
     /// The pairs of spans those handings compared, so far.
     #[cfg(test)]
-    pub fn pending_steps(&self) -> Tally {
+    pub fn pending_steps(&self) -> WalkSteps {
         self.pending_steps
     }
 
@@ -2871,7 +2876,7 @@ impl Paths {
     fn held_over(&self, surface: Surface, (first, last): (AbsLine, AbsLine)) -> bool {
         self.held
             .iter()
-            .any(|p| p.surface == surface && p.first <= last && first <= p.last)
+            .any(|(p, ())| p.surface == surface && p.first <= last && first <= p.last)
     }
 
     /// **Where the lines still to be named and the holds stood when
@@ -2890,27 +2895,34 @@ impl Paths {
     /// Where the lines still to be named
     /// changed, [`Reads`] is decided again, and what the last collection
     /// met on them is settled once none of its lines is still to be named
-    /// ([`Paths::named`]).
-    pub fn set_pending<I, J>(&mut self, at: (PendingGen, PendingGen), pending: I, held: J)
-    where
-        I: Iterator<Item = LineSpan> + Clone,
-        J: Iterator<Item = LineSpan> + Clone,
-    {
+    /// ([`Paths::named`]). Each is compared with what was taken before by
+    /// one walk, counted in `Paths::pending_steps`; the holds not at all
+    /// while their generation, `at`'s second, is the one last taken.
+    pub fn set_pending(
+        &mut self,
+        at: (PendingGen, PendingGen),
+        pending: SpanSet<LineSpan, ()>,
+        held: &Tracked<SpanSet<LineSpan, Option<Pid>>>,
+    ) {
+        debug_assert_eq!(at.1, held.generation(), "the holds stand where `at` says");
+        let held_was = self.pending_at.map(|(_, h)| h);
         self.pending_at = Some(at);
         self.publishes.bump();
-        if !same_spans(&self.pending, pending.clone(), &mut self.pending_steps) {
-            self.pending.clear();
-            self.pending.extend(pending);
+        if !self.pending.same(&pending, &mut self.pending_steps) {
+            self.pending = pending;
             self.named();
         }
-        if same_spans(&self.held, held.clone(), &mut self.pending_steps) {
+        if held_was == Some(at.1) {
             return;
         }
-        for span in self.held.iter().copied().chain(held.clone()) {
+        let held = SpanSet::of_unsorted(held.get().iter().map(|(span, _)| (span, ())));
+        if self.held.same(&held, &mut self.pending_steps) {
+            return;
+        }
+        for (span, ()) in self.held.iter().chain(held.iter()) {
             self.refiled = Some(self.refiled.map_or(span, |r| r.joined(span)));
         }
-        self.held.clear();
-        self.held.extend(held);
+        self.held = held;
         self.origins = self.origins.next();
     }
 
@@ -2928,7 +2940,7 @@ impl Paths {
             Awaiting::Cached(s) => (s, None),
             Awaiting::Unanswered(s) => (s, Some(Owes::Path)),
         };
-        if self.pending.iter().any(|p| p.meet(span).is_some()) {
+        if self.pending.iter().any(|(p, ())| p.meet(span).is_some()) {
             return;
         }
         self.awaiting = Awaiting::Nothing;
@@ -3380,6 +3392,7 @@ impl Paths {
             let touching = self
                 .pending
                 .iter()
+                .map(|(p, ())| p)
                 .filter(|p| p.surface == surface && p.first <= b && a <= p.last);
             by.extend(touching);
             None
@@ -4059,7 +4072,7 @@ impl Paths {
         let span = LineSpan::on(self.surface(screen), first, last);
         self.pending
             .iter()
-            .any(|p| p.meet(span).is_some())
+            .any(|(p, ())| p.meet(span).is_some())
             .then_some(span)
     }
 
@@ -4572,13 +4585,18 @@ mod tests {
     use crate::link::admit;
     use crate::tool::tool;
     use baud_core::Owned;
-    use baud_domain::{BytePos, ReadLen, Tracked, WinSize};
+    use baud_domain::{BytePos, ReadLen, WinSize};
 
     /// Where a driver's lines still to be named stand, as `set_pending`
     /// takes them from a test that hands spans on directly.
     pub(super) fn handed() -> (PendingGen, PendingGen) {
         let t = Tracked::new(());
         (t.generation(), t.generation())
+    }
+
+    /// No holds, at the generation [`handed`] says.
+    fn no_holds() -> Tracked<SpanSet<LineSpan, Option<Pid>>> {
+        Tracked::new(SpanSet::new())
     }
 
     /// **Each part's lines are placed against its own window top**
@@ -5191,8 +5209,7 @@ mod tests {
                 self.p
                     .written_under(Seen::Named(Front::Local), Self::row(y));
             }
-            self.p
-                .set_pending(handed(), core::iter::empty(), core::iter::empty());
+            self.p.set_pending(handed(), SpanSet::new(), &no_holds());
             self.l.forget();
         }
     }
@@ -5221,8 +5238,8 @@ mod tests {
             let _ = p.observe(&t, at());
             p.set_pending(
                 handed(),
-                [Pended::row(baud_domain::Row::from_index(0))].into_iter(),
-                core::iter::empty(),
+                SpanSet::of_unsorted([(Pended::row(baud_domain::Row::from_index(0)), ())]),
+                &no_holds(),
             );
             let mut w = Pended {
                 t,
@@ -5286,8 +5303,8 @@ mod tests {
         feed(&mut w.t, b"/etc/hosts\r\n");
         w.p.set_pending(
             handed(),
-            [Pended::row(baud_domain::Row::from_index(1))].into_iter(),
-            core::iter::empty(),
+            SpanSet::of_unsorted([(Pended::row(baud_domain::Row::from_index(1)), ())]),
+            &no_holds(),
         );
         w.frame();
         assert_eq!(w.p.owes(), Some(Owes::Path), "a frame owes the naming");
@@ -5317,8 +5334,8 @@ mod tests {
         p.all_written_here();
         p.set_pending(
             handed(),
-            [Pended::row(baud_domain::Row::from_index(5))].into_iter(),
-            core::iter::empty(),
+            SpanSet::of_unsorted([(Pended::row(baud_domain::Row::from_index(5)), ())]),
+            &no_holds(),
         );
         let mut w = Pended {
             t,
@@ -9038,7 +9055,7 @@ mod tests {
                 .part(Some(t.history_mark().line()));
             let mut p = Paths::new(None, Forms::DEFAULT);
             p.set(Turned::On);
-            p.set_pending(handed(), [s].into_iter(), core::iter::empty());
+            p.set_pending(handed(), SpanSet::of_unsorted([(s, ())]), &no_holds());
             let screens = [Screen::Normal, Screen::Alternate];
             let went = p.carried_span(&rec, &lines, &screens, s);
             (went, p.carried(&rec, &lines, &screens))
@@ -10481,29 +10498,38 @@ mod joined_rows {
     /// **The same held lines handed again are compared once each**
     /// (`Paths::set_pending`): two thousand lines held one by one, as a
     /// re-cut holds each line it moves under a group still to be named,
-    /// handed again unchanged, cost at most one comparison per line, where
-    /// every read hands them while they stay held. The control: the same
+    /// handed again with their generation moved and no line changed, cost
+    /// at most one comparison per line, where every read hands them while
+    /// they stay held. The control: the same
     /// lines in the other order are still the same and refile nothing, and
     /// one line fewer refiles. Named break: compare each line with every
     /// other on each hand -- 4,002,000 comparisons for 2,000 lines.
     #[test]
     fn the_same_held_lines_handed_again_are_compared_once_each() {
         let mut p = paths();
-        let held: Vec<LineSpan> = (0..2_000)
-            .map(|i| {
+        let hand = |p: &mut Paths, h: &Tracked<SpanSet<LineSpan, Option<Pid>>>| {
+            p.set_pending((handed().0, h.generation()), SpanSet::new(), h);
+        };
+        let spans = |rows: &mut dyn Iterator<Item = usize>| {
+            SpanSet::of_unsorted(rows.map(|i| {
                 let l = line(Row::from_index(i));
-                LineSpan::of(l, l)
-            })
-            .collect();
-        p.set_pending(handed(), core::iter::empty(), held.iter().copied());
-        let (before, origins) = (p.pending_steps().value(), p.origins);
-        p.set_pending(handed(), core::iter::empty(), held.iter().copied());
-        let again = p.pending_steps().value() - before;
+                (LineSpan::of(l, l), None)
+            }))
+        };
+        let mut held = Tracked::new(spans(&mut (0..2_000)));
+        hand(&mut p, &held);
+        let (before, origins) = (p.pending_steps().get(), p.origins);
+        let _ = held.edit();
+        hand(&mut p, &held);
+        let again = p.pending_steps().get() - before;
         assert!(again <= 2_000, "{again} comparisons for 2,000 lines");
         assert_eq!(p.origins, origins, "nothing refiled");
-        p.set_pending(handed(), core::iter::empty(), held.iter().rev().copied());
+        *held.edit() = spans(&mut (0..2_000).rev());
+        hand(&mut p, &held);
         assert_eq!(p.origins, origins, "the other order is the same lines");
-        p.set_pending(handed(), core::iter::empty(), held[1..].iter().copied());
+        let first = line(Row::from_index(0));
+        held.edit().retain(|s, _| s != LineSpan::of(first, first));
+        hand(&mut p, &held);
         assert_ne!(p.origins, origins, "one line fewer refiles");
     }
 }

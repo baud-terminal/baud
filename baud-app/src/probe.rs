@@ -141,7 +141,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::time::Duration;
 
 use baud_core::Term;
-use baud_domain::{PendingGen, Rows, Tracked};
+use baud_domain::{PendingGen, Rows, SpanSet, Tracked, WalkSteps};
 use baud_render::Scrolled;
 
 use crate::bell::Moment;
@@ -1452,10 +1452,12 @@ fn joined(a: Option<LineSpan>, b: Option<LineSpan>) -> Option<LineSpan> {
     }
 }
 
-/// `h` held, where it is not already: the holds move only when it is new.
-fn hold(held: &mut Tracked<Vec<(Option<Pid>, LineSpan)>>, h: (Option<Pid>, LineSpan)) {
-    if !held.get().contains(&h) {
-        held.edit().push(h);
+/// `span` held under `g`, where it is not already: the holds move only
+/// when it is new.
+fn hold(held: &mut Tracked<SpanSet<LineSpan, Option<Pid>>>, (g, span): (Option<Pid>, LineSpan)) {
+    if !held.get().keys_of(span).any(|k| k == g) {
+        let mut steps = WalkSteps::ZERO;
+        let _ = held.edit().insert(span, g, &mut steps);
     }
 }
 
@@ -2386,7 +2388,7 @@ pub struct Probes<T> {
     /// of its own until named, so those lines read as not known
     /// (`Paths::set_pending`) until the answer naming their own group is
     /// filed on them as well (`Probes::file_answered`).
-    held: Tracked<Vec<(Option<Pid>, LineSpan)>>,
+    held: Tracked<SpanSet<LineSpan, Option<Pid>>>,
     /// The group whose verdict each line's facts came from (G1): a group
     /// still to be named writing over lines another lit holds them.
     lit: Lit,
@@ -2484,7 +2486,7 @@ impl<T: Moment> Probes<T> {
             kept: Tracked::new(Kept::default()),
             probe_runs: baud_render::Tally::default(),
             cursors: Vec::new(),
-            held: Tracked::new(Vec::new()),
+            held: Tracked::new(SpanSet::new()),
             lit: Lit::default(),
             off: Vec::new(),
             shell_group: None,
@@ -2974,8 +2976,8 @@ impl<T: Moment> Probes<T> {
 
     /// **Every line whose writer is still to be named**: kept to send, and
     /// sent and not yet answered.
-    fn pending(&self) -> impl Iterator<Item = LineSpan> + Clone + '_ {
-        let held = self.held.get().iter().map(|e| e.1);
+    fn pending(&self) -> impl Iterator<Item = LineSpan> + '_ {
+        let held = self.held.get().iter().map(|e| e.0);
         self.kept.get().spans().chain(held)
     }
 
@@ -2990,12 +2992,14 @@ impl<T: Moment> Probes<T> {
     /// changes them -- a read kept, a part's moves, a batch answered, the
     /// same-group shortcut, a close. Nothing is handed on, and no span
     /// compared, while neither has moved from where `paths` last took them.
+    /// `paths` takes a sorted copy of the lines still to be named; the
+    /// order `kept` keeps them in stays here.
     fn publish(&self, paths: &mut Paths) {
         #[cfg(test)]
         let began = std::time::Instant::now();
         if paths.pending_at() != Some(self.gens()) {
-            let held = self.held.get().iter().map(|e| e.1);
-            paths.set_pending(self.gens(), self.pending(), held);
+            let pending = SpanSet::of_unsorted(self.pending().map(|s| (s, ())));
+            paths.set_pending(self.gens(), pending, &self.held);
         }
         #[cfg(test)]
         {
@@ -3024,7 +3028,7 @@ impl<T: Moment> Probes<T> {
         let seen = kept.seen.iter().map(|e| (Some(e.0), e.1));
         seen.chain(kept.unnamed.map(|l| (None, l)))
             .chain(kept.inflight.iter().map(|e| (e.1, e.2)))
-            .chain(self.held.get().iter().copied())
+            .chain(self.held.get().iter().map(|(s, g)| (g, s)))
             .filter(move |e| e.1 == span)
             .map(|e| e.0)
     }
@@ -3075,10 +3079,10 @@ impl<T: Moment> Probes<T> {
             Some(g) => kept.seen.iter().any(|e| e.0 == g),
             None => kept.unnamed.is_some(),
         } || kept.inflight.iter().any(|e| e.1 == h);
-        if self.held.get().iter().all(|&(h, _)| named(h)) {
+        if self.held.get().iter().all(|(_, h)| named(h)) {
             return;
         }
-        self.held.edit().retain(|&(h, span)| {
+        self.held.edit().retain(|span, h| {
             let waits = named(h);
             if !waits {
                 paths.written_under(f, span);
@@ -3160,12 +3164,11 @@ impl<T: Moment> Probes<T> {
                 .flat_map(|(i, g, s)| s.outside(erased).map(move |p| (i, g, p)))
                 .collect();
         }
-        if self.held.get().iter().any(|e| meets(e.1)) {
-            let held = self.held.edit();
-            *held = core::mem::take(held)
-                .into_iter()
-                .flat_map(|(g, s)| s.outside(erased).map(move |p| (g, p)))
-                .collect();
+        if self.held.get().iter().any(|e| meets(e.0)) {
+            let left = self.held.get().iter();
+            let left = left.flat_map(|(s, g)| s.outside(erased).map(move |p| (p, g)));
+            let left = SpanSet::of_unsorted(left);
+            *self.held.edit() = left;
         }
         self.off = core::mem::take(&mut self.off)
             .into_iter()
@@ -3191,10 +3194,8 @@ impl<T: Moment> Probes<T> {
                 e.2 = carry(e.2);
             }
         }
-        if self.held.get().iter().any(|e| moves(e.1)) {
-            for e in self.held.edit() {
-                e.1 = carry(e.1);
-            }
+        if self.held.get().iter().any(|e| moves(e.0)) {
+            self.held.edit().map_spans(&carry);
         }
         for o in &mut self.off {
             *o = carry(*o);
@@ -3324,7 +3325,7 @@ impl<T: Moment> Probes<T> {
             }
             // The holds this group's verdict releases, lit by it now.
             let lit = &mut self.lit;
-            self.held.edit().retain(|&(h, span)| {
+            self.held.edit().retain(|span, h| {
                 if h == g {
                     paths.written_by(f, by, span);
                     lit.set(g, span);
@@ -3344,7 +3345,7 @@ impl<T: Moment> Probes<T> {
                 for &(_, _, span) in kept.inflight.iter().filter(|e| mine(e)) {
                     for (h, other) in others.clone() {
                         if let Some(both) = span.meet(other) {
-                            self.held.edit().push((h, both));
+                            hold(&mut self.held, (h, both));
                         }
                     }
                 }
@@ -4022,7 +4023,7 @@ impl<T: Moment> Probes<T> {
         }
         *self.kept.edit() = Kept::default();
         self.cursors.clear();
-        self.held.edit().clear();
+        *self.held.edit() = SpanSet::new();
         self.lit.clear();
         self.off.clear();
         self.publish(paths);
@@ -8864,12 +8865,13 @@ mod tests {
         }
         for h in 0..64 {
             let at = line(2_000 + 2 * h);
-            pr.held
-                .edit()
-                .push((Some(group(h % GROUPS)), LineSpan::of(at, at)));
+            hold(
+                &mut pr.held,
+                (Some(group(h % GROUPS)), LineSpan::of(at, at)),
+            );
         }
         pr.publish(&mut paths);
-        let count = |paths: &Paths| (paths.publishes().value(), paths.pending_steps().value());
+        let count = |paths: &Paths| (paths.publishes().value(), paths.pending_steps().get());
         let before = count(&paths);
         // A kept group's read over a line its span holds.
         pr.read_taken(
@@ -8929,6 +8931,82 @@ mod tests {
         assert!(steps > before.1, "the control: the moved span compared");
     }
 
+    /// **A read that moves one span compares each span once**
+    /// (`Paths::set_pending`): sixteen groups kept to send and 200 holds,
+    /// handed on, so P = 216 spans still to be named and H = 200 held; a
+    /// read that grows one kept group's span by a line, then the last hold
+    /// moved a line down. Each hand-on compares at most 2(P + H) + 2 pairs
+    /// of spans. The controls: each is handed on once and compares. Named
+    /// break: the two sets compared each span against every other -- about
+    /// P² pairs for the read, and P² + H² for the hold.
+    #[test]
+    fn one_moved_span_costs_linear_compares() {
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let group = |g: usize| Pid::try_from(100 + g).expect("a pid");
+        for g in 0..GROUPS {
+            let first = line(1_000 + 10 * g);
+            pr.kept
+                .edit()
+                .seen
+                .push((group(g), LineSpan::of(first, first.below())));
+        }
+        const HELD: usize = 200;
+        for h in 0..HELD {
+            let at = line(2_000 + 2 * h);
+            hold(
+                &mut pr.held,
+                (Some(group(h % GROUPS)), LineSpan::of(at, at)),
+            );
+        }
+        pr.publish(&mut paths);
+        let bound = |p: usize, h: usize| u64::try_from(2 * (p + h) + 2).expect("a small bound");
+        let count = |paths: &Paths| (paths.publishes().value(), paths.pending_steps().get());
+        // A kept group's read one line past its span.
+        let before = count(&paths);
+        pr.read_taken(
+            &mut paths,
+            Writers::at(Some(group(0))),
+            LineSpan::of(line(1_002), line(1_002)),
+            Linked::No,
+        );
+        let after = count(&paths);
+        let most = bound(GROUPS + HELD, HELD);
+        assert_eq!(
+            after.0 - before.0,
+            1,
+            "the control: the read handed on once"
+        );
+        assert!(after.1 > before.1, "the control: the read compared");
+        assert!(
+            after.1 - before.1 <= most,
+            "the read compared {} pairs, against the bound {most}",
+            after.1 - before.1
+        );
+        // The last hold moved a line down, so each set differs only at its
+        // end.
+        let was = line(2_000 + 2 * (HELD - 1));
+        let at = was.below();
+        pr.held.edit().retain(|s, _| s != LineSpan::of(was, was));
+        hold(&mut pr.held, (Some(group(0)), LineSpan::of(at, at)));
+        let before = count(&paths);
+        pr.publish(&mut paths);
+        let after = count(&paths);
+        assert_eq!(
+            after.0 - before.0,
+            1,
+            "the control: the hold handed on once"
+        );
+        assert!(after.1 > before.1, "the control: the hold compared");
+        assert!(
+            after.1 - before.1 <= most,
+            "the hold compared {} pairs, against the bound {most}",
+            after.1 - before.1
+        );
+    }
+
     /// **A hold over a line erased whole is let go** (`Probes::cut`,
     /// `held`): `ls`'s lit text on rows 0 and 1; a program gone before it
     /// was named wrote over both, so they are held under its group, its
@@ -8947,7 +9025,7 @@ mod tests {
         let both = LineSpan::of(line(0), line(1));
         let id = Id::default();
         paths.written_under(crate::paths::Seen::Named(Front::Local), both);
-        pr.held.edit().push((Some(7), both));
+        hold(&mut pr.held, (Some(7), both));
         pr.kept.edit().inflight.push((id, Some(7), both));
         pr.publish(&mut paths);
         erased_by(&mut pr, &mut paths, b"\x1b[2;1H\x1b[2K");
@@ -12221,13 +12299,14 @@ mod tests {
                 .edit()
                 .inflight
                 .push((id, Some(9), LineSpan::of(line(5), line(5))));
-            pr.held
-                .edit()
-                .push((Some(9), LineSpan::of(line(3), line(3))));
+            hold(&mut pr.held, (Some(9), LineSpan::of(line(3), line(3))));
             pr.publish(&mut paths);
             assert_eq!(paths.origin(line(3)), Origin::Unknown, "held");
             pr.file_answered(&mut paths, (id, Kind::Screen), &[(Some(9), verdict)], &[]);
-            assert_eq!((paths.origin(line(3)), pr.held.get().len()), (origin, 0));
+            assert_eq!(
+                (paths.origin(line(3)), pr.held.get().len().index()),
+                (origin, 0)
+            );
             let three = vec![LineSpan::of(line(3), line(3))];
             assert!(pr.lit.not_of(Some(9), three).is_empty(), "lit by its group");
         }
@@ -13201,7 +13280,7 @@ mod tests {
                 frames.push((
                     pr.publishes.load(Ordering::Relaxed) - calls,
                     pr.publish_ns.load(Ordering::Relaxed) - ns,
-                    pr.held.get().len(),
+                    pr.held.get().len().index(),
                     pr.pending().count(),
                 ));
             }
@@ -13216,9 +13295,9 @@ mod tests {
                 told = map.as_ref().map_or(0, |m| m.map.len());
                 pr.resized(&mut paths, (&rec, map), &t, was_last, &counts);
                 assert!(
-                    pr.held.get().len() > 1_000,
+                    pr.held.get().len().index() > 1_000,
                     "the control: the re-cut held its lines, {} held of {told} told",
-                    pr.held.get().len()
+                    pr.held.get().len().index()
                 );
             }
         }

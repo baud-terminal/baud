@@ -1098,3 +1098,44 @@ impl Allocated {
         self.0
     }
 }
+
+/// **The elements a walk visited or compared**, saturating: what a count
+/// test holds a walk to. Every walking method of `SpanSet` takes one by
+/// `&mut`, so no walk there goes uncounted.
+///
+/// Counted only by a walk: the field is private, so a caller cannot start
+/// a count anywhere but at [`WalkSteps::ZERO`].
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::WalkSteps(5);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let mut steps = baud_domain::WalkSteps::ZERO;
+/// steps.bump();
+/// assert_eq!(steps.get(), 1);
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct WalkSteps(u64);
+
+impl WalkSteps {
+    /// None taken.
+    pub const ZERO: WalkSteps = WalkSteps(0);
+
+    /// One more element visited or compared.
+    pub fn bump(&mut self) {
+        self.0 = self.0.saturating_add(1);
+    }
+
+    /// `more`'s steps, taken as well.
+    pub fn add(&mut self, more: WalkSteps) {
+        self.0 = self.0.saturating_add(more.0);
+    }
+
+    /// The steps taken.
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}

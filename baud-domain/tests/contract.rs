@@ -514,6 +514,41 @@ const _: () = assert!(core::mem::size_of::<baud_domain::SlotSet>() == 8192);
 // SpacingMarks
 const _: baud_domain::SpacingMarks = baud_domain::SpacingMarks::Column;
 const _: baud_domain::SpacingMarks = baud_domain::SpacingMarks::Joined;
+// SpanSet, at a span of this file's
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Lines(u8, u8);
+impl baud_domain::Spanned for Lines {
+    type Lane = ();
+    type Line = u8;
+    fn lane(self) {}
+    fn first(self) -> u8 {
+        self.0
+    }
+    fn last(self) -> u8 {
+        self.1
+    }
+}
+const _: for<'a, 'b> fn(
+    &'a mut baud_domain::SpanSet<Lines, ()>,
+    Lines,
+    (),
+    &'b mut baud_domain::WalkSteps,
+) -> baud_domain::Inserted = baud_domain::SpanSet::<Lines, ()>::insert;
+const _: for<'a, 'b, 'c> fn(
+    &'a mut baud_domain::SpanSet<Lines, ()>,
+    &'b mut Vec<(Lines, ())>,
+    &'c mut baud_domain::WalkSteps,
+) = baud_domain::SpanSet::<Lines, ()>::extend_sorted;
+const _: for<'a, 'b, 'c> fn(
+    &'a baud_domain::SpanSet<Lines, ()>,
+    &'b baud_domain::SpanSet<Lines, ()>,
+    &'c mut baud_domain::WalkSteps,
+) -> bool = baud_domain::SpanSet::<Lines, ()>::same;
+const _: for<'a> fn(&'a baud_domain::SpanSet<Lines, ()>) -> baud_domain::SpanCount =
+    baud_domain::SpanSet::<Lines, ()>::len;
+fn _keys_of(s: &baud_domain::SpanSet<Lines, ()>, x: Lines) -> impl Iterator<Item = ()> + '_ {
+    s.keys_of(x)
+}
 // Spot
 const _: baud_domain::Spot = baud_domain::Spot {
     line: baud_domain::LineIdx::FIRST,
@@ -598,6 +633,9 @@ const _: baud_domain::Vs16Width = baud_domain::Vs16Width::Two;
 const _: baud_domain::Vs16Width = baud_domain::Vs16Width::One;
 const _: fn(baud_domain::Vs16Width, baud_domain::ClusterCells) -> bool =
     baud_domain::Vs16Width::widens_in;
+// WalkSteps
+const _: baud_domain::WalkSteps = baud_domain::WalkSteps::ZERO;
+const _: fn(baud_domain::WalkSteps) -> u64 = baud_domain::WalkSteps::get;
 // WatchedLines
 const _: baud_domain::WatchedLines = baud_domain::WatchedLines {
     first: baud_domain::SurfaceLine::At(baud_domain::Row::ZERO),
@@ -747,6 +785,9 @@ const WITNESSED: &[(&str, &str)] = &[
     ("SixelAspect", "E0451"),
     ("SixelCanvas", "E0451"),
     ("SlotSet", "E0599"),
+    ("SpanCount", "E0423"),
+    ("SpanSet", "E0616"),
+    ("SpanSet", "E0599"),
     ("StatusGen", "E0451"),
     ("Stride", "E0423"),
     ("StringId", "E0423"),
@@ -756,6 +797,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("Tracked", "E0616"),
     ("Tracked", "E0599"),
     ("Variants", "E0603"),
+    ("WalkSteps", "E0423"),
     ("Width", "E0603"),
     ("WrapMargins", "E0451"),
 ];
