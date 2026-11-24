@@ -568,10 +568,6 @@ pub struct OwnedBusName {
 
 impl OwnedBusName {
     /// `name` kept, if it is a unique name; a well-known name is `None`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the connection builds it from Hello's reply")
-    )]
     pub(crate) const fn unique(name: BusName<'_>) -> Option<OwnedBusName> {
         if !matches!(name.kind(), BusKind::Unique) {
             return None;

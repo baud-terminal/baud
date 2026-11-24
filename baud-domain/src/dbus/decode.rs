@@ -19,7 +19,9 @@ use core::marker::PhantomData;
 
 use super::body::{ArrayLen, MessageLen};
 use super::header::{FieldCode, Flags, MessageKind, Serial, VERSION};
-use super::name::{BusName, ErrorName, InterfaceName, MemberName, NameError, ObjectPath, Str};
+use super::name::{
+    BusName, ErrorName, InterfaceName, MemberName, NameError, ObjectPath, OwnedBusName, Str,
+};
 use super::sig::{Depth, Sig, SigError, single};
 use super::value::{Align, Args, Boolean, FdCount, FdIndex, Marshal};
 
@@ -120,6 +122,10 @@ pub enum Malformed {
     Trailing,
     /// A UNIX_FD index not below the message's UNIX_FDS.
     FdIndex,
+    /// A reply whose body is not its method's out arguments.
+    Reply,
+    /// `Hello`'s reply naming a well-known name, not a unique one.
+    NotUnique,
 }
 
 impl Malformed {
@@ -149,6 +155,8 @@ impl Malformed {
             Malformed::Overrun => "a value ends inside its array and its message",
             Malformed::Trailing => "a body is exactly the values its signature names",
             Malformed::FdIndex => "a UNIX_FD names one of the message's descriptors",
+            Malformed::Reply => "a reply's body has its method's signature",
+            Malformed::NotUnique => "Hello's reply is a unique name, beginning with ':'",
         }
     }
 }
@@ -943,6 +951,85 @@ macro_rules! received {
 }
 
 received!(Return, ErrorReply, Signal, Called);
+
+/// The unique name that owns a well-known name: the SENDER of a reply
+/// from it, which the bus sets ("Header Fields": SENDER "is controlled by
+/// the message bus, so it is as reliable and trustworthy as the message
+/// bus itself"; "Message Bus Names": no other connection can take a
+/// unique name). A signal is acted on only once its own SENDER is this
+/// name ([`Peer::vouch`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Peer {
+    name: OwnedBusName,
+}
+
+impl Peer {
+    /// The connection that sent `reply`, if its SENDER is there and is a
+    /// unique name.
+    pub fn from_reply(reply: &Return<'_>) -> Option<Peer> {
+        let name = OwnedBusName::unique(reply.header.sender()?)?;
+        Some(Peer { name })
+    }
+
+    /// The peer's unique name.
+    #[inline]
+    pub fn name(&self) -> BusName<'_> {
+        self.name.as_name()
+    }
+
+    /// `signal`, trusted, if this peer sent it: `None` for a signal with
+    /// no SENDER or another one.
+    pub fn vouch<'a>(&self, signal: &Signal<'a>) -> Option<Trusted<'a>> {
+        if signal.header.sender()? != self.name() {
+            return None;
+        }
+        Some(Trusted { signal: *signal })
+    }
+}
+
+/// A signal whose SENDER is the [`Peer`] it was checked against: the only
+/// form in which a signal is acted on, so one from another connection,
+/// or from none named, is never taken for one from the connection that
+/// holds the name.
+///
+/// A signal is not passed where a trusted one is asked for:
+///
+/// ```compile_fail,E0308
+/// use baud_domain::dbus::{Signal, Trusted};
+/// fn fdo_signal(_: Trusted<'_>) {}
+/// fn f(signal: Signal<'_>) { fdo_signal(&signal) }
+/// ```
+///
+/// and is not made trusted by naming it so:
+///
+/// ```compile_fail,E0451
+/// use baud_domain::dbus::{Signal, Trusted};
+/// fn f(signal: Signal<'_>) { let _ = Trusted { signal }; }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// use baud_domain::dbus::{Peer, Signal, Trusted};
+/// fn fdo_signal(_: Trusted<'_>) {}
+/// fn f(peer: &Peer, signal: &Signal<'_>) {
+///     if let Some(trusted) = peer.vouch(signal) {
+///         fdo_signal(trusted);
+///     }
+/// }
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Trusted<'a> {
+    signal: Signal<'a>,
+}
+
+impl<'a> Trusted<'a> {
+    /// The signal.
+    #[inline]
+    pub const fn signal(&self) -> Signal<'a> {
+        self.signal
+    }
+}
 
 /// One received message, by its type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

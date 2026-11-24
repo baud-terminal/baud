@@ -23,7 +23,18 @@
 //! ([`Inbound`]), each type's required fields held without `Option`; a
 //! body reads only as the [`Args`] whose signature is its own
 //! ([`BodyRef::read`]). Nothing here allocates.
+//!
+//! Before any message, the [`Handshake`] runs the authentication protocol
+//! as typestate, each state with only its next step, and begins a
+//! [`Connection`]: its [`Serials`], whether file descriptors pass on it
+//! ([`FdsAgreed`], the one maker of a [`UnixFd`]) and its unique name,
+//! kept from `Hello`'s reply. A reply finds the call it answers in an
+//! [`Awaiting`] in one slot read, and a signal is acted on only as
+//! [`Trusted`], vouched for by the [`Peer`] that owns the name it speaks
+//! for.
 
+mod auth;
+mod awaiting;
 mod body;
 mod decode;
 mod header;
@@ -31,12 +42,17 @@ mod name;
 mod sig;
 mod value;
 
+pub use auth::{
+    AuthLine, AuthSent, AuthStep, Authed, Begun, Connection, FdAnswer, FdsAgreed, Handshake,
+    LineIn, Negotiating, NoFds, Refusal, Uid, auth_line,
+};
+pub use awaiting::{Awaiting, Refusals, Refused};
 pub use body::{ArrayLen, EncodeError, MessageLen};
 #[cfg(feature = "alloc")]
 pub use body::{Body, BodyWriter};
 pub use decode::{
     ArrayRead, BodyError, BodyReader, BodyRef, Called, ErrorReply, Frame, Header, Inbound,
-    Malformed, Order, Return, Signal, Unread, decode, frame,
+    Malformed, Order, Peer, Return, Signal, Trusted, Unread, decode, frame,
 };
 #[cfg(feature = "alloc")]
 pub use header::Encoded;

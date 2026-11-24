@@ -1173,8 +1173,102 @@ const _: fn(
 ) = |c| (c.path, c.member);
 const _: fn(baud_domain::dbus::Header<'static>) -> baud_domain::dbus::Inbound<'static> =
     baud_domain::dbus::Inbound::Unknown;
+// dbus handshake and connection
+const _: fn(
+    Option<baud_domain::dbus::Uid>,
+) -> (
+    baud_domain::dbus::Handshake<baud_domain::dbus::AuthSent>,
+    baud_domain::dbus::AuthLine,
+) = baud_domain::dbus::Handshake::start;
+const _: fn(u32) -> baud_domain::dbus::Uid = baud_domain::dbus::Uid::new;
+const _: for<'a> fn(&'a baud_domain::dbus::AuthLine) -> &'a [u8] =
+    baud_domain::dbus::AuthLine::bytes;
+const _: fn(&'static [u8]) -> Option<baud_domain::dbus::LineIn<'static>> =
+    baud_domain::dbus::auth_line;
+const _: fn(&baud_domain::dbus::LineIn<'static>) -> baud_domain::ReadLen =
+    baud_domain::dbus::LineIn::consumed;
+const _: fn(
+    baud_domain::dbus::Handshake<baud_domain::dbus::AuthSent>,
+    baud_domain::dbus::LineIn<'static>,
+) -> baud_domain::dbus::AuthStep =
+    baud_domain::dbus::Handshake::<baud_domain::dbus::AuthSent>::on_line;
+const _: fn(
+    baud_domain::dbus::Handshake<baud_domain::dbus::Authed>,
+) -> baud_domain::dbus::Begun<baud_domain::dbus::NoFds> = baud_domain::dbus::Handshake::begin;
+const _: fn(
+    baud_domain::dbus::Handshake<baud_domain::dbus::Authed>,
+) -> (
+    baud_domain::dbus::Handshake<baud_domain::dbus::Negotiating>,
+    &'static [u8],
+) = baud_domain::dbus::Handshake::negotiate_fds;
+const _: fn(
+    baud_domain::dbus::Handshake<baud_domain::dbus::Negotiating>,
+    baud_domain::dbus::LineIn<'static>,
+) -> baud_domain::dbus::FdAnswer =
+    baud_domain::dbus::Handshake::<baud_domain::dbus::Negotiating>::on_line;
+const _: fn(&baud_domain::dbus::Begun<baud_domain::dbus::NoFds>) -> &'static [u8] =
+    baud_domain::dbus::Begun::bytes;
+const _: fn(
+    baud_domain::dbus::Begun<baud_domain::dbus::FdsAgreed>,
+) -> baud_domain::dbus::Connection<baud_domain::dbus::FdsAgreed> =
+    baud_domain::dbus::Begun::into_connection;
+const _: for<'a> fn(
+    &'a mut baud_domain::dbus::Connection<baud_domain::dbus::NoFds>,
+) -> &'a mut baud_domain::dbus::Serials = baud_domain::dbus::Connection::serials;
+const _: fn(
+    &baud_domain::dbus::Connection<baud_domain::dbus::FdsAgreed>,
+) -> baud_domain::dbus::FdsAgreed = baud_domain::dbus::Connection::fds;
+const _: fn(baud_domain::dbus::FdsAgreed, baud_domain::dbus::FdIndex) -> baud_domain::dbus::UnixFd =
+    baud_domain::dbus::FdsAgreed::fd;
+const _: for<'a> fn(
+    &mut baud_domain::dbus::Connection<baud_domain::dbus::NoFds>,
+    &baud_domain::dbus::Return<'a>,
+) -> Result<(), baud_domain::dbus::Malformed> = baud_domain::dbus::Connection::on_hello;
+const _: for<'a> fn(
+    &'a baud_domain::dbus::Connection<baud_domain::dbus::NoFds>,
+) -> Option<baud_domain::dbus::BusName<'a>> = baud_domain::dbus::Connection::unique;
+const _: [baud_domain::dbus::Refusal; 5] = [
+    baud_domain::dbus::Refusal::Rejected,
+    baud_domain::dbus::Refusal::Error,
+    baud_domain::dbus::Refusal::Challenge,
+    baud_domain::dbus::Refusal::Unexpected,
+    baud_domain::dbus::Refusal::Line,
+];
+const _: [baud_domain::dbus::Malformed; 2] = [
+    baud_domain::dbus::Malformed::Reply,
+    baud_domain::dbus::Malformed::NotUnique,
+];
+// dbus replies awaited, and signals trusted
+const _: fn() -> baud_domain::dbus::Awaiting<u8, 32> = baud_domain::dbus::Awaiting::new;
+const _: fn(
+    &mut baud_domain::dbus::Awaiting<u8, 32>,
+    baud_domain::dbus::Serial,
+    u8,
+) -> Result<(), baud_domain::dbus::Refused<u8>> = baud_domain::dbus::Awaiting::insert;
+const _: fn(&mut baud_domain::dbus::Awaiting<u8, 32>, baud_domain::dbus::Serial) -> Option<u8> =
+    baud_domain::dbus::Awaiting::take;
+const _: fn(&baud_domain::dbus::Awaiting<u8, 32>) -> baud_domain::dbus::Refusals =
+    baud_domain::dbus::Awaiting::refusals;
+const _: fn(baud_domain::dbus::Refused<u8>) -> u8 = baud_domain::dbus::Refused::into_inner;
+const _: fn(&baud_domain::dbus::Refused<u8>) -> baud_domain::dbus::Serial =
+    baud_domain::dbus::Refused::held;
+const _: for<'a> fn(&baud_domain::dbus::Return<'a>) -> Option<baud_domain::dbus::Peer> =
+    baud_domain::dbus::Peer::from_reply;
+const _: for<'a> fn(
+    &baud_domain::dbus::Peer,
+    &baud_domain::dbus::Signal<'a>,
+) -> Option<baud_domain::dbus::Trusted<'a>> = baud_domain::dbus::Peer::vouch;
+const _: fn(&baud_domain::dbus::Trusted<'static>) -> baud_domain::dbus::Signal<'static> =
+    baud_domain::dbus::Trusted::signal;
 /// Each type that holds a rule, and the error code its witness expects.
 const WITNESSED: &[(&str, &str)] = &[
+    ("Handshake", "E0599"),
+    ("Connection", "E0599"),
+    ("BusName", "E0599"),
+    ("Awaiting", "E0308"),
+    ("Awaiting", "E0080"),
+    ("Trusted", "E0308"),
+    ("Trusted", "E0451"),
     ("HeaderField", "E0308"),
     ("Body", "E0451"),
     ("Body", "E0277"),

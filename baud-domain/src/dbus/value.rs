@@ -392,13 +392,6 @@ pub struct UnixFd(FdIndex);
 
 impl UnixFd {
     /// The descriptor at `index` of those the message carries.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a connection that agreed to pass descriptors makes it"
-        )
-    )]
     pub(crate) const fn new(index: FdIndex) -> UnixFd {
         UnixFd(index)
     }
