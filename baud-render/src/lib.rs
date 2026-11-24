@@ -23,6 +23,27 @@
 //!
 //! Placement of the instance buffer is a per-architecture startup decision
 //! (D3), and nothing here maps the live grid as a GPU buffer (D4).
+//!
+//! **A terminal handed as `&impl TermRead` is read, never written.** No
+//! read of [`baud_domain::TermRead`] takes `&mut self`, so a write -- a
+//! seal, a resize, a feed -- through it does not compile.
+//!
+//! Named break: `view: &mut baud_core::Term<'_>` in place of `&T` -- the
+//! body compiles and this example fails.
+//!
+//! ```compile_fail,E0599
+//! fn frame<T: baud_domain::TermRead>(view: &T) -> baud_domain::Seal {
+//!     view.seal_writes()
+//! }
+//! ```
+//!
+//! The legal path, a read through the same parameter:
+//!
+//! ```
+//! fn frame<T: baud_domain::TermRead>(view: &T) -> baud_domain::Seal {
+//!     view.sealed()
+//! }
+//! ```
 #![forbid(unsafe_code)]
 // The effect blend, the level quad's distances and the filament
 // exponentials run in core::simd lanes, each lane by the scalar's own
