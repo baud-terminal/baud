@@ -1,5 +1,5 @@
 use crate::*;
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 
 /// Index into the style table. Two bytes rather than ten inline: cell size
 /// drove throughput from 36% of the kernel ceiling to 80%.
@@ -584,9 +584,23 @@ pub enum ProgramPaint {
 /// ```
 /// let _ = baud_domain::ColorWord::rgb(baud_domain::Chan::from_u8(1), baud_domain::Chan::from_u8(2), baud_domain::Chan::from_u8(3));
 /// ```
+///
+/// The type is `FromZeros`, so a rendition table is allocated zeroed, and
+/// not `FromBytes`: `read_from_bytes` does not build one.
+///
+/// ```compile_fail,E0599
+/// use zerocopy::FromBytes;
+/// let _ = baud_domain::ColorWord::read_from_bytes(&[0xff; 4]);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::ColorWord::from_rgb((0xff, 0xff, 0xff));
+/// ```
 #[repr(transparent)]
 #[derive(
-    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
+    Clone, Copy, PartialEq, Eq, Debug, Default, FromZeros, IntoBytes, Immutable, KnownLayout,
 )]
 pub struct ColorWord(pub(crate) u32);
 
@@ -675,7 +689,7 @@ impl ColorWord {
 /// ```
 #[repr(C)]
 #[derive(
-    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
+    Clone, Copy, PartialEq, Eq, Debug, Default, FromZeros, IntoBytes, Immutable, KnownLayout,
 )]
 pub struct StyleWord {
     fg: ColorWord,
@@ -1261,20 +1275,40 @@ pub struct StyleBits([u8; STYLE_BYTES]);
 /// the part a hand-written mask would get wrong the next time `StyleWord`
 /// grows -- and it has grown twice.
 ///
-/// Both witnesses are valid: `StyleWord` is `FromBytes`, so every bit pattern
-/// is one.
+/// The all-ones witness is not a rendition: its colour words carry every
+/// tag at once. It is built inside `derive` and never leaves it, and a fold
+/// is built only by `derive` or as [`StyleFold::IDENTITY`], so `apply`
+/// writes a rendition the fold's own arms could have written.
 #[repr(C)]
-#[derive(
-    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
-)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, IntoBytes, Immutable, KnownLayout)]
 pub struct StyleFold {
     mask: StyleBits,
     value: StyleBits,
 }
 
-impl StyleFold {
-    // `as_mut_bytes` comes from `IntoBytes`.
+impl StyleWord {
+    /// **A word from its twenty bytes in memory order**, the inverse of
+    /// `IntoBytes::as_bytes`.
+    ///
+    /// Inside the crate only: [`StyleFold::apply`] gives it a masked replace
+    /// of a valid word equal to running the fold, and [`StyleFold::derive`]
+    /// its all-ones witness.
+    #[inline(always)]
+    pub(crate) fn from_bytes(b: [u8; STYLE_BYTES]) -> StyleWord {
+        let u32_at = |i: usize| u32::from_ne_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+        let u16_at = |i: usize| u16::from_ne_bytes([b[i], b[i + 1]]);
+        StyleWord {
+            fg: ColorWord(u32_at(core::mem::offset_of!(StyleWord, fg))),
+            bg: ColorWord(u32_at(core::mem::offset_of!(StyleWord, bg))),
+            underline: ColorWord(u32_at(core::mem::offset_of!(StyleWord, underline))),
+            attrs: Attrs(u32_at(core::mem::offset_of!(StyleWord, attrs))),
+            font: FontString(u16_at(core::mem::offset_of!(StyleWord, font))),
+            variants: Variants(u16_at(core::mem::offset_of!(StyleWord, variants))),
+        }
+    }
+}
 
+impl StyleFold {
     /// Changes nothing.
     pub const IDENTITY: StyleFold = StyleFold {
         mask: StyleBits([0; STYLE_BYTES]),
@@ -1288,8 +1322,7 @@ impl StyleFold {
     /// against `fold_into` over every attribute and a spread of start words.
     pub fn derive<F: Fn(&mut StyleWord)>(f: F) -> StyleFold {
         let mut a = StyleWord::DEFAULT;
-        let mut b = StyleWord::DEFAULT;
-        b.as_mut_bytes().fill(0xff);
+        let mut b = StyleWord::from_bytes([0xff; STYLE_BYTES]);
         f(&mut a);
         f(&mut b);
         let mut mask = [0u8; STYLE_BYTES];
@@ -1314,7 +1347,8 @@ impl StyleFold {
     /// leave a field unfolded.
     #[inline(always)]
     pub fn apply(self, cur: &mut StyleWord) {
-        let dst = cur.as_mut_bytes();
+        let mut dst = [0u8; STYLE_BYTES];
+        dst.copy_from_slice(cur.as_bytes());
         let (m, v) = (&self.mask.0, &self.value.0);
         for i in (0..STYLE_BYTES - STYLE_BYTES % 8).step_by(8) {
             let mut w = [0u8; 8];
@@ -1329,6 +1363,7 @@ impl StyleFold {
         for i in STYLE_BYTES - STYLE_BYTES % 8..STYLE_BYTES {
             dst[i] = (dst[i] & !m[i]) | v[i];
         }
+        *cur = StyleWord::from_bytes(dst);
     }
 }
 
@@ -1412,7 +1447,6 @@ mod attrs_free_bits {
 #[cfg(test)]
 mod style_fold {
     use crate::*;
-    use zerocopy::IntoBytes;
 
     /// **Every `SgrAttr` is a masked replace, and this is the claim the SGR
     /// table rests on.** If one arm ever reads a bit it writes, the derived
@@ -1422,16 +1456,18 @@ mod style_fold {
     #[test]
     fn a_fold_is_a_masked_replace_of_the_style_word() {
         let mut starts = [StyleWord::DEFAULT; 66];
-        starts[1].as_mut_bytes().fill(0xff);
+        starts[1] = StyleWord::from_bytes([0xff; super::STYLE_BYTES]);
         // A spread of ordinary renditions, so a pass-through bit that happens
         // to agree on the two witnesses would still be caught.
         for (seed, w) in starts.iter_mut().enumerate().skip(2) {
-            for (i, b) in w.as_mut_bytes().iter_mut().enumerate() {
+            let mut bytes = [0u8; super::STYLE_BYTES];
+            for (i, b) in bytes.iter_mut().enumerate() {
                 let h = (seed as u32)
                     .wrapping_mul(2_654_435_761)
                     .wrapping_add(i as u32);
                 *b = (h >> 13) as u8;
             }
+            *w = StyleWord::from_bytes(bytes);
         }
 
         let mut checked = 0usize;
@@ -1466,7 +1502,7 @@ mod style_fold {
     fn the_blink_rates_are_masked_replaces() {
         let one = |v: u16| SgrAttr::one(Param::from_raw(v)).expect("a one-parameter SGR");
         let mut starts = [StyleWord::DEFAULT; 4];
-        starts[1].as_mut_bytes().fill(0xff);
+        starts[1] = StyleWord::from_bytes([0xff; super::STYLE_BYTES]);
         starts[2] = StyleWord::DEFAULT.with_attrs(Attrs::BLINK.with(Attrs::BOLD));
         starts[3] = StyleWord::DEFAULT.with_attrs(Attrs::RAPID_BLINK);
         for seq in [&[5u16][..], &[6], &[25], &[5, 6], &[6, 5], &[6, 25]] {
@@ -1608,9 +1644,7 @@ impl SgrKey {
 
 /// One entry: the sequence, and the rendition change it means.
 #[repr(C)]
-#[derive(
-    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
-)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, IntoBytes, Immutable, KnownLayout)]
 pub struct SgrSlot {
     pub key: SgrKey,
     pub fold: StyleFold,

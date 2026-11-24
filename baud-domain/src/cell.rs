@@ -23,8 +23,24 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 /// ```
 /// let _ = baud_domain::Content::codepoint(baud_domain::Codepoint::SPACE);
 /// ```
+///
+/// Bytes are not a cell word: the type does not implement `FromBytes`, so
+/// a word past the reserved states cannot be read in.
+///
+/// ```compile_fail,E0599
+/// use zerocopy::FromBytes;
+/// let _ = baud_domain::Content::read_from_bytes(&[0xff; 4]);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let c = baud_domain::Codepoint::new(u32::from_le_bytes([0x41, 0, 0, 0]))
+///     .map(baud_domain::Content::codepoint);
+/// assert!(c.is_some());
+/// ```
 #[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, Debug, FromBytes, IntoBytes, Immutable, KnownLayout)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, IntoBytes, Immutable, KnownLayout)]
 pub struct Content(pub(crate) u32);
 
 impl Content {
@@ -192,9 +208,7 @@ impl Default for Content {
 /// Eight bytes: four for the content, so a full codepoint fits, two for the
 /// style index and two for the flags.
 #[repr(C)]
-#[derive(
-    Clone, Copy, Default, PartialEq, Eq, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,
-)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, IntoBytes, Immutable, KnownLayout)]
 pub struct PackedCell {
     pub content: Content,
     pub style: StyleId,
@@ -798,6 +812,23 @@ impl PackedCell {
     /// equal cells.
     pub fn same_cells(a: &[PackedCell], b: &[PackedCell]) -> bool {
         a.as_bytes() == b.as_bytes()
+    }
+
+    /// **A cell from its eight bytes as one word**: the content in the low
+    /// thirty-two bits, the style above it and the flags in the top sixteen,
+    /// which under `repr(C)` on a little-endian target is the cell's own
+    /// layout, so a vector of words stores as cells.
+    ///
+    /// Inside the crate only, and only for words built from parts already
+    /// valid: a [`Codepoint`]'s value or a printable ASCII byte in the low
+    /// half, and a valid cell's style and flags in the high half.
+    #[inline(always)]
+    pub(crate) const fn from_word(w: u64) -> PackedCell {
+        PackedCell {
+            content: Content(w as u32),
+            style: StyleId((w >> 32) as u16),
+            flags: CellFlags((w >> 48) as u16),
+        }
     }
 
     /// Unwritten. Note this is *not* a space: the renderer decides what an empty

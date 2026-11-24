@@ -404,10 +404,37 @@ impl Pending {
 /// ```
 /// let _: Option<baud_domain::Codepoint> = baud_domain::Codepoint::new(0x41);
 /// ```
+///
+/// Bytes are not a codepoint until [`Codepoint::new`] has checked them:
+/// the type does not implement `FromBytes`.
+///
+/// ```compile_fail,E0599
+/// use zerocopy::FromBytes;
+/// let _ = baud_domain::Codepoint::read_from_bytes(&[0xff; 4]);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let c = baud_domain::Codepoint::new(u32::from_ne_bytes([0xff; 4]));
+/// assert!(c.is_none());
+/// ```
+///
+/// A wide ordinary codepoint is a codepoint first: there is no constructor
+/// that takes the range test's word for it.
+///
+/// ```compile_fail,E0599
+/// let _ = baud_domain::Codepoint::wide_ordinary(0x4E00);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let c = baud_domain::Codepoint::new(0x4E00).expect("a scalar value");
+/// assert!(c.is_wide_ordinary());
+/// ```
 #[repr(transparent)]
-#[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,
-)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, IntoBytes, Immutable, KnownLayout)]
 pub struct Codepoint(pub(crate) u32);
 
 impl Codepoint {
@@ -513,22 +540,6 @@ impl Codepoint {
             0x0800..0x1_0000 => 3,
             _ => 4,
         })
-    }
-
-    /// A codepoint already proven wide, ordinary and unlooked.
-    ///
-    /// The vectorised decoder range-tests four at once, so by the time it has
-    /// them the general constructor's validity check is work it has already
-    /// done. This is that knowledge spent. `debug_assert` rather than an
-    /// `Option` because the caller is one function and the property is
-    /// enumerated by a test.
-    #[inline(always)]
-    pub fn wide_ordinary(v: u32) -> Codepoint {
-        debug_assert!(
-            Codepoint(v).is_wide_ordinary(),
-            "not a wide ordinary codepoint"
-        );
-        Codepoint(v)
     }
 
     /// Is this codepoint unconditionally wide, ordinary, and in no lookback

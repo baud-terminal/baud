@@ -2118,7 +2118,7 @@ impl<'a> View<'a> {
         {
             use core::simd::Simd;
             use core::simd::num::SimdUint;
-            use zerocopy::{FromBytes, IntoBytes};
+            use zerocopy::IntoBytes;
 
             let mut bytes = [0u8; 8];
             bytes.copy_from_slice(proto.as_bytes());
@@ -2141,9 +2141,7 @@ impl<'a> View<'a> {
                 ])
                 .cast::<u64>();
                 let cells = (c | Simd::splat(hi)).to_array();
-                let packed = <[PackedCell; 8]>::read_from_bytes(cells.as_bytes())
-                    .expect("eight u64 is sixty-four bytes, which is eight cells");
-                *dc = packed;
+                *dc = cells.map(PackedCell::from_word);
             }
             for (dc, &cp) in d_rest.iter_mut().zip(s_rest) {
                 *dc = PackedCell::glyph(cp, proto.style, proto.flags);
@@ -2161,7 +2159,7 @@ impl<'a> View<'a> {
         {
             use core::simd::num::SimdUint;
             use core::simd::{Simd, simd_swizzle};
-            use zerocopy::{FromBytes, IntoBytes};
+            use zerocopy::IntoBytes;
 
             let mut bytes = [0u8; 8];
             bytes.copy_from_slice(proto.as_bytes());
@@ -2184,9 +2182,7 @@ impl<'a> View<'a> {
                 // [c0, tail, c1, tail, c2, tail, c3, tail]
                 let content: Simd<u64, 8> = simd_swizzle!(c, tail, [0, 4, 1, 5, 2, 6, 3, 7]);
                 let cells = (content | Simd::splat(hi)).to_array();
-                let packed = <[PackedCell; 8]>::read_from_bytes(cells.as_bytes())
-                    .expect("eight u64 is sixty-four bytes, which is eight cells");
-                *dc = packed;
+                *dc = cells.map(PackedCell::from_word);
             }
             for (dc, &cp) in d_rest.as_chunks_mut::<2>().0.iter_mut().zip(s_rest) {
                 dc[0] = PackedCell::glyph(cp, proto.style, proto.flags);
@@ -2215,8 +2211,9 @@ impl<'a> View<'a> {
     /// `(style, flags) << 32 | content`, and eight of them are one `u64x8` OR and
     /// one 64-byte store.
     ///
-    /// No `unsafe`: `baud-domain` forbids it, so the reinterpretation goes through
-    /// `zerocopy`, which `PackedCell` already derives for the shm and disk paths.
+    /// No `unsafe`: `baud-domain` forbids it, so each word becomes a cell
+    /// through [`PackedCell::from_word`], whose fields are the word's own
+    /// bytes in the cell's layout.
     fn put_ascii_vectored(dst: &mut [PackedCell], src: &[u8], proto: PackedCell) {
         // `ceiling-no-store` keeps every setup -- row resolution, orphan
         // repair, extent, clip -- and skips only the stores, so a pair with the
@@ -2231,10 +2228,7 @@ impl<'a> View<'a> {
         {
             use core::simd::Simd;
             use core::simd::num::SimdUint;
-            // `PackedCell` already derives these for the shm and disk paths;
-            // here they are what makes the reinterpretation possible without
-            // `unsafe`, which this crate forbids.
-            use zerocopy::{FromBytes, IntoBytes};
+            use zerocopy::IntoBytes;
 
             // The high half is style and flags; masking the low half off discards
             // `Content::EMPTY`, which is a reserved value rather than zero.
@@ -2247,9 +2241,7 @@ impl<'a> View<'a> {
             for (dc, sc) in d.iter_mut().zip(s) {
                 let content = Simd::<u8, 8>::from_array(*sc).cast::<u64>();
                 let cells = (content | Simd::splat(hi)).to_array();
-                let packed = <[PackedCell; 8]>::read_from_bytes(cells.as_bytes())
-                    .expect("eight u64 is sixty-four bytes, which is eight cells");
-                *dc = packed;
+                *dc = cells.map(PackedCell::from_word);
             }
             // A run averages ~32 bytes, so the tail is not rare and is not free.
             for (dc, &b) in d_rest.iter_mut().zip(s_rest) {
