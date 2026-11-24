@@ -881,7 +881,8 @@ mod tests {
             );
             assert!(s.contains(concat!("self.renderer.", "set_badge(badge);")));
             assert!(
-                s.contains(concat!("self.renderer.", "background_of(&self.term)")),
+                s.contains(concat!("self.renderer.", "background_of(&self.term)"))
+                    || s.contains(concat!("self.renderer.", "background_of(&*self.term)")),
                 "the outline in the background colour"
             );
         }

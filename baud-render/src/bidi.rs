@@ -125,7 +125,8 @@
 //! out with [`Reorder::lay_out`], which keeps each unit by the write
 //! generations of the rows it read.
 
-use baud_core::{BidiSupport, StatusLine, Term};
+use baud_core::{BidiSupport, StatusLine};
+use baud_domain::TermRead;
 use baud_domain::{Attrs, DecimalMark, Mirroring, Slant, StyleWord, Variants, forced_form};
 use baud_domain::{
     Bidi, BidiClass, BidiDirection, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, BoxMirror,
@@ -1818,7 +1819,7 @@ impl Orders {
     /// through each run of the stored lines it shows (`crate::rebreak`).
     pub(crate) fn row_source_logical<'t>(
         &self,
-        term: &'t Term<'_>,
+        term: &'t impl TermRead,
         back: Rows,
         y: Row,
     ) -> RowSource<'t> {
@@ -1833,7 +1834,7 @@ impl Orders {
     /// order it is drawn**: [`Orders::row_source_logical`]'s runs at the
     /// columns this row's order draws their cells at, so a copy of the
     /// window in drawn order ([`Orders::window_kept`]) is read cell for cell.
-    pub fn row_source<'t>(&self, term: &'t Term<'_>, back: Rows, y: Row) -> RowSource<'t> {
+    pub fn row_source<'t>(&self, term: &'t impl TermRead, back: Rows, y: Row) -> RowSource<'t> {
         let src = self.row_source_logical(term, back, y);
         let RowSource::Runs(runs) = &src else {
             return src;
@@ -1865,7 +1866,7 @@ impl Orders {
     /// **Whether a cell of the window `back` lines up names a row the core
     /// froze** (`crate::frozen`), a display line's included: no row at all
     /// while the core has frozen nothing, which one test answers.
-    pub fn window_frozen(&self, term: &Term<'_>, back: Rows) -> bool {
+    pub fn window_frozen(&self, term: &impl TermRead, back: Rows) -> bool {
         let back = term.looking_back(back);
         let vp = term.view(back);
         if !vp.any_frozen() {
@@ -1918,7 +1919,7 @@ impl Orders {
     /// the renderer's).
     pub fn window_kept<'a>(
         &self,
-        term: &'a Term<'_>,
+        term: &'a impl TermRead,
         back: Rows,
         kept: &'a mut DrawnRows,
     ) -> Viewport<'a> {
@@ -2010,7 +2011,7 @@ impl Orders {
     /// keys on it) and so stamps its row.
     pub(crate) fn status_kept<'a>(
         &self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         r: Row,
         line: StatusLine<'a>,
         kept: &'a mut DrawnLine,
@@ -2419,7 +2420,7 @@ struct Holds {
     opens: Opens,
     joins: Opens,
     /// Whether it holds a cell written in an SDS or SRS string: `No`
-    /// until one has been begun ([`Term::strings_seen`]).
+    /// until one has been begun ([`TermRead::strings_seen`]).
     strung: Opens,
     /// Whether it may hold a syllable or a word
     /// (`crate::syllable::may_hold`), from the same pass.
@@ -2442,7 +2443,7 @@ impl Strung {
     /// begun. Once a frame that lays a row out, before the rows are read;
     /// a slot written since names a string only through a cell written
     /// with it, which stamps that cell's row.
-    fn styles_moved(&mut self, term: &Term<'_>) {
+    fn styles_moved(&mut self, term: &impl TermRead) {
         // On a terminal of more bands than one an id names a slot of its
         // row's band, which one set of bits cannot say: rows are read cell
         // by cell instead (`Strung::row_strung`).
@@ -2508,7 +2509,7 @@ impl Strung {
     /// [`Strung::string_slots`]: none until one has been begun, and none
     /// while no slot names one, so a session that never sends one reads no
     /// cell for it.
-    fn row_strung(&self, term: &Term<'_>, words: Words<'_>, cells: &[PackedCell]) -> Opens {
+    fn row_strung(&self, term: &impl TermRead, words: Words<'_>, cells: &[PackedCell]) -> Opens {
         if !term.strings_seen() {
             return Opens::No;
         }
@@ -2589,13 +2590,13 @@ impl Reorder {
     /// **The display of the window `back` lines up as the next layout will
     /// draw it** ([`crate::rebreak`]), for a reader that runs before that
     /// layout: kept from the last frame where nothing it read changed.
-    pub fn display_now(&mut self, term: &Term<'_>, back: Rows) -> Option<Rc<Display>> {
+    pub fn display_now(&mut self, term: &impl TermRead, back: Rows) -> Option<Rc<Display>> {
         crate::rebreak::lay_out(term, term.looking_back(back), self.wrap, &mut self.breaker)
     }
 
     /// The window `back` lines up as the last layout drew it: the display's
     /// lines where it re-broke a paragraph, else the core's own view.
-    pub fn view<'a>(&'a self, term: &'a Term<'_>, back: Rows) -> Viewport<'a> {
+    pub fn view<'a>(&'a self, term: &'a impl TermRead, back: Rows) -> Viewport<'a> {
         match self.orders.maps.display() {
             Some(d) => d.window(term),
             None => term.view(term.looking_back(back)),
@@ -2622,19 +2623,19 @@ impl Reorder {
     }
 
     /// **Lays out the window `back` lines into the history**, as
-    /// [`Term::view`] draws it, each paragraph kept from the last layout
+    /// [`TermRead::view`] draws it, each paragraph kept from the last layout
     /// while no row it read was written (`kept::Laid::answer`). Nothing is reordered while BDSM is
     /// reset, and each row that holds a joining letter is joined as it is
     /// displayed. A caller with a compare of its own -- the conversion's,
     /// or the cell path's copy of the screen -- lays out with
     /// [`Reorder::keep_displayed`] then, and nothing here compares a row.
-    pub fn lay_out(&mut self, term: &Term<'_>, back: Rows) {
+    pub fn lay_out(&mut self, term: &impl TermRead, back: Rows) {
         self.lay_out_as(term, back, Joins::Seen);
     }
 
     /// [`Reorder::lay_out`], where with BDSM reset and `joins`
     /// [`Joins::Unseen`] no row is read at all.
-    pub fn lay_out_as(&mut self, term: &Term<'_>, back: Rows, joins: Joins) {
+    pub fn lay_out_as(&mut self, term: &impl TermRead, back: Rows, joins: Joins) {
         self.lay_out_over(term, back, joins, &Unwritten, Extent::Window);
     }
 
@@ -2642,7 +2643,7 @@ impl Reorder {
     /// ([`Written`]).
     pub fn lay_out_written(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         joins: Joins,
         written: &Written,
@@ -2655,7 +2656,7 @@ impl Reorder {
     /// as a window `back` lines into the history draws it, and the other
     /// rows are left in their own order. What a smooth scroll's leaving row
     /// is drawn by, laid out over the window one line up.
-    pub fn lay_out_top(&mut self, term: &Term<'_>, back: Rows, joins: Joins) {
+    pub fn lay_out_top(&mut self, term: &impl TermRead, back: Rows, joins: Joins) {
         self.lay_out_over(term, back, joins, &Unwritten, Extent::Top);
     }
 
@@ -2666,7 +2667,7 @@ impl Reorder {
     #[inline(always)]
     fn lay_out_over(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         joins: Joins,
         written: &impl Over,
@@ -2681,7 +2682,7 @@ impl Reorder {
     #[inline(always)]
     fn lay_out_relayed(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         joins: Joins,
         written: &impl Over,
@@ -2712,7 +2713,7 @@ impl Reorder {
 
     /// Row `cells`, its ids named in `words`, tested once for what its
     /// layout reads.
-    fn test_row(&mut self, term: &Term<'_>, words: Words<'_>, cells: &[PackedCell]) -> Holds {
+    fn test_row(&mut self, term: &impl TermRead, words: Words<'_>, cells: &[PackedCell]) -> Holds {
         self.work.tested.bump();
         Holds {
             strung: self.strung.row_strung(term, words, cells),
@@ -2723,7 +2724,7 @@ impl Reorder {
     /// **The status line, laid out as a line of its own**: one row, so
     /// one paragraph, under the terminal's BDSM and the line properties
     /// SCP and `?2501` gave it while DECSASD selected it
-    /// ([`Term::status_view`]) -- ECMA-48's IMPLICIT, "All
+    /// ([`TermRead::status_view`]) -- ECMA-48's IMPLICIT, "All
     /// bi-directional aspects of data are handled by the device itself"
     /// (`[[source: ecma48]]` 7.2.1), on the one line the main display's
     /// rows do not hold. Its order is the maps' row after the window's
@@ -2732,7 +2733,7 @@ impl Reorder {
     /// since it was laid out (`kept::Line`).
     fn lay_out_status(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         joins: Joins,
         nrows: Rows,
         relay: &maps::Relay,
@@ -2783,7 +2784,12 @@ impl Reorder {
         answer
     }
 
-    fn lay_out_status_row<'t>(&mut self, term: &'t Term<'_>, joins: Joins, line: &Viewport<'t>) {
+    fn lay_out_status_row<'t>(
+        &mut self,
+        term: &'t impl TermRead,
+        joins: Joins,
+        line: &Viewport<'t>,
+    ) {
         // The line's ids name its own band's table.
         let own = Words::Row(line.styles(Row::ZERO));
         let at = self.orders.maps.rows().len();
@@ -2837,7 +2843,7 @@ impl Reorder {
     /// of the window through each run's.
     fn row_source<'v>(
         &self,
-        term: &'v Term<'_>,
+        term: &'v impl TermRead,
         vp: &Viewport<'v>,
         y: WindowLine,
     ) -> RowSource<'v> {
@@ -2860,7 +2866,7 @@ impl Reorder {
     #[inline(always)]
     fn lay_out_window(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         joins: Joins,
         written: &impl Over,
@@ -2884,7 +2890,7 @@ impl Reorder {
     /// out a display: each of its lines in the order it is drawn in. What a
     /// copy in drawn order reads a re-broken paragraph's lines by (`?96`).
     /// Laid out whole each time: nothing of another layout is kept for it.
-    pub(crate) fn lay_out_display(&mut self, term: &Term<'_>, d: Rc<Display>) {
+    pub(crate) fn lay_out_display(&mut self, term: &impl TermRead, d: Rc<Display>) {
         self.sourced = Sourced::Rows;
         self.laid.forget();
         maps::relay_quietly(self, |o, relay| {
@@ -2910,7 +2916,7 @@ impl Reorder {
     #[allow(clippy::too_many_arguments)]
     fn lay_out_held(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         held: Option<Rc<Display>>,
         joins: Joins,
@@ -3019,7 +3025,7 @@ impl Reorder {
     /// (`kept::Laid::answer`).
     fn ask(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         key: &kept::Key,
         vp: &Viewport<'_>,
         written: &dyn Over,
@@ -3061,7 +3067,7 @@ impl Reorder {
     /// [`Rejoin::Every`].
     pub fn keep_displayed(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         changes: Changes,
         written: &Written,
@@ -3076,7 +3082,7 @@ impl Reorder {
     /// stamped only where it came out otherwise.
     fn keep_relayed(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         changes: Changes,
         written: &Written,
@@ -3193,7 +3199,7 @@ impl Reorder {
     /// finding (`maps::rejoin_quietly`), so nothing between the two can
     /// leave the row's later joins writes unstamped. Once it ends the row
     /// counts toward an answer of [`Rejoin::Every`] ([`Reorder::rejoined`]).
-    pub fn rejoin(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &Written) {
+    pub fn rejoin(&mut self, term: &impl TermRead, vp: &Viewport<'_>, r: Row, written: &Written) {
         let found = maps::rejoin_quietly(self, r, |o| {
             o.work.tested.bump();
             let cells = written.row(r).unwrap_or_else(|| vp.row(r));
@@ -3226,7 +3232,7 @@ impl Reorder {
     /// of this function moved what the layout inlines around the
     /// algorithm, and btop's frames retired 0.2% more instructions with no
     /// row drawn in reverse.
-    fn reverse_paths(&mut self, term: &Term<'_>, vp: &Viewport<'_>, written: &dyn Over) {
+    fn reverse_paths(&mut self, term: &impl TermRead, vp: &Viewport<'_>, written: &dyn Over) {
         for y in 0..vp.rows().index() {
             self.reverse_path(term, vp, written, Row::from_index(y));
         }
@@ -3234,7 +3240,13 @@ impl Reorder {
 
     /// [`Reorder::reverse_paths`] on row `r` alone: with BDSM reset each
     /// row is a unit of its own, laid out again only when it was written.
-    fn reverse_path(&mut self, term: &Term<'_>, vp: &Viewport<'_>, written: &dyn Over, r: Row) {
+    fn reverse_path(
+        &mut self,
+        term: &impl TermRead,
+        vp: &Viewport<'_>,
+        written: &dyn Over,
+        r: Row,
+    ) {
         let cols = vp.cols().index();
         let strings = term.strings_seen();
         let entry = |id: StringId| term.string_entry(id);
@@ -3327,7 +3339,12 @@ impl Reorder {
     /// BDSM reset: as stored, or reversed on a right-to-left line, whose
     /// joins are then found over the cells as [`Reorder::reverse_paths`]
     /// lays them out, by the visual column every draw path reads.
-    fn join_shown(&mut self, term: &Term<'_>, (r, words): (Row, Words<'_>), cells: &[PackedCell]) {
+    fn join_shown(
+        &mut self,
+        term: &impl TermRead,
+        (r, words): (Row, Words<'_>),
+        cells: &[PackedCell],
+    ) {
         crate::counters::add(
             crate::counters::Counter::BidiRowsLaid,
             crate::counters::Site::Layout,
@@ -3350,7 +3367,7 @@ impl Reorder {
     #[inline(never)]
     fn join_leftward(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         vp: &Viewport<'_>,
         written: &impl Over,
         (first, last): (Row, Row),
@@ -3402,7 +3419,7 @@ impl Reorder {
     /// row that ended each walk included: what keeps it (`kept::Reach`).
     fn paragraph<'v>(
         &mut self,
-        term: &'v Term<'_>,
+        term: &'v impl TermRead,
         back: Rows,
         vp: &Viewport<'v>,
         written: &impl Over,
@@ -3630,7 +3647,7 @@ impl Reorder {
     /// level.
     fn resolve(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         vp: &Viewport<'_>,
         rows: &[ParaRow<'_>],
         (dir, path): (BidiParagraph, LineBidi),
@@ -4141,7 +4158,7 @@ impl Reorder {
     /// word too. A row with none stores nothing.
     fn store_joins<'w>(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (y, lines): (Row, &[core::ops::Range<usize>]),
         joined: &JoinedText,
         to: impl Fn(Col) -> Col,
@@ -4236,7 +4253,7 @@ impl Reorder {
     /// joined cell's place among them.
     fn store_words<'w>(
         &self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         row: &mut RowJoins,
         lines: &[core::ops::Range<usize>],
         joined: &JoinedText,
@@ -4329,7 +4346,7 @@ impl Reorder {
     /// other reading ([`Reading`]).
     fn join_displayed(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (r, words): (Row, Words<'_>),
         cells: &[PackedCell],
     ) {
@@ -4407,7 +4424,7 @@ impl Reorder {
     /// the base in the cell is on its right.
     fn displayed_text(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         cells: &[PackedCell],
         cols: impl Iterator<Item = usize>,
         reading: Reading,
@@ -4540,7 +4557,7 @@ enum Mirror {
 }
 
 fn mirror(
-    term: &Term<'_>,
+    term: &impl TermRead,
     cell: PackedCell,
     (boxes, span): (BoxMirror, crate::cellmap::CellSpan),
 ) -> Mirror {
@@ -4599,14 +4616,19 @@ fn mirror(
 
 /// **The SDS or SRS string `cell`, at column `col` of a row whose ids name
 /// `words`, was written in** ([`StringId`]).
-pub(crate) fn string_of(term: &Term<'_>, words: Words<'_>, col: Col, cell: PackedCell) -> StringId {
+pub(crate) fn string_of(
+    term: &impl TermRead,
+    words: Words<'_>,
+    col: Col,
+    cell: PackedCell,
+) -> StringId {
     words.word(term, col, cell).string()
 }
 
 /// **The SAPV variants cell `cell` was written under**, read as
 /// [`string_of`] reads its string: the default presentation where its
 /// rendition names none.
-fn variants_of(term: &Term<'_>, words: Words<'_>, col: Col, cell: PackedCell) -> Variants {
+fn variants_of(term: &impl TermRead, words: Words<'_>, col: Col, cell: PackedCell) -> Variants {
     words.word(term, col, cell).variants()
 }
 
@@ -4614,7 +4636,7 @@ fn variants_of(term: &Term<'_>, words: Words<'_>, col: Col, cell: PackedCell) ->
 /// gives it: none where its variant asks none, or under 18 and 19, which
 /// join nothing.
 fn asked_form(
-    term: &Term<'_>,
+    term: &impl TermRead,
     words: Words<'_>,
     col: Col,
     cell: PackedCell,
@@ -4636,7 +4658,7 @@ fn asked_form(
 /// vertical axis"), `[[source: ecma48]]` 8.3.108; TR/53's worked example 1
 /// pairs SAPV 3 with EXPLICIT. With BDSM set, L4 governs: "mirroring must
 /// be done according to rule L4" (`[[source: uax9-bidi]]` section 7).
-fn unmirrored(term: &Term<'_>, words: Words<'_>, col: Col, cell: PackedCell) -> bool {
+fn unmirrored(term: &impl TermRead, words: Words<'_>, col: Col, cell: PackedCell) -> bool {
     if !term.variants_seen() {
         return false;
     }
@@ -4663,7 +4685,7 @@ fn unmirrored(term: &Term<'_>, words: Words<'_>, col: Col, cell: PackedCell) -> 
 
 /// **Whether `cell` holds a character written italic under SAPV 17**: a
 /// wide character's tail holds none, its lead drawing it.
-pub(crate) fn slanted(term: &Term<'_>, words: Words<'_>, col: Col, cell: PackedCell) -> bool {
+pub(crate) fn slanted(term: &impl TermRead, words: Words<'_>, col: Col, cell: PackedCell) -> bool {
     if cell.content.is_empty() || cell.content.is_wide_tail() {
         return false;
     }
@@ -4683,7 +4705,7 @@ fn is_digit(cell: Option<&PackedCell>) -> bool {
 /// (value 2, unless 18), and a FULL STOP between two digits as a COMMA
 /// (value 10). A cell carrying a mark is drawn as stored.
 fn varied(
-    term: &Term<'_>,
+    term: &impl TermRead,
     (words, col): (Words<'_>, Col),
     cell: PackedCell,
     (before, after): (Option<&PackedCell>, Option<&PackedCell>),
@@ -4717,7 +4739,7 @@ fn varied(
 /// SAPV never calls it.
 #[inline(never)]
 fn word_cell_drawn<'w>(
-    term: &Term<'_>,
+    term: &impl TermRead,
     o: Owner,
     cell_of: &impl Fn(Owner) -> (PackedCell, Drawn, Words<'w>),
 ) -> PackedCell {
@@ -4743,14 +4765,14 @@ impl Reorder {
     /// the slants, on the rows a layout laid out again alone -- a kept
     /// row's are its own already, and a substitution made twice is drawn
     /// twice. Only once a program has selected one
-    /// ([`Term::variants_seen`]). Out of line, as a program that never
+    /// ([`TermRead::variants_seen`]). Out of line, as a program that never
     /// sends SAPV never runs it: inlined into the layouts with the rows as
     /// written, btop's frames retired 0.08% more instructions with none
     /// sent.
     #[inline(never)]
     fn vary_rows(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         vp: &Viewport<'_>,
         n: Rows,
         units: &[kept::Para],
@@ -4773,7 +4795,7 @@ impl Reorder {
     #[inline(never)]
     fn vary_kept(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         vp: &Viewport<'_>,
         units: &[kept::Para],
         written: &dyn Over,
@@ -4790,7 +4812,7 @@ impl Reorder {
     /// 02/14 is intended to represent a decimal mark in a decimal number"),
     /// drawn as a mirrored character is, in the row's maps: every path
     /// reads the drawn cell.
-    fn vary_swaps(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
+    fn vary_swaps(&mut self, term: &impl TermRead, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
         let src = self.row_source(term, vp, WindowLine::of(r));
         let mut found: Vec<(Col, Content)> = Vec::new();
@@ -4831,7 +4853,7 @@ impl Reorder {
     /// reset every cell of a right-to-left path -- that holds a character,
     /// not a wide one's tail, written italic under 17. At an even level its
     /// italic leans right, as the italic face draws it.
-    fn vary_slants(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
+    fn vary_slants(&mut self, term: &impl TermRead, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
         let src = self.row_source(term, vp, WindowLine::of(r));
         let words = src.words();
@@ -4859,7 +4881,7 @@ impl Reorder {
     /// asked keeps its word, and each cell of a word, whichever row it is
     /// on, is read by the shaping around it in the form its own variant
     /// draws it in.
-    fn vary_joins(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
+    fn vary_joins(&mut self, term: &impl TermRead, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
         let src = self.row_source(term, vp, WindowLine::of(r));
         let words = src.words();
@@ -4976,7 +4998,7 @@ fn row_end(cells: &[PackedCell]) -> Col {
 }
 
 /// How many codepoints a row gives the algorithm.
-fn chars_of(term: &Term<'_>, cells: &[PackedCell]) -> Chars {
+fn chars_of(term: &impl TermRead, cells: &[PackedCell]) -> Chars {
     let end = row_end(cells).index();
     Chars(
         cells[..end]
@@ -4998,7 +5020,7 @@ fn chars_of(term: &Term<'_>, cells: &[PackedCell]) -> Chars {
 /// cells runs only for a row the pass holds back: one with a character in
 /// a block that holds a right-to-left character or a joining letter, or one
 /// with a cluster. A row of Latin, of Han or of box drawing holds nothing.
-fn row_holds(term: &Term<'_>, cells: &[PackedCell]) -> Holds {
+fn row_holds(term: &impl TermRead, cells: &[PackedCell]) -> Holds {
     let (blocks, marked) = cells.iter().fold((RowBlocks::NONE, false), |(b, m), c| {
         (b | RowBlocks::of(c.content.bits()), m | c.flags.is_marked())
     });
@@ -5034,12 +5056,12 @@ fn may_hold(cells: &[PackedCell]) -> bool {
 /// **Whether a row holds a letter that takes a joining form**: the one
 /// pass of [`may_hold`], then a test of each cell, a cluster's base read
 /// for a cell that holds one -- the joining form is the base's.
-fn row_joins(term: &Term<'_>, cells: &[PackedCell]) -> bool {
+fn row_joins(term: &impl TermRead, cells: &[PackedCell]) -> bool {
     may_hold(cells) && joins_in(term, cells)
 }
 
 /// Whether one of `cells` takes a joining form.
-fn joins_in(term: &Term<'_>, cells: &[PackedCell]) -> bool {
+fn joins_in(term: &impl TermRead, cells: &[PackedCell]) -> bool {
     cells.iter().any(|c| {
         let w = c.content.bits();
         if w <= 0x10_FFFF {
@@ -5058,12 +5080,12 @@ fn joins_in(term: &Term<'_>, cells: &[PackedCell]) -> bool {
 /// Whether a row holds a character that can make its paragraph reorder:
 /// the one pass of [`may_hold`], then a test of each cell's word, and a
 /// cluster's codepoints read only for a cell that holds one.
-fn row_opens(term: &Term<'_>, cells: &[PackedCell]) -> bool {
+fn row_opens(term: &impl TermRead, cells: &[PackedCell]) -> bool {
     may_hold(cells) && opens_in(term, cells)
 }
 
 /// Whether one of `cells` can make its paragraph reorder.
-fn opens_in(term: &Term<'_>, cells: &[PackedCell]) -> bool {
+fn opens_in(term: &impl TermRead, cells: &[PackedCell]) -> bool {
     cells.iter().any(|c| {
         let w = c.content.bits();
         if w <= 0x10_FFFF {
@@ -5091,7 +5113,8 @@ fn opens_in(term: &Term<'_>, cells: &[PackedCell]) -> bool {
 mod kept {
     use std::rc::Rc;
 
-    use baud_core::{BidiSupport, Term};
+    use baud_core::BidiSupport;
+    use baud_domain::TermRead;
     use baud_domain::{ClusterEpoch, Cols, Row, Rows, Seal, Viewport, WindowAt, Wrap};
 
     use super::{Changes, Display, Extent, Joins};
@@ -5115,7 +5138,7 @@ mod kept {
 
     impl Begun {
         /// Whether `term` has begun an SDS or SRS string.
-        pub(super) fn strings(term: &Term<'_>) -> Begun {
+        pub(super) fn strings(term: &impl TermRead) -> Begun {
             match term.strings_seen() {
                 true => Begun::Yes,
                 false => Begun::No,
@@ -5123,7 +5146,7 @@ mod kept {
         }
 
         /// Whether `term` has selected an SAPV variant.
-        pub(super) fn variants(term: &Term<'_>) -> Begun {
+        pub(super) fn variants(term: &impl TermRead) -> Begun {
             match term.variants_seen() {
                 true => Begun::Yes,
                 false => Begun::No,
@@ -5136,7 +5159,7 @@ mod kept {
     /// shaped, so the answer is the same either way and a first joining
     /// letter shaped lays nothing out again; with BDSM reset it decides
     /// whether a row is read for its joins at all.
-    pub(super) fn read_joins(term: &Term<'_>, joins: Joins) -> Joins {
+    pub(super) fn read_joins(term: &impl TermRead, joins: Joins) -> Joins {
         match term.bidi_support() {
             BidiSupport::Explicit => joins,
             BidiSupport::Implicit => Joins::Seen,
@@ -5324,7 +5347,7 @@ mod kept {
         /// any of them after this carries a later one.
         pub(super) fn answer(
             &mut self,
-            term: &Term<'_>,
+            term: &impl TermRead,
             key: &Key,
             vp: &Viewport<'_>,
             written: &[Row],
@@ -5388,7 +5411,7 @@ mod kept {
         /// it.
         pub(super) fn settle(
             &mut self,
-            term: &Term<'_>,
+            term: &impl TermRead,
             key: &Key,
             laid: &[Para],
             written: &[Row],
@@ -5425,7 +5448,13 @@ mod kept {
     /// **Whether no row unit `p` read was written after `under`**, each
     /// row asked once and counted in `read`, stopping at the first that
     /// was.
-    fn unwritten(term: &Term<'_>, key: &Key, under: &Seal, p: &Para, read: &mut usize) -> bool {
+    fn unwritten(
+        term: &impl TermRead,
+        key: &Key,
+        under: &Seal,
+        p: &Para,
+        read: &mut usize,
+    ) -> bool {
         let window = term.row_gens(key.back);
         for y in p.rows() {
             *read += 1;
@@ -5490,7 +5519,7 @@ mod kept {
         /// generations the answer read: none while no surface was written,
         /// else the status line's one, the layout kept under the seal now
         /// where it was not written.
-        pub(super) fn answer(&mut self, term: &Term<'_>, key: &LineKey) -> (Answer, Tally) {
+        pub(super) fn answer(&mut self, term: &impl TermRead, key: &LineKey) -> (Answer, Tally) {
             let Some((k, under)) = self.kept.as_mut() else {
                 return (Answer::Again, Tally::ZERO);
             };
@@ -5511,7 +5540,7 @@ mod kept {
 
         /// The status line just laid out for `key`, kept under
         /// `term.sealed()`.
-        pub(super) fn settle(&mut self, term: &Term<'_>, key: LineKey) {
+        pub(super) fn settle(&mut self, term: &impl TermRead, key: LineKey) {
             self.kept = Some((key, term.sealed()));
         }
     }

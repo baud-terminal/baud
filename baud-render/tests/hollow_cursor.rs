@@ -71,7 +71,8 @@ fn frames(
         r.set_cursor_look(look);
         {
             let mut target = Target::new(&mut px, w, w, h).unwrap();
-            r.render(&mut t, &mut target, Damage::Incremental);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Incremental);
         }
         out.push(px.clone());
     }

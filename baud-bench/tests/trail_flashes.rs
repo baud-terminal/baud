@@ -98,7 +98,8 @@ fn count(theme: &Theme, kind: Kind, bytes: &[u8]) -> (Report, usize) {
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     {
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let bare = px.clone();
     let mut census = Census::new(w, h, Scale(1), RATE);
@@ -165,7 +166,8 @@ fn count(theme: &Theme, kind: Kind, bytes: &[u8]) -> (Report, usize) {
                 Kind::Smear(shape) => TrailLook::Smear(emitter(shape)),
             }));
             let mut target = Target::new(&mut px, w, w, h).unwrap();
-            r.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Full);
             drawn += px
                 .iter()
                 .zip(&bare)
@@ -177,7 +179,8 @@ fn count(theme: &Theme, kind: Kind, bytes: &[u8]) -> (Report, usize) {
     r.set_trail(None);
     for _ in 0..RATE.0 / 6 {
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
         census.frame(&px);
     }
     (census.finish(), drawn)

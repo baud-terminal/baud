@@ -25,7 +25,8 @@ fn draw(r: &mut Renderer<'_, '_>, t: &mut Term<'_>) -> Vec<u32> {
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).expect("a size")];
     {
         let mut target = Target::new(&mut px, w, w, h).expect("a target");
-        r.render(t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(t, seal, &mut target, Damage::Full);
     }
     px
 }

@@ -584,7 +584,8 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
         let n = usize::try_from(w.value() * h.value()).expect("a size");
         let mut px = vec![0u32; n];
         let mut target = CpuTarget::new(&mut px, w, w, h).expect("a target");
-        r.render_at(t, self.back, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render_at(t, seal, self.back, &mut target, Damage::Full);
         px.into_iter().map(baud_domain::premultiply).collect()
     }
 

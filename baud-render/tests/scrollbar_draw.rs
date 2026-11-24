@@ -75,7 +75,8 @@ impl<'f> Painter<'f> {
 fn paint(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, pixels: &mut [u32], damage: Damage) {
     let (w, h) = r.pixel_size();
     let mut target = Target::new(pixels, w, w, h).unwrap();
-    r.render_at(t, Rows::of_count(3), &mut target, damage);
+    let seal = t.seal_writes();
+    r.render_at(t, seal, Rows::of_count(3), &mut target, damage);
 }
 
 /// **A fade and a hover repaint incrementally what a full frame paints.**
@@ -231,7 +232,8 @@ fn legacy_frame(
     let (w, h) = r.frame_size();
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     let mut target = Target::new(&mut px, w, w, h).unwrap();
-    r.render_at(t, Rows::ZERO, &mut target, Damage::Full);
+    let seal = t.seal_writes();
+    r.render_at(t, seal, Rows::ZERO, &mut target, Damage::Full);
     let margin = r.clear_color().0;
     (
         px,
@@ -331,7 +333,8 @@ fn a_gutter_that_appears_repaints_every_row() {
             let (w, h) = r.frame_size();
             px.resize(usize::try_from(w.value() * h.value()).unwrap(), 0);
             let mut target = Target::new(px, w, w, h).unwrap();
-            r.render_at(t, Rows::of_count(3), &mut target, d);
+            let seal = t.seal_writes();
+            r.render_at(t, seal, Rows::of_count(3), &mut target, d);
         };
         for (bar, what) in [(None, "no bar"), (Some(legacy), "a legacy bar")] {
             let mut r = p.renderer();

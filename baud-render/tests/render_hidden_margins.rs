@@ -45,7 +45,8 @@ fn paint(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut [u32], d: Damage) 
     r.place_marks(t, Rows::ZERO, Leaving::None, Px::of(0));
     let (w, h) = r.whole_size();
     let mut target = Target::new(px, w, w, h).unwrap();
-    r.render(t, &mut target, d);
+    let seal = t.seal_writes();
+    r.render(t, seal, &mut target, d);
 }
 
 fn check(band: Px, line: Option<LineEdge>) -> Vec<usize> {

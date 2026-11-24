@@ -147,7 +147,8 @@ fn count(
     let mut live = vec![0u32; wu * hu];
     let paint = |r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut [u32]| {
         let mut target = Target::new(px, w, w, h).unwrap();
-        r.render(t, &mut target, Damage::Incremental);
+        let seal = t.seal_writes();
+        r.render(t, seal, &mut target, Damage::Incremental);
     };
     let switch = |t: &mut Term<'_>, to: Toward| match to {
         Toward::Alternate => {

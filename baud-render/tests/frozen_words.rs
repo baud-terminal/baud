@@ -193,12 +193,14 @@ fn a_display_line_joining_a_frozen_row_and_a_live_one_draws_each_in_its_own() {
         assert_eq!(drawn(&small, back), drawn(&big, back), "laid out otherwise");
         let got = {
             let mut target = c.target();
-            let _ = r.render_at(&mut small, back, &mut target, Damage::Full);
+            let seal = small.seal_writes();
+            let _ = r.render_at(&small, seal, back, &mut target, Damage::Full);
             c.digest()
         };
         let want = {
             let mut target = rc.target();
-            let _ = rr.render_at(&mut big, back, &mut target, Damage::Full);
+            let seal = big.seal_writes();
+            let _ = rr.render_at(&big, seal, back, &mut target, Damage::Full);
             rc.digest()
         };
         assert_eq!(

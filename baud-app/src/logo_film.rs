@@ -463,7 +463,8 @@ impl Frame<'_, '_, '_> {
     pub(crate) fn draw(&mut self) -> Vec<u8> {
         let (w, h) = self.r.pixel_size();
         let mut target = Target::new(&mut self.px, w, w, h).expect("a target");
-        self.r.render(self.term, &mut target, Damage::Full);
+        let seal = self.term.seal_writes();
+        self.r.render(self.term, seal, &mut target, Damage::Full);
         canvas(&self.px, w, self.at)
     }
 }

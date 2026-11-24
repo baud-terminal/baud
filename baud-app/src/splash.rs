@@ -832,7 +832,8 @@ mod tests {
             let look = s.look(Some(now), &t, SystemMotion::Full);
             r.set_splash(look);
             let mut target = Target::new(&mut px, w, w, h).unwrap();
-            r.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Full);
             out.push((px.clone(), r.flash_held()));
         }
         out
@@ -957,7 +958,8 @@ mod tests {
                         0 => Damage::Full,
                         _ => Damage::Incremental,
                     };
-                    r.render(&mut t, &mut target, damage);
+                    let seal = t.seal_writes();
+                    r.render(&t, seal, &mut target, damage);
                     frames.push((px.clone(), look.is_some()));
                 }
                 let m = r.metrics();
@@ -1040,7 +1042,7 @@ mod tests {
                 "app.rs",
                 crate::app_source::app_source(),
                 "self.renderer.set_splash(splash);",
-                "self.renderer.splash_yields_to(&self.term, lift);",
+                "self.renderer.splash_yields_to(&*self.term, lift);",
             ),
             (
                 "linux.rs",

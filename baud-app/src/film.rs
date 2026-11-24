@@ -1008,7 +1008,8 @@ fn play(
         {
             let mut target =
                 Target::new(&mut frame[offset..], w, gw, gh).expect("the frame holds the grid");
-            r.render_at(&mut term, back, &mut target, damage);
+            let seal = term.seal_writes();
+            r.render_at(&term, seal, back, &mut target, damage);
         }
         // A face the frame needed and the stack lacked, found as the
         // drivers find it, and the frame drawn again with it.
@@ -1020,7 +1021,8 @@ fn play(
             r.place_marks(&term, back, baud_render::Leaving::None, Px::of(0));
             let mut target =
                 Target::new(&mut frame[offset..], w, gw, gh).expect("the frame holds the grid");
-            r.render_at(&mut term, back, &mut target, Damage::Full);
+            let seal = term.seal_writes();
+            r.render_at(&term, seal, back, &mut target, Damage::Full);
         }
         let r = &mut stage.renderer;
         seat.drawn(r.bidi());

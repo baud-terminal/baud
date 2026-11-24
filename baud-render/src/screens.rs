@@ -43,7 +43,8 @@
 use crate::counters::{Counter, Site, add, compared};
 use crate::rebreak::Display;
 use crate::{LaidSeal, Leaving, Lending, Orders, Rejoin, Tally, WalkKey};
-use baud_core::{StatusLine, Term};
+use baud_core::StatusLine;
+use baud_domain::TermRead;
 use baud_domain::{
     Cols, LineRendition, PackedCell, Row, RowGens, Rows, Seal, StatusGen, Stride, StyleId,
     Viewport, WindowAt,
@@ -139,8 +140,8 @@ impl ScreenGen {
 /// row after the window's -- were laid out again and whether it re-broke a
 /// display; the pitch of the sets' copies; and whether a smooth scroll's
 /// leaving row is drawn.
-pub struct Taking<'a, 'v, 't> {
-    pub term: &'a Term<'t>,
+pub struct Taking<'a, 'v, T> {
+    pub term: &'a T,
     pub seal: Seal,
     pub back: Rows,
     pub view: &'a Viewport<'v>,
@@ -194,7 +195,7 @@ impl<'g> Now<'g> {
     /// The window `back` lines into `term`'s history, drawn as `view` with
     /// `status` below it, copied at `stride`.
     pub(crate) fn of(
-        term: &'g Term<'_>,
+        term: &'g impl TermRead,
         back: Rows,
         (view, status): (&Viewport<'_>, Option<&StatusLine<'_>>),
         stride: Stride,
@@ -227,7 +228,7 @@ impl SetKey {
     /// other scalars or another display; all of it when nothing was written
     /// since its seal and no row laid out again since its layout's; else
     /// the rows [`SetKey::dirt`] does not name.
-    pub(crate) fn keeps(&self, term: &Term<'_>, now: &Now<'_>, orders: &Orders) -> Keeps {
+    pub(crate) fn keeps(&self, term: &impl TermRead, now: &Now<'_>, orders: &Orders) -> Keeps {
         let Some(h) = &self.head else {
             return Keeps::Nothing;
         };
@@ -388,7 +389,7 @@ impl Screens {
         &mut self,
         copies: &mut [&mut [PackedCell]],
         set: SetIx,
-        w: &Taking<'_, '_, '_>,
+        w: &Taking<'_, '_, impl TermRead>,
     ) -> Built {
         self.take_lent(copies, set, w, &[])
     }
@@ -405,7 +406,7 @@ impl Screens {
         &mut self,
         copies: &mut [&mut [PackedCell]],
         set: SetIx,
-        w: &Taking<'_, '_, '_>,
+        w: &Taking<'_, '_, impl TermRead>,
         undo: &[(usize, usize, StyleId)],
     ) -> Built {
         let view = w.view;

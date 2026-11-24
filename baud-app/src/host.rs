@@ -1120,7 +1120,8 @@ mod tests {
             let area = baud_font::Extent::new(w, h).cells().expect("an area");
             let mut frame = vec![0u32; area];
             let mut target = Target::new(&mut frame, w, w, h).expect("a target");
-            let _ = r.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            let _ = r.render(&t, seal, &mut target, Damage::Full);
             frame
         };
         let (ca, cb) = (cfg_of(&a), cfg_of(&b));
@@ -1201,7 +1202,8 @@ mod tests {
             let area = baud_font::Extent::new(w, h).cells().expect("an area");
             let mut frame = vec![0u32; area];
             let mut target = Target::new(&mut frame, w, w, h).expect("a target");
-            let _ = r.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            let _ = r.render(&t, seal, &mut target, Damage::Full);
             frame
         };
         // A cell's pixels, row and column from the top left.
@@ -1371,7 +1373,8 @@ mod tests {
             let area = baud_font::Extent::new(w, h).cells().expect("an area");
             let mut frame = vec![0u32; area];
             let mut target = Target::new(&mut frame, w, w, h).expect("a target");
-            let _ = r.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            let _ = r.render(&t, seal, &mut target, Damage::Full);
             frame
         };
         let mut cfg = crate::config::Config::defaults();

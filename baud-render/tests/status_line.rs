@@ -312,7 +312,8 @@ fn status_drawn(faces: &[Face<'_>], back: Rows, highlight: Option<Highlight>) ->
         let mut c = support::Canvas::for_renderer(&r);
         {
             let mut target = c.target();
-            r.render_at(t, back, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            r.render_at(t, seal, back, &mut target, Damage::Full);
         }
         let line = Row::from_index(2);
         let mut grounds = Vec::new();

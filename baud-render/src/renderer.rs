@@ -35,14 +35,15 @@ use crate::stack::{FaceStyle, FontSlot, Presentation, TextFace};
 use crate::trail::{self, Drawn, Rect, Smear, TrailLook};
 use crate::transition::{self, Transition, Veil};
 use crate::units::{Band, Tally, slots};
-use baud_core::{BidiSupport, PaintRole, ProgramPaint, Term};
+use baud_core::{BidiSupport, PaintRole, ProgramPaint};
+use baud_domain::TermRead;
 use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
     Attrs, BidiDirection, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle,
     FrameNo, GlyphId, ImageAge, ImageAlpha, ImageDraw, ImageGen, ImageGround, ImageId, ImagePx,
-    ImageScreen, ImageSince, ImageStore, KittyId, KittyRoot, LineRendition, PackedCell, Pixel,
-    PlaceSerial, Row, RowAt, RowGens, Rows, Seal, Viewport, ZIndex,
+    ImageRead, ImageScreen, ImageSince, ImageStore, KittyId, KittyRoot, LineRendition, PackedCell,
+    Pixel, PlaceSerial, Row, RowAt, RowGens, Rows, Seal, Viewport, ZIndex,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -566,7 +567,7 @@ pub struct Frame {
 
 /// The video a frame draws in: the one the screen's `?5` asks for, or under
 /// a flash the other one.
-fn video_of(term: &Term<'_>, flash: VideoFlash) -> Video {
+fn video_of(term: &impl TermRead, flash: VideoFlash) -> Video {
     match (term.reverse_video(), flash) {
         (true, VideoFlash::Off) | (false, VideoFlash::On) => Video::Reverse,
         (false, VideoFlash::Off) | (true, VideoFlash::On) => Video::Normal,
@@ -743,7 +744,7 @@ fn spans_on(l: &Option<LinkLook>, row: Row) -> impl Iterator<Item = &crate::link
 /// rendition for `"text"`, whose ground is its cells' own. Each in a bar of
 /// `spare`'s, whose buffers last frame's fields grew.
 fn hover_fields(
-    (term, words): (&Term<'_>, Words<'_>),
+    (term, words): (&impl TermRead, Words<'_>),
     orders: &crate::bidi::Orders,
     view: &Viewport<'_>,
     (row, at, n): (Row, Col, Cols),
@@ -2513,7 +2514,7 @@ impl Selections {
 /// them: its base's script, or for a base that names none, its whole
 /// cluster's (UAX #24 5.2), which reads the marks only then. A cell with
 /// nothing drawn joins whatever is around it.
-fn unresolved(term: &Term<'_>, cell: PackedCell) -> Unresolved {
+fn unresolved(term: &impl TermRead, cell: PackedCell) -> Unresolved {
     let Some(base) = drawn_base(term, cell) else {
         return Unresolved::BLANK;
     };
@@ -2660,7 +2661,7 @@ impl InSpan {
     }
 }
 
-/// **The character a cell draws**: its base ([`Term::base_of`]), and none
+/// **The character a cell draws**: its base ([`TermRead::base_of`]), and none
 /// for a kitty Unicode placeholder, U+10EEEE, whose cell shows a slice of
 /// an image or nothing (`[[source: kitty-graphics]]`, "Unicode
 /// placeholders"): the protocol is the private agreement that gives this
@@ -2669,10 +2670,10 @@ impl InSpan {
 /// font (`[[source: kitty-fonts-c]]`). With no image to show, the cell
 /// shows its background, rather than TUS 5.3's `.notdef`: the interim
 /// choice and an open question. Every path that draws a glyph asks here; a
-/// copy asks [`Term::base_of`] and gets the character back. **A combining
+/// copy asks [`TermRead::base_of`] and gets the character back. **A combining
 /// mark stored alone draws on a no-break space** ([`Content::drawn`], TUS
 /// 5.13), so the mark sits in its own cell rather than over the one before.
-pub(crate) fn drawn_base(term: &Term<'_>, cell: PackedCell) -> Option<Codepoint> {
+pub(crate) fn drawn_base(term: &impl TermRead, cell: PackedCell) -> Option<Codepoint> {
     term.base_of(cell)
         .drawn()
         .as_codepoint()
@@ -2681,14 +2682,19 @@ pub(crate) fn drawn_base(term: &Term<'_>, cell: PackedCell) -> Option<Codepoint>
 
 /// A cell's base and the codepoints attached to it, as the shaper takes a
 /// cluster: its marks read as [`drawn_marks`] reads them.
-pub(crate) fn cell_cps(term: &Term<'_>, words: Words<'_>, cell: PackedCell) -> Vec<Codepoint> {
+pub(crate) fn cell_cps(term: &impl TermRead, words: Words<'_>, cell: PackedCell) -> Vec<Codepoint> {
     let mut cps = Vec::new();
     cell_cps_into(term, words, cell, &mut cps);
     cps
 }
 
 /// [`cell_cps`], after what `out` holds.
-fn cell_cps_into(term: &Term<'_>, words: Words<'_>, cell: PackedCell, out: &mut Vec<Codepoint>) {
+fn cell_cps_into(
+    term: &impl TermRead,
+    words: Words<'_>,
+    cell: PackedCell,
+    out: &mut Vec<Codepoint>,
+) {
     out.extend(drawn_base(term, cell));
     if cell.flags.is_marked() {
         out.extend(drawn_marks(term, words, cell).filter_map(Codepoint::new));
@@ -2699,7 +2705,7 @@ fn cell_cps_into(term: &Term<'_>, words: Words<'_>, cell: PackedCell, out: &mut 
 /// syllable's characters as its cells draw them, and how many each cell
 /// holds.
 pub(crate) fn word_text(
-    term: &Term<'_>,
+    term: &impl TermRead,
     words: Words<'_>,
     row: &[PackedCell],
     w: &crate::word::Word,
@@ -2734,7 +2740,7 @@ pub(crate) fn word_text(
 /// (`crate::frozen`). A cell of a display line that joins rows is read by
 /// its own row's ([`crate::frozen::Words::Runs`]) before it reaches here.
 pub(crate) fn drawn_marks<'t>(
-    term: &'t Term<'_>,
+    term: &'t impl TermRead,
     words: Words<'_>,
     cell: PackedCell,
 ) -> impl Iterator<Item = u32> + 't {
@@ -3113,7 +3119,7 @@ use mirror::Mirror;
 mod mirror {
     use crate::Orders;
     use crate::screens::{Dirt, Keeps, Now, ScreenGen, SetKey};
-    use baud_core::Term;
+    use baud_domain::TermRead;
     use baud_domain::{Cols, LineRendition, PackedCell, Row, Rows, Seal, StyleId, Viewport};
 
     #[derive(Default)]
@@ -3207,7 +3213,7 @@ mod mirror {
 
         /// How much of the copy the key keeps for `now`, drawn through
         /// `orders` (`SetKey::keeps`): nothing once scribbled or resized.
-        pub(super) fn keeps(&self, term: &Term<'_>, now: &Now<'_>, orders: &Orders) -> Keeps {
+        pub(super) fn keeps(&self, term: &impl TermRead, now: &Now<'_>, orders: &Orders) -> Keeps {
             self.key.keeps(term, now, orders)
         }
 
@@ -3417,8 +3423,8 @@ use row_target::RowTarget;
 /// frame ([`Renderer::render_hidden`]) places nothing, and there an image
 /// gone is kept as the last frame drew it, and one whose pixels moved is
 /// drawn in its new pixels on every row it covers ([`since_placed`]).
-fn held<'s>(imgs: &'s ImageStore<'_>, p: &ImagePlacement) -> Option<baud_domain::ImageView<'s>> {
-    match imgs.since(p.id, p.born, p.epoch) {
+fn held<'s>(imgs: &'s impl ImageRead, p: &ImagePlacement) -> Option<baud_domain::ImageView<'s>> {
+    match imgs.image_since(p.id, p.born, p.epoch) {
         ImageSince::Gone => None,
         ImageSince::Redrawn | ImageSince::Same => imgs.image(p.id),
     }
@@ -3426,11 +3432,11 @@ fn held<'s>(imgs: &'s ImageStore<'_>, p: &ImagePlacement) -> Option<baud_domain:
 
 /// **What became of placement `p`'s image since the frame that placed
 /// it**, asked of that image and not of the store's epoch, which every
-/// other image's store, edit and free moves too ([`ImageStore::since`]):
+/// other image's store, edit and free moves too ([`ImageRead::image_since`]):
 /// gone, redrawn -- a pixel of it written since, or another of its frames
 /// shown, which the animation clock moves without a write -- or the same.
-fn since_placed(imgs: &ImageStore<'_>, p: &ImagePlacement) -> ImageSince {
-    match imgs.since(p.id, p.born, p.epoch) {
+fn since_placed(imgs: &impl ImageRead, p: &ImagePlacement) -> ImageSince {
+    match imgs.image_since(p.id, p.born, p.epoch) {
         ImageSince::Same if imgs.image(p.id).is_some_and(|v| v.frame != p.frame) => {
             ImageSince::Redrawn
         }
@@ -3460,11 +3466,11 @@ impl Under for NoUnder {
 }
 
 /// The placements under the text, from the term's images.
-struct UnderImages<'s, 'b>(&'s ImageStore<'b>);
+struct UnderImages<I>(I);
 
-impl Under for UnderImages<'_, '_> {
+impl<I: ImageRead> Under for UnderImages<I> {
     fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, row: Row, page: Page) -> Tally {
-        r.paint_under(self.0, target, row, page)
+        r.paint_under(&self.0, target, row, page)
     }
 }
 
@@ -4271,7 +4277,7 @@ pub struct Renderer<'f, 'a> {
     highlight: Option<Highlight>,
     last_highlight: Option<Highlight>,
     /// The colours the selection draws in, read from the terminal each frame
-    /// ([`Term::highlight_colors`]): reverse video until an application sets
+    /// ([`baud_core::Term::highlight_colors`]): reverse video until an application sets
     /// `OSC 17` or `19`.
     hilite: Hilite,
     /// The same with no copy pulse in it, which baud's own fields draw in:
@@ -5310,7 +5316,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// (`ClusterSlot::CAPACITY`), so the read allocates nothing.
     fn face_of_cell<R: RowRead>(
         &mut self,
-        (term, words): (&Term<'_>, Words<'_>),
+        (term, words): (&impl TermRead, Words<'_>),
         (at, cell): (R, PackedCell),
         base: Codepoint,
     ) -> FaceIx {
@@ -5322,7 +5328,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// asks in its upright style.
     fn face_of_cell_in(
         &mut self,
-        (term, words): (&Term<'_>, Words<'_>),
+        (term, words): (&impl TermRead, Words<'_>),
         cell: PackedCell,
         base: Codepoint,
         style: TextFace,
@@ -5505,7 +5511,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// `btop`'s frames retired 0.06% more instructions with nothing
     /// written.
     #[inline(always)]
-    fn write_over(&mut self, term: &Term<'_>, back: Rows, with: Predicted) {
+    fn write_over(&mut self, term: &impl TermRead, back: Rows, with: Predicted) {
         let predicting = match self.beside.as_deref_mut() {
             Some(b) => {
                 b.written.clear();
@@ -5561,7 +5567,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// cell path appends [`Renderer::find_solids`] to its records with the
     /// content, and draws the field and its caret among baud's veils
     /// ([`Renderer::veils_onto`]), over the images.
-    pub fn set_find(&mut self, term: &Term<'_>, look: Option<FindLook>) {
+    pub fn set_find(&mut self, term: &impl TermRead, look: Option<FindLook>) {
         self.find_wash = self
             .theme
             .entry(MARK_SLOT, |ch| term.palette(ch))
@@ -5634,11 +5640,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// while the row was not written: this is the layout for a caller with
     /// no compare of its own. The marks are drawn again only where the
     /// layout did not keep every row's order (`Renderer::marks_after_layout`).
-    pub fn lay_out_bidi(&mut self, term: &Term<'_>, back: Rows) {
+    pub fn lay_out_bidi(&mut self, term: &impl TermRead, back: Rows) {
         self.lay_out_bidi_with(term, back, Predicted::Unread);
     }
 
-    fn lay_out_bidi_with(&mut self, term: &Term<'_>, back: Rows, with: Predicted) {
+    fn lay_out_bidi_with(&mut self, term: &impl TermRead, back: Rows, with: Predicted) {
         // A display ([`crate::rebreak`]) moves cells between rows with no
         // row reordered, so the marks follow it as they follow an order.
         let was = self.reordered();
@@ -5700,7 +5706,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// text written ([`crate::bidi::Written`]). No predicted echo is read.
     fn keep_bidi_displayed(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         changes: crate::bidi::Changes,
     ) -> crate::bidi::Rejoin {
@@ -5722,7 +5728,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     #[inline(never)]
     fn keep_written(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         changes: crate::bidi::Changes,
     ) -> crate::bidi::Rejoin {
@@ -5741,7 +5747,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// ([`Renderer::rejoin_bidi`]).
     pub fn lay_out_bidi_copied(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
     ) -> Option<crate::bidi::Rejoin> {
         self.laid_back = back;
@@ -5765,7 +5771,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// out as it was shown (`[[source: ecma48]]` 7.2.1, IMPLICIT; UAX #9
     /// L1-L2 order every display line) -- each marked cell given its base
     /// ([`crate::cellmap::copy_for_shader`]).
-    pub fn copy_leaving(&mut self, term: &Term<'_>, back: Rows, dst: &mut [PackedCell]) {
+    pub fn copy_leaving(&mut self, term: &impl TermRead, back: Rows, dst: &mut [PackedCell]) {
         let above = Rows::of_index(back.index() + 1);
         self.lay_out_leaving(term, back);
         let Beside {
@@ -5787,7 +5793,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// The leaving row of the window `back` lines into the history laid
     /// out in the order [`Renderer::copy_leaving`] draws it.
-    fn lay_out_leaving(&mut self, term: &Term<'_>, back: Rows) {
+    fn lay_out_leaving(&mut self, term: &impl TermRead, back: Rows) {
         let above = Rows::of_index(back.index() + 1);
         let reach = widest_of(self.reaches.all());
         let (wrap, joins) = (self.word_wrap, self.joins_seen);
@@ -5804,7 +5810,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// ([`crate::bidi::Orders::row_source`]). Live before a slide.
     pub fn leaving_source<'t>(
         &self,
-        term: &'t Term<'_>,
+        term: &'t impl TermRead,
         back: Rows,
     ) -> crate::frozen::RowSource<'t> {
         let above = Rows::of_index(back.index() + 1);
@@ -5821,7 +5827,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// display draws it from two rows; the first band for a frozen row's.
     pub(crate) fn leaving_runs(
         &self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
     ) -> Vec<(core::ops::Range<usize>, baud_domain::Band)> {
         use baud_domain::{Band, RowStyles};
@@ -5840,7 +5846,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// **The table the leaving row's ids name**, as the frame's copy holds
     /// them: its band's while the cell path slides on a terminal of more
     /// bands than one, the live table on one of one band.
-    pub(crate) fn leaving_table<'t>(&self, term: &'t Term<'_>) -> baud_domain::LiveTable<'t> {
+    pub(crate) fn leaving_table<'t>(&self, term: &'t impl TermRead) -> baud_domain::LiveTable<'t> {
         match self
             .leaving_drawn
             .filter(|_| term.styles().bands().len() > 1)
@@ -5889,7 +5895,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// says changed since the last frame, one test of the row each.
     pub fn rejoin_bidi(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         how: crate::bidi::Rejoin,
         changed: impl Fn(Row) -> bool,
@@ -5913,7 +5919,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// none seen (`before`), and so unjoined: the window laid out again,
     /// every row joined, and kept for the next frame's compare
     /// ([`Renderer::lay_out_bidi_copied`]). Once a renderer's life.
-    pub fn join_after_walk(&mut self, term: &Term<'_>, back: Rows, before: crate::bidi::Joins) {
+    pub fn join_after_walk(
+        &mut self,
+        term: &impl TermRead,
+        back: Rows,
+        before: crate::bidi::Joins,
+    ) {
         if before == crate::bidi::Joins::Unseen
             && self.joins_seen == crate::bidi::Joins::Seen
             && term.bidi_support() == BidiSupport::Explicit
@@ -6090,7 +6101,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// held names what is found now.
     pub fn take_struck(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         view: &Viewport<'_>,
         rows: Rows,
@@ -6184,7 +6195,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// the window as that path's cells name their renditions. **The solids
     /// are kept** while nothing they are drawn from moved (`links`); the
     /// look's fields read cells, and are built every frame.
-    pub fn place_links(&mut self, term: &Term<'_>, view: &Viewport<'_>) {
+    pub fn place_links(&mut self, term: &impl TermRead, view: &Viewport<'_>) {
         self.place_links_with(term, view, Force::No, |y, _, l| {
             view.row(y)
                 .get(l.index())
@@ -6198,7 +6209,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// places the solids again whatever their key says.
     fn place_links_with(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         view: &Viewport<'_>,
         force: Force,
         under: impl Fn(Row, Col, Col) -> PackedCell,
@@ -6285,7 +6296,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// **The solids of the lines at rest, the strikes and `hover = "line"`,
     /// appended to `out`**: from the driver's links, the frame's colours,
     /// the cell geometry and the rows' order, and from no cell.
-    fn place_solids(&self, term: &Term<'_>, out: &mut Vec<Instance>) {
+    fn place_solids(&self, term: &impl TermRead, out: &mut Vec<Instance>) {
         let cw = self.metrics.cell_w.value();
         let thick = self.metrics.thickness;
         let under_y = self.metrics.underline.value();
@@ -6425,7 +6436,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The colour a line over a cell of rendition `word` is drawn in under
     /// the pointer, as an underline of that cell would be; none where its
     /// text does not draw, where no line is drawn at rest either.
-    fn line_colour(&self, term: &Term<'_>, word: baud_domain::StyleWord) -> Option<Argb> {
+    fn line_colour(&self, term: &impl TermRead, word: baud_domain::StyleWord) -> Option<Argb> {
         let d = self.resolve_slot(term, word).drawn(Swaps {
             pictured: crate::picture::Pictured::No,
             line: Line::No,
@@ -6500,7 +6511,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// through this ([`Renderer::convert`], the cell path's `cursor_at`).
     pub fn clear_of_messages(
         &self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         cursor: Option<(Row, Col, CursorStyle)>,
     ) -> Option<(Row, Col, CursorStyle)> {
         let (r, c, style) = cursor?;
@@ -6571,7 +6582,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// ([`Renderer::missing_rendition`]), as the single mode's lending draws it.
     pub(crate) fn struck_resolved(
         &self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         b: baud_domain::Band,
         id: baud_domain::StyleId,
     ) -> Resolved {
@@ -6579,7 +6590,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.missing_rendition(term, under)
     }
 
-    pub(crate) fn missing_rendition(&self, term: &Term<'_>, under: Resolved) -> Resolved {
+    pub(crate) fn missing_rendition(&self, term: &impl TermRead, under: Resolved) -> Resolved {
         let text = match self.links.missing() {
             MissingPaint::Kept => return under,
             MissingPaint::Colour(c) => c,
@@ -6749,7 +6760,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// and the width `cols` among it.
     fn veils_now<'s>(
         &'s self,
-        term: &'s Term<'_>,
+        term: &'s impl TermRead,
         (styles, cols): (StyleStamp, Cols),
     ) -> VeilNow<'s> {
         VeilNow {
@@ -6788,7 +6799,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// itself.
     pub fn veils_onto(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (styles, stamp): (&[Resolved], StyleStamp),
         cols: Cols,
         (mask, records): (&mut [u8], &mut Vec<Instance>),
@@ -7022,7 +7033,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// leaving row's span is a hole on the window's top `lift` pixels.
     /// Each driver calls it after [`Renderer::set_splash`] on every frame,
     /// once the slide's pan is known; nothing while no splash is set.
-    pub fn splash_yields_to(&mut self, term: &Term<'_>, lift: Px) {
+    pub fn splash_yields_to(&mut self, term: &impl TermRead, lift: Px) {
         if self.splash.is_none() {
             self.splash_holes.clear();
             return;
@@ -7042,7 +7053,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// drawn: [`Renderer::splash_yields_to`]'s holes, a row's at most one,
     /// each reaching `lift` below its row, and the leaving row's on the
     /// top `lift` pixels while the grid slides.
-    fn holes_of(&self, term: &Term<'_>, lift: Px) -> Vec<splash::Hole> {
+    fn holes_of(&self, term: &impl TermRead, lift: Px) -> Vec<splash::Hole> {
         let back = term.window_back();
         let view = term.view(back);
         let px = |v: usize, unit: Px| {
@@ -7342,7 +7353,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// note AS's bound, since what a screen shows there is the page over
     /// what is behind the window. A coloured desktop between them is not
     /// read.
-    fn bound_trail(&mut self, term: &Term<'_>) {
+    fn bound_trail(&mut self, term: &impl TermRead) {
         if self.strength() == Strength::Full {
             self.flash_held = flash::Held::Full;
             return;
@@ -8275,7 +8286,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// (`[[source: iterm2-7ce037e-text-drawing-helper]]`), and the Metal
     /// path's `loadCursorInfoWithDrawingHelper`
     /// (`[[source: iterm2-964a75d-metal-per-frame-state]]`).
-    pub fn cursor_line(term: &Term<'_>, back: Rows) -> Option<Row> {
+    pub fn cursor_line(term: &impl TermRead, back: Rows) -> Option<Row> {
         let main = term.geometry().1;
         if term.status_line().and_then(|l| l.cursor).is_some() {
             return Some(Row::from_index(main.index()));
@@ -8395,7 +8406,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// The colours a selection draws in on the last convert or resolve:
-    /// `OSC 17`'s and `19`'s, as [`Term::highlight_colors`] gives them, each
+    /// `OSC 17`'s and `19`'s, as [`baud_core::Term::highlight_colors`] gives them, each
     /// the theme's ([`Theme::selection`]) where the program set none, and
     /// with neither, the pair [`Renderer::set_inactive_selection`] set while
     /// the window is not key. What a caller that draws the selection itself
@@ -8468,7 +8479,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// set before a convert**, so without the rebuild the frame a program
     /// flips `?5` on, or a flash starts on, would draw its scrollbar, trail
     /// and fade in the colours of the frame before.
-    fn refresh_screen(&mut self, term: &Term<'_>) {
+    fn refresh_screen(&mut self, term: &impl TermRead) {
         self.video = video_of(term, self.flash);
         let defaults = self.theme.defaults(self.video, |d| term.dynamic_color(d));
         let stored = self
@@ -8706,7 +8717,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// (`kColorMapBackground`, `[[source: iterm2-964a75d-ptytextview]]`),
     /// which reverse video does not swap (`[[source:
     /// iterm2-964a75d-color-map]]`).
-    pub fn background_of(&self, term: &Term<'_>) -> Argb {
+    pub fn background_of(&self, term: &impl TermRead) -> Argb {
         let (_, bg) = self
             .theme
             .defaults(Video::Normal, |d| term.dynamic_color(d));
@@ -8719,7 +8730,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// strips past the grid are filled once, so a `?5` or an `OSC 11` would
     /// leave them the old colour. It reads the flash already set, so a driver
     /// sets that first.
-    pub fn clear_color_of(&self, term: &Term<'_>) -> Argb {
+    pub fn clear_color_of(&self, term: &impl TermRead) -> Argb {
         let video = video_of(term, self.flash);
         let (_, bg) = self.theme.defaults(video, |d| term.dynamic_color(d));
         let alpha = match video {
@@ -8931,7 +8942,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// once a look. Every path draws them: the CPU path in
     /// [`Renderer::render_at`], which calls this itself, the GPU paths from
     /// [`Renderer::lights_records`] in a pass over the line.
-    pub fn place_lights(&mut self, _term: &Term<'_>) {
+    pub fn place_lights(&mut self, _term: &impl TermRead) {
         if self.lights.line.is_none() {
             self.lights.inst.clear();
             return;
@@ -8998,7 +9009,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// [`Renderer::strip_records`] in a pass over the strip.
     pub fn place_marks(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         leaving: crate::status::Leaving,
         pan: Px,
@@ -9067,7 +9078,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// have no room ([`crate::wrapmark::room`]).
     fn place_wrap_marks(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         leaving: crate::status::Leaving,
         pan: Px,
@@ -9368,22 +9379,29 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// Reads the terminal, converts the rows that changed and paints them
     /// into `target`: [`Renderer::convert`] then [`Renderer::paint`].
+    ///
+    /// `seal` is the seal the caller closed the frame's writes with
+    /// ([`baud_core::Term::seal_writes`]), before handing the terminal
+    /// over to be read: the copy the convert keeps is taken under it, and
+    /// the next frame takes again only the rows written after.
     pub fn render(
         &mut self,
-        term: &mut Term<'_>,
+        term: &impl TermRead,
+        seal: Seal,
         target: &mut Target<'_>,
         damage: Damage,
     ) -> Frame {
-        self.render_at(term, Rows::ZERO, target, damage)
+        self.render_at(term, seal, Rows::ZERO, target, damage)
     }
 
     /// [`Renderer::render`] of a window `back` lines up the history: the
-    /// rows [`Term::view`] shows, and the images on them. What a driver
+    /// rows [`TermRead::view`] shows, and the images on them. What a driver
     /// that scrolls the CPU path back calls, so the text moves with the
     /// thumb, the selection and the link under a click.
     pub fn render_at(
         &mut self,
-        term: &mut Term<'_>,
+        term: &impl TermRead,
+        seal: Seal,
         back: Rows,
         target: &mut Target<'_>,
         damage: Damage,
@@ -9405,11 +9423,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // (`ImageAlpha::Partial`) would blend twice -- nor over an overlay
         // drawn on an earlier frame, and a frame that repaints no row an
         // image covers blits none of it.
-        //
-        // **One write generation closed a frame, before anything reads**
-        // (`Term::seal_writes`): the copy the convert keeps is taken under
-        // it, and the next frame takes again only the rows written after.
-        let _ = term.seal_writes();
         self.fit(term);
         // A frame with the splash's layers, or the one after it, repaints
         // whole: no row's reach counts their records.
@@ -9418,7 +9431,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             false => Damage::Full,
         };
         self.place_images(term, back, Snapshots::Skipped);
-        let converted = self.convert_with(term, back, damage, ImageRows::Repainted);
+        let converted = self.convert_with(term, seal, back, damage, ImageRows::Repainted);
         self.strip_fresh = StripFresh::No;
         self.margin_fresh = StripFresh::No;
         self.lights.fresh = crate::lights::Fresh::No;
@@ -9445,27 +9458,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// the grid, and the exit-status strip beside it when kept.
     fn paint_beside(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         target: &mut Target<'_>,
         converted: Converted,
         damage: Damage,
     ) -> Frame {
         let under = self.image_places.iter().any(|p| p.layer.under_text());
-        let over = Some(term.images());
+        let imgs = term.images();
+        let over = Some(&imgs);
         // With the exit-status strip or the margins kept, `target` is the
         // whole frame's width: the grid is painted into the columns past the
         // left margin and the strip, the strip on its own, and the margins.
         let (strip, band) = (self.strip(), self.margins());
         if strip.value() == 0 && band.value() == 0 {
             return match under {
-                true => self.paint_rows(target, converted, UnderImages(term.images()), over),
+                true => self.paint_rows(target, converted, UnderImages(imgs), over),
                 false => self.paint_rows(target, converted, NoUnder, over),
             };
         }
         let (w, _) = self.frame_size();
         let frame = match target.columns(self.grid_left(), w) {
             Some(mut grid) => match under {
-                true => self.paint_rows(&mut grid, converted, UnderImages(term.images()), over),
+                true => self.paint_rows(&mut grid, converted, UnderImages(imgs), over),
                 false => self.paint_rows(&mut grid, converted, NoUnder, over),
             },
             None => Frame::default(),
@@ -9484,8 +9498,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// pixels into [`Renderer::image_uploads`] for a GPU to upload once.
     ///
     /// A placement anchors to an absolute line of its screen; its screen row
-    /// is `line - top`, where [`Term::image_origin`] gives `top` for a view
-    /// `back` lines up with the same clamp [`Term::view`] uses -- so as output
+    /// is `line - top`, where [`TermRead::image_origin`] gives `top` for a view
+    /// `back` lines up with the same clamp [`TermRead::view`] uses -- so as output
     /// scrolls the image moves up with its line, a scrollback view shows the
     /// images anchored there, and an image and the grid row under it are drawn
     /// from one answer. A placement on the screen that is not up is not
@@ -9511,7 +9525,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// internal id, the order images were made (`[[source: kitty-graphics-c]]`
     /// `grman_update_layers`), where the text names the client's id; the
     /// text is followed.
-    pub fn set_images(&mut self, term: &Term<'_>, back: Rows) {
+    pub fn set_images(&mut self, term: &impl TermRead, back: Rows) {
         self.place_images(term, back, Snapshots::Kept);
     }
 
@@ -9519,7 +9533,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// CPU path blits from the terminal's pixels and skips them, which kept a
     /// second converted copy of every visible image -- two megabytes for a
     /// 600x800 preview -- for a GPU that path does not have.
-    fn place_images(&mut self, term: &Term<'_>, back: Rows, snap: Snapshots) {
+    fn place_images(&mut self, term: &impl TermRead, back: Rows, snap: Snapshots) {
         self.image_places.clear();
         self.image_maps.clear();
         self.virtual_at.clear();
@@ -9535,7 +9549,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if self.image_epoch != epoch {
             let then = self.image_epoch;
             self.image_uploads
-                .retain(|u| imgs.since(u.id, u.born, then) == ImageSince::Same);
+                .retain(|u| imgs.image_since(u.id, u.born, then) == ImageSince::Same);
             self.image_epoch = epoch;
         }
         let origin = term.image_origin(back);
@@ -9632,7 +9646,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 j1 = j1.min(rows_px(p.kitty.rows) - cut_bottom - i64::from(dest.y));
             }
             self.push_image(
-                imgs,
+                &imgs,
                 epoch,
                 p.image,
                 &view,
@@ -9697,11 +9711,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 (r as i64, vp.row(y), vp.rendition(y), drawn, vp.styles(y))
             });
             for (r, row, size, drawn, styles) in leaving.into_iter().chain(rows) {
-                self.place_placeholders(term, imgs, epoch, (r, row, size, styles), drawn, snap);
+                self.place_placeholders(term, &imgs, epoch, (r, row, size, styles), drawn, snap);
             }
             self.placeholder_leaving = Some(up);
             self.placeholder_bidi = Some(order);
-            self.place_under_virtuals(imgs, epoch, origin.screen, snap);
+            self.place_under_virtuals(&imgs, epoch, origin.screen, snap);
         }
         // The text's order: by `z`, then by the client's id; then, where the
         // text leaves it undefined, kitty's: by when the image was stored,
@@ -9741,7 +9755,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// window that shows it first (a tall picture whose top has scrolled off
     /// keeps its place), and left to right for a line the history no longer
     /// holds.
-    fn anchor_direction(&self, term: &Term<'_>, back: Rows, at: Anchor) -> BidiDirection {
+    fn anchor_direction(&self, term: &impl TermRead, back: Rows, at: Anchor) -> BidiDirection {
         let back = term.looking_back(back);
         match at {
             Anchor::At(y) => term.line_direction(back, y),
@@ -9757,8 +9771,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     fn place_placeholders(
         &mut self,
-        term: &Term<'_>,
-        imgs: &ImageStore<'_>,
+        term: &impl TermRead,
+        imgs: &impl ImageRead,
         epoch: ImageGen,
         (r, row, size, styles): (
             i64,
@@ -9854,7 +9868,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// (`[[source: kitty-graphics-c]]` `grman_update_layers`).
     fn place_under_virtuals(
         &mut self,
-        imgs: &ImageStore<'_>,
+        imgs: &impl ImageRead,
         epoch: ImageGen,
         screen: ImageScreen,
         snap: Snapshots,
@@ -9916,7 +9930,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     #[allow(clippy::too_many_arguments)]
     fn push_image(
         &mut self,
-        imgs: &ImageStore<'_>,
+        imgs: &impl ImageRead,
         epoch: ImageGen,
         id: ImageId,
         view: &baud_domain::ImageView<'_>,
@@ -10043,7 +10057,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Read from `term` itself, as the placements are built, and not from
     /// the defaults the frame's convert refreshes after them: from those,
     /// the frame after an `OSC 11` drew the fill in the colour before.
-    pub fn fill_pixel(&self, term: &Term<'_>) -> Pixel {
+    pub fn fill_pixel(&self, term: &impl TermRead) -> Pixel {
         let bg = self
             .theme
             .defaults(Video::Normal, |d| term.dynamic_color(d))
@@ -10112,7 +10126,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// pixels its image holds ([`held`]): on the kept frame an image gone
     /// is skipped here and kept as the last frame drew it, and every row of
     /// one whose pixels moved is repainted ([`Renderer::paint_kept`]).
-    fn paint_over(&self, imgs: &ImageStore<'_>, target: &mut RowTarget<'_>, page: Page) {
+    fn paint_over(&self, imgs: &impl ImageRead, target: &mut RowTarget<'_>, page: Page) {
         let band = target.band();
         let (on, all): (&[usize], &[ImagePlacement]) = match self.place_rows.row(target.row()) {
             Some(on) => (on, &[]),
@@ -10138,7 +10152,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// alpha; then the rest. The GPU paths draw the same steps.
     fn paint_under(
         &self,
-        imgs: &ImageStore<'_>,
+        imgs: &impl ImageRead,
         target: &mut Target<'_>,
         row: Row,
         page: Page,
@@ -10324,7 +10338,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// this call cannot name the seal of (`Renderer::sized_framed`).
     pub fn sized_lines(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (view, table): (&Viewport<'_>, &[Resolved]),
         cursor: Option<(Row, Col, CursorStyle)>,
         composition: Option<&Composition>,
@@ -10348,7 +10362,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// every line with no `framed`, by its cells, compared.
     pub(crate) fn sized_framed(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (view, table): (&Viewport<'_>, crate::RowTables<'_>),
         framed: Option<Framed>,
         cursor: Option<(Row, Col, CursorStyle)>,
@@ -10514,7 +10528,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// of its cells names, where it shows a frozen row -- and the status
     /// line's and the notice's, which are live. Whether the struck cells
     /// were the last frame's.
-    fn lend_cpu(&mut self, term: &Term<'_>, back: Rows) -> StruckFound {
+    fn lend_cpu(&mut self, term: &impl TermRead, back: Rows) -> StruckFound {
         let ncols = self.cols.index().max(1);
         let frozen = self.bidi.orders().window_frozen(term, back);
         let struck = self.take_struck(term, back, &term.view(back), self.main, CopyOrder::Visual);
@@ -10577,7 +10591,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// The renderer fitted to `term` and its rendition table brought up to
     /// date, for a conversion outside [`Renderer::convert`].
-    fn sized_ready(&mut self, term: &Term<'_>, frame: Option<crate::RowTables<'_>>) {
+    fn sized_ready(&mut self, term: &impl TermRead, frame: Option<crate::RowTables<'_>>) {
         self.fit(term);
         self.give_back_cpu();
         let mut styles = core::mem::take(&mut self.styles);
@@ -10629,7 +10643,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// single-width line of the paragraph where the stored row above the
     /// window is double. What [`crate::Overlay::leaving`] and
     /// [`Renderer::sized_leaving`] decide the row's path by.
-    pub(crate) fn leaving_rendition(&mut self, term: &Term<'_>, back: Rows) -> LineRendition {
+    pub(crate) fn leaving_rendition(&mut self, term: &impl TermRead, back: Rows) -> LineRendition {
         let above = Rows::of_index(back.index() + 1);
         let reach = self.widest_reach();
         let leaving = self
@@ -10685,7 +10699,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// -- so the frame the instance path reuses is untouched; with no
     /// picture, as the cell path never takes the leaving row for one, and
     /// no cursor, which is never on it.
-    pub fn sized_leaving(&mut self, term: &Term<'_>, back: Rows, out: &mut Vec<Instance>) {
+    pub fn sized_leaving(&mut self, term: &impl TermRead, back: Rows, out: &mut Vec<Instance>) {
         out.clear();
         let above = Rows::of_index(back.index() + 1);
         // The row in the order it was drawn in as the first of the window
@@ -10772,7 +10786,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// The frame fitted to `term`: its main display, and the status line's
     /// row below it while one is shown.
-    pub fn fit(&mut self, term: &Term<'_>) {
+    pub fn fit(&mut self, term: &impl TermRead) {
         let (cols, main) = term.geometry();
         let rows =
             Rows::of_index(main.index() + term.status_rows().index() + self.notice_rows().index());
@@ -10805,7 +10819,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// rest to these. Nothing while no status line is shown.
     pub fn status_records(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         cursor: Option<(Row, Col, CursorStyle)>,
         out: &mut Vec<Instance>,
     ) {
@@ -10837,13 +10851,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// A GPU path takes [`Renderer::instances`], [`Renderer::background`]
     /// and [`Renderer::atlas`] from here; the CPU path calls
     /// [`Renderer::paint`].
-    pub fn convert(&mut self, term: &Term<'_>, back: Rows, damage: Damage) -> Converted {
-        self.convert_with(term, back, damage, ImageRows::Ignored)
+    pub fn convert(&mut self, term: &impl TermRead, back: Rows, damage: Damage) -> Converted {
+        self.convert_with(term, term.sealed(), back, damage, ImageRows::Ignored)
     }
 
     fn convert_with(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
+        seal: Seal,
         back: Rows,
         damage: Damage,
         images: ImageRows,
@@ -11595,8 +11610,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         crate::counters::add(Counter::CellsCopied, Site::Convert, Tally::of(copied));
         self.prev_size.clear();
         self.prev_size.extend_from_slice(self.cur.sizes());
-        self.cur
-            .settle(term.sealed(), &now, &vp, self.bidi.orders());
+        self.cur.settle(seal, &now, &vp, self.bidi.orders());
         core::mem::swap(&mut self.veiled_last, &mut self.veiled_now);
         self.lent_last = lent_now;
         self.known = Prev::Known;
@@ -11642,7 +11656,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             && term.bidi_support() == BidiSupport::Explicit
         {
             let dirtied = self.dirty.clone();
-            let mut again = self.convert_with(term, back, damage, images);
+            let mut again = self.convert_with(term, seal, back, damage, images);
             for (d, was) in self.dirty.iter_mut().zip(dirtied) {
                 *d |= was;
             }
@@ -11702,7 +11716,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// [`Renderer::instances`] as they stand; the CPU path paints them with
     /// [`Renderer::render_hidden`]. The next convert takes its change
     /// against this frame. Nothing is converted before a first frame.
-    pub fn hide_cursor(&mut self, term: &Term<'_>) -> Converted {
+    pub fn hide_cursor(&mut self, term: &impl TermRead) -> Converted {
         self.hide(term).unwrap_or_default()
     }
 
@@ -11710,7 +11724,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// frame, or after a resize or anything else that leaves this renderer
     /// no last frame to convert from (`Prev::Unknown`), when the kept frame
     /// is what the target holds.
-    fn hide(&mut self, term: &Term<'_>) -> Option<Converted> {
+    fn hide(&mut self, term: &impl TermRead) -> Option<Converted> {
         let t0 = Instant::now();
         let rows = self.rows.index();
         let mut exceptions = Exceptions::default();
@@ -11822,7 +11836,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// [`Renderer::hide_cursor`] declines, with no last frame to convert
     /// from, nothing is painted for an image either: the kept frame is what
     /// the target holds.
-    pub fn render_hidden(&mut self, term: &Term<'_>, target: &mut Target<'_>) -> Frame {
+    pub fn render_hidden(&mut self, term: &impl TermRead, target: &mut Target<'_>) -> Frame {
         let cell = self.last_cursor.map(|(r, c, _)| {
             let (x, y, w, h) = self.cursor_px(r, c, CursorStyle::SteadyBlock);
             let at = |p: Px| usize::try_from(p.value()).unwrap_or(usize::MAX);
@@ -11849,7 +11863,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// exit-status strip when either is kept.
     fn kept_beside(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         target: &mut Target<'_>,
         converted: Option<Converted>,
         cell: Option<(core::ops::Range<usize>, core::ops::Range<usize>)>,
@@ -11870,7 +11884,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// where [`Renderer::hide_cursor`] declined.
     fn paint_kept(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         grid: &mut Target<'_>,
         converted: Option<Converted>,
         cell: Option<(core::ops::Range<usize>, core::ops::Range<usize>)>,
@@ -11892,7 +11906,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if converted.is_some() {
             for i in 0..self.image_places.len() {
                 let p = self.image_places[i];
-                if since_placed(imgs, &p) != ImageSince::Redrawn {
+                if since_placed(&imgs, &p) != ImageSince::Redrawn {
                     continue;
                 }
                 for r in 0..self.rows.index() {
@@ -11917,12 +11931,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .image_places
             .iter()
             .enumerate()
-            .filter(|&(_, p)| since_placed(imgs, p) == ImageSince::Redrawn)
+            .filter(|&(_, p)| since_placed(&imgs, p) == ImageSince::Redrawn)
             .map(|(i, p)| (i, span(p)))
             .collect();
         // An image the terminal no longer holds is kept from the last frame
         // on the rows painted ([`held`]), and the passes skip it.
-        let kept = |p: &ImagePlacement| imgs.since(p.id, p.born, p.epoch) == ImageSince::Gone;
+        let kept = |p: &ImagePlacement| imgs.image_since(p.id, p.born, p.epoch) == ImageSince::Gone;
         for (i, p) in self
             .image_places
             .iter()
@@ -11948,9 +11962,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
         }
         let under = self.image_places.iter().any(|p| p.layer.under_text());
-        let over = Some(term.images());
+        let over = Some(&imgs);
         let frame = match under {
-            true => self.paint_rows(grid, converted, UnderImages(term.images()), over),
+            true => self.paint_rows(grid, converted, UnderImages(imgs), over),
             false => self.paint_rows(grid, converted, NoUnder, over),
         };
         // What the rows painted drew where a piece meets an image redrawn
@@ -11987,7 +12001,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Paints the rows the last [`Renderer::convert`] found dirty into
     /// `target`, which must still hold the frame before.
     pub fn paint(&mut self, target: &mut Target<'_>, converted: Converted) -> Frame {
-        self.paint_rows(target, converted, NoUnder, None)
+        self.paint_rows(target, converted, NoUnder, None::<&&ImageStore<'_>>)
     }
 
     /// [`Renderer::paint`], with what is drawn between a repainted row's
@@ -11999,7 +12013,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         target: &mut Target<'_>,
         converted: Converted,
         under: impl Under,
-        over: Option<&ImageStore<'_>>,
+        over: Option<&impl ImageRead>,
     ) -> Frame {
         let t1 = Instant::now();
         let mut frame = Frame {
@@ -13017,7 +13031,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// where the two number their glyphs alike ([`Renderer::lay_word`]).
     pub(crate) fn word_at(
         &mut self,
-        (term, styles): (&Term<'_>, &[TextFace]),
+        (term, styles): (&impl TermRead, &[TextFace]),
         (r, row, kept): (
             Row,
             &[PackedCell],
@@ -13056,7 +13070,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// `prev`.
     fn word_layout(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         row: &[PackedCell],
         (w, styles): (&crate::word::Word, &[TextFace]),
         (cols, prev): (Cols, Option<f32>),
@@ -13071,7 +13085,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// `find` finds them where no row kept holds those cells so.
     pub(crate) fn kept_row(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (at, rows): (Row, Rows),
         cells: (&[PackedCell], &[Col]),
         find: impl FnOnce() -> crate::kept::Found,
@@ -13286,7 +13300,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// one cluster, in the first cell's style and colours.
     fn syllable_at(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         r: Row,
         row: &[PackedCell],
         s: crate::syllable::Syllable,
@@ -13436,7 +13450,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// `at` ([`Renderer::word_on`]), on the face that draws it.
     pub(crate) fn joined_word(
         &mut self,
-        (term, styles, frame): (&Term<'_>, &[Resolved], Words<'_>),
+        (term, styles, frame): (&impl TermRead, &[Resolved], Words<'_>),
         cps: &[Codepoint],
         style: TextFace,
         (around, at): (WordAround<'_>, (Row, Col)),
@@ -13906,7 +13920,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// whether blinking text is on screen is not this table's answer: a slot
     /// no cell names is not on screen, and the table frees one only when it
     /// sweeps. It counts the blinking slots, and the overlay's walk answers.
-    pub fn resolve_styles_into(&mut self, term: &Term<'_>, out: &mut [Resolved]) -> Tally {
+    pub fn resolve_styles_into(&mut self, term: &impl TermRead, out: &mut [Resolved]) -> Tally {
         self.refresh_screen(term);
         let table = term.styles().slots();
         let mut n = Tally::default();
@@ -13937,7 +13951,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// the GPU draws from, each with its own [`StyleStamp`].
     pub fn sync_styles(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         out: &mut [Resolved],
         stamp: &mut StyleStamp,
     ) -> StyleSync {
@@ -13950,7 +13964,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// resolves the slots its log has written, not every slot.
     pub fn sync_band(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         band: baud_domain::Band,
         out: &mut [Resolved],
         stamp: &mut StyleStamp,
@@ -14064,7 +14078,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// What a resolved rendition depends on beside its word: the theme, the
     /// video and the core's colours.
-    pub(crate) fn style_inputs(&self, term: &Term<'_>) -> StyleInputs {
+    pub(crate) fn style_inputs(&self, term: &impl TermRead) -> StyleInputs {
         StyleInputs {
             theme: self.theme_gen,
             video: self.video,
@@ -14075,7 +14089,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// **One rendition resolved as a slot of the table is**: what a reader
     /// of a row frozen off the screen draws a cell in, from its word
     /// (`Term::style_in`).
-    pub fn resolved_word(&self, term: &Term<'_>, style: baud_domain::StyleWord) -> Resolved {
+    pub fn resolved_word(&self, term: &impl TermRead, style: baud_domain::StyleWord) -> Resolved {
         self.resolve_slot(term, style)
     }
 
@@ -14084,7 +14098,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// selection, the cursor, the blink's phase ([`Resolved::drawn`]). The one
     /// spelling of the rendition rules: the cell path's table holds it a slot
     /// at a time and the CPU and instance paths take it a cell at a time.
-    pub(crate) fn resolve_slot(&self, term: &Term<'_>, style: baud_domain::StyleWord) -> Resolved {
+    pub(crate) fn resolve_slot(
+        &self,
+        term: &impl TermRead,
+        style: baud_domain::StyleWord,
+    ) -> Resolved {
         // xterm's special colours first, while a mode is on: the rendition
         // a cell draws with, its attribute dropped where a colour replaced
         // it (`ColorModes::apply`), so everything below -- the colours, the
@@ -14301,7 +14319,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// with it.
     fn row_bands(
         &self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         held: Option<&crate::rebreak::Display>,
         struck: &[(Row, core::ops::Range<usize>)],
@@ -14382,7 +14400,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// resolves what it wrote since and a band first seen what it wrote.
     fn sync_window(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         back: Rows,
         held: Option<&crate::rebreak::Display>,
         struck: &[(Row, core::ops::Range<usize>)],
@@ -14408,7 +14426,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// decorated slots they hold.
     fn sync_slots(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         window: &mut crate::band_window::BandWindow,
         styles: &mut [Resolved],
         bs: baud_core::BandSlots,
@@ -14445,7 +14463,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// base moved, which is what a reader keyed on it compares.
     pub(crate) fn sync_cell_window(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (back, set): (Rows, crate::screens::SetIx),
         leaving: Option<Vec<(core::ops::Range<usize>, baud_domain::Band)>>,
         struck: &[(Row, core::ops::Range<usize>)],
@@ -14519,7 +14537,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// through; empty, every base 0, on a terminal of one band.
     pub fn overlay_rows(
         &self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         set: crate::screens::SetIx,
         leaving: crate::Leaving,
     ) -> crate::OverlayRows {
@@ -14575,7 +14593,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// could take one, ASCII skipped outright while Latin and Common are
     /// alike everywhere. So a Latin row on the embedded faces, which vary
     /// for Devanagari alone, is not resolved.
-    fn settle_row(&mut self, term: &Term<'_>, row: &[PackedCell]) {
+    fn settle_row(&mut self, term: &impl TermRead, row: &[PackedCell]) {
         self.row_scripts.clear();
         self.row_scripts.resize(row.len(), Script::COMMON);
         let apart = |s: Script| {
@@ -14632,7 +14650,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// and on any other row the whole -- answered for after the rows.
     fn composed_parts(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         c: &Composition,
         under: PackedCell,
         cursor: Cursor,
@@ -14658,7 +14676,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// Resolves one row's colours and glyphs.
-    fn convert_row(&mut self, term: &Term<'_>, r: Row, cursor: Cursor, exc: &mut Exceptions) {
+    fn convert_row(&mut self, term: &impl TermRead, r: Row, cursor: Cursor, exc: &mut Exceptions) {
         match self.window.row_read(r) {
             None => self.convert_row_in(term, (r, WholeTable), cursor, exc),
             Some(b) => self.convert_row_in(term, (r, b), cursor, exc),
@@ -14669,7 +14687,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// table as `base` says.
     fn convert_row_in<R: RowRead>(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (r, base): (Row, R),
         cursor: Cursor,
         exc: &mut Exceptions,
@@ -15101,7 +15119,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     #[allow(clippy::too_many_arguments)]
     fn row_runs(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         r: Row,
         (row, seams): (&[PackedCell], &[bool]),
         at: (Stretch, usize),
@@ -15134,7 +15152,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     #[allow(clippy::too_many_arguments)]
     fn joined_runs(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         r: Row,
         (row, seams): (&[PackedCell], &[bool]),
         at: (Stretch, usize),
@@ -15156,7 +15174,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     #[allow(clippy::too_many_arguments)]
     fn runs<const LAID: bool>(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         r: Row,
         (row, seams, joins, mirrors, slants): RowCells<'_>,
         (st, line_end): (Stretch, usize),
@@ -15515,7 +15533,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// table the frame draws with ([`Renderer::word_at`]).
     pub(crate) fn word_on(
         &mut self,
-        (term, styles, frame): (&Term<'_>, &[Resolved], Words<'_>),
+        (term, styles, frame): (&impl TermRead, &[Resolved], Words<'_>),
         face: FaceIx,
         (before, after): WordAround<'_>,
         (r, v): (Row, Col),
@@ -15804,7 +15822,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     #[cfg(feature = "exceptions")]
     fn count_differs(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         r: Row,
         start: Col,
         clusters: Clusters<'_>,
@@ -15822,7 +15840,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     #[cfg(feature = "exceptions")]
     fn count_differs_in<R: RowRead>(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (r, base): (Row, R),
         start: Col,
         clusters: Clusters<'_>,
@@ -15886,7 +15904,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     #[allow(clippy::too_many_arguments)]
     fn edges(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         r: Row,
         col: Col,
         row: &[PackedCell],
@@ -16166,7 +16184,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     #[inline(never)]
     fn pair_at(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         r: Row,
         (row, joins): (&[PackedCell], &[Option<crate::bidi::Joined>]),
         (c, line_end): (usize, usize),
@@ -16326,7 +16344,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// alef.
     pub(crate) fn pair_word(
         &mut self,
-        (term, styles, frame): (&Term<'_>, &[Resolved], Words<'_>),
+        (term, styles, frame): (&impl TermRead, &[Resolved], Words<'_>),
         r: Row,
         (lam, alef): (usize, Option<usize>),
         face: FaceIx,
@@ -16357,7 +16375,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// each draws its own letter on a face that forms none.
     pub(crate) fn wrapped_ligates(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (lam, alef): (PackedCell, PackedCell),
         kind: baud_domain::LamAlef,
         style: TextFace,
@@ -16438,7 +16456,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// scale and move that fit it.
     fn narrows(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         face: FaceIx,
         r: Row,
         start: Col,
@@ -16565,7 +16583,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// no mirrored cell takes the arm that reads no mirror.
     fn emit<const MIRRORED: bool>(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         face: FaceIx,
         r: Row,
         start: Col,
@@ -16984,7 +17002,7 @@ mod layouts {
 #[cfg(test)]
 mod kept_bound {
     use super::*;
-    use baud_core::Owned;
+    use baud_core::{Owned, Term};
     use baud_domain::{Content, WinSize};
 
     /// A row of `cols` cells, the first of them `c`.
@@ -17051,7 +17069,7 @@ mod kept_bound {
 #[cfg(test)]
 mod splash_cursor {
     use super::*;
-    use baud_core::Owned;
+    use baud_core::{Owned, Term};
     use baud_domain::WinSize;
 
     /// **The splash's block blinks as the terminal's cursor does**: at each

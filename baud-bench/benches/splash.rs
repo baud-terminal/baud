@@ -176,7 +176,8 @@ fn life(faces: &[Face<'_>], size: &Size, damage: Damage) -> (Vec<f64>, u64) {
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     {
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let frame_s = 1.0 / size.rate.0 as f32;
     let mut ms = Vec::new();
@@ -193,7 +194,8 @@ fn life(faces: &[Face<'_>], size: &Size, damage: Damage) -> (Vec<f64>, u64) {
         // Around the shell's cells, as each driver hands it.
         r.splash_yields_to(&t, Px::of(0));
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, damage);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, damage);
         ms.push(start.elapsed().as_secs_f64() * 1e3);
         hash = fnv(hash, &px);
     }

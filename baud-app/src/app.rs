@@ -1469,7 +1469,7 @@ impl App {
             }
             (Request::Force(Path::Cpu), _) => (Path::Cpu, None, own_grid(&ws)),
         };
-        renderer.fit(&term);
+        renderer.fit(&*term);
         // The first frame is laid out for the scroller the setting asks for,
         // as every relayout after it is (`Driver::relayout`).
         renderer.set_gutter(gutter(scroller, crate::reveal::widths(Scale(scale))));
@@ -2335,14 +2335,14 @@ impl App {
         ) {
             (Some(Mode::Gpu), cells) => {
                 if !cells {
-                    self.renderer.hide_cursor(&self.term);
+                    self.renderer.hide_cursor(&*self.term);
                 }
                 self.keep = Keep::Owed;
             }
             _ => {
                 let (w, h) = (self.frame_w, self.frame_h);
                 if let Some(mut target) = Target::new(&mut self.frame, w, w, h) {
-                    self.renderer.render_hidden(&self.term, &mut target);
+                    self.renderer.render_hidden(&*self.term, &mut target);
                 }
                 self.kept_frame.clone_from(&self.frame);
                 self.slid = Composed::Yes;
@@ -2385,9 +2385,9 @@ impl App {
                         Some(_) => baud_render::Leaving::Drawn,
                         None => baud_render::Leaving::None,
                     };
-                    let overlay = self.renderer.overlay_rows(&self.term, b.at, leaving);
+                    let overlay = self.renderer.overlay_rows(&*self.term, b.at, leaving);
                     let view = overlay.view(
-                        &self.term,
+                        &*self.term,
                         (
                             &cell.copies_mem[set][..n.min(cell.copies_mem[set].len())],
                             &b.used,
@@ -2401,7 +2401,7 @@ impl App {
                     let mut records = Vec::new();
                     cell.exceptions.ensure(
                         &Scene {
-                            term: &self.term,
+                            term: &*self.term,
                             view,
                             styles: overlay.tables(&cell.styles_mem[set][..]),
                             cursor: None,
@@ -2577,7 +2577,7 @@ impl App {
         // The surface is the renderer's size, so the renderer follows the
         // terminal first; the cell path never converts and would otherwise
         // keep the grid it started with.
-        self.renderer.fit(&self.term);
+        self.renderer.fit(&*self.term);
         // The selection's share of this view, for every path's one rule --
         // or, while a program's `?1001` region tracks the mouse, that region
         // in its place (`tracked_highlight`).
@@ -2617,7 +2617,7 @@ impl App {
             self.badge,
             &self.session,
             &selection,
-            self.renderer.background_of(&self.term),
+            self.renderer.background_of(&*self.term),
             self.scale,
         );
         self.renderer.set_badge(badge);
@@ -2634,7 +2634,7 @@ impl App {
                 baud_render::Caret::End,
             )
         });
-        self.renderer.set_find(&self.term, look);
+        self.renderer.set_find(&*self.term, look);
         // The link preview, read again under the pointer on the view shown
         // now where it is owed: a wheel, a drag of the thumb, a find or a
         // resize may have moved what is under it since the turn's read
@@ -2651,7 +2651,7 @@ impl App {
         // **This frame's writes, closed once and after the scan** (FS-C5):
         // the scan keeps the seal it read under, and the cell path's build
         // takes this one as an argument, its set's copy and sized lines
-        // keyed under it. The CPU path's `render_at` seals at its own top.
+        // keyed under it, and the CPU path's `render_at` takes it too.
         let seal = self.term.seal_writes();
         self.renderer.set_link(self.hover.look().cloned());
         self.renderer.set_link_hover(self.hover.over());
@@ -2956,7 +2956,7 @@ impl App {
         // every visible image, kept for nothing.
         if self.presenter.as_ref().map(Presenter::mode) == Some(Mode::Gpu) {
             self.renderer
-                .set_images(&self.term, self.term.window_back());
+                .set_images(&*self.term, self.term.window_back());
         }
         let damage = self.next_damage;
         self.next_damage = Damage::Incremental;
@@ -2987,7 +2987,7 @@ impl App {
         // Over none of what the shell has drawn: its output is drawn as
         // with no logo from the frame it arrives on (`splash.rs`), where
         // the slide draws it, lowered by `lift`.
-        self.renderer.splash_yields_to(&self.term, lift);
+        self.renderer.splash_yields_to(&*self.term, lift);
         // No trail while the screen slides, as sfte draws none.
         self.renderer.set_trail(
             trail_look
@@ -3001,10 +3001,10 @@ impl App {
             false => baud_render::Leaving::None,
         };
         self.renderer
-            .place_marks(&self.term, self.term.window_back(), leaving, lift);
+            .place_marks(&*self.term, self.term.window_back(), leaving, lift);
         // The activity lights on their own line, for every path; it holds
         // still while the grid slides.
-        self.renderer.place_lights(&self.term);
+        self.renderer.place_lights(&*self.term);
         match (
             self.presenter.as_ref().map(Presenter::mode),
             self.cell.as_mut(),
@@ -3038,7 +3038,7 @@ impl App {
                 let presenter = &self.presenter;
                 let built = baud_render::cell_frame::build(
                     &mut self.renderer,
-                    &self.term,
+                    &*self.term,
                     seal,
                     &inputs,
                     &mut baud_render::cell_frame::CellParts {
@@ -3175,7 +3175,7 @@ impl App {
             (Some(Mode::Gpu), None) => {
                 let converted = self
                     .renderer
-                    .convert(&self.term, self.term.window_back(), damage);
+                    .convert(&*self.term, self.term.window_back(), damage);
                 self.stats = Frame {
                     rows_dirty: converted.rows_dirty,
                     rows: converted.rows,
@@ -3221,7 +3221,7 @@ impl App {
                     let mut target = Target::new(&mut self.frame, w, w, h).expect("target");
                     let back = self.term.window_back();
                     self.renderer
-                        .render_at(&mut self.term, back, &mut target, damage)
+                        .render_at(&*self.term, seal, back, &mut target, damage)
                 };
                 self.stats = stats;
                 let clear = self.renderer.clear_color();
@@ -3540,9 +3540,10 @@ impl App {
         let shown = match Target::new(&mut self.frame, w, w, h) {
             None => Presented::No,
             Some(mut target) => {
+                let seal = self.term.seal_writes();
                 self.stats =
                     self.renderer
-                        .render_at(&mut self.term, back, &mut target, Damage::Full);
+                        .render_at(&*self.term, seal, back, &mut target, Damage::Full);
                 self.presenter.as_mut().map_or(Presented::No, |p| {
                     p.present_on_cpu(screen, &self.frame, w, clear)
                 })
@@ -8117,7 +8118,7 @@ mod alt_window_tests {
         // And the CPU branch paints the window, where the live-screen form
         // names no window for the list above to see.
         assert!(
-            !SRC.contains(concat!(".render(", "&mut self.term")),
+            !SRC.contains(concat!(".render(", "&*self.term")),
             "the CPU path paints the live screen whatever the window"
         );
     }
@@ -8849,7 +8850,7 @@ mod drag_tests {
             "self.renderer.set_blink(",
             "Presenter::building",
             "cell_frame::build(",
-            ".convert(&self.term",
+            ".convert(&*self.term",
             ".render_at(",
         ] {
             assert!(gate < at(built), "{built} after the gate");
@@ -20475,7 +20476,7 @@ impl Driver {
         let selected = match chord {
             Chord::UseSelection => self.app.selection.map(|s| {
                 s.text_as(
-                    &self.app.term,
+                    &*self.app.term,
                     self.app.scrolled,
                     self.app.renderer.word_wrap(),
                 )

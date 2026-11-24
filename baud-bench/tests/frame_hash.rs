@@ -39,7 +39,8 @@ fn rep(faces: &[Face<'_>], theme: &Theme, data: &[u8], pixels: &mut Vec<u32>) ->
         t.write_at(BytePos::ZERO, chunk);
         t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
         let mut target = Target::new(pixels, w, w, h).expect("a target");
-        r.render(&mut t, &mut target, Damage::Incremental);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Incremental);
         frames.push(target.pixels().to_vec());
     }
     frames

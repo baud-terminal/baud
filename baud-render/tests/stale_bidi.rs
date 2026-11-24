@@ -256,7 +256,8 @@ fn draw(
     }
     {
         let mut target = Target::new(&mut px[..], w, w, h).unwrap();
-        r.render_at(t, back, &mut target, damage);
+        let seal = t.seal_writes();
+        r.render_at(t, seal, back, &mut target, damage);
     }
     let mut grounds = Vec::new();
     r.grounds(&mut grounds);
@@ -1395,7 +1396,8 @@ fn a_row_laid_out_again_in_its_own_order_is_not_repainted() {
     let (w, h) = r.pixel_size();
     let f = {
         let mut target = Target::new(&mut px[..], w, w, h).unwrap();
-        r.render_at(&mut t, Rows::ZERO, &mut target, Damage::Incremental)
+        let seal = t.seal_writes();
+        r.render_at(&t, seal, Rows::ZERO, &mut target, Damage::Incremental)
     };
     assert_eq!(
         r.bidi_work().laid.value(),

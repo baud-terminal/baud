@@ -17,7 +17,8 @@
 //! Option held at the press, a **block**: every row between the two
 //! endpoints, over one range of columns taken apart from the lines.
 
-use baud_core::{SurfaceLine, Term, TextMoved, WatchedLines};
+use baud_core::{SurfaceLine, TextMoved, WatchedLines};
+use baud_domain::TermRead;
 use baud_domain::{Col, Cols, Content, CopyDirection, PackedCell, Row, Rows, Viewport, Wrap};
 
 use std::rc::Rc;
@@ -233,7 +234,7 @@ impl Beyond {
     /// reads its context: up while the row above wraps onto the next, and
     /// down from a last row that wraps, through the live screen's rows the
     /// window is short of.
-    pub fn of(term: &Term<'_>, back: Rows) -> Beyond {
+    pub fn of(term: &impl TermRead, back: Rows) -> Beyond {
         let view = term.view(back);
         let (rows, cols) = (view.rows().index(), view.cols().index());
         let budget = crate::CONTEXT / cols.max(1);
@@ -320,7 +321,7 @@ impl Span {
     ///
     /// `term` is what `row` was read from, in the same borrow: a cell with
     /// continuations holds its slot, and its base is read back from there.
-    pub fn word(term: &Term<'_>, row: &[PackedCell], line: AbsLine, col: Col) -> Span {
+    pub fn word(term: &impl TermRead, row: &[PackedCell], line: AbsLine, col: Col) -> Span {
         let c = col.index().min(row.len().saturating_sub(1));
         if row.is_empty() || !is_word(term, row, Col::at_index(c)) {
             return Span::cell(row, line, col);
@@ -363,7 +364,7 @@ impl Span {
     /// far as the display reads a paragraph ([`Beyond::of`]'s bound). What a
     /// triple click over a cell the display draws from a line past the
     /// window selects.
-    pub fn line_at(term: &Term<'_>, scrolled: Scrolled, line: AbsLine) -> Span {
+    pub fn line_at(term: &impl TermRead, scrolled: Scrolled, line: AbsLine) -> Span {
         let cols = term.geometry().0.index();
         let budget = crate::CONTEXT / cols.max(1);
         let joins = |l: AbsLine| {
@@ -663,7 +664,7 @@ impl Selection {
     /// as "DCBA" (`[[source: vt510-decrlcm]]`), and a Hebrew line UAX #9
     /// draws right to left in the order it reads. With the display's wrap
     /// at its default, on ([`Selection::text_as`]).
-    pub fn text(&self, term: &Term<'_>, scrolled: Scrolled) -> String {
+    pub fn text(&self, term: &impl TermRead, scrolled: Scrolled) -> String {
         self.text_as(term, scrolled, crate::WordWrap::On)
     }
 
@@ -676,10 +677,15 @@ impl Selection {
     /// the lines as a soft wrap joins rows; a block, which breaks at every
     /// line, reads the lines it selects a cell of, a newline between each
     /// two. A
-    /// paragraph the window [`Term::window_back`] shows is read as that
+    /// paragraph the window [`TermRead::window_back`] shows is read as that
     /// window draws it: at the top of what the history keeps, where the
     /// window keeps a paragraph at the terminal's cut, by its stored rows.
-    pub fn text_as(&self, term: &Term<'_>, scrolled: Scrolled, wrap: crate::WordWrap) -> String {
+    pub fn text_as(
+        &self,
+        term: &impl TermRead,
+        scrolled: Scrolled,
+        wrap: crate::WordWrap,
+    ) -> String {
         let (start, end) = self.ordered();
         let block = self.region == Region::Block;
         let mut out = String::new();
@@ -847,7 +853,7 @@ fn row_in(top: AbsLine, line: AbsLine) -> Row {
 struct Drawn {
     live: Option<Reorder>,
     para: Option<(Reorder, crate::rebreak::Breaker)>,
-    /// The window [`Term::window_back`] shows, as the display draws it.
+    /// The window [`TermRead::window_back`] shows, as the display draws it.
     window: Option<Option<Rc<crate::rebreak::Display>>>,
 }
 
@@ -875,7 +881,7 @@ impl Drawn {
     /// window shows none of its lines.
     fn window_keeps_cut(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         scrolled: Scrolled,
         (first, last): (AbsLine, AbsLine),
     ) -> Option<bool> {
@@ -906,7 +912,7 @@ impl Drawn {
     /// shows the paragraph.
     fn rebroken(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         scrolled: Scrolled,
         line: AbsLine,
         (start, end): (Point, Point),
@@ -1034,7 +1040,7 @@ impl Drawn {
     /// gives nothing ([`push_cell`]).
     fn read_right(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         scrolled: Scrolled,
         line: AbsLine,
         cols: Cols,
@@ -1098,11 +1104,11 @@ pub fn char_col(view: &Viewport<'_>, y: Row, col: Col) -> Col {
 
 /// The one reader of a line by number, for a selection's text and for a
 /// bare URI's walk across the rows a soft wrap joined.
-pub fn row_of<'t>(
-    term: &'t Term<'_>,
+pub fn row_of(
+    term: &impl TermRead,
     scrolled: Scrolled,
     line: AbsLine,
-) -> Option<(&'t [PackedCell], Wrap)> {
+) -> Option<(&[PackedCell], Wrap)> {
     let live = term.viewport();
     if line.0 >= scrolled.0 {
         let y = usize::try_from(line.0 - scrolled.0).ok()?;
@@ -1128,7 +1134,7 @@ pub fn row_of<'t>(
 /// table, or the generation the core froze the line into
 /// (`Viewport::styles`). Read beside the row by a reader of its renditions.
 pub fn row_styles_of<'t>(
-    term: &'t Term<'_>,
+    term: &'t impl TermRead,
     scrolled: Scrolled,
     line: AbsLine,
 ) -> baud_domain::RowStyles<'t> {
@@ -1149,7 +1155,7 @@ pub fn row_styles_of<'t>(
 /// and wrap -- and whether it holds text past the live width, as the
 /// display's layout reads a row.
 fn marked_row<'t>(
-    term: &'t Term<'_>,
+    term: &'t impl TermRead,
     scrolled: Scrolled,
     line: AbsLine,
 ) -> Option<(
@@ -1185,7 +1191,7 @@ fn marked_row<'t>(
     ))
 }
 
-fn push_cell(out: &mut String, term: &Term<'_>, cell: PackedCell) {
+fn push_cell(out: &mut String, term: &impl TermRead, cell: PackedCell) {
     if cell.content.is_wide_tail() {
         return;
     }
@@ -1211,7 +1217,7 @@ fn push_cell(out: &mut String, term: &Term<'_>, cell: PackedCell) {
 /// The characters a word stops at, besides whitespace and an empty cell.
 const DELIMITERS: &str = ",│`|:\"' ()[]{}<>\t";
 
-fn is_word(term: &Term<'_>, row: &[PackedCell], at: Col) -> bool {
+fn is_word(term: &impl TermRead, row: &[PackedCell], at: Col) -> bool {
     let i = at.index();
     let cell = row[i];
     if cell.content.is_wide_tail() {
@@ -1256,6 +1262,7 @@ fn snap_end(row: &[PackedCell], col: Col) -> Col {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use baud_core::Term;
     use baud_domain::{CellFlags, Codepoint, StyleId};
 
     fn glyph(ch: char) -> PackedCell {

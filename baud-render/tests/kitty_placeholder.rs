@@ -127,7 +127,8 @@ fn draw(setup: impl FnOnce(&mut Term)) -> Frame {
     setup(&mut t);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let cell = (usize::try_from(cw).unwrap(), usize::try_from(ch).unwrap());
     Frame { c, cell }
@@ -458,7 +459,8 @@ fn incremental_frames_show_the_picture_when_it_becomes_drawable() {
         let mut c = Canvas::for_renderer(&r);
         {
             let mut target = c.target();
-            r.render(t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            r.render(t, seal, &mut target, Damage::Full);
         }
         c.pixels
     };
@@ -498,12 +500,14 @@ fn incremental_frames_show_the_picture_when_it_becomes_drawable() {
         feed(&mut t, b"\x1b[?25l");
         {
             let mut target = c.target();
-            r.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Full);
         }
         before(&mut t);
         {
             let mut target = c.target();
-            r.render(&mut t, &mut target, Damage::Incremental);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Incremental);
         }
         assert_eq!(c.pixels, full(&mut t), "{name}: before");
         let empty = c.pixels.clone();
@@ -511,7 +515,8 @@ fn incremental_frames_show_the_picture_when_it_becomes_drawable() {
         settle(&mut t);
         {
             let mut target = c.target();
-            r.render(&mut t, &mut target, Damage::Incremental);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Incremental);
         }
         assert_ne!(c.pixels, empty, "{name}: the premise, the picture drew");
         assert_eq!(c.pixels, full(&mut t), "{name}: after");

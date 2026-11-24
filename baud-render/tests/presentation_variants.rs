@@ -341,7 +341,8 @@ fn value_16_paints_a_letter_without_its_vowel() {
         let mut c = Canvas::for_renderer(&r);
         {
             let mut target = c.target();
-            r.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Full);
         }
         c.pixels
     };
@@ -387,7 +388,8 @@ fn italic_frame(bytes: &str) -> (Vec<u32>, usize) {
     let mut c = Canvas::for_renderer(&r);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let w = c.width;
     (c.pixels, w)

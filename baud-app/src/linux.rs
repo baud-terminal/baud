@@ -4492,8 +4492,7 @@ impl Driver {
         // the display** (`Term::seal_writes`), and after the link scan,
         // which keeps the seal it read under, as `App::present` seals: the
         // re-cut keeps its layout under the seal, so the frame's later asks
-        // read no row. `render_at` seals again at its top, closing an empty
-        // generation, as it does on macOS's CPU arm.
+        // read no row. `render_at` paints under the same seal.
         let seal = self.term.seal_writes();
         // The marks on the window shown, and the whole frame they are
         // drawn in: the strip at its left, then the grid.
@@ -4569,10 +4568,10 @@ impl Driver {
         let size = self.renderer.whole_size();
         let damage = self.damage;
         let painting = Instant::now();
-        let (renderer, term) = (&mut self.renderer, &mut self.term);
+        let (renderer, term) = (&mut self.renderer, &self.term);
         let Some(painted) =
             crate::origin::in_frame(&mut self.frame, self.stride, self.origin, size, |target| {
-                renderer.render_at(term, back, target, damage)
+                renderer.render_at(term, seal, back, target, damage)
             })
         else {
             return;

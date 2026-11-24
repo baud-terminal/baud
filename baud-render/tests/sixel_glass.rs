@@ -34,7 +34,8 @@ fn full(faces: &[Face<'_>], theme: &Theme, t: &mut Term<'_>) -> Vec<u32> {
     let (w, h) = r.pixel_size();
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     let mut target = Target::new(&mut px, w, w, h).unwrap();
-    r.render(t, &mut target, Damage::Full);
+    let seal = t.seal_writes();
+    r.render(t, seal, &mut target, Damage::Full);
     px
 }
 
@@ -75,7 +76,8 @@ fn each_fill_on_the_glass_draws_incrementally_as_a_full_repaint() {
         let mut frame = |r: &mut Renderer<'_, '_>, t: &mut Term<'_>, d: Damage| {
             {
                 let mut target = Target::new(&mut px, w, w, h).unwrap();
-                r.render(t, &mut target, d);
+                let seal = t.seal_writes();
+                r.render(t, seal, &mut target, d);
             }
             px.clone()
         };

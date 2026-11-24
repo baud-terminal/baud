@@ -95,7 +95,8 @@ fn backgrounds(t: &mut Term<'_>, faces: &[Face<'_>], back: usize) -> Vec<u32> {
     let mut r = renderer(faces);
     let mut canvas = Canvas::for_renderer(&r);
     let mut target = canvas.target();
-    let _ = r.render_at(t, Rows::of_count(back), &mut target, Damage::Full);
+    let seal = t.seal_writes();
+    let _ = r.render_at(t, seal, Rows::of_count(back), &mut target, Damage::Full);
     r.background().iter().map(|a| a.0).collect()
 }
 
@@ -123,7 +124,8 @@ fn history_drawn_on_the_cpu_path_keeps_its_colours_past_seven_eighths() {
 fn frame(r: &mut Renderer<'_, '_>, c: &mut Canvas, t: &mut Term<'_>, back: Rows, d: Damage) -> u64 {
     {
         let mut target = c.target();
-        let _ = r.render_at(t, back, &mut target, d);
+        let seal = t.seal_writes();
+        let _ = r.render_at(t, seal, back, &mut target, d);
     }
     c.digest()
 }

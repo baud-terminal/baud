@@ -403,7 +403,8 @@ fn main() {
             );
             let back = t.window_back();
             let t0 = Instant::now();
-            r.render_at(&mut t, back, &mut target, damage);
+            let seal = t.seal_writes();
+            r.render_at(&t, seal, back, &mut target, damage);
             let rendered = t0.elapsed();
             s.strips.clear();
             s.strips.extend(r.painted().map(|b| Strip {

@@ -71,8 +71,9 @@ use core::time::Duration;
 
 use crate::color::{Argb, Video};
 use crate::renderer::VideoFlash;
-use baud_core::{PaintRole, ProgramPaint, Term};
+use baud_core::{PaintRole, ProgramPaint};
 use baud_domain::Chan;
+use baud_domain::TermRead;
 
 /// A flash and the quiet after it, at least: two in a second at most.
 pub const SPAN: Duration = Duration::from_millis(500);
@@ -91,9 +92,9 @@ pub enum BellKind {
 
 impl BellKind {
     /// How a bell rung now shows: in the colour a program set with
-    /// `OSC 21 ; visual_bell=` ([`Term::program_paint`]), else -- none
+    /// `OSC 21 ; visual_bell=` ([`TermRead::program_paint`]), else -- none
     /// set, or the automatic one -- as the other video.
-    pub fn of(term: &Term<'_>) -> BellKind {
+    pub fn of(term: &impl TermRead) -> BellKind {
         match term.program_paint(PaintRole::VisualBell) {
             ProgramPaint::Colour((r, g, b)) => BellKind::Tint(Argb::rgb(
                 Chan::from_u8(r),

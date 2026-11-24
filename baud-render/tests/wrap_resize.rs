@@ -157,7 +157,8 @@ fn frame(r: &mut Renderer<'_, '_>, t: &mut Term<'_>) -> Frame {
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     {
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(t, seal, &mut target, Damage::Full);
     }
     let rows = match r.bidi().display() {
         Some(d) => {

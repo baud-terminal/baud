@@ -1822,7 +1822,8 @@ mod tests {
         let len = usize::try_from(w.value()).unwrap() * usize::try_from(h.value()).unwrap();
         let paint = |r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut Vec<u32>, d: Damage| {
             let mut target = Target::new(px, w, w, h).unwrap();
-            r.render(t, &mut target, d);
+            let seal = t.seal_writes();
+            r.render(t, seal, &mut target, d);
         };
         let m = inc.metrics();
         let cell = Cell {

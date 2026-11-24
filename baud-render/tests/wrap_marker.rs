@@ -219,7 +219,8 @@ fn the_margins_take_no_column_and_leave_the_grid_as_it_was() {
             let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
             {
                 let mut target = Target::new(&mut px, w, w, h).unwrap();
-                r.render(&mut t, &mut target, Damage::Full);
+                let seal = t.seal_writes();
+                r.render(&t, seal, &mut target, Damage::Full);
             }
             let facts = (r.grid(), r.frame_size(), r.metrics().cell_w, r.grid_left());
             (

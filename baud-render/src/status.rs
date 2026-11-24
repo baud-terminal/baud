@@ -20,11 +20,12 @@
 //! **Where**: a strip of its own, which the grid gives a column to while
 //! the setting is on, so no mark lies on a program's text; the setting is
 //! off unless set. Each frame reads the prompts on the window it shows
-//! ([`Term::prompts_from`]), so a mark moves with its line through
+//! ([`TermRead::prompts_from`]), so a mark moves with its line through
 //! scrolling, a reflow and the history. The alternate screen has no
 //! prompts: a full-screen program's rows have no marks.
 
-use baud_core::{ExitCode, ExitStatus, PromptLine, Screen, Term};
+use baud_core::{ExitCode, ExitStatus, PromptLine, Screen};
+use baud_domain::TermRead;
 use baud_domain::{Chan, Row, Rows};
 use baud_font::{Canvas, Extent, Point, Px};
 
@@ -102,7 +103,13 @@ pub enum ViewRow {
 /// **The marks on the window `back` lines up the history**, of its `rows`
 /// main rows, top first; with `leaving`, the line above the window too, as
 /// the cell path's smooth scroll draws it. None on the alternate screen.
-pub fn placed(term: &Term<'_>, back: Rows, rows: Rows, leaving: Leaving, out: &mut Vec<Placed>) {
+pub fn placed(
+    term: &impl TermRead,
+    back: Rows,
+    rows: Rows,
+    leaving: Leaving,
+    out: &mut Vec<Placed>,
+) {
     out.clear();
     if term.screen() == Screen::Alternate {
         return;

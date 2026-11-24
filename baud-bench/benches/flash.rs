@@ -411,8 +411,10 @@ fn main() {
                 let (fw, fh) = self.renderer.frame_size();
                 let mut target =
                     baud_render::Target::new(&mut self.pixels, fw, fw, fh).expect("a CPU target");
+                let seal = self.term.seal_writes();
                 self.renderer.render_at(
-                    &mut self.term,
+                    &self.term,
+                    seal,
                     back,
                     &mut target,
                     baud_render::Damage::Full,

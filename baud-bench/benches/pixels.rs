@@ -130,7 +130,8 @@ fn main() {
     );
     let mut frame = vec![r.clear_color_of(&t).0; wu * hu];
     let mut target = Target::new(&mut frame, w, w, h).expect("the target");
-    r.render(&mut t, &mut target, Damage::Full);
+    let seal = t.seal_writes();
+    r.render(&t, seal, &mut target, Damage::Full);
     let mut bytes =
         format!("P7\nWIDTH {wu}\nHEIGHT {hu}\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n")
             .into_bytes();

@@ -214,7 +214,8 @@ fn count(theme: &Theme, shown: &[BellShown]) -> Report {
             r.set_flash(s.video());
             r.set_bell_tint(s.tint());
             let mut target = Target::new(&mut live, w, w, h).unwrap();
-            r.render(&mut t, &mut target, Damage::Incremental);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Incremental);
             live.clone()
         });
         census.frame(px);
@@ -444,7 +445,8 @@ fn count_drawn(theme: &Theme, drawn: &[Drawn]) -> Report {
                 });
                 r.set_bell_tint(d.tint);
                 let mut target = Target::new(&mut live, w, w, h).unwrap();
-                r.render(&mut t, &mut target, Damage::Incremental);
+                let seal = t.seal_writes();
+                r.render(&t, seal, &mut target, Damage::Incremental);
                 live.clone()
             });
         census.frame(px);

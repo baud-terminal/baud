@@ -24,7 +24,8 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 fn paint(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut [u32], damage: Damage) {
     let (w, h) = r.pixel_size();
     let mut target = Target::new(px, w, w, h).unwrap();
-    r.render(t, &mut target, damage);
+    let seal = t.seal_writes();
+    r.render(t, seal, &mut target, damage);
 }
 
 /// The run `from..=to` of row 0, in its cells' rendition.

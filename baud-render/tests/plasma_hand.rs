@@ -81,7 +81,8 @@ fn frame(r: &mut Renderer<'_, '_>, (row, col): (usize, usize), look: Option<Vfx>
     let (w, h) = r.pixel_size();
     let mut pixels = vec![0u32; px(w) * px(h)];
     let mut target = Target::new(&mut pixels, w, w, h).unwrap();
-    r.render(&mut t, &mut target, Damage::Full);
+    let seal = t.seal_writes();
+    r.render(&t, seal, &mut target, Damage::Full);
     pixels
 }
 

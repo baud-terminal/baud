@@ -1707,7 +1707,8 @@ mod tests {
             let mut px = vec![0u32; usize::try_from(w.value() * hh.value()).unwrap()];
             {
                 let mut target = baud_render::Target::new(&mut px, w, w, hh).unwrap();
-                r.render(&mut t, &mut target, baud_render::Damage::Full);
+                let seal = t.seal_writes();
+                r.render(&t, seal, &mut target, baud_render::Damage::Full);
             }
             let m = r.metrics();
             let (cw, ch) = (m.cell_w.value(), m.cell_h.value());

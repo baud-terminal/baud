@@ -63,7 +63,8 @@ fn selected_in(theme: Theme, osc: &[u8]) -> (Argb, Argb, u32) {
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     {
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let m = r.metrics();
     let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
@@ -162,8 +163,10 @@ fn an_incremental_frame_after_osc_17_equals_a_full_repaint() {
     let n = usize::try_from(w.value() * h.value()).unwrap();
     let (mut a, mut b) = (vec![0u32; n], vec![0u32; n]);
     inc.set_highlight(sel);
+    let seal = t.seal_writes();
     inc.render(
-        &mut t,
+        &t,
+        seal,
         &mut Target::new(&mut a, w, w, h).unwrap(),
         Damage::Full,
     );
@@ -174,14 +177,18 @@ fn an_incremental_frame_after_osc_17_equals_a_full_repaint() {
         b"\x1b]117\x07",
     ] {
         feed(&mut t, osc);
+        let seal = t.seal_writes();
         inc.render(
-            &mut t,
+            &t,
+            seal,
             &mut Target::new(&mut a, w, w, h).unwrap(),
             Damage::Incremental,
         );
         full.set_highlight(sel);
+        let seal = t.seal_writes();
         full.render(
-            &mut t,
+            &t,
+            seal,
             &mut Target::new(&mut b, w, w, h).unwrap(),
             Damage::Full,
         );

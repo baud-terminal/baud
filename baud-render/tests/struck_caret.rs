@@ -339,7 +339,8 @@ fn cpu_frame(
     }
     let mut target = Target::new(&mut px[..], w, w, h).unwrap();
     heap::start();
-    r.render_at(t, back, &mut target, damage);
+    let seal = t.seal_writes();
+    r.render_at(t, seal, back, &mut target, damage);
     heap::take()
 }
 
@@ -1051,8 +1052,10 @@ fn struck_cells_put_back_twice_panic_in_a_debug_build() {
     set_links(&mut r, &t, Strike::First);
     let (w, h) = r.pixel_size();
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
+    let seal = t.seal_writes();
     r.render_at(
-        &mut t,
+        &t,
+        seal,
         Rows::ZERO,
         &mut Target::new(&mut px[..], w, w, h).unwrap(),
         Damage::Full,

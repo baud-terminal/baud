@@ -23,9 +23,9 @@
 
 use baud_core::{
     Found, HistoryErasures, HistoryWipes, Needle, NeedleRefused, Resets, ScreenEpoch, SearchLines,
-    SurfaceLine, Term,
+    SurfaceLine,
 };
-use baud_domain::{Codepoint, Col, Cols, LineIdx, Row, Rows};
+use baud_domain::{Codepoint, Col, Cols, LineIdx, Row, Rows, TermRead};
 
 use crate::overlay::{Caret, Composition, Hints, Measure};
 use crate::select::WindowLine;
@@ -119,7 +119,7 @@ struct Basis {
 }
 
 impl Basis {
-    fn of(term: &Term<'_>) -> Basis {
+    fn of(term: &impl TermRead) -> Basis {
         Basis {
             epoch: term.screen_epoch(),
             erasures: term.history_erasures(),
@@ -207,7 +207,7 @@ impl Find {
     /// **A new query**: the ring read for it, and the current match the
     /// newest at or above the bottom of the window `back` lines up -- the
     /// newest the reader can have seen.
-    pub fn set_query(&mut self, term: &Term<'_>, query: Vec<Codepoint>, back: Rows) {
+    pub fn set_query(&mut self, term: &impl TermRead, query: Vec<Codepoint>, back: Rows) {
         self.query = query;
         let needle = Needle::new(&self.query);
         self.refused = needle.as_ref().err().copied();
@@ -233,7 +233,7 @@ impl Find {
     /// or the whole ring when the surface it was read against has gone.
     /// The current match stays where it was, or moves to the next newer
     /// one when its line changed under it.
-    pub fn refresh(&mut self, term: &Term<'_>) {
+    pub fn refresh(&mut self, term: &impl TermRead) {
         let Some(needle) = &self.needle else {
             self.found.clear();
             self.current = None;
@@ -302,7 +302,7 @@ impl Find {
     /// `back` itself when the match is in the window already, else the
     /// window with the match's first line in its middle, as near as the
     /// history allows; `None` with no current match.
-    pub fn window_for(&self, term: &Term<'_>, back: Rows) -> Option<Rows> {
+    pub fn window_for(&self, term: &impl TermRead, back: Rows) -> Option<Rows> {
         let m = self.current()?;
         let rows = term.geometry().1.index();
         let back = term.looking_back(back).index();
@@ -424,7 +424,7 @@ impl Find {
     /// match the writer wrapped across rows marks each. The lines past the
     /// view that the display may draw on its own ([`crate::select::Beyond::of`])
     /// are marked too, counted from the view's top.
-    pub fn marks(&self, term: &Term<'_>, back: Rows) -> Vec<Mark> {
+    pub fn marks(&self, term: &impl TermRead, back: Rows) -> Vec<Mark> {
         let (cols, rows) = term.geometry();
         let lines = term.search_lines();
         let reach = crate::select::Beyond::of(term, back);

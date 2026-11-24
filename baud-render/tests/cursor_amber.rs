@@ -443,7 +443,8 @@ fn painted_in(theme: Theme, bytes: &[u8], flash: VideoFlash) -> (Argb, Argb) {
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     {
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let m = r.metrics();
     let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
@@ -617,7 +618,8 @@ fn the_trail_takes_the_amber_without_the_core() {
         let mut bare = vec![0u32; n];
         {
             let mut target = Target::new(&mut bare, w, w, h).unwrap();
-            r.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Full);
         }
         r.set_trail(Some(baud_render::TrailLook::Ghost(baud_render::Trail {
             from: (
@@ -636,7 +638,8 @@ fn the_trail_takes_the_amber_without_the_core() {
         let mut ghosted = vec![0u32; n];
         {
             let mut target = Target::new(&mut ghosted, w, w, h).unwrap();
-            r.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Full);
         }
         // The pixel the ghost moved furthest from the page, which a ghost
         // over the page at its own alpha moves toward its colour.

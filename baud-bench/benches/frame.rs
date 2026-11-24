@@ -415,8 +415,8 @@ fn timed_frame(
     target: &mut Target<'_>,
     damage: Damage,
 ) -> baud_render::Frame {
-    let _ = t.seal_writes();
-    r.render(t, target, damage)
+    let seal = t.seal_writes();
+    r.render(t, seal, target, damage)
 }
 
 fn main() {
@@ -925,14 +925,16 @@ fn main() {
         t.write_at(BytePos::ZERO, &tail);
         t.feed(BytePos::ZERO, ReadLen::from_index(tail.len()));
         let mut target = Target::new(&mut pixels, w, w, h).unwrap();
-        rb.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        rb.render(&t, seal, &mut target, Damage::Full);
         let n = 2000u32;
         let (mut rows, mut inst, mut glow) = (0u64, 0u64, 0u64);
         let (mut conv, mut comp) = (Duration::ZERO, Duration::ZERO);
         let start = std::time::Instant::now();
         for i in 0..n {
             rb.set_cursor_blink(pair[usize::from(i % 2 == 1)]);
-            let f = rb.render(&mut t, &mut target, Damage::Incremental);
+            let seal = t.seal_writes();
+            let f = rb.render(&t, seal, &mut target, Damage::Incremental);
             rows += f.rows_dirty.value();
             inst += f.instances.value();
             glow += u64::try_from(rb.cursor_glow().len()).unwrap_or(0);
@@ -972,7 +974,8 @@ fn main() {
         t.write_at(BytePos::ZERO, &data);
         t.feed(BytePos::ZERO, ReadLen::from_index(data.len()));
         let mut target = Target::new(&mut pixels, w, w, h).unwrap();
-        rt.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        rt.render(&t, seal, &mut target, Damage::Full);
         let style = baud_core::CursorStyle::SteadyBlock;
         let cell = |row: usize, col: usize| {
             rt.cursor_rect(
@@ -1021,7 +1024,8 @@ fn main() {
                 (_, None) => Some(TrailLook::Smear(emitter)),
             };
             rt.set_trail(look);
-            let f = rt.render(&mut t, &mut target, Damage::Incremental);
+            let seal = t.seal_writes();
+            let f = rt.render(&t, seal, &mut target, Damage::Incremental);
             rows += f.rows_dirty.value();
             records += u64::try_from(rt.trail().len()).unwrap_or(0);
         }
@@ -1067,11 +1071,13 @@ fn main() {
         t.write_at(BytePos::ZERO, &tail);
         t.feed(BytePos::ZERO, ReadLen::from_index(tail.len()));
         let mut target = Target::new(&mut pixels, w, w, h).unwrap();
-        ri.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        ri.render(&t, seal, &mut target, Damage::Full);
         let n = 500u32;
         let start = std::time::Instant::now();
         for _ in 0..n {
-            ri.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            ri.render(&t, seal, &mut target, Damage::Full);
         }
         let us = start.elapsed().as_secs_f64() * 1e6 / f64::from(n);
         println!(
@@ -1127,14 +1133,16 @@ fn main() {
         let mut now = baud_domain::HostTime::of_nanos(1_000_000_000);
         let play = baud_domain::ImageMotion::Play;
         t.animate_images(now, play);
-        ri.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        ri.render(&t, seal, &mut target, Damage::Full);
         let (mut tick, mut frame) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
         for k in 0..frames {
             now = t.next_image_frame(now).expect("FRAME_GIF: the film runs");
             let a = std::time::Instant::now();
             let moved = t.animate_images(now, play);
             let b = std::time::Instant::now();
-            ri.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            ri.render(&t, seal, &mut target, Damage::Full);
             frame += b.elapsed();
             tick += b - a;
             assert_eq!(moved, baud_domain::Animated::Changed, "FRAME_GIF: tick {k}");
@@ -1189,14 +1197,16 @@ fn main() {
         let mut now = baud_domain::HostTime::of_nanos(1_000_000_000);
         let play = baud_domain::ImageMotion::Play;
         t.animate_images(now, play);
-        ri.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        ri.render(&t, seal, &mut target, Damage::Full);
         let (mut tick, mut frame) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
         for k in 0..frames {
             now = t.next_image_frame(now).expect("FRAME_ICAT: the film runs");
             let a = std::time::Instant::now();
             let moved = t.animate_images(now, play);
             let b = std::time::Instant::now();
-            ri.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            ri.render(&t, seal, &mut target, Damage::Full);
             frame += b.elapsed();
             tick += b - a;
             assert_eq!(
@@ -1286,7 +1296,8 @@ fn main() {
         let mut rows = 0u64;
         let us = {
             let mut target = Target::new(&mut pixels, w, w, h).unwrap();
-            ri.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            ri.render(&t, seal, &mut target, Damage::Full);
             let start = std::time::Instant::now();
             for k in 0..frames {
                 if churn {
@@ -1296,8 +1307,9 @@ fn main() {
                     );
                     feed(&mut t, put.as_bytes());
                 }
+                let seal = t.seal_writes();
                 rows += ri
-                    .render(&mut t, &mut target, Damage::Incremental)
+                    .render(&t, seal, &mut target, Damage::Incremental)
                     .rows_dirty
                     .value();
             }
@@ -1329,7 +1341,8 @@ fn main() {
             t.feed(BytePos::ZERO, ReadLen::from_index(n));
             at += n;
             let mut target = Target::new(&mut px0, w0, w0, h0).unwrap();
-            rz.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            rz.render(&t, seal, &mut target, Damage::Full);
         }
         let a0 = rz.atlas_stats();
         let c0 = rz.cache_stats();
@@ -1338,7 +1351,8 @@ fn main() {
             let mut px1 = vec![0u32; usize::try_from(w1.value() * h1.value()).unwrap()];
             let mut target = Target::new(&mut px1, w1, w1, h1).unwrap();
             let start = std::time::Instant::now();
-            let f = rz.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            let f = rz.render(&t, seal, &mut target, Damage::Full);
             let elapsed = start.elapsed();
             let a1 = rz.atlas_stats();
             let c1 = rz.cache_stats();
@@ -1393,7 +1407,8 @@ fn main() {
             t.feed(BytePos::ZERO, ReadLen::from_index(n));
             at += n;
             let mut target = Target::new(&mut px, w0, w0, h0).unwrap();
-            rz.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            rz.render(&t, seal, &mut target, Damage::Full);
         }
         rz.atlas_mut().take_dirty();
         println!(
@@ -1418,7 +1433,8 @@ fn main() {
                     px.resize(usize::try_from(w1.value() * h1.value()).unwrap(), 0);
                     let mut target = Target::new(&mut px, w1, w1, h1).unwrap();
                     let start = std::time::Instant::now();
-                    let f = rz.render(&mut t, &mut target, Damage::Full);
+                    let seal = t.seal_writes();
+                    let f = rz.render(&t, seal, &mut target, Damage::Full);
                     (f.convert, f.composite, start.elapsed())
                 }
                 Switch::Off => {

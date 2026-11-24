@@ -61,7 +61,8 @@ fn a_sixel_is_drawn_over_the_grid() {
     feed(&mut t, SWIRL);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
 
     // The 64x48 swirl anchors at the cursor (row 0, col 0) and fills most of
@@ -86,7 +87,8 @@ fn a_sixel_scrolls_off_and_the_frame_changes() {
     feed(&mut t, SWIRL);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let before = painted_in_image_rect(&c);
     let digest_before = c.digest();
@@ -97,7 +99,8 @@ fn a_sixel_scrolls_off_and_the_frame_changes() {
     feed(&mut t, &[b'\n'; 200]);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let after = painted_in_image_rect(&c);
     let digest_after = c.digest();
@@ -140,7 +143,8 @@ fn a_sixel_paints_to_its_pinned_frame() {
     feed(&mut t, SWIRL);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     // The pixels before the digest, so a pinned frame of a refused image --
     // a background and a cursor -- cannot be what this pins.
@@ -182,7 +186,8 @@ fn a_sixel_scrolled_one_line_draws_one_row_higher() {
     };
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let before = rect(&c, 5 * ch);
     let above_before = rect(&c, 4 * ch);
@@ -201,7 +206,8 @@ fn a_sixel_scrolled_one_line_draws_one_row_higher() {
     );
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     // A comparison that cannot fail by being the same frame twice: the rect
     // one row up held something else before the scroll.
@@ -377,7 +383,8 @@ fn drawn_whole(t: &mut Term, faces: &[Face]) -> Vec<u32> {
     let mut f = Canvas::for_renderer(&fresh);
     {
         let mut target = f.target();
-        fresh.render(t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        fresh.render(t, seal, &mut target, Damage::Full);
     }
     f.pixels
 }
@@ -398,13 +405,15 @@ fn an_image_that_arrives_mid_session_is_drawn_on_an_incremental_frame() {
     feed(&mut t, b"\x1b[?25l");
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     assert_eq!(painted_in_image_rect(&c), 0, "the control: nothing yet");
     feed(&mut t, SWIRL);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Incremental);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Incremental);
     }
     let painted = painted_in_image_rect(&c);
     assert!(
@@ -431,7 +440,8 @@ fn an_image_moving_on_incremental_frames_equals_a_full_repaint() {
     feed(&mut t, b"\x1b[50;1H");
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let ch = usize::try_from(r.metrics().cell_h.value()).unwrap();
     let bg = Theme::dark().bg.0;
@@ -447,7 +457,8 @@ fn an_image_moving_on_incremental_frames_equals_a_full_repaint() {
         feed(&mut t, b"\n");
         {
             let mut target = c.target();
-            r.render(&mut t, &mut target, Damage::Incremental);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Incremental);
         }
         assert!(
             equals_a_full_repaint(&mut t, &c, &faces),
@@ -476,13 +487,15 @@ fn a_still_image_costs_no_repaint() {
     let _ = blits();
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     assert!(blits() > 0, "the control: the full frame blits the swirl");
     feed(&mut t, b"\x1b[40;1Hx");
     let frame = {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Incremental)
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Incremental)
     };
     let blitted = blits();
     assert_eq!(
@@ -540,7 +553,8 @@ fn a_cell_written_under_an_image_blits_its_row_of_it_again() {
     let _ = blits();
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     assert!(blits() > 0, "the control: the full frame blits the swirl");
     let ch = i64::from(r.metrics().cell_h.value());
@@ -559,7 +573,8 @@ fn a_cell_written_under_an_image_blits_its_row_of_it_again() {
     feed(&mut t, format!("\x1b[{};2HZ\x1b[50;1H", mid + 1).as_bytes());
     let frame = {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Incremental)
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Incremental)
     };
     let blitted = blits();
     assert_eq!(
@@ -585,7 +600,8 @@ fn the_cpu_path_keeps_no_upload_snapshots() {
     feed(&mut t, SWIRL);
     for damage in [Damage::Full, Damage::Incremental, Damage::Incremental] {
         let mut target = c.target();
-        r.render(&mut t, &mut target, damage);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, damage);
     }
     assert!(
         painted_in_image_rect(&c) > 64 * 48 / 2,
@@ -651,7 +667,8 @@ fn a_partial_image_blends_by_its_alpha() {
     feed(&mut t, UNDER);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let under = c.pixels.clone();
     let placed = t.put_image(
@@ -663,7 +680,8 @@ fn a_partial_image_blends_by_its_alpha() {
     assert!(!placed.is_none(), "the image placed");
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let (x0, y0) = (3 * cw, 2 * ch);
     let (mut wrong, mut mid, mut text) = (0, 0, 0);
@@ -741,7 +759,8 @@ fn a_partial_image_over_the_glass_is_source_over() {
     feed(&mut t, UNDER_GLASS);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let under = c.pixels.clone();
     let placed = t.put_image(
@@ -753,7 +772,8 @@ fn a_partial_image_over_the_glass_is_source_over() {
     assert!(!placed.is_none(), "the image placed");
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let (x0, y0) = (3 * cw, 2 * ch);
     let (mut wrong, mut glass, mut text) = (0, 0, 0);
@@ -823,7 +843,8 @@ fn a_still_partial_image_costs_no_repaint() {
     let _ = blits();
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     assert!(blits() > 0, "the control: the full frame blits the image");
     assert_eq!(
@@ -840,7 +861,8 @@ fn a_still_partial_image_costs_no_repaint() {
         let _ = blits();
         let frame = {
             let mut target = c.target();
-            r.render(&mut t, &mut target, Damage::Incremental)
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Incremental)
         };
         let blitted = blits();
         assert_eq!(
@@ -918,14 +940,16 @@ fn clear_pixels_under(blend: Blend) {
     feed(&mut t, UNDER);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let under = c.pixels.clone();
     feed(&mut t, b"\x1bP0;1;0q\"1;1;8;6#0;2;100;0;0AAAAAAAA\x1b\\");
     assert_eq!(t.images().placements().count(), 1, "the Sixel placed");
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let (x0, y0) = (3 * cw, 2 * ch);
     for y in 0..6 {
@@ -956,7 +980,8 @@ fn a_regis_input_cursor_is_drawn_and_taken_away() {
     feed(&mut t, b"\x1bPpS(C(I2))P[100,50]R(P(I))\x1b\\");
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let at = |c: &Canvas, x: usize, y: usize| c.pixels[y * c.width + x];
     let bg = Theme::dark().bg.0;
@@ -970,7 +995,8 @@ fn a_regis_input_cursor_is_drawn_and_taken_away() {
     ));
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     assert_eq!(at(&c, 300, 50), bg, "the crosshair gone");
     assert_eq!(at(&c, 100, 300), bg);
@@ -994,7 +1020,8 @@ fn an_image_that_arrives_is_in_the_painted_bands() {
     feed(&mut t, b"\x1b[?25l");
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let was = Canvas {
         pixels: c.pixels.clone(),
@@ -1011,7 +1038,8 @@ fn an_image_that_arrives_is_in_the_painted_bands() {
     feed(&mut t, SWIRL);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Incremental);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Incremental);
     }
     let screen = whole(&mut t);
     assert!(
@@ -1048,14 +1076,16 @@ fn a_recoloured_sixel_is_drawn_on_an_incremental_frame() {
     feed(&mut t, &red);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let at = |c: &Canvas| c.pixels[10 * c.width + 10];
     assert_eq!(at(&c), 0xFFFF_0000, "the control: drawn red");
     feed(&mut t, b"\x1bP9;1q#1;2;0;0;100\x1b\\");
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Incremental);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Incremental);
     }
     assert_eq!(at(&c), 0xFF00_00FF, "drawn blue on the incremental frame");
     assert!(equals_a_full_repaint(&mut t, &c, &faces));
@@ -1118,7 +1148,8 @@ fn with_images(f: impl FnOnce(&mut Renderer<'_, '_>, &mut Canvas, &mut Term<'_>,
 /// One frame of `t` onto `c` at `damage`.
 fn frame_of(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, c: &mut Canvas, damage: Damage) -> Frame {
     let mut target = c.target();
-    r.render(t, &mut target, damage)
+    let seal = t.seal_writes();
+    r.render(t, seal, &mut target, damage)
 }
 
 /// **An image deleted with nothing arriving is taken off the next

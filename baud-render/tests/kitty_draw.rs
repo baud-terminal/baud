@@ -233,7 +233,8 @@ fn draw_themed(setup: impl FnOnce(&mut Term), lit: Option<Highlight>, theme: The
     setup(&mut t);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     Frame { c, cell: [cw, ch] }
 }
@@ -433,7 +434,8 @@ fn an_image_under_the_text_appears_and_goes_on_incremental_frames() {
             .collect::<Vec<u32>>()
     };
     let mut frame = |t: &mut Term, damage| {
-        r.render(t, &mut c.target(), damage);
+        let seal = t.seal_writes();
+        r.render(t, seal, &mut c.target(), damage);
         rect(&c)
     };
     let bg = Theme::dark().bg.0;
@@ -678,7 +680,8 @@ fn a_deep_image_appears_goes_and_follows_a_background_on_incremental_frames() {
     feed(&mut t, SCENE.as_bytes());
     transmit(&mut t, 1, texel);
     let mut frame = |t: &mut Term, damage| {
-        r.render(t, &mut c.target(), damage);
+        let seal = t.seal_writes();
+        r.render(t, seal, &mut c.target(), damage);
         Frame {
             c: Canvas {
                 pixels: c.pixels.clone(),
@@ -944,7 +947,8 @@ fn osc_11_moves_a_deep_image_under_explicit_cells_on_incremental_frames() {
     let e = expect("c=4,r=1", cw, ch);
     let [dx, dy, dw, dh] = e.dest;
     let mut shown = |t: &mut Term, damage| {
-        r.render(t, &mut c.target(), damage);
+        let seal = t.seal_writes();
+        r.render(t, seal, &mut c.target(), damage);
         let mut n = 0;
         for j in 0..dh {
             for i in 0..dw {
@@ -1054,7 +1058,8 @@ fn a_repainted_row_examines_only_the_placements_on_it() {
     assert_eq!(t.images().placements().count(), 121, "the premise: placed");
     let frame = {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full)
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full)
     };
     assert_eq!(
         frame.rows_dirty.value(),
@@ -1074,7 +1079,8 @@ fn a_repainted_row_examines_only_the_placements_on_it() {
     );
     let frame = {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Incremental)
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Incremental)
     };
     assert_eq!(
         frame.rows_dirty.value(),
@@ -1118,7 +1124,8 @@ fn a_picture_the_quota_deletes_is_taken_off_an_incremental_frame() {
     feed(&mut t, &apc("a=p,i=2,q=2", b""));
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let px = |n: u32| usize::try_from(n).unwrap();
     let (ax, ay) = (px(COL * cw), px(ROW * ch));
@@ -1133,14 +1140,16 @@ fn a_picture_the_quota_deletes_is_taken_off_an_incremental_frame() {
     );
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Incremental);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Incremental);
     }
     assert_eq!(at(&c), Theme::dark().bg.0, "image 1 is off the frame");
     let mut fresh = renderer(&faces);
     let mut f = Canvas::for_renderer(&fresh);
     {
         let mut target = f.target();
-        fresh.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        fresh.render(&t, seal, &mut target, Damage::Full);
     }
     assert!(
         c.pixels == f.pixels,

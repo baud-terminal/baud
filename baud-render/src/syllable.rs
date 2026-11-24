@@ -33,7 +33,7 @@
 //! line drawn in reverse each cell is drawn alone; a Devanagari run inside
 //! a right-to-left paragraph keeps its order and its syllables.
 
-use baud_core::Term;
+use baud_domain::TermRead;
 use baud_domain::{
     ClusterBreak, ClusterCells, Codepoint, Col, Cols, GraphemeClass, PackedCell, in_syllable_block,
 };
@@ -46,7 +46,7 @@ use baud_domain::{
 /// the layout's own test lets it go (`crate::bidi`), and its runs are drawn
 /// by the loop that reads no syllable and no word, as they were before
 /// syllables were re-formed.
-pub(crate) fn may_hold(term: &Term<'_>, row: &[PackedCell]) -> bool {
+pub(crate) fn may_hold(term: &impl TermRead, row: &[PackedCell]) -> bool {
     let (any, marked) = row.iter().fold((false, false), |(any, m), c| {
         (
             any | in_syllable_block(c.content.bits()),
@@ -60,7 +60,7 @@ pub(crate) fn may_hold(term: &Term<'_>, row: &[PackedCell]) -> bool {
 /// holds one has a base or a mark in a block
 /// [`baud_domain::SYLLABLE_BLOCKS`] sets. The layout's own pass asks it of a
 /// row that holds a cluster (`crate::bidi`).
-pub(crate) fn clusters_may_hold(term: &Term<'_>, row: &[PackedCell]) -> bool {
+pub(crate) fn clusters_may_hold(term: &impl TermRead, row: &[PackedCell]) -> bool {
     row.iter().filter(|c| c.flags.is_marked()).any(|c| {
         in_syllable_block(term.base_of(*c).bits()) || term.cluster_marks(*c).any(in_syllable_block)
     })
@@ -87,7 +87,7 @@ pub(crate) struct Syllable {
 /// (`crate::word::is_letter`), read from the base each cell's walk asks for
 /// anyway, so a row of none is known to hold no word at no further cost.
 pub(crate) fn of_row(
-    (term, words): (&Term<'_>, crate::frozen::Words<'_>),
+    (term, words): (&impl TermRead, crate::frozen::Words<'_>),
     row: &[PackedCell],
     logical: impl Fn(Col) -> Col,
 ) -> (Vec<Syllable>, crate::word::Letters) {
@@ -100,7 +100,7 @@ pub(crate) fn of_row(
 /// [`of_row`]'s walk, for a caller that asked [`may_hold`] itself: every
 /// cell of `row` through the machine.
 pub(crate) fn walk(
-    (term, words): (&Term<'_>, crate::frozen::Words<'_>),
+    (term, words): (&impl TermRead, crate::frozen::Words<'_>),
     row: &[PackedCell],
     logical: impl Fn(Col) -> Col,
 ) -> (Vec<Syllable>, crate::word::Letters) {

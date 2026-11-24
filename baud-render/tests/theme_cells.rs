@@ -73,7 +73,8 @@ fn painted(theme: Theme, bytes: &[u8], select: bool) -> (Argb, Argb, u32) {
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     {
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let m = r.metrics();
     let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
@@ -235,7 +236,8 @@ fn a_cursor_colour_change_alone_repaints_the_cursor() {
     let at = usize::try_from((m.cell_h.value() / 2) * w.value() + m.cell_w.value() / 2).unwrap();
     let mut frame = |t: &mut Term<'_>, damage: Damage| {
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(t, &mut target, damage);
+        let seal = t.seal_writes();
+        r.render(t, seal, &mut target, damage);
         (r.background()[0], px[at])
     };
     assert_eq!(

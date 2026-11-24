@@ -148,7 +148,8 @@ fn life(
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     {
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let frame_s = 1.0 / f64::from(size.rate.0);
     let mut ms = Vec::new();
@@ -179,7 +180,8 @@ fn life(
         match path {
             Path::Cpu => {
                 let mut target = Target::new(&mut px, w, w, h).unwrap();
-                r.render(&mut t, &mut target, Damage::Incremental);
+                let seal = t.seal_writes();
+                r.render(&t, seal, &mut target, Damage::Incremental);
             }
             Path::Convert => {
                 let _ = r.convert(&t, t.window_back(), Damage::Incremental);

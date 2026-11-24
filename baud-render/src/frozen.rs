@@ -41,7 +41,7 @@
 
 use crate::seeded::Map;
 use crate::{Orders, Renderer, Resolved, StyleStamp};
-use baud_core::Term;
+use baud_domain::TermRead;
 use baud_domain::{
     Col, Cols, FrozenSerial, PackedCell, Row, RowStyles, Rows, SlotSet, Stride, StyleId, StyleWord,
 };
@@ -75,7 +75,7 @@ impl<'a> Words<'a> {
     pub const LIVE: Words<'static> = Words::Live;
 
     /// The rendition cell `cell`, at column `col` of its row, stands for.
-    pub fn word(self, term: &Term<'_>, col: Col, cell: PackedCell) -> StyleWord {
+    pub fn word(self, term: &impl TermRead, col: Col, cell: PackedCell) -> StyleWord {
         match self {
             Words::Live => live(term).word(cell.style),
             Words::Row(s) => term.style_in(s, cell),
@@ -118,14 +118,14 @@ impl<'a> Words<'a> {
 
 /// **The table a renderer's live ids name**: the terminal's one band's,
 /// which every live row is in while the terminal keeps one band.
-pub fn live<'t>(term: &'t Term<'_>) -> RowStyles<'t> {
+pub fn live<'t>(term: &'t impl TermRead) -> RowStyles<'t> {
     RowStyles::Live(live_table(term))
 }
 
 /// **The table a reader names a line's ids in where the terminal no
 /// longer holds the line**: no cell of it is read. The live table on a
 /// terminal of one band, as before; on one of more, the first band's.
-pub fn held_none<'t>(term: &'t Term<'_>) -> RowStyles<'t> {
+pub fn held_none<'t>(term: &'t impl TermRead) -> RowStyles<'t> {
     match term.styles().bands().len() {
         1 => live(term),
         _ => RowStyles::Live(term.styles().table(baud_domain::Band::FIRST)),
@@ -133,7 +133,7 @@ pub fn held_none<'t>(term: &'t Term<'_>) -> RowStyles<'t> {
 }
 
 /// That table, as a view of copied rows carries it ([`baud_domain::Viewport::new`]).
-pub fn live_table<'t>(term: &'t Term<'_>) -> baud_domain::LiveTable<'t> {
+pub fn live_table<'t>(term: &'t impl TermRead) -> baud_domain::LiveTable<'t> {
     term.styles().one()
 }
 
@@ -141,7 +141,7 @@ pub fn live_table<'t>(term: &'t Term<'_>) -> baud_domain::LiveTable<'t> {
 /// of copied rows carries them ([`baud_domain::Viewport::new_in`]); a row
 /// past `lines` in the first band.
 pub fn lines_table<'t>(
-    term: &'t Term<'_>,
+    term: &'t impl TermRead,
     lines: &'t [baud_domain::Band],
 ) -> baud_domain::LiveBands<'t> {
     let view = term.styles();
@@ -180,7 +180,7 @@ fn run_at<'a>(runs: &[(Range<usize>, RowStyles<'a>)], col: Col) -> Option<RowSty
 /// band, as before, and on one of more, where no table is the live one, in
 /// the line's first run's.
 pub(crate) fn word_in_runs(
-    term: &Term<'_>,
+    term: &impl TermRead,
     runs: &[(Range<usize>, RowStyles<'_>)],
     col: Col,
     cell: PackedCell,
@@ -420,7 +420,7 @@ impl Lent {
 
     /// **The rendition a cell of a lent copy stands for**: the word its slot
     /// was lent for, or the live table's where it was lent none.
-    pub fn word(&self, term: &Term<'_>, cell: PackedCell) -> StyleWord {
+    pub fn word(&self, term: &impl TermRead, cell: PackedCell) -> StyleWord {
         self.words().word(term, Col::ZERO, cell)
     }
 
@@ -512,7 +512,7 @@ pub(crate) trait LendRows {
     fn with_row<T>(
         &mut self,
         orders: &Orders,
-        term: &Term<'_>,
+        term: &impl TermRead,
         y: Row,
         f: impl FnOnce(&mut [PackedCell], Words<'_>) -> T,
     ) -> Option<T>;
@@ -533,7 +533,7 @@ impl LendRows for [(&mut [PackedCell], Words<'_>)] {
     fn with_row<T>(
         &mut self,
         _: &Orders,
-        _: &Term<'_>,
+        _: &impl TermRead,
         y: Row,
         f: impl FnOnce(&mut [PackedCell], Words<'_>) -> T,
     ) -> Option<T> {
@@ -621,7 +621,7 @@ impl LendRows for FlatCopy<'_, '_> {
     fn with_row<T>(
         &mut self,
         orders: &Orders,
-        term: &Term<'_>,
+        term: &impl TermRead,
         y: Row,
         f: impl FnOnce(&mut [PackedCell], Words<'_>) -> T,
     ) -> Option<T> {
@@ -722,7 +722,7 @@ impl Renderer<'_, '_> {
     /// with nothing struck.
     pub fn lend_frozen(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         rows: &mut [(&mut [PackedCell], Words<'_>)],
         out: &mut [Resolved],
         stamp: &mut StyleStamp,
@@ -762,7 +762,7 @@ impl Renderer<'_, '_> {
     /// cell. Its shapes are the cell's own, so the run cache keys alike.
     pub fn lend(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         rows: &mut [(&mut [PackedCell], Words<'_>)],
         struck: &[(Row, Range<usize>)],
         out: &mut [Resolved],
@@ -780,7 +780,7 @@ impl Renderer<'_, '_> {
     /// nothing.
     pub(crate) fn lend_rows<R: LendRows + ?Sized>(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         rows: &mut R,
         struck: &[(Row, Range<usize>)],
         out: &mut [Resolved],

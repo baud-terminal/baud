@@ -3977,7 +3977,8 @@ mod tests {
         }
         let back = t.window_back();
         let mut target = baud_render::Target::new(&mut px[..], w, w, h).unwrap();
-        let _ = r.render_at(t, back, &mut target, damage);
+        let seal = t.seal_writes();
+        let _ = r.render_at(t, seal, back, &mut target, damage);
     }
 
     /// **C6-19: an answer with nothing written draws its line on the next

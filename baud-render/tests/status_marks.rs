@@ -292,7 +292,8 @@ fn paint(
         Px::of(u32::try_from(h).unwrap()),
     );
     let mut target = Target::new(px, ww, ww, hh).unwrap();
-    r.render_at(t, Rows::ZERO, &mut target, damage);
+    let seal = t.seal_writes();
+    r.render_at(t, seal, Rows::ZERO, &mut target, damage);
 }
 
 /// **On the CPU path the strip is the clear colour and the marks; the grid

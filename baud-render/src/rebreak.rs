@@ -83,7 +83,8 @@
 
 use std::rc::Rc;
 
-use baud_core::{BidiSupport, PromptLine, Screen, Term, Zone};
+use baud_core::{BidiSupport, PromptLine, Screen, Zone};
+use baud_domain::TermRead;
 use baud_domain::{
     Autodetect, Band, Bidi, BidiClass, BidiDirection, BidiLevel, BidiProps, CharacterPath, Col,
     Cols, LineBreak, LineRendition, LiveBands, PackedCell, PastEdge, Row, RowExtent, RowRot,
@@ -569,7 +570,7 @@ impl Display {
     /// rows above the window read by [`Viewport::back`], those below past
     /// its last row, each live line through its first source's band's table
     /// in `term`.
-    pub fn window<'s>(&'s self, term: &'s Term<'_>) -> Viewport<'s> {
+    pub fn window<'s>(&'s self, term: &'s impl TermRead) -> Viewport<'s> {
         let total = self.used.len();
         let view = term.styles();
         Viewport::new_in(
@@ -706,7 +707,7 @@ impl Display {
     /// them in, for a display laid out at `back` over `term`.
     pub(crate) fn line_sources<'t>(
         &self,
-        term: &'t Term<'_>,
+        term: &'t impl TermRead,
         back: Rows,
         y: WindowLine,
     ) -> Vec<(core::ops::Range<usize>, RowStyles<'t>)> {
@@ -735,7 +736,7 @@ impl Display {
     /// Whether any cell of the display's window lines, or of the lines
     /// above and below them, comes from a row the core froze
     /// (`Viewport::styles`).
-    pub(crate) fn any_frozen(&self, term: &Term<'_>, back: Rows) -> bool {
+    pub(crate) fn any_frozen(&self, term: &impl TermRead, back: Rows) -> bool {
         term.view(back).any_frozen()
             && self
                 .sources
@@ -768,7 +769,7 @@ impl Display {
 /// history: a window row's, or a line's above or below it, as `term`
 /// holds it (`Viewport::styles`). A line `term` no longer holds is live.
 pub(crate) fn line_styles<'t>(
-    term: &'t Term<'_>,
+    term: &'t impl TermRead,
     back: Rows,
     rows: Rows,
     l: WindowLine,
@@ -848,14 +849,14 @@ enum Top {
 
 /// The mark of row `k` above the window `back` lines up, if the history
 /// holds it.
-fn up_mark(term: &Term<'_>, back: Rows, k: Rows) -> Option<RowExtent> {
+fn up_mark(term: &impl TermRead, back: Rows, k: Rows) -> Option<RowExtent> {
     let want = Rows::of_index(back.index() + k.index());
     (term.looking_back(want) == want).then(|| mark_of(&term.view(want), Row::ZERO))
 }
 
 /// The mark of row `k` below the window `back` lines up, if it is on the
 /// live screen.
-fn down_mark(term: &Term<'_>, back: Rows, k: Rows) -> Option<RowExtent> {
+fn down_mark(term: &impl TermRead, back: Rows, k: Rows) -> Option<RowExtent> {
     let nrows = term.view(back).rows().index();
     (k.index() <= back.index()).then(|| {
         let v = term.view(Rows::of_count(back.index() - k.index()));
@@ -888,7 +889,7 @@ pub(crate) fn mark_of(vp: &Viewport<'_>, r: Row) -> RowExtent {
 /// screen's top**: rows above it finished. The live screen's top while the
 /// shell is not at a prompt, or sends no marks: only the history is
 /// finished then. Negative where the prompt began above the live screen.
-pub(crate) fn finished_before(term: &Term<'_>) -> isize {
+pub(crate) fn finished_before(term: &impl TermRead) -> isize {
     if term.primary_zone() != Zone::Prompt {
         return 0;
     }
@@ -906,7 +907,7 @@ pub(crate) fn finished_before(term: &Term<'_>) -> isize {
 /// where every row is drawn as stored: the setting off, the alternate
 /// screen, BDSM reset, or no finished paragraph in the window that wraps.
 pub(crate) fn lay_out(
-    term: &Term<'_>,
+    term: &impl TermRead,
     back: Rows,
     wrap: WordWrap,
     work: &mut Breaker,
@@ -1002,7 +1003,7 @@ pub(crate) fn lay_out(
 /// one continues, then the row above where the history holds it, and the
 /// answer is kept under `term.sealed()`.
 fn finished_wraps(
-    term: &Term<'_>,
+    term: &impl TermRead,
     vp: &Viewport<'_>,
     key: kept::Key,
     fin_end: Rows,
@@ -1039,7 +1040,7 @@ fn finished_wraps(
 /// finished is the caller's to ask. What a copy in drawn order reads its
 /// lines from (`?96`).
 pub(crate) fn paragraph_display(
-    term: &Term<'_>,
+    term: &impl TermRead,
     rows: &[(&[PackedCell], RowExtent, PastEdge, RowStyles<'_>)],
     work: &mut Breaker,
 ) -> Option<Rc<Display>> {
@@ -1085,7 +1086,7 @@ pub(crate) fn paragraph_display(
 /// **How many rows above the window its first paragraph's context reads**:
 /// those [`place_window`]'s walk up reads, the one that ends the walk
 /// included, as many as the budget holds and one more.
-fn reach_up(term: &Term<'_>, back: Rows, budget: Rows) -> Rows {
+fn reach_up(term: &impl TermRead, back: Rows, budget: Rows) -> Rows {
     let mut n = 0;
     while let Some(mark) = up_mark(term, back, Rows::of_count(n + 1)) {
         n += 1;
@@ -1099,7 +1100,7 @@ fn reach_up(term: &Term<'_>, back: Rows, budget: Rows) -> Rows {
 /// **How many rows below the window its last paragraph's context reads**,
 /// counted as [`reach_up`] counts them: none where the window's last row
 /// ends its paragraph.
-fn reach_down(term: &Term<'_>, back: Rows, vp: &Viewport<'_>, budget: Rows) -> Rows {
+fn reach_down(term: &impl TermRead, back: Rows, vp: &Viewport<'_>, budget: Rows) -> Rows {
     let last = Row::from_index(vp.rows().index() - 1);
     if vp.wrapped(last) != Wrap::Continues {
         return Rows::ZERO;
@@ -1116,7 +1117,7 @@ fn reach_down(term: &Term<'_>, back: Rows, vp: &Viewport<'_>, budget: Rows) -> R
 
 /// **The window's display**, laid out: [`lay_out`]'s work past its cache.
 fn place_window(
-    term: &Term<'_>,
+    term: &impl TermRead,
     vp: &Viewport<'_>,
     back: Rows,
     key: kept::Key,
@@ -1279,7 +1280,7 @@ fn place_window(
 /// **Re-breaks one finished paragraph**, or leaves it as stored where it
 /// is not one the display re-breaks or where its words already fall at
 /// the stored cut.
-fn rebreak(term: &Term<'_>, g: &mut Group<'_>, cols: Cols, work: &mut Breaker) {
+fn rebreak(term: &impl TermRead, g: &mut Group<'_>, cols: Cols, work: &mut Breaker) {
     let strings = term.strings_seen();
     for (p, row) in g.rows.iter().enumerate() {
         if row.used.rendition() != LineRendition::Single
@@ -1764,7 +1765,7 @@ fn window_lines(g: &Group<'_>) -> Vec<Option<WindowLine>> {
 mod kept {
     use std::rc::Rc;
 
-    use baud_core::Term;
+    use baud_domain::TermRead;
     use baud_domain::{ClusterEpoch, Cols, Row, Rows, Seal, WindowAt};
 
     use super::{Display, Strings, Top};
@@ -1827,7 +1828,7 @@ mod kept {
     impl Gate {
         /// An answer just read for `key`, its marks read under
         /// `term.sealed()`.
-        pub(super) fn new(term: &Term<'_>, key: Key, wraps: Wraps) -> Gate {
+        pub(super) fn new(term: &impl TermRead, key: Key, wraps: Wraps) -> Gate {
             Gate {
                 key,
                 under: term.sealed(),
@@ -1842,7 +1843,7 @@ mod kept {
         /// seal carries the open generation, which that seal does not
         /// cover, so an answer read before the frame seals is read again
         /// after it.
-        pub(super) fn answer(&self, term: &Term<'_>, key: &Key) -> Option<Wraps> {
+        pub(super) fn answer(&self, term: &impl TermRead, key: &Key) -> Option<Wraps> {
             (self.key == *key && !term.wrote_since(&self.under)).then_some(self.wraps)
         }
     }
@@ -1867,7 +1868,7 @@ mod kept {
         /// A layout just made for `key`, its rows read under
         /// `term.sealed()`.
         pub(super) fn new(
-            term: &Term<'_>,
+            term: &impl TermRead,
             key: Key,
             reach: Reach,
             shown: Option<Rc<Display>>,
@@ -1895,7 +1896,7 @@ mod kept {
         /// the open generation, which the new seal does not cover, so an
         /// ask before the frame seals reads the rows again -- the safe
         /// direction, and the reason each driver seals before it asks.
-        pub(super) fn answer(&mut self, term: &Term<'_>, key: &Key) -> (Answer, Tally) {
+        pub(super) fn answer(&mut self, term: &impl TermRead, key: &Key) -> (Answer, Tally) {
             if self.key != *key {
                 return (Answer::Again, Tally::ZERO);
             }
@@ -1915,7 +1916,7 @@ mod kept {
         /// those below -- until one was: how many were asked, and whether
         /// one was written. A row above that the history no longer holds
         /// reads as written.
-        fn reread(&self, term: &Term<'_>) -> (Tally, Written) {
+        fn reread(&self, term: &impl TermRead) -> (Tally, Written) {
             let back = self.key.back;
             let rows = self.key.rows.index();
             let window = term.row_gens(back);
@@ -1967,7 +1968,7 @@ mod kept {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use baud_core::Owned;
+    use baud_core::{Owned, Term};
     use baud_domain::{BytePos, ReadLen, Seal, WinSize, line_breaks};
 
     fn spans(s: &str) -> (Vec<char>, Vec<Span>) {

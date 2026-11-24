@@ -36,7 +36,7 @@ use crate::cellmap::{BlockCursor, Selected, Text};
 use crate::color::Argb;
 use crate::fit::{Blank, Ink};
 use crate::syllable::Syllable;
-use baud_core::Term;
+use baud_domain::TermRead;
 use baud_domain::contrast::CurveRow;
 use baud_domain::{Chan, Codepoint, Col, Cols, Content, GlyphId, PackedCell};
 
@@ -129,7 +129,7 @@ impl Word {
 /// it will hold, so a word beside it is laid as it will be once the commit
 /// is written; only a cell nothing was written in is asked.
 pub(crate) fn of_row(
-    term: &Term<'_>,
+    term: &impl TermRead,
     row: &[PackedCell],
     logical: impl Fn(Col) -> Col,
     parted: &[Syllable],

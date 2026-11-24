@@ -46,7 +46,8 @@ fn paint(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut Vec<u32>, d: Damag
     let (w, h) = r.pixel_size();
     px.resize(usize::try_from(w.value() * h.value()).unwrap(), 0);
     let mut target = Target::new(px, w, w, h).unwrap();
-    r.render(t, &mut target, d);
+    let seal = t.seal_writes();
+    r.render(t, seal, &mut target, d);
     px.clone()
 }
 

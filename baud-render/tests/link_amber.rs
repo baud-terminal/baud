@@ -117,7 +117,8 @@ fn drawn(theme: Theme, video: &[u8], colours: MessageColours) -> (Drawn, Drawn) 
     let frame = |r: &mut Renderer<'_, '_>, t: &mut Term<'_>| {
         let mut px = vec![0u32; n];
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(t, seal, &mut target, Damage::Full);
         Drawn { px, w, m }
     };
     let bare = frame(&mut r, &mut t);

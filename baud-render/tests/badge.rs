@@ -57,7 +57,8 @@ fn paint(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, pixels: &mut Vec<u32>, dama
     let (w, h) = r.pixel_size();
     pixels.resize(px(w) * px(h), 0);
     let mut target = Target::new(pixels, w, w, h).unwrap();
-    r.render(t, &mut target, damage);
+    let seal = t.seal_writes();
+    r.render(t, seal, &mut target, damage);
 }
 
 /// The rectangle a frame's records cover, `[x0, y0, x1, y1)`.

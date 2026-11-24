@@ -95,7 +95,8 @@ fn draw(theme: &Theme, phases: &[Option<SplashPhase>]) -> (Vec<Vec<u32>>, (Px, P
     for &phase in phases {
         r.set_splash(phase.map(|phase| SplashLook { phase }));
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
         frames.push(px.clone());
     }
     (frames, (w, h))
@@ -313,7 +314,8 @@ fn the_plasma_is_seen_carrying_the_logo_in_and_out() {
             };
             r.set_splash(phase.map(|phase| SplashLook { phase }));
             let mut target = Target::new(&mut px, w, w, h).unwrap();
-            r.render(&mut t, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Full);
             // Each record's own colour, source-over in order over the page,
             // as the frame draws it: the word's ink over the word, the
             // amber over the mark, the steps between.

@@ -74,7 +74,8 @@ fn count(theme: &Theme, pt: f32, scale: u32, phase: f64, seconds: f64) -> Report
             false => CursorPhase::SHOWN,
         });
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
         census.frame(&px);
     }
     census.finish()

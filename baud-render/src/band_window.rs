@@ -26,7 +26,8 @@
 use core::ops::Range;
 
 use crate::{StyleStamp, Tally};
-use baud_core::{BandSlots, Term};
+use baud_core::BandSlots;
+use baud_domain::TermRead;
 use baud_domain::{Band, Col, Cols, PackedCell, Row, Rows, StyleId, StyleSlot};
 
 /// **Moves when any row's base moves**: what a reader that uploads the
@@ -144,7 +145,7 @@ impl OverlayRows {
     pub(crate) fn of(
         window: &BandWindow,
         leaving: crate::Leaving,
-        (term, cols): (&Term<'_>, Cols),
+        (term, cols): (&impl TermRead, Cols),
     ) -> OverlayRows {
         let (bases, bands) = (window.bases(), window.bands());
         let order = |n: usize| -> Vec<usize> {
@@ -195,7 +196,7 @@ impl OverlayRows {
     /// through one table on a terminal of one band.
     pub fn view<'a>(
         &'a self,
-        term: &'a Term<'_>,
+        term: &'a impl TermRead,
         (cells, used): (&'a [PackedCell], &'a [baud_domain::RowExtent]),
         stride: baud_domain::Stride,
         (cols, rows): (Cols, Rows),
@@ -532,7 +533,7 @@ impl BandWindow {
 /// between those bands, at most, so `rows` and one fewer than the bands
 /// is a bound. Allocate it zeroed and the slots no frame resolves are
 /// never touched.
-pub fn cell_styles_len(term: &Term<'_>, cols: Cols, rows: Rows) -> TableLen {
+pub fn cell_styles_len(term: &impl TermRead, cols: Cols, rows: Rows) -> TableLen {
     let view = term.styles();
     let Some(per) = term.band_rows().filter(|_| view.bands().len() > 1) else {
         return TableLen(view.slots().len());

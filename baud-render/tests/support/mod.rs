@@ -141,7 +141,8 @@ pub fn replay(data: &[u8], mut f: impl FnMut(&mut Term<'_>, usize)) {
 
 pub fn paint(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, c: &mut Canvas, damage: Damage) -> Frame {
     let mut target = c.target();
-    r.render(t, &mut target, damage)
+    let seal = t.seal_writes();
+    r.render(t, seal, &mut target, damage)
 }
 
 /// Feeds all of `data`, then calls `f` once with the term.

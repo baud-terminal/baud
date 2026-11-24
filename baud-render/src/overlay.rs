@@ -32,7 +32,7 @@ use crate::renderer::{BlinkPhases, Blinking, ClusterGlyph, Framed, Renderer};
 use crate::seeded::Map;
 use crate::select::Highlight;
 use crate::units::Tally;
-use baud_core::Term;
+use baud_domain::TermRead;
 use baud_domain::{
     AmbiguousWidth, Attrs, Chan, Classified, ClusterBreak, ClusterCells, Codepoint, Col, ColorWord,
     Cols, Content, CursorStyle, GraphemeClass, LineRendition, PackedCell, Row, Rows, StyleWord,
@@ -117,8 +117,8 @@ pub enum CursorDrawn {
 
 /// What one frame's walk reads: the core for the marks, the view it is
 /// drawing, the resolved rendition table the shader reads, and the cursor.
-pub struct Scene<'s, 't> {
-    pub term: &'s Term<'t>,
+pub struct Scene<'s, T> {
+    pub term: &'s T,
     pub view: Viewport<'s>,
     pub styles: crate::RowTables<'s>,
     pub cursor: Option<(Row, Col, CursorStyle)>,
@@ -716,7 +716,7 @@ impl Overlay {
     /// have used, with the block cursor's swap.
     pub fn ensure(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         r: &mut Renderer<'_, '_>,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
@@ -730,7 +730,7 @@ impl Overlay {
     /// may be handed a window of an older copy, compares their cells.
     pub(crate) fn ensure_framed(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         framed: Framed,
         r: &mut Renderer<'_, '_>,
         mask: &mut [u8],
@@ -751,7 +751,7 @@ impl Overlay {
     /// pictures as `find` says, and its sized lines keyed as `framed` says.
     fn ensure_with(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         (several, framed): Given<'_>,
         find: Find,
         r: &mut Renderer<'_, '_>,
@@ -835,7 +835,7 @@ impl Overlay {
 
     fn walk(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         (several, walked, framed): (&[(Row, Col)], Walked, Option<Framed>),
         r: &mut Renderer<'_, '_>,
         mask: &mut [u8],
@@ -1486,7 +1486,7 @@ impl Overlay {
     #[allow(clippy::too_many_arguments)]
     fn reach(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         r: &mut Renderer<'_, '_>,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
@@ -1613,7 +1613,7 @@ impl Overlay {
     /// from the view, in the order the row is drawn in.
     fn fit(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         r: &mut Renderer<'_, '_>,
         (x, y): (usize, usize),
         (base, key): (Codepoint, ClusterKey),
@@ -1634,7 +1634,7 @@ impl Overlay {
     /// glyphs by borrow.
     fn fitted_key(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         r: &mut Renderer<'_, '_>,
         (x, y): (usize, usize),
         (base, key): (Codepoint, ClusterKey),
@@ -1681,7 +1681,7 @@ impl Overlay {
     #[allow(clippy::too_many_arguments)]
     fn whole(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         r: &mut Renderer<'_, '_>,
         at: (usize, usize),
         mask: &mut [u8],
@@ -1751,7 +1751,7 @@ impl Overlay {
     #[allow(clippy::too_many_arguments)]
     fn words(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         r: &mut Renderer<'_, '_>,
         (y, row, (words, kept), taken): RowWords<'_>,
         mask: &mut [u8],
@@ -1905,7 +1905,7 @@ impl Overlay {
     #[allow(clippy::too_many_arguments)]
     fn syllable(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         r: &mut Renderer<'_, '_>,
         at: (usize, usize),
         cells: Cols,
@@ -1967,7 +1967,7 @@ impl Overlay {
     #[allow(clippy::too_many_arguments)]
     fn whole_mirrored(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         r: &mut Renderer<'_, '_>,
         at: (usize, usize),
         m: crate::bidi::Mirrored,
@@ -2045,7 +2045,7 @@ impl Overlay {
     #[allow(clippy::too_many_arguments)]
     fn whole_joined(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         r: &mut Renderer<'_, '_>,
         at: (usize, usize),
         (form, around): (
@@ -2128,7 +2128,7 @@ impl Overlay {
     #[allow(clippy::too_many_arguments)]
     fn pair(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         r: &mut Renderer<'_, '_>,
         at: (usize, usize),
         (orders, partner_held, covered): (&crate::bidi::Orders, bool, &Covered),
@@ -2382,7 +2382,7 @@ impl Overlay {
     #[allow(clippy::too_many_arguments)]
     fn window(
         &mut self,
-        scene: &Scene<'_, '_>,
+        scene: &Scene<'_, impl TermRead>,
         r: &mut Renderer<'_, '_>,
         y: Row,
         range: (usize, usize),
@@ -2698,7 +2698,7 @@ impl Overlay {
     pub fn composed(
         &mut self,
         r: &mut Renderer<'_, '_>,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (c, laid): (&Composition, Laid),
         under: PackedCell,
         styles: &[Resolved],
@@ -2799,7 +2799,7 @@ impl Overlay {
     pub fn ensure_leaving(
         &mut self,
         map: &mut GlyphMap<'_>,
-        term: &Term<'_>,
+        term: &impl TermRead,
         leaving: Viewport<'_>,
         styles: &[Resolved],
         r: &mut Renderer<'_, '_>,
@@ -2842,7 +2842,7 @@ impl Overlay {
     pub fn leaving(
         &mut self,
         r: &mut Renderer<'_, '_>,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (map, styles): (&GlyphMap<'_>, crate::RowTables<'_>),
         back: Rows,
         (cols, rows): (Cols, Rows),
@@ -2880,7 +2880,7 @@ impl Overlay {
     fn slide_single(
         &mut self,
         r: &mut Renderer<'_, '_>,
-        term: &Term<'_>,
+        term: &impl TermRead,
         (map, styles): (&GlyphMap<'_>, crate::RowTables<'_>),
         (cols, rows): (Cols, Rows),
         pan: Px,
@@ -2960,7 +2960,7 @@ impl Overlay {
     pub fn status(
         &mut self,
         r: &mut Renderer<'_, '_>,
-        term: &Term<'_>,
+        term: &impl TermRead,
         cursor: Option<(Row, Col, CursorStyle)>,
         (cols, rows): (Cols, Rows),
         mask: &mut [u8],
@@ -3185,7 +3185,7 @@ impl Default for Measure {
 
 impl Measure {
     /// What `term` measures the next character it writes by.
-    pub fn of(term: &Term<'_>) -> Measure {
+    pub fn of(term: &impl TermRead) -> Measure {
         Measure {
             ambiguous: term.ambiguous_width(),
             widths: term.unicode_widths(),
@@ -3483,7 +3483,7 @@ impl Composition {
     /// would not form one cluster, the composition starts at the cursor and
     /// what continues is drawn at commit.
     pub fn at_cursor(
-        term: &Term<'_>,
+        term: &impl TermRead,
         text: &[Codepoint],
         hints: &[Hints],
         caret: Caret,
@@ -3502,7 +3502,7 @@ impl Composition {
 
     /// The composition led by the cluster of the cell its first codepoints
     /// continue, if they continue one ([`Composition::at_cursor`]).
-    fn headed(&self, term: &Term<'_>) -> Option<Composition> {
+    fn headed(&self, term: &impl TermRead) -> Option<Composition> {
         let cells = term.row(self.row)?;
         let pending = term.wrap_pending() == baud_core::WrapPending::Yes;
         let mut at = match pending {
@@ -3849,7 +3849,7 @@ impl Composition {
     /// that is not single-width, where no word is laid.
     pub(crate) fn taken(
         &self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         orders: &crate::bidi::Orders,
         cols: Cols,
         size: LineRendition,
@@ -4043,7 +4043,7 @@ impl Composition {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn composition_records(
     r: &mut Renderer<'_, '_>,
-    term: &Term<'_>,
+    term: &impl TermRead,
     (c, laid): (&Composition, Laid),
     under: PackedCell,
     styles: &[Resolved],
@@ -4112,7 +4112,7 @@ impl Composed {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn composition_parts(
     r: &mut Renderer<'_, '_>,
-    term: &Term<'_>,
+    term: &impl TermRead,
     (c, laid): (&Composition, Laid),
     under: PackedCell,
     styles: &[Resolved],
@@ -4675,7 +4675,7 @@ pub(crate) fn composition_parts(
 #[inline(never)]
 fn joined_pieces(
     r: &mut Renderer<'_, '_>,
-    (term, styles): (&Term<'_>, &[Resolved]),
+    (term, styles): (&impl TermRead, &[Resolved]),
     (row, laid): (Row, Laid),
     pieces: &[(usize, &[Codepoint], CellSpan, crate::stack::TextFace)],
     st: Stretch,
@@ -4844,7 +4844,7 @@ struct HintedBase {
 }
 
 fn hinted_base(
-    (term, words): (&Term<'_>, Words<'_>),
+    (term, words): (&impl TermRead, Words<'_>),
     styles: &[Resolved],
     under: PackedCell,
 ) -> HintedBase {
@@ -4859,7 +4859,7 @@ fn hinted_base(
 impl HintedBase {
     /// The rendition a cluster drawn `look` takes: the table's own where
     /// its hints add nothing to it, else resolved afresh.
-    fn of(&self, r: &Renderer<'_, '_>, term: &Term<'_>, look: Drawing) -> Resolved {
+    fn of(&self, r: &Renderer<'_, '_>, term: &impl TermRead, look: Drawing) -> Resolved {
         match look.pair {
             Paired::Yes => return r.message_rendition(self.resolved),
             Paired::Text => return r.link_text_rendition(self.resolved),
@@ -4956,7 +4956,7 @@ impl RuleAt {
 #[allow(clippy::too_many_arguments)]
 fn sized_composition(
     r: &mut Renderer<'_, '_>,
-    term: &Term<'_>,
+    term: &impl TermRead,
     (c, laid): (&Composition, Laid),
     under: PackedCell,
     styles: &[Resolved],

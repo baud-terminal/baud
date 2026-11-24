@@ -1,4 +1,4 @@
-//! The compositor: `Term::viewport` in, pixels out.
+//! The compositor: `TermRead::viewport` in, pixels out.
 //!
 //! **The shape every shipping GPU terminal shares**, and the one measured
 //! bottleneck among them: the CPU
@@ -24,24 +24,37 @@
 //! Placement of the instance buffer is a per-architecture startup decision
 //! (D3), and nothing here maps the live grid as a GPU buffer (D4).
 //!
-//! **A terminal handed as `&impl TermRead` is read, never written.** No
-//! read of [`baud_domain::TermRead`] takes `&mut self`, so a write -- a
-//! seal, a resize, a feed -- through it does not compile.
+//! **The renderer reads the terminal, never writes it.**
+//! [`Renderer::render`] is handed the terminal as `&impl TermRead`, with
+//! the seal its caller closed the frame's writes with. No read of
+//! [`baud_domain::TermRead`] takes `&mut self`, so a write -- a seal, a
+//! resize, a feed -- through what the renderer is handed does not compile.
 //!
 //! Named break: `view: &mut baud_core::Term<'_>` in place of `&T` -- the
 //! body compiles and this example fails.
 //!
 //! ```compile_fail,E0599
-//! fn frame<T: baud_domain::TermRead>(view: &T) -> baud_domain::Seal {
-//!     view.seal_writes()
+//! fn frame<T: baud_domain::TermRead>(
+//!     r: &mut baud_render::Renderer<'_, '_>,
+//!     view: &T,
+//!     seal: baud_domain::Seal,
+//!     target: &mut baud_render::Target<'_>,
+//! ) -> baud_render::Frame {
+//!     let _ = view.seal_writes();
+//!     r.render(view, seal, target, baud_render::Damage::Full)
 //! }
 //! ```
 //!
-//! The legal path, a read through the same parameter:
+//! The legal path, the same frame drawn through the same parameter:
 //!
 //! ```
-//! fn frame<T: baud_domain::TermRead>(view: &T) -> baud_domain::Seal {
-//!     view.sealed()
+//! fn frame<T: baud_domain::TermRead>(
+//!     r: &mut baud_render::Renderer<'_, '_>,
+//!     view: &T,
+//!     seal: baud_domain::Seal,
+//!     target: &mut baud_render::Target<'_>,
+//! ) -> baud_render::Frame {
+//!     r.render(view, seal, target, baud_render::Damage::Full)
 //! }
 //! ```
 #![forbid(unsafe_code)]

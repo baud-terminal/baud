@@ -122,7 +122,8 @@ fn draw(
         let n = usize::try_from(w.value() * h.value()).unwrap();
         let mut pixels = vec![0u32; n];
         let mut target = Target::new(&mut pixels, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
         pixels
     };
     let blank = paint(&mut r, &format!("\x1b[?25l{prefix}"));

@@ -177,7 +177,8 @@ fn painted_back(
     feed(&mut t, &the_long_feed());
     over(&mut r, &mut t);
     let mut target = c.target();
-    r.render_at(&mut t, back, &mut target, Damage::Full);
+    let seal = t.seal_writes();
+    r.render_at(&t, seal, back, &mut target, Damage::Full);
     let joined = r.convert(&t, back, Damage::Full).lines_joined.value();
     (c.pixels, joined)
 }
@@ -332,10 +333,12 @@ fn strings_joins_links_and_the_status_line_paint_as_one_table_does() {
         assert!(t.strings_seen(), "a string was begun");
         assert!(t.status_line().is_some(), "the status line is shown");
         let mut target = c.target();
-        r.render_at(&mut t, back, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render_at(&t, seal, back, &mut target, Damage::Full);
         // Joining forms are laid out once a frame has shaped a letter that
         // takes one: the second frame draws them.
-        r.render_at(&mut t, back, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render_at(&t, seal, back, &mut target, Damage::Full);
         assert_eq!(
             r.joins_seen(),
             baud_render::Joins::Seen,
@@ -398,7 +401,8 @@ fn struck_links_paint_as_one_table_does() {
             r.set_link_strikes(&lines, &[]);
         }
         let mut target = c.target();
-        r.render_at(&mut t, back, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render_at(&t, seal, back, &mut target, Damage::Full);
         c.pixels
     };
     for back in [Rows::ZERO, Rows::of_count(10)] {

@@ -217,9 +217,10 @@ fn mpvs_kitty_video_draws_what_mpv_sent() {
         {
             let back = term.window_back();
             let mut target = Target::new(&mut frame, gw, gw, gh).expect("the frame holds the grid");
+            let seal = term.seal_writes();
             stage
                 .renderer
-                .render_at(&mut term, back, &mut target, Damage::Full);
+                .render_at(&term, seal, back, &mut target, Damage::Full);
         }
         let places = stage.renderer.image_placements().to_vec();
         let counts = term.kitty();
@@ -420,9 +421,10 @@ fn under_a_two_frame_quota_every_upload_shows_its_own_frame() {
         {
             let back = term.window_back();
             let mut target = Target::new(&mut frame, gw, gw, gh).expect("the frame holds the grid");
+            let seal = term.seal_writes();
             stage
                 .renderer
-                .render_at(&mut term, back, &mut target, Damage::Full);
+                .render_at(&term, seal, back, &mut target, Damage::Full);
         }
         if let Some(rgb) = &up.rgb {
             if shown == Some(rgb.as_slice()) {

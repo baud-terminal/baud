@@ -1533,7 +1533,7 @@ mod tests {
             "screen: &DrawableView, show: Show) {"
         ));
         assert!(
-            present.contains("self.renderer.place_lights(&self.term);"),
+            present.contains("self.renderer.place_lights(&*self.term);"),
             "every frame places the line's lights"
         );
         let resized = body(concat!(

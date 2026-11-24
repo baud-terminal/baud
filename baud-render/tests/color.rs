@@ -56,7 +56,8 @@ fn colour_glyphs_and_rendition_shapes_reach_the_pixels() {
     feed(&mut t, text.as_bytes());
     let frame = {
         let mut target = Target::new(&mut pixels, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full)
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full)
     };
     // A and B and S are Bungee COLR glyphs, the emoji a CBDT image.
     assert!(frame.colored.value() >= 4, "{:?} coloured", frame.colored);

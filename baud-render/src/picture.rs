@@ -47,7 +47,7 @@
 //! colours counted as it grows and capped at the threshold, so a block
 //! stops counting the moment it is known to be a picture.
 
-use baud_core::Term;
+use baud_domain::TermRead;
 use baud_domain::{Col, ColorWord, Cols, PackedCell, Row, Rows, Video, Viewport};
 
 use crate::frozen::Words;
@@ -133,7 +133,7 @@ pub struct Pictures {
 /// it (`words`, `crate::frozen`): a picture in history the core froze is
 /// found in its own colours.
 fn drawn_bg(
-    term: &Term<'_>,
+    term: &impl TermRead,
     (words, x): (Words<'_>, Col),
     cell: PackedCell,
     video: Video,
@@ -168,7 +168,7 @@ impl Pictures {
     /// under `?5`, so the video decides which colours make a block.
     /// The frame before is kept, so [`Pictures::row_changed`] can say which
     /// rows a picture appeared on, moved across or left.
-    pub fn find(&mut self, term: &Term<'_>, view: &Viewport<'_>, video: Video) -> Tally {
+    pub fn find(&mut self, term: &impl TermRead, view: &Viewport<'_>, video: Video) -> Tally {
         self.find_in(term, view, |y| Words::Row(view.styles(y)), video)
     }
 
@@ -177,7 +177,7 @@ impl Pictures {
     /// was lent for.
     pub fn find_lent(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         view: &Viewport<'_>,
         lent: &crate::Lent,
         video: Video,
@@ -188,7 +188,7 @@ impl Pictures {
     /// [`Pictures::find`], each row's cells read through `words`.
     pub(crate) fn find_in<'w>(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         view: &Viewport<'_>,
         words: impl Fn(Row) -> Words<'w>,
         video: Video,

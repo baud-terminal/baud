@@ -80,7 +80,8 @@ fn drawn(theme: Theme, bytes: &[u8], pairs: &[Option<Hilite>]) -> Vec<(Argb, Arg
             let mut target = Target::new(&mut px, w, w, h).unwrap();
             // Incremental, as the app draws: the change of colours alone
             // has to repaint the selected cells.
-            r.render(&mut t, &mut target, Damage::Incremental);
+            let seal = t.seal_writes();
+            r.render(&t, seal, &mut target, Damage::Incremental);
         }
         let middle = px[usize::try_from((ch / 2) * w.value() + cw / 2).unwrap()];
         out.push((r.background()[0], r.background()[1], middle));

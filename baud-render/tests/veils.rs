@@ -105,7 +105,8 @@ fn on_the_cpu_path(
     let (mut px, mut full) = (vec![0u32; n], vec![0u32; n]);
     let paint = |r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut [u32], d: Damage| {
         let mut target = Target::new(px, w, w, h).unwrap();
-        r.render(t, &mut target, d);
+        let seal = t.seal_writes();
+        r.render(t, seal, &mut target, d);
     };
     paint(&mut r, &mut t, &mut px, Damage::Full);
     for _ in 0..2 {

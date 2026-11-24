@@ -151,7 +151,8 @@ fn frozen_rows_and_strikes_near_the_budget_never_leave_frozen_short() {
     let back = frozen_history(&mut t, 1);
     let mut r = renderer(&faces, TALL);
     let mut c = Canvas::for_renderer(&r);
-    let _ = r.render_at(&mut t, back, &mut c.target(), Damage::Full);
+    let seal = t.seal_writes();
+    let _ = r.render_at(&t, seal, back, &mut c.target(), Damage::Full);
     let n = t.styles().one().len();
     let rows = usize::from(TALL.ws_row);
     let view = t.view(back);
@@ -226,7 +227,8 @@ fn a_frozen_cell_struck_keeps_its_frozen_ground_and_draws_grey() {
     let cells_before: Vec<PackedCell> = t.view(back).row(Row::ZERO).to_vec();
     let mut r = renderer(&faces, TALL);
     let mut c = Canvas::for_renderer(&r);
-    let _ = r.render_at(&mut t, back, &mut c.target(), Damage::Full);
+    let seal = t.seal_writes();
+    let _ = r.render_at(&t, seal, back, &mut c.target(), Damage::Full);
     let grounds: Vec<u32> = r.background()[..40].iter().map(|a| a.0).collect();
     let word = r.bidi().row_source(&t, back, Row::ZERO).words().word(
         &t,
@@ -242,7 +244,8 @@ fn a_frozen_cell_struck_keeps_its_frozen_ground_and_draws_grey() {
         }],
         &[],
     );
-    let _ = r.render_at(&mut t, back, &mut c.target(), Damage::Full);
+    let seal = t.seal_writes();
+    let _ = r.render_at(&t, seal, back, &mut c.target(), Damage::Full);
     let now: Vec<u32> = r.background()[..40].iter().map(|a| a.0).collect();
     assert_eq!(now, grounds, "every ground its frozen one");
     for x in 3..=12 {

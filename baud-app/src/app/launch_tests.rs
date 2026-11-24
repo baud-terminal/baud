@@ -252,9 +252,10 @@ impl Session {
         let mut frame = vec![0u32; area];
         let mut target = Target::new(&mut frame, w, w, h).expect("a target");
         let back = self.term.window_back();
+        let seal = self.term.seal_writes();
         let _ = self
             .renderer
-            .render_at(&mut self.term, back, &mut target, Damage::Full);
+            .render_at(&self.term, seal, back, &mut target, Damage::Full);
         frame
     }
 

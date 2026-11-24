@@ -268,11 +268,13 @@ fn a_cpu_frame_copies_only_its_rows_and_each_surface_is_the_whole_copy() {
         step(&mut look, &mut t);
         look.apply(&mut r, &t);
         let mut target = Target::new(&mut frame, w, w, h).unwrap();
-        r.render_at(&mut t, look.back, &mut target, Damage::Incremental);
+        let seal = t.seal_writes();
+        r.render_at(&t, seal, look.back, &mut target, Damage::Incremental);
         let painted: Vec<_> = r.painted().collect();
         look.apply(&mut fresh, &t);
         let mut fresh_target = Target::new(&mut fresh_frame, w, w, h).unwrap();
-        fresh.render_at(&mut t, look.back, &mut fresh_target, Damage::Full);
+        let seal = t.seal_writes();
+        fresh.render_at(&t, seal, look.back, &mut fresh_target, Damage::Full);
         if painted
             .iter()
             .map(|b| b.bottom.value() - b.top.value())
@@ -370,7 +372,8 @@ fn a_cpu_frame_drawn_for_a_surface_is_copied_into_it() {
             _ => Damage::Incremental,
         };
         let shown = drawn.draw_cpu(w, h, |target| {
-            r.render(&mut t, target, damage);
+            let seal = t.seal_writes();
+            r.render(&t, seal, target, damage);
             Drew {
                 painted: Bands::These(r.painted().collect()),
                 clear: r.clear_color(),
@@ -403,7 +406,8 @@ fn a_cpu_frame_drawn_for_a_surface_is_copied_into_it() {
             );
         }
         let mut fresh_target = Target::new(&mut fresh_frame, w, w, h).unwrap();
-        fresh.render(&mut t, &mut fresh_target, Damage::Full);
+        let seal = t.seal_writes();
+        fresh.render(&t, seal, &mut fresh_target, Damage::Full);
         assert_eq!(
             reference.copy_changed(&fresh_frame, w, fresh.clear_color(), Changed::Whole),
             Presented::Yes

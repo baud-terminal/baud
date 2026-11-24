@@ -194,7 +194,8 @@ fn the_cpu_path_paints_a_hebrew_status_line_as_a_main_row() {
     let mut c = Canvas::for_renderer(&r);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let ch = usize::try_from(r.metrics().cell_h.value()).unwrap();
     let band = |row: usize| c.pixels[row * ch * c.width..(row + 1) * ch * c.width].to_vec();
@@ -282,7 +283,8 @@ fn a_reversed_status_line_paints_as_a_main_row_once_joins_are_kept() {
     let mut c = Canvas::for_renderer(&r);
     for _ in 0..2 {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let ch = usize::try_from(r.metrics().cell_h.value()).unwrap();
     let band = |row: usize| c.pixels[row * ch * c.width..(row + 1) * ch * c.width].to_vec();

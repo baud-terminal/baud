@@ -94,7 +94,8 @@ fn cpu(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut Vec<u32>, damage: Da
     }
     let _ = counters::take();
     let mut target = Target::new(&mut px[..], w, w, h).unwrap();
-    r.render_at(t, Rows::ZERO, &mut target, damage);
+    let seal = t.seal_writes();
+    r.render_at(t, seal, Rows::ZERO, &mut target, damage);
     counters::take()
 }
 

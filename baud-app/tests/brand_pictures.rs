@@ -421,7 +421,8 @@ fn rendered() -> Mark {
     let width = usize::try_from(pw.value()).expect("a width");
     let mut px = vec![0u32; width * usize::try_from(ph.value()).expect("a height")];
     let mut target = Target::new(&mut px, pw, pw, ph).expect("a target");
-    r.render(&mut t, &mut target, Damage::Full);
+    let seal = t.seal_writes();
+    r.render(&t, seal, &mut target, Damage::Full);
     let (cw, ch) = (
         usize::try_from(CELL.0).expect("w"),
         usize::try_from(CELL.1).expect("h"),

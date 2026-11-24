@@ -771,7 +771,8 @@ mod tests {
             let mut px = vec![0u32; wu * hu];
             {
                 let mut target = Target::new(&mut px, w, w, h).expect("a target");
-                r.render(&mut t, &mut target, Damage::Full);
+                let seal = t.seal_writes();
+                r.render(&t, seal, &mut target, Damage::Full);
             }
             let m = r.metrics();
             let (cw, ch) = (
@@ -874,7 +875,8 @@ mod tests {
             let mut px = vec![0u32; wu * hu];
             {
                 let mut target = Target::new(&mut px, w, w, h).expect("a target");
-                r.render(&mut t, &mut target, Damage::Full);
+                let seal = t.seal_writes();
+                r.render(&t, seal, &mut target, Damage::Full);
             }
             let m = r.metrics();
             let cw = usize::try_from(m.cell_w.value()).expect("a cell");
@@ -968,7 +970,8 @@ mod tests {
             let mut px = vec![0u32; wu * hu];
             {
                 let mut target = Target::new(&mut px, w, w, h).expect("a target");
-                r.render(&mut t, &mut target, Damage::Full);
+                let seal = t.seal_writes();
+                r.render(&t, seal, &mut target, Damage::Full);
             }
             let ch = usize::try_from(r.metrics().cell_h.value()).expect("a cell");
             px[(rows.index() - 1) * ch * wu..rows.index() * ch * wu].to_vec()
@@ -1321,7 +1324,8 @@ mod tests {
                 let mut px = vec![0u32; wu * hu];
                 {
                     let mut target = Target::new(&mut px, w, w, h).expect("a target");
-                    r.render(&mut t, &mut target, Damage::Full);
+                    let seal = t.seal_writes();
+                    r.render(&t, seal, &mut target, Damage::Full);
                 }
                 let ch = usize::try_from(r.metrics().cell_h.value()).expect("a cell");
                 (px, wu, ch, row.index())

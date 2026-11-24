@@ -433,7 +433,7 @@ mod tests {
         assert!(present < turn, "after the present");
         assert_eq!(body.matches("d.report.turn(").count(), 1, "once a turn");
         let drawn = src
-            .split_once("renderer.render_at(term, back, target, damage)")
+            .split_once("renderer.render_at(term, seal, back, target, damage)")
             .map(|(_, rest)| bare(rest))
             .expect("the paint");
         assert!(

@@ -54,7 +54,8 @@ fn paint(
     let (w, h) = r.pixel_size();
     px.resize(usize::try_from(w.value() * h.value()).unwrap(), 0);
     let mut target = Target::new(px, w, w, h).unwrap();
-    r.render(t, &mut target, damage);
+    let seal = t.seal_writes();
+    r.render(t, seal, &mut target, damage);
     px.clone()
 }
 

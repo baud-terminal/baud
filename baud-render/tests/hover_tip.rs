@@ -29,7 +29,8 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 fn paint(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut [u32], damage: Damage) {
     let (w, h) = r.pixel_size();
     let mut target = Target::new(px, w, w, h).unwrap();
-    r.render(t, &mut target, damage);
+    let seal = t.seal_writes();
+    r.render(t, seal, &mut target, damage);
 }
 
 /// The tip's lines as text, each trimmed, joined by a space.
@@ -279,7 +280,8 @@ fn a_lights_tip_is_drawn_by_its_line_and_leaves_the_line_as_it_was() {
         let n = usize::try_from(w.value() * h.value()).unwrap();
         let frame = |r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut [u32], d| {
             let mut target = Target::new(px, w, w, h).unwrap();
-            r.render(t, &mut target, d);
+            let seal = t.seal_writes();
+            r.render(t, seal, &mut target, d);
         };
         let mut plain = vec![0u32; n];
         frame(&mut r, &mut t, &mut plain, Damage::Full);

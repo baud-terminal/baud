@@ -55,7 +55,8 @@ fn paint(r: &mut Renderer<'_, '_>, t: &mut Term<'_>) -> Vec<u32> {
     let px = |p: baud_font::Px| usize::try_from(p.value()).unwrap();
     let mut pixels = vec![0u32; px(w) * px(h)];
     let mut target = Target::new(&mut pixels, w, w, h).unwrap();
-    r.render(t, &mut target, Damage::Full);
+    let seal = t.seal_writes();
+    r.render(t, seal, &mut target, Damage::Full);
     pixels
 }
 
@@ -569,7 +570,8 @@ fn a_selection_reaches_the_cells_a_window_line_draws_from_below_it() {
 fn paint_over(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, pixels: &mut [u32], damage: Damage) {
     let (w, h) = r.pixel_size();
     let mut target = Target::new(pixels, w, w, h).unwrap();
-    r.render(t, &mut target, damage);
+    let seal = t.seal_writes();
+    r.render(t, seal, &mut target, damage);
 }
 
 /// **A change past the window repaints the line it is drawn on**: the

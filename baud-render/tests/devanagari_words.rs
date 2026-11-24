@@ -85,7 +85,8 @@ impl<'f, 'a> Scene<'f, 'a> {
         let n = usize::try_from(w.value() * h.value()).unwrap();
         let mut px = vec![0u32; n];
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        self.r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        self.r.render(&t, seal, &mut target, Damage::Full);
         self.frame = px;
     }
 

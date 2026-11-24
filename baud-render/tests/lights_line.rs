@@ -57,7 +57,8 @@ fn whole(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, damage: Damage) -> (Vec<u32
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     {
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(t, &mut target, damage);
+        let seal = t.seal_writes();
+        r.render(t, seal, &mut target, damage);
     }
     let n = |p: Px| usize::try_from(p.value()).unwrap();
     (px, n(w), n(h))
@@ -344,7 +345,8 @@ fn a_light_that_changes_names_another_picture_and_draws_nothing() {
     let mut px = vec![0u32; usize::try_from(fw.value() * fh.value()).unwrap()];
     let mut frame = |r: &mut Renderer<'_, '_>, t: &mut Term<'_>, d: Damage| {
         let mut target = Target::new(&mut px, fw, fw, fh).unwrap();
-        r.render(t, &mut target, d);
+        let seal = t.seal_writes();
+        r.render(t, seal, &mut target, d);
         let line = rows(
             &px,
             usize::try_from(fw.value()).unwrap(),

@@ -384,7 +384,8 @@ fn a_whole_repaint_lays_no_word_again() {
     let draw = |r: &mut Renderer<'_, '_>, t: &mut Term<'_>| {
         let mut px = vec![0u32; n];
         let mut target = baud_render::Target::new(&mut px, w, w, h).unwrap();
-        r.render(t, &mut target, baud_render::Damage::Full);
+        let seal = t.seal_writes();
+        r.render(t, seal, &mut target, baud_render::Damage::Full);
         px
     };
     let first = draw(&mut r, &mut t);

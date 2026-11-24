@@ -181,7 +181,8 @@ fn count_run(
         };
         r.set_fireworks(&shows);
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
         census.frame(&px);
     }
     census.finish()

@@ -17,7 +17,7 @@ use crate::{
     Candidate, Composition, GlyphMap, Highlight, Instance, Leaving, Lent, Overlay, Renderer,
     Resolved, Scene, StyleStamp, Tally, WalkKey,
 };
-use baud_core::Term;
+use baud_domain::TermRead;
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, RowExtent, RowRot,
     Rows, Seal,
@@ -148,7 +148,7 @@ pub struct CellFrame {
 /// shared, and the build itself seals nothing.
 pub fn build<P>(
     renderer: &mut Renderer<'_, '_>,
-    term: &Term<'_>,
+    term: &impl TermRead,
     seal: Seal,
     inputs: &CellInputs<'_, P>,
     cell: &mut CellParts<'_, '_, '_>,
@@ -760,7 +760,7 @@ where
 /// copy names the line's ids by.
 fn number_joined(
     renderer: &Renderer<'_, '_>,
-    term: &Term<'_>,
+    term: &impl TermRead,
     (copy, lent, styles): (&mut [PackedCell], &mut Lent, &mut [Resolved]),
     (set, cols): (SetIx, Cols),
     (slide, rows): (Rows, Rows),

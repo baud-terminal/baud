@@ -291,7 +291,8 @@ mod tests {
         let area = baud_font::Extent::new(w, h).cells().expect("an area");
         let mut frame = vec![0u32; area];
         let mut target = baud_render::Target::new(&mut frame, w, w, h).expect("a target");
-        let _ = d.render(&mut t, &mut target, baud_render::Damage::Full);
+        let seal = t.seal_writes();
+        let _ = d.render(&t, seal, &mut target, baud_render::Damage::Full);
         frame
     }
 

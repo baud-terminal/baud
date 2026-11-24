@@ -677,8 +677,7 @@ mod checks {
     /// The CPU path's frame as `App::present` draws it on that path: the
     /// frame's writes sealed first (`Term::seal_writes`), as `present`
     /// seals them before its first ask of the display, then the inputs set,
-    /// then `render_at` into the frame's pixels, which seals again at its
-    /// top and so closes an empty generation.
+    /// then `render_at` into the frame's pixels under that seal.
     fn cpu_frame(
         r: &mut Renderer<'_, '_>,
         t: &mut Term<'_>,
@@ -686,7 +685,7 @@ mod checks {
         target: &mut Target<'_>,
         damage: Damage,
     ) -> baud_render::Frame {
-        let _ = t.seal_writes();
+        let seal = t.seal_writes();
         let back = t.window_back();
         r.fit(t);
         r.set_highlight(None);
@@ -699,7 +698,7 @@ mod checks {
         r.set_trail(None);
         r.place_marks(t, back, Leaving::None, Px::of(0));
         r.place_lights(t);
-        r.render_at(t, back, target, damage)
+        r.render_at(t, seal, back, target, damage)
     }
 
     /// **The CPU path's frame, then the control that it was drawn into a
@@ -2938,10 +2937,11 @@ mod checks {
     /// itself, so `App::present` seals once, after the link scan (which
     /// keeps the seal it read under) and before `cell_frame::build`, and
     /// hands that seal in; the cell driver here does the same; and
-    /// `Renderer::render_at`, which every CPU driver goes through, seals at
-    /// its top. A present that stopped sealing would build every caret
-    /// frame as a new screen, every row read as written; one that sealed
-    /// before the scan would hide a frame's writes from it.
+    /// `Renderer::render_at`, which every CPU driver goes through, takes
+    /// the seal as the build does and seals nothing itself. A present that
+    /// stopped sealing would build every caret frame as a new screen, every
+    /// row read as written; one that sealed before the scan would hide a
+    /// frame's writes from it.
     ///
     /// **And each seals before its first ask of the display** (FS-C3): the
     /// re-cut keeps its layout under the seal a reader on `&Term` names,
@@ -3027,7 +3027,7 @@ mod checks {
         let library = read("baud-render/src/cell_frame.rs");
         let build = body_of(&library, "pub fn build<P>(", "\n}\n");
         assert!(
-            build.contains("term:&Term<'_>,seal:Seal,"),
+            build.contains("term:&implTermRead,seal:Seal,"),
             "the build takes the seal: {build}"
         );
         assert!(
@@ -3036,10 +3036,13 @@ mod checks {
         );
         let renderer = read("baud-render/src/renderer.rs");
         let render_at = body_of(&renderer, "pub fn render_at(", METHOD);
-        assert_eq!(
-            render_at.matches("term.seal_writes()").count(),
-            1,
-            "render_at seals once a frame"
+        assert!(
+            render_at.contains("term:&implTermRead,seal:Seal,"),
+            "render_at takes the seal: {render_at}"
+        );
+        assert!(
+            !render_at.contains("seal_writes(") && !render_at.contains("sealed()"),
+            "and takes none itself"
         );
     }
 

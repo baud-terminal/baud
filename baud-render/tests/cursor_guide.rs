@@ -44,7 +44,8 @@ fn paint(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, pixels: &mut Vec<u32>, dama
     let (w, h) = r.pixel_size();
     pixels.resize(px(w) * px(h), 0);
     let mut target = Target::new(pixels, w, w, h).unwrap();
-    r.render(t, &mut target, damage);
+    let seal = t.seal_writes();
+    r.render(t, seal, &mut target, damage);
 }
 
 fn look(line: u32) -> Option<GuideLook> {
@@ -207,7 +208,8 @@ fn the_guide_hides_with_the_cursor() {
         let (w, h) = r.pixel_size();
         let mut pixels = vec![0u32; px(w) * px(h)];
         let mut target = Target::new(&mut pixels, w, w, h).unwrap();
-        r.render_at(t, Rows::of_count(n), &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render_at(t, seal, Rows::of_count(n), &mut target, Damage::Full);
         pixels
     };
     let ch = px(renderer(&faces).metrics().cell_h);

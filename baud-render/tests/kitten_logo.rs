@@ -183,7 +183,8 @@ fn drawn(g: &gif::Gif, theme: Theme, ms: u64) -> (Canvas, usize) {
     t.animate_images(at(ms), ImageMotion::Play);
     {
         let mut target = c.target();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     (c, cw)
 }

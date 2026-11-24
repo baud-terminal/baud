@@ -189,7 +189,8 @@ fn draw(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, px: &mut Vec<u32>, damage: D
     }
     {
         let mut target = Target::new(&mut px[..], w, w, h).unwrap();
-        r.render_at(t, Rows::ZERO, &mut target, damage);
+        let seal = t.seal_writes();
+        r.render_at(t, seal, Rows::ZERO, &mut target, damage);
     }
     let mut grounds = Vec::new();
     r.grounds(&mut grounds);
@@ -604,7 +605,8 @@ fn frame(
     }
     {
         let mut target = Target::new(&mut px[..], w, w, ht).unwrap();
-        r.render_at(t, h.back, &mut target, damage);
+        let seal = t.seal_writes();
+        r.render_at(t, seal, h.back, &mut target, damage);
     }
     let mut grounds = Vec::new();
     r.grounds(&mut grounds);

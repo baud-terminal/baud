@@ -84,7 +84,8 @@ fn draw(
     }
     {
         let mut target = Target::new(&mut px[..], w, w, h).unwrap();
-        r.render_at(t, back, &mut target, damage);
+        let seal = t.seal_writes();
+        r.render_at(t, seal, back, &mut target, damage);
     }
     let mut grounds = Vec::new();
     r.grounds(&mut grounds);

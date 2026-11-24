@@ -8808,8 +8808,9 @@ fn cpu_frame(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) -> Vec<u32> {
     let n = usize::try_from(fw.value() * fh.value()).unwrap();
     let mut px = vec![0u32; n];
     let mut target = Target::new(&mut px, fw, fw, fh).expect("target");
+    let seal = t.seal_writes();
     arms.renderer
-        .render_at(t, arms.back, &mut target, Damage::Full);
+        .render_at(t, seal, arms.back, &mut target, Damage::Full);
     px.iter().map(|&p| premultiply(Argb(p)).0).collect()
 }
 
@@ -10689,7 +10690,9 @@ fn placements_that_tie_on_z_stack_alike_on_every_arm() {
     // A CPU frame into `kept`, whole or from the one before.
     let mut cpu_into = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, damage: Damage| {
         let mut target = Target::new(&mut kept, fw, fw, fh).expect("target");
-        arms.renderer.render_at(t, arms.back, &mut target, damage);
+        let seal = t.seal_writes();
+        arms.renderer
+            .render_at(t, seal, arms.back, &mut target, damage);
         kept.iter()
             .map(|&p| premultiply(Argb(p)).0)
             .collect::<Vec<u32>>()

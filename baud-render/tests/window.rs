@@ -129,7 +129,8 @@ fn the_cpu_path_paints_the_window_it_is_handed() {
         let mut pixels = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
         {
             let mut target = Target::new(&mut pixels, w, w, h).unwrap();
-            r.render_at(t, back, &mut target, Damage::Full);
+            let seal = t.seal_writes();
+            r.render_at(t, seal, back, &mut target, Damage::Full);
         }
         pixels
     };

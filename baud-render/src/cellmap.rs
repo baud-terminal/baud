@@ -25,7 +25,7 @@ use crate::instance::Screen;
 use crate::picture::Pictured;
 use crate::renderer::{BlinkPhases, PairRole, Renderer, Single};
 use crate::units::Tally;
-use baud_core::Term;
+use baud_domain::TermRead;
 use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{Chan, Codepoint, Col, Cols, Content, GlyphId, PackedCell, Row, Viewport};
@@ -68,7 +68,7 @@ pub fn face_of(styles: &[Resolved], cell: baud_domain::PackedCell) -> crate::Tex
 /// when the base was the cell's content; its stress mark is judged from
 /// the base too. The app copies that row with this; `term` is what `src`
 /// was read from, in the same borrow.
-pub fn copy_for_shader(term: &Term<'_>, src: &[PackedCell], dst: &mut [PackedCell]) {
+pub fn copy_for_shader(term: &impl TermRead, src: &[PackedCell], dst: &mut [PackedCell]) {
     for (d, s) in dst.iter_mut().zip(src) {
         *d = match s.flags.is_marked() {
             true => PackedCell {
@@ -647,10 +647,10 @@ impl<'m> GlyphMap<'m> {
     /// `term` is what `vp` was read from, in the same borrow: a cell with
     /// continuations holds its cluster's slot rather than its base, and its
     /// base -- which takes an entry like any other cell's and can begin or
-    /// end a pair -- is read back from the store ([`Term::base_of`]).
+    /// end a pair -- is read back from the store ([`TermRead::base_of`]).
     pub fn ensure(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         vp: Viewport<'_>,
         styles: &[Resolved],
         r: &mut Renderer<'_, '_>,
@@ -699,7 +699,7 @@ impl<'m> GlyphMap<'m> {
     /// an entry was added.
     fn walk<const LIST: bool, const PARTS: bool>(
         &mut self,
-        term: &Term<'_>,
+        term: &impl TermRead,
         vp: Viewport<'_>,
         styles: &[Resolved],
         r: &mut Renderer<'_, '_>,

@@ -18,7 +18,7 @@
 //! [`baud_domain::JoiningType`]) and its marks are fitted here; rule D's
 //! other glyphs -- symbols, icons -- are drawn as before.
 
-use baud_core::Term;
+use baud_domain::TermRead;
 use baud_domain::{Codepoint, Col, Content, JoiningType, PackedCell};
 
 /// **Whether `cp` is a letter of a joining script**: one that takes a
@@ -93,7 +93,7 @@ pub(crate) enum Blank {
 impl Blank {
     /// `cell` read from `term`: blank when nothing was written there or a
     /// space with nothing attached was.
-    pub(crate) fn of(term: &Term<'_>, cell: PackedCell) -> Blank {
+    pub(crate) fn of(term: &impl TermRead, cell: PackedCell) -> Blank {
         if cell.content == Content::EMPTY {
             return Blank::Yes;
         }

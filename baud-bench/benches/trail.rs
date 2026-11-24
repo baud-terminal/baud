@@ -163,7 +163,8 @@ fn life(faces: &[Face<'_>], size: &Size, mv: Move, kind: Kind, damage: Damage) -
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     {
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, Damage::Full);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, Damage::Full);
     }
     let (rows, cols) = (usize::from(ws.ws_row), usize::from(ws.ws_col));
     let ((r0, c0), (r1, c1)) = match mv {
@@ -231,7 +232,8 @@ fn life(faces: &[Face<'_>], size: &Size, mv: Move, kind: Kind, damage: Damage) -
         let start = Instant::now();
         r.set_trail(look);
         let mut target = Target::new(&mut px, w, w, h).unwrap();
-        r.render(&mut t, &mut target, damage);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut target, damage);
         ms.push(start.elapsed().as_secs_f64() * 1e3);
         hash = fnv(hash, &px);
         if look.is_none() {

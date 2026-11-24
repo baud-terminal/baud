@@ -72,7 +72,8 @@ fn last_frame(faces: &[Face<'_>], name: &str, wrap: WordWrap) -> Canvas {
         // The shells show the cursor again as they draw: keep it hidden.
         t.write_at(BytePos::ZERO, b"\x1b[?25l");
         t.feed(BytePos::ZERO, ReadLen::from_index(6));
-        r.render(&mut t, &mut canvas.target(), damage);
+        let seal = t.seal_writes();
+        r.render(&t, seal, &mut canvas.target(), damage);
         damage = Damage::Incremental;
     }
     canvas
@@ -86,7 +87,8 @@ fn empty_frame(faces: &[Face<'_>], ws: &WinSize, wrap: WordWrap) -> Canvas {
     t.feed(BytePos::ZERO, ReadLen::from_index(6));
     let mut r = renderer(faces, ws, wrap);
     let mut canvas = Canvas::for_renderer(&r);
-    r.render(&mut t, &mut canvas.target(), Damage::Full);
+    let seal = t.seal_writes();
+    r.render(&t, seal, &mut canvas.target(), Damage::Full);
     canvas
 }
 
