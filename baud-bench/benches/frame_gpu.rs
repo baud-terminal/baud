@@ -81,19 +81,6 @@
 //! non-zero if an effect's is the control's, which has no trail, or if any
 //! kept control pair's difference is not above zero.
 //!
-//! `FRAME_PREDICT=n` prices a held prediction's frame on the waited arm:
-//! after everything else it draws, 2n frames of the final screen in turn
-//! with no prediction and holding `baud_bench::predict`'s run of typed
-//! characters, the plain one first, each drawn whole and waited for -- the
-//! run's cells masked, its records after the overlay's walk and the drawn
-//! cursor after it, as the cell path draws predicted echoes -- and a line
-//! for each half of its GPU start-to-end a frame, the held half's less the
-//! plain half's, the CPU time a frame drawing the run, and the overlay's
-//! records and masked cells a frame, the held line with what the run added
-//! to each. Each half's last frame is read back, outside the timing, and
-//! the bench exits non-zero if the held one is the plain one or the run
-//! added no record.
-//!
 //! Usage: `frame_gpu <recording> [rounds] [full|incremental]`. macOS only.
 
 #[cfg(target_os = "macos")]
@@ -497,24 +484,6 @@ fn main() {
         Off,
         Lead,
         On,
-    }
-    // `FRAME_PREDICT=n`: n frames with no prediction and n holding the run,
-    // in turn, on the waited arm after the trail's; see the header.
-    let predict_n: usize = std::env::var("FRAME_PREDICT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    let mut predict_blank = false;
-    /// **One half of `FRAME_PREDICT`'s frames**: how many, their GPU
-    /// start-to-end, the CPU time drawing the run, and the overlay's
-    /// records and masked cells over all of them.
-    #[derive(Clone, Copy, Default)]
-    struct Held {
-        frames: Tally,
-        gpu: Duration,
-        cpu: Duration,
-        records: Tally,
-        masked: Tally,
     }
     let first_n: usize = std::env::var("FRAME_FIRST")
         .ok()
@@ -1168,27 +1137,8 @@ the first cpu {:.1}, copy {:.2}",
             // control's first on frame's.
             let mut trail_off = Duration::ZERO;
             let mut trail_lead = Duration::ZERO;
-            // `FRAME_PREDICT`'s frames, after the trail's: a plain frame and
-            // one holding the run, in turn; each half's sums and its last
-            // frame's hash.
-            let predict_len = match arm == Arm::Cells {
-                true => 2 * predict_n,
-                false => 0,
-            };
-            let mut predict_at = 0usize;
-            let mut predict_sums = [Held::default(); 2];
-            let mut predict_hash = [0u64; 2];
-            let run = baud_bench::predict::run(
-                Cols::of_index(usize::from(ws.ws_col)),
-                Rows::of_index(usize::from(ws.ws_row)),
-            );
             let mut total = None;
-            while at < data.len()
-                || idle_left > 0
-                || hash_left
-                || trail_at < trail_plan.len()
-                || predict_at < predict_len
-            {
+            while at < data.len() || idle_left > 0 || hash_left || trail_at < trail_plan.len() {
                 let idle = at >= data.len();
                 // `FRAME_HASH`'s frame: the replay and its idle frames done,
                 // so the arm's time is taken here, before it.
@@ -1203,21 +1153,12 @@ the first cpu {:.1}, copy {:.2}",
                 let lit = (idle && idle_left == 0 && !fin)
                     .then(|| trail_plan.get(trail_at).copied())
                     .flatten();
-                // A `FRAME_PREDICT` frame, once the trail's are drawn:
-                // whether it holds the run, every other one.
-                let held =
-                    (idle && idle_left == 0 && !fin && lit.is_none() && predict_at < predict_len)
-                        .then_some(predict_at % 2 == 1);
                 // A priced frame is in none of the arm's columns, and the
                 // arm's time is taken before the first.
-                let priced = lit.is_some() || held.is_some();
+                let priced = lit.is_some();
                 if priced && total.is_none() {
                     went_idle(gpu.idle_within(Deadline::WAIT));
                     total = Some(t0.elapsed());
-                }
-                if held.is_some() && predict_at == 0 {
-                    // No trail over the prediction's frames.
-                    r.set_trail(None);
                 }
                 if let Some((_, _, effect)) = lit {
                     let jump = baud_bench::trail::jump(
@@ -1334,11 +1275,6 @@ the first cpu {:.1}, copy {:.2}",
                         let (row, col) = t.cursor();
                         (row, col, t.cursor_style())
                     });
-                    // A frame holding the run draws the cursor after it.
-                    let cursor = match held {
-                        Some(true) => baud_bench::predict::cursor_after(cursor, &run),
-                        _ => cursor,
-                    };
                     let to = Instant::now();
                     exceptions.ensure(
                         &Scene {
@@ -1371,33 +1307,6 @@ the first cpu {:.1}, copy {:.2}",
                             overlay_mem,
                             &mut records,
                         );
-                    }
-                    // The run over the walked frame, before the trail and
-                    // the glow, as the cell path draws predicted echoes;
-                    // the overlay's records and masked cells counted after.
-                    if let Some(holding) = held {
-                        let tq = Instant::now();
-                        if holding {
-                            baud_bench::predict::draw(
-                                &mut exceptions,
-                                &mut r,
-                                &t,
-                                &run,
-                                styles_mem,
-                                cursor,
-                                overlay_mem,
-                                &mut records,
-                            );
-                        }
-                        let h = &mut predict_sums[usize::from(holding)];
-                        h.cpu += tq.elapsed();
-                        h.records.add(Tally::of(records.len()));
-                        h.masked.add(Tally::of(
-                            overlay_mem
-                                .iter()
-                                .filter(|&&b| b & baud_render::MASK_RECORD != 0)
-                                .count(),
-                        ));
                     }
                     let moving_from = records.len();
                     if lit.is_some() {
@@ -1553,23 +1462,6 @@ the first cpu {:.1}, copy {:.2}",
                             if let Some(k) = trail_pairs.iter_mut().find(|k| k.0 == pair) {
                                 k.3 = fnv(&pixels[..]);
                             }
-                        }
-                        continue;
-                    }
-                    if let Some(holding) = held {
-                        predict_at += 1;
-                        let h = &mut predict_sums[usize::from(holding)];
-                        h.frames.bump();
-                        h.gpu += g.gpu.unwrap_or_default();
-                        // Each half's last frame, read back outside the
-                        // timing: what says the run drew.
-                        if predict_at + 2 > predict_len {
-                            let drew = g
-                                .waited
-                                .landed()
-                                .unwrap_or_else(|w| panic!("a prediction's frame: {w}"));
-                            gpu.read(&target, drew, &mut pixels).expect("read back");
-                            predict_hash[usize::from(holding)] = fnv(&pixels[..]);
                         }
                         continue;
                     }
@@ -1787,11 +1679,6 @@ the other {}: {:.1} us/frame, {} misses ({:.2} a frame)",
                     per(rest_miss, rest),
                 );
             }
-            // A half's GPU time a frame.
-            let us_of = |frames: Tally, d: Duration| {
-                let n = u32::try_from(frames.value()).unwrap_or(u32::MAX).max(1);
-                (d / n).as_secs_f64() * 1e6
-            };
             // Each kind of pair: the off and on sides' median GPU time, and
             // each pair's on side less its off side, median and range, the
             // first pair of each kind dropped as cold. An
@@ -1843,47 +1730,6 @@ the other {}: {:.1} us/frame, {} misses ({:.2} a frame)",
                     mid(&diffs[..]),
                 );
             }
-            // Each half of the prediction's frames: its GPU time a frame,
-            // that less the plain half's, the CPU time a frame drawing the
-            // run, and the overlay's records and masked cells a frame, each
-            // less the plain half's. A held half that is the plain half's
-            // frame, or that added no record, drew nothing.
-            if predict_len > 0 {
-                let a_frame = |n: Tally, frames: Tally| {
-                    let of = |v: Tally| u32::try_from(v.value()).map_or(f64::MAX, f64::from);
-                    of(n) / of(frames).max(1.0)
-                };
-                let [plain, holding] = predict_sums;
-                let off_us = us_of(plain.frames, plain.gpu);
-                let over = |n: fn(Held) -> Tally, h: Held| {
-                    a_frame(n(h), h.frames) - a_frame(n(plain), plain.frames)
-                };
-                let added = over(|x| x.records, holding);
-                let blank = predict_hash[0] == predict_hash[1] || added <= 0.0;
-                predict_blank |= blank;
-                for (name, h, hash) in [
-                    ("off", plain, predict_hash[0]),
-                    ("held", holding, predict_hash[1]),
-                ] {
-                    let us = us_of(h.frames, h.gpu);
-                    println!(
-                        "      predict: round {round} {name:<4} {} frames, gpu {us:.1} us/frame, {:+.1} over off, \
-run {:.2} us/frame, {:.1} records ({:+.1}), {:.1} masked ({:+.1}) a frame, {hash:016x}{}",
-                        h.frames.value(),
-                        us - off_us,
-                        us_of(h.frames, h.cpu),
-                        a_frame(h.records, h.frames),
-                        over(|x| x.records, h),
-                        a_frame(h.masked, h.frames),
-                        over(|x| x.masked, h),
-                        if blank && name == "held" {
-                            "  BLANK"
-                        } else {
-                            ""
-                        },
-                    );
-                }
-            }
         }
         // Every cell arm's final frame against the copy's, which is the
         // screen by construction; else against the first arm's.
@@ -1912,10 +1758,6 @@ run {:.2} us/frame, {:.1} records ({:+.1}), {:.1} masked ({:+.1}) a frame, {hash
     }
     if trail_control {
         eprintln!("frame_gpu: a control pair's difference is not above zero");
-        std::process::exit(1);
-    }
-    if predict_blank {
-        eprintln!("frame_gpu: a held prediction's frame drew nothing over the plain one");
         std::process::exit(1);
     }
 }

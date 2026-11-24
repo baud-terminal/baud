@@ -14,7 +14,6 @@ pub mod flash;
 pub mod host;
 pub mod key_latency;
 pub mod linux;
-pub mod predict;
 pub mod trail;
 pub mod warm;
 
