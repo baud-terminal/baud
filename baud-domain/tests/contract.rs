@@ -1676,7 +1676,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("ClusterStore", "E0616"),
     ("Codepoint", "E0603"),
     ("Codepoint", "E0599"),
-    ("ColorWord", "E0603"),
+    ("ColorWord", "E0423"),
     ("ColorWord", "E0599"),
     ("Cols", "E0603"),
     ("Content", "E0603"),

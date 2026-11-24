@@ -565,17 +565,48 @@ pub enum ProgramPaint {
     Automatic,
 }
 
+use tag::ColorTag;
+
+/// The tag of a [`ColorWord`], in a module of its own so that it is `pub`,
+/// as the word's derived `KnownLayout` needs of its last field, and named
+/// nowhere outside this file.
+mod tag {
+    use zerocopy::{FromZeros, Immutable, IntoBytes, KnownLayout};
+
+    /// The tag of a [`ColorWord`](super::ColorWord): exactly the four a
+    /// colour slot carries.
+    ///
+    /// `#[repr(u8)]` with no other value, so zerocopy's derived
+    /// `TryFromBytes` refuses a byte that is no tag; `Default` is zero, so an
+    /// all-zero word is the default colour and a table allocated zeroed holds
+    /// valid words.
+    #[repr(u8)]
+    #[derive(
+        Clone, Copy, PartialEq, Eq, Debug, Default, FromZeros, IntoBytes, Immutable, KnownLayout,
+    )]
+    pub enum ColorTag {
+        #[default]
+        Default = 0,
+        Indexed = 1,
+        Rgb = 2,
+        Automatic = 4,
+    }
+}
+
 /// One colour slot: default, a palette index, or 24-bit RGB.
 ///
-/// A tagged `u32` rather than an enum so the whole rendition stays a plain
-/// zeroable block -- `Storage` is `new_box_zeroed`, and all-zero must be a valid
-/// default rather than a colour that happens to look like one.
+/// A tag byte over a three-byte payload rather than an enum with fields, so
+/// the whole rendition stays a plain zeroable block -- `Storage` is
+/// `new_box_zeroed`, and all-zero must be a valid default rather than a
+/// colour that happens to look like one. In memory the payload's three bytes
+/// come first, low byte first, and the tag last, so the word read as a
+/// little-endian `u32` is the tag in bits 24 to 31 over the payload.
 ///
 /// One colour slot carries exactly one tag (default, palette index, RGB or
-/// automatic) with its payload: the field is pub(crate) and the word is built
+/// automatic) with its payload: the fields are private and the word is built
 /// only by DEFAULT, AUTOMATIC, indexed and rgb.
 ///
-/// ```compile_fail,E0603
+/// ```compile_fail,E0423
 /// let _ = baud_domain::ColorWord(0x0300_0000);
 /// ```
 ///
@@ -598,18 +629,54 @@ pub enum ProgramPaint {
 /// ```
 /// let _ = baud_domain::ColorWord::from_rgb((0xff, 0xff, 0xff));
 /// ```
-#[repr(transparent)]
-#[derive(
-    Clone, Copy, PartialEq, Eq, Debug, Default, FromZeros, IntoBytes, Immutable, KnownLayout,
-)]
-pub struct ColorWord(pub(crate) u32);
+///
+/// `FromZeros` brings `TryFromBytes`, and its check reads the tag: four
+/// bytes whose last is no tag are refused, and a valid word's bytes are read
+/// back as that word.
+///
+/// ```
+/// use zerocopy::{IntoBytes, TryFromBytes};
+/// use baud_domain::ColorWord;
+/// assert!(ColorWord::try_read_from_bytes(&[0xff; 4]).is_err());
+/// assert!(ColorWord::try_read_from_bytes(&[0, 0, 0, 3]).is_err());
+/// let rgb = ColorWord::from_rgb((1, 2, 3));
+/// assert_eq!(ColorWord::try_read_from_bytes(rgb.as_bytes()).ok(), Some(rgb));
+/// assert_eq!(ColorWord::try_read_from_bytes(&[0; 4]).ok(), Some(ColorWord::DEFAULT));
+/// ```
+#[repr(C, align(4))]
+#[derive(Clone, Copy, Default, FromZeros, IntoBytes, Immutable, KnownLayout)]
+pub struct ColorWord {
+    payload: [u8; 3],
+    tag: ColorTag,
+}
+
+const _: () = assert!(core::mem::size_of::<ColorWord>() == 4);
+const _: () = assert!(core::mem::align_of::<ColorWord>() == 4);
+
+impl PartialEq for ColorWord {
+    #[inline(always)]
+    fn eq(&self, other: &ColorWord) -> bool {
+        self.bits() == other.bits()
+    }
+}
+
+impl Eq for ColorWord {}
+
+impl core::fmt::Debug for ColorWord {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("ColorWord").field(&self.bits()).finish()
+    }
+}
 
 impl ColorWord {
     const TAG_INDEXED: u32 = 0x0100_0000;
     const TAG_RGB: u32 = 0x0200_0000;
     const TAG_AUTOMATIC: u32 = 0x0400_0000;
     /// Zero, so a zeroed `Storage` starts with default colours.
-    pub const DEFAULT: ColorWord = ColorWord(0);
+    pub const DEFAULT: ColorWord = ColorWord {
+        payload: [0; 3],
+        tag: ColorTag::Default,
+    };
     /// **The terminal's own automatic colour, which a program asked for**:
     /// `OSC 21`'s empty value, "the terminal should use a dynamic color for
     /// example reverse video for selections" (`[[source:
@@ -617,43 +684,62 @@ impl ColorWord {
     /// selection's colour is kept, and set only by `OSC 21`; it is neither a
     /// palette index nor RGB, so [`ColorWord::as_rgb`] reads `None`, and
     /// unlike [`ColorWord::DEFAULT`] it wins over a configured colour.
-    pub const AUTOMATIC: ColorWord = ColorWord(Self::TAG_AUTOMATIC);
+    pub const AUTOMATIC: ColorWord = ColorWord {
+        payload: [0; 3],
+        tag: ColorTag::Automatic,
+    };
     pub fn indexed(n: Chan) -> ColorWord {
-        ColorWord(Self::TAG_INDEXED | n.get() as u32)
+        ColorWord::of_bits(Self::TAG_INDEXED | n.get() as u32)
     }
     pub fn rgb(r: Chan, g: Chan, b: Chan) -> ColorWord {
-        ColorWord(
+        ColorWord::of_bits(
             Self::TAG_RGB | ((r.get() as u32) << 16) | ((g.get() as u32) << 8) | b.get() as u32,
         )
+    }
+    /// **The word whose bits are `v`**, read through the derived tag check;
+    /// a `v` whose top byte is no tag reads as [`ColorWord::DEFAULT`]. Each
+    /// caller passes a tag it names, so the check folds away and the word is
+    /// built as one `u32`.
+    #[inline(always)]
+    fn of_bits(v: u32) -> ColorWord {
+        zerocopy::try_transmute!(v.to_le()).unwrap_or(ColorWord::DEFAULT)
     }
     /// The RGB triple an embedder gives, packed: the inverse of
     /// [`ColorWord::as_rgb`].
     pub fn from_rgb((r, g, b): (u8, u8, u8)) -> ColorWord {
         ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
     }
-    pub fn bits(self) -> u32 {
-        self.0
+    /// **A word from its four bytes in memory order**, the inverse of
+    /// `IntoBytes::as_bytes`. Inside the crate only, for
+    /// [`StyleWord::from_bytes`], whose callers give a valid word's bytes;
+    /// bytes whose last is no tag read as [`ColorWord::DEFAULT`].
+    #[inline(always)]
+    pub(crate) fn from_bytes(b: [u8; 4]) -> ColorWord {
+        ColorWord::of_bits(u32::from_le_bytes(b))
+    }
+    /// The word as a `u32`: the tag in bits 24 to 31 over the payload.
+    #[inline(always)]
+    pub const fn bits(self) -> u32 {
+        let w: u32 = zerocopy::transmute!(self);
+        u32::from_le(w)
     }
     pub fn is_default(self) -> bool {
-        self.0 == 0
+        self.bits() == 0
     }
     /// Whether this is [`ColorWord::AUTOMATIC`].
     pub fn is_automatic(self) -> bool {
-        self.0 == Self::TAG_AUTOMATIC
+        self.bits() == Self::TAG_AUTOMATIC
     }
     /// The palette index, when this word holds one.
     pub fn as_index(self) -> Option<u8> {
-        (self.0 & Self::TAG_INDEXED != 0).then_some(self.0 as u8)
+        (self.bits() & Self::TAG_INDEXED != 0).then_some(self.bits() as u8)
     }
     /// The RGB triple, when this word holds one. `None` for the default colour
     /// and for palette indices, neither of which names a pixel value on their
     /// own.
     pub fn as_rgb(self) -> Option<(u8, u8, u8)> {
-        (self.0 & Self::TAG_RGB != 0).then_some((
-            (self.0 >> 16) as u8,
-            (self.0 >> 8) as u8,
-            self.0 as u8,
-        ))
+        let w = self.bits();
+        (w & Self::TAG_RGB != 0).then_some(((w >> 16) as u8, (w >> 8) as u8, w as u8))
     }
     /// The parsed SGR colour, packed.
     pub fn from_color(c: Color) -> ColorWord {
@@ -686,6 +772,20 @@ impl ColorWord {
 ///
 /// ```
 /// let _ = baud_domain::StyleWord::DEFAULT.with_attrs(baud_domain::Attrs::BOLD);
+/// ```
+///
+/// `FromZeros` brings `TryFromBytes`, and its check reads each colour word's
+/// tag: twenty bytes whose foreground's last byte is no tag are refused.
+///
+/// ```
+/// use zerocopy::{IntoBytes, TryFromBytes};
+/// use baud_domain::{ColorWord, StyleWord};
+/// let word = StyleWord::DEFAULT.with_fg(ColorWord::from_rgb((1, 2, 3)));
+/// let mut bytes = [0u8; 20];
+/// bytes.copy_from_slice(word.as_bytes());
+/// assert_eq!(StyleWord::try_read_from_bytes(&bytes).ok(), Some(word));
+/// bytes[3] = 0xff;
+/// assert!(StyleWord::try_read_from_bytes(&bytes).is_err());
 /// ```
 #[repr(C)]
 #[derive(
@@ -1235,8 +1335,8 @@ impl StyleWord {
         // [`StyleWord::key`] mixes the string apart. With no string the two
         // are the same bits.
         const M: u64 = 0xD6E8_FEB8_6659_FD93;
-        let base = u64::from(self.fg.0) | (u64::from(self.bg.0) << 32);
-        let tail = (u64::from(self.underline.0) | (u64::from(self.attrs.bits()) << 32))
+        let base = u64::from(self.fg.bits()) | (u64::from(self.bg.bits()) << 32);
+        let tail = (u64::from(self.underline.bits()) | (u64::from(self.attrs.bits()) << 32))
             ^ (u64::from(self.font.0) << 27);
         base ^ tail.wrapping_mul(M)
     }
@@ -1269,16 +1369,18 @@ pub struct StyleBits([u8; STYLE_BYTES]);
 /// a table keyed on those bytes, without the parameter walk or the parse.
 ///
 /// **The pair is derived, not hand-written.** `derive` runs the fold on two
-/// witnesses whose bytes differ in *every* bit, so a bit the fold forces comes
-/// out equal on both and a bit it passes through comes out different:
-/// `mask = !(a ^ b)`. Nothing here needs to know a field's offset, which is
-/// the part a hand-written mask would get wrong the next time `StyleWord`
-/// grows -- and it has grown twice.
+/// witnesses whose bytes differ in every bit outside the colour words' tags,
+/// so a bit the fold forces comes out equal on both and a bit it passes
+/// through comes out different: `mask = !(a ^ b)`. A colour word's tag is
+/// one of four values, so no two valid words differ in all its bits; a
+/// colour word is replaced whole or passed through whole, and its mask is
+/// all or nothing, by whether the two come out equal. Only the colour words'
+/// offsets are named, which keeps a hand-written mask from going wrong the
+/// next time `StyleWord` grows -- and it has grown twice.
 ///
-/// The all-ones witness is not a rendition: its colour words carry every
-/// tag at once. It is built inside `derive` and never leaves it, and a fold
-/// is built only by `derive` or as [`StyleFold::IDENTITY`], so `apply`
-/// writes a rendition the fold's own arms could have written.
+/// Both witnesses are renditions, and a fold is built only by `derive` or as
+/// [`StyleFold::IDENTITY`], so `apply` writes a rendition the fold's own
+/// arms could have written.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, IntoBytes, Immutable, KnownLayout)]
 pub struct StyleFold {
@@ -1291,19 +1393,34 @@ impl StyleWord {
     /// `IntoBytes::as_bytes`.
     ///
     /// Inside the crate only: [`StyleFold::apply`] gives it a masked replace
-    /// of a valid word equal to running the fold, and [`StyleFold::derive`]
-    /// its all-ones witness.
+    /// of a valid word equal to running the fold, and [`StyleWord::ones`]
+    /// all-ones bytes, whose colour words it then replaces.
     #[inline(always)]
     pub(crate) fn from_bytes(b: [u8; STYLE_BYTES]) -> StyleWord {
         let u32_at = |i: usize| u32::from_ne_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
         let u16_at = |i: usize| u16::from_ne_bytes([b[i], b[i + 1]]);
+        let colour_at = |i: usize| ColorWord::from_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
         StyleWord {
-            fg: ColorWord(u32_at(core::mem::offset_of!(StyleWord, fg))),
-            bg: ColorWord(u32_at(core::mem::offset_of!(StyleWord, bg))),
-            underline: ColorWord(u32_at(core::mem::offset_of!(StyleWord, underline))),
+            fg: colour_at(core::mem::offset_of!(StyleWord, fg)),
+            bg: colour_at(core::mem::offset_of!(StyleWord, bg)),
+            underline: colour_at(core::mem::offset_of!(StyleWord, underline)),
             attrs: Attrs(u32_at(core::mem::offset_of!(StyleWord, attrs))),
             font: FontString(u16_at(core::mem::offset_of!(StyleWord, font))),
             variants: Variants(u16_at(core::mem::offset_of!(StyleWord, variants))),
+        }
+    }
+
+    /// **The rendition furthest from [`StyleWord::DEFAULT`]**, the second
+    /// witness of [`StyleFold::derive`]: every byte `0xff` but the colour
+    /// words', which are RGB white, the valid colour word whose payload
+    /// differs from the default's in every bit.
+    pub(crate) fn ones() -> StyleWord {
+        let white = ColorWord::from_rgb((0xff, 0xff, 0xff));
+        StyleWord {
+            fg: white,
+            bg: white,
+            underline: white,
+            ..StyleWord::from_bytes([0xff; STYLE_BYTES])
         }
     }
 }
@@ -1322,14 +1439,27 @@ impl StyleFold {
     /// against `fold_into` over every attribute and a spread of start words.
     pub fn derive<F: Fn(&mut StyleWord)>(f: F) -> StyleFold {
         let mut a = StyleWord::DEFAULT;
-        let mut b = StyleWord::from_bytes([0xff; STYLE_BYTES]);
+        let mut b = StyleWord::ones();
         f(&mut a);
         f(&mut b);
         let mut mask = [0u8; STYLE_BYTES];
         let mut value = [0u8; STYLE_BYTES];
         for (i, (x, y)) in a.as_bytes().iter().zip(b.as_bytes().iter()).enumerate() {
             mask[i] = !(x ^ y);
-            value[i] = x & mask[i];
+        }
+        for (at, x, y) in [
+            (core::mem::offset_of!(StyleWord, fg), a.fg, b.fg),
+            (core::mem::offset_of!(StyleWord, bg), a.bg, b.bg),
+            (
+                core::mem::offset_of!(StyleWord, underline),
+                a.underline,
+                b.underline,
+            ),
+        ] {
+            mask[at..at + 4].fill(if x == y { 0xff } else { 0 });
+        }
+        for ((v, x), m) in value.iter_mut().zip(a.as_bytes()).zip(mask) {
+            *v = x & m;
         }
         StyleFold {
             mask: StyleBits(mask),
@@ -1445,6 +1575,87 @@ mod attrs_free_bits {
 }
 
 #[cfg(test)]
+mod colour_tag {
+    use crate::*;
+    use zerocopy::{IntoBytes, TryFromBytes};
+
+    /// **A colour word's bytes are read back only under one of its four
+    /// tags.** Every value of the tag byte, over a payload of every bit:
+    /// the four tags are read back as the word they spell, and every other
+    /// byte is refused.
+    #[test]
+    fn a_colour_word_with_no_tag_is_refused() {
+        let mut read = 0usize;
+        for tag in 0..=u8::MAX {
+            let bytes = [0xff, 0xff, 0xff, tag];
+            match (tag, ColorWord::try_read_from_bytes(&bytes).ok()) {
+                (0 | 1 | 2 | 4, Some(w)) => {
+                    assert_eq!(w.as_bytes(), &bytes);
+                    assert_eq!(w.bits(), u32::from_le_bytes(bytes));
+                    read += 1;
+                }
+                (0 | 1 | 2 | 4, None) => panic!("tag {tag} refused"),
+                (_, Some(w)) => panic!("tag {tag} read as {w:?}"),
+                (_, None) => {}
+            }
+        }
+        assert_eq!(read, 4);
+        for w in [
+            ColorWord::DEFAULT,
+            ColorWord::AUTOMATIC,
+            ColorWord::indexed(Chan::from_u8(7)),
+            ColorWord::from_rgb((1, 2, 3)),
+        ] {
+            assert_eq!(ColorWord::try_read_from_bytes(w.as_bytes()).ok(), Some(w));
+        }
+    }
+
+    /// **A colour word holds the bits it always held**: the tag in the top
+    /// byte over the payload, read through `bits` and laid out in memory as
+    /// that `u32` little-endian.
+    #[test]
+    fn a_colour_word_keeps_its_bits() {
+        let rgb = ColorWord::from_rgb((0x12, 0x34, 0x56));
+        assert_eq!(rgb.bits(), 0x0212_3456);
+        assert_eq!(rgb.as_bytes(), &0x0212_3456u32.to_le_bytes());
+        assert_eq!(ColorWord::indexed(Chan::from_u8(9)).bits(), 0x0100_0009);
+        assert_eq!(ColorWord::AUTOMATIC.bits(), 0x0400_0000);
+        assert_eq!(ColorWord::DEFAULT.bits(), 0);
+        assert_eq!(rgb.as_rgb(), Some((0x12, 0x34, 0x56)));
+        assert_eq!(ColorWord::indexed(Chan::from_u8(9)).as_index(), Some(9));
+    }
+
+    /// **A rendition whose colour word holds no tag is refused**, in each of
+    /// its three colour words, and a valid rendition's bytes are read back.
+    #[test]
+    fn a_style_word_with_a_colour_of_no_tag_is_refused() {
+        let word = StyleWord::DEFAULT
+            .with_fg(ColorWord::from_rgb((1, 2, 3)))
+            .with_bg(ColorWord::indexed(Chan::from_u8(4)))
+            .with_underline(ColorWord::AUTOMATIC);
+        let mut bytes = [0u8; super::STYLE_BYTES];
+        bytes.copy_from_slice(word.as_bytes());
+        assert_eq!(StyleWord::try_read_from_bytes(&bytes).ok(), Some(word));
+        for at in [
+            core::mem::offset_of!(StyleWord, fg),
+            core::mem::offset_of!(StyleWord, bg),
+            core::mem::offset_of!(StyleWord, underline),
+        ] {
+            let mut bad = bytes;
+            bad[at + 3] = 3;
+            assert!(
+                StyleWord::try_read_from_bytes(&bad).is_err(),
+                "colour at {at}"
+            );
+        }
+        assert_eq!(
+            StyleWord::try_read_from_bytes(&[0; super::STYLE_BYTES]).ok(),
+            Some(StyleWord::DEFAULT)
+        );
+    }
+}
+
+#[cfg(test)]
 mod style_fold {
     use crate::*;
 
@@ -1456,7 +1667,7 @@ mod style_fold {
     #[test]
     fn a_fold_is_a_masked_replace_of_the_style_word() {
         let mut starts = [StyleWord::DEFAULT; 66];
-        starts[1] = StyleWord::from_bytes([0xff; super::STYLE_BYTES]);
+        starts[1] = StyleWord::ones();
         // A spread of ordinary renditions, so a pass-through bit that happens
         // to agree on the two witnesses would still be caught.
         for (seed, w) in starts.iter_mut().enumerate().skip(2) {
@@ -1502,7 +1713,7 @@ mod style_fold {
     fn the_blink_rates_are_masked_replaces() {
         let one = |v: u16| SgrAttr::one(Param::from_raw(v)).expect("a one-parameter SGR");
         let mut starts = [StyleWord::DEFAULT; 4];
-        starts[1] = StyleWord::from_bytes([0xff; super::STYLE_BYTES]);
+        starts[1] = StyleWord::ones();
         starts[2] = StyleWord::DEFAULT.with_attrs(Attrs::BLINK.with(Attrs::BOLD));
         starts[3] = StyleWord::DEFAULT.with_attrs(Attrs::RAPID_BLINK);
         for seq in [&[5u16][..], &[6], &[25], &[5, 6], &[6, 5], &[6, 25]] {
@@ -1764,9 +1975,11 @@ mod style_key {
                         .with_variants(Variants(v as u16))
                 }
                 i if i < FACES + 256 => StyleWord::DEFAULT
-                    .with_underline(ColorWord(ColorWord::TAG_INDEXED | (i - FACES) as u32)),
-                i => StyleWord::DEFAULT
-                    .with_underline(ColorWord(ColorWord::TAG_RGB | 1 << (i - FACES - 256))),
+                    .with_underline(ColorWord::indexed(Chan::from_u8((i - FACES) as u8))),
+                i => StyleWord::DEFAULT.with_underline({
+                    let v = 1u32 << (i - FACES - 256);
+                    ColorWord::from_rgb(((v >> 16) as u8, (v >> 8) as u8, v as u8))
+                }),
             };
             *k = w.key();
         }
