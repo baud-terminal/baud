@@ -66,7 +66,7 @@ since the table above:
 | recording | baud | ghostty | alacritty | baud vs ghostty |
 |---|---|---|---|---|
 | less, paging a file | **1450.0** | 292.6 | 247.7 | **4.96x** |
-| btop | **879.1** | 516.4 | 355.5 | **1.70x** |
+| [a system monitor](../../MEASUREMENTS.md#against-other-implementations-on-real-capture) | **879.1** | 516.4 | 355.5 | **1.70x** |
 | vim, Unicode text | **600.7** | 357.4 | 300.2 | **1.68x** |
 | pipes, an animation in eight colours | **503.0** | 304.6 | 316.5 | **1.65x** |
 
@@ -112,16 +112,16 @@ Throughput in MiB per second:
 
 | recording | baud | alacritty 0.17.0 | kitty 0.48.2 | ghostty 1.3.1 | wezterm |
 |---|---|---|---|---|---|
-| btop | **88** | 72 | 63 | 71 | 30 |
+| [a system monitor](../../MEASUREMENTS.md#five-terminals-through-a-pty) | **88** | 72 | 63 | 71 | 30 |
 | cat-scroll | **81** | 67 | 57 | 66 | 39 |
 | cat-cjk | **72** | 59 | 30 | 62 | 10 |
 | asciiquarium | **68** | 67 | 43 | 53 | 46 |
 | vim-unicode | **42** | 38 | 30 | 35 | 21 |
 
-The btop, asciiquarium and vim-unicode rows are of the recordings those
-names held then; the files were captured again, or replaced, on 2026-10-28,
+The system monitor, asciiquarium and vim-unicode rows are of the recordings
+as they were then; the files were captured again, or replaced, on 2026-10-28,
 and this comparison has not been run on the new ones.
-baud leads by 16-22% on btop, cat-scroll and cat-cjk; on asciiquarium its
+baud leads by 16-22% on the system monitor, cat-scroll and cat-cjk; on asciiquarium its
 lead over alacritty is inside the noise. macOS hands a terminal at most
 1024 bytes at a time, so these rows are bounded by the operating system as
 much as by any terminal: baud reached 89% of what the connection delivers to a

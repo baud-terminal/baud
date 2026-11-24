@@ -13,18 +13,19 @@ programs, and pictures.
 ## Ready to use: Linux under Wayland
 
 baud runs as an everyday terminal on Linux under a Wayland compositor, with
-the same terminal core as on the Mac. On a 4K monitor under Hyprland it
-draws sharp at scales 1, 1.5 and 2 and follows a change of scale live;
+the same terminal core as on the Mac. On a 4K monitor under a tiling
+compositor it draws sharp at scales 1, 1.5 and 2 and follows a change of
+scale live;
 draws Hebrew, Arabic, Devanagari, Chinese, Japanese, Korean, Thai, emoji
 and ligatures, the cursor trails, the activity lights on the top line, the
 launch logo and the padding around the text; follows the desktop's light
 and dark setting both ways; copies and pastes with the desktop's
-clipboard; and runs programs such as btop, with the keys you type and the
-mouse reaching them. A `font_size` in
+clipboard; and runs full-screen programs such as system monitors, with
+the keys you type and the mouse reaching them. A `font_size` in
 points draws as large as the desktop's other windows draw it: 96 dots to
 the inch times the desktop's text scale. What the window leaves beyond the
 whole cells is split between its sides. On the headless Wayland
-compositors weston and sway, given the same fonts and colours at the same
+compositors baud is tested under, given the same fonts and colours at the same
 size in pixels, it draws the same pixels as the Mac version, stays sharp
 when its window moves to an output of another scale, copies and pastes
 with the compositor's clipboard, and the mouse selects text, scrolls back
@@ -43,7 +44,7 @@ Open on Linux:
 - **A font DPI a desktop keeps outside the settings portal is not read.**
   The text scale the portal relays is, and `[font] dpi` sets a size of
   your own.
-- **Dim text a program draws, such as btop's, is drawn brighter than on
+- **Dim text a program draws is drawn brighter than on
   the Mac,** because baud on Linux cannot know what is behind its window.
 - **A program cannot move, raise, lower or un-minimise the window,** or
   maximise it one way only: Wayland has no request for them.
