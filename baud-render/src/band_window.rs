@@ -143,41 +143,70 @@ impl OverlayRows {
     }
 }
 
-/// **A display line whose cells name ids of two bands**: its draw row, and
-/// its columns in their logical order as runs, each with the band its ids
-/// are in.
+/// **Whether a pair of a line's own is a struck link's**: drawn in the
+/// rendition the strike's rule leaves ([`crate::MissingPaint`]), or in its
+/// band's own.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Strike {
+    No,
+    Yes,
+}
+
+/// A cell's pair on a line of its own: its band, its id there, and whether
+/// a struck link covers it.
+pub(crate) type Pair = (Band, StyleId, Strike);
+
+/// **A draw row given ids of its own**: a display line whose cells name ids
+/// of two bands, or a row holding a struck link's cells, on a terminal of
+/// more bands than one. Its draw row; its columns in their logical order as
+/// runs, each with the band its ids are in; and the columns struck links
+/// cover, as [`crate::Renderer::take_struck`] names them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Joined {
     pub(crate) row: Row,
     pub(crate) runs: Vec<(Range<usize>, Band)>,
+    pub(crate) struck: Vec<Range<usize>>,
 }
 
 impl Joined {
-    /// **Line `logical`'s cells with ids of its own**: each cell's (band,
-    /// id) pair numbered in the order the line first names it, into
-    /// `pairs`, and the cell's id replaced by that number.
-    pub(crate) fn rewrite(&self, logical: &mut [PackedCell], pairs: &mut Vec<(Band, StyleId)>) {
-        self.rewrite_drawn(logical, |l| l, pairs, |_, _| {});
+    /// **Line `logical`'s cells with ids of its own**: each cell's pair
+    /// numbered in the order the line first names it, into `pairs`, and the
+    /// cell's id replaced by that number; logical column `l` struck where
+    /// `struck_at(l)` is a struck column.
+    pub(crate) fn rewrite(
+        &self,
+        logical: &mut [PackedCell],
+        struck_at: impl Fn(Col) -> Col,
+        pairs: &mut Vec<Pair>,
+    ) {
+        self.rewrite_drawn(logical, (|l| l, struck_at), pairs, |_, _| {});
     }
 
-    /// **[`Joined::rewrite`] on the line in its drawn order**: logical
-    /// column `l` is `drawn[at(l)]`, numbered in the logical order all the
-    /// same, and `rewrote` told each drawn column and the id it held.
+    /// **[`Joined::rewrite`] on the line as a copy holds it**: logical
+    /// column `l` is `cells[at(l)]` and struck where `struck_at(l)` is a
+    /// struck column, numbered in the logical order all the same, and
+    /// `rewrote` told each column of `cells` and the id it held.
     pub(crate) fn rewrite_drawn(
         &self,
-        drawn: &mut [PackedCell],
-        at: impl Fn(Col) -> Col,
-        pairs: &mut Vec<(Band, StyleId)>,
+        cells: &mut [PackedCell],
+        (at, struck_at): (impl Fn(Col) -> Col, impl Fn(Col) -> Col),
+        pairs: &mut Vec<Pair>,
         mut rewrote: impl FnMut(Col, StyleId),
     ) {
         pairs.clear();
         for (run, b) in &self.runs {
             for l in run.clone() {
-                let x = at(Col::at_index(l));
-                let Some(cell) = drawn.get_mut(x.index()) else {
+                let l = Col::at_index(l);
+                let x = at(l);
+                let Some(cell) = cells.get_mut(x.index()) else {
                     continue;
                 };
-                let pair = (*b, cell.style);
+                let s = struck_at(l).index();
+                let strike = match self.struck.iter().any(|r| r.contains(&s)) {
+                    true => Strike::Yes,
+                    false => Strike::No,
+                };
+                let pair = (*b, cell.style, strike);
                 let k = match pairs.iter().position(|&p| p == pair) {
                     Some(k) => k,
                     None => {
@@ -192,20 +221,22 @@ impl Joined {
     }
 
     /// **The line's entries of the loose region filled** in `styles`, from
-    /// its row's base in `window`: each pair's resolved value copied from
-    /// its band's slot, `bs` entries a slot. An entry past the region is
-    /// left.
+    /// its row's base in `window`: each pair's resolved value, its own in
+    /// `greys` where it has one -- a struck pair's -- else copied from its
+    /// band's slot, `bs` entries a slot. An entry past the region is left.
     pub(crate) fn fill<T: Copy>(
         &self,
-        pairs: &[(Band, StyleId)],
+        (pairs, greys): (&[Pair], &[Option<T>]),
         (window, bs): (&BandWindow, BandSlots),
         styles: &mut [T],
     ) {
         let base = window.rows_from(self.row).start;
         let end = window.loose().end.min(styles.len());
-        for (k, &(b, id)) in pairs.iter().enumerate() {
+        for (k, &(b, id, _)) in pairs.iter().enumerate() {
             let from = window.slot_of(b).map(|s| s.0 * bs.0 + id.index());
-            if let (Some(v), true) = (from.and_then(|f| styles.get(f)).copied(), base + k < end) {
+            let own = greys.get(k).copied().flatten();
+            let value = own.or_else(|| from.and_then(|f| styles.get(f)).copied());
+            if let (Some(v), true) = (value, base + k < end) {
                 styles[base + k] = v;
             }
         }
@@ -234,8 +265,8 @@ impl BandWindow {
     /// slot holds keeps it, a slot whose band neither names is freed, and a
     /// band no slot holds takes the first free one, the slots growing only
     /// when none is. Each row's base is then its band's slot times
-    /// `band_slots`, and a joined line's its place in the loose region past
-    /// the slots, `cols` entries a line.
+    /// `band_slots`, and a line of its own's ([`Joined`]) its place in the
+    /// loose region past the slots, `cols` entries a line.
     pub(crate) fn place(
         &mut self,
         rows: &[Band],
@@ -272,8 +303,7 @@ impl BandWindow {
             }
         }
         let start = self.slots.len() * bs;
-        let placed = self.slots.iter().flatten().count();
-        self.loose = start..start + cols * placed.saturating_sub(1);
+        self.loose = start..start + cols * joined.len();
         let bases: Vec<u32> = rows
             .iter()
             .enumerate()
@@ -393,8 +423,11 @@ impl BandWindow {
 /// leaving row, and a line past the window at each end that a display
 /// line's runs may come from, consecutive, so in at most one band more
 /// than they fill, and the status line's band; and `cols` entries for each
-/// boundary between those bands. Allocate it zeroed and the slots no
-/// frame resolves are never touched.
+/// line of its own a frame can draw ([`Joined`]): one a draw row, the
+/// window's rows and the row after them, at most, and one a boundary
+/// between those bands, at most, so `rows` and one fewer than the bands
+/// is a bound. Allocate it zeroed and the slots no frame resolves are
+/// never touched.
 pub fn cell_styles_len(term: &Term<'_>, cols: Cols, rows: Rows) -> TableLen {
     let view = term.styles();
     let Some(per) = term.band_rows().filter(|_| view.bands().len() > 1) else {
@@ -402,12 +435,12 @@ pub fn cell_styles_len(term: &Term<'_>, cols: Cols, rows: Rows) -> TableLen {
     };
     let lines = rows.index() + 3;
     let bands = lines.div_ceil(per.index().max(1)) + 2;
-    TableLen(bands * view.band_slots().0 + cols.index() * (bands - 1))
+    TableLen(bands * view.band_slots().0 + cols.index() * (rows.index() + bands - 1))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BandWindow, Joined};
+    use super::{BandWindow, Joined, Strike};
     use baud_core::BandSlots;
     use baud_domain::{Band, Cols, PackedCell, Row, StyleId};
 
@@ -428,10 +461,12 @@ mod tests {
             Joined {
                 row: Row::from_index(1),
                 runs: vec![(0..2, bands[0]), (2..cols, bands[1])],
+                struck: vec![],
             },
             Joined {
                 row: Row::from_index(3),
                 runs: vec![(0..5, bands[1]), (5..cols, bands[2])],
+                struck: vec![],
             },
         ];
         let mut w = BandWindow::default();
@@ -455,7 +490,7 @@ mod tests {
                 .collect();
             w.joined(Row::from_index(r))
                 .unwrap()
-                .rewrite(&mut line, &mut pairs);
+                .rewrite(&mut line, |l| l, &mut pairs);
             assert_eq!(pairs.len(), cols, "row {r}: a pair a column");
             let ids: Vec<usize> = line.iter().map(|c| c.style.index()).collect();
             assert_eq!(ids, (0..cols).collect::<Vec<_>>(), "row {r}: its own ids");
@@ -476,6 +511,7 @@ mod tests {
         let j = Joined {
             row: Row::ZERO,
             runs: vec![(0..2, a), (2..4, b)],
+            struck: vec![],
         };
         let mut line: Vec<PackedCell> = [7, 7, 7, 9]
             .iter()
@@ -485,10 +521,11 @@ mod tests {
             })
             .collect();
         let mut pairs = Vec::new();
-        j.rewrite(&mut line, &mut pairs);
+        j.rewrite(&mut line, |l| l, &mut pairs);
         let s7 = StyleId::from_index(7);
         let s9 = StyleId::from_index(9);
-        assert_eq!(pairs, vec![(a, s7), (b, s7), (b, s9)]);
+        let no = Strike::No;
+        assert_eq!(pairs, vec![(a, s7, no), (b, s7, no), (b, s9, no)]);
         let ids: Vec<usize> = line.iter().map(|c| c.style.index()).collect();
         assert_eq!(ids, vec![0, 0, 1, 2]);
     }

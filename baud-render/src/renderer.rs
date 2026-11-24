@@ -6561,6 +6561,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// are its own, so a struck cell on the glass is as dim as its
     /// neighbours and a program's `SGR 58` colour stays. Elsewhere, and for
     /// `"none"`, the cell as it is.
+    /// **Id `id` of band `b` as a struck link's cell draws it**: its word
+    /// resolved, then left as the strike's rule leaves it
+    /// ([`Renderer::missing_rendition`]), as the single mode's lending draws it.
+    pub(crate) fn struck_resolved(
+        &self,
+        term: &Term<'_>,
+        b: baud_domain::Band,
+        id: baud_domain::StyleId,
+    ) -> Resolved {
+        let under = self.resolve_slot(term, term.styles().table(b).word(id));
+        self.missing_rendition(term, under)
+    }
+
     pub(crate) fn missing_rendition(&self, term: &Term<'_>, under: Resolved) -> Resolved {
         let text = match self.links.missing() {
             MissingPaint::Kept => return under,
@@ -10560,7 +10573,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // frame's layout, which the sized rows and the status line's read.
         if term.styles().bands().len() > 1 {
             let held = self.bidi.orders().display_held();
-            let _ = self.sync_window(term, self.laid_back, held.as_deref(), &mut styles);
+            let _ = self.sync_window(term, self.laid_back, held.as_deref(), &[], &mut styles);
             self.styles = styles;
             return;
         }
@@ -10862,8 +10875,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // core's own rows.
         let held = self.bidi.orders().display_held();
         if banded {
+            // The struck links' cells, by visual column as `cur` holds
+            // them: a row holding one is a line of its own.
+            let found =
+                self.take_struck(term, back, &term.view(back), self.main, CopyOrder::Visual);
+            let struck = found.cells().to_vec();
+            self.put_struck(found);
             let mut styles = core::mem::take(&mut self.styles);
-            sync = self.sync_window(term, back, held.as_deref(), &mut styles);
+            sync = self.sync_window(term, back, held.as_deref(), &struck, &mut styles);
             self.styles = styles;
         }
         let vp = match &held {
@@ -10935,27 +10954,37 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut copied = 0;
         let mut logical = Vec::new();
         let mut pairs = Vec::new();
+        let mut greys = Vec::new();
         for r in 0..main.index() {
             if self.mirror_rows[r] != MirrorRow::Filled {
                 continue;
             }
             let row = Row::from_index(r);
-            let (cells, sizes) = self.cur.converting();
-            match self.window.joined(Row::from_index(r)) {
+            match self.window.joined(row) {
                 Some(j) => {
                     logical.clear();
                     logical.extend_from_slice(vp.row(row));
-                    j.rewrite(&mut logical, &mut pairs);
+                    // A struck column is a visual one, as `cur` holds it.
+                    j.rewrite(&mut logical, |l| orders.visual_col(row, l), &mut pairs);
+                    greys.clear();
+                    greys.extend(pairs.iter().map(|&(b, id, s)| match s {
+                        crate::band_window::Strike::Yes => Some(self.struck_resolved(term, b, id)),
+                        crate::band_window::Strike::No => None,
+                    }));
+                    let (cells, _) = self.cur.converting();
                     orders.permute(row, &logical, &mut cells[r * ncols..(r + 1) * ncols]);
                     j.fill(
-                        &pairs,
+                        (&pairs, &greys),
                         (&self.window, term.styles().band_slots()),
                         &mut self.styles,
                     );
                 }
-                None => orders.permute(row, vp.row(row), &mut cells[r * ncols..(r + 1) * ncols]),
+                None => {
+                    let (cells, _) = self.cur.converting();
+                    orders.permute(row, vp.row(row), &mut cells[r * ncols..(r + 1) * ncols]);
+                }
             }
-            sizes[r] = vp.rendition(row);
+            self.cur.converting().1[r] = vp.rendition(row);
             copied += ncols;
         }
         crate::counters::add(Counter::CellsCopied, Site::Convert, Tally::of(copied));
@@ -14213,12 +14242,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// that join two: each window row's, `back` lines into the history --
     /// a re-broken display line's first source's where `held` is one, and
     /// its runs' where they name two bands -- the status line's own band
-    /// for its row, and the first band for the rows below.
+    /// for its row, and the first band for the rows below. A window row
+    /// holding `struck` cells is a line of its own too, its struck columns
+    /// with it.
     fn row_bands(
         &self,
         term: &Term<'_>,
         back: Rows,
         held: Option<&crate::rebreak::Display>,
+        struck: &[(Row, core::ops::Range<usize>)],
     ) -> (
         Vec<baud_domain::Band>,
         Vec<crate::band_window::Joined>,
@@ -14257,6 +14289,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                             joined.push(crate::band_window::Joined {
                                 row: Row::from_index(r),
                                 runs,
+                                struck: Vec::new(),
                             });
                         }
                         firsts.get(r).copied().unwrap_or(Band::FIRST)
@@ -14273,6 +14306,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if let Some(s) = term.status_line().filter(|_| self.main < self.rows) {
             out.push(s.styles.band());
         }
+        for (r, cols) in struck.iter().filter(|(r, _)| r.index() < self.main.index()) {
+            match joined.iter_mut().find(|j| j.row == *r) {
+                Some(j) => j.struck.push(cols.clone()),
+                None => joined.push(crate::band_window::Joined {
+                    row: *r,
+                    runs: vec![(0..self.cols.index(), out[r.index()])],
+                    struck: vec![cols.clone()],
+                }),
+            }
+        }
         let fill = out.first().copied().unwrap_or(Band::FIRST);
         out.resize(self.rows.index(), fill);
         (out, joined, frozen.get())
@@ -14288,9 +14331,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         term: &Term<'_>,
         back: Rows,
         held: Option<&crate::rebreak::Display>,
+        struck: &[(Row, core::ops::Range<usize>)],
         styles: &mut Vec<Resolved>,
     ) -> StyleSync {
-        let (bands, joined, frozen) = self.row_bands(term, back, held);
+        let (bands, joined, frozen) = self.row_bands(term, back, held, struck);
         let bs = term.styles().band_slots();
         let mut window = core::mem::take(&mut self.window);
         window.place(&bands, joined, bs, self.cols);
@@ -14350,10 +14394,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         term: &Term<'_>,
         (back, set): (Rows, crate::screens::SetIx),
         leaving: Option<Vec<(core::ops::Range<usize>, baud_domain::Band)>>,
+        struck: &[(Row, core::ops::Range<usize>)],
         (styles, stamp): (&mut [Resolved], &mut StyleStamp),
     ) -> StyleSync {
         let held = self.bidi.orders().display_held();
-        let (mut bands, mut joined, frozen) = self.row_bands(term, back, held.as_deref());
+        let (mut bands, mut joined, frozen) = self.row_bands(term, back, held.as_deref(), struck);
         self.leaving_drawn = None;
         if let Some(runs) = leaving {
             let first = runs.first().map_or(baud_domain::Band::FIRST, |&(_, b)| b);
@@ -14371,6 +14416,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     crate::band_window::Joined {
                         row: Row::ZERO,
                         runs,
+                        struck: Vec::new(),
                     },
                 );
             }

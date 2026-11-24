@@ -231,10 +231,17 @@ where
         }
         true => {
             let leaving_runs = sliding.then(|| renderer.leaving_runs(term, back));
+            // The struck links' cells, as the copy's lending names them: a
+            // row holding one is a line of its own.
+            let found =
+                renderer.take_struck(term, back, &view, view.rows(), crate::CopyOrder::Stored);
+            let struck = found.cells().to_vec();
+            renderer.put_struck(found);
             renderer.sync_cell_window(
                 term,
                 (back, at),
                 leaving_runs,
+                &struck,
                 (&mut cell.styles_mem[set][..], &mut cell.style_stamps[set]),
             );
         }
@@ -749,7 +756,7 @@ fn number_joined(
     let (stride, cols) = (term.stride().index(), cols.index());
     let bs = term.styles().band_slots();
     let orders = renderer.bidi();
-    let mut pairs = Vec::new();
+    let (mut pairs, mut greys) = (Vec::new(), Vec::new());
     for j in window.all_joined() {
         // A window row is copied at its row, its runs logical; the leaving
         // row, draw row 0 while sliding, after the window's, its runs in
@@ -762,15 +769,17 @@ fn number_joined(
             continue;
         };
         let r = Row::from_index(y);
-        j.rewrite_drawn(
-            row,
-            |l| match logical {
-                true => orders.visual_col(r, l),
-                false => l,
-            },
-            &mut pairs,
-            |x, was| lent.rewrote(r, x, was),
-        );
-        j.fill(&pairs, (window, bs), styles);
+        let at = |l: Col| match logical {
+            true => orders.visual_col(r, l),
+            false => l,
+        };
+        // A struck column is the copy's, as its lending names it.
+        j.rewrite_drawn(row, (at, at), &mut pairs, |x, was| lent.rewrote(r, x, was));
+        greys.clear();
+        greys.extend(pairs.iter().map(|&(b, id, s)| match s {
+            crate::band_window::Strike::Yes => Some(renderer.struck_resolved(term, b, id)),
+            crate::band_window::Strike::No => None,
+        }));
+        j.fill((&pairs, &greys), (window, bs), styles);
     }
 }

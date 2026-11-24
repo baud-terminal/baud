@@ -360,3 +360,60 @@ fn strings_joins_links_and_the_status_line_paint_as_one_table_does() {
         );
     }
 }
+
+/// **Struck links on a banded screen paint as one table's do**: the long
+/// feed, its window's first eleven columns struck on every row -- each row
+/// a line of its own, the lines that join two bands among them -- drawn in
+/// the strike's colour, at the bottom and ten lines back. The control: the
+/// strike changes pixels.
+/// Breaks: draw a struck pair in its band's own rendition.
+#[test]
+fn struck_links_paint_as_one_table_does() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let geom = baud_domain::CacheGeometry::new(None, None, None, None);
+    let painted = |owned: &mut Owned, back: Rows, strike: bool| {
+        let mut r = renderer(&faces);
+        let mut c = Canvas::for_renderer(&r);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, &the_long_feed());
+        if strike {
+            let view = t.view(back);
+            let lines: Vec<baud_render::LinkLine> = (0..usize::from(WS.ws_row))
+                .map(|y| {
+                    let row = Row::from_index(y);
+                    let cell = view.row(row)[0];
+                    baud_render::LinkLine {
+                        row,
+                        from: Col::ZERO,
+                        to: Col::at_index(10),
+                        word: t.style_in(view.styles(row), cell),
+                    }
+                })
+                .collect();
+            r.set_link_missing(baud_render::MissingPaint::Colour(baud_render::Argb(
+                0xFFFF_8080,
+            )));
+            r.set_link_strikes(&lines, &[]);
+        }
+        let mut target = c.target();
+        r.render_at(&mut t, back, &mut target, Damage::Full);
+        c.pixels
+    };
+    for back in [Rows::ZERO, Rows::of_count(10)] {
+        let p = Provision::banded_in(&WS, BandRows::of(Rows::of_index(4)), BandSlots(1_024))
+            .expect("40x32 is admitted banded");
+        let mut banded = Owned::with_history(p, &geom, baud_domain::Depth::of(100));
+        let mut single = Owned::with_history(&WS, &geom, baud_domain::Depth::of(100));
+        let want = painted(&mut single, back, true);
+        let got = painted(&mut banded, back, true);
+        let differ = want.iter().zip(&got).filter(|(a, b)| a != b).count();
+        assert_eq!(differ, 0, "{back:?} back: pixels that differ");
+        let mut plain = Owned::with_history(&WS, &geom, baud_domain::Depth::of(100));
+        assert_ne!(
+            painted(&mut plain, back, false),
+            want,
+            "{back:?} back: the strike is drawn"
+        );
+    }
+}

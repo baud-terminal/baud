@@ -239,8 +239,9 @@ fn every_set_reads_its_cells_as_one_table_does() {
 /// the bottom and as far back as the history goes. Each set's table is
 /// filled with a value no frame resolves before its first frame, so the
 /// entries a frame wrote are those that differ after, and the 4 KiB pages
-/// they are in are what a zeroed allocation makes resident. Prints the
-/// figures; holds that a set writes fewer pages than it allocates.
+/// they are in are what a zeroed allocation makes resident; and again
+/// with one row struck, a line of its own. Prints the figures; holds that
+/// a set writes fewer pages than it allocates.
 #[test]
 fn a_set_s_table_at_960x254_is_mostly_address_space() {
     let ws = WinSize {
@@ -320,6 +321,36 @@ fn a_set_s_table_at_960x254_is_mostly_address_space() {
             "set {set} writes fewer pages than it has"
         );
     }
+    // One struck row, on a frame built into set 0 again: its line's
+    // entries in the loose region are what it adds.
+    let view = t.view(Rows::ZERO);
+    let row = baud_domain::Row::from_index(5);
+    let line = baud_render::LinkLine {
+        row,
+        from: baud_domain::Col::ZERO,
+        to: baud_domain::Col::at_index(10),
+        word: t.style_in(view.styles(row), view.row(row)[0]),
+    };
+    r.set_link_missing(baud_render::MissingPaint::Colour(baud_render::Argb(
+        0xFFFF_8080,
+    )));
+    r.set_link_strikes(&[line], &[]);
+    built(&mut r, &mut t, (Rows::ZERO, None), &mut cell, SetIx(0));
+    let s = &cell.styles_mem[0];
+    let mut written: Vec<usize> = (0..n)
+        .filter(|&i| s[i] != unset)
+        .map(|i| i * size / 4096)
+        .collect();
+    written.dedup();
+    println!(
+        "set 0 with one struck row: {} pages written, {} lines of its own",
+        written.len(),
+        r.cell_lines_joined(SetIx(0)).value()
+    );
+    assert!(
+        written.len() < pages,
+        "set 0 writes fewer pages than it has"
+    );
 }
 
 /// **The cell path over more of what a terminal draws, banded, as one
@@ -435,5 +466,77 @@ fn a_slide_reads_its_leaving_row_as_one_table_does() {
         assert_eq!(cb.records, cs.records, "frame {k}: the same records");
         let (bases, _) = rb.cell_bases(at);
         assert_eq!(bases.len(), usize::from(WS.ws_row), "a base a draw row");
+    }
+}
+
+/// **Struck links on every row, on the cell path, as one table's, and the
+/// loose region at its bound**: the long feed with the window's first
+/// eleven columns struck on every row, so every row is a line of its own,
+/// the lines that join two bands among them, frames at the bottom and ten
+/// lines back into both sets. Each cell's rendition read through its set's
+/// base is single mode's, the overlay's records are compared whole, every
+/// row is a line, and every line's entries fit the table
+/// `cell_styles_len` allocates.
+/// Breaks: draw a struck pair in its band's own rendition.
+#[test]
+fn every_set_draws_struck_links_on_every_row_within_its_table() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let geom = CacheGeometry::new(None, None, None, None);
+    let p = Provision::banded_in(&WS, BandRows::of(Rows::of_index(4)), BandSlots(1_024))
+        .expect("40x32 is admitted banded");
+    let mut banded = Owned::with_history(p, &geom, Depth::of(100));
+    let mut single = Owned::with_history(&WS, &geom, Depth::of(100));
+    let mut tb = Term::new(banded.storage(), &WS);
+    let mut ts = Term::new(single.storage(), &WS);
+    feed(&mut tb, &the_long_feed());
+    feed(&mut ts, &the_long_feed());
+    let (mut rb, mut rs) = (renderer(&faces), renderer(&faces));
+    let (mut kb, mut ks) = (GlyphMap::backing(), GlyphMap::backing());
+    let mut cb = Cells::new(&mut kb, &tb);
+    let mut cs = Cells::new(&mut ks, &ts);
+    let (cols, rows) = (usize::from(WS.ws_col), usize::from(WS.ws_row));
+    let strike = |r: &mut Renderer<'_, '_>, t: &Term<'_>, back: Rows| {
+        let view = t.view(back);
+        let lines: Vec<baud_render::LinkLine> = (0..rows)
+            .map(|y| {
+                let row = baud_domain::Row::from_index(y);
+                baud_render::LinkLine {
+                    row,
+                    from: baud_domain::Col::ZERO,
+                    to: baud_domain::Col::at_index(10),
+                    word: t.style_in(view.styles(row), view.row(row)[0]),
+                }
+            })
+            .collect();
+        r.set_link_missing(baud_render::MissingPaint::Colour(baud_render::Argb(
+            0xFFFF_8080,
+        )));
+        r.set_link_strikes(&lines, &[]);
+    };
+    for (k, back) in [0, 10, 0, 10].map(Rows::of_count).into_iter().enumerate() {
+        let at = SetIx(k % SETS);
+        strike(&mut rs, &ts, back);
+        strike(&mut rb, &tb, back);
+        let want = built(&mut rs, &mut ts, (back, None), &mut cs, at);
+        let got = built(&mut rb, &mut tb, (back, None), &mut cb, at);
+        let differ = (0..want.len()).filter(|&i| want[i] != got[i]).count();
+        assert_eq!(differ, 0, "frame {k}, {back:?} back: cells that differ");
+        assert_eq!(cb.records, cs.records, "frame {k}: the same records");
+        assert_eq!(
+            rb.cell_lines_joined(at).value(),
+            u64::try_from(rows).unwrap(),
+            "frame {k}: every row a line"
+        );
+        let (bases, _) = rb.cell_bases(at);
+        let top = bases
+            .iter()
+            .map(|&b| usize::try_from(b).unwrap())
+            .max()
+            .unwrap();
+        assert!(
+            top + cols <= cb.styles_mem[at.0].len(),
+            "frame {k}: the last line's entries fit the table allocated"
+        );
     }
 }
