@@ -183,6 +183,10 @@ name = "ceiling"
 harness = false
 
 [[bench]]
+name = "banded"
+harness = false
+
+[[bench]]
 name = "memory"
 harness = false
 
