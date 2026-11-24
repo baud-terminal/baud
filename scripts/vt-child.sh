@@ -3,7 +3,9 @@
 # `reps` times, waits for the terminal to acknowledge it has consumed the
 # lot (a DSR 6 round trip -- the reply cannot come before the bytes ahead
 # of it are parsed), and records the wall time, the terminal's CPU time,
-# the geometry it actually got, and the reply itself.
+# the geometry it actually got, the reply itself, and what the terminal
+# said about its screen before it was reset (the cursor, and a checksum
+# where it answers one).
 #
 # usage: vt-child.sh <name> <recording> <reps> <out-file> <vt-reply>
 name="$1"
@@ -29,24 +31,36 @@ while [ "$i" -lt "$reps" ]; do
   i=$((i + 1))
 done
 [ "$reps" -gt 0 ] && cat "${args[@]}"
-# Every recording is truncated mid-session: btop's ends in a lone ESC and
-# inside a synchronised update. So end the update -- wezterm holds its
-# replies while one is open, and its RIS does not close it -- then reset
-# the terminal, which is reached from any parser state, put the cursor at
-# a position no reply to a query *inside* the recording could name, and
-# only then ask where it is. The terminal answers once everything before
-# the query has been processed, so the reply marks the end of the work.
+# First, before anything resets the terminal (a reset erases the screen),
+# ask what the replay left: end a synchronised update the recording left
+# open -- a terminal may hold its replies while one is open -- ask for the
+# cursor, ask for a checksum of the whole screen (DECRQCRA, id 4242), then
+# put the cursor at a position no reply to a query *inside* the recording
+# could name and ask again. A terminal answers in order, once everything
+# before a query has been processed, so the reply at 13;37 marks the end of
+# the work, and the one before it is the cursor the replay left. What came
+# back is kept as hex for `vt-screens` (baud-bench) to compare with
+# baud-core fed the same bytes (`baud_bench::host::screen_check`, where the
+# same questions are written).
 old=$(stty -g)
 stty raw -echo
-printf '\033[?2026l\033c\033[13;37H\033[6n'
-# The reply is `ESC [ row ; col R`, of whatever length the numbers make:
+rows=${size%x*}
+cols=${size#*x}
+printf '\033[?2026l\033[6n\033[4242;1;1;1;%s;%s*y\033[13;37H\033[6n' "$rows" "$cols"
+# Each reply is `ESC [ row ; col R`, of whatever length the numbers make:
 # `vt-reply` reads up to the `R` and gives up after ten seconds rather
 # than sit on a terminal that answers differently -- the first version
 # read exactly eight bytes and hung two of the five terminals on a
 # seven-byte reply.
+screen=$("$reply" 10 13 37)
+t1=$(perl -MTime::HiRes=time -e 'print time')
+# Every recording is truncated mid-session: btop's ends in a lone ESC. So
+# reset the terminal, which is reached from any parser state, and ask
+# where the cursor is once more: the reply is the reset's acknowledgement,
+# kept as before. It falls outside the timed work.
+printf '\033c\033[13;37H\033[6n'
 hex=$("$reply" 10 13 37)
 stty "$old"
-t1=$(perl -MTime::HiRes=time -e 'print time')
 # The terminal is an ancestor of this shell: usually its parent, one hop
 # further when it wrapped the command in a shell of its own. Walk up until
 # the process is one of the terminals, and say which was found.
@@ -69,5 +83,5 @@ else
   cpu=$(/usr/bin/top -l 1 -pid "$pid" -stats time 2>/dev/null | tail -1 | tr -d ' ')
 fi
 total=$((bytes * reps))
-printf '%s %s %s %s %s %s %s %s %s\n' "$name" "$(basename "$rec")" "$size" "$total" "$t0" "$t1" "$cpu" "$(basename "$comm")" "$hex" >>"$out"
+printf '%s %s %s %s %s %s %s %s %s %s\n' "$name" "$(basename "$rec")" "$size" "$total" "$t0" "$t1" "$cpu" "$(basename "$comm")" "$hex" "$screen" >>"$out"
 printf '\033[0m\n[done: %s]\n' "$name"

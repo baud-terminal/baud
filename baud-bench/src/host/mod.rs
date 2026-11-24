@@ -9,6 +9,7 @@
 //! | [`shader_cache`] | `shader-cache-bench` | a launch with the Metal caches and without |
 //! | [`dock_check`] | `dock-launch-check` | the locale a launchd launch gives the shell |
 //! | [`vt_reply`] | `vt-reply` | a terminal's reply to a cursor report, in hex |
+//! | [`screen_check`] | `vt-screens` | each terminal's cursor and screen after a replay, against baud-core's |
 //!
 //! Everything that would make a report differ between two runs comes in
 //! through [`Host`], so `baud-bench/tests/host.rs` holds each report to its
@@ -17,6 +18,7 @@
 pub mod dock_check;
 pub mod idle_cpu;
 pub mod py;
+pub mod screen_check;
 pub mod shader_cache;
 pub mod startup;
 pub mod vt_reply;
