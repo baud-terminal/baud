@@ -35,6 +35,7 @@
 
 mod atlas;
 mod badge;
+mod band_window;
 pub mod bell;
 mod bidi;
 pub mod boxes;
@@ -110,6 +111,7 @@ pub use atlas::{
     Slot, Stretch, Tex, TexRect, VAR_POINTS_MAX,
 };
 pub use badge::{BADGE, BOX, BadgeLook, DRAWN_AT, MARGINS, POINTS, STROKE};
+pub use band_window::{BaseStamp, TableLen, cell_styles_len};
 pub use bell::{
     BellFlash, BellKind, BellShown, BellTint, PairFlash, Rang, ScreenFlash, ScreenShows, VideoMoved,
 };

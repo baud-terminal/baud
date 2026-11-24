@@ -216,12 +216,29 @@ where
     // The set's resolved table, brought up to date from the core's
     // log: only the slots written since this set was last built,
     // which on a steady screen is none. Before the map
-    // walk, which reads each cell's face style from it.
-    renderer.sync_styles(
-        term,
-        &mut cell.styles_mem[set][..],
-        &mut cell.style_stamps[set],
-    );
+    // walk, which reads each cell's face style from it. On a terminal of
+    // more bands than one, each band the frame draws in a slot of the
+    // set's own, the leaving row's first while sliding
+    // (`Renderer::cell_bases`).
+    let banded = term.styles().bands().len() > 1;
+    match banded {
+        false => {
+            renderer.sync_styles(
+                term,
+                &mut cell.styles_mem[set][..],
+                &mut cell.style_stamps[set],
+            );
+        }
+        true => {
+            let leaving_band = sliding.then(|| renderer.leaving_band(term, back));
+            renderer.sync_cell_window(
+                term,
+                (back, at),
+                leaving_band,
+                (&mut cell.styles_mem[set][..], &mut cell.style_stamps[set]),
+            );
+        }
+    }
     // **The leaving row**: the line just above the window,
     // `view(back + 1).row(0)`, appended to the copy at index
     // `vrows`, where `slide_rows = 1` maps draw row 0 to it with
@@ -379,6 +396,24 @@ where
         }
     };
     renderer.put_struck(struck);
+    // **A display line joining two bands**, numbered its own in the set's
+    // copy (`crate::band_window::Joined`), each rewrite kept with the
+    // set's lending, so its next build puts it back and a compare reads
+    // through it, and the line's entries of the loose region filled from
+    // its bands' slots.
+    if banded {
+        number_joined(
+            renderer,
+            term,
+            (
+                &mut cell.copies_mem[set][..],
+                &mut cell.lent[set],
+                &mut cell.styles_mem[set][..],
+            ),
+            (at, view.cols()),
+            Rows::of_count(usize::from(sliding)),
+        );
+    }
     // What the walk, the overlay and a sized line read the copy
     // through: the words its lent slots were given.
     renderer.set_frame_lent(&cell.lent[set]);
@@ -692,4 +727,41 @@ where
     };
     renderer.put_drawn_order(drawn);
     Some(frame)
+}
+
+/// **Each display line of set `set`'s frame that joins two bands, given
+/// ids of its own in the set's copy**, `cols` cells a row, its window row
+/// `slide` draw rows below its draw row: each logical column found where
+/// the row's order draws it, its rewrite kept in the set's lending, and the
+/// line's pairs resolved into the loose region from the set's slots.
+fn number_joined(
+    renderer: &Renderer<'_, '_>,
+    term: &Term<'_>,
+    (copy, lent, styles): (&mut [PackedCell], &mut Lent, &mut [Resolved]),
+    (set, cols): (SetIx, Cols),
+    slide: Rows,
+) {
+    let Some(window) = renderer.cell_window(set) else {
+        return;
+    };
+    let (stride, cols) = (term.stride().index(), cols.index());
+    let bs = term.styles().band_slots();
+    let orders = renderer.bidi();
+    let mut pairs = Vec::new();
+    for j in window.all_joined() {
+        let Some(y) = j.row.index().checked_sub(slide.index()) else {
+            continue;
+        };
+        let Some(row) = copy.get_mut(y * stride..y * stride + cols) else {
+            continue;
+        };
+        let r = Row::from_index(y);
+        j.rewrite_drawn(
+            row,
+            |l| orders.visual_col(r, l),
+            &mut pairs,
+            |x, was| lent.rewrote(r, x, was),
+        );
+        j.fill(&pairs, (window, bs), styles);
+    }
 }

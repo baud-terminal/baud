@@ -418,6 +418,32 @@ impl<'a> Viewport<'a> {
         )
     }
 
+    /// [`Viewport::new`] over a copy whose rows name their ids in a table
+    /// each ([`crate::LiveBands::lines`]): a display of re-broken lines,
+    /// each in its own stored row's band.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_in(
+        cells: &'a [PackedCell],
+        used: &'a [RowExtent],
+        stride: Stride,
+        cols: Cols,
+        rows: Rows,
+        ring: Rows,
+        rot: RowRot,
+        live: crate::LiveBands<'a>,
+    ) -> Viewport<'a> {
+        Viewport::over(
+            cells,
+            Extents::Lent(used),
+            stride,
+            cols,
+            rows,
+            ring,
+            rot,
+            live,
+        )
+    }
+
     /// **A view over a surface where it is stored**: its cells, and its
     /// marks read out of the entries that hold each row's generation too.
     /// What `Term` builds its views on.

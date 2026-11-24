@@ -85,9 +85,10 @@ use std::rc::Rc;
 
 use baud_core::{BidiSupport, PromptLine, Screen, Term, Zone};
 use baud_domain::{
-    Autodetect, Bidi, BidiClass, BidiDirection, BidiLevel, BidiProps, CharacterPath, Col, Cols,
-    LineBreak, LineRendition, PackedCell, PastEdge, Row, RowExtent, RowRot, RowStyles, RowWritten,
-    Rows, Stride, Viewport, Wrap, WrappedAt, is_table_rule, line_breaks_in_paths,
+    Autodetect, Band, Bidi, BidiClass, BidiDirection, BidiLevel, BidiProps, CharacterPath, Col,
+    Cols, LineBreak, LineRendition, LiveBands, PackedCell, PastEdge, Row, RowExtent, RowRot,
+    RowStyles, RowWritten, Rows, Stride, Viewport, Wrap, WrappedAt, is_table_rule,
+    line_breaks_in_paths,
 };
 
 use crate::frozen::Words;
@@ -544,6 +545,11 @@ pub struct Display {
     /// joins two rows names each one's ids in its own table
     /// (`Viewport::styles`).
     sources: Vec<Vec<(core::ops::Range<usize>, WindowLine)>>,
+    /// **The band each display line's ids name**, by the same index as
+    /// `used`: its first source's, the first band for a line whose first
+    /// source is frozen or that has none. A line joining two bands names
+    /// the second's ids in its later runs (`sources`).
+    bands: Vec<Band>,
     /// **For each stored window row, whether its paragraph is drawn at its
     /// words or as the terminal cut it**, wherever its lines are placed:
     /// in the window or pushed above it.
@@ -561,10 +567,12 @@ pub struct Display {
 impl Display {
     /// The window's display lines, in their logical order, as a view: its
     /// rows above the window read by [`Viewport::back`], those below past
-    /// its last row, its live rows in `live`.
-    pub fn window<'s>(&'s self, live: baud_domain::LiveTable<'s>) -> Viewport<'s> {
+    /// its last row, each live line through its first source's band's table
+    /// in `term`.
+    pub fn window<'s>(&'s self, term: &'s Term<'_>) -> Viewport<'s> {
         let total = self.used.len();
-        Viewport::new(
+        let view = term.styles();
+        Viewport::new_in(
             &self.cells,
             &self.used,
             Stride::of_cells(self.cols.index()),
@@ -572,8 +580,15 @@ impl Display {
             self.rows,
             Rows::of_index(total),
             RowRot::NONE.advance(self.above.index(), Rows::of_index(total)),
-            live,
+            LiveBands::lines(view.slots(), view.band_slots().0, &self.bands),
         )
+    }
+
+    /// **The band of each of the window's display lines**, in row order:
+    /// what a copy of the window's lines resolves its rows' ids through.
+    pub(crate) fn window_bands(&self) -> &[Band] {
+        let a = self.above.index();
+        self.bands.get(a..a + self.rows.index()).unwrap_or(&[])
     }
 
     /// The grid's lines above the window and below it.
@@ -1025,7 +1040,7 @@ fn finished_wraps(
 /// lines from (`?96`).
 pub(crate) fn paragraph_display(
     term: &Term<'_>,
-    rows: &[(&[PackedCell], RowExtent, PastEdge)],
+    rows: &[(&[PackedCell], RowExtent, PastEdge, RowStyles<'_>)],
     work: &mut Breaker,
 ) -> Option<Rc<Display>> {
     if term.screen() != Screen::Normal
@@ -1039,12 +1054,12 @@ pub(crate) fn paragraph_display(
         rows: rows
             .iter()
             .enumerate()
-            .map(|(p, &(cells, used, past))| Source {
+            .map(|(p, &(cells, used, past, styles))| Source {
                 cells,
                 used,
                 past,
                 window: Some(Row::from_index(p)),
-                styles: crate::frozen::live(term),
+                styles,
             })
             .collect(),
         lines: Vec::new(),
@@ -1516,6 +1531,14 @@ fn starts(groups: &[Group<'_>], placed: &Placed) -> Vec<(isize, isize)> {
     out
 }
 
+/// The band a live row's ids name; the first band for a frozen row's.
+fn band_of(s: &RowStyles<'_>) -> Band {
+    match s {
+        RowStyles::Live(t) => t.band(),
+        RowStyles::Frozen(_) => Band::FIRST,
+    }
+}
+
 /// **The display grid**: the lines of the window's first paragraph above
 /// it, the window's lines, and the lines of its last paragraph below it,
 /// with the map between stored and display cells.
@@ -1554,6 +1577,7 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
         past_to: Vec::new(),
         same: vec![None; nrows],
         sources: vec![Vec::new(); total],
+        bands: vec![Band::FIRST; total],
         rows_drawn: vec![Rebroken::No; nrows],
         starts: starts(groups, placed),
         rebroken: Tally::of(
@@ -1597,6 +1621,7 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
                 let m = n.min(src.cells.len());
                 row[..m].copy_from_slice(&src.cells[..m]);
                 d.used[k] = src.used;
+                d.bands[k] = band_of(&src.styles);
                 if let Some(l) = lines_of[gi][*r] {
                     d.sources[k].push((0..m, l));
                 }
@@ -1624,6 +1649,9 @@ fn build(groups: &[Group<'_>], placed: &Placed, cols: Cols, rows: Rows) -> Displ
                         break;
                     }
                     let src = &g.rows[a.row.0];
+                    if x == 0 {
+                        d.bands[k] = band_of(&src.styles);
+                    }
                     if let Some(l) = lines_of[gi][a.row.0] {
                         match d.sources[k].last_mut() {
                             Some((run, at)) if *at == l && run.end == x => run.end = x + w,

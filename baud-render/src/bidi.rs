@@ -1923,7 +1923,7 @@ impl Orders {
         let gens = term.row_gens(back);
         let at = gens.window();
         let src = match &held {
-            Some(d) => d.window(crate::frozen::live_table(term)),
+            Some(d) => d.window(term),
             None => term.view(back),
         };
         let (nrows, ncols) = (src.rows().index(), src.cols().index());
@@ -1973,7 +1973,7 @@ impl Orders {
             rows: src.rows(),
         });
         let kept: &'a DrawnRows = kept;
-        let out = Viewport::new(
+        let out = Viewport::new_in(
             &kept.cells,
             &kept.used,
             Stride::of_cells(ncols),
@@ -1981,7 +1981,13 @@ impl Orders {
             src.rows(),
             src.rows(),
             RowRot::NONE,
-            crate::frozen::live_table(term),
+            crate::frozen::lines_table(
+                term,
+                kept.key
+                    .as_ref()
+                    .and_then(|k| k.shown.as_deref())
+                    .map_or(&[], Display::window_bands),
+            ),
         );
         match held {
             Some(_) => out,
@@ -2581,7 +2587,7 @@ impl Reorder {
     /// lines where it re-broke a paragraph, else the core's own view.
     pub fn view<'a>(&'a self, term: &'a Term<'_>, back: Rows) -> Viewport<'a> {
         match self.orders.maps.display() {
-            Some(d) => d.window(crate::frozen::live_table(term)),
+            Some(d) => d.window(term),
             None => term.view(term.looking_back(back)),
         }
     }
@@ -2678,7 +2684,7 @@ impl Reorder {
         if answer != kept::Answer::Holds && term.variants_seen() {
             let held = self.orders.maps.display().cloned();
             let vp = match &held {
-                Some(d) => d.window(crate::frozen::live_table(term)),
+                Some(d) => d.window(term),
                 None => term.view(term.looking_back(back)),
             };
             let n = match extent {
@@ -2903,10 +2909,7 @@ impl Reorder {
         let (vp, around) = match &held {
             Some(d) => {
                 let (up, down) = d.around();
-                (
-                    d.window(crate::frozen::live_table(term)),
-                    Context::Display(up, down),
-                )
+                (d.window(term), Context::Display(up, down))
             }
             None => (term.view(back), Context::Window),
         };

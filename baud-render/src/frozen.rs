@@ -130,6 +130,17 @@ pub fn live_table<'t>(term: &'t Term<'_>) -> baud_domain::LiveTable<'t> {
     term.styles().one()
 }
 
+/// **The tables of a copy whose row `p` is in band `lines[p]`**, as a view
+/// of copied rows carries them ([`baud_domain::Viewport::new_in`]); a row
+/// past `lines` in the first band.
+pub fn lines_table<'t>(
+    term: &'t Term<'_>,
+    lines: &'t [baud_domain::Band],
+) -> baud_domain::LiveBands<'t> {
+    let view = term.styles();
+    baud_domain::LiveBands::lines(view.slots(), view.band_slots().0, lines)
+}
+
 /// **Where a row's cells name their ids, kept with the row**: one table,
 /// or a display line's runs, owned so a reader can keep it beside the
 /// row's cells while it reads them ([`Words`]).
@@ -357,6 +368,14 @@ impl Lent {
     /// last rewrite of a cell first undone.
     pub fn rewrites(&self) -> &[(usize, usize, StyleId)] {
         &self.rewrote
+    }
+
+    /// **Cell `(y, x)` of the copy given another id**, `was` the id it
+    /// held: a display line joining two bands numbered its own
+    /// ([`crate::band_window::Joined`]). Put back and compared through as a
+    /// lending's rewrite is.
+    pub(crate) fn rewrote(&mut self, y: Row, x: Col, was: StyleId) {
+        self.rewrote.push((y.index(), x.index(), was));
     }
 
     /// **The copy the last lending rewrote, put back as the screen's**:
@@ -743,6 +762,14 @@ impl Renderer<'_, '_> {
         let frozen = rows.frozen();
         let struck_any = struck.iter().any(|(_, r)| !r.is_empty());
         if !frozen && !struck_any {
+            return Lend::Nothing;
+        }
+        // **A terminal of more bands than one lends nothing yet**: a slot lent
+        // a struck cell must be free in its own row's band, and the lending
+        // keeps one table's. Its struck cells keep their own renditions, as a
+        // struck cell finding no slot does ([`Lent::short`]); it freezes no
+        // row, its bands holding every rendition their rows name.
+        if term.styles().bands().len() > 1 {
             return Lend::Nothing;
         }
         let inputs = self.style_inputs(term);

@@ -187,6 +187,11 @@ pub struct StyleStamp {
     /// a lent id means what it means only under this lending, so two copies
     /// stamped alike resolve every id alike.
     lending: crate::frozen::Lending,
+    /// **What a buffer set's window of bands is at** on a terminal of more
+    /// bands than one ([`Renderer::sync_cell_window`]): its slots' stamps
+    /// cannot be one, so this moves whenever a slot resolves or a base
+    /// moves. 0 on a terminal of one band.
+    window: crate::band_window::WindowGen,
 }
 
 impl StyleStamp {
@@ -305,6 +310,15 @@ pub struct Converted {
     pub rows: Tally,
     pub convert: Duration,
     pub exceptions: Exceptions,
+    /// Rendition slots the frame resolved before converting: none on a
+    /// frame in which nothing was minted and no band came into view.
+    pub styles_resolved: Tally,
+    /// Display lines whose cells name ids of two bands, resolved through
+    /// the loose region past the bands' slots ([`crate::band_window`]).
+    pub lines_joined: Tally,
+    /// Frozen rows and runs a frame of more bands than one met: it lends
+    /// none of them a slot, so this is 0 while that is right.
+    pub frozen_banded: Tally,
 }
 
 /// What the converted rows held that one glyph a cell cannot draw, and
@@ -4148,6 +4162,14 @@ pub struct Renderer<'f, 'a> {
     /// or an input changed. A cell's colours are one load from it.
     pub(crate) styles: Vec<Resolved>,
     pub(crate) styles_stamp: StyleStamp,
+    /// **Which band each slot of `styles` holds, and each row's base into
+    /// it**, on a terminal of more bands than one ([`crate::band_window`]);
+    /// empty, every base 0, on one of one band.
+    pub(crate) window: crate::band_window::BandWindow,
+    /// The cell path's windows of bands, one a buffer set
+    /// ([`Renderer::cell_bases`]): a set's copy is built from its own last
+    /// frame, so its slots and bases are its own.
+    cell_windows: Vec<crate::band_window::BandWindow>,
     /// **The slots of `styles` lent a frame's frozen cells** (`crate::frozen`):
     /// a window scrolled back over history the core froze, converted
     /// through its own copy of the window, its frozen cells given slots no
@@ -4860,6 +4882,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             marks_laid: None,
             styles: Vec::new(),
             styles_stamp: StyleStamp::default(),
+            window: crate::band_window::BandWindow::default(),
+            cell_windows: Vec::new(),
             cpu_lent: crate::frozen::Lent::default(),
             lendings: crate::frozen::Lendings::default(),
             frame_words: crate::frozen::Held::default(),
@@ -5273,10 +5297,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn face_of_cell(
         &mut self,
         (term, words): (&Term<'_>, Words<'_>),
-        cell: PackedCell,
+        (r, cell): (Row, PackedCell),
         base: Codepoint,
     ) -> FaceIx {
-        let style = self.face_style(cell);
+        let style = self.face_style(r, cell);
         self.face_of_cell_in((term, words), cell, base, style)
     }
 
@@ -5771,7 +5795,24 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let above = Rows::of_index(back.index() + 1);
         match self.beside.as_deref().and_then(|b| b.leaving.as_ref()) {
             Some(l) => l.orders().row_source(term, above, Row::ZERO),
-            None => crate::frozen::RowSource::One(crate::frozen::live(term)),
+            None => {
+                crate::frozen::RowSource::One(term.view(term.looking_back(above)).styles(Row::ZERO))
+            }
+        }
+    }
+
+    /// **The band the leaving row's ids name**: its own row's, or its first
+    /// run's where the display draws it from two rows; the first band for a
+    /// frozen row's.
+    pub(crate) fn leaving_band(&self, term: &Term<'_>, back: Rows) -> baud_domain::Band {
+        use baud_domain::{Band, RowStyles};
+        let band = |s: &RowStyles<'_>| match s {
+            RowStyles::Live(t) => t.band(),
+            RowStyles::Frozen(_) => Band::FIRST,
+        };
+        match self.leaving_source(term, back) {
+            crate::frozen::RowSource::One(s) => band(&s),
+            crate::frozen::RowSource::Runs(r) => r.first().map_or(Band::FIRST, |(_, s)| band(s)),
         }
     }
 
@@ -7264,7 +7305,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // cell under the pass is the one drawn there.
         let held = self.bidi.orders().display_held();
         let view = match &held {
-            Some(d) => d.window(crate::frozen::live_table(term)),
+            Some(d) => d.window(term),
             None => term.view(term.window_back()),
         };
         let (cols, rows) = (view.cols().index(), view.rows().index());
@@ -10165,7 +10206,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// pays a store a cell for it.
     fn ground(&self, row: Row, col: Col, cell: PackedCell) -> Ground {
         let res = self
-            .styles
+            .styles_at(row)
             .get(cell.style.index())
             .copied()
             .unwrap_or_default();
@@ -10733,14 +10774,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .lent_values_into(&self.styles, &mut self.held_was);
         self.cur.unlend(self.cols, &mut self.lent_rows);
         self.give_back_cpu();
-        let mut styles = core::mem::take(&mut self.styles);
-        if styles.len() != term.styles().one().len() {
-            styles = vec![Resolved::default(); term.styles().one().len()];
-            self.styles_stamp = StyleStamp::default();
+        // A terminal of more bands than one syncs once the layout below has
+        // said which lines the frame draws: a re-broken display's line is in
+        // its first source's band, and may join two.
+        let banded = term.styles().bands().len() > 1;
+        let mut sync = StyleSync::default();
+        if !banded {
+            let mut styles = core::mem::take(&mut self.styles);
+            if styles.len() != term.styles().one().len() {
+                styles = vec![Resolved::default(); term.styles().one().len()];
+                self.styles_stamp = StyleStamp::default();
+            }
+            let mut stamp = self.styles_stamp;
+            sync = self.sync_styles(term, &mut styles, &mut stamp);
+            self.styles_stamp = stamp;
+            self.styles = styles;
         }
-        let mut stamp = self.styles_stamp;
-        let sync = self.sync_styles(term, &mut styles, &mut stamp);
-        (self.styles, self.styles_stamp) = (styles, stamp);
         let (cols, rows, main) = (self.cols, self.rows, self.main);
         let ncols = cols.index();
         // Each row read where the core holds it, through the rotation and
@@ -10774,8 +10823,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // re-broke a finished paragraph ([`crate::rebreak`]), else the
         // core's own rows.
         let held = self.bidi.orders().display_held();
+        if banded {
+            let mut styles = core::mem::take(&mut self.styles);
+            sync = self.sync_window(term, back, held.as_deref(), &mut styles);
+            self.styles = styles;
+        }
         let vp = match &held {
-            Some(d) => d.window(crate::frozen::live_table(term)),
+            Some(d) => d.window(term),
             None => term.view(back),
         };
         // **The status line's row, below the main display's**, whatever the
@@ -10832,14 +10886,37 @@ impl<'f, 'a> Renderer<'f, 'a> {
         {
             *m = MirrorRow::Filled;
         }
+        // **A line joining two bands** is taken every frame: its cells' ids
+        // are its own, numbered as it names each (band, id), and the loose
+        // region they index is filled again below from its bands' slots.
+        for r in 0..main.index() {
+            if self.window.joined(Row::from_index(r)).is_some() {
+                self.mirror_rows[r] = MirrorRow::Filled;
+            }
+        }
         let mut copied = 0;
+        let mut logical = Vec::new();
+        let mut pairs = Vec::new();
         for r in 0..main.index() {
             if self.mirror_rows[r] != MirrorRow::Filled {
                 continue;
             }
             let row = Row::from_index(r);
             let (cells, sizes) = self.cur.converting();
-            orders.permute(row, vp.row(row), &mut cells[r * ncols..(r + 1) * ncols]);
+            match self.window.joined(Row::from_index(r)) {
+                Some(j) => {
+                    logical.clear();
+                    logical.extend_from_slice(vp.row(row));
+                    j.rewrite(&mut logical, &mut pairs);
+                    orders.permute(row, &logical, &mut cells[r * ncols..(r + 1) * ncols]);
+                    j.fill(
+                        &pairs,
+                        (&self.window, term.styles().band_slots()),
+                        &mut self.styles,
+                    );
+                }
+                None => orders.permute(row, vp.row(row), &mut cells[r * ncols..(r + 1) * ncols]),
+            }
             sizes[r] = vp.rendition(row);
             copied += ncols;
         }
@@ -11478,6 +11555,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             rows: Tally::of(rows.index()),
             convert: t0.elapsed(),
             exceptions,
+            styles_resolved: sync.resolved,
+            lines_joined: self.window.joined_lines(),
+            frozen_banded: self.window.frozen(),
         }
     }
 
@@ -11595,6 +11675,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             rows: Tally::of(rows),
             convert: t0.elapsed(),
             exceptions,
+            styles_resolved: Tally::default(),
+            lines_joined: Tally::default(),
+            frozen_banded: Tally::default(),
         })
     }
 
@@ -12371,7 +12454,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         light: crate::word::Light,
     ) -> crate::cellmap::Drawn {
         let res = self
-            .styles
+            .styles_at(r)
             .get(cell.style.index())
             .copied()
             .unwrap_or_default();
@@ -13116,7 +13199,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let Some(&first) = row.get(s.at.index()) else {
             return;
         };
-        let style = self.face_style(first);
+        let style = self.face_style(r, first);
         let st = Stretch::of(self.size_of(r));
         let g = self.syllable(&cps, style, s.cells, st);
         self.emit_glyphs(r, s.at, &g, out);
@@ -13870,6 +13953,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             decorated: stamp.decorated,
             reclaims: Some(reclaims),
             lending: stamp.lending,
+            window: stamp.window,
         };
         self.blink_slots = stamp.blinking;
         sync
@@ -14068,8 +14152,228 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// The face style and font a cell's text is drawn from, from its
     /// resolved slot.
-    fn face_style(&self, cell: PackedCell) -> TextFace {
-        crate::cellmap::face_of(&self.styles, cell)
+    fn face_style(&self, r: Row, cell: PackedCell) -> TextFace {
+        crate::cellmap::face_of(self.styles_at(r), cell)
+    }
+
+    /// **The resolved table as row `r` of the frame reads it**: from its
+    /// band's slot on ([`crate::band_window`]), so a cell's id indexes its
+    /// own band's renditions; the whole table on a terminal of one band.
+    pub(crate) fn styles_at(&self, r: Row) -> &[Resolved] {
+        self.window.row_table(r, &self.styles)
+    }
+
+    /// **Each drawn row's base into the resolved table, and what the bases
+    /// are at** ([`crate::band_window`]): what a cell shader's per-row
+    /// `seg_base` takes, uploaded when the [`crate::BaseStamp`] moves. Empty,
+    /// every base 0, until a frame of a terminal of more bands than one.
+    pub fn row_bases(&self) -> (&[u32], crate::BaseStamp) {
+        (self.window.bases(), self.window.base_stamp())
+    }
+
+    /// **The bands the frame's rows are in**, in row order, and the lines
+    /// that join two: each window row's, `back` lines into the history --
+    /// a re-broken display line's first source's where `held` is one, and
+    /// its runs' where they name two bands -- the status line's own band
+    /// for its row, and the first band for the rows below.
+    fn row_bands(
+        &self,
+        term: &Term<'_>,
+        back: Rows,
+        held: Option<&crate::rebreak::Display>,
+    ) -> (
+        Vec<baud_domain::Band>,
+        Vec<crate::band_window::Joined>,
+        usize,
+    ) {
+        use baud_domain::{Band, RowStyles};
+        // A frozen source is counted: lending is off on a terminal of more
+        // bands than one, which is right only while no frame of one draws a
+        // frozen row.
+        let frozen = core::cell::Cell::new(0);
+        let band = |s: &RowStyles<'_>| match s {
+            RowStyles::Live(t) => t.band(),
+            RowStyles::Frozen(_) => {
+                frozen.set(frozen.get() + 1);
+                Band::FIRST
+            }
+        };
+        let back = term.looking_back(back);
+        let mut joined = Vec::new();
+        let mut out: Vec<Band> = match held {
+            Some(d) => {
+                let firsts = d.window_bands();
+                (0..self.main.index())
+                    .map(|r| {
+                        let runs: Vec<_> = d
+                            .line_sources(
+                                term,
+                                back,
+                                crate::select::WindowLine::of(Row::from_index(r)),
+                            )
+                            .iter()
+                            .map(|(cols, s)| (cols.clone(), band(s)))
+                            .collect();
+                        let first = runs.first().map(|&(_, b)| b);
+                        if runs.iter().any(|&(_, b)| Some(b) != first) {
+                            joined.push(crate::band_window::Joined {
+                                row: Row::from_index(r),
+                                runs,
+                            });
+                        }
+                        firsts.get(r).copied().unwrap_or(Band::FIRST)
+                    })
+                    .collect()
+            }
+            None => {
+                let vp = term.view(back);
+                (0..self.main.index())
+                    .map(|r| band(&vp.styles(Row::from_index(r))))
+                    .collect()
+            }
+        };
+        if let Some(s) = term.status_line().filter(|_| self.main < self.rows) {
+            out.push(s.styles.band());
+        }
+        let fill = out.first().copied().unwrap_or(Band::FIRST);
+        out.resize(self.rows.index(), fill);
+        (out, joined, frozen.get())
+    }
+
+    /// **The resolved table brought up to date for a terminal of more
+    /// bands than one**: each band the frame's rows are in placed in a slot
+    /// ([`crate::band_window::BandWindow::place`]), and each slot synced from
+    /// its band alone ([`Renderer::sync_band`]), so a band seen before
+    /// resolves what it wrote since and a band first seen what it wrote.
+    fn sync_window(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        held: Option<&crate::rebreak::Display>,
+        styles: &mut Vec<Resolved>,
+    ) -> StyleSync {
+        let (bands, joined, frozen) = self.row_bands(term, back, held);
+        let bs = term.styles().band_slots();
+        let mut window = core::mem::take(&mut self.window);
+        window.place(&bands, joined, bs, self.cols);
+        window.met_frozen(Tally::of(frozen));
+        let loose = window.loose();
+        if styles.len() != loose.end {
+            styles.resize(loose.end, Resolved::default());
+        }
+        let (sync, stamp) = self.sync_slots(term, &mut window, styles, bs);
+        self.window = window;
+        self.blink_slots = stamp.blinking;
+        sync
+    }
+
+    /// **Each slot of `window` synced from its band alone** into `styles`,
+    /// `bs` entries a slot, and the slots' stamps summed: the blinking and
+    /// decorated slots they hold.
+    fn sync_slots(
+        &mut self,
+        term: &Term<'_>,
+        window: &mut crate::band_window::BandWindow,
+        styles: &mut [Resolved],
+        bs: baud_core::BandSlots,
+    ) -> (StyleSync, StyleStamp) {
+        let mut sync = StyleSync::default();
+        let mut sum = StyleStamp::default();
+        let placed: Vec<_> = window.placed().collect();
+        for (slot, b) in placed {
+            let Some(out) = styles.get_mut(window.entries(slot, bs)) else {
+                continue;
+            };
+            let mut stamp = *window.stamp_mut(slot);
+            let s = self.sync_band(term, b, out, &mut stamp);
+            *window.stamp_mut(slot) = stamp;
+            sum.blinking.add(stamp.blinking);
+            sum.decorated.add(stamp.decorated);
+            sync.resolved.add(s.resolved);
+            if s.pass == Pass::Full {
+                sync.pass = Pass::Full;
+            }
+            if s.evicted == Evicted::Yes {
+                sync.evicted = Evicted::Yes;
+            }
+        }
+        (sync, sum)
+    }
+
+    /// **Buffer set `set`'s table brought up to date for a terminal of more
+    /// bands than one**, as [`Renderer::sync_window`] brings the CPU path's,
+    /// in the set's own window ([`Renderer::cell_bases`]): its rows in draw
+    /// order, the leaving row's band first while sliding (`leaving`), so
+    /// window row `L` is draw row `L + 1` then. `stamp` is the set's, summed
+    /// from its slots', and moves whenever a slot resolved anything or a
+    /// base moved, which is what a reader keyed on it compares.
+    pub(crate) fn sync_cell_window(
+        &mut self,
+        term: &Term<'_>,
+        (back, set): (Rows, crate::screens::SetIx),
+        leaving: Option<baud_domain::Band>,
+        (styles, stamp): (&mut [Resolved], &mut StyleStamp),
+    ) -> StyleSync {
+        let held = self.bidi.orders().display_held();
+        let (mut bands, mut joined, frozen) = self.row_bands(term, back, held.as_deref());
+        if let Some(b) = leaving {
+            bands.insert(0, b);
+            bands.truncate(self.rows.index());
+            for j in &mut joined {
+                j.row = Row::from_index(j.row.index() + 1);
+            }
+        }
+        let bs = term.styles().band_slots();
+        if self.cell_windows.len() <= set.0 {
+            self.cell_windows.resize_with(set.0 + 1, Default::default);
+        }
+        let mut window = core::mem::take(&mut self.cell_windows[set.0]);
+        let was = window.base_stamp();
+        window.place(&bands, joined, bs, self.cols);
+        window.met_frozen(Tally::of(frozen));
+        let (sync, sum) = self.sync_slots(term, &mut window, styles, bs);
+        if sync.resolved.value() > 0 || sync.pass == Pass::Full || window.base_stamp() != was {
+            window.moved();
+        }
+        *stamp = StyleStamp {
+            blinking: sum.blinking,
+            decorated: sum.decorated,
+            window: window.generation(),
+            ..StyleStamp::default()
+        };
+        self.cell_windows[set.0] = window;
+        sync
+    }
+
+    /// **Buffer set `set`'s bases into its table, by draw row, and what
+    /// they are at**: what the cell shader's `seg_base` takes for a frame
+    /// built into that set, uploaded when the [`crate::BaseStamp`] moves.
+    /// While sliding, draw row 0 is the leaving row's and window row `L`
+    /// is draw row `L + 1`. Empty until a frame of a terminal of more bands
+    /// than one is built into the set, every base 0.
+    pub fn cell_bases(&self, set: crate::screens::SetIx) -> (&[u32], crate::BaseStamp) {
+        self.cell_windows
+            .get(set.0)
+            .map_or((&[][..], crate::BaseStamp::default()), |w| {
+                (w.bases(), w.base_stamp())
+            })
+    }
+
+    /// The display lines of set `set`'s last frame that joined two bands.
+    pub fn cell_lines_joined(&self, set: crate::screens::SetIx) -> Tally {
+        self.cell_windows.get(set.0).map_or(
+            Tally::default(),
+            crate::band_window::BandWindow::joined_lines,
+        )
+    }
+
+    /// Set `set`'s window of bands, where a frame of more bands than one
+    /// was built into it.
+    pub(crate) fn cell_window(
+        &self,
+        set: crate::screens::SetIx,
+    ) -> Option<&crate::band_window::BandWindow> {
+        self.cell_windows.get(set.0)
     }
 
     /// Whether `face`'s scripts select different lookups.
@@ -14358,7 +14662,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let col = Col::at_index(c);
             // One load from the resolved table, which `sync_styles` keeps.
             let res = self
-                .styles
+                .styles_at(r)
                 .get(cell.style.index())
                 .copied()
                 .unwrap_or_default();
@@ -14750,7 +15054,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         w.at,
                         self.laid[r.index()].last().map(|l| (l.at, l.ink.1)),
                     );
-                    let styles = crate::word::faces_of(&self.styles, row, w);
+                    let styles = crate::word::faces_of(self.styles_at(r), row, w);
                     let laid = self.word_at(
                         (term, &styles),
                         (r, row, kept.map(|k| (k, crate::kept::WordIx(wi)))),
@@ -14792,7 +15096,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 c += 1;
                 continue;
             }
-            let style = self.face_style(row[c]);
+            let style = self.face_style(r, row[c]);
             let lean = match slanted(c) {
                 true => self.lean(style),
                 false => None,
@@ -14870,7 +15174,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                                 || syl.at(Col::at_index(c)).is_some()
                                 || word_starts(c)))
                         || crate::boxes::covers(cp)
-                        || self.face_of_cell((term, held.words()), cell, cp) != face
+                        || self.face_of_cell((term, held.words()), (r, cell), cp) != face
                         || (varies == Varies::Yes
                             && self.script_at(face, Col::at_index(c)).1 != selection))
                 {
@@ -15320,7 +15624,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let Some(cp) = drawn_base(term, cell) else {
                 continue;
             };
-            let style = self.face_style(cell);
+            let style = self.face_style(r, cell);
             // The single-codepoint answer depends on the style, so the memo
             // keys on both; a codepoint is 21 bits and the style sits above.
             let memo = crate::cellmap::CellKey::of(cp, style, CellSpan::One).0;
@@ -15388,7 +15692,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // kitty-underlines]]`) and neither is an underline. The frame's
         // top is the overline's line, drawn once when both are set.
         let framed = res.shapes.has(Shapes::FRAMED);
-        let (styles, blink) = (&self.styles, self.blink);
+        let (styles, blink) = (self.styles_at(r), self.blink);
         let carries = |at: Option<usize>, shape: Shapes| {
             carries_on(styles, row, at.map(Col::at_index), shape, blink)
         };
@@ -15669,7 +15973,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             PairPart::Lam(n, e) | PairPart::Alef(n, e) => (n, e),
             PairPart::LamWrapped(alef) => {
                 let lam = row[c];
-                let style = self.face_style(lam);
+                let style = self.face_style(r, lam);
                 if !self.wrapped_ligates(term, (lam, alef), kind, style, st) {
                     return false;
                 }
@@ -15701,7 +16005,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 return true;
             }
             PairPart::AlefWrapped(lam) => {
-                let style = self.face_style(lam);
+                let style = self.face_style(r, lam);
                 return self.wrapped_ligates(term, (lam, row[c]), kind, style, st);
             }
         };
@@ -15731,7 +16035,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let held = self.cpu_lent.held();
         let lam_cps = cell_cps(term, held.words(), lam_cell);
         let alef_cps = cell_cps(term, held.words(), alef_cell);
-        let style = self.face_style(lam_cell);
+        let style = self.face_style(r, lam_cell);
         let lean = self.slant_at(r, Col::at_index(lam_c), style);
         let style = lean.map_or(style, |_| style.upright());
         let lam_at = match lam_c > alef_c {

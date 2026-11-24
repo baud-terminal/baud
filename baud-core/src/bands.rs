@@ -113,6 +113,16 @@ impl<'a> BandsView<'a> {
             .map(|(k, s)| LiveTable::of_band(s, Band::of(k)))
     }
 
+    /// Every band's slots, in band order, `band_slots` a band.
+    pub fn slots(&self) -> &'a [StyleSlot] {
+        self.all
+    }
+
+    /// The slots each band has.
+    pub fn band_slots(&self) -> BandSlots {
+        self.band_slots
+    }
+
     /// **Band `b`'s table**, which every row of `b` resolves through; an
     /// empty table for a band the terminal does not have.
     pub fn table(&self, b: Band) -> LiveTable<'a> {

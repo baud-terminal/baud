@@ -14,13 +14,13 @@ const READERS: [(&str, usize); 11] = [
     ("baud-app/src/app.rs", 1),
     ("baud-present-macos/src/metal.rs", 1),
     ("baud-present-vulkan/src/present.rs", 1),
-    ("baud-render/src/bidi.rs", 7),
+    ("baud-render/src/bidi.rs", 2),
     ("baud-render/src/cell_frame.rs", 2),
     ("baud-render/src/frozen.rs", 6),
     ("baud-render/src/overlay.rs", 1),
-    ("baud-render/src/rebreak.rs", 4),
-    ("baud-render/src/renderer.rs", 11),
-    ("baud-render/src/select.rs", 3),
+    ("baud-render/src/rebreak.rs", 3),
+    ("baud-render/src/renderer.rs", 8),
+    ("baud-render/src/select.rs", 2),
     ("baud-sfte-difftest/src/lib.rs", 1),
 ];
 

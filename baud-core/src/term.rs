@@ -2700,6 +2700,9 @@ pub struct StatusLine<'a> {
     /// Its cursor's column, while DECSASD selects the line and the line's
     /// DECTCEM shows it.
     pub cursor: Option<Col>,
+    /// **The table its cells name renditions in**: the status row's own
+    /// band's, which the single mode's one table is.
+    pub styles: baud_domain::LiveTable<'a>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -5008,6 +5011,12 @@ impl<'b> Term<'b> {
             cells,
             rendition,
             cursor,
+            styles: self.styles().table(
+                self.store
+                    .bands
+                    .surface_bands(crate::bands::Surface::Status)
+                    .0,
+            ),
         })
     }
 
@@ -5933,6 +5942,13 @@ impl<'b> Term<'b> {
     /// and a reader of many rows asks the view.
     pub fn row_styles(&self, row: Row) -> RowStyles<'_> {
         self.viewport().styles(row)
+    }
+
+    /// **The rows each band's table covers**, a surface's last band fewer;
+    /// none in the single mode, where one table covers every row. What a
+    /// reader sizing a table for the bands a window can show reads.
+    pub fn band_rows(&self) -> Option<Rows> {
+        self.store.bands.rows()
     }
 
     /// **Every band's live rendition table**, read-only, each indexed by

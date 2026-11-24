@@ -1027,6 +1027,9 @@ pub struct LiveBands<'a> {
     rows: usize,
     /// The surface's first band, which `slots` begins with.
     first: crate::Band,
+    /// **Each row's band by its place**, for a copy whose rows are not a
+    /// surface's: a display of re-broken lines. Empty for a surface.
+    lines: &'a [crate::Band],
 }
 
 impl<'a> LiveBands<'a> {
@@ -1037,6 +1040,25 @@ impl<'a> LiveBands<'a> {
             band_slots: table.len(),
             rows: 0,
             first: table.band(),
+            lines: &[],
+        }
+    }
+
+    /// **A table for each row of a copy, named by the row's place**: row
+    /// `p` resolves through band `lines[p]`'s table, out of every band's
+    /// `slots`, `band_slots` a band from band 0; a row past `lines` through
+    /// band 0's.
+    pub fn lines(
+        slots: &'a [StyleSlot],
+        band_slots: usize,
+        lines: &'a [crate::Band],
+    ) -> LiveBands<'a> {
+        LiveBands {
+            slots,
+            band_slots,
+            rows: 0,
+            first: crate::Band::FIRST,
+            lines,
         }
     }
 
@@ -1053,12 +1075,22 @@ impl<'a> LiveBands<'a> {
             band_slots,
             rows: rows.index().max(1),
             first,
+            lines: &[],
         }
     }
 
     /// **The table physical row `p` resolves through**: its band's.
     #[inline(always)]
     pub fn table(&self, p: RowRot) -> LiveTable<'a> {
+        if !self.lines.is_empty() {
+            let b = self
+                .lines
+                .get(p.index())
+                .copied()
+                .unwrap_or(crate::Band::FIRST);
+            let at = b.index() * self.band_slots;
+            return LiveTable::of_band(self.slots.get(at..at + self.band_slots).unwrap_or(&[]), b);
+        }
         match self.rows {
             0 => LiveTable::of_band(self.slots, self.first),
             r => {
