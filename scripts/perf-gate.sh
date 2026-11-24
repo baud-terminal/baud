@@ -169,11 +169,21 @@ fi
 # git does not ignore) are copied, times kept, to one fixed place, and the
 # benches are built there, with that place's own target directory kept
 # between runs. `PERF_GATE_TREE` names another place.
+#
+# **One run holds the place at a time.** A second run on the same place
+# waits for the first to exit, so neither replaces the other's tree or
+# binaries mid-measurement. The lock is held until this script exits.
 tree=${PERF_GATE_TREE:-${XDG_CACHE_HOME:-$HOME/.cache}/baud-perf-gate}
+mkdir -p "$tree"
+exec 9>"$tree.lock"
+if ! flock -n 9; then
+  echo "perf-gate: another run holds $tree; waiting for it to finish"
+  flock 9
+fi
 rm -rf "$tree/src"
 mkdir -p "$tree/src"
 git -C "$root" ls-files -z --cached --others --exclude-standard |
-  tar --null -T - -C "$root" -cf - | tar -C "$tree/src" -xf -
+  tar --null -C "$root" -T - -cf - | tar -C "$tree/src" -xf -
 
 # Each bench a gate names, built once; ingest2 always, which the control
 # runs on.
