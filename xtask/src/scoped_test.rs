@@ -11,7 +11,8 @@
 //! change reaches; the tests of whole packages and single binaries, in one
 //! nextest run, and their doc tests, under the `release-probe` profile;
 //! the feature arms of the crates the change reaches and the raw-integer
-//! audit; the event rig, on macOS; the bare-metal builds; the Linux
+//! audit; the event rig, on macOS; `baud-core`'s band reserve test under
+//! its feature; the bare-metal builds; the Linux
 //! clippy; and the README GIF's flash census and `--verify`.
 //!
 //! Each step prints `scoped-test: <name>`, runs with this process's
@@ -299,6 +300,24 @@ pub fn run(
         ])
         .var("RUSTFLAGS", "-D warnings");
         s.step(out, "rig", &rig)?;
+    }
+    if plan.has("pin") {
+        let pin = Cmd::new(&[
+            "cargo",
+            "nextest",
+            "run",
+            "--cargo-profile",
+            "release-probe",
+            "--cargo-quiet",
+            "-p",
+            "baud-core",
+            "--features",
+            "probe-band-pin,alloc",
+            "--test",
+            "band_reserve",
+        ])
+        .var("RUSTFLAGS", "-D warnings");
+        s.step(out, "pin", &pin)?;
     }
     if plan.has("bare") {
         s.step(out, "bare", &Cmd::new(&["sh", "-c", BARE]))?;

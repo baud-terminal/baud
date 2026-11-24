@@ -159,6 +159,7 @@ fn a_change_in_core_pulls_in_every_crate_that_builds_from_it() {
             "doc baud-core",
             "rig",
             "bare",
+            "pin",
             "linux",
         ]
     );
@@ -172,6 +173,21 @@ fn a_test_only_change_in_core_selects_only_its_own_binary() {
     assert_eq!(
         r.scope(),
         ["binary baud-core baud-core::t", "clippy baud-core"]
+    );
+}
+
+#[test]
+fn a_change_to_the_band_reserve_test_runs_it_under_its_feature() {
+    let r = Repo::new();
+    r.put("core/tests/band_reserve.rs", "#[test]\nfn t() {}\n");
+    r.commit("band reserve test");
+    assert_eq!(
+        r.scope(),
+        [
+            "binary baud-core baud-core::band_reserve",
+            "clippy baud-core",
+            "pin",
+        ]
     );
 }
 
@@ -210,6 +226,7 @@ fn data_a_library_compiles_in_reaches_every_crate_that_builds_from_it() {
             "doc baud-core",
             "rig",
             "bare",
+            "pin",
             "linux",
         ]
     );
@@ -252,7 +269,7 @@ fn a_tried_tip_whose_tries_covered_every_gate_its_range_names_plans_tried_alone(
     r.put("core/src/lib.rs", "pub fn f() {}\npub fn g() {}\n");
     r.commit("core");
     let all = "package:baud,package:baud-core,clippy:baud,clippy:baud-core,\
-               doc:baud,doc:baud-core,rig,bare,linux,fmt";
+               doc:baud,doc:baud-core,rig,bare,pin,linux,fmt";
     assert_eq!(
         r.scope_from("HEAD~1", Some(&covered(&r, "HEAD^{tree}", all))),
         ["tried"]
@@ -273,6 +290,7 @@ fn a_tried_tip_whose_tries_covered_every_gate_its_range_names_plans_tried_alone(
             "doc baud",
             "doc baud-core",
             "bare",
+            "pin",
             "linux",
         ],
         "a gate the tries did not run is planned, each as the range names it"
@@ -351,6 +369,7 @@ fn a_tip_a_commit_past_a_tried_tree_plans_only_what_differs_from_it() {
             "doc other",
             "rig",
             "bare",
+            "pin",
             "linux",
         ],
         "with no tried tree the whole range is planned"

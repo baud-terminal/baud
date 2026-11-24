@@ -42,6 +42,9 @@
 //!   Linux clippy when a `package` line names `baud`, the bare-metal builds
 //!   when one names `baud-core` or `baud-font`, unless every changed path is
 //!   documentation.
+//! - `pin<TAB><reason>`: `baud-core`'s band reserve test, under its
+//!   `probe-band-pin` feature, when a `package` line names `baud-core` or
+//!   the test itself changed, unless every changed path is documentation.
 //! - `gif<TAB><reason>`: the README's GIF or its provenance changed, so its
 //!   flash census and `--verify` run.
 //! - `tried<TAB><reason>`, first: a try already ran `<to>`'s tree clean,
@@ -61,7 +64,7 @@
 //!
 //!   A gate in `covered=` is `package:<member>` (which covers that
 //!   member's `binary` lines too), `binary:<binary id>`,
-//!   `clippy:<member>`, `doc:<member>`, `rig`, `bare`, `linux`, `gif`,
+//!   `clippy:<member>`, `doc:<member>`, `rig`, `bare`, `pin`, `linux`, `gif`,
 //!   `suite` (every `package`, `binary` and `doc` line, and the whole
 //!   suite), `publish`, or one of `fmt`, `sources`, `no-python`, `paths`
 //!   and `changelog`, which run on every push and change nothing here. A
@@ -171,6 +174,8 @@ pub fn named(diff: &str) -> Vec<Named> {
 
 /// The package whose code the event rig and the Linux clippy build.
 const RIG: &str = "baud";
+/// The package whose band reserve test runs under its own feature.
+const PIN: &str = "baud-core";
 /// The packages built for a bare-metal target.
 const BARE: [&str; 2] = ["baud-core", "baud-font"];
 /// The README's GIF and its provenance.
@@ -234,6 +239,8 @@ pub struct Plan {
     pub rig: Option<String>,
     /// The bare-metal builds, and why.
     pub bare: Option<String>,
+    /// The band reserve test, under `probe-band-pin`, and why.
+    pub pin: Option<String>,
     /// The Linux clippy, and why.
     pub linux: Option<String>,
     /// The GIF's census and verify, and why.
@@ -269,6 +276,7 @@ impl Plan {
         for (step, why) in [
             ("rig", &self.rig),
             ("bare", &self.bare),
+            ("pin", &self.pin),
             ("linux", &self.linux),
             ("gif", &self.gif),
         ] {
@@ -622,6 +630,14 @@ pub fn plan(i: &Inputs) -> Plan {
         }
         if let Some(name) = BARE.iter().find(|n| b.code.contains(**n)) {
             plan.bare = Some(format!("{name} is reached by {code}"));
+        }
+        if b.code.contains(PIN) {
+            plan.pin = Some(format!("{PIN} is reached by {code}"));
+        } else if plan
+            .binaries
+            .contains_key(&(PIN.to_string(), format!("{PIN}::band_reserve")))
+        {
+            plan.pin = Some(format!("the band reserve test changed ({code})"));
         }
     }
     if let Some(g) = paths.iter().find(|p| GIF.contains(&p.as_str())) {
@@ -995,6 +1011,7 @@ fn uncovered(mut plan: Plan, c: &Covered, range: Range) -> Vec<String> {
     let rig = plan.rig.take();
     for (gate, slot) in [
         ("bare", &mut plan.bare),
+        ("pin", &mut plan.pin),
         ("linux", &mut plan.linux),
         ("gif", &mut plan.gif),
     ] {

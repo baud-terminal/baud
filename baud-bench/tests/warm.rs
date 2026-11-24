@@ -521,11 +521,11 @@ fn the_watcher_builds_what_the_gate_builds() {
         bound("watch = "),
         "\"exec bash \\\"$DEVENV_ROOT/scripts/warm.sh\\\" watch ${lib.escapeShellArg warmBuild}\""
     );
-    // The watcher builds what `test:unit` runs: the suite, and on macOS the
-    // event rig, each with the gate's own string.
+    // The watcher builds what `test:unit` runs: the suite, the band reserve
+    // test and on macOS the event rig, each with the gate's own string.
     assert_eq!(
         bound("warmBuild = "),
-        "if isDarwin then \"${unitBuild} --no-run && ${rigBuild} --no-run\" else \"${unitBuild} --no-run\""
+        "if isDarwin then \"${unitBuild} --no-run && ${rigBuild} --no-run && ${pinBuild} --no-run\" else \"${unitBuild} --no-run && ${pinBuild} --no-run\""
     );
     // ... and runs every row of it: with `BAUD_RIG_ROWS` set, which would
     // run only the rows it names, the step refuses.
@@ -545,10 +545,20 @@ fn the_watcher_builds_what_the_gate_builds() {
     }
     assert!(
         exec.contains(
-            "${rigRun} [ \\\"$a\\\" -eq 0 ] && [ \\\"$b\\\" -eq 0 ] && [ \\\"$c\\\" -eq 0 ]"
+            "${rigRun} ${pinBuild}; d=$?; [ \\\"$a\\\" -eq 0 ] && [ \\\"$b\\\" -eq 0 ] && [ \\\"$c\\\" -eq 0 ] && [ \\\"$d\\\" -eq 0 ]"
         ),
-        "test:unit runs the rig and fails on it: {exec}"
+        "test:unit runs the rig and the band reserve test, and fails on either: {exec}"
     );
+    let pin = bound("pinBuild = ");
+    for word in [
+        "RUSTFLAGS='-D warnings'",
+        "cargo nextest run",
+        "--cargo-profile release-probe",
+        "--features probe-band-pin,alloc",
+        "--test band_reserve",
+    ] {
+        assert!(pin.contains(word), "pinBuild lacks {word}: {pin}");
+    }
 
     assert!(nix.contains("CARGO_TARGET_DIR = \"./target\";"));
     let build = sh.split_once("\nbuild)\n").expect("warm.sh has build").1;

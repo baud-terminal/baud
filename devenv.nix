@@ -29,11 +29,15 @@ let
   # workspace Cargo.toml says why). `test:unit` runs it after the suite, and
   # the warm process builds it after the suite's build.
   rigBuild = "RUSTFLAGS='-D warnings' cargo nextest run --cargo-profile release-probe --cargo-quiet -p baud --features effect-probe --test event_rig";
+  # **A band's reserve, held to its count** (`baud-core/tests/band_reserve.rs`):
+  # it needs `baud-core` built with the test-only `probe-band-pin` feature,
+  # so it is a build of its own, as the rig is, on every host.
+  pinBuild = "RUSTFLAGS='-D warnings' cargo nextest run --cargo-profile release-probe --cargo-quiet -p baud-core --features probe-band-pin,alloc --test band_reserve";
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   # The rig runs every row here: `BAUD_RIG_ROWS` set, it would run only the
   # rows it names and pass, so `test:unit` refuses rather than run it.
   rigRun = if isDarwin then " if [ -n \"\${BAUD_RIG_ROWS+set}\" ]; then echo 'test:unit: BAUD_RIG_ROWS is set, and the rig would run only the rows it names: the gate runs every row' >&2; c=1; else ${rigBuild}; c=$?; fi;" else " c=0;";
-  warmBuild = if isDarwin then "${unitBuild} --no-run && ${rigBuild} --no-run" else "${unitBuild} --no-run";
+  warmBuild = if isDarwin then "${unitBuild} --no-run && ${rigBuild} --no-run && ${pinBuild} --no-run" else "${unitBuild} --no-run && ${pinBuild} --no-run";
   # The watcher, for `devenv up` and `warm-run` alike. No no-LTO arm: a
   # re-run after a small fix builds `--cargo-profile fast` in its own slot's
   # target directory, which cargo keys on that path, so a build here would
@@ -519,7 +523,7 @@ in
       # nextest rather than `cargo test`, since 2026-10-07; why is at
       # `nextest` above. It builds the same test binaries, with
       # the same profile and flags, through `cargo test --no-run`.
-      exec = "${unitBuild} --no-fail-fast; a=$?; RUSTFLAGS='-D warnings' cargo test --release --quiet --doc ${scope}; b=$?;${rigRun} [ \"$a\" -eq 0 ] && [ \"$b\" -eq 0 ] && [ \"$c\" -eq 0 ]";
+      exec = "${unitBuild} --no-fail-fast; a=$?; RUSTFLAGS='-D warnings' cargo test --release --quiet --doc ${scope}; b=$?;${rigRun} ${pinBuild}; d=$?; [ \"$a\" -eq 0 ] && [ \"$b\" -eq 0 ] && [ \"$c\" -eq 0 ] && [ \"$d\" -eq 0 ]";
       after = [ "test:check" ];
     };
 
