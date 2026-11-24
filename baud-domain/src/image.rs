@@ -258,6 +258,20 @@ pub enum ImageGround {
 /// A pixel dimension of a stored image, width or height. `u16` covers any image
 /// a terminal draws -- 65535 pixels a side is far past a screen -- and the area
 /// is a `usize` so the arena index cannot overflow the type it is stored at.
+///
+/// A pixel dimension carries no arithmetic operators: the extent of n cells
+/// comes through span, which saturates at u16::MAX, so no extent wraps to a
+/// small area that does not exist.
+///
+/// ```compile_fail,E0369
+/// let _ = baud_domain::ImagePx::of(72) * 2048usize;
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _: baud_domain::ImagePx = baud_domain::ImagePx::of(72).span(2048);
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, FromZeros)]
 pub struct ImagePx(u16);
 
@@ -320,6 +334,20 @@ impl ZIndex {
 /// A handle to a stored image. `NONE` is zero, so a zeroed slot names no image;
 /// a live handle is [`ImageId::from_index`] of the slot it occupies, the
 /// `ClusterId`/`LinkId` shape.
+///
+/// A live image handle is the slot the store gave it: the field, from_index and
+/// index are private, so outside baud-domain an ImageId is NONE or one an
+/// ImageStore returned, never a made-up slot number.
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::ImageId(1);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _: bool = baud_domain::ImageId::NONE.is_none();
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, FromZeros)]
 pub struct ImageId(u32);
 
@@ -359,6 +387,21 @@ impl ImageId {
 /// image's pixels moved since an epoch -- the CPU path's kept frame, which
 /// places nothing -- asks of that image and not of the store's every
 /// change.
+///
+/// An image epoch is minted only by the store: the field is private and bumped
+/// is private, so outside baud-domain an epoch is ZERO or what
+/// ImageStore::generation returns, and a texture cache cannot key on an epoch
+/// the store never reached.
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::ImageGen(1);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _: u32 = baud_domain::ImageGen::ZERO.raw();
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct ImageGen(u32);
 
@@ -481,6 +524,20 @@ impl PlacementId {
 /// data reference"): "an arbitrary positive integer up to 4294967295", zero
 /// meaning none was given. The client's name for an image, not the store's
 /// [`ImageId`], which is a slot.
+///
+/// The client's name for an image is its own type, apart from the store's slot
+/// handle ImageId: a kitty id reaches a slot only through
+/// ImageStore::kitty_image, never by passing one for the other.
+///
+/// ```compile_fail,E0308
+/// let _: baud_domain::ImageId = baud_domain::KittyId::of(1);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _: baud_domain::KittyId = baud_domain::KittyId::of(1);
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub struct KittyId(u32);
 
@@ -1648,6 +1705,24 @@ pub struct ImageView<'a> {
 /// the kitty quota: a new kitty image deletes older kitty images to make
 /// space before it is refused, those without placements first
 /// ([`ImageStore::reserve_evicting`], counted in `images_evicted`).
+///
+/// A store over caller-lent memory with its tables, cursors and epoch private:
+/// built only by new, refusals counted in its public counters, and the epoch
+/// read through generation and moved only by the store's own changes.
+///
+/// ```compile_fail,E0616
+/// fn f(s: &baud_domain::ImageStore<'_>) -> baud_domain::ImageGen {
+///     s.epoch
+/// }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// fn f(s: &baud_domain::ImageStore<'_>) -> baud_domain::ImageGen {
+///     s.generation()
+/// }
+/// ```
 pub struct ImageStore<'b> {
     pixels: &'b mut [Pixel],
     /// The kitty query probe ([`ImageStore::with_probe`]): outside the

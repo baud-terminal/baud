@@ -19,6 +19,22 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 /// No public field and no arithmetic operators, so nothing adds one position
 /// to another: a move is named ([`BytePos::advance`],
 /// [`BytePos::advance_read`]) and so is a distance ([`BytePos::gap`]).
+///
+/// An arena position has no public field and no arithmetic operators: one
+/// position is never added to another; a move is named (advance, advance_read)
+/// and a distance is a saturating ByteGap (gap).
+///
+/// ```compile_fail,E0369
+/// let p = baud_domain::BytePos::ZERO;
+/// let _ = p + p;
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let p = baud_domain::BytePos::from_index(4);
+/// let _ = p.advance(baud_domain::ByteLen::from_index(2)).gap(p);
+/// ```
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromBytes, IntoBytes, Immutable, KnownLayout,
 )]
@@ -59,6 +75,21 @@ pub struct ByteGap(pub(crate) u64);
 
 /// Index of a logical line. **Stable across resize and font change** — this is
 /// the only line identifier safe to persist.
+///
+/// An absolute line has no arithmetic: a distance between two lines is only
+/// [`LineIdx::since`]'s `Option<Rows>`, `None` when the line is not after the
+/// other, and a move is `plus` (saturating) or `minus` (`None` before the
+/// first).
+///
+/// ```compile_fail,E0369
+/// fn f(a: baud_domain::LineIdx, b: baud_domain::LineIdx) { let _ = a - b; }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// fn f(a: baud_domain::LineIdx, b: baud_domain::LineIdx) -> Option<baud_domain::Rows> { a.since(b) }
+/// ```
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,
 )]

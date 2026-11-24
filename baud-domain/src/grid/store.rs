@@ -295,6 +295,20 @@ impl RowGens<'_> {
 }
 
 /// **The status line's generation**, with the store's current epoch.
+///
+/// The status line's generation is minted only by the store with its epoch
+/// (fields private); a reader can only ask after(), which reads the epoch
+/// first, never forge or compare a raw generation.
+///
+/// ```compile_fail,E0451
+/// fn f(r: baud_domain::RowGen, e: baud_domain::SealEpoch) -> baud_domain::StatusGen { baud_domain::StatusGen { row: r, epoch: e } }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// fn f(g: baud_domain::StatusGen, s: &baud_domain::Seal) -> bool { g.after(s) }
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct StatusGen {
     row: RowGen,

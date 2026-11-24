@@ -8,6 +8,21 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 /// looks like `U+0020` — that conflates *nothing was written* with *a space was
 /// written*, which differ for selection (copying a line must not yield trailing
 /// spaces), for reflow, and for equality.
+///
+/// A cell word is a scalar value, EMPTY, WIDE_TAIL, DEFECTIVE, a cluster id or
+/// a placeholder, the reserved states above U+10FFFF so blank is never U+0020:
+/// the field is pub(crate) and the word is built only through
+/// codepoint(Codepoint), cluster, placeholder and the constants.
+///
+/// ```compile_fail,E0603
+/// let _ = baud_domain::Content(0x20);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::Content::codepoint(baud_domain::Codepoint::SPACE);
+/// ```
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, FromBytes, IntoBytes, Immutable, KnownLayout)]
 pub struct Content(pub(crate) u32);
@@ -196,6 +211,21 @@ pub struct PackedCell {
 /// for DECSCA protection, where a refusal would silently expose text an
 /// application asked to keep. Anything whose loss is a correctness bug rather
 /// than a cosmetic one belongs here, per cell, where no table can refuse it.
+///
+/// Per-cell state (DECSCA protection, graphics, link index, entry advance) is
+/// built only through named constants and constructors outside the crate, so no
+/// raw u16 can set a stray link index or protection bit.
+///
+/// ```compile_fail,E0603
+/// let _ = baud_domain::CellFlags(1);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let f = baud_domain::CellFlags::protection(true);
+/// assert!(f.is_protected());
+/// ```
 #[repr(transparent)]
 #[derive(
     Clone, Copy, Default, PartialEq, Eq, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,
@@ -889,6 +919,21 @@ impl ClusterId {
 }
 
 /// One interned cluster: a base character and the codepoints that follow it.
+///
+/// A slot's continuations and their count are private: a cluster is written
+/// only by the store's intern, so len never exceeds CAPACITY and readers see
+/// only cps()[..len].
+///
+/// ```compile_fail,E0451
+/// let _ = baud_domain::ClusterSlot { base: baud_domain::Content::EMPTY, len: 0, cps: [0; 8] };
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let s = baud_domain::ClusterSlot::EMPTY;
+/// assert!(s.is_empty() && s.cps().is_empty());
+/// ```
 #[derive(Clone, Copy)]
 pub struct ClusterSlot {
     /// The base character these continuations belong to, and the only copy
@@ -960,6 +1005,21 @@ impl ClusterSlot {
 /// that repaints only the rows whose words changed draws the old one. The
 /// rendition table's sweep is the same hazard for colours and forces a full
 /// pass the same way (`Reclaims::recolours_since`).
+///
+/// Only the cluster store moves its epoch (a sweep that freed slots, a reset);
+/// a reader holding cells across reads can compare epochs for equality but
+/// cannot construct or forge one.
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::ClusterEpoch(1);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let a = baud_domain::ClusterEpoch::default();
+/// assert_eq!(a, baud_domain::ClusterEpoch::default());
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct ClusterEpoch(u32);
 
@@ -1066,6 +1126,23 @@ impl Default for ClusterLive {
 /// is refused when its eight slots hold those. Neither is a bound on what
 /// is on a cell at once: a cluster can be refused while far fewer clusters
 /// are on cells than the store has slots.
+///
+/// The store refuses rather than evicts: its slots, fill count and epoch are
+/// private, so a slot a cell names is changed only by intern, a sweep of
+/// unnamed slots, or reset, and a refusal is counted in refused.
+///
+/// ```compile_fail,E0616
+/// fn f(s: &baud_domain::ClusterStore<'_>) -> usize { s.slots.len() }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let mut slots = [baud_domain::ClusterSlot::EMPTY; 16];
+/// let s = baud_domain::ClusterStore::new(&mut slots);
+/// assert_eq!(s.filled() + s.refused, 0);
+/// let _ = s.sweep_due();
+/// ```
 pub struct ClusterStore<'b> {
     slots: &'b mut [ClusterSlot],
     /// Clusters that did not fit. Never silent.

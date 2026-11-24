@@ -45,6 +45,24 @@ use core::time::Duration;
 ///
 /// `Default` is [`HostTime::ZERO`], so a struct of counters that derives it
 /// starts where a leg that has not happened reads.
+///
+/// A host stamp is a point, not a span: there is no `Sub` or `Add`, so the
+/// difference of two stamps is a `Duration` through [`HostTime::since`] and a
+/// stamp moves only by `plus(Duration)`, never by adding another stamp.
+///
+/// ```compile_fail,E0369
+/// let a = baud_domain::HostTime::of_nanos(2);
+/// let b = baud_domain::HostTime::of_nanos(1);
+/// let _ = a - b;
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let a = baud_domain::HostTime::of_nanos(2);
+/// let b = baud_domain::HostTime::of_nanos(1);
+/// let _: Option<core::time::Duration> = a.since(b);
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 #[repr(transparent)]
 pub struct HostTime(u64);

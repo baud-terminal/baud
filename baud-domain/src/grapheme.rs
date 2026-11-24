@@ -226,6 +226,21 @@ enum IncbLookback {
 /// `the_two_forms_agree_in_lockstep_from_every_constructor` steps the two
 /// side by side. The runtime struct went from five bytes to one, and
 /// ingest2 was measured on it.
+///
+/// The cluster machine is one private state id into CLUSTER_NEXT, reached only
+/// through its named constructors and steps, so it never holds an id the table
+/// does not define and cannot carry a second, disagreeing form of its rules.
+///
+/// ```compile_fail,E0451
+/// let _ = baud_domain::ClusterBreak { table_state: 0 };
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let m = baud_domain::ClusterBreak::after_control();
+/// let _ = m.ordinary_run_ready();
+/// ```
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Debug)]
 pub struct ClusterBreak {
     /// The whole machine, as one state id into `CLUSTER_NEXT`.

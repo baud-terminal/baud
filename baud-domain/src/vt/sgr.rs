@@ -447,7 +447,7 @@ impl ColorSlot {
 /// stops only where the mask says a new parameter begins, and by
 /// [`Head::single`], whose one parameter nothing can be joined to.
 ///
-/// ```compile_fail
+/// ```compile_fail,E0423
 /// use baud_domain::{Head, ParamIdx, Params, SgrAttr};
 /// fn from_the_middle(p: Params<'_>) {
 ///     let _ = SgrAttr::parse(Head(p.skip(ParamIdx::SECOND)));

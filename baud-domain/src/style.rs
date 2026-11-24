@@ -3,6 +3,19 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// Index into the style table. Two bytes rather than ten inline: cell size
 /// drove throughput from 36% of the kernel ceiling to 80%.
+///
+/// A rendition-table index, not an integer: its u16 is crate-private, read only
+/// through index() and made only through from_index/DEFAULT.
+///
+/// ```compile_fail,E0616
+/// fn f(s: baud_domain::StyleId) -> u16 { s.0 }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// fn f(s: baud_domain::StyleId) -> usize { s.index() }
+/// ```
 #[derive(
     Clone, Copy, PartialEq, Eq, Default, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,
 )]
@@ -59,6 +72,21 @@ impl SlotsRead {
 /// are set types that would happily OR together as raw integers; here they
 /// cannot meet. `Attrs` outgrew `LineFlags`' sixteen bits when the ideogram
 /// aspects landed, which is a second reason they are not interchangeable.
+///
+/// A rendition set has no public field, no From<u32> and no BitOr: bits are
+/// combined only through named sets (with/without/only), so a raw integer or a
+/// LineFlags never ORs into a rendition.
+///
+/// ```compile_fail,E0369
+/// let _ = baud_domain::Attrs::BOLD | 1u32;
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let a = baud_domain::Attrs::BOLD.with(baud_domain::Attrs::ITALIC);
+/// assert!(a.has(baud_domain::Attrs::BOLD));
+/// ```
 #[derive(
     Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
 )]
@@ -284,6 +312,21 @@ const _: () = assert!(
 
 /// A palette index or an sRGB component. Eight bits by protocol, not by
 /// convenience — SGR encodes both as a single decimal parameter.
+///
+/// A colour channel or palette index is eight bits and built only through a
+/// named source: a saturated CSI parameter, a saturating offset, a byte, or a
+/// clamped and rounded unit fraction.
+///
+/// ```compile_fail,E0603
+/// let _ = baud_domain::Chan(7);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let c = baud_domain::Chan::from_u8(7);
+/// assert_eq!(c.get(), 7);
+/// ```
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Chan(pub(crate) u8);
@@ -382,6 +425,19 @@ impl StyleId {
 /// filled slots.
 ///
 /// Zero is a table nothing has written; slot 0's reservation is write 1.
+///
+/// The rendition table's write count only grows: it starts at NEVER and
+/// advances by next(); no count can be written directly.
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::StyleWrites(7);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::StyleWrites::NEVER.next();
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub struct StyleWrites(u64);
 
@@ -474,6 +530,20 @@ impl ColorEpoch {
 /// A tagged `u32` rather than an enum so the whole rendition stays a plain
 /// zeroable block -- `Storage` is `new_box_zeroed`, and all-zero must be a valid
 /// default rather than a colour that happens to look like one.
+///
+/// One colour slot carries exactly one tag (default, palette index, RGB or
+/// automatic) with its payload: the field is pub(crate) and the word is built
+/// only by DEFAULT, AUTOMATIC, indexed and rgb.
+///
+/// ```compile_fail,E0603
+/// let _ = baud_domain::ColorWord(0x0300_0000);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::ColorWord::rgb(baud_domain::Chan::from_u8(1), baud_domain::Chan::from_u8(2), baud_domain::Chan::from_u8(3));
+/// ```
 #[repr(transparent)]
 #[derive(
     Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
@@ -549,6 +619,20 @@ impl ColorWord {
 /// background colour -- so it dropped them. They were parsed and discarded,
 /// which is the failure `docs/vt-coverage.md` calls `parsed`, at the scale of
 /// every attribute a terminal has.
+///
+/// The twenty-byte rendition word has private fields: font and string share one
+/// packed field and variants carry the tombstone bit, so every change goes
+/// through the named with_/set_ accessors and SGR 0 through sgr_reset.
+///
+/// ```compile_fail,E0451
+/// let _ = baud_domain::StyleWord { attrs: baud_domain::Attrs::BOLD, ..baud_domain::StyleWord::DEFAULT };
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::StyleWord::DEFAULT.with_attrs(baud_domain::Attrs::BOLD);
+/// ```
 #[repr(C)]
 #[derive(
     Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
@@ -654,6 +738,19 @@ impl StyleWord {
 /// **Which slots of a rendition table some cell names**, for a sweep: one
 /// bit a slot of the largest table, since a [`StyleId`] is a `u16`. 8 KiB,
 /// so it lives on the sweep's stack and nowhere else.
+///
+/// One bit for every u16 StyleId, 8 KiB; no Clone or Copy, so the sweep's set
+/// lives on its stack once and is never duplicated; field private.
+///
+/// ```compile_fail,E0599
+/// fn f(s: baud_domain::SlotSet) { let _ = s.clone(); }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// fn f(s: &baud_domain::SlotSet) -> bool { s.has(0) }
+/// ```
 pub struct SlotSet([u64; SlotSet::WORDS]);
 
 impl SlotSet {

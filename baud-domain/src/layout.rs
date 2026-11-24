@@ -51,10 +51,22 @@ impl<'layout> Layout<'layout> {
 /// Enter a geometry scope. A resize means calling this again, which mints a
 /// fresh brand and invalidates every outstanding [`RowIdx`] at compile time.
 ///
-/// ```compile_fail
-/// # use baud_domain::*;
-/// let stale = with_layout(Cols::from_wire(80), Rows::from_wire(24), |l| l.row(RowCount(5)));
-/// with_layout(Cols::from_wire(200), Rows::from_wire(50), |l| l.row_value(stale)); // ERROR
+/// ```compile_fail,E0521
+/// use baud_domain::{with_layout, Cols, DisplayWidth, Rows};
+/// with_layout(Cols::of_index(80), Rows::of_count(24), |old| {
+///     let stale = old.row(old.rows_for(DisplayWidth::ZERO));
+///     with_layout(Cols::of_index(200), Rows::of_count(50), |new| new.row_value(stale))
+/// });
+/// ```
+///
+/// An index used under the layout that made it is the legal path:
+///
+/// ```
+/// use baud_domain::{with_layout, Cols, DisplayWidth, Rows};
+/// with_layout(Cols::of_index(80), Rows::of_count(24), |l| {
+///     let r = l.row(l.rows_for(DisplayWidth::ZERO));
+///     let _ = l.row_value(r);
+/// });
 /// ```
 pub fn with_layout<R>(cols: Cols, rows: Rows, f: impl for<'id> FnOnce(Layout<'id>) -> R) -> R {
     f(Layout {

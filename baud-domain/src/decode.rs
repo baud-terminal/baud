@@ -391,6 +391,19 @@ impl Pending {
 ///
 /// Not a `u32`. `Width::of` and `Content::codepoint` both took one and could be
 /// handed a lane mask, a byte count, or a packed colour with equal enthusiasm.
+///
+/// A Unicode scalar value, 0..=U+10FFFF with no surrogate: new, from_three and
+/// from_quad refuse anything else, and decoded maps it to U+FFFD.
+///
+/// ```compile_fail,E0603
+/// let _ = baud_domain::Codepoint(0xD800);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _: Option<baud_domain::Codepoint> = baud_domain::Codepoint::new(0x41);
+/// ```
 #[repr(transparent)]
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,

@@ -200,6 +200,20 @@ impl CacheGeometry {
 /// Distinct from [`Cols`], the live width, on purpose. The two were equal
 /// while the pitch followed the width, so swapping them at a call site was
 /// invisible; now they diverge, and a swap has to fail to compile.
+///
+/// The row pitch is its own type, distinct from Cols, built only by
+/// store_stride or of_cells (at least one cell); a raw usize cannot become a
+/// pitch.
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::Stride(208);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::Stride::of_cells(208);
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[repr(transparent)]
 pub struct Stride(usize);

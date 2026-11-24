@@ -18,6 +18,20 @@ use crate::*;
 /// Meta 8 -- so shift-F5 is `CSI 1 5 ; 2 ~`. Four booleans would have to be
 /// folded back into that number at every call site, which is where the folding
 /// gets done differently in two places.
+///
+/// A modifier set is only the named bits combined with with/without; a wire
+/// parameter enters only through from_wire, which refuses 0 and anything past
+/// 16 rather than inventing a keypress.
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::Modifiers(3);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::Modifiers::SHIFT.with(baud_domain::Modifiers::ALT).wire();
+/// ```
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug, PartialOrd, Ord)]
 pub struct Modifiers(u8);

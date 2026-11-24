@@ -26,6 +26,19 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 /// **Which string a character was written in**: an index into the core's
 /// table of strings, `0` for none. One byte, beside the font's in the
 /// rendition word, so the word stays twenty bytes.
+///
+/// An SDS/SRS string identifier is NONE or a table slot 1..=255 named through
+/// from_index; the byte is private so a slot number cannot be written directly.
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::StringId(7);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::StringId::from_index(7);
+/// ```
 #[repr(transparent)]
 #[derive(
     Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,

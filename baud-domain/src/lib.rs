@@ -251,6 +251,7 @@ mod variants;
 pub mod vs16;
 mod vt;
 mod width;
+mod write_combined;
 mod width_data {
     //! Width data, compiled by `build/width.rs` from the sources pinned in
     //! `docs/research/sources/MANIFEST.toml` (`[[source: eaw-data]]`,
@@ -317,3 +318,4 @@ pub use variants::*;
 pub use vs16::Vs16Width;
 pub use vt::*;
 pub use width::*;
+pub use write_combined::*;

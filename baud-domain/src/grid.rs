@@ -73,6 +73,20 @@ impl<'buf, T> core::ops::IndexMut<(Row, Col)> for Grid<'buf, T> {
 /// correct and cost 45% of cell ingest, because a streaming payload scrolls
 /// every screenful: write amplification around 20:1 against the rule that it
 /// stays at or below 1. Rotating an index costs neither.
+///
+/// Field is pub(crate): outside the crate a rotation starts at NONE and moves
+/// only by advance/retreat modulo the ring's rows, so it is always below the
+/// ring and never an underflowed index.
+///
+/// ```compile_fail,E0603
+/// let _ = baud_domain::RowRot(3);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::RowRot::NONE.advance(3, baud_domain::Rows::of_index(24));
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub struct RowRot(pub(crate) usize);
 

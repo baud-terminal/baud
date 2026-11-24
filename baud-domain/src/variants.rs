@@ -23,6 +23,20 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 /// The variants a character was written under: two bytes of its
 /// rendition. Bit 15 is never set by any value, which keeps
 /// [`Variants::TOMBSTONE`] out of every word a program can make.
+///
+/// SAPV variants are built only from DEFAULT through the with_ setters, none of
+/// which sets bit 15, so TOMBSTONE stays out of every word a program can make;
+/// the u16 is crate-private.
+///
+/// ```compile_fail,E0603
+/// let _ = baud_domain::Variants(1 << 15);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::Variants::DEFAULT.with_vowels(baud_domain::Vowels::Hidden);
+/// ```
 #[repr(transparent)]
 #[derive(
     Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,

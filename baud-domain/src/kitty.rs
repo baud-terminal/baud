@@ -753,6 +753,20 @@ const RUN_OCTETS: usize = 1536;
 /// The work [`KittyStream::step`] may do in one call, in bytes: compressed
 /// input fed, or scanline and pixel bytes converted. A newtype so an
 /// embedder's budget cannot be read as a pixel count.
+///
+/// A decode step's budget is a byte count of at least one, never a pixel count:
+/// the field is private and of clamps to >= 1, ALL and MIB the other
+/// constructors.
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::DecodeBudget(0);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::DecodeBudget::of(0);
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct DecodeBudget(usize);
 

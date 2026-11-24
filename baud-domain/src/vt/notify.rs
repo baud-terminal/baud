@@ -2099,7 +2099,7 @@ impl NoticeDesk {
 /// buttons by its own list; a click is read back against the buttons a
 /// notice gave. Outside this crate there is no constructor:
 ///
-/// ```compile_fail
+/// ```compile_fail,E0624
 /// let _ = baud_domain::NoticeButton::of_index(0);
 /// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

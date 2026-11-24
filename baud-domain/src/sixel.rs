@@ -98,6 +98,21 @@ pub enum SixelFit {
 /// shall be ignored as if that parameter were not received" (PDF p. 125),
 /// which a DCS introducer is parsed as. Both were drawn 1:1, as was every
 /// ratio that is not whole, until 2026-10-23.
+///
+/// Fields private: a ratio comes only from the P1 macro table (past 9 read as
+/// omitted, 2:1), ONE_TO_ONE, or a raster command where zero reads one and
+/// below one is 1:1, so the denominator is never zero and the ratio never below
+/// one.
+///
+/// ```compile_fail,E0451
+/// let _ = baud_domain::SixelAspect { num: 1, den: 0 };
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::SixelAspect::from_macro(Some(2));
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SixelAspect {
     num: u16,
@@ -199,6 +214,20 @@ enum Raster {
 /// pixel was never painted -- transparent, so a Sixel composited over the
 /// screen shows the cells through its gaps -- which the reserved-value
 /// discipline for blank cells is the precedent for.
+///
+/// Fields private: built only by new/shrunk, which lift a shrink factor of zero
+/// to one, and painted only through the decoder, which refuses a pixel past the
+/// canvas rather than wrapping it.
+///
+/// ```compile_fail,E0451
+/// fn f(p: &mut [baud_domain::Pixel]) { let _ = baud_domain::SixelCanvas { pixels: p, width: baud_domain::SixelPx::ZERO, by: 0 }; }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// fn f(p: &mut [baud_domain::Pixel]) { let _ = baud_domain::SixelCanvas::shrunk(p, baud_domain::SixelPx::ZERO, 0); }
+/// ```
 pub struct SixelCanvas<'a> {
     pixels: &'a mut [Pixel],
     width: SixelPx,

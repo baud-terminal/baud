@@ -1,0 +1,753 @@
+//! The surface of baud-domain that baud-core, baud-render and the presenters
+//! build against. Every item below is pinned: removing or renaming it, or
+//! changing a pinned signature, stops this file compiling. Every type that
+//! holds a rule is listed in `WITNESSED` with the error its `compile_fail`
+//! witness expects, and the tests below read those witnesses from the source,
+//! so a rule cannot lose its witness and a witness cannot lose its error code.
+
+// A pin spells an entry point's whole signature, so a change to any part of
+// it stops this file compiling.
+#![allow(clippy::type_complexity)]
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+// AmbiguousWidth
+const _: baud_domain::AmbiguousWidth = baud_domain::AmbiguousWidth::Narrow;
+const _: baud_domain::AmbiguousWidth = baud_domain::AmbiguousWidth::Wide;
+const _: fn() -> baud_domain::AmbiguousWidth = <baud_domain::AmbiguousWidth as Default>::default;
+// Attrs
+const _: baud_domain::Attrs = baud_domain::Attrs::NONE;
+const _: baud_domain::Attrs = baud_domain::Attrs::BOLD;
+const _: baud_domain::Attrs = baud_domain::Attrs::REVERSE;
+const _: baud_domain::Attrs = baud_domain::Attrs::UNDERLINES;
+// Autodetect
+const _: baud_domain::Autodetect = baud_domain::Autodetect::On;
+const _: baud_domain::Autodetect = baud_domain::Autodetect::Off;
+// BidiDirection
+const _: baud_domain::BidiDirection = baud_domain::BidiDirection::Ltr;
+const _: baud_domain::BidiDirection = baud_domain::BidiDirection::Rtl;
+// BoxMirror
+const _: baud_domain::BoxMirror = baud_domain::BoxMirror::Off;
+const _: baud_domain::BoxMirror = baud_domain::BoxMirror::On;
+// BytePos
+const _: baud_domain::BytePos = baud_domain::BytePos::ZERO;
+const _: fn(usize) -> baud_domain::BytePos = baud_domain::BytePos::from_index;
+const _: fn(baud_domain::BytePos, baud_domain::ByteLen) -> baud_domain::BytePos =
+    baud_domain::BytePos::advance;
+const _: fn(baud_domain::BytePos, baud_domain::ReadLen) -> baud_domain::BytePos =
+    baud_domain::BytePos::advance_read;
+// CellFlags
+const _: baud_domain::CellFlags = baud_domain::CellFlags::NONE;
+const _: baud_domain::CellFlags = baud_domain::CellFlags::GRAPHICS;
+const _: baud_domain::CellFlags = baud_domain::CellFlags::PROTECTED;
+const _: fn(bool) -> baud_domain::CellFlags = baud_domain::CellFlags::protection;
+// Chan
+const _: fn(u8) -> baud_domain::Chan = baud_domain::Chan::from_u8;
+const _: fn(f32) -> baud_domain::Chan = baud_domain::Chan::from_unit;
+const _: fn(u16, u16) -> baud_domain::Chan = baud_domain::Chan::from_offset;
+const _: fn(baud_domain::Chan) -> u8 = baud_domain::Chan::get;
+// CharacterPath
+const _: baud_domain::CharacterPath = baud_domain::CharacterPath::Default;
+const _: baud_domain::CharacterPath = baud_domain::CharacterPath::LeftToRight;
+const _: baud_domain::CharacterPath = baud_domain::CharacterPath::RightToLeft;
+const _: fn() -> baud_domain::CharacterPath = <baud_domain::CharacterPath as Default>::default;
+// ClusterBreak
+const _: fn() -> baud_domain::ClusterBreak = baud_domain::ClusterBreak::after_control;
+const _: fn() -> baud_domain::ClusterBreak = baud_domain::ClusterBreak::after_ascii_run;
+const _: fn() -> baud_domain::ClusterBreak = baud_domain::ClusterBreak::new;
+const _: fn(
+    baud_domain::ClusterBreak,
+    baud_domain::ClusterCells,
+    baud_domain::GraphemeClass,
+    baud_domain::Lookback,
+    baud_domain::Codepoint,
+) -> bool = baud_domain::ClusterBreak::parts_at;
+// ClusterCells
+const _: baud_domain::ClusterCells = baud_domain::ClusterCells::Legacy;
+const _: baud_domain::ClusterCells = baud_domain::ClusterCells::LegacyMarksJoined;
+const _: baud_domain::ClusterCells = baud_domain::ClusterCells::Extended;
+const _: fn(baud_domain::GraphemeMode, baud_domain::SpacingMarks) -> baud_domain::ClusterCells =
+    baud_domain::ClusterCells::of;
+// ClusterEpoch
+const _: fn() -> baud_domain::ClusterEpoch = <baud_domain::ClusterEpoch as Default>::default;
+const _: for<'a> fn(&'a baud_domain::ClusterStore<'static>) -> baud_domain::ClusterEpoch =
+    baud_domain::ClusterStore::epoch;
+// ClusterSlot
+const _: usize = baud_domain::ClusterSlot::CAPACITY;
+const _: baud_domain::ClusterSlot = baud_domain::ClusterSlot::EMPTY;
+const _: for<'a> fn(&'a baud_domain::ClusterSlot) -> &'a [u32] = baud_domain::ClusterSlot::cps;
+const _: fn(baud_domain::ClusterSlot) -> bool = baud_domain::ClusterSlot::is_empty;
+// ClusterStore
+const _: usize = baud_domain::ClusterStore::SLOTS_MAX;
+const _: usize = baud_domain::ClusterStore::PROBES;
+const _: fn(&'static mut [baud_domain::ClusterSlot]) -> baud_domain::ClusterStore<'static> =
+    baud_domain::ClusterStore::new;
+const _: for<'a> fn(&'a baud_domain::ClusterStore<'static>) -> bool =
+    baud_domain::ClusterStore::sweep_due;
+// Codepoint
+const _: fn(char) -> baud_domain::Codepoint = baud_domain::Codepoint::from_char;
+const _: fn(u32) -> Option<baud_domain::Codepoint> = baud_domain::Codepoint::new;
+const _: fn(u32) -> baud_domain::Codepoint = baud_domain::Codepoint::decoded;
+const _: baud_domain::Codepoint = baud_domain::Codepoint::REPLACEMENT;
+// Col
+const _: fn(usize) -> baud_domain::Col = baud_domain::Col::at_index;
+const _: baud_domain::Col = baud_domain::Col::ZERO;
+const _: fn(baud_domain::Col) -> usize = baud_domain::Col::index;
+// ColorWord
+const _: baud_domain::ColorWord = baud_domain::ColorWord::DEFAULT;
+const _: fn(baud_domain::Chan, baud_domain::Chan, baud_domain::Chan) -> baud_domain::ColorWord =
+    baud_domain::ColorWord::rgb;
+const _: baud_domain::ColorWord = baud_domain::ColorWord::AUTOMATIC;
+const _: fn(baud_domain::Chan) -> baud_domain::ColorWord = baud_domain::ColorWord::indexed;
+// Cols
+const _: fn(usize) -> baud_domain::Cols = baud_domain::Cols::of_index;
+const _: fn(baud_domain::Cols) -> usize = baud_domain::Cols::index;
+const _: fn(baud_domain::Cols, baud_domain::Col) -> baud_domain::Room = baud_domain::Cols::room_at;
+const _: fn(baud_domain::Cols, usize) -> baud_domain::Cols = baud_domain::Cols::clamp;
+// Content
+const _: baud_domain::Content = baud_domain::Content::EMPTY;
+const _: fn(baud_domain::Codepoint) -> baud_domain::Content = baud_domain::Content::codepoint;
+const _: baud_domain::Content = baud_domain::Content::DEFECTIVE;
+const _: baud_domain::Content = baud_domain::Content::WIDE_TAIL;
+// CopyDirection
+const _: baud_domain::CopyDirection = baud_domain::CopyDirection::LeftToRight;
+const _: baud_domain::CopyDirection = baud_domain::CopyDirection::RightToLeft;
+// Count
+const _: fn(usize) -> baud_domain::Count = baud_domain::Count::of;
+const _: baud_domain::Count = baud_domain::Count::ONE;
+const _: baud_domain::Count = baud_domain::Count::ZERO;
+const _: fn(Option<baud_domain::Param>) -> baud_domain::Count = baud_domain::Count::from_param;
+// CursorStyle
+const _: fn(baud_domain::CursorShape, baud_domain::CursorBlink) -> baud_domain::CursorStyle =
+    baud_domain::CursorStyle::of;
+const _: fn(Option<baud_domain::Param>) -> Option<baud_domain::CursorPick> =
+    baud_domain::CursorStyle::from_param;
+const _: fn(baud_domain::CursorStyle) -> u8 = baud_domain::CursorStyle::wire;
+const _: fn(baud_domain::CursorStyle, bool) -> baud_domain::CursorStyle =
+    baud_domain::CursorStyle::with_blink;
+const _: baud_domain::CursorStyle = baud_domain::CursorStyle::SteadyBlock;
+const _: baud_domain::CursorStyle = baud_domain::CursorStyle::BlinkingBlock;
+// DecimalMark
+const _: baud_domain::DecimalMark = baud_domain::DecimalMark::FullStop;
+const _: baud_domain::DecimalMark = baud_domain::DecimalMark::Comma;
+// DecodeBudget
+const _: baud_domain::DecodeBudget = baud_domain::DecodeBudget::ALL;
+const _: baud_domain::DecodeBudget = baud_domain::DecodeBudget::MIB;
+const _: fn(usize) -> baud_domain::DecodeBudget = baud_domain::DecodeBudget::of;
+// DecodeProgress
+const _: baud_domain::DecodeProgress = baud_domain::DecodeProgress::Idle;
+const _: baud_domain::DecodeProgress = baud_domain::DecodeProgress::More;
+// DynamicColor
+const _: usize = baud_domain::DynamicColor::COUNT;
+const _: fn(baud_domain::DynamicColor) -> usize = baud_domain::DynamicColor::index;
+const _: fn(u16) -> Option<baud_domain::DynamicColor> = baud_domain::DynamicColor::of_code;
+const _: fn(baud_domain::DynamicColor) -> u16 = baud_domain::DynamicColor::code;
+const _: baud_domain::DynamicColor = baud_domain::DynamicColor::Foreground;
+// FrameNo
+const _: fn(u32) -> baud_domain::FrameNo = baud_domain::FrameNo::of;
+const _: baud_domain::FrameNo = baud_domain::FrameNo::ROOT;
+const _: fn(baud_domain::FrameNo) -> u32 = baud_domain::FrameNo::raw;
+// GraphemeClass
+const _: fn(baud_domain::Codepoint) -> (baud_domain::GraphemeClass, baud_domain::Lookback) =
+    baud_domain::GraphemeClass::of_with_lookback;
+const _: fn(baud_domain::Codepoint) -> baud_domain::GraphemeClass = baud_domain::GraphemeClass::of;
+const _: [baud_domain::GraphemeClass; 16] = baud_domain::GraphemeClass::FROM_INDEX;
+const _: baud_domain::GraphemeClass = baud_domain::GraphemeClass::Other;
+// HostTime
+const _: baud_domain::HostTime = baud_domain::HostTime::ZERO;
+const _: fn(u64) -> baud_domain::HostTime = baud_domain::HostTime::of_nanos;
+const _: fn(baud_domain::HostTime, baud_domain::HostTime) -> Option<core::time::Duration> =
+    baud_domain::HostTime::since;
+const _: fn(baud_domain::HostTime, core::time::Duration) -> baud_domain::HostTime =
+    baud_domain::HostTime::plus;
+// ImageAlpha
+const _: baud_domain::ImageAlpha = baud_domain::ImageAlpha::Partial;
+const _: baud_domain::ImageAlpha = baud_domain::ImageAlpha::OpaqueOrClear;
+const _: for<'a> fn(&'a [baud_domain::Pixel]) -> baud_domain::ImageAlpha =
+    baud_domain::ImageAlpha::of;
+const _: fn(baud_domain::ImageAlpha, baud_domain::Pixel) -> baud_domain::ImageAlpha =
+    baud_domain::ImageAlpha::with;
+// ImageBudget
+const _: baud_domain::ImageBudget = baud_domain::ImageBudget { pixels: 0 };
+const _: fn(usize) -> baud_domain::ImageBudget = baud_domain::ImageBudget::of;
+const _: fn(baud_domain::ImageBudget) -> usize = baud_domain::ImageBudget::scratch;
+const _: fn(baud_domain::ImageBudget) -> usize = baud_domain::ImageBudget::probe;
+// ImageDraw
+const _: fn(u32, u32, u32, u32) -> u32 = baud_domain::ImageDraw::nearest;
+const _: baud_domain::ImageDraw = baud_domain::ImageDraw {
+    src: baud_domain::PxRect {
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+    },
+    dest: baud_domain::PxRect {
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+    },
+};
+// ImageGen
+const _: baud_domain::ImageGen = baud_domain::ImageGen::ZERO;
+const _: fn(baud_domain::ImageGen) -> u32 = baud_domain::ImageGen::raw;
+// ImageGround
+const _: baud_domain::ImageGround = baud_domain::ImageGround::Clear;
+const _: baud_domain::ImageGround = baud_domain::ImageGround::Filled {
+    data_w: baud_domain::ImagePx::ZERO,
+    data_h: baud_domain::ImagePx::ZERO,
+};
+// ImageId
+const _: baud_domain::ImageId = baud_domain::ImageId::NONE;
+const _: fn(baud_domain::ImageId) -> bool = baud_domain::ImageId::is_none;
+// ImageMotion
+const _: baud_domain::ImageMotion = baud_domain::ImageMotion::Play;
+const _: baud_domain::ImageMotion = baud_domain::ImageMotion::Hold;
+const _: fn(
+    &mut baud_domain::ImageStore<'static>,
+    baud_domain::HostTime,
+    baud_domain::ImageMotion,
+) -> baud_domain::Animated = baud_domain::ImageStore::animate;
+// ImagePx
+const _: baud_domain::ImagePx = baud_domain::ImagePx::ZERO;
+const _: fn(u16) -> baud_domain::ImagePx = baud_domain::ImagePx::of;
+const _: fn(baud_domain::ImagePx) -> u16 = baud_domain::ImagePx::raw;
+const _: fn(baud_domain::ImagePx, usize) -> baud_domain::ImagePx = baud_domain::ImagePx::span;
+// ImageScreen
+const _: baud_domain::ImageScreen = baud_domain::ImageScreen::Primary;
+const _: baud_domain::ImageScreen = baud_domain::ImageScreen::Alternate;
+// ImageStore
+const _: fn(
+    &'static mut [baud_domain::Pixel],
+    &'static mut [baud_domain::ImageSlot],
+    &'static mut [baud_domain::PlacementSlot],
+    &'static mut [baud_domain::PlacementId],
+) -> baud_domain::ImageStore<'static> = baud_domain::ImageStore::new;
+const _: fn(&baud_domain::ImageStore<'static>) -> bool = baud_domain::ImageStore::any_placed;
+const _: fn(
+    &baud_domain::ImageStore<'static>,
+    baud_domain::ImageId,
+    baud_domain::ImagePx,
+    baud_domain::ImagePx,
+) -> bool = baud_domain::ImageStore::is_page;
+const _: fn(&mut baud_domain::ImageStore<'static>, baud_domain::ImageId) =
+    baud_domain::ImageStore::free;
+// KeyCode
+const _: fn(baud_domain::KeypadKey) -> baud_domain::KeyCode = baud_domain::KeyCode::Keypad;
+const _: fn(baud_domain::Codepoint) -> baud_domain::KeyCode = baud_domain::KeyCode::Char;
+const _: baud_domain::KeyCode = baud_domain::KeyCode::Right;
+const _: baud_domain::KeyCode = baud_domain::KeyCode::Left;
+// KeyEvent
+const _: fn(baud_domain::KeyCode, baud_domain::Modifiers) -> baud_domain::KeyEvent =
+    baud_domain::KeyEvent::press;
+const _: fn(
+    baud_domain::KeyEvent,
+) -> (
+    baud_domain::KeyCode,
+    baud_domain::Modifiers,
+    baud_domain::KeyEventKind,
+    Option<baud_domain::Codepoint>,
+) = |e| (e.code, e.mods, e.kind, e.text);
+const _: fn(
+    baud_domain::KeyEvent,
+) -> (
+    Option<baud_domain::Codepoint>,
+    Option<baud_domain::Codepoint>,
+    Option<baud_domain::Codepoint>,
+    Option<baud_domain::Codepoint>,
+) = |e| (e.chord_text, e.shifted, e.base_layout, e.control);
+// KittyId
+const _: baud_domain::KittyId = baud_domain::KittyId::NONE;
+const _: fn(u32) -> baud_domain::KittyId = baud_domain::KittyId::of;
+const _: fn(baud_domain::KittyId) -> u32 = baud_domain::KittyId::raw;
+const _: fn(baud_domain::KittyId) -> bool = baud_domain::KittyId::is_none;
+// LineBidi
+const _: baud_domain::LineBidi = baud_domain::LineBidi::POWER_ON;
+const _: fn(baud_domain::LineBidi) -> baud_domain::BidiParagraph = baud_domain::LineBidi::paragraph;
+const _: fn(baud_domain::LineBidi, baud_domain::CharacterPath) -> baud_domain::LineBidi =
+    baud_domain::LineBidi::with_path;
+const _: fn(baud_domain::LineBidi) -> baud_domain::CharacterPath = baud_domain::LineBidi::path;
+const _: () = assert!(core::mem::size_of::<baud_domain::LineBidi>() == 1);
+// LineIdx
+const _: baud_domain::LineIdx = baud_domain::LineIdx::FIRST;
+const _: fn(u64) -> baud_domain::LineIdx = baud_domain::LineIdx::of;
+const _: fn(baud_domain::LineIdx) -> u64 = baud_domain::LineIdx::value;
+const _: fn(baud_domain::LineIdx, baud_domain::LineIdx) -> Option<baud_domain::Rows> =
+    baud_domain::LineIdx::since;
+// LineRendition
+const _: baud_domain::LineRendition = baud_domain::LineRendition::Single;
+const _: baud_domain::LineRendition = baud_domain::LineRendition::DoubleBottom;
+const _: fn(baud_domain::LineRendition) -> bool = baud_domain::LineRendition::is_double;
+const _: fn(baud_domain::LineRendition, baud_domain::Cols) -> baud_domain::Cols =
+    baud_domain::LineRendition::end_of_line;
+// LiveTable
+const _: fn(&'static [baud_domain::StyleSlot]) -> baud_domain::LiveTable<'static> =
+    baud_domain::LiveTable::of;
+const _: fn(&baud_domain::LiveTable<'static>, baud_domain::StyleId) -> baud_domain::StyleWord =
+    baud_domain::LiveTable::word;
+const _: fn(&baud_domain::LiveTable<'static>, baud_domain::PackedCell) -> baud_domain::StyleWord =
+    baud_domain::LiveTable::word_of;
+const _: fn(&baud_domain::LiveTable<'static>) -> &'static [baud_domain::StyleSlot] =
+    baud_domain::LiveTable::slots;
+// Mirroring
+const _: baud_domain::Mirroring = baud_domain::Mirroring::Mirrored;
+const _: baud_domain::Mirroring = baud_domain::Mirroring::Cancelled;
+// Modifiers
+const _: baud_domain::Modifiers = baud_domain::Modifiers::SHIFT;
+const _: fn(baud_domain::Modifiers, baud_domain::Modifiers) -> baud_domain::Modifiers =
+    baud_domain::Modifiers::with;
+const _: fn(baud_domain::Modifiers) -> u8 = baud_domain::Modifiers::wire;
+const _: fn(u8) -> Option<baud_domain::Modifiers> = baud_domain::Modifiers::from_wire;
+// PackedCell
+const _: baud_domain::PackedCell = baud_domain::PackedCell::EMPTY;
+const _: fn(
+    baud_domain::Codepoint,
+    baud_domain::StyleId,
+    baud_domain::CellFlags,
+) -> baud_domain::PackedCell = baud_domain::PackedCell::glyph;
+const _: fn(baud_domain::StyleId) -> baud_domain::PackedCell = baud_domain::PackedCell::empty_with;
+const _: fn(baud_domain::StreamByte, baud_domain::Charset) -> baud_domain::Codepoint =
+    baud_domain::PackedCell::translate;
+const _: () = assert!(core::mem::size_of::<baud_domain::PackedCell>() == 8);
+// PastEdge
+const _: baud_domain::PastEdge = baud_domain::PastEdge::Held;
+const _: baud_domain::PastEdge = baud_domain::PastEdge::Clear;
+// Pixel
+const _: fn(baud_domain::Chan, baud_domain::Chan, baud_domain::Chan) -> baud_domain::Pixel =
+    baud_domain::Pixel::opaque;
+const _: baud_domain::Pixel = baud_domain::Pixel::CLEAR;
+const _: baud_domain::Pixel = baud_domain::Pixel::FILL;
+const _: baud_domain::Pixel = baud_domain::Pixel::UNSAID;
+const _: () = assert!(core::mem::size_of::<baud_domain::Pixel>() == 4);
+// ReadLen
+const _: baud_domain::ReadLen = baud_domain::ReadLen::ONE;
+const _: baud_domain::ReadLen = baud_domain::ReadLen::ZERO;
+const _: fn(usize) -> baud_domain::ReadLen = baud_domain::ReadLen::from_index;
+const _: fn(baud_domain::ByteLen) -> baud_domain::ReadLen = baud_domain::ReadLen::of_bytes;
+// Reclaims
+const _: baud_domain::Reclaims = baud_domain::Reclaims {
+    refusals: 0,
+    sweeps: 0,
+    freed: 0,
+    rewrites: 0,
+};
+const _: fn(baud_domain::Reclaims, baud_domain::Reclaims) -> bool =
+    baud_domain::Reclaims::recolours_since;
+// Row
+const _: baud_domain::Row = baud_domain::Row::ZERO;
+const _: fn(usize) -> baud_domain::Row = baud_domain::Row::from_index;
+const _: fn(baud_domain::Row) -> usize = baud_domain::Row::index;
+const _: fn(baud_domain::Row, baud_domain::Count, baud_domain::Rows) -> baud_domain::Row =
+    baud_domain::Row::down;
+// RowAt
+const _: baud_domain::RowAt = baud_domain::RowAt {
+    screen: baud_domain::Which::Primary,
+    p: baud_domain::RowRot::NONE,
+};
+const _: fn(&baud_domain::WindowAt, baud_domain::Row) -> baud_domain::RowAt =
+    baud_domain::WindowAt::at;
+// RowExtent
+const _: baud_domain::RowExtent = baud_domain::RowExtent::ZERO;
+const _: fn(usize) -> baud_domain::RowExtent = baud_domain::RowExtent::of;
+const _: usize = baud_domain::RowExtent::MAX_MARK;
+const _: fn(baud_domain::RowExtent, usize) -> baud_domain::RowExtent =
+    baud_domain::RowExtent::reached;
+const _: () = assert!(core::mem::size_of::<baud_domain::RowExtent>() == 8);
+// RowGens
+const _: fn(&baud_domain::RowGens<'static>, baud_domain::Row, &baud_domain::Seal) -> bool =
+    baud_domain::RowGens::after;
+const _: fn(&baud_domain::RowGens<'static>) -> baud_domain::WindowAt = baud_domain::RowGens::window;
+const _: for<'a> fn(
+    &'a baud_domain::SurfaceStore<'static>,
+    baud_domain::WindowAt,
+) -> baud_domain::RowGens<'a> = baud_domain::SurfaceStore::row_gens;
+// RowRot
+const _: baud_domain::RowRot = baud_domain::RowRot::NONE;
+const _: fn(baud_domain::RowRot, usize, baud_domain::Rows) -> baud_domain::RowRot =
+    baud_domain::RowRot::advance;
+const _: fn(baud_domain::RowRot, usize, baud_domain::Rows) -> baud_domain::RowRot =
+    baud_domain::RowRot::retreat;
+const _: fn(baud_domain::RowRot) -> usize = baud_domain::RowRot::index;
+// RowStyles
+const _: fn(baud_domain::LiveTable<'static>) -> baud_domain::RowStyles<'static> =
+    baud_domain::RowStyles::Live;
+const _: fn(baud_domain::FrozenTable<'static>) -> baud_domain::RowStyles<'static> =
+    baud_domain::RowStyles::Frozen;
+const _: fn(&baud_domain::RowStyles<'static>, usize) -> usize = baud_domain::RowStyles::base;
+const _: fn(&baud_domain::RowStyles<'static>, baud_domain::StyleId) -> baud_domain::StyleWord =
+    baud_domain::RowStyles::word;
+// RowWritten
+const _: baud_domain::RowWritten = baud_domain::RowWritten::InOrder;
+const _: baud_domain::RowWritten = baud_domain::RowWritten::RightToLeft;
+// Rows
+const _: fn(usize) -> baud_domain::Rows = baud_domain::Rows::of_count;
+const _: fn(usize) -> baud_domain::Rows = baud_domain::Rows::of_index;
+const _: baud_domain::Rows = baud_domain::Rows::ZERO;
+const _: fn(baud_domain::Rows) -> usize = baud_domain::Rows::index;
+// STRING_DEPTH
+const _: usize = baud_domain::STRING_DEPTH;
+const _: () = assert!(baud_domain::STRING_DEPTH == 125);
+// Seal
+const _: fn(&mut baud_domain::SurfaceStore<'static>) -> baud_domain::Seal =
+    baud_domain::SurfaceStore::seal;
+const _: fn(&baud_domain::SurfaceStore<'static>) -> baud_domain::Seal =
+    baud_domain::SurfaceStore::sealed;
+const _: fn(&baud_domain::SurfaceStore<'static>, &baud_domain::Seal) -> bool =
+    baud_domain::SurfaceStore::wrote_since;
+// Sixel
+const _: fn(
+    baud_domain::InputEncoding,
+    baud_domain::StreamByte,
+) -> Option<baud_domain::StreamByte> = baud_domain::Sixel::body_byte;
+const _: fn(baud_domain::StreamByte) -> bool = baud_domain::Sixel::body_byte_is_gl_past_space;
+const _: fn(&[u8], baud_domain::SixelAspect) -> baud_domain::SixelReport =
+    baud_domain::Sixel::extent;
+const _: fn(
+    &[u8],
+    baud_domain::SixelAspect,
+    baud_domain::Pixel,
+    &mut baud_domain::SixelCanvas<'_>,
+) -> baud_domain::SixelReport = baud_domain::Sixel::decode_inked;
+// SixelAspect
+const _: fn(Option<u16>) -> baud_domain::SixelAspect = baud_domain::SixelAspect::from_macro;
+const _: baud_domain::SixelAspect = baud_domain::SixelAspect::ONE_TO_ONE;
+const _: fn(baud_domain::SixelAspect, u32) -> u32 = baud_domain::SixelAspect::top;
+// SixelCanvas
+const _: fn(
+    &'static mut [baud_domain::Pixel],
+    baud_domain::SixelPx,
+) -> baud_domain::SixelCanvas<'static> = baud_domain::SixelCanvas::new;
+const _: fn(
+    &'static mut [baud_domain::Pixel],
+    baud_domain::SixelPx,
+    u16,
+) -> baud_domain::SixelCanvas<'static> = baud_domain::SixelCanvas::shrunk;
+// SixelClaim
+const _: baud_domain::SixelClaim = baud_domain::SixelClaim::No;
+const _: baud_domain::SixelClaim = baud_domain::SixelClaim::Yes;
+// SixelPx
+const _: baud_domain::SixelPx = baud_domain::SixelPx::ZERO;
+const _: fn(u16) -> baud_domain::SixelPx = baud_domain::SixelPx::of;
+const _: fn(baud_domain::SixelPx) -> usize = baud_domain::SixelPx::index;
+const _: fn(baud_domain::SixelPx) -> u16 = baud_domain::SixelPx::raw;
+// Slant
+const _: baud_domain::Slant = baud_domain::Slant::AsFace;
+const _: baud_domain::Slant = baud_domain::Slant::ByDirection;
+// SlotSet
+const _: fn() -> baud_domain::SlotSet = baud_domain::SlotSet::new;
+const _: fn(&mut baud_domain::SlotSet, baud_domain::StyleId) = baud_domain::SlotSet::insert;
+const _: fn(&mut baud_domain::SlotSet, &[baud_domain::PackedCell]) = baud_domain::SlotSet::mark;
+const _: fn(&baud_domain::SlotSet, usize) -> bool = baud_domain::SlotSet::has;
+const _: () = assert!(core::mem::size_of::<baud_domain::SlotSet>() == 8192);
+// SpacingMarks
+const _: baud_domain::SpacingMarks = baud_domain::SpacingMarks::Column;
+const _: baud_domain::SpacingMarks = baud_domain::SpacingMarks::Joined;
+// StatusGen
+const _: fn(&baud_domain::StatusGen, &baud_domain::Seal) -> bool = baud_domain::StatusGen::after;
+// Stride
+const _: fn(usize) -> baud_domain::Stride = baud_domain::Stride::of_cells;
+const _: fn(baud_domain::Stride) -> usize = baud_domain::Stride::index;
+const _: fn(baud_domain::Stride) -> usize = baud_domain::Stride::bytes;
+// StringId
+const _: baud_domain::StringId = baud_domain::StringId::NONE;
+const _: () = assert!(baud_domain::StringId::CAPACITY == 255);
+const _: fn(usize) -> Option<baud_domain::StringId> = baud_domain::StringId::from_index;
+const _: fn(baud_domain::StringId) -> usize = baud_domain::StringId::index;
+const _: () = assert!(core::mem::size_of::<baud_domain::StringId>() == 1);
+// StyleId
+const _: fn(usize) -> baud_domain::StyleId = baud_domain::StyleId::from_index;
+const _: baud_domain::StyleId = baud_domain::StyleId::DEFAULT;
+const _: fn(baud_domain::StyleWord, usize) -> usize = baud_domain::StyleId::bucket;
+const _: fn(baud_domain::StyleId) -> usize = baud_domain::StyleId::index;
+const _: () = assert!(core::mem::size_of::<baud_domain::StyleId>() == 2);
+// StyleWord
+const _: baud_domain::StyleWord = baud_domain::StyleWord::DEFAULT;
+const _: baud_domain::StyleWord = baud_domain::StyleWord::TOMBSTONE;
+const _: fn(baud_domain::StyleWord) -> baud_domain::StringId = baud_domain::StyleWord::string;
+const _: fn(baud_domain::StyleWord) -> u64 = baud_domain::StyleWord::key;
+const _: () = assert!(core::mem::size_of::<baud_domain::StyleWord>() == 20);
+// StyleWrites
+const _: baud_domain::StyleWrites = baud_domain::StyleWrites::NEVER;
+const _: fn(baud_domain::StyleWrites) -> baud_domain::StyleWrites = baud_domain::StyleWrites::next;
+const _: fn(baud_domain::StyleWrites, baud_domain::StyleWrites, usize) -> baud_domain::Replay =
+    baud_domain::StyleWrites::replay;
+const _: fn(baud_domain::StyleWrites, usize) -> bool = baud_domain::StyleWrites::past;
+// UnicodeWidths
+const _: baud_domain::UnicodeWidths = baud_domain::UnicodeWidths::Current;
+const _: baud_domain::UnicodeWidths = baud_domain::UnicodeWidths::Eight;
+const _: fn(baud_domain::UnicodeWidths) -> u8 = baud_domain::UnicodeWidths::version;
+// Variants
+const _: baud_domain::Variants = baud_domain::Variants::DEFAULT;
+const _: baud_domain::Variants = baud_domain::Variants::TOMBSTONE;
+const _: fn(baud_domain::Variants) -> bool = baud_domain::Variants::is_default;
+const _: fn(baud_domain::Variants) -> Option<baud_domain::Form> = baud_domain::Variants::form;
+const _: () = assert!(core::mem::size_of::<baud_domain::Variants>() == 2);
+// Video
+const _: baud_domain::Video = baud_domain::Video::Normal;
+const _: baud_domain::Video = baud_domain::Video::Reverse;
+const _: fn(
+    baud_domain::ColorWord,
+    baud_domain::ColorWord,
+    baud_domain::ColorWord,
+) -> baud_domain::ColorWord = baud_domain::Video::cursor_across;
+const _: fn(baud_domain::Video, baud_domain::Attrs, u32, u32) -> (u32, u32) =
+    baud_domain::Video::drawn::<u32>;
+// Vowels
+const _: baud_domain::Vowels = baud_domain::Vowels::Marked;
+const _: baud_domain::Vowels = baud_domain::Vowels::Hidden;
+// Vs16Width
+const _: baud_domain::Vs16Width = baud_domain::Vs16Width::Two;
+const _: baud_domain::Vs16Width = baud_domain::Vs16Width::One;
+const _: fn(baud_domain::Vs16Width, baud_domain::ClusterCells) -> bool =
+    baud_domain::Vs16Width::widens_in;
+// Width
+const _: baud_domain::Width = baud_domain::Width::WIDE;
+const _: baud_domain::Width = baud_domain::Width::NARROW;
+const _: baud_domain::Width = baud_domain::Width::ZERO;
+const _: fn(baud_domain::Codepoint, baud_domain::AmbiguousWidth) -> baud_domain::Width =
+    baud_domain::Width::of;
+// WinSize
+const _: baud_domain::WinSize = baud_domain::WinSize {
+    ws_row: 24,
+    ws_col: 80,
+};
+const _: fn(&baud_domain::WinSize) -> (baud_domain::Cols, baud_domain::Rows) =
+    baud_domain::WinSize::geometry;
+// WindowAt
+const _: for<'a> fn(&'a baud_domain::WindowAt, baud_domain::Row) -> baud_domain::RowAt =
+    baud_domain::WindowAt::at;
+const _: fn(
+    baud_domain::Which,
+    baud_domain::RowRot,
+    baud_domain::Rows,
+    baud_domain::Rows,
+) -> baud_domain::WindowAt = |screen, top, ring, rows| baud_domain::WindowAt {
+    screen,
+    top,
+    ring,
+    rows,
+};
+// Wrap
+const _: baud_domain::Wrap = baud_domain::Wrap::Continues;
+const _: baud_domain::Wrap = baud_domain::Wrap::Ended;
+// WrapMargins
+const _: fn(baud_domain::Col, baud_domain::Col) -> baud_domain::WrapMargins =
+    baud_domain::WrapMargins::of;
+const _: fn(baud_domain::WrapMargins) -> baud_domain::Col = baud_domain::WrapMargins::left;
+const _: fn(baud_domain::WrapMargins) -> baud_domain::Col = baud_domain::WrapMargins::right;
+const _: baud_domain::WrapMargins = baud_domain::WrapMargins::NONE;
+const _: () = assert!(core::mem::size_of::<baud_domain::WrapMargins>() == 4);
+// WrappedAt
+const _: baud_domain::WrappedAt = baud_domain::WrappedAt::Margins;
+const _: baud_domain::WrappedAt = baud_domain::WrappedAt::Edge;
+// is_default_ignorable
+const _: fn(baud_domain::Codepoint) -> bool = baud_domain::is_default_ignorable;
+// is_placeholder
+const _: fn(baud_domain::Codepoint) -> bool = baud_domain::is_placeholder;
+// is_table_rule
+const _: fn(char) -> bool = baud_domain::is_table_rule;
+// order_strings
+const _: for<'a, 'b, 'c, 'd> fn(
+    &'a [baud_domain::StringId],
+    fn(usize) -> bool,
+    usize,
+    baud_domain::BidiDirection,
+    &'b fn(baud_domain::StringId) -> Option<baud_domain::StringEntry>,
+    &'c mut [u16],
+    &'d mut [baud_domain::BidiDirection],
+) = baud_domain::order_strings;
+// premultiply
+const _: fn(u32) -> u32 = baud_domain::premultiply;
+// themefile::CellPaint
+const _: fn(u8) -> baud_domain::themefile::CellPaint<u8> =
+    baud_domain::themefile::CellPaint::Colour;
+const _: baud_domain::themefile::CellPaint<u8> = baud_domain::themefile::CellPaint::Text;
+const _: baud_domain::themefile::CellPaint<u8> = baud_domain::themefile::CellPaint::Page;
+const _: fn(baud_domain::themefile::CellPaint<u8>) -> Option<u8> =
+    baud_domain::themefile::CellPaint::colour;
+// themefile::CursorText
+const _: baud_domain::themefile::CursorText =
+    baud_domain::themefile::CursorText::UnderACursorColour;
+const _: baud_domain::themefile::CursorText = baud_domain::themefile::CursorText::UnderEveryCursor;
+// themefile::SelectionText
+const _: baud_domain::themefile::SelectionText = baud_domain::themefile::SelectionText::Reverse;
+const _: baud_domain::themefile::SelectionText = baud_domain::themefile::SelectionText::Unchanged;
+// themefile::gamut::Space
+const _: baud_domain::themefile::gamut::Space = baud_domain::themefile::gamut::Space::Srgb;
+const _: baud_domain::themefile::gamut::Space = baud_domain::themefile::gamut::Space::DisplayP3;
+const _: baud_domain::themefile::gamut::Space = baud_domain::themefile::gamut::Space::Calibrated;
+// themefile::gamut::to_srgb
+const _: fn(
+    baud_domain::themefile::gamut::Space,
+    [f64; 3],
+) -> ([u8; 3], baud_domain::themefile::gamut::Fit) = baud_domain::themefile::gamut::to_srgb;
+
+// WcSlice
+const _: fn(&'static mut [u32]) -> baud_domain::WcSlice<'static, u32> = baud_domain::WcSlice::new;
+const _: for<'a> fn(&'a baud_domain::WcSlice<'static, u32>) -> usize = baud_domain::WcSlice::len;
+const _: for<'a> fn(&'a mut baud_domain::WcSlice<'static, u32>, usize, u32) =
+    baud_domain::WcSlice::set;
+const _: for<'a> fn(
+    &'a mut baud_domain::WcSlice<'static, u32>,
+    core::ops::Range<usize>,
+) -> baud_domain::WcSlice<'a, u32> = baud_domain::WcSlice::slice;
+const _: for<'a, 'c> fn(&'a mut baud_domain::WcSlice<'static, u32>, &'c [u32]) =
+    baud_domain::WcSlice::copy_from;
+/// Each type that holds a rule, and the error code its witness expects.
+const WITNESSED: &[(&str, &str)] = &[
+    ("WcSlice", "E0369"),
+    ("WcSlice", "E0599"),
+    ("WcSlice", "E0608"),
+    ("Attrs", "E0369"),
+    ("BytePos", "E0369"),
+    ("CellFlags", "E0603"),
+    ("Chan", "E0603"),
+    ("ClusterBreak", "E0451"),
+    ("ClusterEpoch", "E0423"),
+    ("ClusterSlot", "E0451"),
+    ("ClusterStore", "E0616"),
+    ("Codepoint", "E0603"),
+    ("ColorWord", "E0603"),
+    ("Cols", "E0603"),
+    ("Content", "E0603"),
+    ("DecodeBudget", "E0423"),
+    ("HostTime", "E0369"),
+    ("ImageGen", "E0423"),
+    ("ImageId", "E0423"),
+    ("ImagePx", "E0369"),
+    ("ImageStore", "E0616"),
+    ("KittyId", "E0308"),
+    ("LineBidi", "E0423"),
+    ("LineIdx", "E0369"),
+    ("Modifiers", "E0423"),
+    ("ReadLen", "E0369"),
+    ("Row", "E0369"),
+    ("RowExtent", "E0616"),
+    ("RowGens", "E0277"),
+    ("RowRot", "E0603"),
+    ("Rows", "E0308"),
+    ("Seal", "E0369"),
+    ("Seal", "E0451"),
+    ("SixelAspect", "E0451"),
+    ("SixelCanvas", "E0451"),
+    ("SlotSet", "E0599"),
+    ("StatusGen", "E0451"),
+    ("Stride", "E0423"),
+    ("StringId", "E0423"),
+    ("StyleId", "E0616"),
+    ("StyleWord", "E0451"),
+    ("StyleWrites", "E0423"),
+    ("Variants", "E0603"),
+    ("Width", "E0603"),
+    ("WrapMargins", "E0451"),
+];
+
+/// One `compile_fail` block: the code it expects, its body, and where it is.
+struct Witness {
+    code: Option<String>,
+    body: String,
+    at: String,
+}
+
+fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
+    for e in fs::read_dir(dir).expect("baud-domain/src is readable") {
+        let p = e.expect("a directory entry").path();
+        if p.is_dir() {
+            sources(&p, out);
+        } else if p.extension().is_some_and(|x| x == "rs") {
+            out.push(p);
+        }
+    }
+}
+
+/// Every `compile_fail` block in the doc comments of baud-domain/src.
+fn witnesses() -> Vec<Witness> {
+    let mut files = Vec::new();
+    sources(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut files,
+    );
+    let mut found = Vec::new();
+    for f in files {
+        let text = fs::read_to_string(&f).expect("a source file is readable");
+        let mut open: Option<Witness> = None;
+        for (n, line) in text.lines().enumerate() {
+            let doc = line.trim_start();
+            let Some(doc) = doc.strip_prefix("///").or_else(|| doc.strip_prefix("//!")) else {
+                continue;
+            };
+            let doc = doc.trim();
+            match open.as_mut() {
+                None => {
+                    if let Some(tag) = doc.strip_prefix("```compile_fail") {
+                        let code = tag.split(',').map(str::trim).find(|t| t.starts_with('E'));
+                        open = Some(Witness {
+                            code: code.map(str::to_owned),
+                            body: String::new(),
+                            at: format!("{}:{}", f.display(), n + 1),
+                        });
+                    }
+                }
+                Some(w) => {
+                    if doc.starts_with("```") {
+                        found.push(open.take().expect("an open block"));
+                    } else {
+                        w.body.push_str(doc);
+                        w.body.push('\n');
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
+fn names(body: &str, ty: &str) -> bool {
+    body.match_indices(ty).any(|(i, _)| {
+        let before = body[..i].chars().next_back();
+        let after = body[i + ty.len()..].chars().next();
+        let edge = |c: Option<char>| c.is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
+        edge(before) && edge(after)
+    })
+}
+
+#[test]
+fn every_ruled_type_has_a_witness_with_its_error_code() {
+    let all = witnesses();
+    let missing: Vec<_> = WITNESSED
+        .iter()
+        .filter(|(ty, code)| {
+            !all.iter()
+                .any(|w| w.code.as_deref() == Some(*code) && names(&w.body, ty))
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "rules with no witness naming the type and expecting the code: {missing:?}"
+    );
+}
+
+#[test]
+fn every_compile_fail_names_its_error_code() {
+    let bare: Vec<_> = witnesses()
+        .into_iter()
+        .filter(|w| w.code.is_none())
+        .map(|w| w.at)
+        .collect();
+    assert!(
+        bare.is_empty(),
+        "a compile_fail with no error code passes on any error: {bare:?}"
+    );
+}
+
+#[test]
+fn the_witness_reader_finds_a_known_witness() {
+    let all = witnesses();
+    assert!(all.len() >= WITNESSED.len(), "read {} witnesses", all.len());
+    assert!(
+        all.iter()
+            .any(|w| w.code.as_deref() == Some("E0451") && names(&w.body, "Seal"))
+    );
+    assert!(!names("SealEpoch", "Seal"));
+}

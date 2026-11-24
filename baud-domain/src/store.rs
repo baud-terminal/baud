@@ -101,6 +101,20 @@ pub struct RunRange {
 /// paragraphs receive the old one's BiDi properties"), and a fill over the
 /// whole row clears only the mark DECRLM left ([`RowExtent::erased`]); only
 /// the core's line rules set the rest ([`RowExtent::with_bidi`]).
+///
+/// A row's mark is a high-water mark: a write raises it only by reached's max
+/// and only a fill lowers it, so no caller can set it below what the row holds
+/// and leave stale text drawn.
+///
+/// ```compile_fail,E0616
+/// fn f(e: &mut baud_domain::RowExtent) { e.word = 0; }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// fn f(e: baud_domain::RowExtent) -> baud_domain::RowExtent { e.reached(4) }
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 #[repr(C)]
 pub struct RowExtent {
@@ -141,6 +155,22 @@ pub enum RowLinks {
 /// ([`RowExtent::margins`]); a later wrap at other margins writes the
 /// newer pair, and a later wrap at the page's edge drops them
 /// ([`RowExtent::at_edge`]). Two columns, each at most [`RowExtent::MAX_MARK`].
+///
+/// Private u16 fields: a margin pair is built only from columns through
+/// WrapMargins::of (or NONE), so both columns are held as the row mark's narrow
+/// words and the RowExtent mark stays 8 bytes.
+///
+/// ```compile_fail,E0451
+/// let _ = baud_domain::WrapMargins { left: 0, right: 0 };
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let m = baud_domain::WrapMargins::of(baud_domain::Col::at_index(2), baud_domain::Col::at_index(9));
+/// assert_eq!(m.left().index(), 2);
+/// assert_eq!(m.right().index(), 9);
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 #[repr(C)]
 pub struct WrapMargins {
@@ -237,6 +267,21 @@ pub enum LineProperty {
 /// **The power-on value is the zero byte**, so a terminal no program has
 /// sent one of these to holds zero on every row and the line rules, gated
 /// on one mode bit, have nothing to write.
+///
+/// A row's paragraph byte is opaque: it starts at POWER_ON and changes one
+/// named property at a time (with_path, with_autodetect, with_box_mirror,
+/// with_wrapped_at, with_written, with_property); no caller writes its bits as
+/// a raw byte.
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::LineBidi(0b0011);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::LineBidi::POWER_ON.with_path(baud_domain::CharacterPath::RightToLeft).paragraph();
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 #[repr(transparent)]
 pub struct LineBidi(u8);

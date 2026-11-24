@@ -14,6 +14,20 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 /// advanced a 3-byte CJK character three columns instead of two, corrupting
 /// every position after the first non-ASCII character on a line. Both operands
 /// were `usize`, so it compiled.
+///
+/// A cluster's column width comes only from the generated width tables, the
+/// three constants or a written cell's flags, never from a byte count; the u8
+/// is crate-private.
+///
+/// ```compile_fail,E0603
+/// let _ = baud_domain::Width(3);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::Width::WIDE.cells();
+/// ```
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromBytes, IntoBytes, Immutable, KnownLayout,
 )]
@@ -48,6 +62,19 @@ impl Width {
 ///
 /// Bounded by the arena rather than by a word size, so the ceiling is the one
 /// the caller can actually observe.
+///
+/// A read length is never clamped or wrapped: it is shortened only by less,
+/// which saturates, and converts one way from ByteLen, never back.
+///
+/// ```compile_fail,E0369
+/// fn f(r: baud_domain::ReadLen) { let _ = r - baud_domain::ReadLen::ONE; }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// fn f(r: baud_domain::ReadLen) -> baud_domain::ReadLen { r.less(baud_domain::ReadLen::ONE) }
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[repr(transparent)]
 pub struct ReadLen(usize);
@@ -266,12 +293,38 @@ impl core::ops::SubAssign<Room> for ByteLen {
 }
 
 /// A row on the grid.
+///
+/// A grid row has no arithmetic: it moves only through up (saturating at the
+/// top), down (clamped to the screen's last row), next and after.
+///
+/// ```compile_fail,E0369
+/// fn f(r: baud_domain::Row, s: baud_domain::Row) { let _ = r + s; }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// fn f(r: baud_domain::Row, c: baud_domain::Count, n: baud_domain::Rows) -> baud_domain::Row { r.down(c, n) }
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[repr(transparent)]
 pub struct Row(pub(crate) usize);
 
 /// Grid width. Distinct from [`Rows`] so the two cannot be swapped at a call
 /// site — `Layout::new(rows, cols)` transposed is a bug that used to compile.
+///
+/// A grid width is at least one column: the field is pub(crate) and of_index
+/// and clamp keep it >= 1.
+///
+/// ```compile_fail,E0603
+/// let _ = baud_domain::Cols(0);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// let _ = baud_domain::Cols::of_index(0);
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, zerocopy::FromZeros)]
 #[repr(transparent)]
 pub struct Cols(pub(crate) usize);
@@ -301,6 +354,20 @@ impl Cols {
 }
 
 /// Grid height.
+///
+/// Grid height is its own type, distinct from Cols so the two cannot be swapped
+/// at a call site; field pub(crate), a geometry made by of_index is at least
+/// one row.
+///
+/// ```compile_fail,E0308
+/// fn f(c: baud_domain::Cols) -> baud_domain::Rows { c }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// fn f(c: baud_domain::Cols) -> baud_domain::Rows { baud_domain::Rows::of_index(c.index()) }
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, zerocopy::FromZeros)]
 #[repr(transparent)]
 pub struct Rows(pub(crate) usize);
