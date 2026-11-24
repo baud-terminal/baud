@@ -58,8 +58,8 @@ use core::ops::Range;
 
 use baud_core::{Screen, Term};
 use baud_domain::{
-    Attrs, ClusterEpoch, Col, LineRendition, LinkEpoch, LinkId, PackedCell, Row, RowGens,
-    RowStyles, Rows, Seal, StyleWord, WindowAt, Wrap,
+    Attrs, ClusterEpoch, Col, LineRendition, LinkEpoch, LinkId, LinkSet, PackedCell, Row, RowGens,
+    RowStyles, Rows, Seal, SlotMarks, StyleWord, WindowAt, Wrap,
 };
 use baud_render::{AbsLine, LinkLine, Point, Scrolled, row_of, row_styles_of};
 
@@ -163,16 +163,6 @@ struct Wait {
     crosses: Crosses,
 }
 
-/// The slots on `cells` added to `ids`, each once.
-fn note_slots(ids: &mut Vec<LinkId>, cells: &[PackedCell]) {
-    for c in cells {
-        let id = c.flags.link();
-        if id != LinkId::NONE && !ids.contains(&id) {
-            ids.push(id);
-        }
-    }
-}
-
 /// Whether this scan has read the view's rows holding each slot.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum SlotsRead {
@@ -267,6 +257,20 @@ impl SlotRows {
                     self.pairs.push((id.index(), line));
                 }
             }
+        }
+        self.pairs.sort_unstable_by_key(|&(i, l)| (i, l));
+        self.lines.clear();
+        self.lines.extend(self.pairs.iter().map(|&(_, l)| l));
+    }
+
+    /// **The rows holding each slot, from each row's slots**, `sets` the
+    /// window's rows top first: no cell read.
+    fn fill_from(&mut self, sets: &[LinkSet], scrolled: Scrolled, back: Rows) {
+        self.pairs.clear();
+        for (y, set) in sets.iter().enumerate() {
+            let line = scrolled.line(back, Row::from_index(y));
+            self.pairs
+                .extend(set.slots().map(|s| (s.id().index(), line)));
         }
         self.pairs.sort_unstable_by_key(|&(i, l)| (i, l));
         self.lines.clear();
@@ -520,6 +524,9 @@ pub struct Scan {
     /// Batches of answers that read every row again instead: one changed a
     /// run across a row its writer ended.
     pub rereads: usize,
+    /// Cells read for the link slots they name: a row's, when the row is
+    /// read again.
+    pub slot_cells: usize,
 }
 
 /// How far the window moved over the lines since the last scan, in rows.
@@ -567,11 +574,14 @@ pub struct Lines {
     /// row read holds a link, and each slot's mark as judged this scan.
     slot_rows: SlotRows,
     slots_read: SlotsRead,
-    judged: Vec<(LinkId, Option<Mark>)>,
+    judged: SlotMarks<Option<Mark>>,
     /// The slots this scan found shown on other rows than the last scan
     /// did, or on a row read again: every row showing one is read again.
-    slots_moved: Vec<LinkId>,
+    slots_moved: LinkSet,
     cells: Vec<PackedCell>,
+    /// The slots each row of `cells` names, built when the row is copied
+    /// and moved with it.
+    sets: Vec<LinkSet>,
     wraps: Vec<Wrap>,
     sizes: Vec<LineRendition>,
     size: (usize, usize),
@@ -720,10 +730,12 @@ impl Lines {
         // The slots on the rows leaving the window are shown on fewer rows
         // now: each is judged again on the rows it keeps.
         let leaving = match up {
-            true => 0..k * cols,
-            false => keep * cols..rows * cols,
+            true => 0..k,
+            false => keep..rows,
         };
-        note_slots(&mut self.slots_moved, &self.cells[leaving]);
+        for &set in &self.sets[leaving] {
+            self.slots_moved = self.slots_moved.union(set);
+        }
         // The row that ran on into the new top row left the window: what the
         // top row's links are now reads the lines above the window, which a
         // trim of the history may have taken, so the top row is read again.
@@ -758,29 +770,34 @@ impl Lines {
         }
         if up {
             self.cells.copy_within(k * cols.., 0);
+            self.sets.copy_within(k.., 0);
             self.wraps.copy_within(k.., 0);
             self.sizes.copy_within(k.., 0);
             self.below.copy_within(k.., 0);
             self.held.copy_within(k.., 0);
             self.held[keep..].fill(Held::Open);
             self.cells[keep * cols..].fill(PackedCell::EMPTY);
+            self.sets[keep..].fill(LinkSet::EMPTY);
             self.wraps[keep..].fill(Wrap::Ended);
             self.sizes[keep..].fill(LineRendition::Single);
             self.below[keep..].fill(Below::Apart);
         } else {
             self.cells.copy_within(..keep * cols, k * cols);
+            self.sets.copy_within(..keep, k);
             self.wraps.copy_within(..keep, k);
             self.sizes.copy_within(..keep, k);
             self.below.copy_within(..keep, k);
             self.held.copy_within(..keep, k);
             self.held[..k].fill(Held::Open);
             self.cells[..k * cols].fill(PackedCell::EMPTY);
+            self.sets[..k].fill(LinkSet::EMPTY);
             self.wraps[..k].fill(Wrap::Ended);
             self.sizes[..k].fill(LineRendition::Single);
             self.below[..k].fill(Below::Apart);
         }
         if ran_on && keep > 0 {
             self.cells[..cols].fill(PackedCell::EMPTY);
+            self.sets[0] = LinkSet::EMPTY;
             self.held[0] = Held::Open;
         }
         self.keep_waits(|r| {
@@ -904,7 +921,8 @@ impl Lines {
     /// window and to the longest line read.
     pub fn scan<R: Reader>(&mut self, term: &Term<'_>, scrolled: Scrolled, reader: &mut R) -> Scan {
         self.slots_read = SlotsRead::No;
-        self.slots_moved.clear();
+        self.slots_moved = LinkSet::EMPTY;
+        let mut scan = Scan::default();
         self.compared = Compared::default();
         let back = term.window_back();
         let view = term.view(back);
@@ -913,6 +931,8 @@ impl Lines {
             self.size = (cols, rows);
             self.cells.clear();
             self.cells.resize(cols * rows, PackedCell::EMPTY);
+            self.sets.clear();
+            self.sets.resize(rows, LinkSet::EMPTY);
             self.wraps.clear();
             self.wraps.resize(rows, Wrap::Ended);
             self.sizes.clear();
@@ -1002,11 +1022,13 @@ impl Lines {
                 false => Read::Again,
             };
             if !same {
+                kept.copy_from_slice(&row[..n]);
                 // A slot on the row before or after is shown on other rows
                 // now.
-                note_slots(&mut self.slots_moved, kept);
-                note_slots(&mut self.slots_moved, &row[..n]);
-                kept.copy_from_slice(&row[..n]);
+                let now = LinkSet::of_cells(&self.cells[y * cols..(y + 1) * cols]);
+                scan.slot_cells += cols;
+                self.slots_moved = self.slots_moved.union(self.sets[y]).union(now);
+                self.sets[y] = now;
                 self.wraps[y] = wrap;
                 self.sizes[y] = size;
                 any = true;
@@ -1075,7 +1097,6 @@ impl Lines {
                 self.again[y + 1] = Read::Again;
             }
         }
-        let mut scan = Scan::default();
         // A batch of answers came: each printed path's run kept is drawn by
         // the answer kept for its path, with no row read. One across a row
         // its writer ended took its cells from the reads of each line alone,
@@ -1107,17 +1128,12 @@ impl Lines {
         // slot has one look on every row.
         for y in 0..rows {
             if self.again[y] == Read::Again {
-                note_slots(&mut self.slots_moved, &self.cells[y * cols..(y + 1) * cols]);
+                self.slots_moved = self.slots_moved.union(self.sets[y]);
             }
         }
         if !self.slots_moved.is_empty() {
             for y in 0..rows {
-                let row = &self.cells[y * cols..(y + 1) * cols];
-                if self.again[y] == Read::Kept
-                    && row
-                        .iter()
-                        .any(|c| self.slots_moved.contains(&c.flags.link()))
-                {
+                if self.again[y] == Read::Kept && self.sets[y].meets(self.slots_moved) {
                     self.again[y] = Read::Again;
                     any = true;
                 }
@@ -1165,21 +1181,17 @@ impl Lines {
             }
             // A group read whole that holds a slot not yet seen this scan
             // reads every row showing it too, and their lines with them.
-            let seen = self.slots_moved.len();
+            let seen = self.slots_moved;
             for y in 0..rows {
                 if self.again[y] == Read::Again {
-                    note_slots(&mut self.slots_moved, &self.cells[y * cols..(y + 1) * cols]);
+                    self.slots_moved = self.slots_moved.union(self.sets[y]);
                 }
             }
-            if self.slots_moved.len() == seen {
+            if self.slots_moved == seen {
                 break;
             }
             for y in 0..rows {
-                let row = &self.cells[y * cols..(y + 1) * cols];
-                if row
-                    .iter()
-                    .any(|c| self.slots_moved.contains(&c.flags.link()))
-                {
+                if self.sets[y].meets(self.slots_moved) {
                     self.again[y] = Read::Again;
                 }
             }
@@ -1577,10 +1589,9 @@ impl Lines {
         // row of the view it is shown on.
         if self.slots_read == SlotsRead::No {
             self.slots_read = SlotsRead::Yes;
-            self.slot_rows.fill(term, scrolled, back, None);
+            self.slot_rows.fill_from(&self.sets, scrolled, back);
             self.judged.clear();
         }
-        let mut judged = core::mem::take(&mut self.judged);
         let screen = term.screen();
         for y in top.index()..=bottom.index() {
             let r = Row::from_index(y);
@@ -1591,23 +1602,19 @@ impl Lines {
             let styles = row_styles_of(term, scrolled, line);
             for (x, &cell) in cells.iter().enumerate() {
                 let id = cell.flags.link();
-                if id == LinkId::NONE {
+                let Some(slot) = id.slot() else {
                     continue;
-                }
-                let mark = match judged.iter().find(|(l, _)| *l == id) {
-                    Some(&(_, m)) => m,
-                    None => {
-                        let at = At {
-                            line,
-                            id,
-                            rows: self.slot_rows.rows(id),
-                            screen,
-                        };
-                        let m = term.link_uri(id).and_then(|u| reader.marked(u, at));
-                        judged.push((id, m));
-                        m
-                    }
                 };
+                let rows = &self.slot_rows;
+                let mark = self.judged.get_or_judge(slot, || {
+                    let at = At {
+                        line,
+                        id,
+                        rows: rows.rows(id),
+                        screen,
+                    };
+                    term.link_uri(id).and_then(|u| reader.marked(u, at))
+                });
                 let at = (r, Col::at_index(x), cell);
                 match mark {
                     Some(Mark::Line) => {
@@ -1622,7 +1629,6 @@ impl Lines {
                 }
             }
         }
-        self.judged = judged;
     }
 }
 
@@ -2486,6 +2492,81 @@ mod tests {
             "every row the window changed read, and none else"
         );
         assert_eq!(runs(&l), [(0, 0, 18)], "the line on the row it shows");
+    }
+
+    /// The window of [`a_scrolled_line_reads_one_row_of_slots`]: 200
+    /// columns by 50 rows.
+    const WIDE: WinSize = WinSize {
+        ws_col: 200,
+        ws_row: 50,
+    };
+
+    /// An `OSC 8` link to `https://e.example/<n>` on its own line.
+    fn linked_line(n: Row) -> String {
+        let n = n.index();
+        format!("\r\nrow {n} \x1b]8;;https://e.example/{n}\x1b\\link {n}\x1b]8;;\x1b\\ after")
+    }
+
+    /// **A scrolled line reads one row of cells for its link slots**: at
+    /// 200x50, a link of its own on every row, one line more scrolls the
+    /// window by a row, and the scan reads the slots of the one row that
+    /// changed, not every row's cells again, while what it keeps is what a
+    /// scan from nothing finds and each row's slots are its cells'. The
+    /// control: the line scrolled in holds a link, and it is underlined.
+    /// Named breaks: build every row's slots at each scan -- 10,200 cells
+    /// read; leave the slots where they were in `shift` -- a row holds the
+    /// slots of the row below it.
+    #[test]
+    fn a_scrolled_line_reads_one_row_of_slots() {
+        let mut owned = Owned::new(&WIDE);
+        let mut t = Term::new(owned.storage(), &WIDE);
+        let mut scrolled = at();
+        let fed = |t: &mut Term<'_>, scrolled: &mut Scrolled, bytes: &[u8]| {
+            let before = t.rotation();
+            feed(t, bytes);
+            if let baud_core::Moved::Retired(n) = t.moved_since(before) {
+                *scrolled = scrolled.advanced(n);
+            }
+        };
+        let rows = usize::from(WIDE.ws_row);
+        for n in 0..rows {
+            fed(
+                &mut t,
+                &mut scrolled,
+                linked_line(Row::from_index(n)).as_bytes(),
+            );
+        }
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let _ = l.scan(&t, scrolled, &mut u);
+        let _ = t.seal_writes();
+        fed(
+            &mut t,
+            &mut scrolled,
+            linked_line(Row::from_index(rows)).as_bytes(),
+        );
+        let s = l.scan(&t, scrolled, &mut u);
+        let _ = t.seal_writes();
+        let mut fresh = Lines::default();
+        let _ = fresh.scan(&t, scrolled, &mut Uris::default());
+        assert_eq!(
+            runs(&l),
+            runs(&fresh),
+            "kept is what a scan from nothing finds"
+        );
+        let view = t.view(t.window_back());
+        for (y, &set) in l.sets.iter().enumerate() {
+            let cells = view.row(Row::from_index(y));
+            assert_eq!(set, LinkSet::of_cells(cells), "row {y}'s slots");
+        }
+        assert!(
+            runs(&l).iter().any(|&(row, _, _)| row == rows - 1),
+            "the control: the line scrolled in is underlined"
+        );
+        assert!(
+            s.slot_cells <= usize::from(WIDE.ws_col),
+            "{} cells read for slots, against one row's 200",
+            s.slot_cells
+        );
     }
 
     /// **The hand shows only under the chord; the look shows without it**, and
