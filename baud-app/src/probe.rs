@@ -141,7 +141,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::time::Duration;
 
 use baud_core::Term;
-use baud_domain::Rows;
+use baud_domain::{PendingGen, Rows, Tracked};
 use baud_render::Scrolled;
 
 use crate::bell::Moment;
@@ -216,10 +216,10 @@ type Named = std::collections::HashMap<
 /// start cannot be read has none, so a pid another process took never
 /// reads as the session it had.
 #[derive(Default)]
-struct Sessions(Option<Kept>);
+struct Sessions(Option<SessionRead>);
 
 /// A session read, by the leader it was read for.
-struct Kept {
+struct SessionRead {
     group: Pid,
     at: StartTime,
     session: Option<Arc<crate::ssh::Session>>,
@@ -258,7 +258,7 @@ impl Sessions {
             read.ok().map(Arc::new)
         });
         beat();
-        self.0 = Some(Kept {
+        self.0 = Some(SessionRead {
             group,
             at,
             session: read.clone(),
@@ -1452,6 +1452,13 @@ fn joined(a: Option<LineSpan>, b: Option<LineSpan>) -> Option<LineSpan> {
     }
 }
 
+/// `h` held, where it is not already: the holds move only when it is new.
+fn hold(held: &mut Tracked<Vec<(Option<Pid>, LineSpan)>>, h: (Option<Pid>, LineSpan)) {
+    if !held.get().contains(&h) {
+        held.edit().push(h);
+    }
+}
+
 /// A newer screen batch in `newer`'s place: the groups `older` carried go
 /// with it, so a batch left untaken drops none.
 fn replace(slot: &mut Option<Ask>, mut newer: Ask, answers: &Sender<Answer>) -> bool {
@@ -2308,6 +2315,30 @@ fn holders(found: Vec<Option<Pid>>) -> Vec<Option<Pid>> {
 /// How a driver starts the worker.
 pub type Start = Box<dyn FnMut() -> std::io::Result<Worker>>;
 
+/// **The lines whose writer is still to be named**, kept to send and sent
+/// ([`Probes`]'s `kept`), each in the order it came.
+#[derive(Default, Debug)]
+struct Kept {
+    /// Each group seen at a read after the last batch, with the lines it
+    /// wrote, and the lines written past [`GROUPS`] of them.
+    seen: Vec<(Pid, LineSpan)>,
+    unnamed: Option<LineSpan>,
+    /// **The lines of each group a batch sent is to name**, by the batch,
+    /// the group (none for the lines past the groups kept) and the lines,
+    /// carried with the text through every part's moves until the answer
+    /// files on them (B10): the worker's copy is the lines as they were
+    /// read.
+    inflight: Vec<(Id, Option<Pid>, LineSpan)>,
+}
+
+impl Kept {
+    /// Every span kept, in no order.
+    fn spans(&self) -> impl Iterator<Item = LineSpan> + Clone + '_ {
+        let seen = self.seen.iter().map(|e| e.1).chain(self.unnamed);
+        seen.chain(self.inflight.iter().map(|e| e.2))
+    }
+}
+
 /// **The driver's side of the worker**: when to ask, the answers merged, the
 /// hang watched, a click's second look.
 pub struct Probes<T> {
@@ -2336,16 +2367,13 @@ pub struct Probes<T> {
     /// A read sampled another group in front than the folder's: the folder
     /// goes at the next turn, which reads the lines again.
     dir_dropped: Owed,
-    /// Each group seen at a read since the last batch, with the lines it
-    /// wrote, and the lines written past [`GROUPS`] of them.
-    seen: Vec<(Pid, LineSpan)>,
-    unnamed: Option<LineSpan>,
-    /// **The lines of each group a batch sent is to name**, by the batch,
-    /// the group (none for the lines past the groups kept) and the lines,
-    /// carried with the text through every part's moves until the answer
-    /// files on them (B10): the worker's copy is the lines as they were
-    /// read.
-    inflight: Vec<(Id, Option<Pid>, LineSpan)>,
+    /// **The lines still to be named, kept to send and sent**: every change
+    /// moves its generation, and [`Probes::publish`] hands them on only
+    /// when it or `held`'s moved.
+    kept: Tracked<Kept>,
+    /// **The probe runs** (`Probes::drain_recut`): one a drain, none while
+    /// nothing is read.
+    probe_runs: baud_render::Tally,
     /// **The cursor's line each batch out was sent with**, by the batch,
     /// carried with its text through a re-cut (`Probes::recut`): the line
     /// its answer's program in front is named from, where it is now, not
@@ -2358,7 +2386,7 @@ pub struct Probes<T> {
     /// of its own until named, so those lines read as not known
     /// (`Paths::set_pending`) until the answer naming their own group is
     /// filed on them as well (`Probes::file_answered`).
-    held: Vec<(Option<Pid>, LineSpan)>,
+    held: Tracked<Vec<(Option<Pid>, LineSpan)>>,
     /// The group whose verdict each line's facts came from (G1): a group
     /// still to be named writing over lines another lit holds them.
     lit: Lit,
@@ -2453,11 +2481,10 @@ impl<T: Moment> Probes<T> {
             front_group: None,
             dir_key: None,
             dir_dropped: Owed::No,
-            seen: Vec::new(),
-            unnamed: None,
-            inflight: Vec::new(),
+            kept: Tracked::new(Kept::default()),
+            probe_runs: baud_render::Tally::default(),
             cursors: Vec::new(),
-            held: Vec::new(),
+            held: Tracked::new(Vec::new()),
             lit: Lit::default(),
             off: Vec::new(),
             shell_group: None,
@@ -2510,6 +2537,12 @@ impl<T: Moment> Probes<T> {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn started(&self) -> baud_render::Tally {
         self.started
+    }
+
+    /// The probe runs so far: one a drain.
+    #[cfg(test)]
+    pub fn probe_runs(&self) -> baud_render::Tally {
+        self.probe_runs
     }
 
     /// **A drain of reads was taken**, the cursor on `began` before the first
@@ -2606,10 +2639,8 @@ impl<T: Moment> Probes<T> {
     ) {
         // Every change to the lines still to be named was handed on.
         #[cfg(test)]
-        assert!(
-            paths.pending_is(self.pending(), self.held.iter().map(|e| e.1)),
-            "pending not published"
-        );
+        assert!(self.published(paths), "pending not published");
+        self.probe_runs.bump();
         self.floor_off(paths);
         // Each part's marks against the core's, and the window's latch
         // stepped over them in order: a part whose marks are not trusted
@@ -2827,9 +2858,7 @@ impl<T: Moment> Probes<T> {
             }
             self.carry_pending(paths, &rec, &at, screens);
             for h in held {
-                if !self.held.contains(&h) {
-                    self.held.push(h);
-                }
+                hold(&mut self.held, h);
             }
             // What it erased whole, forgotten after its moves and before
             // any of the drain is filed.
@@ -2946,19 +2975,28 @@ impl<T: Moment> Probes<T> {
     /// **Every line whose writer is still to be named**: kept to send, and
     /// sent and not yet answered.
     fn pending(&self) -> impl Iterator<Item = LineSpan> + Clone + '_ {
-        let kept = self.seen.iter().map(|e| e.1).chain(self.unnamed);
-        let sent = self.inflight.iter().map(|e| e.2);
-        kept.chain(sent).chain(self.held.iter().map(|e| e.1))
+        let held = self.held.get().iter().map(|e| e.1);
+        self.kept.get().spans().chain(held)
+    }
+
+    /// Where the lines still to be named and the holds stand: the pair
+    /// [`Probes::publish`] hands on with them.
+    fn gens(&self) -> (PendingGen, PendingGen) {
+        (self.kept.generation(), self.held.generation())
     }
 
     /// **The lines still to be named, and those held, handed to `paths`**
     /// where they are now (`Paths::set_pending`). After everything that
     /// changes them -- a read kept, a part's moves, a batch answered, the
-    /// same-group shortcut, a close.
+    /// same-group shortcut, a close. Nothing is handed on, and no span
+    /// compared, while neither has moved from where `paths` last took them.
     fn publish(&self, paths: &mut Paths) {
         #[cfg(test)]
         let began = std::time::Instant::now();
-        paths.set_pending(self.pending(), self.held.iter().map(|e| e.1));
+        if paths.pending_at() != Some(self.gens()) {
+            let held = self.held.get().iter().map(|e| e.1);
+            paths.set_pending(self.gens(), self.pending(), held);
+        }
         #[cfg(test)]
         {
             let ns = u64::try_from(began.elapsed().as_nanos()).unwrap_or(u64::MAX);
@@ -2967,14 +3005,26 @@ impl<T: Moment> Probes<T> {
         }
     }
 
+    /// Whether every change to the lines still to be named was handed on:
+    /// `paths` took them where they stand, or took none and none is
+    /// pending.
+    #[cfg(test)]
+    fn published(&self, paths: &Paths) -> bool {
+        match paths.pending_at() {
+            Some(at) => at == self.gens(),
+            None => self.pending().next().is_none(),
+        }
+    }
+
     /// **The group of each line still to be named that is `span`**, as
     /// handed to `Paths` (`Probes::publish`): none for the lines past the
     /// groups kept.
     fn groups_of(&self, span: LineSpan) -> impl Iterator<Item = Option<Pid>> + '_ {
-        let kept = self.seen.iter().map(|e| (Some(e.0), e.1));
-        kept.chain(self.unnamed.map(|l| (None, l)))
-            .chain(self.inflight.iter().map(|e| (e.1, e.2)))
-            .chain(self.held.iter().copied())
+        let kept = self.kept.get();
+        let seen = kept.seen.iter().map(|e| (Some(e.0), e.1));
+        seen.chain(kept.unnamed.map(|l| (None, l)))
+            .chain(kept.inflight.iter().map(|e| (e.1, e.2)))
+            .chain(self.held.get().iter().copied())
             .filter(move |e| e.1 == span)
             .map(|e| e.0)
     }
@@ -3020,12 +3070,15 @@ impl<T: Moment> Probes<T> {
     /// none of that group's lines left to name -- a close, the same-group
     /// shortcut, a batch whose answer did not name it -- none will come.
     fn drop_orphan_holds(&mut self, paths: &mut Paths, f: crate::paths::Seen) {
-        let (seen, unnamed, inflight) = (&self.seen, self.unnamed, &self.inflight);
+        let kept = self.kept.get();
         let named = |h: Option<Pid>| match h {
-            Some(g) => seen.iter().any(|e| e.0 == g),
-            None => unnamed.is_some(),
-        } || inflight.iter().any(|e| e.1 == h);
-        self.held.retain(|&(h, span)| {
+            Some(g) => kept.seen.iter().any(|e| e.0 == g),
+            None => kept.unnamed.is_some(),
+        } || kept.inflight.iter().any(|e| e.1 == h);
+        if self.held.get().iter().all(|&(h, _)| named(h)) {
+            return;
+        }
+        self.held.edit().retain(|&(h, span)| {
             let waits = named(h);
             if !waits {
                 paths.written_under(f, span);
@@ -3090,21 +3143,30 @@ impl<T: Moment> Probes<T> {
     /// group in both; the lines past the groups kept, one span, keep the
     /// hull of what is left of them, failing closed.
     fn cut(&mut self, erased: LineSpan) {
-        self.seen = core::mem::take(&mut self.seen)
-            .into_iter()
-            .flat_map(|(g, s)| s.outside(erased).map(move |p| (g, p)))
-            .collect();
-        self.unnamed = self
-            .unnamed
-            .and_then(|u| u.outside(erased).reduce(LineSpan::joined));
-        self.inflight = core::mem::take(&mut self.inflight)
-            .into_iter()
-            .flat_map(|(i, g, s)| s.outside(erased).map(move |p| (i, g, p)))
-            .collect();
-        self.held = core::mem::take(&mut self.held)
-            .into_iter()
-            .flat_map(|(g, s)| s.outside(erased).map(move |p| (g, p)))
-            .collect();
+        // A span `erased` does not meet is left whole by `outside`, so only
+        // one it meets moves a generation.
+        let meets = |s: LineSpan| s.meet(erased).is_some();
+        if self.kept.get().spans().any(meets) {
+            let kept = self.kept.edit();
+            kept.seen = core::mem::take(&mut kept.seen)
+                .into_iter()
+                .flat_map(|(g, s)| s.outside(erased).map(move |p| (g, p)))
+                .collect();
+            kept.unnamed = kept
+                .unnamed
+                .and_then(|u| u.outside(erased).reduce(LineSpan::joined));
+            kept.inflight = core::mem::take(&mut kept.inflight)
+                .into_iter()
+                .flat_map(|(i, g, s)| s.outside(erased).map(move |p| (i, g, p)))
+                .collect();
+        }
+        if self.held.get().iter().any(|e| meets(e.1)) {
+            let held = self.held.edit();
+            *held = core::mem::take(held)
+                .into_iter()
+                .flat_map(|(g, s)| s.outside(erased).map(move |p| (g, p)))
+                .collect();
+        }
         self.off = core::mem::take(&mut self.off)
             .into_iter()
             .flat_map(|o| o.outside(erased))
@@ -3116,15 +3178,23 @@ impl<T: Moment> Probes<T> {
     /// text went: those still to be named, held, written with paths off,
     /// and lit.
     fn carry_spans(&mut self, carry: impl Fn(LineSpan) -> LineSpan) {
-        for e in &mut self.seen {
-            e.1 = carry(e.1);
+        // A carry is a function of the span alone, so a generation moves
+        // only where some span is carried elsewhere.
+        let moves = |s: LineSpan| carry(s) != s;
+        if self.kept.get().spans().any(moves) {
+            let kept = self.kept.edit();
+            for e in &mut kept.seen {
+                e.1 = carry(e.1);
+            }
+            kept.unnamed = kept.unnamed.map(&carry);
+            for e in &mut kept.inflight {
+                e.2 = carry(e.2);
+            }
         }
-        self.unnamed = self.unnamed.map(&carry);
-        for e in &mut self.inflight {
-            e.2 = carry(e.2);
-        }
-        for e in &mut self.held {
-            e.1 = carry(e.1);
+        if self.held.get().iter().any(|e| moves(e.1)) {
+            for e in self.held.edit() {
+                e.1 = carry(e.1);
+            }
         }
         for o in &mut self.off {
             *o = carry(*o);
@@ -3207,9 +3277,7 @@ impl<T: Moment> Probes<T> {
             e.1 = paths.recut_line(e.1);
         }
         for h in held {
-            if !self.held.contains(&h) {
-                self.held.push(h);
-            }
+            hold(&mut self.held, h);
         }
         self.publish(paths);
     }
@@ -3256,7 +3324,7 @@ impl<T: Moment> Probes<T> {
             }
             // The holds this group's verdict releases, lit by it now.
             let lit = &mut self.lit;
-            self.held.retain(|&(h, span)| {
+            self.held.edit().retain(|&(h, span)| {
                 if h == g {
                     paths.written_by(f, by, span);
                     lit.set(g, span);
@@ -3267,21 +3335,22 @@ impl<T: Moment> Probes<T> {
             // A verdict that lights holds every other writer's lines it
             // lands on.
             if matches!(f, Seen::Named(Front::Local | Front::Multiplexer)) {
-                let others = self.seen.iter().map(|e| (Some(e.0), e.1));
+                let kept = self.kept.get();
+                let others = kept.seen.iter().map(|e| (Some(e.0), e.1));
                 let others = others
-                    .chain(self.unnamed.map(|l| (None, l)))
-                    .chain(self.inflight.iter().map(|e| (e.1, e.2)))
+                    .chain(kept.unnamed.map(|l| (None, l)))
+                    .chain(kept.inflight.iter().map(|e| (e.1, e.2)))
                     .filter(|e| e.0 != g);
-                for &(_, _, span) in self.inflight.iter().filter(|e| mine(e)) {
+                for &(_, _, span) in kept.inflight.iter().filter(|e| mine(e)) {
                     for (h, other) in others.clone() {
                         if let Some(both) = span.meet(other) {
-                            self.held.push((h, both));
+                            self.held.edit().push((h, both));
                         }
                     }
                 }
             }
             let lit = &mut self.lit;
-            self.inflight.retain(|e| {
+            self.kept.edit().inflight.retain(|e| {
                 if mine(e) {
                     paths.written_by(f, by, e.2);
                     lit.set(g, e.2);
@@ -3289,7 +3358,7 @@ impl<T: Moment> Probes<T> {
                 !mine(e)
             });
         }
-        self.inflight.retain(|&(i, _, span)| {
+        self.kept.edit().inflight.retain(|&(i, _, span)| {
             let answered = i <= id;
             if answered {
                 paths.written_under(Seen::NotNamed, span);
@@ -3433,9 +3502,7 @@ impl<T: Moment> Probes<T> {
                     }
                 }
                 for over in written.into_iter().flatten() {
-                    if !self.held.contains(&(Some(g), over)) {
-                        self.held.push((Some(g), over));
-                    }
+                    hold(&mut self.held, (Some(g), over));
                 }
             }
         }
@@ -3450,18 +3517,26 @@ impl<T: Moment> Probes<T> {
     /// two reads with another's rows between keeps two spans, so its verdict
     /// covers its own rows and not the rows between, and it is named once.
     fn group_wrote(&mut self, paths: &mut Paths, g: Pid, span: LineSpan) {
-        let known = self.seen.iter().any(|e| e.0 == g);
-        if let Some(e) = self.seen.iter_mut().rev().find(|e| e.0 == g) {
-            if e.1.touches(span) {
-                e.1 = e.1.joined(span);
+        let kept = self.kept.get();
+        let known = kept.seen.iter().any(|e| e.0 == g);
+        // The lines kept move only where the join is another span.
+        if let Some(k) = kept.seen.iter().rposition(|e| e.0 == g) {
+            let was = kept.seen[k].1;
+            if was.touches(span) {
+                if was.joined(span) != was {
+                    self.kept.edit().seen[k].1 = was.joined(span);
+                }
                 return;
             }
         }
-        if self.seen.len() >= GROUPS {
-            self.unnamed = joined(self.unnamed, Some(span));
+        if kept.seen.len() >= GROUPS {
+            let both = joined(kept.unnamed, Some(span));
+            if both != kept.unnamed {
+                self.kept.edit().unnamed = both;
+            }
             return;
         }
-        self.seen.push((g, span));
+        self.kept.edit().seen.push((g, span));
         if known {
             return;
         }
@@ -3510,7 +3585,8 @@ impl<T: Moment> Probes<T> {
             Marks::Closed => return None,
             // A link's read is named at the next turn, now.
             Marks::Off => {
-                let named = !self.seen.is_empty() || self.unnamed.is_some();
+                let kept = self.kept.get();
+                let named = !kept.seen.is_empty() || kept.unnamed.is_some();
                 return named.then_some(now);
             }
         }
@@ -3548,11 +3624,7 @@ impl<T: Moment> Probes<T> {
     pub fn answers(&mut self, s: &mut Seen<'_, '_>) -> Turn {
         // Every change to the lines still to be named was handed on.
         #[cfg(test)]
-        assert!(
-            s.paths
-                .pending_is(self.pending(), self.held.iter().map(|e| e.1)),
-            "pending not published"
-        );
+        assert!(self.published(s.paths), "pending not published");
         self.floor_off(s.paths);
         let mut turn = Turn::default();
         if self.dir_dropped == Owed::Yes {
@@ -3677,11 +3749,7 @@ impl<T: Moment> Probes<T> {
     pub fn tick(&mut self, now: T, s: Seen<'_, '_>, group: impl FnOnce() -> Option<Pid>) -> Turn {
         // Every change to the lines still to be named was handed on.
         #[cfg(test)]
-        assert!(
-            s.paths
-                .pending_is(self.pending(), self.held.iter().map(|e| e.1)),
-            "pending not published"
-        );
+        assert!(self.published(s.paths), "pending not published");
         self.floor_off(s.paths);
         let mut turn = Turn::default();
         match s.paths.marks() {
@@ -3690,19 +3758,21 @@ impl<T: Moment> Probes<T> {
             // Paths off: only the groups a link's read saw, sent to be
             // named, with no screen read and nothing looked up.
             Marks::Off => {
-                if (self.seen.is_empty() && self.unnamed.is_none())
+                let kept = self.kept.get();
+                if (kept.seen.is_empty() && kept.unnamed.is_none())
                     || matches!(self.slot, Slot::Closed)
                 {
                     return turn;
                 }
+                let (seen, unnamed) = self.take_seen();
                 let ask = Ask {
                     id: self.next_id,
                     kind: Kind::Screen,
                     group: group(),
                     cursor: s.cursor_on(),
                     paths: Vec::new(),
-                    seen: core::mem::take(&mut self.seen),
-                    unnamed: self.unnamed.take(),
+                    seen,
+                    unnamed,
                     programs: Vec::new(),
                 };
                 self.counts.batches += 1;
@@ -3768,12 +3838,13 @@ impl<T: Moment> Probes<T> {
             // before it is covered, and was written while it was in front.
             // Its own rows were printed under the session in front.
             let front = s.paths.front_session();
-            for (h, span) in self.seen.drain(..) {
+            let (seen, unnamed) = self.take_seen();
+            for (h, span) in seen {
                 let by = front.as_ref().filter(|_| Some(h) == g);
                 s.paths
                     .written_by(crate::paths::Seen::Named(Front::Elsewhere), by, span);
             }
-            if let Some(span) = self.unnamed.take() {
+            if let Some(span) = unnamed {
                 s.paths
                     .written_under(crate::paths::Seen::Named(Front::Elsewhere), span);
             }
@@ -3804,7 +3875,8 @@ impl<T: Moment> Probes<T> {
         // With no path to ask about, the groups seen still go, to be named
         // and answered with nothing looked up, so the next batch's are its
         // own.
-        if queue.is_empty() && self.seen.is_empty() && self.unnamed.is_none() {
+        let kept = self.kept.get();
+        if queue.is_empty() && kept.seen.is_empty() && kept.unnamed.is_none() {
             return turn;
         }
         self.counts.asked += u64::try_from(queue.len()).unwrap_or(u64::MAX);
@@ -3822,14 +3894,15 @@ impl<T: Moment> Probes<T> {
         // Only now is it known whether this batch asks about a path, the
         // one kind that holds the next.
         self.pace.sent(now, &queue);
+        let (seen, unnamed) = self.take_seen();
         let ask = Ask {
             id: self.next_id,
             kind: Kind::Screen,
             group: g,
             cursor,
             paths: queue,
-            seen: core::mem::take(&mut self.seen),
-            unnamed: self.unnamed.take(),
+            seen,
+            unnamed,
             programs: Vec::new(),
         };
         self.send(ask, now, s.paths, s.lines, &mut turn);
@@ -3860,8 +3933,8 @@ impl<T: Moment> Probes<T> {
             group,
             cursor,
             paths: vec![path],
-            seen: self.seen.clone(),
-            unnamed: self.unnamed,
+            seen: self.kept.get().seen.clone(),
+            unnamed: self.kept.get().unnamed,
             programs: Vec::new(),
         };
         let mut turn = Turn::default();
@@ -3884,11 +3957,15 @@ impl<T: Moment> Probes<T> {
         // A batch's lines are kept here too, carried with the text until
         // its answer (B10); a click's are the ones still kept to send.
         self.cursors.push((ask.id, ask.cursor));
+        // The lines `take_seen` took out of those kept to send are in
+        // `inflight` again here, and handed on as they stand.
         if ask.kind == Kind::Screen {
             let lines = ask.seen.iter().map(|&(g, l)| (Some(g), l));
+            let inflight = &mut self.kept.edit().inflight;
             for (g, l) in lines.chain(ask.unnamed.map(|l| (None, l))) {
-                self.inflight.push((ask.id, g, l));
+                inflight.push((ask.id, g, l));
             }
+            self.publish(paths);
         }
         if matches!(self.slot, Slot::Unstarted) {
             self.started.bump();
@@ -3943,11 +4020,9 @@ impl<T: Moment> Probes<T> {
         for span in self.pending() {
             paths.written_under(crate::paths::Seen::NotNamed, span);
         }
-        self.seen.clear();
-        self.unnamed = None;
-        self.inflight.clear();
+        *self.kept.edit() = Kept::default();
         self.cursors.clear();
-        self.held.clear();
+        self.held.edit().clear();
         self.lit.clear();
         self.off.clear();
         self.publish(paths);
@@ -3957,6 +4032,15 @@ impl<T: Moment> Probes<T> {
         if self.click.take().is_some() {
             turn.clicked = Some(Clicked::Unchecked);
         }
+    }
+
+    /// **The groups kept to send, taken for a batch or the same-group
+    /// shortcut**: their lines go to `inflight` as the batch goes
+    /// (`Probes::send`), or are filed where the shortcut takes them, and
+    /// each hands them on after.
+    fn take_seen(&mut self) -> (Vec<(Pid, LineSpan)>, Option<LineSpan>) {
+        let kept = self.kept.edit();
+        (core::mem::take(&mut kept.seen), kept.unnamed.take())
     }
 }
 
@@ -8748,6 +8832,103 @@ mod tests {
         pr.publish(paths);
     }
 
+    /// **A read that moved nothing hands nothing on and compares no span**
+    /// (`Probes::publish`): sixteen groups kept to send and 64 holds,
+    /// handed on; then a read by a kept group over lines its span already
+    /// holds, and a drain of text whose record moved no line. Neither
+    /// `Paths::publishes` nor `Paths::pending_steps` moves. The controls:
+    /// the drain is one probe run, and a read that grows a kept group's
+    /// span by a line is handed on once and compares. Named break:
+    /// `publish` without the generation check -- the unchanged read and
+    /// drain hand on three times, each comparing every span.
+    #[test]
+    fn an_unchanged_read_compares_no_span() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 10,
+        };
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let mut counts = crate::keep::Counts::new(&t);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let group = |g: usize| Pid::try_from(100 + g).expect("a pid");
+        for g in 0..GROUPS {
+            let first = line(1_000 + 10 * g);
+            pr.kept
+                .edit()
+                .seen
+                .push((group(g), LineSpan::of(first, first.below())));
+        }
+        for h in 0..64 {
+            let at = line(2_000 + 2 * h);
+            pr.held
+                .edit()
+                .push((Some(group(h % GROUPS)), LineSpan::of(at, at)));
+        }
+        pr.publish(&mut paths);
+        let count = |paths: &Paths| (paths.publishes().value(), paths.pending_steps().value());
+        let before = count(&paths);
+        // A kept group's read over a line its span holds.
+        pr.read_taken(
+            &mut paths,
+            Writers::at(Some(group(0))),
+            LineSpan::of(line(1_000), line(1_000)),
+            Linked::No,
+        );
+        // A drain of text that moved no line: no scroll, no erase.
+        let began = paths.line_on(t.screen(), line(0));
+        let mut pace = crate::reads::Pace::new();
+        let mut took = Vec::new();
+        let _ = crate::reads::paced(
+            &mut t,
+            &mut pace,
+            Instant::now(),
+            [(&b"plain text"[..], Sampler::default().unasked())],
+            |_| {},
+            |t, r| page_width(t, &ws, r),
+            &mut crate::hostlog::NoLog,
+            &mut took,
+        );
+        assert!(
+            took.iter().any(|w| w.record.is_some()),
+            "the control: the drain's part has a record"
+        );
+        let rec = took.iter().rev().find_map(|w| w.record);
+        let _ = counts.numbered(&t, rec.as_ref());
+        let runs = pr.probe_runs().value();
+        pr.drain_taken(
+            &mut paths,
+            &t,
+            (began, began),
+            counts.core_lines(&t),
+            took.into_iter().map(|w| (w, Linked::No)),
+            Instant::now(),
+        );
+        assert_eq!(
+            pr.probe_runs().value() - runs,
+            1,
+            "the control: the drain is one probe run"
+        );
+        assert_eq!(
+            count(&paths),
+            before,
+            "(publishes, pending_steps) after a read and a drain that moved nothing"
+        );
+        // The control: the same group's read one line past its span.
+        pr.read_taken(
+            &mut paths,
+            Writers::at(Some(group(0))),
+            LineSpan::of(line(1_002), line(1_002)),
+            Linked::No,
+        );
+        let (publishes, steps) = count(&paths);
+        assert_eq!(publishes - before.0, 1, "the control: one hand-on");
+        assert!(steps > before.1, "the control: the moved span compared");
+    }
+
     /// **A hold over a line erased whole is let go** (`Probes::cut`,
     /// `held`): `ls`'s lit text on rows 0 and 1; a program gone before it
     /// was named wrote over both, so they are held under its group, its
@@ -8766,11 +8947,13 @@ mod tests {
         let both = LineSpan::of(line(0), line(1));
         let id = Id::default();
         paths.written_under(crate::paths::Seen::Named(Front::Local), both);
-        pr.held.push((Some(7), both));
-        pr.inflight.push((id, Some(7), both));
+        pr.held.edit().push((Some(7), both));
+        pr.kept.edit().inflight.push((id, Some(7), both));
         pr.publish(&mut paths);
         erased_by(&mut pr, &mut paths, b"\x1b[2;1H\x1b[2K");
-        pr.inflight
+        pr.kept
+            .edit()
+            .inflight
             .push((id, Some(2), LineSpan::of(line(1), line(1))));
         pr.publish(&mut paths);
         pr.file_answered(
@@ -8842,7 +9025,7 @@ mod tests {
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
         let line = |n| AbsLine::at(Rows::of_count(n));
-        pr.unnamed = Some(LineSpan::of(line(0), line(2)));
+        pr.kept.edit().unnamed = Some(LineSpan::of(line(0), line(2)));
         pr.publish(&mut paths);
         erased_by(&mut pr, &mut paths, b"\x1b[3;1H\x1b[2K");
         paths.written_under(
@@ -8881,7 +9064,7 @@ mod tests {
         let rows = LineSpan::of(line(0), line(4));
         paths.written_under(crate::paths::Seen::Named(Front::Local), rows);
         pr.lit.set(Some(2), rows);
-        pr.unnamed = Some(rows);
+        pr.kept.edit().unnamed = Some(rows);
         pr.publish(&mut paths);
         erased_by(&mut pr, &mut paths, b"\x1b[3;1H\x1b[2K");
         pr.read_taken(
@@ -8925,19 +9108,23 @@ mod tests {
         let row2 = LineSpan::of(line(2), line(2));
         paths.written_under(crate::paths::Seen::Named(Front::Local), rows);
         pr.lit.set(Some(1), rows);
-        pr.unnamed = Some(rows);
+        pr.kept.edit().unnamed = Some(rows);
         pr.publish(&mut paths);
         erased_by(&mut pr, &mut paths, b"\x1b[3;1H\x1b[2K");
-        assert_eq!(pr.unnamed, Some(rows), "the hull after the erase");
+        assert_eq!(
+            pr.kept.get().unnamed,
+            Some(rows),
+            "the hull after the erase"
+        );
         pr.read_taken(&mut paths, Writers::at(Some(2)), row2, Linked::No);
         assert_eq!(paths.origin(line(2)), Origin::Unknown, "before the answer");
         let id = Id::default();
-        let seen = core::mem::take(&mut pr.seen);
+        let seen = core::mem::take(&mut pr.kept.edit().seen);
         assert_eq!(seen, [(2, row2)], "ls kept with its line");
-        let hull = pr.unnamed.take();
+        let hull = pr.kept.edit().unnamed.take();
         let asked = seen.iter().map(|&(g, l)| (Some(g), l));
         for (g, l) in asked.chain(hull.map(|l| (None, l))) {
-            pr.inflight.push((id, g, l));
+            pr.kept.edit().inflight.push((id, g, l));
         }
         pr.publish(&mut paths);
         pr.file_answered(
@@ -12030,13 +12217,17 @@ mod tests {
             let mut paths = Paths::new(None, Forms::DEFAULT);
             paths.set(Turned::On);
             let id = Id::default();
-            pr.inflight
+            pr.kept
+                .edit()
+                .inflight
                 .push((id, Some(9), LineSpan::of(line(5), line(5))));
-            pr.held.push((Some(9), LineSpan::of(line(3), line(3))));
+            pr.held
+                .edit()
+                .push((Some(9), LineSpan::of(line(3), line(3))));
             pr.publish(&mut paths);
             assert_eq!(paths.origin(line(3)), Origin::Unknown, "held");
             pr.file_answered(&mut paths, (id, Kind::Screen), &[(Some(9), verdict)], &[]);
-            assert_eq!((paths.origin(line(3)), pr.held.len()), (origin, 0));
+            assert_eq!((paths.origin(line(3)), pr.held.get().len()), (origin, 0));
             let three = vec![LineSpan::of(line(3), line(3))];
             assert!(pr.lit.not_of(Some(9), three).is_empty(), "lit by its group");
         }
@@ -12142,9 +12333,13 @@ mod tests {
         paths.set(Turned::On);
         let line = |n| AbsLine::at(Rows::of_count(n));
         let id = Id::default();
-        pr.inflight
+        pr.kept
+            .edit()
+            .inflight
             .push((id, Some(2), LineSpan::of(line(1), line(1))));
-        pr.inflight
+        pr.kept
+            .edit()
+            .inflight
             .push((id, Some(2), LineSpan::of(line(4), line(4))));
         pr.publish(&mut paths);
         let local = crate::paths::Seen::Named(Front::Local);
@@ -12181,7 +12376,7 @@ mod tests {
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
         let line = |n| AbsLine::at(Rows::of_count(n));
-        pr.inflight.push((
+        pr.kept.edit().inflight.push((
             Id::default().next(),
             Some(2),
             LineSpan::of(line(2), line(2)),
@@ -12215,8 +12410,13 @@ mod tests {
             crate::paths::Seen::Named(Front::Local),
             LineSpan::of(line(0), line(2)),
         );
-        pr.seen.push((9, LineSpan::of(line(1), line(1))));
-        pr.inflight
+        pr.kept
+            .edit()
+            .seen
+            .push((9, LineSpan::of(line(1), line(1))));
+        pr.kept
+            .edit()
+            .inflight
             .push((Id::default(), Some(9), LineSpan::of(line(2), line(2))));
         let (mut lines, mut turn) = (Lines::default(), Turn::default());
         pr.close(&mut paths, &mut lines, &mut turn);
@@ -12831,7 +13031,10 @@ mod tests {
         for g in 0..8usize {
             let at = AbsLine::at(Rows::of_count(2_000 + g * 100));
             let span = LineSpan::of(at, at.below());
-            pr.seen.push((Pid::try_from(10 + g).expect("a pid"), span));
+            pr.kept
+                .edit()
+                .seen
+                .push((Pid::try_from(10 + g).expect("a pid"), span));
         }
         pr.publish(&mut paths);
         let mut recuts = crate::paths::Recuts::default();
@@ -12879,7 +13082,7 @@ mod tests {
         // At 100 columns each line takes two rows, so about half as many
         // lines as the ring has rows are left to tell.
         assert!(told > 1_000, "the control: a full ring told, {told} lines");
-        assert_eq!(pr.seen.len(), 8, "the control: the spans kept");
+        assert_eq!(pr.kept.get().seen.len(), 8, "the control: the spans kept");
         assert!(
             sizes.iter().all(|&(n, re_cut)| n > 1_000 && re_cut),
             "the control: every resize re-cut a full ring: {sizes:?}"
@@ -12998,7 +13201,7 @@ mod tests {
                 frames.push((
                     pr.publishes.load(Ordering::Relaxed) - calls,
                     pr.publish_ns.load(Ordering::Relaxed) - ns,
-                    pr.held.len(),
+                    pr.held.get().len(),
                     pr.pending().count(),
                 ));
             }
@@ -13013,9 +13216,9 @@ mod tests {
                 told = map.as_ref().map_or(0, |m| m.map.len());
                 pr.resized(&mut paths, (&rec, map), &t, was_last, &counts);
                 assert!(
-                    pr.held.len() > 1_000,
+                    pr.held.get().len() > 1_000,
                     "the control: the re-cut held its lines, {} held of {told} told",
-                    pr.held.len()
+                    pr.held.get().len()
                 );
             }
         }

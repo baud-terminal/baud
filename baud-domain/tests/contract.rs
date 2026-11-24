@@ -563,6 +563,13 @@ const _: fn(baud_domain::Row) -> baud_domain::SurfaceLine = baud_domain::Surface
 // TextMoved
 const _: fn(baud_domain::Rows) -> baud_domain::TextMoved = baud_domain::TextMoved::Up;
 const _: fn(baud_domain::Rows) -> baud_domain::TextMoved = baud_domain::TextMoved::Down;
+// Tracked
+const _: fn(u8) -> baud_domain::Tracked<u8> = baud_domain::Tracked::<u8>::new;
+const _: for<'a> fn(&'a baud_domain::Tracked<u8>) -> &'a u8 = baud_domain::Tracked::<u8>::get;
+const _: for<'a> fn(&'a baud_domain::Tracked<u8>) -> baud_domain::PendingGen =
+    baud_domain::Tracked::<u8>::generation;
+const _: for<'a> fn(&'a mut baud_domain::Tracked<u8>) -> &'a mut u8 =
+    baud_domain::Tracked::<u8>::edit;
 // UnicodeWidths
 const _: baud_domain::UnicodeWidths = baud_domain::UnicodeWidths::Current;
 const _: baud_domain::UnicodeWidths = baud_domain::UnicodeWidths::Eight;
@@ -728,6 +735,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("LineBidi", "E0423"),
     ("LineIdx", "E0369"),
     ("Modifiers", "E0423"),
+    ("PendingGen", "E0423"),
     ("ReadLen", "E0369"),
     ("Row", "E0369"),
     ("RowExtent", "E0616"),
@@ -745,6 +753,8 @@ const WITNESSED: &[(&str, &str)] = &[
     ("StyleId", "E0616"),
     ("StyleWord", "E0451"),
     ("StyleWrites", "E0423"),
+    ("Tracked", "E0616"),
+    ("Tracked", "E0599"),
     ("Variants", "E0603"),
     ("Width", "E0603"),
     ("WrapMargins", "E0451"),

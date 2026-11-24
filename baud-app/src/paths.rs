@@ -103,7 +103,7 @@ use core::ops::Range;
 use std::collections::{HashMap, HashSet};
 
 use baud_core::{FileHost, Screen, Term};
-use baud_domain::{Cols, LinkEpoch, LinkId, Rows};
+use baud_domain::{Cols, LinkEpoch, LinkId, PendingGen, Rows};
 use baud_render::{AbsLine, Scrolled, Tally, row_of};
 
 use crate::lined::{At, Drawn, Key, Lines, Mark, Reader, Run, Text, Uris};
@@ -1940,8 +1940,6 @@ pub struct Paths {
     alt_epoch: AltEpoch,
     pieces: Vec<(LineSpan, Facts)>,
     looked: core::cell::Cell<Tally>,
-    /// The spans [`Paths::set_pending`] has compared, each two once.
-    compared: Tally,
     /// Moved by every span named, which may join or part two rows
     /// ([`PathsAt::origins`]).
     origins: Generation,
@@ -1962,6 +1960,14 @@ pub struct Paths {
     /// text may hold, so a local answer filed over it stands on them only
     /// once their own writer's does.
     held: Vec<LineSpan>,
+    /// Where those spans and the holds stood when last taken
+    /// ([`Paths::pending_at`]).
+    pending_at: Option<(PendingGen, PendingGen)>,
+    /// **The handings of those spans that compared them**
+    /// ([`Paths::set_pending`]), and the spans they compared: a read that
+    /// moved nothing leaves both as it found them.
+    publishes: Tally,
+    pending_steps: Tally,
     key: Vec<u8>,
     tokens: Vec<Token>,
     /// The paths the last read found runs for, each run's [`Key::Path`] a
@@ -2795,6 +2801,19 @@ impl Paths {
         self.looked.get()
     }
 
+    /// The handings of the spans still to be named that compared them, so
+    /// far.
+    #[cfg(test)]
+    pub fn publishes(&self) -> Tally {
+        self.publishes
+    }
+
+    /// The pairs of spans those handings compared, so far.
+    #[cfg(test)]
+    pub fn pending_steps(&self) -> Tally {
+        self.pending_steps
+    }
+
     /// **What wrote `line` of `surface`** ([`Facts::provenance`]); none if
     /// nothing was filed over it, or it is the alternate screen's before its
     /// last clear. A line [`Paths::renumbered`] covers is at least not
@@ -2855,45 +2874,36 @@ impl Paths {
             .any(|p| p.surface == surface && p.first <= last && first <= p.last)
     }
 
-    /// Whether `pending` and `held` are the spans [`Paths::set_pending`]
-    /// last handed, in whatever order: what a line reads depends on the
-    /// lines covered alone.
-    #[cfg(test)]
-    pub fn pending_is<I, J>(&self, pending: I, held: J) -> bool
-    where
-        I: Iterator<Item = LineSpan> + Clone,
-        J: Iterator<Item = LineSpan> + Clone,
-    {
-        let mut n = Tally::default();
-        same_spans(&self.pending, pending, &mut n) && same_spans(&self.held, held, &mut n)
-    }
-
-    /// The spans [`Paths::set_pending`] has compared so far.
-    #[cfg(test)]
-    pub(crate) fn compares(&self) -> Tally {
-        self.compared
+    /// **Where the lines still to be named and the holds stood when
+    /// [`Paths::set_pending`] last took them**: none until it first does.
+    /// A driver whose generations equal these has nothing new to hand on.
+    pub fn pending_at(&self) -> Option<(PendingGen, PendingGen)> {
+        self.pending_at
     }
 
     /// **The lines whose writer is still to be named, where their text is
     /// now, and those of them held**, as the paths' worker driver carries
-    /// them (`probe::Probes`): a held line reads as not known until its
-    /// own writer is named. Where the held lines changed, every line each
-    /// covered or covers is read again ([`Reader::refiled`]), and so is a
-    /// link's look under the pointer. Where the lines still to be named
+    /// them (`probe::Probes`), standing at `at`: a held line reads as not
+    /// known until its own writer is named. Where the held lines changed,
+    /// every line each covered or covers is read again
+    /// ([`Reader::refiled`]), and so is a link's look under the pointer.
+    /// Where the lines still to be named
     /// changed, [`Reads`] is decided again, and what the last collection
     /// met on them is settled once none of its lines is still to be named
     /// ([`Paths::named`]).
-    pub fn set_pending<I, J>(&mut self, pending: I, held: J)
+    pub fn set_pending<I, J>(&mut self, at: (PendingGen, PendingGen), pending: I, held: J)
     where
         I: Iterator<Item = LineSpan> + Clone,
         J: Iterator<Item = LineSpan> + Clone,
     {
-        if !same_spans(&self.pending, pending.clone(), &mut self.compared) {
+        self.pending_at = Some(at);
+        self.publishes.bump();
+        if !same_spans(&self.pending, pending.clone(), &mut self.pending_steps) {
             self.pending.clear();
             self.pending.extend(pending);
             self.named();
         }
-        if same_spans(&self.held, held.clone(), &mut self.compared) {
+        if same_spans(&self.held, held.clone(), &mut self.pending_steps) {
             return;
         }
         for span in self.held.iter().copied().chain(held.clone()) {
@@ -4562,7 +4572,14 @@ mod tests {
     use crate::link::admit;
     use crate::tool::tool;
     use baud_core::Owned;
-    use baud_domain::{BytePos, ReadLen, WinSize};
+    use baud_domain::{BytePos, ReadLen, Tracked, WinSize};
+
+    /// Where a driver's lines still to be named stand, as `set_pending`
+    /// takes them from a test that hands spans on directly.
+    pub(super) fn handed() -> (PendingGen, PendingGen) {
+        let t = Tracked::new(());
+        (t.generation(), t.generation())
+    }
 
     /// **Each part's lines are placed against its own window top**
     /// (`CoreLines::part`): a batch begun with the core's top at line 10,
@@ -5174,7 +5191,8 @@ mod tests {
                 self.p
                     .written_under(Seen::Named(Front::Local), Self::row(y));
             }
-            self.p.set_pending(core::iter::empty(), core::iter::empty());
+            self.p
+                .set_pending(handed(), core::iter::empty(), core::iter::empty());
             self.l.forget();
         }
     }
@@ -5202,6 +5220,7 @@ mod tests {
             p.set(Turned::On);
             let _ = p.observe(&t, at());
             p.set_pending(
+                handed(),
                 [Pended::row(baud_domain::Row::from_index(0))].into_iter(),
                 core::iter::empty(),
             );
@@ -5266,6 +5285,7 @@ mod tests {
             w.p.merge_into(asked.into_iter().map(|a| (a, Probe::Exists)), &mut w.l);
         feed(&mut w.t, b"/etc/hosts\r\n");
         w.p.set_pending(
+            handed(),
             [Pended::row(baud_domain::Row::from_index(1))].into_iter(),
             core::iter::empty(),
         );
@@ -5296,6 +5316,7 @@ mod tests {
         let _ = p.observe(&t, at());
         p.all_written_here();
         p.set_pending(
+            handed(),
             [Pended::row(baud_domain::Row::from_index(5))].into_iter(),
             core::iter::empty(),
         );
@@ -9017,7 +9038,7 @@ mod tests {
                 .part(Some(t.history_mark().line()));
             let mut p = Paths::new(None, Forms::DEFAULT);
             p.set(Turned::On);
-            p.set_pending([s].into_iter(), core::iter::empty());
+            p.set_pending(handed(), [s].into_iter(), core::iter::empty());
             let screens = [Screen::Normal, Screen::Alternate];
             let went = p.carried_span(&rec, &lines, &screens, s);
             (went, p.carried(&rec, &lines, &screens))
@@ -9746,6 +9767,7 @@ mod tests {
 /// and the rows' provenance (`PathsAt::joins`).
 #[cfg(test)]
 mod joined_rows {
+    use super::tests::handed;
     use super::*;
     use crate::lined::Lines;
     use crate::link::{
@@ -10473,15 +10495,15 @@ mod joined_rows {
                 LineSpan::of(l, l)
             })
             .collect();
-        p.set_pending(core::iter::empty(), held.iter().copied());
-        let (before, origins) = (p.compares().value(), p.origins);
-        p.set_pending(core::iter::empty(), held.iter().copied());
-        let again = p.compares().value() - before;
+        p.set_pending(handed(), core::iter::empty(), held.iter().copied());
+        let (before, origins) = (p.pending_steps().value(), p.origins);
+        p.set_pending(handed(), core::iter::empty(), held.iter().copied());
+        let again = p.pending_steps().value() - before;
         assert!(again <= 2_000, "{again} comparisons for 2,000 lines");
         assert_eq!(p.origins, origins, "nothing refiled");
-        p.set_pending(core::iter::empty(), held.iter().rev().copied());
+        p.set_pending(handed(), core::iter::empty(), held.iter().rev().copied());
         assert_eq!(p.origins, origins, "the other order is the same lines");
-        p.set_pending(core::iter::empty(), held[1..].iter().copied());
+        p.set_pending(handed(), core::iter::empty(), held[1..].iter().copied());
         assert_ne!(p.origins, origins, "one line fewer refiles");
     }
 }
