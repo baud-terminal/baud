@@ -796,3 +796,27 @@ fn under_fetm_exclude_printer_controller_mode_relays_its_bytes() {
     assert_eq!(jobs(&mut t), ["\x1b[1mhi\r\n\x0c"]);
     assert_eq!(t.unsupported_param, 0, "FETM is not counted");
 }
+
+/// **A row of another band than the cursor's prints its own rendition,
+/// banded as in one table**: on bands of four rows, bold on row 2, the
+/// first rendition the first band interns, then underline on row 8, the
+/// first the second band interns, where the cursor is left; the screen
+/// printed. Named break: read row 2's ids through the cursor's band's
+/// table, which names the underline for them -- row 2 prints underlined.
+#[test]
+fn a_row_of_another_band_prints_its_own_rendition() {
+    const TALL: WinSize = WinSize {
+        ws_col: 10,
+        ws_row: 12,
+    };
+    let bytes = b"\x1b[2;1H\x1b[1mB\x1b[0m\x1b[8;1H\x1b[4mU\x1b[0m";
+    let [(_, one), (_, banded)] = support::one_and_banded(&TALL, bytes, |t| {
+        support::feed(t, b"\x1b[?19h\x1b[0i");
+        jobs(t)
+    });
+    assert!(
+        one[0].contains("\x1b[0;1mB"),
+        "the control: row 2 prints bold"
+    );
+    assert_eq!(banded, one);
+}

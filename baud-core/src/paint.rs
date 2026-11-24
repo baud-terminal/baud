@@ -2601,6 +2601,18 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
         self.band_of_phys(self.view.phys_row(r))
     }
 
+    /// **The table row `r` of the surface up names its rendition ids in**:
+    /// its band's, which is the write path's only on the cursor's band. What
+    /// a reader of another row's renditions reads them through.
+    pub(crate) fn row_table(&self, r: Row) -> baud_domain::LiveTable<'_> {
+        self.band_table(self.band_of(r))
+    }
+
+    /// Band `b`'s live table, whichever band the write path is in.
+    pub(crate) fn band_table(&self, b: baud_domain::Band) -> baud_domain::LiveTable<'_> {
+        baud_domain::LiveTable::of_band(M::band(&self.tmpl, b), b)
+    }
+
     /// The band physical row `p` of the surface up is in.
     pub(crate) fn band_of_phys(&self, p: baud_domain::PhysRow) -> baud_domain::Band {
         use crate::bands::Surface;

@@ -432,3 +432,36 @@ fn preceding_on_the_line_is_the_page_on_its_first_line() {
     }
     assert!(wrong.is_empty(), "{} differ: {wrong:#?}", wrong.len());
 }
+
+/// **A character SEE's page pushes across a band's edge keeps its
+/// rendition, banded as in one table**: on bands of four rows, row 4, the
+/// first band's last, filled in bold in colour 1, the first rendition that
+/// band interns, then underline in colour 2 on row 8, the first the second
+/// band interns; `ICH 2` on row 4 pushes its last two characters onto row
+/// 5, in the second band. Each is read through its own row's table
+/// ([`Term::row_styles`]). Named break: push a cell across the edge with
+/// the first band's id, which the second band's table names the underline
+/// for -- the two read underlined.
+#[test]
+fn a_character_pushed_across_a_band_s_edge_keeps_its_rendition() {
+    const TALL: WinSize = WinSize {
+        ws_row: 12,
+        ws_col: 12,
+    };
+    let bytes = b"\x1b[4;1H\x1b[1;38;5;1mMNOPQRSTUVWX\x1b[0m\x1b[8;1H\x1b[4;38;5;2mX\x1b[0m\
+                  \x1b[0Q\x1b[4;3H\x1b[2@";
+    let [(_, one), (_, banded)] = support::one_and_banded(&TALL, bytes, |t| {
+        let r = Row::from_index(4);
+        let styles = t.row_styles(r);
+        t.viewport().row(r)[..2]
+            .iter()
+            .map(|c| (c.content, t.style_in(styles, *c)))
+            .collect::<Vec<_>>()
+    });
+    let bold = |w: &StyleWord| w.attrs().only(Attrs::BOLD) == Attrs::BOLD;
+    assert!(
+        one.iter().all(|(_, w)| bold(w)),
+        "the control: the pushed characters are bold in one table"
+    );
+    assert_eq!(banded, one);
+}

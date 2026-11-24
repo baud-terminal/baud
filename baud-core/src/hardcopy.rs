@@ -35,7 +35,6 @@
 //! kept at its end while it is written. A hard copy the area has no room
 //! for prints nothing and is counted.
 
-use crate::bands::Slots;
 use crate::paint::Paint;
 use crate::print::{JobKind, Status};
 use baud_domain::*;
@@ -221,7 +220,7 @@ impl<M: crate::bands::BandMode> Visible<'_, '_, '_, M> {
     /// index 0 in a cell of its foreground.
     fn colours(&self, r: Row, c: Col) -> (Option<Pixel>, Option<Pixel>) {
         let cell = self.paint.view.get(r, c);
-        let word = self.paint.word_of(cell.style);
+        let word = self.paint.word_in(r, cell.style);
         let fg = Some(resolve(self.paint, word.fg(), self.fg));
         let bg = match word.bg().is_default() {
             true => None,
@@ -515,7 +514,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                     continue;
                 }
                 let cellv = self.view.get(row, Col::at_index(c));
-                let attrs = self.word_of(cellv.style).attrs();
+                let attrs = self.word_in(row, cellv.style).attrs();
                 let base = self.clusters.base_of(cellv.content);
                 if base.is_wide_tail() {
                     continue;
@@ -651,9 +650,11 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             // Each virtual placement shown: the least row and column of
             // its runs.
             let mut roots: [Option<(PlaceSerial, i64, i64)>; ROOTS] = [None; ROOTS];
-            let (vw, clusters, live) = (&self.view, &*self.clusters, self.tmpl.live());
+            let (vw, clusters) = (&self.view, &*self.clusters);
             for r in 0..self.rows.index() {
                 let row = Row::from_index(r);
+                // Each row's ids through its own band's table.
+                let live = self.row_table(row);
                 let rendition = vw.rendition(row);
                 // A line not single-width draws its cells twice as wide, and
                 // a double-height one twice as tall.

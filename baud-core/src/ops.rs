@@ -2045,7 +2045,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             let k = n.at_least_one().min(to.index().saturating_sub(at.index()));
             let pushed = self.view.get(r, Col::at_index(at.index() + k));
             let s = match at.index() + k < to.index() {
-                true => self.string_of(pushed.style),
+                true => self.string_in(r, pushed.style),
                 false => StringId::NONE,
             };
             let end = Col::at_index(at.index() + k);
@@ -2095,7 +2095,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let mut was = [StringId::NONE; crate::MAX_COLS];
         let cols = self.cols.index().min(crate::MAX_COLS);
         for (c, w) in was.iter_mut().enumerate().take(cols) {
-            *w = self.string_of(self.view.get(r, Col::at_index(c)).style);
+            *w = self.string_in(r, self.view.get(r, Col::at_index(c)).style);
         }
         self.erase_cells(r, a, b, blank);
         // The span widened to whole characters, as the fill widens it.

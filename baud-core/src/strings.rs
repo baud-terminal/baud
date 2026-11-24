@@ -26,8 +26,8 @@
 
 use crate::bands::Slots;
 use baud_domain::{
-    Col, PackedCell, Row, STRING_DEPTH, StringEdge, StringEntry, StringId, StringKind, StyleId,
-    StyleWord,
+    Band, Col, PackedCell, Row, STRING_DEPTH, StringEdge, StringEntry, StringId, StringKind,
+    StyleId, StyleWord,
 };
 
 use crate::paint::Paint;
@@ -224,22 +224,22 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                 s = e.parent;
             }
         };
-        let tmpl = self.tmpl.as_slice();
-        let of = |id: StyleId| {
-            tmpl.get(id.index())
-                .and_then(|s| s.word())
-                .map_or(StringId::NONE, |w| w.string())
-        };
         // **A frozen row names its string through its generation's words**
         // (`crate::freeze`), so the rows the table serves are read through
         // it and every word a generation holds is marked: a word some
         // frozen cell no longer names keeps its string a little longer,
-        // which frees nothing a cell needs.
+        // which frees nothing a cell needs. A named id is read through
+        // every band's table, its row's among them, so an id another
+        // band's row names in another word keeps a string a little longer
+        // too.
         let mut slots = baud_domain::SlotSet::new();
         self.mark_live(&mut slots);
-        for k in 0..tmpl.len() {
-            if slots.has(k) {
-                mark(of(StyleId::from_index(k)));
+        let bands = Band::FIRST.up_to(self.style_log.layout.end());
+        for tmpl in bands.map(|b| M::band(&self.tmpl, b)) {
+            for (k, s) in tmpl.iter().enumerate() {
+                if slots.has(k) {
+                    mark(s.word().map_or(StringId::NONE, |w| w.string()));
+                }
             }
         }
         if let Some(f) = self.style_log.frozen.as_ref() {
@@ -259,13 +259,10 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         self.strs.strings.free_slot()
     }
 
-    /// The string the rendition `id` names.
-    pub(crate) fn string_of(&self, id: StyleId) -> StringId {
-        self.tmpl
-            .as_slice()
-            .get(id.index())
-            .and_then(|s| s.word())
-            .map_or(StringId::NONE, |w| w.string())
+    /// The string a cell of row `r` naming `id` is in, read through `r`'s
+    /// band's table.
+    pub(crate) fn string_in(&self, r: Row, id: StyleId) -> StringId {
+        self.word_in(r, id).string()
     }
 
     /// **Each blank of `[from, to)` on row `r` put back in its string**,

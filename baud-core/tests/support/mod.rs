@@ -42,6 +42,26 @@ pub fn with_term<R>(ws: &WinSize, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
     f(&mut t)
 }
 
+/// **`f` on a terminal of `ws` in one table, then on one in bands of four
+/// rows**, each fed `bytes` first: the two answers, named, to compare. The
+/// banded mode resolves a row's ids through its own band's table, so a
+/// reader of a row off the cursor's band reads what the one table does.
+pub fn one_and_banded<R>(
+    ws: &WinSize,
+    bytes: &[u8],
+    f: impl Fn(&mut Term<'_>) -> R,
+) -> [(&'static str, R); 2] {
+    let banded = Provision::banded_in(ws, BandRows::of(Rows::of_index(4)), BandSlots(1_024))
+        .expect("admitted banded");
+    [("one table", Provision::from(ws)), ("banded", banded)].map(|(name, p)| {
+        let mut owned = Owned::new(p).with_printer(PrintBudget::of_bytes(4096));
+        let mut t = Term::new(owned.storage(), ws);
+        t.set_printer(PrinterPort::Ready);
+        feed(&mut t, bytes);
+        (name, f(&mut t))
+    })
+}
+
 /// [`with_term`] on a storage lent no generations (`Owned::without_frozen`):
 /// a full table whose cells name every slot refuses the next rendition
 /// rather than freezing what lies off the screen.

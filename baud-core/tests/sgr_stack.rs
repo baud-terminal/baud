@@ -208,3 +208,22 @@ fn xtreportsgr_counts_from_the_origin_under_decom() {
         assert_eq!(ask(t, b"\x1b[1;1;1;1#|"), b"\x1b[0;7m");
     });
 }
+
+/// **XTREPORTSGR on a row of another band than the cursor's answers that
+/// row's rendition, banded as in one table**: on bands of four rows, bold
+/// in colour 1 on row 2, the first rendition the first band interns, then
+/// underline in colour 2 on row 8, the first the second band interns,
+/// where the cursor is left. Named break: read row 2's ids through the
+/// cursor's band's table, which names the underline for them -- the banded
+/// answer is `CSI 0 m`.
+#[test]
+fn xtreportsgr_on_a_row_of_another_band_answers_its_rendition() {
+    const TALL: WinSize = WinSize {
+        ws_row: 12,
+        ws_col: 12,
+    };
+    let bytes = b"\x1b[2;1H\x1b[1;38;5;1mAB\x1b[0m\x1b[8;1H\x1b[4;38;5;2mX\x1b[0m";
+    for (name, got) in support::one_and_banded(&TALL, bytes, |t| ask(t, b"\x1b[2;1;2;2#|")) {
+        assert_eq!(got, b"\x1b[0;1;38:5:1m", "{name}");
+    }
+}

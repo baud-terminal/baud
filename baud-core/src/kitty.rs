@@ -10,7 +10,6 @@
 //! body byte (`Paint::str_put`). The graph's tables are what they were, so
 //! the text path's are too.
 
-use crate::bands::Slots;
 use crate::osc::StrKind;
 use crate::paint::Paint;
 use crate::term::Term;
@@ -124,15 +123,19 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     #[cold]
     #[inline(never)]
     fn kitty_mark_drawn(&mut self, at: &KittyAt) {
-        let s = &mut *self.strs;
-        s.kitty.clear_drawn();
+        self.strs.kitty.clear_drawn();
         for r in 0..self.rows.index() {
             let row = Row::from_index(r);
+            // The row's ids name its own band's table, which is the write
+            // path's only on the cursor's; read before the stream is borrowed.
+            let b = self.band_of(row);
             let stretch = match self.view.rendition(row).is_double() {
                 true => 2,
                 false => 1,
             };
-            let (view, clusters, live) = (&self.view, &*self.clusters, self.tmpl.live());
+            let live = LiveTable::of_band(M::band(&self.tmpl, b), b);
+            let (view, clusters) = (&self.view, &*self.clusters);
+            let s = &mut *self.strs;
             let cells = (0..self.cols.index()).map(|c| {
                 placeholder_cell(
                     clusters,

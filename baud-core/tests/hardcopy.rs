@@ -791,3 +791,88 @@ fn a_relative_placement_prints_where_its_parent_puts_it() {
         assert_eq!(px[10 * w + 15], Pixel::CLEAR, "past it");
     });
 }
+
+/// [`run`] on a terminal provisioned as `p`.
+fn run_in(p: impl Into<Provision>, budget: usize, bytes: &[u8], f: impl FnOnce(&mut Term<'_>)) {
+    let mut owned = Owned::new(p)
+        .with_images(ImageBudget::of(8 << 20))
+        .with_printer(PrintBudget::of_bytes(budget));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+    t.set_regis_font(solid);
+    t.set_printer(PrinterPort::Ready);
+    support::feed(&mut t, bytes);
+    f(&mut t);
+}
+
+/// **A placeholder on a row of another band than the cursor's names its
+/// own image, banded as in one table**: on bands of four rows, a virtual
+/// placement of image 9 and its placeholders on row 2, in the first band,
+/// their colour, image 9's id, the first rendition that band interns;
+/// then, on row 8, in the second band, where the cursor is left, text in
+/// colour 4, the first rendition that band interns. Each placeholder's id
+/// is read through its own row's table: the hard copy is the same on both
+/// terminals, the placeholder's strip printed. Named break: read the rows
+/// through the cursor's band's table, which names colour 4, image 4, for
+/// the same id -- the strip does not print.
+#[test]
+fn a_placeholder_in_another_band_than_the_cursor_s_prints_its_own_image() {
+    let green = Pixel::opaque(Chan::from_u8(0), Chan::from_u8(255), Chan::from_u8(0));
+    let bytes = "\x1b[2;1H\x1b[38;5;9m\u{10EEEE}\u{0305}\u{0305}\x1b[39m\
+                 \x1b[8;1H\x1b[38;5;4mX\x1b[39m"
+        .as_bytes();
+    let copy = |p: Provision| {
+        let mut out = None;
+        run_in(p, 1 << 20, b"\x1b[5;5H", |t| {
+            in_colour(t);
+            kitty(t, (10, 20), [0, 255, 0, 255], "a=T,U=1,i=9,c=1,r=1,z=-1");
+            support::feed(t, bytes);
+            out = Some(hard_copy(t));
+        });
+        out.expect("a hard copy")
+    };
+    let banded = Provision::banded_in(&WS, BandRows::of(Rows::of_index(4)), BandSlots(1_024))
+        .expect("80x24 is admitted banded");
+    let (w, single) = copy(Provision::from(&WS));
+    assert_eq!(
+        single[(20 + 10) * w + 5],
+        green,
+        "the control: the strip prints"
+    );
+    let (_, got) = copy(banded);
+    let differ = single.iter().zip(&got).filter(|(a, b)| a != b).count();
+    assert_eq!(differ, 0, "pixels that differ from one table's");
+}
+
+/// **Text on a row of another band than the cursor's prints in its own
+/// rendition, banded as in one table**: on bands of four rows, concealed
+/// text on row 2, the first rendition the first band interns, then
+/// underlined text on row 8, the first the second band interns, where the
+/// cursor is left. The hard copy is the same on both terminals; the
+/// control, that row 2 underlined prints otherwise. Named break: read row
+/// 2's id through the cursor's band's table, which names the underline for
+/// it -- its characters are drawn.
+#[test]
+fn text_in_another_band_than_the_cursor_s_prints_in_its_own_rendition() {
+    let copy = |p: Provision, row2: &str| {
+        let bytes = format!("\x1b[2;1H\x1b[{row2}mAB\x1b[0m\x1b[8;1H\x1b[4mX\x1b[0m");
+        let mut out = None;
+        run_in(p, 1 << 20, bytes.as_bytes(), |t| {
+            out = Some(hard_copy(t));
+        });
+        out.expect("a hard copy").1
+    };
+    let banded = || {
+        Provision::banded_in(&WS, BandRows::of(Rows::of_index(4)), BandSlots(1_024))
+            .expect("80x24 is admitted banded")
+    };
+    let single = copy(Provision::from(&WS), "8");
+    assert_ne!(
+        single,
+        copy(Provision::from(&WS), "4"),
+        "the control: concealed text prints otherwise than underlined"
+    );
+    let got = copy(banded(), "8");
+    let differ = single.iter().zip(&got).filter(|(a, b)| a != b).count();
+    assert_eq!(differ, 0, "pixels that differ from one table's");
+}

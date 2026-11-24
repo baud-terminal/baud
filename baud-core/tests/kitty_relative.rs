@@ -576,3 +576,35 @@ fn under_a_virtual_parent_shown_nowhere_it_is_not_visible() {
         assert!(at(t, 2).is_empty(), "drawn, so visible");
     });
 }
+
+/// [`with`] on a terminal provisioned as `p`.
+fn with_in<R>(p: impl Into<Provision>, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
+    let mut owned = Owned::new(p).with_images(ImageBudget::of(1 << 16));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+    f(&mut t)
+}
+
+/// **Under a virtual parent shown on a row of another band than the
+/// cursor's, a delete finds the child where it is drawn, banded as in one
+/// table**: on bands of four rows, text on row 20 in a rendition of its
+/// own first, so that the band the cursor is left in interns another
+/// rendition before the placeholders' own band does; then
+/// [`under_virtual`]'s placeholders on rows 11 and 12 and its child, drawn
+/// at 12;22. A delete of the cell it is drawn at takes it on both
+/// terminals. Named break: read the placeholders' rows through the
+/// cursor's band's table, which names another image for their id -- the
+/// child is drawn nowhere and the delete keeps it.
+#[test]
+fn under_a_virtual_parent_in_another_band_a_delete_finds_the_child() {
+    let banded = Provision::banded_in(&WS, BandRows::of(Rows::of_index(4)), BandSlots(1_024))
+        .expect("80x24 is admitted banded");
+    for (name, p) in [("one table", Provision::from(&WS)), ("banded", banded)] {
+        with_in(p, |t| {
+            feed(t, b"\x1b[20;1H\x1b[38;5;7;58;5;1mX\x1b[0m");
+            under_virtual(t, 11, 21, "");
+            feed(t, &apc("a=d,d=p,x=22,y=12"));
+            assert!(at(t, 2).is_empty(), "{name}: the child is taken");
+        });
+    }
+}

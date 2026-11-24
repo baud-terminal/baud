@@ -165,3 +165,39 @@ fn ris_ends_every_string() {
         assert!(!t.strings_seen());
     });
 }
+
+/// **A string named on a row of another band than the cursor's is kept
+/// when the table frees the rest, banded as in one table**: on bands of
+/// four rows, an SRS 1 on row 1, then three hundred SDS 2 written over one
+/// cell of row 7. The first string is still row 1's, reversed. Named
+/// break: free strings reading every id through the cursor's band's table,
+/// where row 1's id names no string -- its string is freed and handed to
+/// the next.
+#[test]
+fn a_string_on_a_row_of_another_band_is_not_freed() {
+    const TALL: WinSize = WinSize {
+        ws_row: 12,
+        ws_col: 12,
+    };
+    let banded = Provision::banded_in(&TALL, BandRows::of(Rows::of_index(4)), BandSlots(1_024))
+        .expect("12x12 is admitted banded");
+    for (name, p) in [("one table", Provision::from(&TALL)), ("banded", banded)] {
+        let mut owned = Owned::new(p);
+        let mut t = Term::new(owned.storage(), &TALL);
+        let refused = t.strings_refused();
+        support::feed(&mut t, b"\x1b[1;1H\x1b[1[a\x1b[0[");
+        for _ in 0..300 {
+            support::feed(&mut t, b"\x1b[7;1H\x1b[2]b\x1b[0]");
+        }
+        assert_eq!(t.strings_refused(), refused, "{name}");
+        let cell = t.viewport().row(Row::from_index(0))[0];
+        let s = t.style_in(t.row_styles(Row::from_index(0)), cell).string();
+        let mut kinds = Vec::new();
+        let mut s = s;
+        while let Some(StringEntry { parent, kind }) = t.string_entry(s) {
+            kinds.push(kind);
+            s = parent;
+        }
+        assert_eq!(kinds, [StringKind::Reversed], "{name}");
+    }
+}

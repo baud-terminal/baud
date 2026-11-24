@@ -47,8 +47,7 @@
 //! path.** `ICH` and `DCH` test it out of line, and a write under IRM is a
 //! character at a time already, its gap opened out of line.
 
-use crate::bands::Slots;
-use baud_domain::{Col, Cols, Count, EditExtent, ModeBit, PackedCell, PathIdx, Row};
+use baud_domain::{Band, Col, Cols, Count, EditExtent, ModeBit, PackedCell, PathIdx, Row};
 
 use crate::component::Drawn;
 use crate::editing::CharEdit;
@@ -385,17 +384,18 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             Toward::Start => run.at(PathIdx::at_index(len - 1 - i)),
         };
         let n = n.at_least_one().min(len);
-        let blank = self.blank();
+        let blank = (self.style_log.band(), self.blank());
         // The cell drawn at the run's `i`-th position.
         let cell_at = |p: &Self, d: &mut Drawn, i: usize| {
             let (r, c) = pos(i);
             (r, p.drawn_at(d, r, c))
         };
+        // A cell and the band its id names a slot of.
         let get = |p: &Self, d: &mut Drawn, i: usize| {
             let (r, c) = cell_at(p, d, i);
-            p.view.get(r, c)
+            (p.band_of(r), p.view.get(r, c))
         };
-        let put = |p: &mut Self, d: &mut Drawn, i: usize, cell: PackedCell| {
+        let put = |p: &mut Self, d: &mut Drawn, i: usize, cell: (Band, PackedCell)| {
             let (r, c) = cell_at(p, d, i);
             let cell = p.kept_in_place(r, c, cell);
             p.view.put(r, c, cell);
@@ -464,29 +464,34 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             self.erase_images(r, a, b.after());
             self.row_changed_to(r);
         }
+        self.band_for(self.cy);
         self.cells = self.cells.plus(len + 2 * erased);
         self.wrote_rows(run.from.0, run.to.0);
     }
 
-    /// **`cell` put in the string the cell at column `c` of row `r` is in
-    /// now**: a move by drawn position keeps each cell's string where it is
-    /// stored, so the line's map stays as it was.
-    fn kept_in_place(&mut self, r: Row, c: Col, cell: PackedCell) -> PackedCell {
-        if self.strs.strings.begun != crate::strings::Begun::Yes {
+    /// **`cell`, its id a slot of band `from`, put in the string the cell
+    /// at column `c` of row `r` is in now, and in `r`'s band**: a move by
+    /// drawn position keeps each cell's string where it is stored, so the
+    /// line's map stays as it was, and a cell moved across a band's edge
+    /// names its rendition in the table of the row it lands on. Interning
+    /// it again leaves the write path in `r`'s band.
+    fn kept_in_place(&mut self, r: Row, c: Col, (from, cell): (Band, PackedCell)) -> PackedCell {
+        let strung = self.strs.strings.begun == crate::strings::Begun::Yes;
+        let crossed = M::BANDED && from != self.band_of(r);
+        if !strung && !crossed {
             return cell;
         }
-        let s = self.string_of(self.view.get(r, c).style);
-        if self.string_of(cell.style) == s {
-            return cell;
+        let mut word = self.band_table(from).word(cell.style);
+        if strung {
+            let s = self.string_in(r, self.view.get(r, c).style);
+            if word.string() == s && !crossed {
+                return cell;
+            }
+            word = word.with_string(s);
         }
-        let word = self
-            .tmpl
-            .as_slice()
-            .get(cell.style.index())
-            .and_then(|s| s.word())
-            .unwrap_or(baud_domain::StyleWord::DEFAULT);
+        self.band_for(r);
         PackedCell {
-            style: self.intern_style(word.with_string(s)),
+            style: self.intern_style(word),
             ..cell
         }
     }

@@ -177,12 +177,6 @@ pub(crate) trait Slots {
 
     /// Every slot, to write: [`write_slot`]'s and [`seed_default`]'s alone.
     fn as_mut(&mut self) -> &mut [StyleSlot];
-
-    /// These slots as a live row's reader holds them ([`RowStyles::Live`]).
-    #[inline(always)]
-    fn live(&self) -> LiveTable<'_> {
-        LiveTable::of(self.as_slice())
-    }
 }
 
 impl Slots for Table<'_> {

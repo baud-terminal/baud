@@ -173,3 +173,26 @@ fn with_the_checksum_off_it_is_honoured_and_nothing_is_answered() {
     support::feed(&mut t, b"\x1b[7;1;1;1;1;1*y");
     assert_eq!(t.reply(), b"\x1bP7!~0041\x1b\\");
 }
+
+/// **DECRQCRA over a row of another band than the cursor's sums that
+/// row's rendition, banded as in one table**: on bands of four rows, bold
+/// in colour 1 on row 2, the first rendition the first band interns, then
+/// underline in colour 2 on row 8, the first the second band interns,
+/// where the cursor is left. Named break: read row 2's ids through the
+/// cursor's band's table, which names the underline for them -- the banded
+/// sum differs.
+#[test]
+fn decrqcra_over_a_row_of_another_band_sums_its_rendition() {
+    const TALL: WinSize = WinSize {
+        ws_row: 12,
+        ws_col: 12,
+    };
+    let bytes = b"\x1b[2;1H\x1b[1;38;5;1mAB\x1b[0m\x1b[8;1H\x1b[4;38;5;2mX\x1b[0m";
+    let [(_, one), (_, banded)] = support::one_and_banded(&TALL, bytes, |t| {
+        t.clear_reply();
+        support::feed(t, b"\x1b[1;1;2;1;2;2*y");
+        t.reply().to_vec()
+    });
+    assert_eq!(one, b"\x1bP1!~FE7D\x1b\\", "the control: one table's sum");
+    assert_eq!(banded, one);
+}

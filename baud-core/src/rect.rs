@@ -11,7 +11,6 @@
 //! three, on every `CSI` it dispatches.
 
 use crate::aligned::EditRows;
-use crate::bands::Slots;
 use crate::paint::Paint;
 use crate::storage::MAX_COLS;
 use baud_domain::*;
@@ -71,13 +70,10 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         a.on_page(self.origin_row(), self.origin_col(), self.rows, self.cols)
     }
 
-    /// The rendition a cell names.
-    pub(crate) fn word_of(&self, id: StyleId) -> StyleWord {
-        self.tmpl
-            .as_slice()
-            .get(id.index())
-            .and_then(|s| s.word())
-            .unwrap_or(StyleWord::DEFAULT)
+    /// The rendition a cell of row `r` names, read through `r`'s band's
+    /// table.
+    pub(crate) fn word_in(&self, r: Row, id: StyleId) -> StyleWord {
+        self.row_table(r).word(id)
     }
 
     /// **`right` stopped at row `r`'s own end**, or `None` when the line
@@ -504,7 +500,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                 cell.style = match hit {
                     Some(m) => m.1,
                     None => {
-                        let w = self.word_of(cell.style);
+                        let w = self.word_in(r, cell.style);
                         let new = self.intern_style(w.with_attrs(how.apply(p, w.attrs())));
                         memo[known % MEMO] = (cell.style, new);
                         known += 1;
@@ -581,7 +577,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                         .map_or(Content::EMPTY, Content::codepoint),
                     false => base,
                 };
-                sum.add(base, cell.flags, self.word_of(cell.style).attrs());
+                sum.add(base, cell.flags, self.word_in(r, cell.style).attrs());
                 if sum.wants_marks() {
                     for m in marks {
                         sum.mark(m);
@@ -608,7 +604,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                     continue;
                 };
                 for x in rect.left.index()..=right.index() {
-                    let w = self.word_of(self.view.get(r, Col::at_index(x)).style);
+                    let w = self.word_in(r, self.view.get(r, Col::at_index(x)).style);
                     common = Some(common.map_or(w, |c| common_rendition(c, w)));
                 }
             }

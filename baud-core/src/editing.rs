@@ -154,7 +154,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                 // A pen with no string open writes into the string the gap
                 // opened in, so the character is drawn at `p`: "inserted at
                 // the active presentation position" (7.2.10).
-                let gap = self.string_of(self.view.get(self.cy, at).style);
+                let gap = self.string_in(self.cy, self.view.get(self.cy, at).style);
                 let joins = self.style_raw.string().is_none() && !gap.is_none();
                 if joins {
                     self.style = self.intern_style(self.style_raw.with_string(gap));
@@ -362,7 +362,9 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                 let from = Col::at_index(after.index() - k);
                 if self.strs.strings.begun == crate::strings::Begun::Yes {
                     let s = match from > left {
-                        true => self.string_of(self.view.get(self.cy, from.before()).style),
+                        true => {
+                            self.string_in(self.cy, self.view.get(self.cy, from.before()).style)
+                        }
                         false => StringId::NONE,
                     };
                     self.strings_kept(self.cy, (from, after), blank, |_| s);
@@ -438,7 +440,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     fn erase_whole(&mut self, lead: Col, blank: PackedCell) {
         let (r, to) = (self.cy, lead.after().after());
         let was = match self.strs.strings.begun == crate::strings::Begun::Yes {
-            true => [lead, lead.after()].map(|c| self.string_of(self.view.get(r, c).style)),
+            true => [lead, lead.after()].map(|c| self.string_in(r, self.view.get(r, c).style)),
             false => [StringId::NONE; 2],
         };
         self.view.put(r, lead, blank);

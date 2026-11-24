@@ -336,7 +336,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let mut ids = [StringId::NONE; MAX_COLS];
         let mut strung = false;
         for (c, id) in ids.iter_mut().enumerate().take(width) {
-            *id = self.string_of(self.view.get(r, Col::at_index(c)).style);
+            *id = self.string_in(r, self.view.get(r, Col::at_index(c)).style);
             strung |= !id.is_none();
         }
         if !strung {
@@ -790,7 +790,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             return at;
         };
         let s = match m {
-            Some(_) => self.string_of(self.view.get(self.cy, c).style),
+            Some(_) => self.string_in(self.cy, self.view.get(self.cy, c).style),
             None => StringId::NONE,
         };
         self.open_gap_at(part, n, s);
@@ -829,7 +829,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         }
         let k = n.at_least_one().min(room);
         let (c, at) = self.gap_of(m, p);
-        let s = self.string_of(self.view.get(self.cy, c).style);
+        let s = self.string_in(self.cy, self.view.get(self.cy, c).style);
         let to = end.col();
         let last = Col::at_index(to.index() - k);
         let gone = (last.index()..to.index().min(m.width))
@@ -938,7 +938,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             (c, at) if at == c => (c, c.after()),
             (c, _) => (c, c),
         };
-        let s = self.string_of(self.view.get(self.cy, c).style);
+        let s = self.string_in(self.cy, self.view.get(self.cy, c).style);
         let home = part.home.index();
         let gone = (home..home + k)
             .filter(|&q| m.data(Col::at_index(q)) < at)

@@ -721,7 +721,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             }
             for x in left..last {
                 let cell = self.view.get(r, Col::at_index(x));
-                let attrs = self.word_of(cell.style).attrs();
+                let attrs = self.word_in(r, cell.style).attrs();
                 let base = self.clusters.base_of(cell.content);
                 // A wide character's tail goes with its lead.
                 let lead = match base.is_wide_tail() && x > 0 {
@@ -770,7 +770,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let base = self.clusters.base_of(cell.content);
         let blank = base.is_empty() || base.as_codepoint().is_some_and(|c| c.value() == 0x20);
         (blank || self.excluded(cell))
-            && self.word_of(cell.style).attrs().only(PRINTED) == Attrs::NONE
+            && self.word_in(r, cell.style).attrs().only(PRINTED) == Attrs::NONE
     }
 
     /// **Whether a print leaves out a cell's contents**: a guarded position
