@@ -170,3 +170,65 @@ pub fn declared(spv: &[u8]) -> Declared {
         push,
     }
 }
+
+/// A size in bytes, as a SPIR-V module lays a block out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Bytes(pub u32);
+
+/// **The bytes a module's push-constant block spans**: the end of its
+/// last member, each member a scalar or a vector, read from `OpTypeInt`
+/// (21), `OpTypeFloat` (22), `OpTypeVector` (23), `OpTypeStruct` (30),
+/// `OpTypePointer` (32), `OpVariable` (59) of storage class
+/// `PushConstant` (9) and the members' `Offset` decorations; none where
+/// the module declares no push constant.
+pub fn push_bytes(spv: &[u8]) -> Option<Bytes> {
+    let words: Vec<u32> = spv
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
+        .collect();
+    assert_eq!(words.first(), Some(&0x0723_0203), "SPIR-V's magic number");
+    let mut sizes: HashMap<u32, u32> = HashMap::new();
+    let mut structs: HashMap<u32, Vec<u32>> = HashMap::new();
+    let mut offsets: HashMap<(u32, u32), u32> = HashMap::new();
+    let mut pointers: HashMap<u32, u32> = HashMap::new();
+    let mut pushed = None;
+    let mut at = 5;
+    while at < words.len() {
+        let count = usize::try_from(words[at] >> 16).expect("a word count");
+        let ins = &words[at..at + count];
+        match words[at] & 0xffff {
+            21 | 22 => {
+                sizes.insert(ins[1], ins[2] / 8);
+            }
+            23 => {
+                let component = *sizes.get(&ins[2]).expect("a vector's component");
+                sizes.insert(ins[1], component * ins[3]);
+            }
+            30 => {
+                structs.insert(ins[1], ins[2..].to_vec());
+            }
+            32 => {
+                pointers.insert(ins[1], ins[3]);
+            }
+            59 if ins[3] == 9 => pushed = Some(ins[1]),
+            72 if ins.len() >= 5 && ins[3] == 35 => {
+                offsets.insert((ins[1], ins[2]), ins[4]);
+            }
+            _ => {}
+        }
+        at += count.max(1);
+    }
+    let block = *pointers.get(&pushed?).expect("the push constant's type");
+    let members = structs.get(&block).expect("a push-constant block");
+    let end = (0u32..)
+        .zip(members)
+        .map(|(m, ty)| {
+            let offset = offsets.get(&(block, m)).expect("a member's offset");
+            offset + sizes.get(ty).expect("a scalar or vector member")
+        })
+        .max()
+        .unwrap_or(0);
+    Some(Bytes(end))
+}
