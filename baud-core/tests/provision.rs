@@ -206,3 +206,23 @@ fn a_terminal_larger_than_its_storage_takes_the_storage_rows() {
     t.write_at(BytePos::ZERO, b"\x1b[?1049h\x1b[254;1Hx\x1b[?1049l");
     assert_eq!(t.geometry().1, held);
 }
+
+/// **A provision carries the band size it was given**: `banded_in`'s slots
+/// reach storage through it, so a forced-band test at a shape one table
+/// could hold gets bands small enough to freeze; every other entry carries
+/// `BAND_SLOTS`.
+#[test]
+fn a_provision_carries_its_band_slots() {
+    let band = BandRows::of(ws!(1, 4).geometry().1);
+    let small = Provision::banded_in(&ws!(200, 50), band, BandSlots(1024)).unwrap();
+    assert_eq!(small.band_slots(), BandSlots(1024));
+    assert_eq!(
+        Provision::banded(&ws!(200, 50), band).unwrap().band_slots(),
+        BAND_SLOTS
+    );
+    assert_eq!(
+        Provision::of(&ws!(80, 24)).unwrap().band_slots(),
+        BAND_SLOTS
+    );
+    assert_eq!(Provision::clamped(&ws!(80, 24)).band_slots(), BAND_SLOTS);
+}

@@ -1333,6 +1333,10 @@ pub struct Provision {
     cols: Cols,
     rows: Rows,
     mode: Mode,
+    /// A band's table, in banded mode: `BAND_SLOTS`, or what
+    /// [`Provision::banded_in`] was given, so a test or a measurement can
+    /// force small bands at a shape one table could hold.
+    band_slots: BandSlots,
 }
 
 /// **How many rows each band of a banded table covers.**
@@ -1394,6 +1398,7 @@ impl Provision {
                     cols,
                     rows,
                     mode: Mode::Single,
+                    band_slots: BAND_SLOTS,
                 })
             }
             _ => {
@@ -1433,6 +1438,7 @@ impl Provision {
             cols,
             rows,
             mode: Mode::Single,
+            band_slots: BAND_SLOTS,
         }
     }
 
@@ -1467,6 +1473,7 @@ impl Provision {
                 cols,
                 rows,
                 mode: Mode::Banded(Banding::Forced(band)),
+                band_slots,
             }),
             false => Err(OverBudget { cols, rows }),
         }
@@ -1475,6 +1482,11 @@ impl Provision {
     /// One table or banded tables.
     pub fn mode(&self) -> Mode {
         self.mode
+    }
+
+    /// The slots each band's table holds in banded mode.
+    pub fn band_slots(&self) -> BandSlots {
+        self.band_slots
     }
 
     /// The size, as a terminal's window size.
