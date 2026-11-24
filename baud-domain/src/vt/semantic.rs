@@ -431,6 +431,54 @@ fn integer(s: &[u8]) -> Option<ExitCode> {
     i32::try_from(v).ok().map(ExitCode)
 }
 
+/// **The window's shell token**: exactly sixteen ASCII hex digits, as baud
+/// makes one for the shell it spawns and hands to its integration, which
+/// sends it as the `baud_token=` option of its own `C` and `D` marks. No
+/// other value is one: made only by [`ShellTokenHex::parse`], its field
+/// private, and shown by `Debug` without its digits.
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::ShellTokenHex([baud_domain::StreamByte::from_stream(b'0'); 16]);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// use baud_domain::ShellTokenHex;
+/// assert!(ShellTokenHex::parse(b"0123456789abcdef").is_some());
+/// assert!(ShellTokenHex::parse(b"0123456789abcde").is_none());
+/// assert!(ShellTokenHex::parse(b"0123456789abcdefa").is_none());
+/// assert!(ShellTokenHex::parse(b"0123456789abcdeg").is_none());
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ShellTokenHex([crate::StreamByte; 16]);
+
+/// The digits are not shown.
+impl core::fmt::Debug for ShellTokenHex {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("ShellTokenHex(..)")
+    }
+}
+
+impl ShellTokenHex {
+    /// Its length: sixteen digits.
+    pub const LEN: usize = 16;
+
+    /// **The token `b` spells**, when it is exactly sixteen ASCII hex digits.
+    pub fn parse(b: &[u8]) -> Option<ShellTokenHex> {
+        let digits: [u8; ShellTokenHex::LEN] = b.try_into().ok()?;
+        match digits.iter().all(u8::is_ascii_hexdigit) {
+            true => Some(ShellTokenHex(digits.map(crate::StreamByte))),
+            false => None,
+        }
+    }
+
+    /// Whether `b` is this token's digits, byte for byte.
+    pub(crate) fn is(&self, b: &[u8]) -> bool {
+        b.len() == ShellTokenHex::LEN && self.0.iter().zip(b).all(|(t, &c)| t.raw_byte() == c)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -780,10 +780,15 @@ pub use baud_domain::{GroupAsk, ReadLinked};
 
 impl Sampler {
     /// **The sampler for a window whose shell baud handed `token`**: the
-    /// marks are read against that token alone ([`crate::ran::Commands::new`]).
+    /// marks are read against that token alone ([`crate::ran::Commands::new`]),
+    /// and the sniff finds the shell's `D` by it, as the sixteen hex digits
+    /// baud makes ([`baud_domain::ShellTokenHex`]); with no such token, no
+    /// read is cut.
     pub fn for_shell(token: Option<&crate::ran::ShellToken>) -> Sampler {
+        let hex = token.and_then(|t| baud_domain::ShellTokenHex::parse(t.as_str().as_bytes()));
         Sampler {
             commands: crate::ran::Commands::new(token),
+            sniff: baud_domain::LinkSniff::new(hex),
             ..Sampler::default()
         }
     }
@@ -879,12 +884,16 @@ impl Sampler {
         // record of it, and a folder report it fed is judged by what was
         // open as it came (`Writers::recorded`).
         self.marks = self.commands.marks();
-        // Where the read is cut at the shell's `D`: taken as it is fed,
+        self.scanned = baud_domain::WalkSteps::ZERO;
+        let sniffed = self.sniff.read(bytes, &mut self.scanned);
+        // Where the read is cut at the shell's `D`: placed by the sniff
+        // before the read is fed, where the scan of the marks cuts it too,
+        // which says what the bytes from it ran under; taken as it is fed,
         // where the core's records vouch for it (`reads::paced`).
-        self.cut = self
-            .commands
-            .cut()
-            .and_then(|(d, after)| crate::cut::Plan::of(bytes, d, after))
+        self.cut = sniffed
+            .token_at
+            .zip(self.commands.cut())
+            .and_then(|(d, (_, after))| crate::cut::Plan::of(bytes, d, after))
             .map_or(crate::cut::Cut::None, crate::cut::Cut::Plan);
         // The shell's own `D` ends the command the group sampled before was
         // taken under: what the reads after it wrote is not that program's,
@@ -894,8 +903,6 @@ impl Sampler {
             crate::ran::ShellsD::Yes => Ended::AtD,
             crate::ran::ShellsD::No => Ended::No,
         };
-        self.scanned = baud_domain::WalkSteps::ZERO;
-        let sniffed = self.sniff.read(bytes, &mut self.scanned);
         // A read with no group to be taken under -- the shell's `D` forgot
         // the one sampled before, and the pace has not asked since -- asks
         // all the same: one sample, where none would leave its lines named
@@ -4445,7 +4452,7 @@ mod tests {
         // asked on for a find the read before ended.
         assert_eq!(
             (more, parameters, carried),
-            (288, 256, 42),
+            (599, 441, 0),
             "of {reads} reads"
         );
         assert!(

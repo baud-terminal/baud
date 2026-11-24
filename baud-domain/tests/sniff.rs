@@ -4,7 +4,10 @@
 
 use core::ops::Range;
 
-use baud_domain::{InputEncoding, LinkSniff, ReadLinked, SNIFF_CARRY, StreamByte, WalkSteps};
+use baud_domain::{
+    BytePos, InputEncoding, LinkSniff, ReadLinked, SNIFF_CARRY, ShellTokenHex, StreamByte,
+    WalkSteps,
+};
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
@@ -121,7 +124,8 @@ impl Today {
             .collect()
     }
 
-    fn read(&mut self, bytes: &[u8]) -> Vec<Hit> {
+    fn read(&mut self, stream: &[u8], read: Range<usize>) -> Vec<Hit> {
+        let bytes = &stream[read];
         let head = &bytes[..bytes.len().min(7)];
         let seam = [self.tail.as_slice(), head].concat();
         let held = self.tail.len();
@@ -147,12 +151,33 @@ struct Read {
     steps: WalkSteps,
     want: ReadLinked,
     today: Vec<Hit>,
+    token_at: Option<BytePos>,
+    want_token_at: Option<BytePos>,
+}
+
+/// The window's token in these tests.
+const TOKEN: &[u8] = b"0123456789abcdef";
+
+/// The shell's `D` with the window's token.
+const SHELLS_D: &[u8] = b"\x1b]133;D;0;baud_token=0123456789abcdef\x07";
+
+/// **Where the read `read` of `stream` is cut**: at the first [`SHELLS_D`]
+/// that ends in it -- the only `D` with the window's token the streams
+/// here spell -- when that one also begins in it.
+fn cut_at(stream: &[u8], read: Range<usize>) -> Option<BytePos> {
+    let first = stream
+        .windows(SHELLS_D.len())
+        .enumerate()
+        .filter(|(_, w)| *w == SHELLS_D)
+        .map(|(p, _)| p)
+        .find(|&p| read.contains(&(p + SHELLS_D.len() - 1)))?;
+    first.checked_sub(read.start).map(BytePos::from_index)
 }
 
 /// Each read of `stream` cut at `cuts`, sniffed.
 fn sniff_all(stream: &[u8], cuts: &[usize]) -> Vec<Read> {
     let ends = introducer_ends(stream);
-    let mut sniff = LinkSniff::new();
+    let mut sniff = LinkSniff::new(ShellTokenHex::parse(TOKEN));
     let mut today = Today::default();
     let mut bounds: Vec<usize> = cuts
         .iter()
@@ -166,13 +191,15 @@ fn sniff_all(stream: &[u8], cuts: &[usize]) -> Vec<Read> {
     let mut reads = Vec::new();
     for e in bounds {
         let mut steps = WalkSteps::ZERO;
-        let got = sniff.read(&stream[s..e], &mut steps).linked;
+        let sniffed = sniff.read(&stream[s..e], &mut steps);
         reads.push(Read {
             span: s..e,
-            got,
+            got: sniffed.linked,
             steps,
             want: oracle(stream, &ends, s..e),
-            today: today.read(&stream[s..e]),
+            today: today.read(stream, s..e),
+            token_at: sniffed.token_at,
+            want_token_at: cut_at(stream, s..e),
         });
         s = e;
     }
@@ -190,6 +217,13 @@ fn check(stream: &[u8], cuts: &[usize]) -> Option<String> {
             return Some(format!(
                 "{what}: sniffed {:?}, the stream reads {:?}",
                 r.got, r.want
+            ));
+        }
+        if r.token_at != r.want_token_at {
+            return Some(format!(
+                "{what}: the shell's D at {:?}, the stream's at {:?}",
+                r.token_at.map(BytePos::index),
+                r.want_token_at.map(BytePos::index)
             ));
         }
         if usize::try_from(r.steps.get()).expect("steps") > len + SNIFF_CARRY {
@@ -211,7 +245,7 @@ fn linked(s: &mut LinkSniff, bytes: &[u8]) -> ReadLinked {
 }
 
 /// The patterns the cases embed.
-const PATTERNS: [&[u8]; 12] = [
+const PATTERNS: [&[u8]; 13] = [
     b"\x1b]8;",
     b"\x9d8;",
     b"\x1b]8\x01;",
@@ -224,6 +258,7 @@ const PATTERNS: [&[u8]; 12] = [
     b"profile:12",
     b"Makefile:12:",
     b"\x1b]9;",
+    b"\x1b]133;D;0;baud_token=0123456789abcdef\x07",
 ];
 
 /// **Each read walks its bytes and the carried ones once, at most its length
@@ -254,7 +289,7 @@ fn a_sniff_reads_each_byte_once() {
     assert!(asked > 100_000, "{asked}");
     let b = b"a:b \x1b]9; file://h/aaaaaaaaaaaaaaaaaaaa";
     assert_eq!(
-        linked(&mut LinkSniff::new(), b),
+        linked(&mut LinkSniff::new(None), b),
         ReadLinked::Yes,
         "a lane that is no link, then a link in the same block"
     );
@@ -345,6 +380,17 @@ enum Case {
     Upper,
 }
 
+/// Whose a generated `D` is.
+#[derive(Clone, Copy, Debug)]
+enum Whose {
+    /// The window's shell's, its token whole.
+    Shells,
+    /// Another token's.
+    Other,
+    /// The shell's, cancelled inside its token by a `CAN`.
+    Cancelled,
+}
+
 /// One piece of a generated stream.
 #[derive(Clone, Debug)]
 enum Atom {
@@ -357,6 +403,8 @@ enum Atom {
     File(u8, Case),
     /// Text from bytes that begin or end patterns.
     Text(Vec<u8>),
+    /// A `D` mark: the shell's, another token's, or the shell's cancelled.
+    Mark(Whose),
     /// Any one byte.
     Byte(u8),
 }
@@ -387,6 +435,11 @@ impl Atom {
                 b
             }
             Atom::Text(t) => t.clone(),
+            Atom::Mark(Whose::Shells) => SHELLS_D.to_vec(),
+            Atom::Mark(Whose::Other) => b"\x1b]133;D;0;baud_token=fedcba9876543210\x07".to_vec(),
+            Atom::Mark(Whose::Cancelled) => {
+                b"\x1b]133;D;0;baud_token=0123\x18456789abcdef\x07".to_vec()
+            }
             Atom::Byte(b) => vec![*b],
         }
     }
@@ -428,6 +481,7 @@ fn atom() -> impl Strategy<Value = Atom> {
         2 => (before, case).prop_map(|(b, c)| Atom::File(b, c)),
         3 => text.prop_map(Atom::Text),
         2 => byte.prop_map(Atom::Byte),
+        1 => prop_oneof![Just(Whose::Shells), Just(Whose::Other), Just(Whose::Cancelled)].prop_map(Atom::Mark),
     ]
 }
 
@@ -436,7 +490,7 @@ fn stream() -> impl Strategy<Value = (Vec<u8>, Vec<usize>)> {
     (
         proptest::collection::vec(atom(), 1..12)
             .prop_map(|a| a.iter().flat_map(Atom::bytes).collect()),
-        proptest::collection::vec(1usize..24, 1..6),
+        proptest::collection::vec(prop_oneof![1usize..24, 24usize..96], 1..6),
     )
 }
 
@@ -490,8 +544,10 @@ fn the_generator_reaches_split_introducers_c0s_inside_them_and_split_file_uris()
         "file:// split",
         ";file://",
         ";file:// split at its f",
+        "the shell's D whole in a read",
+        "the shell's D split",
     ];
-    let mut reached = [false; 9];
+    let mut reached = [false; 11];
     for _ in 0..2000 {
         let (bytes, sizes) = s.new_tree(&mut runner).expect("a stream").current();
         let c = cuts(&bytes, &sizes);
@@ -516,6 +572,16 @@ fn the_generator_reaches_split_introducers_c0s_inside_them_and_split_file_uris()
                 reached[8] |= c.contains(&(i - 4));
             }
         }
+        for (p, _) in bytes
+            .windows(SHELLS_D.len())
+            .enumerate()
+            .filter(|(_, w)| *w == SHELLS_D)
+        {
+            match c.iter().any(|&k| p < k && k < p + SHELLS_D.len()) {
+                true => reached[10] = true,
+                false => reached[9] = true,
+            }
+        }
     }
     let missed: Vec<_> = names
         .iter()
@@ -524,4 +590,109 @@ fn the_generator_reaches_split_introducers_c0s_inside_them_and_split_file_uris()
         .map(|(n, _)| n)
         .collect();
     assert!(missed.is_empty(), "never reached: {missed:?}");
+}
+
+/// What a sniff for the window's token finds of `reads` in turn: where
+/// each is cut, and whether each walked within its bound.
+fn cuts_of(token: Option<ShellTokenHex>, reads: &[&[u8]]) -> Vec<Option<usize>> {
+    let mut s = LinkSniff::new(token);
+    reads
+        .iter()
+        .map(|r| {
+            let mut steps = WalkSteps::ZERO;
+            let at = s.read(r, &mut steps).token_at;
+            let walked = usize::try_from(steps.get()).expect("steps");
+            assert!(walked <= r.len() + SNIFF_CARRY, "{walked} over {}", r.len());
+            at.map(BytePos::index)
+        })
+        .collect()
+}
+
+/// The `D` the window's shell sends, with `options` after its letter.
+fn d_with(options: &str) -> Vec<u8> {
+    format!("\x1b]133;D;{options}\x07").into_bytes()
+}
+
+/// **The read is cut at the shell's `D`, at its `ESC`, only where the whole
+/// mark is in the read and its first `baud_token=` option with a value is
+/// the window's token**: with `BEL` or `ST` after it; at the second `ESC`
+/// of `ESC ESC ]`; after another `OSC` its `ESC` abandons; the first of two;
+/// past an empty token option; and with the token in a field ending inside
+/// the body's first 512 bytes. No cut for another token, a token with more
+/// digits, a first option with another token, a `C` with the token, a mark
+/// a `CAN` cancels, a token past the first 512 bytes or ending a longer
+/// body, or a sniff that holds no token. Cut at every byte, a stream is cut
+/// only on the read that holds the whole mark; and a read ending a `D`
+/// begun in the read before is not cut, though a whole one follows in it.
+/// Named break: cut at any `D` holding the token, wherever it stands --
+/// the first option with another token and the token past 512 bytes cut;
+/// keep the first `D` a read ends from blocking a later one -- the read
+/// after a split `D` is cut.
+#[test]
+fn the_shells_d_is_found_where_it_begins_and_ends_in_the_read() {
+    let token = ShellTokenHex::parse(TOKEN);
+    let tok = std::str::from_utf8(TOKEN).expect("hex");
+    let ours = d_with(&format!("0;baud_token={tok}"));
+    let one = |bytes: &[u8]| cuts_of(token, &[bytes])[0];
+    let pad = format!("pad={}", "x".repeat(600));
+    let cases: [(Vec<u8>, Option<usize>); 16] = [
+        ([b"$ ".as_slice(), &ours, b"% "].concat(), Some(2)),
+        (
+            format!("$ \x1b]133;D;0;baud_token={tok}\x1b\\% ").into_bytes(),
+            Some(2),
+        ),
+        ([b"\x1b".as_slice(), &ours].concat(), Some(1)),
+        ([b"\x1b]0;title".as_slice(), &ours].concat(), Some(9)),
+        ([b"x".as_slice(), &ours, &ours].concat(), Some(1)),
+        (d_with(&format!("0;baud_token=;baud_token={tok}")), Some(0)),
+        (d_with(&format!("0;baud_token={tok};{pad}")), Some(0)),
+        (d_with("0;baud_token=fedcba9876543210"), None),
+        (d_with(&format!("0;baud_token={tok}0")), None),
+        (
+            d_with(&format!("0;baud_token=fedcba9876543210;baud_token={tok}")),
+            None,
+        ),
+        (
+            format!("\x1b]133;C;baud_token={tok}\x07").into_bytes(),
+            None,
+        ),
+        (
+            format!("\x1b]133;D;0;baud_token={tok}\x18\x07").into_bytes(),
+            None,
+        ),
+        (d_with(&format!("0;{pad};baud_token={tok};aid=1")), None),
+        (d_with(&format!("0;{pad};baud_token={tok}")), None),
+        (
+            [d_with(&format!("0;baud_token={tok}")), d_with("1")].concat(),
+            Some(0),
+        ),
+        ([b"\x1b]133;D;0".as_slice(), &ours].concat(), Some(9)),
+    ];
+    for (bytes, want) in &cases {
+        let shown = bytes.escape_ascii().to_string();
+        assert_eq!(one(bytes), *want, "{shown}");
+        assert_eq!(cuts_of(None, &[bytes]), [None], "no token held: {shown}");
+    }
+    // Cut at every byte: the whole mark in one read, or no cut.
+    let stream = [b"$ ".as_slice(), &ours, b"% "].concat();
+    let mark = 2..2 + ours.len();
+    for k in 1..stream.len() {
+        let (a, b) = stream.split_at(k);
+        let want = match (k <= mark.start, k >= mark.end) {
+            (true, _) => [None, Some(mark.start - k)],
+            (_, true) => [Some(mark.start), None],
+            _ => [None, None],
+        };
+        assert_eq!(cuts_of(token, &[a, b]), want, "cut at {k}");
+        // The `D` split, a whole one after it in the second read.
+        let again = [b, &ours].concat();
+        let first_split = mark.start < k && k < mark.end;
+        let second = cuts_of(token, &[a, &again])[1];
+        let want = match (first_split, k <= mark.start) {
+            (true, _) => None,
+            (false, true) => Some(mark.start - k),
+            (false, false) => Some(b.len()),
+        };
+        assert_eq!(second, want, "cut at {k}, a whole D after it");
+    }
 }

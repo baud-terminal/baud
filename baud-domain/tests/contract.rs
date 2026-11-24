@@ -440,7 +440,8 @@ fn _slots(s: baud_domain::LinkSet) -> impl Iterator<Item = baud_domain::LinkSlot
     s.slots()
 }
 // LinkSniff
-const _: fn() -> baud_domain::LinkSniff = baud_domain::LinkSniff::new;
+const _: fn(Option<baud_domain::ShellTokenHex>) -> baud_domain::LinkSniff =
+    baud_domain::LinkSniff::new;
 const _: fn(
     &mut baud_domain::LinkSniff,
     &[u8],
@@ -613,6 +614,9 @@ const _: baud_domain::SearchLines = baud_domain::SearchLines {
     top: baud_domain::LineIdx::FIRST,
     end: baud_domain::LineIdx::FIRST,
 };
+// ShellTokenHex
+const _: fn(&[u8]) -> Option<baud_domain::ShellTokenHex> = baud_domain::ShellTokenHex::parse;
+const _: usize = baud_domain::ShellTokenHex::LEN;
 // Sixel
 const _: fn(
     baud_domain::InputEncoding,
@@ -1735,6 +1739,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("Seal", "E0451"),
     ("SixelAspect", "E0451"),
     ("SixelCanvas", "E0451"),
+    ("ShellTokenHex", "E0423"),
     ("SlotMarks", "E0616"),
     ("SlotSet", "E0599"),
     ("SpanCount", "E0423"),

@@ -1083,9 +1083,93 @@ fn ansi_c<'a>(s: &'a [u8], w: &mut Vec<u8>) -> &'a [u8] {
 mod tests {
     use super::*;
 
-    /// The scan for a window whose shell baud handed the token `t`.
-    fn shell(t: &str) -> Commands {
-        Commands::new(Some(&ShellToken::given(t)))
+    /// **The scan for a window whose shell baud handed the token `t`, each
+    /// read checked against the link sniff's cut**
+    /// ([`baud_domain::LinkSniff`]): the sniff reads the same bytes with
+    /// every `baud_token=` value spelled as sixteen hex digits ([`hex_of`]),
+    /// the window's token among them, and the `D` it places, moved back over
+    /// the spelling, is where the scan cuts the read, or both place none.
+    fn shell(t: &str) -> Checked {
+        let hex = hex_of(t.as_bytes());
+        Checked {
+            scan: Commands::new(Some(&ShellToken::given(t))),
+            sniff: baud_domain::LinkSniff::new(baud_domain::ShellTokenHex::parse(hex.as_bytes())),
+        }
+    }
+
+    /// A token's value spelled as sixteen hex digits: itself when it is
+    /// sixteen, else its hash's, one spelling for each value.
+    fn hex_of(v: &[u8]) -> String {
+        match v.len() == 16 && v.iter().all(u8::is_ascii_hexdigit) {
+            true => String::from_utf8_lossy(v).into_owned(),
+            false => format!("{:016x}", Token::of(v).0),
+        }
+    }
+
+    /// A scan and the sniff it is checked against.
+    struct Checked {
+        scan: Commands,
+        sniff: baud_domain::LinkSniff,
+    }
+
+    impl std::ops::Deref for Checked {
+        type Target = Commands;
+        fn deref(&self) -> &Commands {
+            &self.scan
+        }
+    }
+
+    impl std::ops::DerefMut for Checked {
+        fn deref_mut(&mut self) -> &mut Commands {
+            &mut self.scan
+        }
+    }
+
+    impl Checked {
+        /// [`Commands::read`], with the sniff's cut of the same read checked
+        /// against the scan's.
+        fn read(&mut self, bytes: &[u8]) -> Ran {
+            let ran = self.scan.read(bytes);
+            // The read spelled, and where each of its bytes came from.
+            let mut spelled = Vec::with_capacity(bytes.len());
+            let mut from = Vec::with_capacity(bytes.len());
+            let mut i = 0;
+            while i < bytes.len() {
+                let value = i;
+                let ends = |b: &u8| matches!(b, b';' | 0x07 | 0x1b | 0x18 | 0x1a);
+                let len = match bytes[..i].ends_with(b"baud_token=") {
+                    // A value the read ends inside is left as it is.
+                    true => bytes[i..].iter().position(ends).unwrap_or(0),
+                    false => 0,
+                };
+                match len {
+                    0 => {
+                        spelled.push(bytes[i]);
+                        from.push(i);
+                        i += 1;
+                    }
+                    _ => {
+                        let hex = hex_of(&bytes[i..i + len]);
+                        spelled.extend_from_slice(hex.as_bytes());
+                        from.extend(std::iter::repeat_n(value, hex.len()));
+                        i += len;
+                    }
+                }
+            }
+            let mut steps = baud_domain::WalkSteps::ZERO;
+            let at = self
+                .sniff
+                .read(&spelled, &mut steps)
+                .token_at
+                .map(|p| from[p.index()]);
+            assert_eq!(
+                at,
+                self.scan.cut().map(|(d, _)| d.index()),
+                "the sniff's cut and the scan's, of {:?}",
+                bytes.escape_ascii().to_string()
+            );
+            ran
+        }
     }
 
     /// Marks a shell sends: `C` with `token` and `cmdline=` as `printf %q`
@@ -1859,5 +1943,102 @@ mod tests {
             Left::Closed,
             "the shell's, after its D"
         );
+    }
+
+    /// **The sniff cuts zsh's `PROMPT_SP` reads where the scan does**: the
+    /// cases `cut::tests::zshs_run_is_read_exactly` cuts, each ended by the
+    /// shell's `D` with its token, are cut at the `D`, by the scan and by
+    /// the sniff ([`shell`] checks each read). Named break: the sniff placing
+    /// the cut after the mark -- every case fails.
+    #[test]
+    fn the_sniff_cuts_zshs_runs_where_the_scan_does() {
+        let run = |mark: &str, blanks: usize, tail: &str| {
+            format!(
+                "\x1b[1m\x1b[7m{mark}\x1b[27m\x1b[1m\x1b[0m{}\r{tail}",
+                " ".repeat(blanks)
+            )
+        };
+        for bytes in [
+            format!("logout\r\n{}", run("%", 79, " \r")),
+            run("#", 3, "\r"),
+            format!("remote$ {}", run("%", 79, " \r")),
+            run("\u{bb}", 79, " \r"),
+            run("%", 0, " \r"),
+            format!("{}\n", run("%", 79, " \r")),
+        ] {
+            let mut s = shell("T");
+            let _ = s.read(&c("T", "ssh h"));
+            let read = [bytes.as_bytes(), &d("T"), b"% "].concat();
+            assert_eq!(s.read(&read), Ran::Elsewhere, "{bytes:?}");
+            assert_eq!(
+                s.cut().map(|(at, _)| at.index()),
+                Some(bytes.len()),
+                "{bytes:?}"
+            );
+        }
+    }
+
+    /// **On generated streams of marks, read in any sizes, the sniff cuts
+    /// every read where the scan does**: 20,000 streams of up to twelve
+    /// pieces -- the shell's `C` and `D`, either with another token or with
+    /// none, a `D` with an empty token option first, with another token's
+    /// option first, with its token past or inside a body's first 512 bytes,
+    /// one a `CAN` cancels, `ESC ESC ]`, a title `OSC` its `ESC` abandons,
+    /// links and text -- each cut into reads of 1 to 40 bytes ([`shell`]
+    /// checks each read). An `exec` that replaces the shell is not
+    /// generated: the scan forgets the token there, and the sniff does not.
+    /// Named break: the sniff cutting at a `D` whose body it saw begin in
+    /// the read before -- the reads that end a split `D` fail.
+    #[test]
+    fn the_sniffs_cut_is_the_scans_on_generated_marks() {
+        // Tokens of sixteen digits, so a value split across reads is the
+        // sniff's to join.
+        let (t, x) = ("0123456789abcdef", "fedcba9876543210");
+        let pad = format!("pad={}", "x".repeat(600));
+        let pieces: Vec<Vec<u8>> = vec![
+            c(t, "ssh h"),
+            c(t, "ls"),
+            c(x, "ls"),
+            d(t),
+            d(x),
+            b"\x1b]133;D;0\x07".to_vec(),
+            format!("\x1b]133;D;0;baud_token=;baud_token={t}\x07").into_bytes(),
+            format!("\x1b]133;D;0;baud_token={x};baud_token={t}\x07").into_bytes(),
+            format!("\x1b]133;D;0;baud_token={t};{pad}\x07").into_bytes(),
+            format!("\x1b]133;D;0;{pad};baud_token={t};aid=1\x07").into_bytes(),
+            format!("\x1b]133;D;0;baud_token={t}\x18\x07").into_bytes(),
+            b"\x1b".to_vec(),
+            b"\x1b]0;title".to_vec(),
+            LINK.to_vec(),
+            b"out\r\n".to_vec(),
+            b"% ".to_vec(),
+        ];
+        let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = |n: usize| {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(seed >> 33).expect("31 bits") % n
+        };
+        let mut cut = 0;
+        for _ in 0..20_000 {
+            let count = 1 + next(12);
+            let stream: Vec<u8> = (0..count)
+                .flat_map(|_| pieces[next(pieces.len())].clone())
+                .collect();
+            let mut s = shell(t);
+            let mut at = 0;
+            while at < stream.len() {
+                let most = match next(4) {
+                    0 => 200,
+                    _ => 40,
+                };
+                let to = (at + 1 + next(most)).min(stream.len());
+                let _ = s.read(&stream[at..to]);
+                cut += usize::from(s.cut().is_some());
+                at = to;
+            }
+        }
+        assert!(cut > 1000, "{cut} reads cut");
     }
 }
