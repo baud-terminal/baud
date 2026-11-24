@@ -150,6 +150,7 @@ mod ignorable_data {
 mod image;
 mod input;
 mod interpolate;
+mod interval_map;
 mod iso96_data {
     //! The six 96-character sets `ESC - . /` designate, compiled by
     //! `build/iso96.rs` from Unicode's ISO 8859 mapping files.
@@ -291,6 +292,7 @@ pub use history::*;
 pub use image::*;
 pub use input::*;
 pub use interpolate::*;
+pub use interval_map::*;
 pub use joining::*;
 pub use kitty::*;
 pub use layout::*;

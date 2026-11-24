@@ -280,6 +280,32 @@ const _: fn(
 ) -> bool = baud_domain::ImageStore::is_page;
 const _: fn(&mut baud_domain::ImageStore<'static>, baud_domain::ImageId) =
     baud_domain::ImageStore::free;
+// IntervalMap, at LineIdx and u8
+const _: for<'a, 'b> fn(
+    &'a mut baud_domain::IntervalMap<baud_domain::LineIdx, u8>,
+    baud_domain::LineInterval<baud_domain::LineIdx>,
+    u8,
+    &'b mut baud_domain::WalkSteps,
+) = baud_domain::IntervalMap::<baud_domain::LineIdx, u8>::assign;
+const _: for<'a, 'b> fn(
+    &'a mut baud_domain::IntervalMap<baud_domain::LineIdx, u8>,
+    baud_domain::LineInterval<baud_domain::LineIdx>,
+    &'b mut baud_domain::WalkSteps,
+) = baud_domain::IntervalMap::<baud_domain::LineIdx, u8>::erase;
+fn _gaps_of(
+    m: &baud_domain::IntervalMap<baud_domain::LineIdx, u8>,
+    span: baud_domain::LineInterval<baud_domain::LineIdx>,
+    out: &mut Vec<baud_domain::LineInterval<baud_domain::LineIdx>>,
+    steps: &mut baud_domain::WalkSteps,
+) {
+    m.gaps_of(1, span, out, steps)
+}
+fn _remap(
+    m: &mut baud_domain::IntervalMap<baud_domain::LineIdx, u8>,
+    steps: &mut baud_domain::WalkSteps,
+) -> baud_domain::OverlapRuns {
+    m.remap(|i| i, baud_domain::RemapOverlap::Neither, steps)
+}
 // KeyCode
 const _: fn(baud_domain::KeypadKey) -> baud_domain::KeyCode = baud_domain::KeyCode::Keypad;
 const _: fn(baud_domain::Codepoint) -> baud_domain::KeyCode = baud_domain::KeyCode::Char;
@@ -322,6 +348,14 @@ const _: fn(u64) -> baud_domain::LineIdx = baud_domain::LineIdx::of;
 const _: fn(baud_domain::LineIdx) -> u64 = baud_domain::LineIdx::value;
 const _: fn(baud_domain::LineIdx, baud_domain::LineIdx) -> Option<baud_domain::Rows> =
     baud_domain::LineIdx::since;
+// LineInterval, at LineIdx
+const _: fn(
+    baud_domain::LineIdx,
+    baud_domain::LineIdx,
+) -> baud_domain::LineInterval<baud_domain::LineIdx> =
+    baud_domain::LineInterval::<baud_domain::LineIdx>::new;
+const _: fn(baud_domain::LineIdx) -> baud_domain::LineInterval<baud_domain::LineIdx> =
+    baud_domain::LineInterval::<baud_domain::LineIdx>::one;
 // LineRendition
 const _: baud_domain::LineRendition = baud_domain::LineRendition::Single;
 const _: baud_domain::LineRendition = baud_domain::LineRendition::DoubleBottom;
@@ -401,6 +435,8 @@ const _: baud_domain::Reclaims = baud_domain::Reclaims {
 };
 const _: fn(baud_domain::Reclaims, baud_domain::Reclaims) -> bool =
     baud_domain::Reclaims::recolours_since;
+// RemapOverlap
+const _: baud_domain::RemapOverlap = baud_domain::RemapOverlap::Neither;
 // Resets
 const _: baud_domain::Resets = baud_domain::Resets::FIRST;
 const _: fn(baud_domain::Resets) -> baud_domain::Resets = baud_domain::Resets::next;
@@ -781,12 +817,18 @@ const WITNESSED: &[(&str, &str)] = &[
     ("ImageId", "E0423"),
     ("ImagePx", "E0369"),
     ("ImageStore", "E0616"),
+    ("IntervalMap", "E0616"),
+    ("IntervalMap", "E0599"),
+    ("IntervalMap", "E0061"),
     ("KittyId", "E0308"),
     ("LineBidi", "E0423"),
     ("LineIdx", "E0369"),
+    ("LineInterval", "E0451"),
     ("Modifiers", "E0423"),
+    ("OverlapRuns", "E0423"),
     ("PendingGen", "E0423"),
     ("ReadLen", "E0369"),
+    ("RemapOverlap", "E0599"),
     ("Row", "E0369"),
     ("RowExtent", "E0616"),
     ("RowGens", "E0277"),
