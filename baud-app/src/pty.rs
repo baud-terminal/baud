@@ -3801,6 +3801,10 @@ pub fn host_now() -> HostTime {
 #[cfg(test)]
 mod budget;
 
+// The window's feed from its pty, timed with no window: a tool.
+#[cfg(all(test, target_os = "macos"))]
+mod feed_tool;
+
 #[cfg(target_os = "macos")]
 mod outbox_watch;
 #[cfg(target_os = "macos")]
