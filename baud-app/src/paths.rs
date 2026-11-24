@@ -104,7 +104,7 @@ use std::collections::{HashMap, HashSet};
 
 use baud_core::{FileHost, Screen, Term};
 use baud_domain::{
-    Cols, LinkEpoch, LinkId, PendingGen, Rows, SpanSet, Spanned, Tracked, WalkSteps,
+    Cols, HeldCover, LinkEpoch, LinkId, PendingGen, Rows, SpanSet, Spanned, Tracked, WalkSteps,
 };
 use baud_render::{AbsLine, Scrolled, Tally, row_of};
 
@@ -1965,6 +1965,10 @@ pub struct Paths {
     /// once their own writer's does. Sorted, each once, whatever group
     /// holds it.
     held: SpanSet<LineSpan, ()>,
+    /// **The lines those holds cover, merged into runs** at the holds'
+    /// generation, so a look for a held line is one binary search
+    /// ([`Paths::held_over`]); none until the holds are first taken.
+    held_cover: Option<HeldCover<LineSpan>>,
     /// Where those spans and the holds stood when last taken
     /// ([`Paths::pending_at`]).
     pending_at: Option<(PendingGen, PendingGen)>,
@@ -1973,6 +1977,9 @@ pub struct Paths {
     /// moved nothing leaves both as it found them.
     publishes: Tally,
     pending_steps: WalkSteps,
+    /// The steps every look for a held line has taken
+    /// ([`Paths::held_over`]).
+    held_steps: core::cell::Cell<WalkSteps>,
     key: Vec<u8>,
     tokens: Vec<Token>,
     /// The paths the last read found runs for, each run's [`Key::Path`] a
@@ -2819,14 +2826,29 @@ impl Paths {
         self.pending_steps
     }
 
+    /// The steps every look for a held line has taken, so far.
+    #[cfg(test)]
+    fn held_steps(&self) -> WalkSteps {
+        self.held_steps.get()
+    }
+
     /// **What wrote `line` of `surface`** ([`Facts::provenance`]); none if
     /// nothing was filed over it, or it is the alternate screen's before its
     /// last clear. A line [`Paths::renumbered`] covers is at least not
     /// known: no local fact filed after lifts it.
     fn wrote(&self, surface: Surface, line: AbsLine) -> Option<Provenance> {
+        let unheld = self.wrote_unheld(surface, line);
+        match self.held_over(surface, (line, line)) {
+            true => unheld.max(Some(Provenance::NotNamed)),
+            false => unheld,
+        }
+    }
+
+    /// [`Paths::wrote`], the holds aside: what was filed over `line`, at
+    /// least not known under the floor.
+    fn wrote_unheld(&self, surface: Surface, line: AbsLine) -> Option<Provenance> {
         let filed = self.facts_at(surface, line).and_then(Facts::provenance);
-        let floored = self.store(surface).is_some_and(|s| s.floored(line));
-        match floored || self.held_over(surface, (line, line)) {
+        match self.store(surface).is_some_and(|s| s.floored(line)) {
             true => filed.max(Some(Provenance::NotNamed)),
             false => filed,
         }
@@ -2871,12 +2893,22 @@ impl Paths {
         out
     }
 
-    /// Whether a held line ([`Paths::set_pending`]) lies in `first` to
-    /// `last` of `surface`.
+    /// **Whether a held line ([`Paths::set_pending`]) lies in `first` to
+    /// `last` of `surface`**: one binary search of the holds' runs, its
+    /// steps counted.
     fn held_over(&self, surface: Surface, (first, last): (AbsLine, AbsLine)) -> bool {
-        self.held
-            .iter()
-            .any(|(p, ())| p.surface == surface && p.first <= last && first <= p.last)
+        let Some(cover) = &self.held_cover else {
+            return false;
+        };
+        debug_assert_eq!(
+            Some(cover.at()),
+            self.pending_at.map(|(_, h)| h),
+            "the runs are the holds last taken"
+        );
+        let mut steps = self.held_steps.get();
+        let met = cover.meets(surface, first, last, &mut steps);
+        self.held_steps.set(steps);
+        met
     }
 
     /// **Where the lines still to be named and the holds stood when
@@ -2915,6 +2947,7 @@ impl Paths {
         if held_was == Some(at.1) {
             return;
         }
+        self.held_cover = Some(HeldCover::of(held));
         let held = SpanSet::of_unsorted(held.get().iter().map(|(span, _)| (span, ())));
         if self.held.same(&held, &mut self.pending_steps) {
             return;
@@ -3792,10 +3825,16 @@ impl Paths {
         if self.marks != Marks::On || since_front(Front::Elsewhere) {
             return false;
         }
+        // A held line reads as not known at least ([`Paths::wrote`]), and
+        // no row not known is readable: one look over the whole range
+        // answers for every line of it.
+        if self.held_over(surface, (first, last)) {
+            return false;
+        }
         let mut muxed = false;
         let mut line = first;
         loop {
-            match self.wrote(surface, line) {
+            match self.wrote_unheld(surface, line) {
                 Some(Provenance::Remote | Provenance::NotNamed) | None => return false,
                 Some(Provenance::Multiplexed) => muxed = true,
                 Some(Provenance::Local) => {}
@@ -8905,6 +8944,42 @@ mod tests {
         let steps = p.lookups().value() - before;
         assert!(steps <= 2 * 50 * 15, "{steps} steps for 100 lookups");
         assert!(steps >= 2 * 50, "every lookup counted: {steps}");
+    }
+
+    /// **A token reads the holds by a binary search, once for its lines**:
+    /// 1,024 holds, one line each and none touching, every line written
+    /// here, and a path on a three-line logical line away from them read in
+    /// at most 11 steps (log2 of 1,024 is 10). The controls: that token is
+    /// readable, a one-line token between two holds is too, and one whose
+    /// last line is held is not, each look counted. Named breaks: a look
+    /// that walks every hold -- 1,024 steps a line, 3,072 for the token;
+    /// the look kept once a line -- up to 33.
+    #[test]
+    fn a_token_reads_the_holds_in_log_steps() {
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        let l = |n: usize| at().line(Rows::ZERO, baud_domain::Row::from_index(n));
+        p.written_under(Seen::Named(Front::Local), LineSpan::of(l(0), l(2_100)));
+        let holds = (0..1_024).map(|n| (LineSpan::of(l(10 + 2 * n), l(10 + 2 * n)), None));
+        p.set_pending(
+            handed(),
+            SpanSet::new(),
+            &Tracked::new(SpanSet::of_unsorted(holds)),
+        );
+        let read = |p: &Paths, first: usize, last: usize| {
+            let before = p.held_steps().get();
+            let readable = p.readable_on((l(first), l(last)), Screen::Normal, Form::Absolute);
+            (readable, p.held_steps().get() - before)
+        };
+        let (readable, steps) = read(&p, 0, 2);
+        assert!(readable, "the control: lines written here, none held");
+        assert!(steps <= 11, "{steps} steps for a three-line token");
+        let (readable, steps) = read(&p, 1_001, 1_001);
+        assert!(readable, "a line between two holds");
+        assert!((1..=11).contains(&steps), "{steps} steps");
+        let (readable, steps) = read(&p, 1_001, 1_002);
+        assert!(!readable, "its last line held");
+        assert!((1..=11).contains(&steps), "{steps} steps");
     }
 
     /// **Spans of one origin that touch are one, and a span gone from

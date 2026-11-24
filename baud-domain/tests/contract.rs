@@ -182,6 +182,17 @@ const _: fn(baud_domain::Codepoint) -> (baud_domain::GraphemeClass, baud_domain:
 const _: fn(baud_domain::Codepoint) -> baud_domain::GraphemeClass = baud_domain::GraphemeClass::of;
 const _: [baud_domain::GraphemeClass; 16] = baud_domain::GraphemeClass::FROM_INDEX;
 const _: baud_domain::GraphemeClass = baud_domain::GraphemeClass::Other;
+// HeldCover, at the span SpanSet is pinned at
+const _: for<'a> fn(
+    &'a baud_domain::Tracked<baud_domain::SpanSet<Lines, ()>>,
+) -> baud_domain::HeldCover<Lines> = baud_domain::HeldCover::<Lines>::of::<()>;
+const _: for<'a, 'b> fn(
+    &'a baud_domain::HeldCover<Lines>,
+    (),
+    u8,
+    u8,
+    &'b mut baud_domain::WalkSteps,
+) -> bool = baud_domain::HeldCover::<Lines>::meets;
 // HistoryErasures
 const _: baud_domain::HistoryErasures = baud_domain::HistoryErasures::FIRST;
 const _: fn(baud_domain::HistoryErasures) -> baud_domain::HistoryErasures =
@@ -764,6 +775,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("Cols", "E0603"),
     ("Content", "E0603"),
     ("DecodeBudget", "E0423"),
+    ("HeldCover", "E0451"),
     ("HostTime", "E0369"),
     ("ImageGen", "E0423"),
     ("ImageId", "E0423"),

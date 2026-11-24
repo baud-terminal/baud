@@ -1,11 +1,12 @@
 //! Runs of lines, each with a key, kept sorted and never twice: whether two
-//! sets hold the same spans is one linear compare, and a span goes in by a
-//! binary search.
+//! sets hold the same spans is one linear compare, a span goes in by a
+//! binary search, and whether a line they hold lies in a range is one
+//! binary search of their cover.
 
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
-use crate::WalkSteps;
+use crate::{PendingGen, Tracked, WalkSteps};
 
 /// **A run of lines on one lane**: what a [`SpanSet`] holds. The
 /// implementor keeps `first() <= last()`, and orders spans so that two
@@ -225,5 +226,95 @@ impl<S: Spanned, K: Copy + Ord> SpanSet<S, K> {
     /// Whether it holds none.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+}
+
+/// **The lines a set's spans hold, per lane, merged into sorted disjoint
+/// runs**, tagged with the generation of the set it was made from: whether
+/// any of those lines lies in a range is one binary search
+/// ([`HeldCover::meets`]), however many spans there are. Spans that
+/// overlap make one run; spans that only touch stay two, which changes no
+/// answer.
+///
+/// Made only from a [`Tracked`] set ([`HeldCover::of`]), so its runs are
+/// those of a set at the generation it names: the fields are private.
+///
+/// ```compile_fail,E0451
+/// fn f<S: baud_domain::Spanned>(h: baud_domain::HeldCover<S>) { let _ = baud_domain::HeldCover { ..h }; }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// # #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+/// # struct Span(u8, u8);
+/// # impl baud_domain::Spanned for Span {
+/// #     type Lane = ();
+/// #     type Line = u8;
+/// #     fn lane(self) {}
+/// #     fn first(self) -> u8 { self.0 }
+/// #     fn last(self) -> u8 { self.1 }
+/// # }
+/// use baud_domain::{HeldCover, SpanSet, Tracked, WalkSteps};
+/// let held = Tracked::new(SpanSet::of_unsorted([(Span(2, 4), ()), (Span(3, 6), ())]));
+/// let cover = HeldCover::of(&held);
+/// let mut steps = WalkSteps::ZERO;
+/// assert!(cover.meets((), 6, 9, &mut steps));
+/// assert!(!cover.meets((), 7, 9, &mut steps));
+/// assert_eq!(cover.at(), held.generation());
+/// ```
+#[derive(Debug)]
+pub struct HeldCover<S: Spanned> {
+    runs: Vec<(S::Lane, S::Line, S::Line)>,
+    at: PendingGen,
+}
+
+impl<S: Spanned> HeldCover<S> {
+    /// **The runs `held`'s spans make**, whatever keys hold them, at
+    /// `held`'s generation: sorted by lane and first line, overlapping
+    /// spans joined.
+    pub fn of<K: Copy + Ord>(held: &Tracked<SpanSet<S, K>>) -> Self {
+        let mut spans: Vec<(S::Lane, S::Line, S::Line)> = held
+            .get()
+            .iter()
+            .map(|(s, _)| (s.lane(), s.first(), s.last()))
+            .collect();
+        spans.sort_unstable();
+        let mut runs: Vec<(S::Lane, S::Line, S::Line)> = Vec::with_capacity(spans.len());
+        for (lane, first, last) in spans {
+            match runs.last_mut() {
+                Some((l, _, end)) if *l == lane && first <= *end => *end = (*end).max(last),
+                _ => runs.push((lane, first, last)),
+            }
+        }
+        HeldCover {
+            runs,
+            at: held.generation(),
+        }
+    }
+
+    /// The generation of the set it was made from.
+    pub fn at(&self) -> PendingGen {
+        self.at
+    }
+
+    /// **Whether a line from `first` to `last` of `lane` is held**: a
+    /// binary search to the first run of the lane not ending before
+    /// `first`, each run compared counted in `steps`, then that run's
+    /// first line against `last`.
+    pub fn meets(
+        &self,
+        lane: S::Lane,
+        first: S::Line,
+        last: S::Line,
+        steps: &mut WalkSteps,
+    ) -> bool {
+        let at = self.runs.partition_point(|&(l, _, end)| {
+            steps.bump();
+            (l, end) < (lane, first)
+        });
+        self.runs
+            .get(at)
+            .is_some_and(|&(l, start, _)| l == lane && start <= last)
     }
 }

@@ -4,7 +4,7 @@
 
 use std::collections::BTreeSet;
 
-use baud_domain::{Inserted, SpanSet, Spanned, WalkSteps};
+use baud_domain::{HeldCover, Inserted, SpanSet, Spanned, Tracked, WalkSteps};
 use proptest::prelude::*;
 
 /// A lane and its first and last line.
@@ -143,4 +143,72 @@ fn an_insert_compares_by_log() {
         Inserted::Already
     );
     assert!(steps.get() <= 12, "{} compares", steps.get());
+}
+
+proptest! {
+    /// **A cover meets a range exactly when a held span does**: for every
+    /// lane and every range of lines, `HeldCover::meets` says what a walk of
+    /// the set's spans, line by line, says, and it names the set's
+    /// generation. Named break: runs joined across lanes, or a span that
+    /// ends past the next one's end cut short by the join -- a held line
+    /// read as not held.
+    #[test]
+    fn a_cover_meets_what_a_held_span_meets(all in pairs(), edits in 0usize..3) {
+        let mut held = Tracked::new(SpanSet::of_unsorted(all.iter().copied()));
+        for _ in 0..edits {
+            let _ = held.edit();
+        }
+        let cover = HeldCover::of(&held);
+        prop_assert_eq!(cover.at(), held.generation());
+        let mut steps = WalkSteps::ZERO;
+        for lane in 0u8..4 {
+            for first in 0u8..13 {
+                for last in first..13 {
+                    let want = all.iter().any(|(s, _)| {
+                        s.lane() == lane && (first..=last).any(|n| s.first() <= n && n <= s.last())
+                    });
+                    prop_assert_eq!(cover.meets(lane, first, last, &mut steps), want);
+                }
+            }
+        }
+    }
+}
+
+/// **A cover is searched, not walked**: 1,024 one-line spans, the even
+/// lines of eight lanes, none overlapping, answer a range in at most
+/// ⌈log2 1,024⌉ + 1 = 11 steps, whether it meets one, falls between two or
+/// is on a lane with none. The control: a span over a range is found from
+/// a line inside it. Named break: a walk of the runs -- up to 1,024 steps.
+#[test]
+fn a_cover_meets_by_log() {
+    let held =
+        Tracked::new(SpanSet::of_unsorted((0..8u8).flat_map(|lane| {
+            (0..128u8).map(move |n| (Span::of(lane, 2 * n, 2 * n), ()))
+        })));
+    assert_eq!(held.get().len().index(), 1_024, "every span held");
+    let mut steps = WalkSteps::ZERO;
+    let wide = HeldCover::of(&Tracked::new(SpanSet::of_unsorted([(
+        Span::of(0, 3, 9),
+        (),
+    )])));
+    assert!(
+        wide.meets(0, 7, 7, &mut steps),
+        "the control: a line inside a span"
+    );
+    let cover = HeldCover::of(&held);
+    for (lane, first, last, met) in [
+        (0, 100, 100, true),
+        (7, 254, 255, true),
+        (3, 101, 101, false),
+        (0, 1, 1, false),
+        (8, 0, 255, false),
+    ] {
+        let mut steps = WalkSteps::ZERO;
+        assert_eq!(
+            cover.meets(lane, first, last, &mut steps),
+            met,
+            "lane {lane}, {first} to {last}"
+        );
+        assert!((1..=11).contains(&steps.get()), "{} steps", steps.get());
+    }
 }
