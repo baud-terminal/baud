@@ -358,6 +358,45 @@ fn a_resize_remakes_both_targets() {
     p.destroy(&gpu);
 }
 
+/// **A resize waits no more than a steady frame**: remaking both targets
+/// waits on no fence, and the first frame into the new target, drawn
+/// whole, waits as many times as a frame into a warm target. Named break:
+/// a remade target cleared and waited for before its first frame, two
+/// waits more on every resize.
+#[test]
+fn a_resize_waits_no_more_than_a_steady_frame() {
+    let gpu = lavapipe();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = warm(&gpu, &mut r, &mut t);
+    let waits = |p: &mut Presenter, r: &mut Renderer<'_, '_>, t: &mut Term<'_>| {
+        let before = gpu.waits().0;
+        let Frame::Drew(k) = frame(&gpu, p, r, t) else {
+            panic!("drawn")
+        };
+        p.shown(k, DmabufShown::No);
+        gpu.waits().0 - before
+    };
+    feed(&mut t, b"x");
+    let steady = waits(&mut p, &mut r, &mut t);
+    assert!(steady > 0, "a frame on lavapipe waits for its fence");
+    let (w, h) = size(&r);
+    let before = gpu.waits();
+    let bigger = (Px(w.0 + 16), Px(h.0 + 8));
+    assert_eq!(p.fit(&gpu, bigger).expect("made"), Remade::Yes);
+    assert_eq!(gpu.waits(), before, "waits across the remake");
+    feed(&mut t, b"x");
+    assert_eq!(
+        waits(&mut p, &mut r, &mut t),
+        steady,
+        "the first frame's waits"
+    );
+    p.destroy(&gpu);
+}
+
 /// The AMD GPU, its frames synchronised explicitly.
 fn radv_explicit() -> Gpu {
     use baud_present_vulkan::choose::{Kind, SyncObj, choose};

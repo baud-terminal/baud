@@ -40,7 +40,15 @@ pub struct Gpu {
     pub choice: Choice,
     /// How the plasma's `multiply` blends on this device.
     pub multiply: Multiply,
+    /// The CPU's waits on a fence, for a test to count ([`Gpu::waits`]).
+    #[cfg(any(test, feature = "test-hooks"))]
+    waits: std::cell::Cell<Waits>,
 }
+
+/// **How many times the CPU waited on a fence** ([`Gpu::waits`]).
+#[cfg(any(test, feature = "test-hooks"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Waits(pub u64);
 
 /// **How the plasma's `multiply` mix is blended**: by a second source, the
 /// factor the backdrop is taken at, where the device has `dualSrcBlend`;
@@ -186,7 +194,22 @@ impl Gpu {
             pool,
             choice,
             multiply,
+            #[cfg(any(test, feature = "test-hooks"))]
+            waits: std::cell::Cell::new(Waits(0)),
         })
+    }
+
+    /// **How many times the CPU has waited on a fence**, every wait for a
+    /// submission counted: a test's measure of what a path waits for.
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn waits(&self) -> Waits {
+        self.waits.get()
+    }
+
+    /// One wait on a fence, counted where a test counts them.
+    fn waited(&self) {
+        #[cfg(any(test, feature = "test-hooks"))]
+        self.waits.set(Waits(self.waits.get().0 + 1));
     }
 
     /// **The device's driver**, as `VkPhysicalDeviceDriverProperties` names
@@ -371,16 +394,16 @@ impl Gpu {
     /// Destroy `tl`. Its fd is closed when dropped.
     #[allow(unsafe_code)]
     pub fn drop_timeline(&self, tl: Timeline) {
-        // SAFETY: no submission waits on it: `clear` waits for its own.
+        // SAFETY: no pending submission signals it: every submission is
+        // waited for on the CPU before the call that made it returns.
         unsafe { self.device.destroy_semaphore(tl.semaphore, None) };
     }
 
-    /// **Clear `t` to `colour` and release it to the compositor**, signal
-    /// `signal`'s point where one is given (the acquire point of an
-    /// explicitly synced frame), and wait for the queue on the CPU. The
-    /// wait is the implicit path's need, a frame finished before it is
-    /// shown; the explicit path keeps it in this first frame and loses it
-    /// once each buffer has its own command buffer.
+    /// **Clear `t` to `colour` and release it to the compositor**, for a
+    /// test: signal `signal`'s point where one is given, and wait for the
+    /// queue on the CPU. A frame clears its own target: the first frame
+    /// into a new target is drawn whole, cleared in its pass.
+    #[cfg(any(test, feature = "test-hooks"))]
     #[allow(unsafe_code)]
     pub fn clear(
         &self,
@@ -471,6 +494,7 @@ impl Gpu {
             d.queue_submit(self.queue, &submit, fence)
                 .and_then(|()| d.wait_for_fences(&[fence], true, u64::MAX))
         };
+        self.waited();
         // SAFETY: the queue has finished with both, or never took them.
         unsafe {
             d.destroy_fence(fence, None);
@@ -648,6 +672,7 @@ impl Gpu {
             d.queue_submit(self.queue, &submit, r.fence)?;
             d.wait_for_fences(&[r.fence], true, u64::MAX)?;
         }
+        self.waited();
         Ok(())
     }
 
@@ -693,6 +718,7 @@ impl Gpu {
             d.queue_submit(self.queue, &submit, fence)
                 .and_then(|()| d.wait_for_fences(&[fence], true, u64::MAX))
         };
+        self.waited();
         // SAFETY: the queue has finished with both, or never took them.
         unsafe {
             d.destroy_fence(fence, None);
@@ -704,7 +730,8 @@ impl Gpu {
     /// Destroy `t`: its image and memory. Its fd is closed when dropped.
     #[allow(unsafe_code)]
     pub fn drop_target(&self, t: Target) {
-        // SAFETY: no submission still uses the target: `clear` waits.
+        // SAFETY: no pending submission uses the target: every submission
+        // is waited for on the CPU before the call that made it returns.
         unsafe {
             self.device.destroy_image(t.image, None);
             self.device.free_memory(t.memory, None);

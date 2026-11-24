@@ -33,7 +33,9 @@ baud-font = { workspace = true }
 baud-core = { workspace = true }
 
 [features]
-# A pipeline build held at a gate, for the crate's tests (`Pipelines::hold_builds`).
+# For the crate's tests: a pipeline build held at a gate (`Pipelines::hold_builds`),
+# a target cleared and waited for (`Gpu::clear`), and the CPU's fence waits
+# counted (`Gpu::waits`). baud's own build leaves it off (`xtask/tests/test_hooks.rs`).
 test-hooks = []
 
 [dev-dependencies]
