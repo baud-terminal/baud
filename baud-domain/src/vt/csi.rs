@@ -1017,7 +1017,10 @@ impl Csi {
     /// do. Across a call boundary LLVM cannot see that; inlined it can thread
     /// the construction straight into the caller's arms. The caller is
     /// `#[cold] #[inline(never)]`, so nothing here reaches the per-byte loop.
-    #[inline]
+    /// Inlined always, as `parse_inner` and `write::Csi::op` are: the
+    /// dispatch is compiled once for each band mode, and with two callers
+    /// LLVM took the chain out of line one function at a time (vim +1.2%).
+    #[inline(always)]
     pub fn parse_with(
         marker: Marker,
         inter: Option<StreamByte>,
@@ -1038,7 +1041,7 @@ impl Csi {
         Csi::parse_inner(marker, inter, p, f)
     }
 
-    #[inline]
+    #[inline(always)]
     fn parse_inner(marker: Marker, inter: Option<StreamByte>, p: Params<'_>, f: FinalByte) -> Csi {
         // `<` and `=` open namespaces baud implements nothing in. Falling
         // through would read them against the *standard* table, so `CSI < c`

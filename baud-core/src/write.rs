@@ -289,7 +289,7 @@ impl Csi {
     /// table did, and it leaked half-parsed parameters when it bailed.
     /// `baud-core2` called the same function, which kept the two cores agreed
     /// while both existed.
-    #[inline]
+    #[inline(always)]
     fn op(&self, f: FinalByte, lrm: MarginMode) -> baud_domain::Csi {
         baud_domain::Csi::parse_with(
             self.marker,
@@ -2715,6 +2715,7 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
 /// exhaustive match, so a function added to [`DomCsi`] is a compile error
 /// here until it is placed; every function not named as writing no cell
 /// is taken as writing one, the read's first line included.
+#[inline(always)]
 fn writes_no_cell(op: &DomCsi) -> bool {
     match op {
         DomCsi::CursorUp(..)

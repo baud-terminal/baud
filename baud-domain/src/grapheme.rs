@@ -648,6 +648,11 @@ impl ClusterBreak {
     /// as the others do. The one test every caller asks: the core where a
     /// write joined, the renderer re-forming a syllable, a composition's
     /// layout.
+    ///
+    /// Inlined always: the write path is compiled once for each band mode,
+    /// so this has two callers, and LLVM took it out of line (cat-cjk +1.1%
+    /// instructions inside `ingest2::timed`).
+    #[inline(always)]
     pub fn parts_at(
         self,
         cells: ClusterCells,
