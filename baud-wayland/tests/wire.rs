@@ -211,14 +211,17 @@ fn the_wire_refuses_what_the_signature_forbids() {
 #[test]
 fn the_generated_tables_are_what_the_pinned_protocols_declare() {
     assert_eq!(protocol::INTERFACES.len(), 63);
-    assert_eq!(protocol::zxdg_exporter_v2::INDEX, 59);
+    assert_eq!(protocol::zxdg_exporter_v2::INDEX, InterfaceIndex(59));
     assert_eq!(protocol::zxdg_exporter_v2::request::EXPORT_TOPLEVEL, 1);
-    assert_eq!(protocol::zwp_primary_selection_device_manager_v1::INDEX, 52);
-    assert_eq!(protocol::xdg_system_bell_v1::INDEX, 56);
+    assert_eq!(
+        protocol::zwp_primary_selection_device_manager_v1::INDEX,
+        InterfaceIndex(52)
+    );
+    assert_eq!(protocol::xdg_system_bell_v1::INDEX, InterfaceIndex(56));
     assert_eq!(protocol::xdg_system_bell_v1::request::RING, 1);
     assert_eq!(protocol::xdg_system_bell_v1::VERSION, 1);
-    assert_eq!(protocol::xdg_activation_v1::INDEX, 57);
-    assert_eq!(protocol::xdg_activation_token_v1::INDEX, 58);
+    assert_eq!(protocol::xdg_activation_v1::INDEX, InterfaceIndex(57));
+    assert_eq!(protocol::xdg_activation_token_v1::INDEX, InterfaceIndex(58));
     assert_eq!(
         protocol::xdg_activation_v1::request::GET_ACTIVATION_TOKEN,
         1

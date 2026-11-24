@@ -2267,10 +2267,9 @@ impl Handler for Window {
             self.take_done();
             return;
         }
-        match (ev.interface.name, ev.name(), ev.args) {
+        match (ev.key(), ev.args) {
             (
-                "wl_registry",
-                "global",
+                protocol::wl_registry::on::GLOBAL,
                 [
                     Read::Uint(name),
                     Read::Str(Some(iface)),
@@ -2543,7 +2542,7 @@ impl Handler for Window {
             // preferred buffer scale for this surface is 1". The window and
             // the pointer it draws itself are drawn at it while no fraction
             // is in force.
-            ("wl_surface", "preferred_buffer_scale", [Read::Int(f)])
+            (protocol::wl_surface::on::PREFERRED_BUFFER_SCALE, [Read::Int(f)])
                 if Some(ev.object) == self.surface =>
             {
                 self.preferred = Scale(u32::try_from(*f).unwrap_or(1).max(1));
@@ -2551,25 +2550,27 @@ impl Handler for Window {
             }
             // "The sent scale is the numerator of a fraction with a
             // denominator of 120" (`[[source: wp-fractional-scale-v1]]`).
-            ("wp_fractional_scale_v1", "preferred_scale", [Read::Uint(f)])
+            (protocol::wp_fractional_scale_v1::on::PREFERRED_SCALE, [Read::Uint(f)])
                 if Some(ev.object) == self.fractional_scale && *f > 0 =>
             {
                 self.fraction = Some(BufferScale(*f));
                 self.announce();
             }
-            ("wl_surface", "enter", [Read::Object(o)])
+            (protocol::wl_surface::on::ENTER, [Read::Object(o)])
                 if Some(ev.object) == self.surface && !self.on.contains(o) =>
             {
                 self.on.push(*o);
                 self.announce();
             }
-            ("wl_surface", "leave", [Read::Object(o)]) if Some(ev.object) == self.surface => {
+            (protocol::wl_surface::on::LEAVE, [Read::Object(o)])
+                if Some(ev.object) == self.surface =>
+            {
                 self.on.retain(|on| on != o);
                 self.announce();
             }
             // "The compositor will emit a non-zero, positive value for
             // scale."
-            ("wl_output", "scale", [Read::Int(f)]) => {
+            (protocol::wl_output::on::SCALE, [Read::Int(f)]) => {
                 if let Some(o) = self.globals.outputs.iter_mut().find(|o| o.id == ev.object) {
                     o.scale = Scale(u32::try_from(*f).unwrap_or(1).max(1));
                 }
@@ -2578,7 +2579,7 @@ impl Handler for Window {
             // "The current mode is always the last mode that was received
             // with the current flag set" (0x1); any other is a mode the
             // output could take.
-            ("wl_output", "mode", [Read::Uint(flags), Read::Int(w), Read::Int(h), _])
+            (protocol::wl_output::on::MODE, [Read::Uint(flags), Read::Int(w), Read::Int(h), _])
                 if flags & 0x1 != 0 =>
             {
                 if let Some(o) = self.globals.outputs.iter_mut().find(|o| o.id == ev.object) {
@@ -2590,8 +2591,7 @@ impl Handler for Window {
             // arguments, and the transform, the last: an odd value is a
             // quarter turn.
             (
-                "wl_output",
-                "geometry",
+                protocol::wl_output::on::GEOMETRY,
                 [
                     _,
                     _,
@@ -2613,7 +2613,7 @@ impl Handler for Window {
                 }
             }
             // An output unplugged: its scale counts no more.
-            ("wl_registry", "global_remove", [Read::Uint(name)]) => {
+            (protocol::wl_registry::on::GLOBAL_REMOVE, [Read::Uint(name)]) => {
                 let name = GlobalName(*name);
                 if let Some(at) = self.globals.outputs.iter().position(|o| o.name == name) {
                     let gone = self.globals.outputs.remove(at);
@@ -2621,7 +2621,7 @@ impl Handler for Window {
                 }
                 self.announce();
             }
-            ("xdg_wm_base", "ping", [Read::Uint(serial)]) => {
+            (protocol::xdg_wm_base::on::PING, [Read::Uint(serial)]) => {
                 let _ = s.request(
                     ev.object,
                     Opcode(protocol::xdg_wm_base::request::PONG),
@@ -2630,7 +2630,10 @@ impl Handler for Window {
             }
             // Zero means the client chooses; keep what it had. The states
             // are read either way.
-            ("xdg_toplevel", "configure", [Read::Int(w), Read::Int(h), Read::Array(states)]) => {
+            (
+                protocol::xdg_toplevel::on::CONFIGURE,
+                [Read::Int(w), Read::Int(h), Read::Array(states)],
+            ) => {
                 self.pending_shown = Shown::of(states);
                 if *w > 0 && *h > 0 {
                     self.pending = (
@@ -2640,21 +2643,21 @@ impl Handler for Window {
                 }
             }
             // "If width and height are 0, it means bounds is unknown".
-            ("xdg_toplevel", "configure_bounds", [Read::Int(w), Read::Int(h)]) => {
+            (protocol::xdg_toplevel::on::CONFIGURE_BOUNDS, [Read::Int(w), Read::Int(h)]) => {
                 self.bounds = match (u32::try_from(*w), u32::try_from(*h)) {
                     (Ok(w), Ok(h)) if w > 0 && h > 0 => Some((Px(w), Px(h))),
                     _ => None,
                 };
             }
-            ("xdg_toplevel", "close", _) => self.events.push_back(Event::Closed),
+            (protocol::xdg_toplevel::on::CLOSE, _) => self.events.push_back(Event::Closed),
             // Held until the xdg_surface configure that follows it is
             // acknowledged; a value naming no mode is not taken.
-            ("zxdg_toplevel_decoration_v1", "configure", [Read::Uint(mode)])
+            (protocol::zxdg_toplevel_decoration_v1::on::CONFIGURE, [Read::Uint(mode)])
                 if Some(ev.object) == self.decorated =>
             {
                 let _ = self.decorations.configured(*mode);
             }
-            ("xdg_surface", "configure", [Read::Uint(serial)]) => {
+            (protocol::xdg_surface::on::CONFIGURE, [Read::Uint(serial)]) => {
                 let _ = s.request(
                     ev.object,
                     Opcode(protocol::xdg_surface::request::ACK_CONFIGURE),
@@ -2665,7 +2668,7 @@ impl Handler for Window {
                 self.size = Some(self.pending);
                 self.announce();
             }
-            ("wl_seat", "capabilities", [Read::Uint(caps)]) => {
+            (protocol::wl_seat::on::CAPABILITIES, [Read::Uint(caps)]) => {
                 let keyboard = caps & protocol::wl_seat::capability::KEYBOARD != 0;
                 match (keyboard, self.keyboard) {
                     (true, None) => {
@@ -2735,22 +2738,24 @@ impl Handler for Window {
                 }
             }
             // The pointer, gathered a frame at a time (`pointer.rs`).
-            ("wl_pointer", "enter", [Read::Uint(serial), _, Read::Fixed(x), Read::Fixed(y)]) => {
+            (
+                protocol::wl_pointer::on::ENTER,
+                [Read::Uint(serial), _, Read::Fixed(x), Read::Fixed(y)],
+            ) => {
                 self.entered = Some(*serial);
                 let e = PointerEvent::Entered(at(*x, *y));
                 self.pointer_event(e);
             }
-            ("wl_pointer", "leave", _) => {
+            (protocol::wl_pointer::on::LEAVE, _) => {
                 self.entered = None;
                 self.cursor_shown = None;
                 self.pointer_event(PointerEvent::Left);
             }
-            ("wl_pointer", "motion", [_, Read::Fixed(x), Read::Fixed(y)]) => {
+            (protocol::wl_pointer::on::MOTION, [_, Read::Fixed(x), Read::Fixed(y)]) => {
                 self.pointer_event(PointerEvent::Moved(at(*x, *y)));
             }
             (
-                "wl_pointer",
-                "button",
+                protocol::wl_pointer::on::BUTTON,
                 [
                     Read::Uint(serial),
                     Read::Uint(time),
@@ -2774,27 +2779,28 @@ impl Handler for Window {
                     time: EventMillis::of_millis(*time),
                 });
             }
-            ("wl_pointer", "axis", [_, Read::Uint(axis), Read::Fixed(v)]) => {
+            (protocol::wl_pointer::on::AXIS, [_, Read::Uint(axis), Read::Fixed(v)]) => {
                 self.axis(AxisCode(*axis), Piece::Length(v.to_f64()));
             }
-            ("wl_pointer", "axis_value120", [Read::Uint(axis), Read::Int(v)]) => {
+            (protocol::wl_pointer::on::AXIS_VALUE120, [Read::Uint(axis), Read::Int(v)]) => {
                 self.axis(AxisCode(*axis), Piece::Value120(*v));
             }
-            ("wl_pointer", "axis_discrete", [Read::Uint(axis), Read::Int(d)]) => {
+            (protocol::wl_pointer::on::AXIS_DISCRETE, [Read::Uint(axis), Read::Int(d)]) => {
                 self.axis(AxisCode(*axis), Piece::Discrete(*d));
             }
-            ("wl_pointer", "axis_stop", [_, Read::Uint(axis)]) => {
+            (protocol::wl_pointer::on::AXIS_STOP, [_, Read::Uint(axis)]) => {
                 self.axis(AxisCode(*axis), Piece::Stop);
             }
-            ("wl_pointer", "frame", _) => {
+            (protocol::wl_pointer::on::FRAME, _) => {
                 let held = self.modifiers();
                 let events = &mut self.events;
                 self.gather
                     .frame(&mut |e| events.push_back(Event::Pointer(e, held)));
             }
-            ("wl_keyboard", "keymap", [Read::Uint(format), Read::Fd(fd), Read::Uint(size)])
-                if *format == protocol::wl_keyboard::keymap_format::XKB_V1 =>
-            {
+            (
+                protocol::wl_keyboard::on::KEYMAP,
+                [Read::Uint(format), Read::Fd(fd), Read::Uint(size)],
+            ) if *format == protocol::wl_keyboard::keymap_format::XKB_V1 => {
                 // A new keymap names keys afresh; a key held under the old
                 // one is not one this keymap was asked to repeat, and a
                 // sequence begun under it is not this keymap's.
@@ -2808,7 +2814,7 @@ impl Handler for Window {
                     None => HebrewLayout::Absent,
                 };
             }
-            ("wl_keyboard", "repeat_info", [Read::Int(rate), Read::Int(delay)]) => {
+            (protocol::wl_keyboard::on::REPEAT_INFO, [Read::Int(rate), Read::Int(delay)]) => {
                 self.repeat = RepeatInfo {
                     period: u32::try_from(*rate)
                         .ok()
@@ -2821,8 +2827,7 @@ impl Handler for Window {
                 }
             }
             (
-                "wl_keyboard",
-                "modifiers",
+                protocol::wl_keyboard::on::MODIFIERS,
                 [
                     Read::Uint(_),
                     Read::Uint(dep),
@@ -2846,8 +2851,7 @@ impl Handler for Window {
                 }
             }
             (
-                "wl_keyboard",
-                "key",
+                protocol::wl_keyboard::on::KEY,
                 [
                     Read::Uint(serial),
                     Read::Uint(_),
@@ -2939,27 +2943,26 @@ impl Handler for Window {
             }
             // The keymap's `enter` carries the keys already down as an array;
             // neither event's payload beyond its meaning is needed here.
-            ("wl_keyboard", "enter", [Read::Uint(serial), ..]) => {
+            (protocol::wl_keyboard::on::ENTER, [Read::Uint(serial), ..]) => {
                 self.serial = Some(*serial);
                 self.clip.focus_gained();
                 self.events.push_back(Event::Focus(Focus::Gained));
             }
-            ("wl_keyboard", "leave", _) => self.keyboard_left(s),
+            (protocol::wl_keyboard::on::LEAVE, _) => self.keyboard_left(s),
             // The input method (`ime.rs`): enabled on the object's own
             // enter on this surface, its state applied on `done`.
-            ("zwp_text_input_v3", "enter", [Read::Object(surface)])
+            (protocol::zwp_text_input_v3::on::ENTER, [Read::Object(surface)])
                 if self.ime.is(ev.object) && Some(*surface) == self.surface =>
             {
                 self.ime.entered(s);
             }
-            ("zwp_text_input_v3", "leave", _) if self.ime.is(ev.object) => {
+            (protocol::zwp_text_input_v3::on::LEAVE, _) if self.ime.is(ev.object) => {
                 if let Some(p) = self.ime.left() {
                     self.events.push_back(Event::Preedit(p));
                 }
             }
             (
-                "zwp_text_input_v3",
-                "preedit_string",
+                protocol::zwp_text_input_v3::on::PREEDIT_STRING,
                 [Read::Str(text), Read::Int(begin), Read::Int(end)],
             ) if self.ime.is(ev.object) => {
                 let cursor = PreeditCursor {
@@ -2969,24 +2972,32 @@ impl Handler for Window {
                 self.ime.preedit_string(*text, cursor);
             }
             (
-                "zwp_text_input_v3",
-                "preedit_hint",
+                protocol::zwp_text_input_v3::on::PREEDIT_HINT,
                 [Read::Uint(start), Read::Uint(end), Read::Uint(hint)],
             ) if self.ime.is(ev.object) => {
                 self.ime
                     .preedit_hint(ByteAt(*start), ByteAt(*end), HintCode(*hint));
             }
-            ("zwp_text_input_v3", "action", [Read::Uint(action), _]) if self.ime.is(ev.object) => {
+            (protocol::zwp_text_input_v3::on::ACTION, [Read::Uint(action), _])
+                if self.ime.is(ev.object) =>
+            {
                 self.ime.action(ActionCode(*action));
             }
             // Read and not acted on (`ime.rs`): the input method's language,
             // and a deletion from surrounding text the terminal never sent.
-            ("zwp_text_input_v3", "language" | "delete_surrounding_text", _)
-                if self.ime.is(ev.object) => {}
-            ("zwp_text_input_v3", "commit_string", [Read::Str(text)]) if self.ime.is(ev.object) => {
+            (
+                protocol::zwp_text_input_v3::on::LANGUAGE
+                | protocol::zwp_text_input_v3::on::DELETE_SURROUNDING_TEXT,
+                _,
+            ) if self.ime.is(ev.object) => {}
+            (protocol::zwp_text_input_v3::on::COMMIT_STRING, [Read::Str(text)])
+                if self.ime.is(ev.object) =>
+            {
                 self.ime.commit_string(*text);
             }
-            ("zwp_text_input_v3", "done", [Read::Uint(serial)]) if self.ime.is(ev.object) => {
+            (protocol::zwp_text_input_v3::on::DONE, [Read::Uint(serial)])
+                if self.ime.is(ev.object) =>
+            {
                 for step in self.ime.done(s, Serial(*serial)) {
                     match step {
                         Step::Preedit(p) => self.events.push_back(Event::Preedit(p)),
@@ -3002,7 +3013,7 @@ impl Handler for Window {
                     }
                 }
             }
-            ("wl_buffer", "release", _) => {
+            (protocol::wl_buffer::on::RELEASE, _) => {
                 self.holding.retain(|&b| b != ev.object);
                 if let Some(p) = self.pool.as_mut() {
                     p.released(ev.object);
@@ -3011,36 +3022,37 @@ impl Handler for Window {
             // The surface's formats, a burst at a time (`dmabuf.rs`). A
             // table that cannot be mapped leaves the tranches naming
             // nothing, counted as unknown indices.
-            ("zwp_linux_dmabuf_feedback_v1", name, args)
-                if Some(ev.object) == self.formats_object =>
+            (key, args)
+                if key.interface == protocol::zwp_linux_dmabuf_feedback_v1::INDEX
+                    && Some(ev.object) == self.formats_object =>
             {
                 use dmabuf::TrancheFlags;
+                use protocol::zwp_linux_dmabuf_feedback_v1::on;
                 let g = &mut self.formats_burst;
-                match (name, args) {
-                    ("format_table", [Read::Fd(fd), Read::Uint(size)]) => {
+                match (key, args) {
+                    (on::FORMAT_TABLE, [Read::Fd(fd), Read::Uint(size)]) => {
                         let len = usize::try_from(*size).unwrap_or(0);
                         let _ = g.table(fd, crate::sys::FileLen(len));
                     }
-                    ("main_device", [Read::Array(a)]) => g.main_device(a),
-                    ("tranche_target_device", [Read::Array(a)]) => g.target_device(a),
-                    ("tranche_flags", [Read::Uint(f)]) => g.flags(TrancheFlags(*f)),
-                    ("tranche_formats", [Read::Array(a)]) => g.formats(a),
-                    ("tranche_done", []) => g.tranche_done(),
-                    ("done", []) => {
+                    (on::MAIN_DEVICE, [Read::Array(a)]) => g.main_device(a),
+                    (on::TRANCHE_TARGET_DEVICE, [Read::Array(a)]) => g.target_device(a),
+                    (on::TRANCHE_FLAGS, [Read::Uint(f)]) => g.flags(TrancheFlags(*f)),
+                    (on::TRANCHE_FORMATS, [Read::Array(a)]) => g.formats(a),
+                    (on::TRANCHE_DONE, []) => g.tranche_done(),
+                    (on::DONE, []) => {
                         self.formats = Some(g.done());
                         self.formats_sent.0 += 1;
                     }
                     _ => {}
                 }
             }
-            ("wp_presentation", "clock_id", [Read::Uint(id)]) => {
+            (protocol::wp_presentation::on::CLOCK_ID, [Read::Uint(id)]) => {
                 self.clock = i32::try_from(*id).ok().map(ClockId);
             }
             // "presented" and "discarded" each end their feedback object;
             // a frame discarded leaves the last one shown the latest.
             (
-                "wp_presentation_feedback",
-                "presented",
+                protocol::wp_presentation_feedback::on::PRESENTED,
                 [
                     Read::Uint(hi),
                     Read::Uint(lo),
@@ -3078,21 +3090,21 @@ impl Handler for Window {
                 }
             }
             // A frame not shown holds no refresh.
-            ("wp_presentation_feedback", "discarded", _) => {
+            (protocol::wp_presentation_feedback::on::DISCARDED, _) => {
                 self.frames.discarded.0 += 1;
                 if self.unseen.is_some_and(|(fb, _)| fb == ev.object) {
                     self.unseen = None;
                 }
             }
             // The window's export: its handle, kept for another client.
-            ("zxdg_exported_v2", "handle", [Read::Str(Some(handle))])
+            (protocol::zxdg_exported_v2::on::HANDLE, [Read::Str(Some(handle))])
                 if self.export.as_ref().is_some_and(|(id, _)| *id == ev.object) =>
             {
                 self.export = Some((ev.object, Some(handle.to_string())));
             }
             // The token asked for: `activate` with it, and the token's
             // object let go -- "The received token stays valid".
-            ("xdg_activation_token_v1", "done", [Read::Str(Some(token))])
+            (protocol::xdg_activation_token_v1::on::DONE, [Read::Str(Some(token))])
                 if self.token == Some(ev.object) =>
             {
                 self.token = None;
@@ -3109,7 +3121,7 @@ impl Handler for Window {
                     &[],
                 );
             }
-            ("wl_callback", "done", args) => {
+            (protocol::wl_callback::on::DONE, args) => {
                 if self.sync == Some(ev.object) {
                     self.sync = None;
                     // The binds went out as the burst was read, so a sync

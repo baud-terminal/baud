@@ -121,14 +121,6 @@ pub(crate) enum Keyboard {
     Here,
 }
 
-/// Which of a protocol's three objects an event is on.
-#[derive(Clone, Copy)]
-enum Object {
-    Device,
-    Offered,
-    Source,
-}
-
 /// An offer the compositor introduced, and the best text type it named.
 struct Offer {
     id: ObjectId,
@@ -508,15 +500,16 @@ impl Clip {
 
     /// **An event of either protocol's**, or `false` for one that is not.
     pub fn event(&mut self, s: &mut Sender<'_>, ev: &baud_wayland::Event<'_>) -> bool {
-        use Object::{Device, Offered, Source};
         use baud_wayland::Read;
-        let (board, kind) = match ev.interface.name {
-            "wl_data_device" => (Board::Clipboard, Device),
-            "wl_data_offer" => (Board::Clipboard, Offered),
-            "wl_data_source" => (Board::Clipboard, Source),
-            "zwp_primary_selection_device_v1" => (Board::Primary, Device),
-            "zwp_primary_selection_offer_v1" => (Board::Primary, Offered),
-            "zwp_primary_selection_source_v1" => (Board::Primary, Source),
+        use protocol::{
+            wl_data_device as data_device, wl_data_offer as data_offer,
+            wl_data_source as data_source, zwp_primary_selection_device_v1 as primary_device,
+            zwp_primary_selection_offer_v1 as primary_offer,
+            zwp_primary_selection_source_v1 as primary_source,
+        };
+        let board = match ev.interface.index {
+            data_device::INDEX | data_offer::INDEX | data_source::INDEX => Board::Clipboard,
+            primary_device::INDEX | primary_offer::INDEX | primary_source::INDEX => Board::Primary,
             _ => return false,
         };
         let o = ops(board);
@@ -524,14 +517,16 @@ impl Clip {
             Board::Clipboard => &mut self.clipboard,
             Board::Primary => &mut self.primary,
         };
-        match (kind, ev.name(), ev.args) {
+        match (ev.key(), ev.args) {
             // The offer comes first, its types next, and then the event
             // that says what it is for.
-            (Device, "data_offer", [Read::NewId(id)]) => side.introduced.push(Offer {
-                id: *id,
-                best: None,
-            }),
-            (Offered, "offer", [Read::Str(Some(mime))]) => {
+            (data_device::on::DATA_OFFER | primary_device::on::DATA_OFFER, [Read::NewId(id)]) => {
+                side.introduced.push(Offer {
+                    id: *id,
+                    best: None,
+                })
+            }
+            (data_offer::on::OFFER | primary_offer::on::OFFER, [Read::Str(Some(mime))]) => {
                 let offer = side
                     .introduced
                     .iter_mut()
@@ -545,7 +540,7 @@ impl Clip {
             }
             // "The client must destroy the previous selection data_offer,
             // if any, upon receiving this event."
-            (Device, "selection", [Read::Object(id)]) => {
+            (data_device::on::SELECTION | primary_device::on::SELECTION, [Read::Object(id)]) => {
                 let named = side
                     .introduced
                     .iter()
@@ -557,12 +552,15 @@ impl Clip {
             }
             // A drag's offer: baud takes no drop, and the offer goes when
             // the drag leaves or drops.
-            (Device, "leave" | "drop", _) => {
+            (data_device::on::LEAVE | data_device::on::DROP, _) => {
                 for f in side.introduced.drain(..) {
                     let _ = s.request(f.id, o.offer_destroy, &[]);
                 }
             }
-            (Source, "send", [Read::Str(Some(_)), Read::Fd(fd)]) => {
+            (
+                data_source::on::SEND | primary_source::on::SEND,
+                [Read::Str(Some(_)), Read::Fd(fd)],
+            ) => {
                 let text = match &side.source {
                     Some((id, text)) if *id == ev.object => Some(text.clone()),
                     _ => None,
@@ -582,7 +580,7 @@ impl Clip {
             // longer valid."
             // A source this client replaced was destroyed when it was, and
             // a second destroy would name a dead object.
-            (Source, "cancelled", _)
+            (data_source::on::CANCELLED | primary_source::on::CANCELLED, _)
                 if side.source.as_ref().is_some_and(|(id, _)| *id == ev.object) =>
             {
                 side.source = None;

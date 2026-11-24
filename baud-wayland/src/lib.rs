@@ -26,5 +26,5 @@ pub mod table;
 pub mod wire;
 
 pub use client::{Connection, Event, Handler, Sender};
-pub use table::{ArgKind, Interface, Msg};
+pub use table::{ArgKind, EventKey, Interface, InterfaceIndex, Msg};
 pub use wire::{Arg, Fixed, Header, ObjectId, Opcode, Read, WireError};

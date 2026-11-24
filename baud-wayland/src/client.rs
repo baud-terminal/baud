@@ -14,7 +14,7 @@
 //! event borrows.
 
 use crate::sys;
-use crate::table::{ArgKind, Interface};
+use crate::table::{EventKey, Interface};
 use crate::wire::{self, Arg, HEADER_BYTES, Header, ObjectId, Opcode, Read, WireError};
 use std::collections::VecDeque;
 use std::io;
@@ -31,7 +31,16 @@ pub struct Event<'a> {
 }
 
 impl Event<'_> {
-    /// The event's name in the interface, for a handler that matches on it.
+    /// The event's interface and opcode, for a handler that routes it by
+    /// matching against `protocol::<interface>::on::<EVENT>`.
+    pub fn key(&self) -> EventKey {
+        EventKey {
+            interface: self.interface.index,
+            opcode: self.opcode,
+        }
+    }
+
+    /// The event's name in the interface, for a log or a test.
     pub fn name(&self) -> &'static str {
         self.interface.events[usize::from(self.opcode.0)].name
     }
@@ -370,15 +379,9 @@ impl Connection {
             }
             // A `new_id` in an event is a server-created object: bind it
             // before the handler sees the event.
-            for (k, a) in msg.args.iter().zip(args.iter()) {
-                if let (
-                    ArgKind::NewId {
-                        interface: Some(name),
-                    },
-                    Read::NewId(id),
-                ) = (k, a)
-                {
-                    if let Some(i) = Interface::named(name) {
+            if let Some(i) = msg.creates {
+                for a in &args {
+                    if let Read::NewId(id) = a {
                         self.objects.insert_server(*id, i);
                     }
                 }
