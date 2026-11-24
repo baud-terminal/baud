@@ -240,7 +240,9 @@ fn the_style_table_is_what_style_of_reads() {
     let cells: Vec<_> = t.viewport()[..14].to_vec();
     let table = t.styles().one().slots();
     for cell in cells {
-        let slot = table[cell.style.index()].unwrap_or(baud_domain::StyleWord::DEFAULT);
+        let slot = table[cell.style.index()]
+            .word()
+            .unwrap_or(baud_domain::StyleWord::DEFAULT);
         assert_eq!(slot, t.styles().one().word_of(cell));
     }
     // The three renditions the bytes minted are distinct slots.

@@ -483,8 +483,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             .tmpl
             .as_slice()
             .get(cell.style.index())
-            .copied()
-            .flatten()
+            .and_then(|s| s.word())
             .unwrap_or(baud_domain::StyleWord::DEFAULT);
         PackedCell {
             style: self.intern_style(word.with_string(s)),

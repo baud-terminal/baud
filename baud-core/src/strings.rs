@@ -227,8 +227,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let tmpl = self.tmpl.as_slice();
         let of = |id: StyleId| {
             tmpl.get(id.index())
-                .copied()
-                .flatten()
+                .and_then(|s| s.word())
                 .map_or(StringId::NONE, |w| w.string())
         };
         // **A frozen row names its string through its generation's words**
@@ -265,8 +264,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         self.tmpl
             .as_slice()
             .get(id.index())
-            .copied()
-            .flatten()
+            .and_then(|s| s.word())
             .map_or(StringId::NONE, |w| w.string())
     }
 
@@ -283,8 +281,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             .tmpl
             .as_slice()
             .get(blank.style.index())
-            .copied()
-            .flatten()
+            .and_then(|s| s.word())
             .unwrap_or(StyleWord::DEFAULT);
         for c in from.index()..to.index() {
             let at = Col::at_index(c);

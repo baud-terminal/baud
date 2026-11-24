@@ -889,7 +889,7 @@ impl Renderer<'_, '_> {
                         .one()
                         .slots()
                         .get(k)
-                        .is_some_and(Option::is_some)
+                        .is_some_and(|s| s.word().is_some())
             };
             while top > next && held(top - 1) {
                 top -= 1;

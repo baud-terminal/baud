@@ -17,6 +17,7 @@ const WS: WinSize = WinSize {
 fn string_at(t: &Term<'_>, row: usize, col: usize) -> StringId {
     let cell = t.viewport().row(Row::from_index(row))[col];
     t.styles().one().slots()[cell.style.index()]
+        .word()
         .map(|w| w.string())
         .unwrap_or(StringId::NONE)
 }

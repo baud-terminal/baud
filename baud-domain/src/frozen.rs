@@ -27,7 +27,7 @@
 //! active screen thaws it, and every one that takes a screen row off clears
 //! its tag (`baud-core`'s `freeze.rs`).
 
-use crate::{LineIdx, RowMut, RowRot, Rows, StyleId, StyleWord};
+use crate::{LineIdx, RowMut, RowRot, Rows, StyleId, StyleSlot, StyleWord};
 
 /// **Which generation record a frozen row names.**
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -287,20 +287,27 @@ impl FrozenBudget {
     }
 }
 
+/// **`n` values from the allocator's zeroed path**, for a type whose zero
+/// is its empty value: a page is committed only when it is first written,
+/// so what is never written costs nothing resident.
+#[cfg(feature = "alloc")]
+pub fn zeroed<T: zerocopy::FromZeros>(n: usize) -> alloc::vec::Vec<T> {
+    match T::new_vec_zeroed(n) {
+        Ok(v) => v,
+        Err(_) => match core::alloc::Layout::array::<T>(n) {
+            Ok(layout) => alloc::alloc::handle_alloc_error(layout),
+            Err(_) => panic!("capacity overflow"),
+        },
+    }
+}
+
 #[cfg(feature = "alloc")]
 impl FrozenBudget {
     /// The pool from the allocator's zeroed path, so a page is committed
     /// only when a generation first writes it and a terminal that never
     /// freezes pays for none of it.
     pub fn zeroed_words(&self) -> alloc::vec::Vec<StyleWord> {
-        use zerocopy::FromZeros;
-        match StyleWord::new_vec_zeroed(self.words) {
-            Ok(v) => v,
-            Err(_) => match core::alloc::Layout::array::<StyleWord>(self.words) {
-                Ok(layout) => alloc::alloc::handle_alloc_error(layout),
-                Err(_) => panic!("capacity overflow"),
-            },
-        }
+        zeroed(self.words)
     }
 
     /// The map, one a slot, from zeroed memory: zero is unset.
@@ -549,12 +556,7 @@ impl<'a> FrozenStore<'a> {
     /// first time it is met. Nothing is written unless the whole row fits:
     /// the generation holds at most `table.len()` words, so its ids index a
     /// thaw's map, and the pool what it was lent.
-    pub fn freeze_row(
-        &mut self,
-        g: GenIdx,
-        mut row: RowMut<'_>,
-        table: &[Option<StyleWord>],
-    ) -> RowFreeze {
+    pub fn freeze_row(&mut self, g: GenIdx, mut row: RowMut<'_>, table: &[StyleSlot]) -> RowFreeze {
         let rec = self.gens[g.index()];
         if rec.len + row.len() > table.len() || self.room() < row.len() {
             return RowFreeze::NoRoom;
@@ -574,8 +576,7 @@ impl<'a> FrozenStore<'a> {
                     let d = StyleId(u16::try_from(self.gens[g.index()].len).unwrap_or(u16::MAX));
                     self.words[self.book.used] = table
                         .get(k.index())
-                        .copied()
-                        .flatten()
+                        .and_then(|s| s.word())
                         .unwrap_or(StyleWord::DEFAULT);
                     self.book.used += 1;
                     self.gens[g.index()].len += 1;
@@ -599,7 +600,7 @@ impl<'a> FrozenStore<'a> {
         g: GenIdx,
         mut row: RowMut<'_>,
         from: Option<GenIdx>,
-        live: &[Option<StyleWord>],
+        live: &[StyleSlot],
     ) -> RowFreeze {
         let rec = self.gens[g.index()];
         if rec.len + row.len() > live.len() || self.room() < row.len() {
@@ -624,8 +625,7 @@ impl<'a> FrozenStore<'a> {
                         },
                         None => live
                             .get(k.index())
-                            .copied()
-                            .flatten()
+                            .and_then(|s| s.word())
                             .unwrap_or(StyleWord::DEFAULT),
                     };
                     self.words[self.book.used] = w;
@@ -969,11 +969,11 @@ impl<'a> FrozenTable<'a> {
 /// other.
 #[derive(Clone, Copy, Debug)]
 pub struct LiveTable<'a> {
-    slots: &'a [Option<StyleWord>],
+    slots: &'a [StyleSlot],
 }
 
 impl<'a> LiveTable<'a> {
-    pub fn of(slots: &'a [Option<StyleWord>]) -> LiveTable<'a> {
+    pub fn of(slots: &'a [StyleSlot]) -> LiveTable<'a> {
         LiveTable { slots }
     }
 
@@ -981,8 +981,7 @@ impl<'a> LiveTable<'a> {
     pub fn word(&self, id: StyleId) -> StyleWord {
         self.slots
             .get(id.index())
-            .copied()
-            .flatten()
+            .and_then(|s| s.word())
             .unwrap_or(StyleWord::DEFAULT)
     }
 
@@ -992,7 +991,7 @@ impl<'a> LiveTable<'a> {
     }
 
     /// The slots, for a reader that resolves every one once.
-    pub fn slots(&self) -> &'a [Option<StyleWord>] {
+    pub fn slots(&self) -> &'a [StyleSlot] {
         self.slots
     }
 
@@ -1010,7 +1009,7 @@ impl<'a> LiveTable<'a> {
 /// `band_slots` slots each, in band order.
 #[derive(Clone, Copy, Debug)]
 pub struct LiveBands<'a> {
-    slots: &'a [Option<StyleWord>],
+    slots: &'a [StyleSlot],
     band_slots: usize,
     /// The rows a band holds; 0 for one table of every row.
     rows: usize,
@@ -1028,7 +1027,7 @@ impl<'a> LiveBands<'a> {
 
     /// A table each band of `rows` rows, `band_slots` slots each, over
     /// `slots`.
-    pub fn banded(slots: &'a [Option<StyleWord>], band_slots: usize, rows: Rows) -> LiveBands<'a> {
+    pub fn banded(slots: &'a [StyleSlot], band_slots: usize, rows: Rows) -> LiveBands<'a> {
         LiveBands {
             slots,
             band_slots,

@@ -2285,6 +2285,7 @@ fn the_sapv_atoms_reach_the_rendition() {
     let at = |t: &Term<'_>, x: usize| {
         let cell = t.row(Row::ZERO).expect("a row")[x];
         t.styles().one().slots()[cell.style.index()]
+            .word()
             .expect("a live rendition")
             .variants()
     };

@@ -529,7 +529,7 @@ fn evicted_lays_again(text: &str, at: usize, tail: &str) {
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, &before);
     assert!(
-        t.styles().one().slots().iter().all(Option::is_some),
+        t.styles().one().slots().iter().all(|s| s.word().is_some()),
         "the premise: the table is full"
     );
     // Where the tail starts: the first cell naming the tail's slot.

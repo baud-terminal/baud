@@ -143,7 +143,7 @@ struct Parts<'p, 's, 'b> {
     prim: &'p mut Stamped<'s>,
     alt: &'p mut Stamped<'s>,
     frz: &'p mut FrozenStore<'b>,
-    tmpl: &'p [Option<StyleWord>],
+    tmpl: &'p [StyleSlot],
     stride: Stride,
 }
 
@@ -237,7 +237,7 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
             false => (false, self.cold.screen),
         };
         let frz = self.style_log.frozen.as_mut()?;
-        let tmpl: &[Option<StyleWord>] = self.tmpl.as_slice();
+        let tmpl: &[StyleSlot] = self.tmpl.as_slice();
         let (prim, alt): (&mut Stamped<'a>, &mut Stamped<'a>) = match screen {
             (false, Screen::Normal) => (self.view.store_mut(), self.other.store_mut()),
             (false, Screen::Alternate) => (self.other.store_mut(), self.view.store_mut()),
@@ -526,8 +526,7 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
         for i in 0..n {
             words[i] = src
                 .get(ids[i].index())
-                .copied()
-                .flatten()
+                .and_then(|s| s.word())
                 .unwrap_or(StyleWord::DEFAULT);
         }
         for c in self.surface(up).0.row_mut(p)[cols.start..cols.start + n].iter_mut() {
@@ -827,7 +826,7 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
         let primary = first.up_to(end);
         for b in primary.clone() {
             M::at(&mut self.tmpl, b);
-            self.tmpl.as_mut()[1..].fill(None);
+            crate::bands::clear_written(&mut self.tmpl.as_mut()[1..], StyleSlot::Empty);
             self.style_log.emptied(b);
         }
         let ring = self.surface(Up::Primary).0.rows();
@@ -1020,8 +1019,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             .tmpl
             .as_slice()
             .get(self.style.index())
-            .copied()
-            .flatten();
+            .and_then(|s| s.word());
         let refused =
             self.style == StyleId::DEFAULT && self.style_log.book().sweep.reclaims.refusals > 0;
         self.style_log.band() == band && (held == Some(self.style_raw) || refused)

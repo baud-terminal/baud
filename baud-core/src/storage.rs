@@ -735,7 +735,7 @@ pub struct Owned {
     used: alloc::vec::Vec<RowMeta>,
     past: alloc::vec::Vec<PastEdge>,
     cells3: alloc::vec::Vec<PackedCell>,
-    tmpl: alloc::vec::Vec<Option<StyleWord>>,
+    tmpl: alloc::vec::Vec<StyleSlot>,
     order: alloc::vec::Vec<StyleId>,
     books: alloc::vec::Vec<StyleBook>,
     reach: alloc::vec::Vec<Reach>,
@@ -894,10 +894,14 @@ impl Owned {
             used: vec![RowMeta::ZERO; rows.index() + depth.lines()],
             past: vec![PastEdge::Clear; rows.index() + depth.lines()],
             cells3: vec::Vec::new(),
-            tmpl: vec![None; styles * bands],
-            order: vec![StyleId::DEFAULT; styles * bands],
+            // Every band's slots, log and reach from zeroed pages, where
+            // zero is empty: a page is committed when a rendition is first
+            // written in it, so a band its rows name few renditions in
+            // costs a few pages and not its whole table.
+            tmpl: zeroed(styles * bands),
+            order: zeroed(styles * bands),
             books: (0..bands).map(|_| StyleBook::new()).collect(),
-            reach: vec![Reach::ZERO; styles * bands],
+            reach: zeroed(styles * bands),
             // The pool from zeroed pages, so a terminal that never fills
             // its table commits none of it; the tags and the map are a
             // ring's rows and a table's slots.
@@ -1822,7 +1826,7 @@ impl Default for StyleBook {
 /// resolve all of them every frame: at the app's 65,536 slots that was 159 us
 /// of a 190 us idle frame.
 pub struct StyleTable<'b> {
-    pub slots: &'b mut [Option<StyleWord>],
+    pub slots: &'b mut [StyleSlot],
     /// One entry a slot.
     pub order: &'b mut [StyleId],
     /// **One a band**, whose table is `slots.len() / books.len()` of the
@@ -1945,7 +1949,7 @@ impl StyleLog<'_> {
     /// sweep's counts, whose slots the caller empties to the default.
     pub(crate) fn emptied(&mut self, b: baud_domain::Band) {
         let (at, n) = (b.first_slot(self.band_slots.0), self.band_slots.0);
-        self.reach[at..at + n].fill(Reach::ZERO);
+        crate::bands::clear_written(&mut self.reach[at..at + n], Reach::ZERO);
         let sweep = &mut self.books[b.index()].sweep;
         sweep.filled = 0;
         sweep.tombs = 0;
@@ -2182,7 +2186,8 @@ impl<'b> Storage<'b> {
                 .iter()
                 .enumerate()
                 .all(|(b, book)| book.writes == StyleWrites::NEVER
-                    || tmpl[b * (tmpl.len() / styles.books.len())] == Some(StyleWord::DEFAULT)),
+                    || tmpl[b * (tmpl.len() / styles.books.len())]
+                        == StyleSlot::Word(StyleWord::DEFAULT)),
             "a written band's table holds the default in its slot 0"
         );
         assert!(tabs.len() >= MAX_COLS, "tab stops are one per column");

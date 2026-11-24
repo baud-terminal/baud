@@ -45,6 +45,7 @@ fn drawn(t: &Term<'_>, n: usize) -> String {
         .iter()
         .map(|c| {
             t.styles().one().slots()[c.style.index()]
+                .word()
                 .map(|w| w.string())
                 .unwrap_or(StringId::NONE)
         })

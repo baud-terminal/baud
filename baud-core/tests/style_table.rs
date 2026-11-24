@@ -196,7 +196,7 @@ fn a_full_table_refuses_rather_than_give_a_named_slot_away() {
         // The control: the table is full before the last rendition arrives,
         // and nothing was refused on the way, so the one after it has to be.
         assert!(
-            t.styles().one().slots().iter().all(Option::is_some),
+            t.styles().one().slots().iter().all(|s| s.word().is_some()),
             "the table is not full, so nothing below refuses"
         );
         let table = t.styles().one().slots().to_vec();
@@ -334,7 +334,9 @@ fn a_restored_cursor_takes_its_rendition_not_its_old_slot() {
         // another: the sweeps free it and the probes reach it.
         let mut plane = (0u8..=255).flat_map(|g| (1u8..=255).map(move |b| (0u8, g, b)));
         let mut n = 0;
-        while t.styles().one().slots()[k.index()].is_some_and(|w| w.fg().as_rgb() == Some(saved))
+        while t.styles().one().slots()[k.index()]
+            .word()
+            .is_some_and(|w| w.fg().as_rgb() == Some(saved))
             || n < len
         {
             let mut one = b"\x1b[5;1H".to_vec();
@@ -351,7 +353,7 @@ fn a_restored_cursor_takes_its_rendition_not_its_old_slot() {
                 .one()
                 .slots()
                 .iter()
-                .flatten()
+                .filter_map(|s| s.word())
                 .any(|w| w.fg().as_rgb() == Some(saved)),
             "the saved rendition is still in the table, so the restore is not tested"
         );
@@ -384,7 +386,7 @@ fn a_cursor_restored_into_a_full_table_takes_its_rendition() {
                 .one()
                 .slots()
                 .iter()
-                .flatten()
+                .filter_map(|s| s.word())
                 .any(|w| w.fg().as_rgb() == Some(saved)),
             "the saved rendition is still in the table"
         );

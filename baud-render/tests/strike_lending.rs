@@ -64,18 +64,18 @@ fn a_struck_rendition_is_lent_the_top_free_slot_and_never_a_held_one() {
     for i in 0..n * 7 / 8 - 16 {
         let (r, g, b) = ((i * 37) % 256, (i * 91 + 7) % 256, (i * 53 + 11) % 251);
         feed(&mut t, format!("\x1b[38;2;{r};{g};{b}mq").as_bytes());
-        if t.styles().one().slots()[n - 1].is_some() {
+        if t.styles().one().slots()[n - 1].word().is_some() {
             break;
         }
     }
     feed(&mut t, b"\x1b[m\x1b[H\x1b[2J\x1b[38;2;255;0;0mhttps\x1b[m");
     assert!(
-        t.styles().one().slots()[n - 1].is_some(),
+        t.styles().one().slots()[n - 1].word().is_some(),
         "the control: the top slot is held"
     );
     let free = (1..n)
         .rev()
-        .find(|&k| t.styles().one().slots()[k].is_none())
+        .find(|&k| t.styles().one().slots()[k].word().is_none())
         .unwrap();
     let mut r = renderer(&faces, WS);
     let mut cells: Vec<PackedCell> = t.view(Rows::ZERO).row(Row::ZERO).to_vec();

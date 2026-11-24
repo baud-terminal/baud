@@ -2725,9 +2725,9 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let mut k = base;
         for _ in 0..SweepBook::INLINE {
             match self.tmpl.as_slice()[k] {
-                Some(w) if w == raw => return StyleId::from_index(k),
-                None => return self.intern_new(StyleId::from_index(k), raw),
-                Some(_) => k = (k + 1) & (len - 1),
+                StyleSlot::Word(w) if w == raw => return StyleId::from_index(k),
+                StyleSlot::Empty => return self.intern_new(StyleId::from_index(k), raw),
+                StyleSlot::Word(_) => k = (k + 1) & (len - 1),
             }
         }
         self.intern_far(StyleId::from_index(base), raw)
@@ -2751,15 +2751,15 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let mut k = (base.index() + SweepBook::INLINE) & (len - 1);
         for n in SweepBook::INLINE..far {
             match self.tmpl.as_slice()[k] {
-                Some(w) if w == raw => {
+                StyleSlot::Word(w) if w == raw => {
                     self.style_log.book_mut().sweep.probed(n + 1);
                     return StyleId::from_index(k);
                 }
-                None => {
+                StyleSlot::Empty => {
                     self.style_log.book_mut().sweep.probed(n + 1);
                     return self.intern_new(StyleId::from_index(k), raw);
                 }
-                Some(_) => k = (k + 1) & (len - 1),
+                StyleSlot::Word(_) => k = (k + 1) & (len - 1),
             }
         }
         self.style_log
@@ -2785,7 +2785,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         }
         let mut j = from.index();
         for n in 0..len {
-            if self.tmpl.as_slice()[j].is_none() {
+            if self.tmpl.as_slice()[j] == StyleSlot::Empty {
                 self.style_log.book_mut().sweep.probed(n + 1);
                 return Some(StyleId::from_index(j));
             }
@@ -2822,10 +2822,10 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             let mut n = 0;
             while j != k.index() {
                 n += 1;
-                if self.tmpl.as_slice()[j] == Some(StyleWord::TOMBSTONE) {
+                if self.tmpl.as_slice()[j] == StyleSlot::Word(StyleWord::TOMBSTONE) {
                     self.style_log.book_mut().sweep.probed(n);
                     self.style_log.book_mut().sweep.tomb_taken();
-                    return self.write_slot(StyleId::from_index(j), Some(raw));
+                    return self.write_slot(StyleId::from_index(j), StyleSlot::Word(raw));
                 }
                 j = (j + 1) & (len - 1);
             }
@@ -2851,10 +2851,10 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             }
         }
         // `probe-double-intern-full` writes here over a filled slot.
-        if self.tmpl.as_slice()[k.index()].is_none() {
+        if self.tmpl.as_slice()[k.index()] == StyleSlot::Empty {
             self.style_log.book_mut().sweep.filled_one();
         }
-        self.write_slot(k, Some(raw))
+        self.write_slot(k, StyleSlot::Word(raw))
     }
 
     /// **`raw`'s own key's path, for a rendition with SAPV's variants**:
@@ -2867,15 +2867,15 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let mut k = home;
         for n in 0..far {
             match self.tmpl.as_slice()[k] {
-                Some(w) if w == raw => {
+                StyleSlot::Word(w) if w == raw => {
                     self.style_log.book_mut().sweep.probed(n + 1);
                     return Probed::Hit(StyleId::from_index(k));
                 }
-                None => {
+                StyleSlot::Empty => {
                     self.style_log.book_mut().sweep.probed(n + 1);
                     return Probed::Empty(StyleId::from_index(k));
                 }
-                Some(_) => k = (k + 1) & (len - 1),
+                StyleSlot::Word(_) => k = (k + 1) & (len - 1),
             }
         }
         self.style_log.book_mut().sweep.probed(far);
@@ -2909,10 +2909,10 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         if self.style_log.book_mut().sweep.tombs > 0 {
             let mut k = base.index();
             for n in 0..len {
-                if self.tmpl.as_slice()[k] == Some(StyleWord::TOMBSTONE) {
+                if self.tmpl.as_slice()[k] == StyleSlot::Word(StyleWord::TOMBSTONE) {
                     self.style_log.book_mut().sweep.probed(n + 1);
                     self.style_log.book_mut().sweep.tomb_taken();
-                    return self.write_slot(StyleId::from_index(k), Some(raw));
+                    return self.write_slot(StyleId::from_index(k), StyleSlot::Word(raw));
                 }
                 k = (k + 1) & (len - 1);
             }
@@ -3004,7 +3004,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         self.style_log.reach_mut().fill(Reach::ZERO);
         for step in 0..2 * len {
             let k = (len - 1) - (step & (len - 1));
-            let was = self.tmpl.as_slice()[k];
+            let was = self.tmpl.as_slice()[k].word();
             let named = live.has(k) && was.is_some();
             if step >= len && k != 0 {
                 let now = match was {
@@ -3022,7 +3022,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                     freed += 1;
                 }
                 if now != was {
-                    self.write_slot(StyleId::from_index(k), now);
+                    self.write_slot(StyleId::from_index(k), StyleSlot::from(now));
                 }
             }
             let reach = match was {
@@ -3046,15 +3046,15 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let mut k = StyleId::bucket(raw, len);
         for _ in 0..len {
             match self.tmpl.as_slice()[k] {
-                Some(w) if w == StyleWord::TOMBSTONE => {
+                StyleSlot::Word(w) if w == StyleWord::TOMBSTONE => {
                     self.style_log.book_mut().sweep.tomb_taken();
-                    return Some(self.write_slot(StyleId::from_index(k), Some(raw)));
+                    return Some(self.write_slot(StyleId::from_index(k), StyleSlot::Word(raw)));
                 }
-                None => {
+                StyleSlot::Empty => {
                     self.style_log.book_mut().sweep.filled_one();
-                    return Some(self.write_slot(StyleId::from_index(k), Some(raw)));
+                    return Some(self.write_slot(StyleId::from_index(k), StyleSlot::Word(raw)));
                 }
-                Some(_) => k = (k + 1) & (len - 1),
+                StyleSlot::Word(_) => k = (k + 1) & (len - 1),
             }
         }
         None
@@ -3066,7 +3066,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// to resolve again (`Term::styles_written`), and every rendition's
     /// bucket reaches it ([`Reach`]).
     #[inline(always)]
-    fn write_slot(&mut self, id: StyleId, w: Option<StyleWord>) -> StyleId {
+    fn write_slot(&mut self, id: StyleId, w: StyleSlot) -> StyleId {
         crate::bands::write_slot(&mut self.tmpl, self.style_log, id, w)
     }
 

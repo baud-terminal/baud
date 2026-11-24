@@ -20,7 +20,7 @@ impl StyleId {
 /// with no empty slot reads that many and not the whole table. A
 /// [`StyleId`] is two bytes, so a rendition lies at most 65,535 slots past
 /// its bucket, which two bytes hold.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Debug, zerocopy::FromZeros)]
 #[repr(transparent)]
 pub struct Reach(u16);
 
@@ -595,6 +595,42 @@ pub struct StyleWord {
     /// bytes of it. A variant is a rendition of the character it was
     /// written with, so it costs the cell nothing ([`crate::Variants`]).
     variants: Variants,
+}
+
+/// **A slot of a rendition table**: empty where nothing was minted, which
+/// reads as [`StyleWord::DEFAULT`], or a rendition. Empty is all-zero
+/// bytes, so a table allocated zeroed is empty without a write, and a band
+/// no row has named a rendition in costs no pages beyond the one its
+/// default is seeded in. A byte of tag before the twenty-byte word:
+/// twenty-four bytes a slot.
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, zerocopy::FromZeros, Immutable, KnownLayout)]
+pub enum StyleSlot {
+    Empty = 0,
+    Word(StyleWord),
+}
+
+const _: () = assert!(core::mem::size_of::<StyleSlot>() == 24);
+
+impl StyleSlot {
+    /// The rendition this slot holds, if one was minted.
+    #[inline(always)]
+    pub const fn word(self) -> Option<StyleWord> {
+        match self {
+            StyleSlot::Empty => None,
+            StyleSlot::Word(w) => Some(w),
+        }
+    }
+}
+
+impl From<Option<StyleWord>> for StyleSlot {
+    #[inline(always)]
+    fn from(w: Option<StyleWord>) -> StyleSlot {
+        match w {
+            None => StyleSlot::Empty,
+            Some(w) => StyleSlot::Word(w),
+        }
+    }
 }
 
 impl StyleWord {

@@ -76,7 +76,7 @@ fn a_miss_on_a_full_table_reads_to_its_buckets_reach() {
         assert_eq!(len, 1024, "the test is sized to the floor");
         fill(t, 21);
         assert!(
-            t.styles().one().slots().iter().all(Option::is_some),
+            t.styles().one().slots().iter().all(|s| s.word().is_some()),
             "the control: full"
         );
         let before = (t.style_reclaims(), t.style_probes());
@@ -141,7 +141,12 @@ fn a_sweep_keeps_every_kept_rendition_findable() {
         // Every rendition the table still holds, written again in the
         // default's place at the bottom right.
         let held: Vec<usize> = (0..i)
-            .filter(|&n| t.styles().one().slots().contains(&Some(word(n, 25))))
+            .filter(|&n| {
+                t.styles()
+                    .one()
+                    .slots()
+                    .contains(&baud_domain::StyleSlot::Word(word(n, 25)))
+            })
             .collect();
         assert!(held.len() > len / 2, "the control: the table holds them");
         for &n in &held {

@@ -4,7 +4,7 @@
 //! memory figures built on it cannot read 0 or drift from what is lent.
 
 use baud_core::*;
-use baud_domain::{BandRepairs, Depth, Reach, Rows, StyleId, StyleWord};
+use baud_domain::{BandRepairs, Depth, Reach, Rows, StyleId};
 
 #[test]
 fn a_footprint_is_the_provision_s_arithmetic() {
@@ -22,7 +22,7 @@ fn a_footprint_is_the_provision_s_arithmetic() {
     // A band each 8 rows of the 130-row ring and of the 30-row alternate
     // screen, and the status row's.
     let bands = (30 + 100usize).div_ceil(band) + 30usize.div_ceil(band) + 1;
-    let slot = core::mem::size_of::<Option<StyleWord>>()
+    let slot = core::mem::size_of::<baud_domain::StyleSlot>()
         + core::mem::size_of::<StyleId>()
         + core::mem::size_of::<Reach>();
     assert_eq!(

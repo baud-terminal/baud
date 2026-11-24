@@ -76,8 +76,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         self.tmpl
             .as_slice()
             .get(id.index())
-            .copied()
-            .flatten()
+            .and_then(|s| s.word())
             .unwrap_or(StyleWord::DEFAULT)
     }
 
@@ -419,8 +418,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                 for (w, b) in words.iter_mut().zip(buf.iter()).take(n) {
                     *w = t
                         .get(b.style.index())
-                        .copied()
-                        .flatten()
+                        .and_then(|s| s.word())
                         .unwrap_or(StyleWord::DEFAULT);
                 }
                 self.band_for(dr);

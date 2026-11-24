@@ -23,6 +23,7 @@ const BEH: &str = "\u{0628}";
 fn variants(t: &Term<'_>, r: usize, c: usize) -> Variants {
     let cell = t.row(Row::from_index(r)).expect("a row")[c];
     t.styles().one().slots()[cell.style.index()]
+        .word()
         .expect("a live rendition")
         .variants()
 }
@@ -236,7 +237,9 @@ fn decaln_keeps_the_variants() {
         assert_eq!(variants(t, 0, 0).digits(), Digits::ArabicIndic);
         assert_eq!(variants(t, 0, 1), Variants::DEFAULT, "the pattern");
         let cell = t.row(Row::ZERO).expect("a row")[0];
-        let w = t.styles().one().slots()[cell.style.index()].expect("a live rendition");
+        let w = t.styles().one().slots()[cell.style.index()]
+            .word()
+            .expect("a live rendition");
         assert!(!w.attrs().has(Attrs::BOLD), "the rendition normal");
     });
     support::with_term(&WS, |t| {
@@ -407,7 +410,9 @@ fn a_rendition_with_variants_keeps_one_slot_through_sweeps() {
     support::with_term(&WS, |t| {
         support::feed(t, format!("{}\x1b[31ma", sapv("2")).as_bytes());
         let first = t.row(Row::ZERO).expect("a row")[0].style;
-        let word = t.styles().one().slots()[first.index()].expect("a live rendition");
+        let word = t.styles().one().slots()[first.index()]
+            .word()
+            .expect("a live rendition");
         for round in 0..8usize {
             let mut churn = Vec::new();
             for i in 0..1000usize {
@@ -431,7 +436,7 @@ fn a_rendition_with_variants_keeps_one_slot_through_sweeps() {
                 .one()
                 .slots()
                 .iter()
-                .filter(|w| **w == Some(word))
+                .filter(|w| **w == baud_domain::StyleSlot::Word(word))
                 .count();
             assert_eq!(held, 1, "round {round}");
             // On its own key's path: no empty slot from its bucket to it.
@@ -439,7 +444,7 @@ fn a_rendition_with_variants_keeps_one_slot_through_sweeps() {
             let mut k = StyleId::bucket(word, len);
             while k != first.index() {
                 assert!(
-                    t.styles().one().slots()[k].is_some(),
+                    t.styles().one().slots()[k].word().is_some(),
                     "round {round}: slot {k} empty"
                 );
                 k = (k + 1) & (len - 1);

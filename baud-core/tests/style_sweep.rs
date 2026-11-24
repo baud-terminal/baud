@@ -270,8 +270,8 @@ fn a_tombstone_keeps_a_live_rendition_findable() {
         );
         let cell = |t: &Term<'_>, r: usize| t.row(Row::from_index(r)).expect("a row")[0];
         let (id1, id2) = (cell(t, 0).style, cell(t, 1).style);
-        assert_eq!(t.styles().one().slots()[id1.index()], Some(fg(c1)));
-        assert_eq!(t.styles().one().slots()[id2.index()], Some(fg(c2)));
+        assert_eq!(t.styles().one().slots()[id1.index()].word(), Some(fg(c1)));
+        assert_eq!(t.styles().one().slots()[id2.index()].word(), Some(fg(c2)));
         assert_eq!(id2.index(), (id1.index() + 1) & (len - 1), "W2 one past W1");
         feed(t, b"\x1b[1;1H\x1b[0mA");
         feed(t, &churn(9, len, 7));
@@ -284,12 +284,12 @@ fn a_tombstone_keeps_a_live_rendition_findable() {
             .one()
             .slots()
             .iter()
-            .filter(|s| **s == Some(fg(c2)))
+            .filter(|s| **s == baud_domain::StyleSlot::Word(fg(c2)))
             .count();
         assert_eq!(copies, 1, "W2 interned twice");
         assert_eq!(
             t.styles().one().slots()[id1.index()],
-            Some(StyleWord::TOMBSTONE),
+            baud_domain::StyleSlot::Word(StyleWord::TOMBSTONE),
             "W1's slot"
         );
     });
@@ -314,7 +314,7 @@ fn a_new_rendition_takes_a_tombstone_on_its_path() {
         feed(t, &churn(9, len, 7));
         assert_eq!(
             t.styles().one().slots()[id1.index()],
-            Some(StyleWord::TOMBSTONE)
+            baud_domain::StyleSlot::Word(StyleWord::TOMBSTONE)
         );
         // A third colour in the same bucket.
         let c3 = (0..=255u8)
@@ -345,7 +345,7 @@ fn a_churned_table_sweeps_before_it_fills() {
                     .one()
                     .slots()
                     .iter()
-                    .filter(|s| s.is_some())
+                    .filter(|s| s.word().is_some())
                     .count(),
             );
         }
@@ -380,7 +380,7 @@ fn a_full_table_sweeps_before_it_refuses() {
         }
         feed(t, &out);
         assert!(
-            t.styles().one().slots().iter().all(Option::is_some),
+            t.styles().one().slots().iter().all(|s| s.word().is_some()),
             "the control: full"
         );
         let at_full = t.style_reclaims();
@@ -429,7 +429,7 @@ fn a_full_table_refuses_until_its_next_sweep_is_due() {
         }
         feed(t, &out);
         assert!(
-            t.styles().one().slots().iter().all(Option::is_some),
+            t.styles().one().slots().iter().all(|s| s.word().is_some()),
             "the control: full"
         );
         let before = t.style_reclaims();
@@ -494,7 +494,7 @@ fn sweeping_program() -> Vec<u8> {
 struct State {
     cells: Vec<(Content, CellFlags, StyleWord)>,
     live: Vec<StyleWord>,
-    table: Vec<Option<StyleWord>>,
+    table: Vec<baud_domain::StyleSlot>,
     writes: StyleWrites,
     reclaims: Reclaims,
 }

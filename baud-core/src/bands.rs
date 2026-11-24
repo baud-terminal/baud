@@ -12,15 +12,15 @@ use crate::storage::BandSlots;
 use crate::storage::StyleLog;
 #[cfg(doc)]
 use baud_domain::RowStyles;
-use baud_domain::{Band, Col, LiveTable, PhysRow, Reach, Rows, StyleId, StyleWord};
+use baud_domain::{Band, Col, LiveTable, PhysRow, Reach, Rows, StyleId, StyleSlot, StyleWord};
 
 /// **The rendition table, readable by id and written only by
-/// [`write_slot`]**: a slot is `None` where nothing was minted, which reads
-/// as [`StyleWord::DEFAULT`].
-pub(crate) struct Table<'a>(&'a mut [Option<StyleWord>]);
+/// [`write_slot`]**: a slot is [`StyleSlot::Empty`] where nothing was
+/// minted, which reads as [`StyleWord::DEFAULT`].
+pub(crate) struct Table<'a>(&'a mut [StyleSlot]);
 
 impl<'a> Table<'a> {
-    pub(crate) fn new(slots: &'a mut [Option<StyleWord>]) -> Table<'a> {
+    pub(crate) fn new(slots: &'a mut [StyleSlot]) -> Table<'a> {
         Table(slots)
     }
 
@@ -41,12 +41,12 @@ pub(crate) fn write_slot<T: Slots>(
     table: &mut T,
     log: &mut StyleLog<'_>,
     id: StyleId,
-    w: Option<StyleWord>,
+    w: StyleSlot,
 ) -> StyleId {
     table.as_mut()[id.index()] = w;
     // A rendition written past its bucket raises the bucket's reach, so
     // a probe from there reads as far as it.
-    if let Some(r) = w.filter(|r| *r != StyleWord::TOMBSTONE) {
+    if let Some(r) = w.word().filter(|r| *r != StyleWord::TOMBSTONE) {
         let len = table.as_slice().len();
         let home = StyleId::bucket(r, len);
         let at = &mut log.reach_mut()[home];
@@ -65,11 +65,24 @@ pub(crate) fn seed_defaults(table: &mut Table<'_>, log: &mut StyleLog<'_>) {
     for b in Band::FIRST.up_to(log.bands()) {
         log.set_band(b);
         if log.book().writes == baud_domain::StyleWrites::NEVER {
-            table.0[b.first_slot(bs.0) + StyleId::DEFAULT.index()] = Some(StyleWord::DEFAULT);
+            table.0[b.first_slot(bs.0) + StyleId::DEFAULT.index()] =
+                StyleSlot::Word(StyleWord::DEFAULT);
             log.note(StyleId::DEFAULT);
         }
     }
     log.set_band(back);
+}
+
+/// **`to` stored in every element of `s` that does not hold it already**:
+/// a band emptied by a change of width. A table allocated zeroed is
+/// resident only where it was written, and a store of zero over an
+/// untouched page commits that page, so a band whose slots were never
+/// written is only read, and reading it maps no page of its own.
+#[cold]
+pub(crate) fn clear_written<T: Copy + PartialEq>(s: &mut [T], to: T) {
+    for x in s.iter_mut().filter(|x| **x != to) {
+        *x = to;
+    }
 }
 
 /// **Every band's live rendition table, read-only**: what [`Term::styles`]
@@ -83,12 +96,12 @@ pub(crate) fn seed_defaults(table: &mut Table<'_>, log: &mut StyleLog<'_>) {
 #[derive(Clone, Copy, Debug)]
 pub struct BandsView<'a> {
     /// Every band's slots, `band_slots` a band, in band order.
-    all: &'a [Option<StyleWord>],
+    all: &'a [StyleSlot],
     band_slots: BandSlots,
 }
 
 impl<'a> BandsView<'a> {
-    pub(crate) fn of(all: &'a [Option<StyleWord>], band_slots: BandSlots) -> BandsView<'a> {
+    pub(crate) fn of(all: &'a [StyleSlot], band_slots: BandSlots) -> BandsView<'a> {
         BandsView { all, band_slots }
     }
 
@@ -123,7 +136,7 @@ pub(crate) trait BandMode: Copy + 'static {
     fn at(table: &mut Self::Table<'_>, band: Band);
 
     /// Band `band`'s slots, to read.
-    fn band<'s>(table: &'s Self::Table<'_>, band: Band) -> &'s [Option<StyleWord>];
+    fn band<'s>(table: &'s Self::Table<'_>, band: Band) -> &'s [StyleSlot];
 
     /// What a View operation that copies rows is handed: nothing in the
     /// single mode; the copies, to translate after it, banded.
@@ -148,7 +161,7 @@ impl BandMode for OneBand {
     fn at(_: &mut Table<'_>, _: Band) {}
 
     #[inline(always)]
-    fn band<'s>(table: &'s Table<'_>, _: Band) -> &'s [Option<StyleWord>] {
+    fn band<'s>(table: &'s Table<'_>, _: Band) -> &'s [StyleSlot] {
         table.as_slice()
     }
 
@@ -160,10 +173,10 @@ impl BandMode for OneBand {
 /// [`seed_default`].
 pub(crate) trait Slots {
     /// Every slot, to read.
-    fn as_slice(&self) -> &[Option<StyleWord>];
+    fn as_slice(&self) -> &[StyleSlot];
 
     /// Every slot, to write: [`write_slot`]'s and [`seed_default`]'s alone.
-    fn as_mut(&mut self) -> &mut [Option<StyleWord>];
+    fn as_mut(&mut self) -> &mut [StyleSlot];
 
     /// These slots as a live row's reader holds them ([`RowStyles::Live`]).
     #[inline(always)]
@@ -174,12 +187,12 @@ pub(crate) trait Slots {
 
 impl Slots for Table<'_> {
     #[inline(always)]
-    fn as_slice(&self) -> &[Option<StyleWord>] {
+    fn as_slice(&self) -> &[StyleSlot] {
         self.0
     }
 
     #[inline(always)]
-    fn as_mut(&mut self) -> &mut [Option<StyleWord>] {
+    fn as_mut(&mut self) -> &mut [StyleSlot] {
         self.0
     }
 }
@@ -288,7 +301,7 @@ impl BandMode for ManyBands {
         table.band = band;
     }
 
-    fn band<'s>(table: &'s BandTable<'_>, band: Band) -> &'s [Option<StyleWord>] {
+    fn band<'s>(table: &'s BandTable<'_>, band: Band) -> &'s [StyleSlot] {
         let at = band.first_slot(table.slots.0);
         &table.all.0[at..at + table.slots.0]
     }
@@ -305,12 +318,12 @@ pub(crate) struct BandTable<'a> {
 }
 
 impl Slots for BandTable<'_> {
-    fn as_slice(&self) -> &[Option<StyleWord>] {
+    fn as_slice(&self) -> &[StyleSlot] {
         let at = self.band.first_slot(self.slots.0);
         &self.all.0[at..at + self.slots.0]
     }
 
-    fn as_mut(&mut self) -> &mut [Option<StyleWord>] {
+    fn as_mut(&mut self) -> &mut [StyleSlot] {
         let at = self.band.first_slot(self.slots.0);
         &mut self.all.0[at..at + self.slots.0]
     }

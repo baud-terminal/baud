@@ -428,6 +428,7 @@ fn il_and_dl_bring_in_lines_decrlm_never_wrote() {
 fn form(t: &Term<'_>, r: usize, c: usize) -> Option<baud_domain::Form> {
     let cell = t.viewport().row(Row::from_index(r))[c];
     t.styles().one().slots()[cell.style.index()]
+        .word()
         .expect("a live rendition")
         .variants()
         .form()

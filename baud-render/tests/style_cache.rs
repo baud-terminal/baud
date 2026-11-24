@@ -40,7 +40,7 @@ fn agrees(r: &mut Renderer<'_, '_>, t: &Term<'_>, copy: &[Resolved], what: &str)
     let mut full = vec![Resolved::default(); t.styles().one().len()];
     r.resolve_styles_into(t, &mut full);
     for (k, slot) in t.styles().one().slots().iter().enumerate() {
-        if slot.is_some() {
+        if slot.word().is_some() {
             assert_eq!(copy[k], full[k], "{what}: slot {k} is stale");
         }
     }
@@ -194,7 +194,7 @@ fn an_input_change_resolves_only_live_slots() {
         .one()
         .slots()
         .iter()
-        .filter(|s| s.is_some())
+        .filter(|s| s.word().is_some())
         .count();
     let mut copy = vec![Resolved::default(); t.styles().one().len()];
     let mut stamp = StyleStamp::default();
@@ -311,7 +311,7 @@ fn a_freed_slot_retaken_under_the_same_cells_repaints() {
         let mut t = Term::new(owned.storage(), &small);
         feed(&mut t, &before);
         assert!(
-            t.styles().one().slots().iter().all(Option::is_some),
+            t.styles().one().slots().iter().all(|s| s.word().is_some()),
             "the table is not full"
         );
         let row = t

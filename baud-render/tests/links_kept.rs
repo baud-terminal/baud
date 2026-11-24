@@ -712,10 +712,10 @@ fn kept(case: &Case) -> Option<String> {
                 let n = t.styles().one().len();
                 let top = (1..n)
                     .rev()
-                    .find(|&s| t.styles().one().slots()[s].is_none())
+                    .find(|&s| t.styles().one().slots()[s].word().is_none())
                     .unwrap();
                 for i in 0..n * 7 / 8 - 16 {
-                    if t.styles().one().slots()[top].is_some() {
+                    if t.styles().one().slots()[top].word().is_some() {
                         break;
                     }
                     let (red, green, blue) =
@@ -723,7 +723,7 @@ fn kept(case: &Case) -> Option<String> {
                     let cell = format!("\x1b[{ROWS};1H\x1b[38;2;{red};{green};{blue}mq\x1b[m");
                     feed(&mut t, cell.as_bytes());
                 }
-                if t.styles().one().slots()[top].is_none() {
+                if t.styles().one().slots()[top].word().is_none() {
                     return Some(format!("{}: the control, the slot is taken", case.what));
                 }
             }

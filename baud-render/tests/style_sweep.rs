@@ -94,7 +94,7 @@ fn a_swept_slot_reused_in_place_is_repainted() {
     assert_eq!(r.refusals, 0);
     assert_eq!(
         t.styles().one().slots()[k.index()],
-        None,
+        baud_domain::StyleSlot::Empty,
         "the sweep freed k"
     );
     let (g, b2) = (0..=255u8)

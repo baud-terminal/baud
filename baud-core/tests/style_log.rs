@@ -10,7 +10,7 @@
 mod support;
 
 use baud_core::*;
-use baud_domain::{Count, StyleId, StyleWord, StyleWrites};
+use baud_domain::{Count, StyleId, StyleWrites};
 
 /// A terminal whose rendition table has the 1,024-slot floor, so a program
 /// can fill it.
@@ -77,7 +77,7 @@ enum Lapped {
 
 /// A reader of the log: a copy of the table and the count it copied at.
 struct Reader {
-    copy: Vec<Option<StyleWord>>,
+    copy: Vec<baud_domain::StyleSlot>,
     at: StyleWrites,
     lapped: Lapped,
 }
@@ -85,7 +85,7 @@ struct Reader {
 impl Reader {
     fn new(t: &Term<'_>) -> Reader {
         Reader {
-            copy: vec![None; t.styles().one().len()],
+            copy: vec![baud_domain::StyleSlot::Empty; t.styles().one().len()],
             at: StyleWrites::NEVER,
             lapped: Lapped::Never,
         }
@@ -189,7 +189,7 @@ fn the_log_lists_every_live_slot_once_until_full() {
             seen[k.index()] += 1;
         }
         for (k, slot) in t.styles().one().slots().iter().enumerate() {
-            let want = u32::from(slot.is_some());
+            let want = u32::from(slot.word().is_some());
             assert_eq!(seen[k], want, "slot {k} is listed {} times", seen[k]);
         }
         // Slot 0's reservation is the first write.

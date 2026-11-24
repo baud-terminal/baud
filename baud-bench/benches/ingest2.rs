@@ -304,7 +304,7 @@ fn main() {
     let mut cells3 = vec![PackedCell::EMPTY; CELLS3];
     #[cfg(not(feature = "cell-table"))]
     let mut cells3: Vec<PackedCell> = Vec::new();
-    let mut tmpl = vec![None; NSTYLE];
+    let mut tmpl = vec![baud_domain::StyleSlot::Empty; NSTYLE];
     let mut order = vec![baud_domain::StyleId::DEFAULT; NSTYLE];
     let mut book = baud_core::StyleBook::new();
     let mut reach = vec![baud_domain::Reach::ZERO; NSTYLE];

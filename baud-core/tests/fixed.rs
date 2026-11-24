@@ -99,8 +99,8 @@ fn the_whole_storage_requirement_is_fixed_and_stated() {
     // per cell), up to the `NSTYLE_MAX` ceiling the `u16` `StyleId` sets. So
     // this is the minimum requirement; a 200x50 screen adds ~360 KB and the
     // largest window ~1.5 MB.
-    let tmpl = NSTYLE * core::mem::size_of::<Option<StyleWord>>();
-    let tmpl_max = NSTYLE_MAX * core::mem::size_of::<Option<StyleWord>>();
+    let tmpl = NSTYLE * core::mem::size_of::<baud_domain::StyleSlot>();
+    let tmpl_max = NSTYLE_MAX * core::mem::size_of::<baud_domain::StyleSlot>();
     let tabs = MAX_COLS;
     // The mark, the paragraph properties and the side margins a row
     // wrapped at, and beside them in one entry the row's write generation.

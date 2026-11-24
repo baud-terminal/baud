@@ -13726,7 +13726,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut n = Tally::default();
         let mut blinking = Tally::default();
         for (slot, dst) in table.iter().zip(out.iter_mut()) {
-            *dst = self.resolve_slot(term, slot.unwrap_or(baud_domain::StyleWord::DEFAULT));
+            *dst = self.resolve_slot(term, slot.word().unwrap_or(baud_domain::StyleWord::DEFAULT));
             if dst.shapes.blinks() {
                 blinking.bump();
             }
@@ -13788,7 +13788,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     };
                     let new = self.resolve_slot(
                         term,
-                        slots[k.index()].unwrap_or(baud_domain::StyleWord::DEFAULT),
+                        slots[k.index()]
+                            .word()
+                            .unwrap_or(baud_domain::StyleWord::DEFAULT),
                     );
                     if fresh && dst.shapes.blinks() {
                         stamp.blinking.lose();
@@ -13826,7 +13828,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 stamp.blinking = Tally::default();
                 stamp.decorated = Tally::default();
                 for (slot, dst) in slots.iter().zip(out.iter_mut()) {
-                    *dst = self.resolve_slot(term, slot.unwrap_or(baud_domain::StyleWord::DEFAULT));
+                    *dst = self
+                        .resolve_slot(term, slot.word().unwrap_or(baud_domain::StyleWord::DEFAULT));
                     if dst.shapes.blinks() {
                         stamp.blinking.bump();
                     }

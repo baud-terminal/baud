@@ -2440,8 +2440,7 @@ impl Strung {
         let names = |k: usize| {
             slots
                 .get(k)
-                .copied()
-                .flatten()
+                .and_then(|s| s.word())
                 .is_some_and(|w| !w.string().is_none())
         };
         let replay = match self.styles {
