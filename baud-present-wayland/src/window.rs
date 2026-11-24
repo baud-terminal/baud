@@ -41,8 +41,8 @@ use crate::scale::{self, BufferScale, Mapped, Told, Viewport};
 use crate::shm::{Pool, Px};
 use crate::timing::{ClockId, Presentation, Stamp, Unseen};
 use baud_domain::{
-    EventMillis, Focus, HebrewLayout, KeyEvent, KeyEventKind, LocatorDevice, Modifiers,
-    premultiply_row,
+    AskServerSide, DecorationMode, EventMillis, Focus, HebrewLayout, KeyEvent, KeyEventKind,
+    LocatorDevice, ManagerVersion, Modifiers, Negotiation, Toplevel, premultiply_row,
 };
 use baud_wayland::{
     Arg, Connection, Event as Wire, Fixed, Handler, Interface, ObjectId, Opcode, Read, Sender,
@@ -164,21 +164,6 @@ pub enum Tearing {
 enum Picture {
     New,
     Same,
-}
-
-/// **Who draws the window's decorations**, as the compositor last
-/// configured them through `xdg-decoration-unstable-v1`
-/// ([`Window::decoration`]): "The specified mode must be obeyed by the
-/// client" (`[[source: wp-xdg-decoration-unstable-v1]]`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Decoration {
-    /// The client's, as every window's is where the protocol is not
-    /// negotiated: baud draws none, and its title is shown wherever the
-    /// compositor shows titles.
-    #[default]
-    Client,
-    /// The compositor's, whose titlebar carries the window's title.
-    Server,
 }
 
 /// Whether a bell reached the compositor ([`Window::ring_bell`]).
@@ -326,9 +311,10 @@ pub enum Resize {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Presented {
     Yes,
-    /// Not configured yet, a frame still in flight, no buffer free, or the
-    /// frame is smaller than the window. What it changed is kept, and goes
-    /// with the next frame shown.
+    /// Not configured yet, a decoration configure still owed at version 1,
+    /// a frame still in flight, no buffer free, or the frame is smaller
+    /// than the window. What it changed is kept, and goes with the next
+    /// frame shown.
     No,
 }
 
@@ -338,7 +324,8 @@ pub enum Presented {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DmabufShown {
     Yes,
-    /// Not configured yet, or a frame still in flight.
+    /// Not configured yet, a decoration configure still owed at version 1,
+    /// or a frame still in flight.
     No,
     /// The buffer is not [`Window::buffer_size`]: the scale it was drawn
     /// for is not the one in force.
@@ -416,9 +403,8 @@ struct Globals {
     /// the `xdg-activation-v1` global, where the compositor offers it.
     activation: Option<ObjectId>,
     /// `xdg-decoration-unstable-v1`'s manager, where the compositor offers
-    /// it, and the version bound: from 2 a decoration may be made for a
-    /// toplevel that has already committed.
-    decoration: Option<(ObjectId, u32)>,
+    /// it, and the version bound.
+    decoration: Option<(ObjectId, ManagerVersion)>,
     /// the `xdg-foreign-unstable-v2` exporter, where the compositor offers it.
     exporter: Option<ObjectId>,
     scaling: Scaling,
@@ -517,10 +503,11 @@ pub struct Window {
     /// acknowledged one did.
     pending_shown: Shown,
     shown: Shown,
-    /// The decoration mode the last decoration configure carried, and the
-    /// one the last acknowledged configure made the window's.
-    pending_decoration: Decoration,
-    decoration: Decoration,
+    /// The toplevel's decoration negotiation: what it asked, the mode a
+    /// configure carried, and the mode it has.
+    decorations: Negotiation,
+    /// Whether the toplevel has made its first commit.
+    toplevel_state: Toplevel,
     /// The toplevel's decoration object, once made ([`Window::decorate`]).
     decorated: Option<ObjectId>,
     /// `xdg_toplevel.configure_bounds`: "the bounds a window geometry size
@@ -668,8 +655,8 @@ impl Window {
             size: None,
             pending_shown: Shown::Floating,
             shown: Shown::Floating,
-            pending_decoration: Decoration::Client,
-            decoration: Decoration::Client,
+            decorations: Negotiation::new(),
+            toplevel_state: Toplevel::Uncommitted,
             decorated: None,
             bounds: None,
             pool: None,
@@ -1153,8 +1140,8 @@ impl Window {
 
     /// Who draws the window's decorations, as the last acknowledged
     /// configure left them.
-    pub fn decoration(&self) -> Decoration {
-        self.decoration
+    pub fn decoration(&self) -> DecorationMode {
+        self.decorations.mode()
     }
 
     /// The compositor's recommended bound on the window's size, the
@@ -1448,28 +1435,33 @@ impl Window {
         self.surface_objects(s);
         let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
         self.xdg_surface = Some(xdg);
+        self.toplevel_state = Toplevel::Committed;
     }
 
     /// **Server-side decorations asked for**, once the decoration manager
-    /// and the toplevel both exist, whichever came second: the compositor's
+    /// and the toplevel both exist, whichever came second, when the
+    /// negotiation allows it ([`Negotiation::ask`]): the compositor's
     /// titlebar carries the window's title. Made before the first commit
     /// where the manager is already bound, so the first configure carries
-    /// the mode. After it only from version 2, which allows a decoration
-    /// for a toplevel "which has a buffer attached or committed"; at
-    /// version 1 that "is a client error", and the window stays the
-    /// client's. One `set_mode`, never repeated: clients "must make sure
-    /// not to send multiple successive set_mode requests with the same
-    /// decoration mode", and whatever mode the compositor configures is
-    /// the window's (`[[source: wp-xdg-decoration-unstable-v1]]`).
+    /// the mode.
     fn decorate(&mut self, s: &mut Sender<'_>) {
-        let (Some((manager, version)), Some(top), None) =
-            (self.globals.decoration, self.toplevel, self.decorated)
-        else {
+        let (Some((manager, version)), Some(top)) = (self.globals.decoration, self.toplevel) else {
             return;
         };
-        if self.surface.is_some() && version < 2 {
-            return;
+        if let Some(ask) = self.decorations.ask(version, self.toplevel_state) {
+            self.decorated = Some(Window::send_ask(s, manager, top, ask));
         }
+    }
+
+    /// The two requests an [`AskServerSide`] stands for, which only the
+    /// negotiation makes: the decoration object for `top`, and its one
+    /// `set_mode`.
+    fn send_ask(
+        s: &mut Sender<'_>,
+        manager: ObjectId,
+        top: ObjectId,
+        _: AskServerSide,
+    ) -> ObjectId {
         let id = s.new_id(Interface::named("zxdg_toplevel_decoration_v1").expect("pinned"));
         let _ = s.request(
             manager,
@@ -1479,11 +1471,9 @@ impl Window {
         let _ = s.request(
             id,
             Opcode(protocol::zxdg_toplevel_decoration_v1::request::SET_MODE),
-            &[Arg::Uint(
-                protocol::zxdg_toplevel_decoration_v1::mode::SERVER_SIDE,
-            )],
+            &[Arg::Uint(AskServerSide::MODE.wire())],
         );
-        self.decorated = Some(id);
+        id
     }
 
     /// **The surface's pacing and scale objects**, each once both its
@@ -1706,6 +1696,11 @@ impl Window {
         else {
             return Presented::No;
         };
+        // At decoration manager version 1, no buffer before the first
+        // decoration configure ([`Negotiation::may_attach`]).
+        if !self.decorations.may_attach() {
+            return Presented::No;
+        }
         // The buffer is the surface at the scale in force, and what the
         // commit tells of the scale goes with it.
         let (scale, mapped) = self.mapping();
@@ -1928,6 +1923,9 @@ impl Window {
         let (Some(surface), Some(window)) = (self.surface, self.size) else {
             return DmabufShown::No;
         };
+        if !self.decorations.may_attach() {
+            return DmabufShown::No;
+        }
         if self.callback.is_some() {
             return DmabufShown::No;
         }
@@ -2378,10 +2376,9 @@ impl Handler for Window {
                             Window::bind(s, self.registry, name, iface, version.min(1));
                     }
                     "zxdg_decoration_manager_v1" => {
-                        let version = version.min(2);
-                        self.globals.decoration =
-                            Window::bind(s, self.registry, name, iface, version)
-                                .map(|id| (id, version));
+                        self.globals.decoration = ManagerVersion::bound(version).and_then(|v| {
+                            Window::bind(s, self.registry, name, iface, v.wire()).map(|id| (id, v))
+                        });
                         self.decorate(s);
                     }
                     "zxdg_exporter_v2" => {
@@ -2545,13 +2542,12 @@ impl Handler for Window {
                 };
             }
             ("xdg_toplevel", "close", _) => self.events.push_back(Event::Closed),
-            // Applied with the xdg_surface configure that follows it: "The
-            // configured state should not be applied immediately."
-            ("zxdg_toplevel_decoration_v1", "configure", [Read::Uint(mode)]) => {
-                self.pending_decoration = match *mode {
-                    protocol::zxdg_toplevel_decoration_v1::mode::SERVER_SIDE => Decoration::Server,
-                    _ => Decoration::Client,
-                };
+            // Held until the xdg_surface configure that follows it is
+            // acknowledged; a value naming no mode is not taken.
+            ("zxdg_toplevel_decoration_v1", "configure", [Read::Uint(mode)])
+                if Some(ev.object) == self.decorated =>
+            {
+                let _ = self.decorations.configured(*mode);
             }
             ("xdg_surface", "configure", [Read::Uint(serial)]) => {
                 let _ = s.request(
@@ -2560,7 +2556,7 @@ impl Handler for Window {
                     &[Arg::Uint(*serial)],
                 );
                 self.shown = self.pending_shown;
-                self.decoration = self.pending_decoration;
+                let _ = self.decorations.acked();
                 self.size = Some(self.pending);
                 self.announce();
             }

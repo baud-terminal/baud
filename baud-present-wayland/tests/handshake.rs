@@ -4,6 +4,7 @@
 //! configure, the frame callback, the buffer release, and a keyboard with
 //! a real keymap. Nothing here needs a display.
 
+use baud_domain::{DecorationMode, ManagerVersion};
 use baud_present_wayland::*;
 use baud_wayland::{
     Arg, ArgKind, Connection, Header, Interface, ObjectId, Opcode, Read, protocol, wire,
@@ -2516,8 +2517,8 @@ fn the_window_asks_for_server_side_decorations_and_follows_the_answer() {
     const SERVER_SIDE: u32 = 2;
     let manager = [("zxdg_decoration_manager_v1", 2)];
     for (answer, want) in [
-        (SERVER_SIDE, Decoration::Server),
-        (CLIENT_SIDE, Decoration::Client),
+        (SERVER_SIDE, DecorationMode::ServerSide),
+        (CLIENT_SIDE, DecorationMode::ClientSide),
     ] {
         let (mut conn, mut server, mut w, top, xdg, sent) = opened_with(|_| {}, &manager);
         let deco = sent
@@ -2537,7 +2538,11 @@ fn the_window_asks_for_server_side_decorations_and_follows_the_answer() {
                 && matches!(r.args[..], [Val::Uint(SERVER_SIDE)])),
             "server-side asked for, before the first commit"
         );
-        assert_eq!(w.decoration(), Decoration::Client, "before a configure");
+        assert_eq!(
+            w.decoration(),
+            DecorationMode::ClientSide,
+            "before a configure"
+        );
         server.send(
             deco,
             "zxdg_toplevel_decoration_v1",
@@ -2562,7 +2567,210 @@ fn the_window_asks_for_server_side_decorations_and_follows_the_answer() {
     configure(&mut server, top, xdg, 640, 480, &[]);
     pump(&mut conn, &mut w);
     server.expect("xdg_surface", "ack_configure");
-    assert_eq!(w.decoration(), Decoration::Client);
+    assert_eq!(w.decoration(), DecorationMode::ClientSide);
+}
+
+/// The decoration object `requests` made for `top`, if they made one.
+fn decoration_for(requests: &[Request], top: ObjectId) -> Option<ObjectId> {
+    requests
+        .iter()
+        .find_map(|r| match (r.iface, r.name, &r.args[..]) {
+            (
+                "zxdg_decoration_manager_v1",
+                "get_toplevel_decoration",
+                [Val::New(id), Val::Obj(t)],
+            ) if *t == top => Some(*id),
+            _ => None,
+        })
+}
+
+/// The modes `requests` asked of the decoration object `deco`, in order.
+fn modes_asked(requests: &[Request], deco: ObjectId) -> Vec<u32> {
+    requests
+        .iter()
+        .filter_map(|r| match (r.name, &r.args[..]) {
+            ("set_mode", [Val::Uint(m)]) if r.sender == deco => Some(*m),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The registry the client asked the server for.
+fn registry_of(server: &Server) -> ObjectId {
+    server
+        .objects
+        .iter()
+        .find_map(|(id, i)| (i.name == "wl_registry").then_some(*id))
+        .expect("a registry")
+}
+
+/// A session through its first configure with no decoration manager, the
+/// manager then advertised at `version`: the window, its toplevel and xdg
+/// surface, and every request the client sent in answer.
+fn manager_after_the_first_commit(
+    version: ManagerVersion,
+) -> (Connection, Server, Window, ObjectId, ObjectId, Vec<Request>) {
+    let (mut conn, mut server, mut w, top, xdg, _) = opened_with(|_| {}, &[]);
+    configure(&mut server, top, xdg, 640, 480, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    let registry = registry_of(&server);
+    server.send(
+        registry,
+        "wl_registry",
+        "global",
+        &[
+            Arg::Uint(10),
+            Arg::Str(Some("zxdg_decoration_manager_v1")),
+            Arg::Uint(version.wire()),
+        ],
+    );
+    pump(&mut conn, &mut w);
+    // A title as a fence: every request before it answered the global.
+    w.set_title(&mut conn.sender(), "fence");
+    conn.flush().unwrap();
+    let mut sent = Vec::new();
+    loop {
+        let r = server.next();
+        if (r.iface, r.name) == ("xdg_toplevel", "set_title") {
+            break;
+        }
+        sent.push(r);
+    }
+    (conn, server, w, top, xdg, sent)
+}
+
+/// **At manager version 1 no decoration is made for a toplevel that has
+/// committed**: "creating an xdg_toplevel_decoration from an xdg_toplevel
+/// which has a buffer attached or committed is a client error"
+/// (`[[source: wp-xdg-decoration-unstable-v1]]`). A manager advertised
+/// after the window's first commit is bound at 1 and asked nothing, and
+/// the window's decorations stay its own.
+#[test]
+fn a_version_one_manager_after_the_first_commit_is_asked_nothing() {
+    let (_conn, _server, w, top, _xdg, sent) = manager_after_the_first_commit(ManagerVersion::V1);
+    assert!(
+        sent.iter().any(|r| matches!(
+            &r.args[..],
+            [_, Val::NewWith(i, 1, _)] if i == "zxdg_decoration_manager_v1"
+        )),
+        "bound at 1"
+    );
+    assert_eq!(decoration_for(&sent, top), None);
+    assert!(
+        sent.iter().all(|r| !r.iface.starts_with("zxdg_decoration")),
+        "no request of the manager"
+    );
+    assert_eq!(w.decoration(), DecorationMode::ClientSide);
+}
+
+/// **From manager version 2 a toplevel that has committed may be
+/// decorated**: a manager advertised after the window's first commit is
+/// asked for a decoration for the toplevel and one `set_mode(server_side)`,
+/// and the mode the compositor configures is the window's at the ack.
+#[test]
+fn a_version_two_manager_after_the_first_commit_is_asked_for_server_side() {
+    let (mut conn, mut server, mut w, top, xdg, sent) =
+        manager_after_the_first_commit(ManagerVersion::V2);
+    let deco = decoration_for(&sent, top).expect("a decoration for the committed toplevel");
+    assert_eq!(
+        modes_asked(&sent, deco),
+        [DecorationMode::ServerSide.wire()]
+    );
+    server.send(
+        deco,
+        "zxdg_toplevel_decoration_v1",
+        "configure",
+        &[Arg::Uint(DecorationMode::ServerSide.wire())],
+    );
+    configure(&mut server, top, xdg, 640, 480, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert_eq!(w.decoration(), DecorationMode::ServerSide);
+}
+
+/// **A decoration configure naming no mode changes nothing**: the
+/// protocol's modes are 1 and 2, so after a server-side configure is
+/// acknowledged, a configure carrying 3 and the ack after it leave the
+/// window's decorations server-side.
+#[test]
+fn a_configure_naming_no_mode_leaves_the_mode() {
+    let manager = [("zxdg_decoration_manager_v1", 2)];
+    let (mut conn, mut server, mut w, top, xdg, sent) = opened_with(|_| {}, &manager);
+    let deco = decoration_for(&sent, top).expect("a decoration for the toplevel");
+    for wire in [DecorationMode::ServerSide.wire(), 3] {
+        server.send(
+            deco,
+            "zxdg_toplevel_decoration_v1",
+            "configure",
+            &[Arg::Uint(wire)],
+        );
+        configure(&mut server, top, xdg, 640, 480, &[]);
+        pump(&mut conn, &mut w);
+        server.expect("xdg_surface", "ack_configure");
+        assert_eq!(w.decoration(), DecorationMode::ServerSide, "after {wire}");
+    }
+}
+
+/// **At manager version 1 no buffer is attached before the first
+/// decoration configure**: "any attempts by a client to attach or
+/// manipulate a buffer prior to the first xdg_toplevel_decoration.configure
+/// event must also be treated as errors" (`[[source:
+/// wp-xdg-decoration-unstable-v1]]`). An `xdg_surface` configure alone
+/// leaves a frame unshown, through shm and through a dmabuf, and sends
+/// nothing; once a decoration configure and the `xdg_surface` configure
+/// after it arrive, the next frame attaches its buffer.
+#[test]
+fn at_version_one_no_buffer_is_attached_before_the_decoration_configure() {
+    let manager = [("zxdg_decoration_manager_v1", 1)];
+    let (mut conn, mut server, mut w, top, xdg, sent) = opened_with(|_| {}, &manager);
+    let deco = decoration_for(&sent, top).expect("asked before the first commit");
+    configure(&mut server, top, xdg, 64, 32, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    let frame = vec![0xff00_0000u32; 64 * 32];
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::No,
+        "shm, before the decoration configure"
+    );
+    let size = w.buffer_size().expect("configured");
+    assert_eq!(
+        w.present_dmabuf(
+            &mut conn.sender(),
+            ObjectId(0x7f00),
+            size,
+            None,
+            Changed::Whole
+        ),
+        DmabufShown::No,
+        "dmabuf, before the decoration configure"
+    );
+    // Nothing went before the fence.
+    w.set_title(&mut conn.sender(), "fence");
+    conn.flush().unwrap();
+    server.expect("xdg_toplevel", "set_title");
+
+    server.send(
+        deco,
+        "zxdg_toplevel_decoration_v1",
+        "configure",
+        &[Arg::Uint(DecorationMode::ServerSide.wire())],
+    );
+    configure(&mut server, top, xdg, 64, 32, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    loop {
+        let r = server.next();
+        if (r.iface, r.name) == ("wl_surface", "attach") {
+            break;
+        }
+    }
 }
 
 /// **A size preferred before the first configure is the window's size when

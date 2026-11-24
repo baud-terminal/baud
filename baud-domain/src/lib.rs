@@ -118,6 +118,7 @@ mod dec_sets_data {
     include!(concat!(env!("OUT_DIR"), "/dec_sets_data.rs"));
 }
 mod decode;
+mod decoration;
 mod expression;
 mod font;
 mod frame;
@@ -274,6 +275,7 @@ pub use caseless::*;
 pub use cell::*;
 pub use dec_graphics::*;
 pub use decode::*;
+pub use decoration::*;
 pub use expression::*;
 pub use font::*;
 pub use frame::*;

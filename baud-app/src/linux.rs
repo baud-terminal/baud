@@ -4114,13 +4114,14 @@ impl Driver {
         self.term
             .set_cell_size(cell_px(m.cell_w), cell_px(m.cell_h));
         // XTWINOPS's window size, `CSI 14 ; 2 t`: the surface the
-        // compositor configured, which is the whole window, in the frame's
-        // pixels, as the macOS driver reports its window in device pixels
-        // -- nothing here asks for server-side decorations, so none frame
-        // it. The rest is not known: xdg-shell tells a client neither its
-        // position nor whether it is minimized, and the outputs the window
-        // crate binds say only their scale, so those reports stay silent
-        // rather than guessed.
+        // compositor configured, in the frame's pixels, as the macOS driver
+        // reports its window in device pixels. The window asks for
+        // server-side decorations, and where the compositor draws them its
+        // frame lies outside the surface it configured, so the size
+        // reported is still the surface's. The rest is not known: xdg-shell
+        // tells a client neither its position nor whether it is minimized,
+        // and the outputs the window crate binds say only their scale, so
+        // those reports stay silent rather than guessed.
         self.term.set_window(baud_core::WindowFacts {
             window: Some(baud_core::PixelSize {
                 width: baud_core::ImagePx::of(u16::try_from(width.0).unwrap_or(u16::MAX)),
