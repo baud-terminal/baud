@@ -95,6 +95,7 @@ mod link_table;
 pub fn cluster_next(state: u8, input: u8) -> u8 {
     cluster_data::CLUSTER_NEXT[(state as usize) * 256 + input as usize]
 }
+pub mod dbus;
 mod dec_graphics {
     //! DEC Special Graphics, compiled by `build/dec_graphics.rs` from
     //! `[[source: xterm-charsets]]`' `map_DEC_Spec_Graphic`.

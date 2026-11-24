@@ -979,8 +979,71 @@ const _: for<'a> fn(
 ) -> baud_domain::WcSlice<'a, u32> = baud_domain::WcSlice::slice;
 const _: for<'a, 'c> fn(&'a mut baud_domain::WcSlice<'static, u32>, &'c [u32]) =
     baud_domain::WcSlice::copy_from;
+// dbus::Sig
+const _: fn(&'static [u8]) -> Result<baud_domain::dbus::Sig<'static>, baud_domain::dbus::SigError> =
+    baud_domain::dbus::Sig::parse;
+const _: fn(&'static str) -> baud_domain::dbus::Sig<'static> = baud_domain::dbus::Sig::lit;
+const _: baud_domain::dbus::Sig<'static> = baud_domain::dbus::Sig::lit("a{sv}");
+// dbus::SigCodes
+const _: baud_domain::dbus::SigCodes = baud_domain::dbus::SigCodes::EMPTY;
+const _: for<'a> fn(&'a baud_domain::dbus::SigCodes) -> baud_domain::dbus::Sig<'a> =
+    baud_domain::dbus::SigCodes::as_sig;
+const _: fn(
+    baud_domain::dbus::SigCodes,
+    baud_domain::dbus::SigCodes,
+) -> baud_domain::dbus::SigCodes = baud_domain::dbus::SigCodes::concat;
+const _: () = assert!(baud_domain::dbus::SigCodes::eq(
+    baud_domain::dbus::SigCodes::EMPTY,
+    baud_domain::dbus::Sig::EMPTY
+));
+// dbus::SigLen, dbus::Depth
+const _: fn(baud_domain::dbus::SigLen) -> u8 = baud_domain::dbus::SigLen::get;
+const _: baud_domain::dbus::Depth = baud_domain::dbus::Depth::NESTING;
+// dbus names
+const _: fn(&'static str) -> Result<baud_domain::dbus::Str<'static>, baud_domain::dbus::NameError> =
+    baud_domain::dbus::Str::parse;
+const _: fn(&'static str) -> baud_domain::dbus::Str<'static> = baud_domain::dbus::Str::lit;
+const _: fn(
+    &'static str,
+) -> Result<baud_domain::dbus::ObjectPath<'static>, baud_domain::dbus::NameError> =
+    baud_domain::dbus::ObjectPath::parse;
+const _: fn(&'static str) -> baud_domain::dbus::ObjectPath<'static> =
+    baud_domain::dbus::ObjectPath::lit;
+const _: fn(
+    &'static str,
+) -> Result<baud_domain::dbus::InterfaceName<'static>, baud_domain::dbus::NameError> =
+    baud_domain::dbus::InterfaceName::parse;
+const _: fn(&'static str) -> baud_domain::dbus::InterfaceName<'static> =
+    baud_domain::dbus::InterfaceName::lit;
+const _: fn(
+    &'static str,
+) -> Result<baud_domain::dbus::MemberName<'static>, baud_domain::dbus::NameError> =
+    baud_domain::dbus::MemberName::parse;
+const _: fn(&'static str) -> baud_domain::dbus::MemberName<'static> =
+    baud_domain::dbus::MemberName::lit;
+const _: fn(
+    &'static str,
+) -> Result<baud_domain::dbus::ErrorName<'static>, baud_domain::dbus::NameError> =
+    baud_domain::dbus::ErrorName::parse;
+const _: fn(&'static str) -> baud_domain::dbus::ErrorName<'static> =
+    baud_domain::dbus::ErrorName::lit;
+const _: fn(
+    &'static str,
+) -> Result<baud_domain::dbus::BusName<'static>, baud_domain::dbus::NameError> =
+    baud_domain::dbus::BusName::parse;
+const _: fn(&'static str) -> baud_domain::dbus::BusName<'static> = baud_domain::dbus::BusName::lit;
+const _: for<'a> fn(&'a baud_domain::dbus::OwnedBusName) -> baud_domain::dbus::BusName<'a> =
+    baud_domain::dbus::OwnedBusName::as_name;
 /// Each type that holds a rule, and the error code its witness expects.
 const WITNESSED: &[(&str, &str)] = &[
+    ("Sig", "E0080"),
+    ("SigCodes", "E0080"),
+    ("Str", "E0080"),
+    ("ObjectPath", "E0080"),
+    ("InterfaceName", "E0080"),
+    ("MemberName", "E0080"),
+    ("ErrorName", "E0080"),
+    ("BusName", "E0080"),
     ("WcSlice", "E0369"),
     ("WcSlice", "E0599"),
     ("WcSlice", "E0608"),
