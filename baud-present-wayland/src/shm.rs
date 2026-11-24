@@ -16,6 +16,10 @@ use std::os::fd::AsFd;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Px(pub u32);
 
+/// A number of bytes of pixels.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Bytes(pub u64);
+
 pub const BUFFERS: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

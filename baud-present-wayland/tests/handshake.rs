@@ -773,6 +773,228 @@ fn a_frame_copies_and_damages_only_the_rows_it_changed() {
     assert_eq!(w.rows_copied(), Px(480));
 }
 
+/// A 3840 x 2160 buffer: its width and height in pixels, and the bytes of
+/// one premultiplied row of it and of all of it.
+const UHD: (usize, usize) = (3840, 2160);
+const UHD_ROW: u64 = 3840 * 4;
+const UHD_FRAME: u64 = UHD_ROW * 2160;
+
+/// A session configured at [`UHD`] at scale 1, its first frame -- `frame`,
+/// whole -- shown into a new pool: the window, the pool's two buffers and
+/// the first frame's callback.
+fn shown_at_uhd(frame: &[u32]) -> (Connection, Server, Window, [ObjectId; 2], ObjectId) {
+    let (mut conn, mut server, mut w, top, xdg) = opened(|_| {});
+    let (wu, hu) = UHD;
+    configure(
+        &mut server,
+        top,
+        xdg,
+        i32::try_from(wu).unwrap(),
+        i32::try_from(hu).unwrap(),
+        &[],
+    );
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert!(matches!(w.next_event(), Some(Event::Configured { .. })));
+    assert_eq!(w.copies(), Copies::default(), "nothing before a frame");
+    assert_eq!(
+        w.present(&mut conn.sender(), frame, wu, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    server.expect("wl_shm", "create_pool");
+    server.fds.pop_front().unwrap();
+    let mut buffers = [ObjectId::DISPLAY; 2];
+    for b in &mut buffers {
+        let r = server.expect("wl_shm_pool", "create_buffer");
+        let Val::New(id) = r.args[0] else { panic!() };
+        *b = id;
+    }
+    let (attached, damage, cb) = frame_requests(&mut server);
+    assert_eq!(attached, Some(buffers[0]));
+    assert_eq!(damage, [[0, 0, 3840, 2160]]);
+    (conn, server, w, buffers, cb)
+}
+
+/// The compositor's turn between frames: the callback done and `release`d
+/// buffers given back.
+fn turn(
+    conn: &mut Connection,
+    server: &mut Server,
+    w: &mut Window,
+    cb: ObjectId,
+    release: &[ObjectId],
+) {
+    for b in release {
+        server.send(*b, "wl_buffer", "release", &[]);
+    }
+    server.send(cb, "wl_callback", "done", &[Arg::Uint(0)]);
+    pump(conn, w);
+}
+
+/// **The first frame copies every row into shared memory**: 3840 x 2160
+/// pixels of four bytes, 33,177,600 bytes, into a buffer owed every row,
+/// in one present.
+#[test]
+fn the_first_frame_copies_every_row_into_shared_memory() {
+    let frame = vec![0xff10_2030u32; UHD.0 * UHD.1];
+    let (_conn, _server, w, _, _) = shown_at_uhd(&frame);
+    assert_eq!(UHD_FRAME, 33_177_600);
+    assert_eq!(
+        w.copies(),
+        Copies {
+            whole: Bytes(UHD_FRAME),
+            rows: Bytes(0),
+            presents: dmabuf::Count(1),
+        }
+    );
+}
+
+/// **A scroll copies every row into shared memory, every frame.** A
+/// full-grid scroll changes every row of the frame, so each frame after
+/// the compositor released the buffer copies the whole 3840 x 2160
+/// buffer again: 33,177,600 bytes a frame, three frames running, every
+/// byte into a buffer owed every row. This is the figure the path from the
+/// frame to shared memory is held to: the bytes `present` copies per
+/// frame of a 3840 x 2160 scroll.
+#[test]
+fn a_scroll_copies_every_row_into_shared_memory_each_frame() {
+    let (wu, hu) = UHD;
+    let mut frame: Vec<u32> = (0..wu * hu)
+        .map(|i| 0xff00_0000 | u32::try_from(i % 0x00ff_ffff).unwrap())
+        .collect();
+    let (mut conn, mut server, mut w, buffers, mut cb) = shown_at_uhd(&frame);
+    let every = [Strip {
+        top: Px(0),
+        bottom: Px(2160),
+    }];
+    for n in 1..=3u64 {
+        turn(&mut conn, &mut server, &mut w, cb, &[buffers[0]]);
+        let before = w.copies();
+        // One text row of 32 pixels scrolled off the top.
+        frame.rotate_left(32 * wu);
+        assert_eq!(
+            w.present(&mut conn.sender(), &frame, wu, Changed::Strips(&every)),
+            Presented::Yes
+        );
+        conn.flush().unwrap();
+        let (attached, damage, next) = frame_requests(&mut server);
+        assert_eq!(attached, Some(buffers[0]), "the released buffer again");
+        assert_eq!(damage, [[0, 0, 3840, 2160]]);
+        cb = next;
+        let after = w.copies();
+        assert_eq!(
+            (
+                after.whole.0 - before.whole.0,
+                after.rows.0 - before.rows.0,
+                after.presents.0 - before.presents.0,
+            ),
+            (UHD_FRAME, 0, 1),
+            "scroll frame {n}"
+        );
+        assert_eq!(after.whole, Bytes(UHD_FRAME * (n + 1)));
+    }
+}
+
+/// **A one-row change copies that row, and the rows the free buffer
+/// missed.** Into the released first buffer, missing nothing, one pixel
+/// row is one row's 15,360 bytes into a buffer owed some rows. A row
+/// changed while the compositor holds that buffer goes to the second,
+/// new and owed every row, whole. The next one-row change, into the first
+/// buffer again, copies its own row and the one row that buffer missed:
+/// 2 x 15,360 bytes.
+#[test]
+fn a_one_row_change_copies_that_row_and_what_the_buffer_missed() {
+    let (wu, hu) = UHD;
+    let mut frame = vec![0xff10_2030u32; wu * hu];
+    let (mut conn, mut server, mut w, buffers, cb) = shown_at_uhd(&frame);
+    let row = |y: u32| {
+        [Strip {
+            top: Px(y),
+            bottom: Px(y + 1),
+        }]
+    };
+
+    turn(&mut conn, &mut server, &mut w, cb, &[buffers[0]]);
+    frame[100 * wu..101 * wu].fill(0xffff_ffff);
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, wu, Changed::Strips(&row(100))),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let (attached, damage, cb) = frame_requests(&mut server);
+    assert_eq!(attached, Some(buffers[0]));
+    assert_eq!(damage, [[0, 100, 3840, 1]]);
+    assert_eq!(w.rows_copied(), Px(1), "the free buffer missed no row");
+    assert_eq!(
+        w.copies(),
+        Copies {
+            whole: Bytes(UHD_FRAME),
+            rows: Bytes(UHD_ROW),
+            presents: dmabuf::Count(2),
+        }
+    );
+
+    // The compositor holds the first buffer: the second, new, is whole.
+    turn(&mut conn, &mut server, &mut w, cb, &[]);
+    frame[200 * wu..201 * wu].fill(0xff00_ff00);
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, wu, Changed::Strips(&row(200))),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let (attached, _, cb) = frame_requests(&mut server);
+    assert_eq!(attached, Some(buffers[1]));
+    assert_eq!(
+        w.copies(),
+        Copies {
+            whole: Bytes(2 * UHD_FRAME),
+            rows: Bytes(UHD_ROW),
+            presents: dmabuf::Count(3),
+        }
+    );
+
+    // The first buffer again, which missed row 200.
+    turn(&mut conn, &mut server, &mut w, cb, &[buffers[0]]);
+    frame[300 * wu..301 * wu].fill(0xff00_00ff);
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, wu, Changed::Strips(&row(300))),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let (attached, damage, _) = frame_requests(&mut server);
+    assert_eq!(attached, Some(buffers[0]));
+    assert_eq!(damage, [[0, 300, 3840, 1]]);
+    assert_eq!(w.rows_copied(), Px(2), "its own row and the one it missed");
+    assert_eq!(
+        w.copies(),
+        Copies {
+            whole: Bytes(2 * UHD_FRAME),
+            rows: Bytes(UHD_ROW + 2 * UHD_ROW),
+            presents: dmabuf::Count(4),
+        }
+    );
+}
+
+/// **A frame that changed nothing copies nothing**: no buffer attached, no
+/// byte copied and no present counted as copying.
+#[test]
+fn a_frame_that_changed_nothing_copies_nothing() {
+    let frame = vec![0xff10_2030u32; UHD.0 * UHD.1];
+    let (mut conn, mut server, mut w, buffers, cb) = shown_at_uhd(&frame);
+    turn(&mut conn, &mut server, &mut w, cb, &[buffers[0]]);
+    let before = w.copies();
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, UHD.0, Changed::Strips(&[])),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let (attached, damage, _) = frame_requests(&mut server);
+    assert_eq!((attached, damage), (None, Vec::new()));
+    assert_eq!(w.copies(), before, "0 bytes, no present copying");
+    assert_eq!(before.presents, dmabuf::Count(1));
+}
+
 /// The monotonic clock's id on this system, which the test's compositor
 /// names as its presentation clock: Linux's `CLOCK_MONOTONIC` and
 /// Darwin's.

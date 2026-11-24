@@ -38,7 +38,7 @@ use crate::pointer::{
     At, AxisCode, Button, CursorShape, EventCode, Framing, Gather, Piece, PointerEvent, Press,
 };
 use crate::scale::{self, BufferScale, Mapped, Told, Viewport};
-use crate::shm::{Pool, Px};
+use crate::shm::{Bytes, Pool, Px};
 use crate::timing::{ClockId, Presentation, Stamp, Unseen};
 use baud_domain::{
     AskServerSide, DecorationMode, EventMillis, Focus, HebrewLayout, KeyEvent, KeyEventKind,
@@ -253,6 +253,31 @@ pub enum ConfigureBounds {
 pub struct Frames {
     pub presented: Count,
     pub discarded: Count,
+}
+
+/// The bytes [`Window::present`] has copied from frames into shared
+/// memory, from the window's first frame on: those copied into a buffer
+/// owed every row -- a new pool or buffer, a new size or scale, a frame
+/// that changed every row -- and those copied into a buffer owed some,
+/// and how many presents copied anything.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Copies {
+    pub whole: Bytes,
+    pub rows: Bytes,
+    pub presents: Count,
+}
+
+impl Copies {
+    /// One present's copy: `rows` premultiplied rows `width` pixels wide,
+    /// into a buffer `height` rows high.
+    fn add(&mut self, rows: Px, width: Px, height: Px) {
+        let bytes = u64::from(rows.0) * u64::from(width.0) * 4;
+        match rows == height {
+            true => self.whole.0 += bytes,
+            false => self.rows.0 += bytes,
+        }
+        self.presents.0 += 1;
+    }
 }
 
 /// How the compositor last configured the toplevel, from the states its
@@ -520,6 +545,7 @@ pub struct Window {
     owed: RowSet,
     /// The rows the last frame shown copied into its buffer.
     copied: Px,
+    copies: Copies,
     callback: Option<ObjectId>,
     /// The presentation clock, from `clock_id`, and the last frame the
     /// compositor said it showed (`timing.rs`).
@@ -662,6 +688,7 @@ impl Window {
             pool: None,
             owed: RowSet::default(),
             copied: Px(0),
+            copies: Copies::default(),
             callback: None,
             clock: None,
             presented: None,
@@ -1772,6 +1799,7 @@ impl Window {
                 premultiply_row(src, dst);
             }
         }
+        self.copies.add(copy.count(), w, h);
         pool.shown(buffer, &rows);
         pool.committed(buffer);
         let _ = s.request(
@@ -2175,6 +2203,12 @@ impl Window {
     /// changed and what the buffer had missed, none when it changed nothing.
     pub fn rows_copied(&self) -> Px {
         self.copied
+    }
+
+    /// The bytes copied from frames into shared memory, and the presents
+    /// that copied them.
+    pub fn copies(&self) -> Copies {
+        self.copies
     }
 
     /// The pointer's shape device, once both the pointer and the

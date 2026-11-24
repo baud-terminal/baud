@@ -42,9 +42,9 @@ pub use ime::{ByteAt, CursorAt, CursorRect, Hint, Hinted, Preedit, PreeditCursor
 pub use keys::Shortcut;
 pub use pointer::{At, Button, CursorShape, EventCode, PointerEvent, Press, Scroll};
 pub use scale::BufferScale;
-pub use shm::{Pool, Px};
+pub use shm::{Bytes, Pool, Px};
 pub use timing::{ClockId, Late, Presentation, Stamp, Synced, Unseen};
 pub use window::{
-    Activated, ConfigureBounds, DmabufShown, Event, Frames, Holds, OutputPx, Presented, Resize,
-    Rung, Shaped, Shown, Tearing, Toggle, Window,
+    Activated, ConfigureBounds, Copies, DmabufShown, Event, Frames, Holds, OutputPx, Presented,
+    Resize, Rung, Shaped, Shown, Tearing, Toggle, Window,
 };
