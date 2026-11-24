@@ -91,7 +91,8 @@
 
 use crate::paint::{Paint, Pen};
 use crate::term::Term;
-use crate::term::{Cold, GuardStart, Pinned, Saved, Screen, Watched};
+use crate::term::{Cold, GuardStart, Pinned, Saved, Watched};
+use baud_domain::Screen;
 use baud_domain::*;
 
 /// The line's row, lent by the embedder: `cells` at least the pitch, and

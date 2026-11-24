@@ -222,6 +222,13 @@ pub enum Which {
     Status,
 }
 
+/// Which screen buffer is live.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Screen {
+    Normal,
+    Alternate,
+}
+
 /// Whether a stored row was written after a seal.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RowDirt {
@@ -320,6 +327,21 @@ impl StatusGen {
     pub fn after(&self, kept: &Seal) -> bool {
         kept.epoch != self.epoch || self.row.0 > kept.closed.0
     }
+}
+
+/// The status line as `Term::status_line` lends it.
+#[derive(Clone, Copy, Debug)]
+pub struct StatusLine<'a> {
+    /// The line's cells, the main display's width.
+    pub cells: &'a [PackedCell],
+    /// Its line rendition: DECDWL and DECDHL act on it as on any line.
+    pub rendition: LineRendition,
+    /// Its cursor's column, while DECSASD selects the line and the line's
+    /// DECTCEM shows it.
+    pub cursor: Option<Col>,
+    /// **The table its cells name renditions in**: the status row's own
+    /// band's, which the single mode's one table is.
+    pub styles: crate::LiveTable<'a>,
 }
 
 /// One surface's memory, a mark and a generation a row, and its last write.

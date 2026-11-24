@@ -51,7 +51,7 @@
 
 use crate::bands::Slots;
 use crate::paint::Paint;
-use crate::term::Screen;
+use baud_domain::Screen;
 use baud_domain::*;
 
 /// Which screen the main display has up.

@@ -14,8 +14,9 @@
 
 use crate::bands::Slots;
 use crate::paint::{Paint, Pen};
-use crate::term::{AltStyle, Saved, SavedWait, Screen, Strip, SurfaceLine};
+use crate::term::{AltStyle, Saved, SavedWait, Strip};
 use baud_domain::*;
+use baud_domain::{Screen, SurfaceLine};
 
 /// What a rendition with SAPV's variants found on its own key's path
 /// ([`Paint::variants_probe`]).
@@ -702,7 +703,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// `cat` spends its time in, paid a call a line for it.
     #[inline(always)]
     pub(crate) fn retire(&mut self) {
-        if self.cold.screen != crate::term::Screen::Normal {
+        if self.cold.screen != baud_domain::Screen::Normal {
             #[cfg(feature = "read-record")]
             {
                 self.cold.alt_top = self.cold.alt_top.next();
@@ -1049,7 +1050,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// and the scroll down paid a call a line for a body it had inlined.
     #[inline(always)]
     pub(crate) fn unretire(&mut self) {
-        if self.cold.screen != crate::term::Screen::Normal {
+        if self.cold.screen != baud_domain::Screen::Normal {
             #[cfg(feature = "read-record")]
             self.alt_unretired();
             if self.cold.watched == crate::term::Watched::Rows {
@@ -4820,7 +4821,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                 if !self.cold.modes.is_set(ModeBit::NoClearOnColumn) {
                     self.clear_screen();
                     #[cfg(feature = "read-record")]
-                    if self.cold.screen == crate::term::Screen::Alternate {
+                    if self.cold.screen == baud_domain::Screen::Alternate {
                         self.alt_cleared();
                     }
                 }
@@ -5148,7 +5149,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             // turns on: the bare switch back, no cursor restored, the
             // primary as it was.
             PrivateMode::Resource(Resource::AltScreenAllowed) => {
-                if !on && self.cold.screen == crate::term::Screen::Alternate {
+                if !on && self.cold.screen == baud_domain::Screen::Alternate {
                     self.set_alt_screen(ModeChange::Reset, AltSwitch::Bare);
                 }
                 self.cold
@@ -5328,7 +5329,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
 
     /// [`Paint::set_alt_screen`]'s switch itself.
     fn switch_screen(&mut self, change: ModeChange, how: AltSwitch) {
-        use crate::term::Screen;
+        use baud_domain::Screen;
         match (change == ModeChange::Set, self.cold.screen) {
             (true, Screen::Normal) => {
                 // The line the cursor leaves on the primary is the read's

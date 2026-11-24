@@ -697,7 +697,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// screen, which keeps no history and where a jump does nothing, it is
     /// counted under its key.
     fn set_mark(&mut self, at: MarkAt) {
-        if self.cold.screen != crate::term::Screen::Normal {
+        if self.cold.screen != baud_domain::Screen::Normal {
             return self.not_acted(ItermKey::SetMark);
         }
         let line = match at {

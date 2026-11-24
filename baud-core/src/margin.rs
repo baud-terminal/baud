@@ -53,7 +53,7 @@
 
 use baud_domain::{BellVolume, BellsRung, Col, MarginBell, Row, RowRot};
 
-use crate::term::ScreenEpoch;
+use baud_domain::ScreenEpoch;
 
 /// What the bells are set to, and where the margin bell is armed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

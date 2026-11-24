@@ -49,8 +49,8 @@ use baud_domain::{
 };
 
 use crate::paint::Paint;
-use crate::term::Screen;
 use baud_domain::ModeBit;
+use baud_domain::Screen;
 
 impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// SCP: the direction in force, and at once the paragraph holding the

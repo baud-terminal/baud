@@ -29,7 +29,7 @@ use baud_domain::{
 
 use crate::paint::Paint;
 use crate::storage::LINK_MAX;
-use crate::term::Screen;
+use baud_domain::Screen;
 
 impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// The slot for `uri` under `key`, taken if it is new: `NONE`, counted,

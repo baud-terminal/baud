@@ -6,8 +6,6 @@
 //! `Paint::row_table`, `Paint::band_table` or `Paint::word_in` instead.
 //! Each listed file reads one of these for its own band's ids alone:
 //!
-//! * `bands.rs`: `BandsView::one`, the one-band view, which refuses a
-//!   terminal of more bands.
 //! * `freeze.rs`: freezing off the screen, the single mode's alone; its
 //!   load test, the table's length; and the pen's id, the write band's.
 //! * `ops.rs`: interning and the sweep, the write band's own slots.
@@ -25,8 +23,7 @@ use std::path::{Path, PathBuf};
 
 /// Each core source that reads the table with no row's band, and how
 /// many times.
-const READERS: [(&str, usize); 6] = [
-    ("bands.rs", 1),
+const READERS: [(&str, usize); 5] = [
     ("freeze.rs", 3),
     ("ops.rs", 16),
     ("storage.rs", 2),

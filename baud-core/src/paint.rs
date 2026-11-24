@@ -485,18 +485,18 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
         let cap = Rows::of_index(ring.index() - depth.lines());
         let arot = alt.rot;
         let up = match cold.screen {
-            crate::term::Screen::Normal => Which::Primary,
-            crate::term::Screen::Alternate => Which::Alternate,
+            baud_domain::Screen::Normal => Which::Primary,
+            baud_domain::Screen::Alternate => Which::Alternate,
         };
         let (live, away, line) = surfaces.split(up);
         let status =
             crate::status::StatusSurface::new(Surface::new(line, Rows::of_count(1), RowRot::NONE));
         let (view, other) = match cold.screen {
-            crate::term::Screen::Normal => (
+            baud_domain::Screen::Normal => (
                 View::new(live, cols, rows, ring, rot),
                 Surface::new(away, cap, arot),
             ),
-            crate::term::Screen::Alternate => (
+            baud_domain::Screen::Alternate => (
                 View::new(live, cols, rows, cap, arot),
                 Surface::new(away, ring, rot),
             ),
@@ -2094,7 +2094,7 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
         // (`[[source: terminal-wg-bidi-escape-sequences]]`), so the screen's
         // first line is a paragraph of its own.
         if e != EraseExtent::ToEnd
-            && self.cold.screen == crate::term::Screen::Normal
+            && self.cold.screen == baud_domain::Screen::Normal
             && !self.on_status()
             && self.book.hist.index() > 0
         {
@@ -2620,8 +2620,8 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
         // whichever DECSASD selected (`feed.rs`).
         let surface = match (self.on_status(), self.cold.screen) {
             (true, _) => Surface::Status,
-            (false, crate::term::Screen::Alternate) => Surface::Alt,
-            (false, crate::term::Screen::Normal) => Surface::Primary,
+            (false, baud_domain::Screen::Alternate) => Surface::Alt,
+            (false, baud_domain::Screen::Normal) => Surface::Primary,
         };
         self.style_log.layout.band_of(surface, p)
     }

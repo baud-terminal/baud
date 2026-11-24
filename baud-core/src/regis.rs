@@ -28,8 +28,9 @@
 //! reads what is shown; the old page keeps its lines in the history.
 
 use crate::paint::Paint;
-use crate::term::{Screen, Term};
+use crate::term::Term;
 use crate::write::Csi;
+use baud_domain::Screen;
 use baud_domain::*;
 
 /// The page ReGIS draws on: the image shown, the image of indices it is

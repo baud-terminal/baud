@@ -496,6 +496,15 @@ impl StyleWrites {
     }
 }
 
+/// The rendition table's slots written after a [`StyleWrites`] count: up to
+/// two slices of the log, oldest first, or every slot. See
+/// `Term::styles_written`.
+#[derive(Clone, Copy, Debug)]
+pub enum Written<'t> {
+    Slots([&'t [StyleId]; 2]),
+    Every,
+}
+
 /// **Which rendition table this is.** A reader that caches what it resolved
 /// keeps the serial it resolved against, and a table allocated where another
 /// was freed is still a different table. Minted once per table, from one
@@ -523,6 +532,37 @@ impl ColorEpoch {
     pub fn next(self) -> ColorEpoch {
         ColorEpoch(self.0.wrapping_add(1))
     }
+}
+
+/// One of the colours a renderer draws the cursor and a selection in, as
+/// `Term::program_paint` reads what a program asked of it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PaintRole {
+    /// The block's fill, a bar's or an underline's colour.
+    Cursor,
+    /// The text under a block cursor.
+    CursorText,
+    /// The page under selected text.
+    SelectionBackground,
+    /// Selected text.
+    SelectionForeground,
+    /// The visual bell's flash.
+    VisualBell,
+}
+
+/// What a program asked one [`PaintRole`] to be drawn in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ProgramPaint {
+    /// Nothing: the embedder's own colour is drawn.
+    Unset,
+    /// A colour of its own (`OSC 12`, `17`, `19` or `21`).
+    Colour((u8, u8, u8)),
+    /// **The terminal's automatic colour**, whatever the embedder
+    /// configured: `OSC 21`'s empty value (`OSC 21 ; cursor=`), "the terminal
+    /// should use a dynamic color for example reverse video for
+    /// selections" (`[[source: kitty-6d5d0c4-color-stack]]`) -- reverse
+    /// video for a selection, the cell's colours swapped for a cursor.
+    Automatic,
 }
 
 /// One colour slot: default, a palette index, or 24-bit RGB.
@@ -557,7 +597,7 @@ impl ColorWord {
     /// Zero, so a zeroed `Storage` starts with default colours.
     pub const DEFAULT: ColorWord = ColorWord(0);
     /// **The terminal's own automatic colour, which a program asked for**:
-    /// kitty's empty value, "the terminal should use a dynamic color for
+    /// `OSC 21`'s empty value, "the terminal should use a dynamic color for
     /// example reverse video for selections" (`[[source:
     /// kitty-6d5d0c4-color-stack]]`). Held only where a cursor's or a
     /// selection's colour is kept, and set only by `OSC 21`; it is neither a

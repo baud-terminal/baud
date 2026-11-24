@@ -24,6 +24,23 @@ const _: baud_domain::Attrs = baud_domain::Attrs::UNDERLINES;
 // Autodetect
 const _: baud_domain::Autodetect = baud_domain::Autodetect::On;
 const _: baud_domain::Autodetect = baud_domain::Autodetect::Off;
+// BandsView
+const _: fn(
+    &'static [baud_domain::StyleSlot],
+    baud_domain::BandSlots,
+) -> baud_domain::BandsView<'static> = baud_domain::BandsView::of;
+const _: fn(
+    &baud_domain::BandsView<'static>,
+    baud_domain::Band,
+) -> baud_domain::LiveTable<'static> = baud_domain::BandsView::table;
+const _: fn(&baud_domain::BandsView<'static>) -> &'static [baud_domain::StyleSlot] =
+    baud_domain::BandsView::slots;
+const _: fn(&baud_domain::BandsView<'static>) -> baud_domain::BandSlots =
+    baud_domain::BandsView::band_slots;
+// BandSlots
+const _: baud_domain::BandSlots = baud_domain::BandSlots(1);
+const _: fn(&baud_domain::BandsView<'static>) -> baud_domain::LiveTable<'static> =
+    baud_domain::BandsView::one;
 // BidiDirection
 const _: baud_domain::BidiDirection = baud_domain::BidiDirection::Ltr;
 const _: baud_domain::BidiDirection = baud_domain::BidiDirection::Rtl;
@@ -144,6 +161,17 @@ const _: fn(baud_domain::DynamicColor) -> usize = baud_domain::DynamicColor::ind
 const _: fn(u16) -> Option<baud_domain::DynamicColor> = baud_domain::DynamicColor::of_code;
 const _: fn(baud_domain::DynamicColor) -> u16 = baud_domain::DynamicColor::code;
 const _: baud_domain::DynamicColor = baud_domain::DynamicColor::Foreground;
+// Found
+const _: baud_domain::Found = baud_domain::Found {
+    first: baud_domain::Spot {
+        line: baud_domain::LineIdx::FIRST,
+        col: baud_domain::Col::ZERO,
+    },
+    last: baud_domain::Spot {
+        line: baud_domain::LineIdx::FIRST,
+        col: baud_domain::Col::ZERO,
+    },
+};
 // FrameNo
 const _: fn(u32) -> baud_domain::FrameNo = baud_domain::FrameNo::of;
 const _: baud_domain::FrameNo = baud_domain::FrameNo::ROOT;
@@ -154,6 +182,14 @@ const _: fn(baud_domain::Codepoint) -> (baud_domain::GraphemeClass, baud_domain:
 const _: fn(baud_domain::Codepoint) -> baud_domain::GraphemeClass = baud_domain::GraphemeClass::of;
 const _: [baud_domain::GraphemeClass; 16] = baud_domain::GraphemeClass::FROM_INDEX;
 const _: baud_domain::GraphemeClass = baud_domain::GraphemeClass::Other;
+// HistoryErasures
+const _: baud_domain::HistoryErasures = baud_domain::HistoryErasures::FIRST;
+const _: fn(baud_domain::HistoryErasures) -> baud_domain::HistoryErasures =
+    baud_domain::HistoryErasures::next;
+// HistoryWipes
+const _: baud_domain::HistoryWipes = baud_domain::HistoryWipes::FIRST;
+const _: fn(baud_domain::HistoryWipes) -> baud_domain::HistoryWipes =
+    baud_domain::HistoryWipes::next;
 // HostTime
 const _: baud_domain::HostTime = baud_domain::HostTime::ZERO;
 const _: fn(u64) -> baud_domain::HostTime = baud_domain::HostTime::of_nanos;
@@ -290,6 +326,8 @@ const _: fn(&baud_domain::LiveTable<'static>, baud_domain::PackedCell) -> baud_d
     baud_domain::LiveTable::word_of;
 const _: fn(&baud_domain::LiveTable<'static>) -> &'static [baud_domain::StyleSlot] =
     baud_domain::LiveTable::slots;
+// MAX_ROWS
+const _: usize = baud_domain::MAX_ROWS;
 // Mirroring
 const _: baud_domain::Mirroring = baud_domain::Mirroring::Mirrored;
 const _: baud_domain::Mirroring = baud_domain::Mirroring::Cancelled;
@@ -310,6 +348,12 @@ const _: fn(baud_domain::StyleId) -> baud_domain::PackedCell = baud_domain::Pack
 const _: fn(baud_domain::StreamByte, baud_domain::Charset) -> baud_domain::Codepoint =
     baud_domain::PackedCell::translate;
 const _: () = assert!(core::mem::size_of::<baud_domain::PackedCell>() == 8);
+// PaintRole
+const _: baud_domain::PaintRole = baud_domain::PaintRole::Cursor;
+const _: baud_domain::PaintRole = baud_domain::PaintRole::CursorText;
+const _: baud_domain::PaintRole = baud_domain::PaintRole::SelectionBackground;
+const _: baud_domain::PaintRole = baud_domain::PaintRole::SelectionForeground;
+const _: baud_domain::PaintRole = baud_domain::PaintRole::VisualBell;
 // PastEdge
 const _: baud_domain::PastEdge = baud_domain::PastEdge::Held;
 const _: baud_domain::PastEdge = baud_domain::PastEdge::Clear;
@@ -320,6 +364,18 @@ const _: baud_domain::Pixel = baud_domain::Pixel::CLEAR;
 const _: baud_domain::Pixel = baud_domain::Pixel::FILL;
 const _: baud_domain::Pixel = baud_domain::Pixel::UNSAID;
 const _: () = assert!(core::mem::size_of::<baud_domain::Pixel>() == 4);
+// ProgramPaint
+const _: baud_domain::ProgramPaint = baud_domain::ProgramPaint::Unset;
+const _: fn((u8, u8, u8)) -> baud_domain::ProgramPaint = baud_domain::ProgramPaint::Colour;
+const _: baud_domain::ProgramPaint = baud_domain::ProgramPaint::Automatic;
+// PromptLine
+const _: fn(baud_domain::Rows) -> baud_domain::PromptLine = baud_domain::PromptLine::Back;
+const _: fn(baud_domain::Row) -> baud_domain::PromptLine = baud_domain::PromptLine::Screen;
+// PromptMark
+const _: baud_domain::PromptMark = baud_domain::PromptMark {
+    line: baud_domain::PromptLine::Screen(baud_domain::Row::ZERO),
+    status: baud_domain::ExitStatus::Unreported,
+};
 // ReadLen
 const _: baud_domain::ReadLen = baud_domain::ReadLen::ONE;
 const _: baud_domain::ReadLen = baud_domain::ReadLen::ZERO;
@@ -334,6 +390,9 @@ const _: baud_domain::Reclaims = baud_domain::Reclaims {
 };
 const _: fn(baud_domain::Reclaims, baud_domain::Reclaims) -> bool =
     baud_domain::Reclaims::recolours_since;
+// Resets
+const _: baud_domain::Resets = baud_domain::Resets::FIRST;
+const _: fn(baud_domain::Resets) -> baud_domain::Resets = baud_domain::Resets::next;
 // Row
 const _: baud_domain::Row = baud_domain::Row::ZERO;
 const _: fn(usize) -> baud_domain::Row = baud_domain::Row::from_index;
@@ -388,6 +447,12 @@ const _: fn(baud_domain::Rows) -> usize = baud_domain::Rows::index;
 // STRING_DEPTH
 const _: usize = baud_domain::STRING_DEPTH;
 const _: () = assert!(baud_domain::STRING_DEPTH == 125);
+// Screen
+const _: baud_domain::Screen = baud_domain::Screen::Normal;
+const _: baud_domain::Screen = baud_domain::Screen::Alternate;
+// ScreenEpoch
+const _: baud_domain::ScreenEpoch = baud_domain::ScreenEpoch::FIRST;
+const _: fn(baud_domain::ScreenEpoch) -> baud_domain::ScreenEpoch = baud_domain::ScreenEpoch::next;
 // Seal
 const _: fn(&mut baud_domain::SurfaceStore<'static>) -> baud_domain::Seal =
     baud_domain::SurfaceStore::seal;
@@ -395,6 +460,12 @@ const _: fn(&baud_domain::SurfaceStore<'static>) -> baud_domain::Seal =
     baud_domain::SurfaceStore::sealed;
 const _: fn(&baud_domain::SurfaceStore<'static>, &baud_domain::Seal) -> bool =
     baud_domain::SurfaceStore::wrote_since;
+// SearchLines
+const _: baud_domain::SearchLines = baud_domain::SearchLines {
+    oldest: baud_domain::LineIdx::FIRST,
+    top: baud_domain::LineIdx::FIRST,
+    end: baud_domain::LineIdx::FIRST,
+};
 // Sixel
 const _: fn(
     baud_domain::InputEncoding,
@@ -443,8 +514,21 @@ const _: () = assert!(core::mem::size_of::<baud_domain::SlotSet>() == 8192);
 // SpacingMarks
 const _: baud_domain::SpacingMarks = baud_domain::SpacingMarks::Column;
 const _: baud_domain::SpacingMarks = baud_domain::SpacingMarks::Joined;
+// Spot
+const _: baud_domain::Spot = baud_domain::Spot {
+    line: baud_domain::LineIdx::FIRST,
+    col: baud_domain::Col::ZERO,
+};
 // StatusGen
 const _: fn(&baud_domain::StatusGen, &baud_domain::Seal) -> bool = baud_domain::StatusGen::after;
+// StatusLine
+const _: fn(baud_domain::LiveTable<'static>) -> baud_domain::StatusLine<'static> =
+    |styles| baud_domain::StatusLine {
+        cells: &[],
+        rendition: baud_domain::LineRendition::Single,
+        cursor: None,
+        styles,
+    };
 // Stride
 const _: fn(usize) -> baud_domain::Stride = baud_domain::Stride::of_cells;
 const _: fn(baud_domain::Stride) -> usize = baud_domain::Stride::index;
@@ -473,6 +557,12 @@ const _: fn(baud_domain::StyleWrites) -> baud_domain::StyleWrites = baud_domain:
 const _: fn(baud_domain::StyleWrites, baud_domain::StyleWrites, usize) -> baud_domain::Replay =
     baud_domain::StyleWrites::replay;
 const _: fn(baud_domain::StyleWrites, usize) -> bool = baud_domain::StyleWrites::past;
+// SurfaceLine
+const _: fn(baud_domain::Rows) -> baud_domain::SurfaceLine = baud_domain::SurfaceLine::Above;
+const _: fn(baud_domain::Row) -> baud_domain::SurfaceLine = baud_domain::SurfaceLine::At;
+// TextMoved
+const _: fn(baud_domain::Rows) -> baud_domain::TextMoved = baud_domain::TextMoved::Up;
+const _: fn(baud_domain::Rows) -> baud_domain::TextMoved = baud_domain::TextMoved::Down;
 // UnicodeWidths
 const _: baud_domain::UnicodeWidths = baud_domain::UnicodeWidths::Current;
 const _: baud_domain::UnicodeWidths = baud_domain::UnicodeWidths::Eight;
@@ -501,6 +591,12 @@ const _: baud_domain::Vs16Width = baud_domain::Vs16Width::Two;
 const _: baud_domain::Vs16Width = baud_domain::Vs16Width::One;
 const _: fn(baud_domain::Vs16Width, baud_domain::ClusterCells) -> bool =
     baud_domain::Vs16Width::widens_in;
+// WatchedLines
+const _: baud_domain::WatchedLines = baud_domain::WatchedLines {
+    first: baud_domain::SurfaceLine::At(baud_domain::Row::ZERO),
+    last: baud_domain::SurfaceLine::At(baud_domain::Row::ZERO),
+    moved: baud_domain::TextMoved::Up(baud_domain::Rows::ZERO),
+};
 // Width
 const _: baud_domain::Width = baud_domain::Width::WIDE;
 const _: baud_domain::Width = baud_domain::Width::NARROW;
@@ -538,9 +634,20 @@ const _: fn(baud_domain::WrapMargins) -> baud_domain::Col = baud_domain::WrapMar
 const _: fn(baud_domain::WrapMargins) -> baud_domain::Col = baud_domain::WrapMargins::right;
 const _: baud_domain::WrapMargins = baud_domain::WrapMargins::NONE;
 const _: () = assert!(core::mem::size_of::<baud_domain::WrapMargins>() == 4);
+// WrapPending
+const _: baud_domain::WrapPending = baud_domain::WrapPending::No;
+const _: baud_domain::WrapPending = baud_domain::WrapPending::Yes;
 // WrappedAt
 const _: baud_domain::WrappedAt = baud_domain::WrappedAt::Margins;
 const _: baud_domain::WrappedAt = baud_domain::WrappedAt::Edge;
+// Written
+const _: fn([&'static [baud_domain::StyleId]; 2]) -> baud_domain::Written<'static> =
+    baud_domain::Written::Slots;
+const _: baud_domain::Written<'static> = baud_domain::Written::Every;
+// Zone
+const _: baud_domain::Zone = baud_domain::Zone::Prompt;
+const _: baud_domain::Zone = baud_domain::Zone::Output;
+const _: fn() -> baud_domain::Zone = <baud_domain::Zone as Default>::default;
 // is_default_ignorable
 const _: fn(baud_domain::Codepoint) -> bool = baud_domain::is_default_ignorable;
 // is_placeholder

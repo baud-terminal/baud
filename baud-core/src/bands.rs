@@ -12,7 +12,7 @@ use crate::storage::BandSlots;
 use crate::storage::StyleLog;
 #[cfg(doc)]
 use baud_domain::RowStyles;
-use baud_domain::{Band, Col, LiveTable, PhysRow, Reach, Rows, StyleId, StyleSlot, StyleWord};
+use baud_domain::{Band, Col, PhysRow, Reach, Rows, StyleId, StyleSlot, StyleWord};
 
 /// **The rendition table, readable by id and written only by
 /// [`write_slot`]**: a slot is [`StyleSlot::Empty`] where nothing was
@@ -82,61 +82,6 @@ pub(crate) fn seed_defaults(table: &mut Table<'_>, log: &mut StyleLog<'_>) {
 pub(crate) fn clear_written<T: Copy + PartialEq>(s: &mut [T], to: T) {
     for x in s.iter_mut().filter(|x| **x != to) {
         *x = to;
-    }
-}
-
-/// **Every band's live rendition table, read-only**: what [`Term::styles`]
-/// gives a renderer that resolves each band's slots once a frame. A reader
-/// resolving one row's cells takes that row's table from its
-/// [`RowStyles`] instead ([`Term::row_styles`], [`Viewport::styles`]).
-///
-/// [`Term::styles`]: crate::Term::styles
-/// [`Term::row_styles`]: crate::Term::row_styles
-/// [`Viewport::styles`]: baud_domain::Viewport::styles
-#[derive(Clone, Copy, Debug)]
-pub struct BandsView<'a> {
-    /// Every band's slots, `band_slots` a band, in band order.
-    all: &'a [StyleSlot],
-    band_slots: BandSlots,
-}
-
-impl<'a> BandsView<'a> {
-    pub(crate) fn of(all: &'a [StyleSlot], band_slots: BandSlots) -> BandsView<'a> {
-        BandsView { all, band_slots }
-    }
-
-    /// Every band's table, in band order; every band has as many slots.
-    pub fn bands(&self) -> impl ExactSizeIterator<Item = LiveTable<'a>> {
-        self.all
-            .chunks(self.band_slots.0.max(1))
-            .enumerate()
-            .map(|(k, s)| LiveTable::of_band(s, Band::of(k)))
-    }
-
-    /// Every band's slots, in band order, `band_slots` a band.
-    pub fn slots(&self) -> &'a [StyleSlot] {
-        self.all
-    }
-
-    /// The slots each band has.
-    pub fn band_slots(&self) -> BandSlots {
-        self.band_slots
-    }
-
-    /// **Band `b`'s table**, which every row of `b` resolves through; an
-    /// empty table for a band the terminal does not have.
-    pub fn table(&self, b: Band) -> LiveTable<'a> {
-        let n = self.band_slots.0.max(1);
-        let at = b.first_slot(n);
-        LiveTable::of_band(self.all.get(at..at + n).unwrap_or(&[]), b)
-    }
-
-    /// **The table of a terminal that keeps one band**, which every live
-    /// row is in: what a reader that resolves live ids without their row's
-    /// [`RowStyles`] reads. Panics on a terminal of more bands than one.
-    pub fn one(&self) -> LiveTable<'a> {
-        assert_eq!(self.bands().len(), 1, "a terminal of one band");
-        LiveTable::of(self.all)
     }
 }
 
@@ -446,7 +391,7 @@ pub(crate) enum Origin {
 impl Moves {
     /// A screen's rows copied and a screen's blanked, the most one
     /// operation writes.
-    const CAP: usize = 2 * crate::storage::MAX_ROWS;
+    const CAP: usize = 2 * baud_domain::MAX_ROWS;
 
     fn push(&mut self, to: PhysRow, origin: Origin, cols: core::ops::Range<usize>) {
         let n = self.n.index();

@@ -421,6 +421,10 @@ impl RowCount {
     }
 }
 
+/// The tallest grid addressable. A `CSI 8 ; r ; c t` past it is clamped
+/// rather than refused.
+pub const MAX_ROWS: usize = 640;
+
 /// A block of `rows` consecutive rows in a fixed-stride cell buffer.
 ///
 /// The `rows * MAX_COLS` arithmetic this replaces appeared twice outside the

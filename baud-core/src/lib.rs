@@ -67,7 +67,7 @@ mod iterm;
 pub use graph::Hist;
 mod aligned;
 mod bands;
-pub use bands::{BAND_RESERVED, BandsView};
+pub use bands::BAND_RESERVED;
 mod bounds;
 mod component;
 mod extent;
@@ -265,11 +265,9 @@ pub use logging::LogsRefused;
 pub use notice::ReportCount;
 pub use outgoing::ReplyCounts;
 pub use prompt::PromptsOpened;
-pub use search::{Found, SearchLines, Spot};
 pub use status::StatusBuf;
 pub use strings::StringsRefused;
-pub use term::StatusLine;
-pub use term::{ClickHow, ClickKeys, PromptClick, PromptJump, PromptLine, PromptMark};
+pub use term::{ClickHow, ClickKeys, PromptClick, PromptJump};
 pub use variants::VariantsRefused;
 pub use window::{PropertiesDropped, WINDOW_QUEUE, WindowOpsRefused, WindowRequestsDropped};
 /// Which scan this build runs text through, for a harness that has to
@@ -280,8 +278,18 @@ pub use write::{RUN_SCAN, RunScan};
 /// that chooses its scrollback -- which `multibench` must, to hand every core
 /// the same number -- can name the argument without a second crate.
 pub use baud_domain::CacheGeometry;
+/// Which surface is live, for a caller asking `Term::screen`.
+pub use baud_domain::Screen;
 /// Scrollback: the lines behind the screen's window onto the ring.
 pub use baud_domain::{Back, Depth, Scrollback, Wrap};
+/// What `Term`'s reads return to a renderer: the rendition tables, the
+/// status line, the prompts, a search's lines and matches, the watched
+/// lines, a program's colours, and the readings to compare across a read.
+pub use baud_domain::{
+    BandsView, Found, HistoryErasures, HistoryWipes, MAX_ROWS, PaintRole, ProgramPaint, PromptLine,
+    PromptMark, Resets, ScreenEpoch, SearchLines, Spot, StatusLine, SurfaceLine, TextMoved,
+    WatchedLines, WrapPending, Written, Zone,
+};
 /// kitty's colour control in flight, which a caller lending its own storage
 /// provisions with [`StrBuf::new`].
 pub use colour::KittyColours;
@@ -290,19 +298,17 @@ pub use colour::KittyColours;
 pub use dcs::DECRQSS_MAX;
 pub use storage::{
     ARENA, BAND_SLOTS, BandRows, BandSlots, Banding, CELLS3, CELLS3_PREFIXES, GRID, LINK_MAX,
-    MAX_COLS, MAX_ROWS, Mode, NCLUSTER, NLINK, NSTYLE, NSTYLE_MAX, OSC_MAX, OverBudget,
-    PALETTE_LEN, Provision, READ_CHUNK, REPLY, REPLY_MOST, RESERVED_SLOTS, Storage, StrBuf,
-    StyleBook, StyleTable, TITLE_SLOTS, TITLE_STACK, grid_stride,
+    MAX_COLS, Mode, NCLUSTER, NLINK, NSTYLE, NSTYLE_MAX, OSC_MAX, OverBudget, PALETTE_LEN,
+    Provision, READ_CHUNK, REPLY, REPLY_MOST, RESERVED_SLOTS, Storage, StrBuf, StyleBook,
+    StyleTable, TITLE_SLOTS, TITLE_STACK, grid_stride,
 };
 /// The sixteen allocations a `Storage` borrows, for a caller that has an
 /// allocator. Not `Storage::boxed`: this `Storage` holds borrows, so there is
 /// nothing for a `Box` to own.
 #[cfg(feature = "alloc")]
 pub use storage::{Footprint, Owned};
-/// Which surface is live, for a caller asking `Term::screen`.
 pub use term::{
-    ColumnRefusals, Erasure, HistoryErasures, HistoryMark, HistoryWipes, Looking, Moved, Overrides,
-    PagesMissing, PaintRole, ProgramPaint, RegionScrolls, Resets, Resized, Rest, ReverseFlips,
-    RowMoves, Screen, ScreenEpoch, SelectionColors, SurfaceLine, Term, TextMoved, ThemeColors,
-    TitleReportsRefused, UpdatesOpened, WatchedLines, WidthRequests, WrapPending, Written, Zone,
+    ColumnRefusals, Erasure, HistoryMark, Looking, Moved, Overrides, PagesMissing, RegionScrolls,
+    Resized, Rest, ReverseFlips, RowMoves, SelectionColors, Term, ThemeColors, TitleReportsRefused,
+    UpdatesOpened, WidthRequests,
 };

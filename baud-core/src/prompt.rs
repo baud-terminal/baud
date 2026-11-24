@@ -17,14 +17,14 @@
 //! `a_gesture_on_a_fresh_terminal_creates_no_history`.
 
 use crate::paint::Paint;
-use crate::term::SurfaceLine;
+use baud_domain::SurfaceLine;
 use baud_domain::*;
 
 /// Where the block the shell is at begins.
 ///
 /// A ring row, so a scroll or a resize's rotation leaves it naming the
 /// same cells; a screen row went stale at the first scroll. Meaningful
-/// only while its screen's [`Shell::zone`] is [`crate::term::Zone::Prompt`].
+/// only while its screen's [`Shell::zone`] is [`baud_domain::Zone::Prompt`].
 #[derive(Clone, Copy)]
 pub(crate) struct PromptBlock {
     start: RowRot,
@@ -67,7 +67,7 @@ impl PromptBlock {
 /// read per byte, and `Cold`'s size is pinned.
 #[derive(Clone, Copy)]
 pub(crate) struct Shell {
-    pub(crate) zone: crate::term::Zone,
+    pub(crate) zone: baud_domain::Zone,
     pub(crate) block: PromptBlock,
     pub(crate) asks: Asks,
     /// Where `B` or `I` left the cursor: the input's first cell.
@@ -162,7 +162,7 @@ enum InitialMark {
 }
 
 /// **How many prompts have opened on the primary**: the times its zone
-/// turned from output to [`crate::term::Zone::Prompt`], as a reading to
+/// turned from output to [`baud_domain::Zone::Prompt`], as a reading to
 /// compare. An embedder that samples the zone once a read cannot see a
 /// command whose `C`, output and next `A` came in one read, which leaves
 /// the zone at `Prompt` on both sides; the count has moved. A redraw's mark,
@@ -184,7 +184,7 @@ impl Shell {
     /// A screen no mark has spoken about: output, which is what a stream
     /// with no shell integration is.
     pub(crate) const FRESH: Shell = Shell {
-        zone: crate::term::Zone::Output,
+        zone: baud_domain::Zone::Output,
         block: PromptBlock::NONE,
         asks: Asks::NONE,
         input: Input::None,
@@ -235,7 +235,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             Semantic::Prompt(kind) => self.later_prompt(kind),
             Semantic::Input(end) => {
                 // The prompt is drawn, whatever its height: pin it now.
-                if self.strs.shell.zone == crate::term::Zone::Prompt {
+                if self.strs.shell.zone == baud_domain::Zone::Prompt {
                     self.pin_prompt_block();
                 }
                 let (rot, ring) = (self.view.rotation(), self.view.ring());
@@ -251,10 +251,10 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             // no `C`, and the `P` after `D` is a fresh prompt, not a redraw
             // -- and so is anything a `precmd` prints first.
             Semantic::CommandDone(done) => {
-                if self.cold.screen == crate::term::Screen::Normal {
+                if self.cold.screen == baud_domain::Screen::Normal {
                     self.strs.prompts.close(done);
                 }
-                self.strs.shell.zone = crate::term::Zone::Output;
+                self.strs.shell.zone = baud_domain::Zone::Output;
                 self.strs.shell.input = Input::None;
             }
             Semantic::Other => {}
@@ -287,10 +287,10 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     fn initial_mark(&self) -> InitialMark {
         let shell = &self.strs.shell;
         match shell.zone {
-            crate::term::Zone::Output => InitialMark::Fresh,
-            crate::term::Zone::Prompt if shell.resize == SinceMark::Resized => InitialMark::Redraw,
-            crate::term::Zone::Prompt if self.past_input() => InitialMark::Again,
-            crate::term::Zone::Prompt => InitialMark::Redraw,
+            baud_domain::Zone::Output => InitialMark::Fresh,
+            baud_domain::Zone::Prompt if shell.resize == SinceMark::Resized => InitialMark::Redraw,
+            baud_domain::Zone::Prompt if self.past_input() => InitialMark::Again,
+            baud_domain::Zone::Prompt => InitialMark::Redraw,
         }
     }
 
@@ -331,7 +331,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         shell.input = Input::None;
         shell.secondary = Later::None;
         shell.resize = SinceMark::Unresized;
-        if self.cold.screen != crate::term::Screen::Normal {
+        if self.cold.screen != baud_domain::Screen::Normal {
             return;
         }
         let line = self.book.top.plus(Rows::of_count(self.cy.index()));
@@ -345,12 +345,12 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// The live screen's zone turns to the prompt; on the primary, from
     /// output, that is a prompt opening ([`PromptsOpened`]).
     fn prompt_zone(&mut self) {
-        let opens = self.strs.shell.zone != crate::term::Zone::Prompt
-            && self.cold.screen == crate::term::Screen::Normal;
+        let opens = self.strs.shell.zone != baud_domain::Zone::Prompt
+            && self.cold.screen == baud_domain::Screen::Normal;
         if opens {
             self.strs.prompts_opened = self.strs.prompts_opened.next();
         }
-        self.strs.shell.zone = crate::term::Zone::Prompt;
+        self.strs.shell.zone = baud_domain::Zone::Prompt;
     }
 
     /// A later line of the block: `k=s`, `k=c` or `k=r`.
@@ -383,9 +383,9 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
 
     /// The command's output began: `C`, or the end of an `I` input's line.
     fn output_began(&mut self) {
-        self.strs.shell.zone = crate::term::Zone::Output;
+        self.strs.shell.zone = baud_domain::Zone::Output;
         self.strs.shell.input = Input::None;
-        if self.cold.screen == crate::term::Screen::Normal {
+        if self.cold.screen == baud_domain::Screen::Normal {
             self.strs.prompts.output_began();
         }
     }
@@ -427,7 +427,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// touched.
     fn pin_prompt(&mut self, from: Row) {
         if self.strs.prompt_at_bottom != PromptAtBottom::On
-            || self.cold.screen != crate::term::Screen::Normal
+            || self.cold.screen != baud_domain::Screen::Normal
             || self.cold.top != Row::ZERO
             || self.cold.bot.index() + 1 != self.rows.index()
             || self.fenced()
@@ -546,7 +546,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let d = (rot.advance(cy, ring).index() + r - start.index()) % r;
         let above = d.saturating_sub(cy);
         let retained =
-            self.cold.screen == crate::term::Screen::Normal && above <= self.book.hist.index();
+            self.cold.screen == baud_domain::Screen::Normal && above <= self.book.hist.index();
         if above > 0 && !retained {
             return;
         }

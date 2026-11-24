@@ -518,7 +518,7 @@ impl Term<'_> {
         // not; here it reads within 0.1% of none. A read that ends on the
         // alternate screen leaves the primary's window.
         if n.index() != 0
-            && self.cold.screen == crate::term::Screen::Normal
+            && self.cold.screen == baud_domain::Screen::Normal
             && self
                 .cold
                 .resources

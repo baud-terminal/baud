@@ -18,34 +18,11 @@
 //! whole clusters.
 
 use baud_domain::{
-    ClusterKey, Codepoint, Col, Content, LineIdx, Matcher, Needle, PackedCell, Row, Rows, Wrap,
+    ClusterKey, Codepoint, Col, Content, Found, LineIdx, Matcher, Needle, PackedCell, Row, Rows,
+    Screen, SearchLines, Spot, SurfaceLine, Wrap,
 };
 
-use crate::term::{Screen, SurfaceLine, Term};
-
-/// A cell of the live surface a search names: its line and its column.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct Spot {
-    pub line: LineIdx,
-    pub col: Col,
-}
-
-/// **One match**: its first cell and its last, both inclusive, the last
-/// a wide character's tail when the match ends on one.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Found {
-    pub first: Spot,
-    pub last: Spot,
-}
-
-/// The lines a search reads: the oldest the ring retains, the screen's top
-/// row, and one past its bottom row.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct SearchLines {
-    pub oldest: LineIdx,
-    pub top: LineIdx,
-    pub end: LineIdx,
-}
+use crate::term::Term;
 
 /// What an empty cell inside a line reads as.
 const SPACE: Codepoint = Codepoint::from_char(' ');

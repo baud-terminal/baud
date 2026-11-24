@@ -1,22 +1,14 @@
 //! The terminal's state, and the one borrow the parser holds.
 
-use crate::bands::BandsView;
 use crate::bands::Slots;
 use crate::cwd::{DirectoriesRefused, WorkingDirectory};
 use crate::font::{FontChange, FontsRefused};
 use crate::graph::Node;
 use crate::osc::StrKind;
-use crate::storage::{LINK_MAX, MAX_COLS, MAX_ROWS, Storage};
+use crate::storage::{LINK_MAX, MAX_COLS, Storage};
 use crate::window::{PropertiesDropped, WindowOpsRefused, WindowRequestsDropped};
 use baud_domain::themefile::{CellPaint, CursorText, SelectionText};
 use baud_domain::*;
-
-/// Which screen buffer is live.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Screen {
-    Normal,
-    Alternate,
-}
 
 /// Whether a resize held the generations' tags in the spare
 /// (`Term::frozen_held`).
@@ -69,14 +61,6 @@ enum PrimaryCursor {
     /// `?47`'s alternate screen is up, and the primary has the one shared
     /// cursor, which the step moves nothing of.
     Shared,
-}
-
-/// The rendition table's slots written since a count: up to two slices of
-/// the log, oldest first, or every slot. See [`Term::styles_written`].
-#[derive(Clone, Copy, Debug)]
-pub enum Written<'t> {
-    Slots([&'t [StyleId]; 2]),
-    Every,
 }
 
 /// What `?1049 h` saves from the primary screen beside the cursor, and
@@ -230,56 +214,6 @@ pub struct Saved {
 #[cfg(feature = "sgr-table")]
 pub const NSGR: usize = 256;
 
-/// Which half of the screen's life the terminal is in, from `OSC 133`.
-///
-/// **The one thing a resize needs to know.** A shell redraws its prompt
-/// after a resize by counting the rows it occupies, moving the cursor up
-/// by that many and erasing from there -- so re-cutting those rows to a
-/// new width changes the count behind its back, the erase starts below
-/// the prompt's first line, and that line survives. Every resize leaves
-/// another. Re-cutting *output* has no such reader: nothing will redraw
-/// it, which is exactly why re-cutting it is worth doing.
-///
-/// So the boundary is a state and the row it began on: the shell owns the
-/// screen from prompt start until the command's output begins, from the
-/// block's first row down, and a resize keeps those rows whole while it
-/// re-cuts the finished output above them; the application owns it after.
-/// `baud-bench`'s `winch` replays a capture of a real shell with real
-/// resizes against it.
-///
-/// A terminal that has seen no marks is in [`Zone::Output`], which is
-/// the behaviour that shipped before them: a stream with no shell
-/// integration re-cuts as it always did.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Zone {
-    /// From `OSC 133 ; A` or `; P` until `; C` or `; D`: the shell is
-    /// drawing or the user is typing, and the shell will redraw this on a
-    /// resize. `D` closes it as `C` does, because a command that ran
-    /// nothing -- Enter on an empty line -- sends no `C`.
-    Prompt,
-    /// Everywhere else, and where a stream sends no marks at all.
-    #[default]
-    Output,
-}
-
-/// Where a prompt's first line is, from the live screen: `Back(n)` is the
-/// line `n` lines above the live screen's top, so [`Term::set_window_back`]
-/// with `n` puts it at the window's top, and `Screen(r)` is row `r` of the
-/// live screen.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum PromptLine {
-    Back(Rows),
-    Screen(Row),
-}
-
-/// One prompt the shell drew on the primary, and how its command ended
-/// ([`Term::prompts`]).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct PromptMark {
-    pub line: PromptLine,
-    pub status: ExitStatus,
-}
-
 /// Entry `e` of the prompt log as [`Term::prompts`] gives it, the live
 /// screen's top on line `top`.
 fn prompt_mark(e: baud_domain::PromptEntry, top: LineIdx) -> PromptMark {
@@ -345,14 +279,6 @@ pub enum Moved {
     Restored(Rows),
 }
 
-/// Whether the next graphic character wraps before it is written; see
-/// [`Term::wrap_pending`].
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum WrapPending {
-    No,
-    Yes,
-}
-
 /// Where the primary screen's window stood, noted by [`Term::history_mark`]:
 /// what a window scrolled back into the history is anchored against. It is
 /// the absolute line at the primary window's top -- which the primary holds
@@ -372,23 +298,6 @@ impl HistoryMark {
     /// rather than worked back from where its cursor ended.
     pub fn line(self) -> LineIdx {
         self.0
-    }
-}
-
-/// Which surface is up, and which time it went up: it moves on every switch
-/// between the primary and the alternate screen, in either direction. Two
-/// equal readings saw one surface throughout -- where [`Term::screen`] read
-/// at both ends of a read cannot tell one that left the alternate screen and
-/// entered it again, which clears it and resets its ring, from one that
-/// never left.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct ScreenEpoch(u32);
-
-impl ScreenEpoch {
-    pub(crate) const FIRST: ScreenEpoch = ScreenEpoch(0);
-
-    pub(crate) fn next(self) -> ScreenEpoch {
-        ScreenEpoch(self.0.wrapping_add(1))
     }
 }
 
@@ -434,35 +343,6 @@ impl RowMoves {
     pub(crate) fn next(self) -> RowMoves {
         RowMoves(self.0.wrapping_add(1))
     }
-}
-
-/// A line of the live surface: a row of the screen, or a line of the
-/// history `n` lines above the screen's top row -- `Above(Rows::of_count(1))`
-/// is the newest line behind the window. What [`Term::watch_lines`] arms a
-/// watch on, so a selection that reaches into the history, or lies wholly in
-/// it, is watched as one on the screen is.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum SurfaceLine {
-    Above(Rows),
-    At(Row),
-}
-
-/// How far the text of watched lines moved against the count of lines the
-/// live surface retired or took back: up the screen, or down it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum TextMoved {
-    Up(Rows),
-    Down(Rows),
-}
-
-/// What [`Term::watched_lines`] says of the watched lines: the first and
-/// last that stay, as lines of the live surface now, and how far the text
-/// of a line that no trim reached moved against the count.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct WatchedLines {
-    pub first: SurfaceLine,
-    pub last: SurfaceLine,
-    pub moved: TextMoved,
 }
 
 /// **The lines of the live surface an embedder's selection names, watched
@@ -694,44 +574,6 @@ pub(crate) enum Watched {
     Changed,
 }
 
-/// Which erasure of the primary's history the terminal is at: it moves on
-/// every `CSI 3 J` and every `RIS`, the two operations that empty the saved
-/// lines, and on nothing else -- not `CSI ? 3 J`, whose lines stay
-/// ([`HistoryWipes`] counts it). A window
-/// over the history read at both ends of a read cannot see one: the erase
-/// scrolls nothing, so [`Term::history_moved_since`] reads no movement, and
-/// output after it in the same read refills the history to a count that
-/// says nothing of what went. An embedder holding a window into the history
-/// asks this, and finds the lines it showed are gone.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct HistoryErasures(u32);
-
-impl HistoryErasures {
-    pub(crate) const FIRST: HistoryErasures = HistoryErasures(0);
-
-    pub(crate) fn next(self) -> HistoryErasures {
-        HistoryErasures(self.0.wrapping_add(1))
-    }
-}
-
-/// Which selective erase of the primary's saved lines the terminal is at:
-/// it moves on every `CSI ? 3 J`, from either screen, and on nothing else.
-/// The lines stay lines of the history, so [`HistoryErasures`] does not
-/// move and a window over them stays; but the characters DECSCA left
-/// erasable on them are spaces now, and an embedder that keeps something
-/// read from the history -- a find's matches -- asks this, and reads the
-/// history again where it moved.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct HistoryWipes(u32);
-
-impl HistoryWipes {
-    pub(crate) const FIRST: HistoryWipes = HistoryWipes(0);
-
-    pub(crate) fn next(self) -> HistoryWipes {
-        HistoryWipes(self.0.wrapping_add(1))
-    }
-}
-
 /// What erased the primary's history: `CSI 3 J`, which keeps the screen, or
 /// `RIS`, with the screen that was live when it came -- `RIS` leaves the
 /// alternate screen first, so the screen after it is always the primary and
@@ -756,29 +598,6 @@ pub enum Erasure {
 pub enum Looking {
     Live,
     Back,
-}
-
-/// Which full reset the terminal is at: it moves on every `RIS` (`ESC c`),
-/// from either screen and with or without a history, and on nothing else --
-/// not `DECSTR`, `ED 2` or `CSI 3 J`. ECMA-48 § 8.3.105 has `RIS` put the
-/// device "to its initial state, i.e. the state it has after it is made
-/// operational" (`[[source: ecma48]]`), and an embedder's own state over the
-/// screen -- a selection, a guess drawn ahead of an echo -- names cells that
-/// state does not have. Nothing else across a read says one happened: a
-/// reset scrolls nothing and keeps the rotation, so a terminal with no
-/// history reads the same at both ends, and [`HistoryErasures`] moves on
-/// `CSI 3 J` too, which leaves the screen as it was. Two equal readings saw
-/// no reset; a count rather than a flag, because one read can hold two and a
-/// flag would need clearing (note V, V1).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Resets(u32);
-
-impl Resets {
-    pub(crate) const FIRST: Resets = Resets(0);
-
-    pub(crate) fn next(self) -> Resets {
-        Resets(self.0.wrapping_add(1))
-    }
 }
 
 /// A count of the `CSI 20 t` and `CSI 21 t` title reports refused, and of
@@ -1857,37 +1676,6 @@ pub struct SelectionColors {
     pub fg: Option<(u8, u8, u8)>,
 }
 
-/// One of the colours a renderer draws the cursor and a selection in, as
-/// [`Term::program_paint`] reads what a program asked of it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum PaintRole {
-    /// The block's fill, a bar's or an underline's colour.
-    Cursor,
-    /// The text under a block cursor.
-    CursorText,
-    /// The page under selected text.
-    SelectionBackground,
-    /// Selected text.
-    SelectionForeground,
-    /// The visual bell's flash.
-    VisualBell,
-}
-
-/// What a program asked one [`PaintRole`] to be drawn in.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ProgramPaint {
-    /// Nothing: the embedder's own colour is drawn.
-    Unset,
-    /// A colour of its own (`OSC 12`, `17`, `19` or `21`).
-    Colour((u8, u8, u8)),
-    /// **The terminal's automatic colour**, whatever the embedder
-    /// configured: kitty's empty value (`OSC 21 ; cursor=`), "the terminal
-    /// should use a dynamic color for example reverse video for
-    /// selections" -- reverse video for a selection, the cell's colours
-    /// swapped for a cursor.
-    Automatic,
-}
-
 /// Whether a selection's page is one of its own or reverse video's
 /// ([`Cold::selection_page`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2690,21 +2478,6 @@ pub struct Term<'b> {
 /// `#[must_use]` because the two answers are different facts about the
 /// terminal, and a caller that drops the value renders a grid that disagrees
 /// with the application about its own size.
-/// The status line as [`Term::status_line`] lends it.
-#[derive(Clone, Copy, Debug)]
-pub struct StatusLine<'a> {
-    /// The line's cells, the main display's width.
-    pub cells: &'a [PackedCell],
-    /// Its line rendition: DECDWL and DECDHL act on it as on any line.
-    pub rendition: LineRendition,
-    /// Its cursor's column, while DECSASD selects the line and the line's
-    /// DECTCEM shows it.
-    pub cursor: Option<Col>,
-    /// **The table its cells name renditions in**: the status row's own
-    /// band's, which the single mode's one table is.
-    pub styles: baud_domain::LiveTable<'a>,
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[must_use]
 pub enum Resized {

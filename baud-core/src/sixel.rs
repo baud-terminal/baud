@@ -31,7 +31,8 @@
 //! from one Sixel to the next.
 
 use crate::paint::Paint;
-use crate::term::{Screen, SixelBg};
+use crate::term::SixelBg;
+use baud_domain::Screen;
 use baud_domain::*;
 
 impl<M: crate::bands::BandMode> Paint<'_, '_, M> {

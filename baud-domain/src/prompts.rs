@@ -81,6 +81,56 @@ impl PromptEntry {
     }
 }
 
+/// Which half of the screen's life the terminal is in, from `OSC 133`.
+///
+/// **The one thing a resize needs to know.** A shell redraws its prompt
+/// after a resize by counting the rows it occupies, moving the cursor up
+/// by that many and erasing from there -- so re-cutting those rows to a
+/// new width changes the count behind its back, the erase starts below
+/// the prompt's first line, and that line survives. Every resize leaves
+/// another. Re-cutting *output* has no such reader: nothing will redraw
+/// it, which is exactly why re-cutting it is worth doing.
+///
+/// So the boundary is a state and the row it began on: the shell owns the
+/// screen from prompt start until the command's output begins, from the
+/// block's first row down, and a resize keeps those rows whole while it
+/// re-cuts the finished output above them; the application owns it after.
+/// `baud-bench`'s `winch` replays a capture of a real shell with real
+/// resizes against it.
+///
+/// A terminal that has seen no marks is in [`Zone::Output`]: a stream with
+/// no shell integration is output throughout, and a resize re-cuts all of
+/// it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Zone {
+    /// From `OSC 133 ; A` or `; P` until `; C` or `; D`: the shell is
+    /// drawing or the user is typing, and the shell will redraw this on a
+    /// resize. `D` closes it as `C` does, because a command that ran
+    /// nothing -- Enter on an empty line -- sends no `C`.
+    Prompt,
+    /// Everywhere else, and where a stream sends no marks at all.
+    #[default]
+    Output,
+}
+
+/// Where a prompt's first line is, from the live screen: `Back(n)` is the
+/// line `n` lines above the live screen's top, so `Term::set_window_back`
+/// with `n` puts it at the window's top, and `Screen(r)` is row `r` of the
+/// live screen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PromptLine {
+    Back(Rows),
+    Screen(Row),
+}
+
+/// One prompt the shell drew on the primary, and how its command ended
+/// (`Term::prompts`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PromptMark {
+    pub line: PromptLine,
+    pub status: ExitStatus,
+}
+
 /// An open command: the `aid` that opened it and the prompt it began with.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Open {

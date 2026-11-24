@@ -316,6 +316,14 @@ pub enum WrappedAt {
     Margins,
 }
 
+/// Whether the next graphic character wraps before it is written; see
+/// `Term::wrap_pending`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WrapPending {
+    No,
+    Yes,
+}
+
 impl LineBidi {
     /// No path, autodetection on, no box mirroring.
     pub const POWER_ON: LineBidi = LineBidi(0);

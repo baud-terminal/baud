@@ -23,7 +23,7 @@
 
 use crate::cell::PackedCell;
 use crate::grid::RowRot;
-use crate::quantity::{Cols, Rows};
+use crate::quantity::{Cols, Row, Rows};
 use crate::store::LineRendition;
 
 /// How a stored line ended: at a newline, or by the writer wrapping onto the
@@ -50,6 +50,35 @@ impl Back {
     pub fn index(self) -> usize {
         self.0
     }
+}
+
+/// A line of the live surface: a row of the screen, or a line of the
+/// history `n` lines above the screen's top row -- `Above(Rows::of_count(1))`
+/// is the newest line behind the window. What `Term::watch_lines` arms a
+/// watch on, so a selection that reaches into the history, or lies wholly in
+/// it, is watched as one on the screen is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SurfaceLine {
+    Above(Rows),
+    At(Row),
+}
+
+/// How far the text of watched lines moved against the count of lines the
+/// live surface retired or took back: up the screen, or down it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TextMoved {
+    Up(Rows),
+    Down(Rows),
+}
+
+/// What `Term::watched_lines` says of the watched lines: the first and
+/// last that stay, as lines of the live surface now, and how far the text
+/// of a line that no trim reached moved against the count.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WatchedLines {
+    pub first: SurfaceLine,
+    pub last: SurfaceLine,
+    pub moved: TextMoved,
 }
 
 /// The lines behind the window, newest first, each as the window draws it

@@ -48,7 +48,7 @@
 // made, and the rest of the recording is never reached.
 #![cfg_attr(not(feature = "read-record"), allow(dead_code))]
 
-use crate::term::Screen;
+use baud_domain::Screen;
 use baud_domain::{BytePos, LineIdx, Rows};
 
 /// Lines from the first to the last of one surface, both included.

@@ -34,10 +34,9 @@ pub const READ_CHUNK: usize = 4096;
 /// on one read rather than a working set, and nothing walks it to re-sweep.
 pub const ARENA: usize = 1 << 20;
 
-/// The widest and tallest grid addressable. A `CSI 8 ; r ; c t` past these is
-/// clamped rather than refused.
+/// The widest grid addressable. A `CSI 8 ; r ; c t` past it is clamped
+/// rather than refused.
 pub const MAX_COLS: usize = 2048;
-pub const MAX_ROWS: usize = 640;
 
 // **The widest pitch `MAX_COLS` takes fits a row's mark**, which shares
 // its word with the wrap, the rendition and the region-top bit
@@ -233,7 +232,7 @@ pub struct Book<'b> {
     /// `u32` (its assert refused it), and beside the history counts a reset
     /// is the other half of. `Paint` carries this word by
     /// reference, so the per-byte loop carries nothing more for it.
-    pub(crate) resets: crate::term::Resets,
+    pub(crate) resets: baud_domain::Resets,
     /// **The absolute line at the top of the primary window.** It moves with
     /// the rotation both ways -- up one for every row the window retires,
     /// down one for every row it takes back -- and a reflow renumbers it with
@@ -297,7 +296,7 @@ pub struct Book<'b> {
     /// of `Term` it moved the twelve fields of `Term` after `utf8` by four
     /// and cost about 0.3% more instructions retired on `cat`; `Cold`'s
     /// three bytes of padding held the kept erasure and not this word too.
-    pub(crate) watched_at: crate::term::HistoryErasures,
+    pub(crate) watched_at: baud_domain::HistoryErasures,
     /// **The primary's window over the history**: the live
     /// screen, or the absolute line at its top. An absolute line holds its
     /// text as lines retire with no write at all -- `top` moves past it --
@@ -1392,8 +1391,7 @@ pub const NSTYLE_MAX: usize = 1 << 16;
 pub const BAND_SLOTS: BandSlots = BandSlots(1 << 15);
 
 /// How many slots a band's table holds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BandSlots(pub usize);
+pub use baud_domain::BandSlots;
 
 /// **The slots a table holds that no cell of the screen has to name**: slot
 /// 0, the default every blank cell names; the current rendition; and the
@@ -2218,14 +2216,14 @@ impl<'b> Storage<'b> {
             book: Book {
                 hist: Rows::ZERO,
                 hidden: Rows::ZERO,
-                resets: crate::term::Resets::FIRST,
+                resets: baud_domain::Resets::FIRST,
                 top: LineIdx::FIRST,
                 alt_top: LineIdx::FIRST,
                 reach: Cols::of_index(0),
                 held: Rows::ZERO,
                 past,
                 swept: LineIdx::FIRST,
-                watched_at: crate::term::HistoryErasures::FIRST,
+                watched_at: baud_domain::HistoryErasures::FIRST,
                 window: HistoryWindow::Live,
             },
             strs,

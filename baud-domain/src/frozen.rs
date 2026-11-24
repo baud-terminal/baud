@@ -1140,6 +1140,63 @@ impl<'a> LiveBands<'a> {
     }
 }
 
+/// How many slots a band's table holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BandSlots(pub usize);
+
+/// **Every band's live rendition table, read-only**: what `Term::styles`
+/// gives a renderer that resolves each band's slots once a frame. A reader
+/// resolving one row's cells takes that row's table from its
+/// [`RowStyles`] instead (`Term::row_styles`, [`Viewport::styles`]).
+///
+/// [`Viewport::styles`]: crate::Viewport::styles
+#[derive(Clone, Copy, Debug)]
+pub struct BandsView<'a> {
+    /// Every band's slots, `band_slots` a band, in band order.
+    all: &'a [StyleSlot],
+    band_slots: BandSlots,
+}
+
+impl<'a> BandsView<'a> {
+    pub fn of(all: &'a [StyleSlot], band_slots: BandSlots) -> BandsView<'a> {
+        BandsView { all, band_slots }
+    }
+
+    /// Every band's table, in band order; every band has as many slots.
+    pub fn bands(&self) -> impl ExactSizeIterator<Item = LiveTable<'a>> {
+        self.all
+            .chunks(self.band_slots.0.max(1))
+            .enumerate()
+            .map(|(k, s)| LiveTable::of_band(s, crate::Band::of(k)))
+    }
+
+    /// Every band's slots, in band order, `band_slots` a band.
+    pub fn slots(&self) -> &'a [StyleSlot] {
+        self.all
+    }
+
+    /// The slots each band has.
+    pub fn band_slots(&self) -> BandSlots {
+        self.band_slots
+    }
+
+    /// **Band `b`'s table**, which every row of `b` resolves through; an
+    /// empty table for a band the terminal does not have.
+    pub fn table(&self, b: crate::Band) -> LiveTable<'a> {
+        let n = self.band_slots.0.max(1);
+        let at = b.first_slot(n);
+        LiveTable::of_band(self.all.get(at..at + n).unwrap_or(&[]), b)
+    }
+
+    /// **The table of a terminal that keeps one band**, which every live
+    /// row is in: what a reader that resolves live ids without their row's
+    /// [`RowStyles`] reads. Panics on a terminal of more bands than one.
+    pub fn one(&self) -> LiveTable<'a> {
+        assert_eq!(self.bands().len(), 1, "a terminal of one band");
+        LiveTable::of(self.all)
+    }
+}
+
 /// **Which table a row's cells name ids in**: its band's live rendition
 /// table, or a generation's words.
 #[derive(Clone, Copy, Debug)]
