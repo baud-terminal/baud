@@ -143,6 +143,7 @@ mod grapheme_data {
     include!(concat!(env!("OUT_DIR"), "/grapheme_data.rs"));
 }
 mod grid;
+mod group_ask;
 mod history;
 mod ignorable_data {
     //! `Default_Ignorable_Code_Point`, compiled by `build/ignorable.rs` from
@@ -292,6 +293,7 @@ pub use frame::*;
 pub use frozen::*;
 pub use grapheme::*;
 pub use grid::*;
+pub use group_ask::*;
 pub use history::*;
 pub use image::*;
 pub use input::*;

@@ -220,6 +220,12 @@ const _: fn(baud_domain::Codepoint) -> (baud_domain::GraphemeClass, baud_domain:
 const _: fn(baud_domain::Codepoint) -> baud_domain::GraphemeClass = baud_domain::GraphemeClass::of;
 const _: [baud_domain::GraphemeClass; 16] = baud_domain::GraphemeClass::FROM_INDEX;
 const _: baud_domain::GraphemeClass = baud_domain::GraphemeClass::Other;
+// GroupAsk
+const _: fn(
+    baud_domain::AskPace,
+    baud_domain::ReadLinked,
+    baud_domain::GroupBefore,
+) -> baud_domain::GroupAsk = baud_domain::GroupAsk::decide;
 // HeldCover, at the span SpanSet is pinned at
 const _: for<'a> fn(
     &'a baud_domain::Tracked<baud_domain::SpanSet<Lines, ()>>,
@@ -1685,6 +1691,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("DirtyRows", "E0608"),
     ("DirtyRows", "E0616"),
     ("DecodeBudget", "E0423"),
+    ("GroupAsk", "E0308"),
     ("HeldCover", "E0451"),
     ("HostTime", "E0369"),
     ("ImageGen", "E0423"),
