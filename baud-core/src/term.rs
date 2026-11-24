@@ -6005,6 +6005,12 @@ impl<'b> Term<'b> {
         self.store.style_log.book().sweep.reclaims
     }
 
+    /// What band `b`'s table has reclaimed, as [`Term::style_reclaims`]
+    /// tells the write path's band's.
+    pub fn band_style_reclaims(&self, b: baud_domain::Band) -> Reclaims {
+        self.store.style_log.book_of(b).sweep.reclaims
+    }
+
     /// **Slots read by the rendition table's long probes**: every probe
     /// that went past the inline [`SweepBook::INLINE`], counted whole, and
     /// the walks behind a miss to an empty slot or a tombstone. A miss on a

@@ -13755,6 +13755,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
         out: &mut [Resolved],
         stamp: &mut StyleStamp,
     ) -> StyleSync {
+        self.sync_band(term, baud_domain::Band::FIRST, out, stamp)
+    }
+
+    /// **[`Renderer::sync_styles`] for band `band`'s table**: `out` is a
+    /// resolved copy of that band's slots alone, stamped against its serial
+    /// and its log (`Term::band_styles_written`), so a band first seen
+    /// resolves the slots its log has written, not every slot.
+    pub fn sync_band(
+        &mut self,
+        term: &Term<'_>,
+        band: baud_domain::Band,
+        out: &mut [Resolved],
+        stamp: &mut StyleStamp,
+    ) -> StyleSync {
         self.refresh_screen(term);
         self.bound_trail(term);
         let inputs = StyleInputs {
@@ -13762,9 +13776,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             video: self.video,
             colors: term.color_epoch(),
         };
-        let table = term.style_table();
-        let now = term.style_writes();
-        let slots = term.styles().one().slots();
+        let table = term.band_style_table(band);
+        let now = term.band_style_writes(band);
+        let slots = term.styles().table(band).slots();
         // A copy of this table under these inputs replays; a reader ahead
         // of the log, which only a copy of another table can be, is told
         // every slot by `styles_written` itself.
@@ -13780,7 +13794,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         } else {
             baud_domain::StyleWrites::NEVER
         };
-        match term.styles_written(since) {
+        match term.band_styles_written(band, since) {
             baud_core::Written::Slots(parts) => {
                 for &k in parts.iter().flat_map(|p| p.iter()) {
                     let Some(dst) = out.get_mut(k.index()) else {
@@ -13844,7 +13858,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // The core's own count of what it reclaimed, and not writes past the
         // table's length: a table that sweeps passes its length without
         // evicting, and logs every slot a sweep frees.
-        let reclaims = term.style_reclaims();
+        let reclaims = term.band_style_reclaims(band);
         if fresh && stamp.reclaims.is_some_and(|r| reclaims.recolours_since(r)) {
             sync.evicted = Evicted::Yes;
         }

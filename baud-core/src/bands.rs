@@ -107,7 +107,18 @@ impl<'a> BandsView<'a> {
 
     /// Every band's table, in band order; every band has as many slots.
     pub fn bands(&self) -> impl ExactSizeIterator<Item = LiveTable<'a>> {
-        self.all.chunks(self.band_slots.0.max(1)).map(LiveTable::of)
+        self.all
+            .chunks(self.band_slots.0.max(1))
+            .enumerate()
+            .map(|(k, s)| LiveTable::of_band(s, Band::of(k)))
+    }
+
+    /// **Band `b`'s table**, which every row of `b` resolves through; an
+    /// empty table for a band the terminal does not have.
+    pub fn table(&self, b: Band) -> LiveTable<'a> {
+        let n = self.band_slots.0.max(1);
+        let at = b.first_slot(n);
+        LiveTable::of_band(self.all.get(at..at + n).unwrap_or(&[]), b)
     }
 
     /// **The table of a terminal that keeps one band**, which every live

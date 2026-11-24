@@ -19,7 +19,7 @@ const READERS: [(&str, usize); 11] = [
     ("baud-render/src/frozen.rs", 6),
     ("baud-render/src/overlay.rs", 1),
     ("baud-render/src/rebreak.rs", 4),
-    ("baud-render/src/renderer.rs", 12),
+    ("baud-render/src/renderer.rs", 11),
     ("baud-render/src/select.rs", 3),
     ("baud-sfte-difftest/src/lib.rs", 1),
 ];

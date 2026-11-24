@@ -96,4 +96,6 @@ fn each_band_s_table_names_its_band_and_logs_its_own_writes() {
     assert_ne!(serial, t.band_style_table(baud_domain::Band::of(1)));
     support::feed(&mut t, b"\x1b[10;2H\x1b[38;2;4;5;6mY\x1b[0m");
     assert_eq!(t.band_style_table(band), serial, "a write keeps the table");
+    assert_eq!(t.band_style_reclaims(band).sweeps, 0, "nothing swept yet");
+    assert_eq!(t.styles().table(band).band(), band);
 }
