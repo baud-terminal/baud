@@ -246,6 +246,10 @@ colour-in-match = ["baud-domain/colour-in-match"]
 # The rendition intern priced by doing it twice.
 probe-double-intern = []
 probe-double-intern-full = []
+# A test holds spare slots of one band, which that band's sweep keeps: how
+# `band_reserve.rs` reaches a band filled to its reserve exactly, which no
+# real geometry does. The default build's sweep does not read it.
+probe-band-pin = []
 # `Csi::parse_with` priced by doing it twice -- the general grammar, which
 # every non-SGR sequence goes through.
 probe-double-parse = []

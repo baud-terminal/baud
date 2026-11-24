@@ -687,6 +687,16 @@ impl Reclaims {
     }
 }
 
+/// **What a banded terminal found wrong and put right**: a pen whose id did
+/// not name its own word in the band it writes, after a display came back
+/// or a change of width, interned again from its word. A check that
+/// repairs and counts, where a check that stopped the terminal would
+/// trade a wrong colour for a dead window; a test reads every count as 0.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct BandRepairs {
+    pub pens: u64,
+}
+
 /// **The sweep's book beside the rendition table**: how full it is, how many
 /// of its filled slots are tombstones, the write count at the last sweep, and
 /// what it has reclaimed. In the caller's memory with the table

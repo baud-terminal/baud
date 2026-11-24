@@ -19,6 +19,7 @@
 //! whose programs never froze would pass whatever the freeze did.
 
 use baud_core::*;
+use baud_domain::BandRepairs;
 use proptest::prelude::*;
 
 const WS: WinSize = WinSize {
@@ -249,6 +250,20 @@ fn run(prog: &[Atom]) -> Result<baud_domain::FreezeCounts, TestCaseError> {
         // both keep reads the same through its band as through the
         // reference's one table.
         for (name, f) in [("bands of 1", &one), ("bands of 4", &four)] {
+            prop_assert_eq!(
+                f.band_repairs(),
+                BandRepairs::default(),
+                "{} step {}: a pen repaired",
+                name,
+                k
+            );
+            prop_assert_eq!(
+                f.frozen().counts.rows_unfrozen,
+                0,
+                "{} step {}: a row left unfrozen",
+                name,
+                k
+            );
             let lines = f.scrollback().len().min(b.scrollback().len());
             let (rf, rb) = (read(f, lines), read(&b, lines));
             prop_assert_eq!(rf.len(), rb.len(), "{} step {}: lines", name, k);
@@ -350,6 +365,16 @@ fn flooded(lines: u8, next: &mut usize) -> Vec<u8> {
 
 /// `a` reads, line for line, as the reference `b` does.
 fn same_lines(a: &Term<'_>, b: &Term<'_>, what: &str) {
+    assert_eq!(
+        a.band_repairs(),
+        BandRepairs::default(),
+        "{what}: a pen repaired"
+    );
+    assert_eq!(
+        a.frozen().counts.rows_unfrozen,
+        0,
+        "{what}: a row left unfrozen"
+    );
     let lines = a.scrollback().len().min(b.scrollback().len());
     let (ra, rb) = (read(a, lines), read(b, lines));
     assert_eq!(ra.len(), rb.len(), "{what}: lines");
@@ -534,4 +559,42 @@ fn a_clamped_band_keeps_its_rows_across_a_change_of_width() {
         same_lines(&f, &b, "clamped band, the primary back");
     }
     assert_eq!(f_owned.band_rows(), given, "the band storage gave, kept");
+}
+
+/// **The parked display keeps its rendition through a banded resize**: with
+/// the status line selected, a change of width empties every primary band's
+/// table and interns the rows again, so an id the main display parked would
+/// name nothing. The main display keeps its rendition as a word, and the
+/// text it writes when it is selected again is in that rendition, as the
+/// single table's is.
+#[test]
+fn the_parked_display_keeps_its_pen_through_a_banded_resize() {
+    let mut f_owned = Owned::new(banded(1));
+    let mut f = Term::new(f_owned.storage(), &WS);
+    let mut b_owned = Owned::new(&BIG);
+    let mut b = Term::new(b_owned.storage(), &WS);
+    let mut next = 1usize;
+    let flood = flooded(12, &mut next);
+    let before: [&[u8]; 2] = [
+        &flood,
+        b"\x1b[38;2;11;12;13;48;2;14;15;16mmain\x1b[2$~\x1b[1$}\x1b[38;2;21;22;23mline",
+    ];
+    for s in before {
+        feed(&mut f, s);
+        feed(&mut b, s);
+    }
+    for cols in [30, 40] {
+        let ws = WinSize {
+            ws_col: cols,
+            ws_row: 10,
+        };
+        assert_eq!(f.resize(&ws), Resized::Ok);
+        let _ = b.resize(&ws);
+    }
+    // More of the line, then the main display again, which writes in the
+    // rendition it parked with.
+    let after = b"more\x1b[0$}main again\r\n";
+    feed(&mut f, after);
+    feed(&mut b, after);
+    same_lines(&f, &b, "the main display's pen after the resize");
 }

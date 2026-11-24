@@ -238,25 +238,26 @@ impl Layout {
 /// an id in a band's table that the band's sweep must keep, gathered in one
 /// type the sweep takes, so a holder the sweep does not see cannot be added
 /// without a field here. The pen is the current rendition interned into the
-/// band the write path is in, re-interned on entering another; the parked
-/// pen is the main display's while the status line is written. The cursor
+/// band the write path is in, re-interned on entering another. The display
+/// parked while the other is written keeps its rendition as a word and no
+/// id: its id would be another band's, and it is interned from the word
+/// into its own band when it comes back (`Paint::swap_display`). The cursor
 /// DECSC saves keeps its rendition as a word, not an id, so it holds no
 /// slot; a row a translation rewrites has its ids reset before its words
 /// are interned into its band, so a translation in flight holds none.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct BandRoots {
     pub(crate) pen: StyleId,
-    pub(crate) parked: StyleId,
 }
 
 impl BandRoots {
     /// The ids the roots hold.
     pub(crate) fn ids(&self) -> [StyleId; BandRoots::COUNT] {
-        [self.pen, self.parked]
+        [self.pen]
     }
 
     /// How many ids the roots hold.
-    pub(crate) const COUNT: usize = 2;
+    pub(crate) const COUNT: usize = 1;
 }
 
 /// **The slots of a band's table no row's cell names**: slot 0, the
@@ -463,5 +464,42 @@ impl baud_domain::CrossBand for Moves {
 impl Recorded for Moves {
     fn moves(&self) -> impl Iterator<Item = (PhysRow, Origin, core::ops::Range<usize>)> {
         (0..self.n.index()).map(|i| (self.to[i], self.origin[i], self.cols[i].clone()))
+    }
+}
+
+/// **Slots of one band a test holds** (`probe-band-pin`): renditions no
+/// cell names, interned into band `band`, which that band's sweep keeps
+/// beside its roots, so a test fills the band to its reserve exactly.
+#[cfg(feature = "probe-band-pin")]
+#[derive(Clone, Copy)]
+pub(crate) struct Pins {
+    pub(crate) band: Band,
+    ids: [StyleId; Pins::CAP],
+    held: BandSlots,
+}
+
+#[cfg(feature = "probe-band-pin")]
+impl Pins {
+    /// The most a test holds.
+    pub(crate) const CAP: usize = 256;
+
+    /// None held.
+    pub(crate) const NONE: Pins = Pins {
+        band: Band::FIRST,
+        ids: [StyleId::DEFAULT; Pins::CAP],
+        held: BandSlots(0),
+    };
+
+    /// The ids held.
+    pub(crate) fn held(&self) -> &[StyleId] {
+        &self.ids[..self.held.0]
+    }
+
+    /// One more held, while there is room.
+    pub(crate) fn hold(&mut self, id: StyleId) {
+        if self.held.0 < Pins::CAP {
+            self.ids[self.held.0] = id;
+            self.held = BandSlots(self.held.0 + 1);
+        }
     }
 }

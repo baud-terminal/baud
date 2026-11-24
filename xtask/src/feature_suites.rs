@@ -42,7 +42,7 @@ use crate::third_party::Outcome;
 pub const MANIFEST: &str = "baud-core/Cargo.toml";
 
 /// The features the manifest declares.
-pub const FLOOR: Floor = Floor(53);
+pub const FLOOR: Floor = Floor(54);
 
 /// One build a line, its arms joined by commas.
 pub const BUILDS: [&str; 5] = [
@@ -82,7 +82,7 @@ pub const OFF_ARM64: [&str; 1] = ["route-stride"];
 pub const DEFAULT_OFF: [&str; 1] = ["read-record"];
 
 /// Not run: each name and why.
-pub const EXCLUDED: [(&str, &str); 25] = [
+pub const EXCLUDED: [(&str, &str); 26] = [
     (
         "alloc",
         "on in every test build: the dev-dependency on baud-core itself enables it",
@@ -179,6 +179,10 @@ pub const EXCLUDED: [(&str, &str); 25] = [
     (
         "probe-double-intern-full",
         "not additive, it writes the bucket slot whatever holds it: a_hit_writes_nothing",
+    ),
+    (
+        "probe-band-pin",
+        "test-only: test:unit runs band_reserve under it in a step of its own (pinBuild), and so does the scoped gate's pin step",
     ),
 ];
 

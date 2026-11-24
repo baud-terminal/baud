@@ -2978,11 +2978,15 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             // The band's own rows and its roots: nothing else names its
             // slots (`Paint::mark_band_live`).
             true => {
-                let roots = crate::bands::BandRoots {
-                    pen: self.style,
-                    parked: self.strs.status.parked_style(),
-                };
+                let roots = crate::bands::BandRoots { pen: self.style };
                 self.mark_band_live(&mut live, self.style_log.band(), roots);
+                // A test's held slots, in the band it holds them in.
+                #[cfg(feature = "probe-band-pin")]
+                if self.style_log.pins.band == self.style_log.band() {
+                    for &id in self.style_log.pins.held() {
+                        live.insert(id);
+                    }
+                }
             }
             false => {
                 live.insert(self.style);

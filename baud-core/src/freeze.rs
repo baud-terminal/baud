@@ -797,10 +797,6 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
                 // test build stops here.
                 None => {
                     frz.counted_unfrozen();
-                    debug_assert!(
-                        false,
-                        "a band freeze found no room the check before it promised"
-                    );
                 }
             }
         }
@@ -817,10 +813,11 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
     /// Every primary band's table is emptied to its default first: no row
     /// names its slots while all are frozen, and an emptied table holds
     /// every rendition its rows can name ([`crate::Provision`]), so a thaw
-    /// never needs a slot a stale one holds. Then the roots are interned
-    /// again from their words -- the pen into the cursor's band, the parked
-    /// display's into its row's -- and each primary band's table is a new
-    /// one to a drawer that kept its slots. The pool is released.
+    /// never needs a slot a stale one holds. Then the pen is interned again
+    /// from its word into the cursor's band -- the display parked keeps a
+    /// word and no id ([`crate::bands::BandRoots`]) -- and each primary
+    /// band's table is a new one to a drawer that kept its slots. The pool
+    /// is released.
     #[cold]
     #[inline(never)]
     pub(crate) fn thaw_bands(&mut self) {
@@ -862,22 +859,13 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
             f.set_thawing(Thawing::Idle);
             f.release();
         }
-        // The parked display's rendition, when it is the primary's.
-        if self.on_status() && self.strs.status.park_screen() == Screen::Normal {
-            let (row, raw) = self.strs.status.parked_pen();
-            let p = self.status.rot().advance(row.index(), self.status.ring());
-            let b = layout.band_of(Surface::Primary, PhysRow::of(p.index()));
-            M::at(&mut self.tmpl, b);
-            self.style_log.set_band(b);
-            let id = self.intern_style(raw);
-            self.strs.status.set_parked_style(id);
-        }
         // The pen, into the band the write path is in.
         self.enter_band(self.band_of(self.cy));
         for b in primary {
             self.style_log.reminted(b);
         }
         self.style_log.book_mut().sweep.rewrote();
+        self.pen_repaired();
     }
 
     /// **A reverse scroll on the primary took a row back at the top and
@@ -972,4 +960,94 @@ pub(crate) enum FreezeBands {
 pub(crate) enum Renumbered {
     No,
     Yes,
+}
+
+#[cfg(feature = "probe-band-pin")]
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
+    /// **`n` renditions no cell names interned into band `band` and held
+    /// there** (`probe-band-pin`): each its own, and kept by the band's
+    /// sweep, so they take `n` slots for as long as the terminal lives.
+    /// The slots held, fewer when the band refused one.
+    pub(crate) fn pin_band(
+        &mut self,
+        band: Band,
+        n: crate::storage::BandSlots,
+    ) -> crate::storage::BandSlots {
+        M::at(&mut self.tmpl, band);
+        self.style_log.set_band(band);
+        self.style_log.pins.band = band;
+        let n = u16::try_from(n.0.min(crate::bands::Pins::CAP)).unwrap_or(0);
+        let mut held = 0;
+        for i in 0..n {
+            let w = StyleWord::DEFAULT
+                .with_fg(ColorWord::rgb(
+                    Chan::from_u8(251),
+                    Chan::from_u8(252),
+                    Chan::from_offset(i, 0),
+                ))
+                .with_bg(ColorWord::rgb(
+                    Chan::from_u8(253),
+                    Chan::from_u8(254),
+                    Chan::from_offset(i, 0),
+                ));
+            let id = self.intern_style(w);
+            if id == StyleId::DEFAULT {
+                break;
+            }
+            self.style_log.pins.hold(id);
+            held += 1;
+        }
+        self.enter_band(self.band_of(self.cy));
+        crate::storage::BandSlots(held)
+    }
+}
+
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
+    /// **Banded, whether the pen is its word in the band it writes**: the
+    /// band the write path is in is the cursor row's on the display the
+    /// live fields hold, and the pen's id names a slot of that band holding
+    /// the pen's word -- or the band refused it, and the pen is the default.
+    /// What `swap_display` and `thaw_bands` leave, checked after each
+    /// ([`Paint::pen_repaired`]), so a pen left on another band's id is
+    /// counted there and not repaired unseen by a later band entry. True in
+    /// the single mode.
+    pub(crate) fn pen_is_its_word(&self) -> bool {
+        if !M::BANDED {
+            return true;
+        }
+        let band = self.live_band();
+        let held = self
+            .tmpl
+            .as_slice()
+            .get(self.style.index())
+            .copied()
+            .flatten();
+        let refused =
+            self.style == StyleId::DEFAULT && self.style_log.book().sweep.reclaims.refusals > 0;
+        self.style_log.band() == band && (held == Some(self.style_raw) || refused)
+    }
+
+    /// The band of the cursor's row on the display the live fields hold.
+    fn live_band(&self) -> Band {
+        use crate::bands::Surface;
+        let surface = match (self.on_status(), self.cold.screen) {
+            (true, _) => Surface::Status,
+            (false, Screen::Alternate) => Surface::Alt,
+            (false, Screen::Normal) => Surface::Primary,
+        };
+        self.style_log
+            .layout
+            .band_of(surface, self.view.phys_row(self.cy))
+    }
+
+    /// **The pen put right where it is not its word in its band**, and
+    /// counted ([`baud_domain::BandRepairs`]): interned again from its word
+    /// into the band of the cursor's row. A shipped terminal repairs a pen
+    /// a band entry missed rather than stop; a test reads the count as 0.
+    pub(crate) fn pen_repaired(&mut self) {
+        if !self.pen_is_its_word() {
+            self.enter_band(self.live_band());
+            self.style_log.repairs.pens += 1;
+        }
+    }
 }

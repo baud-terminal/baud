@@ -465,22 +465,11 @@ impl Status {
         (self.park.cursor == ModeChange::Set).then(|| self.park.cx.reported(fence, cols))
     }
 
-    /// The style ids a sweep must keep beside the cells: the parked
-    /// display's rendition.
+    /// The style id a single table's sweep must keep beside the cells: the
+    /// parked display's rendition. Banded, the parked display keeps its word
+    /// and no id (`crate::bands::BandRoots`).
     pub(crate) fn parked_style(&self) -> StyleId {
         self.park.style
-    }
-
-    /// **The parked display's cursor row and rendition word**, which a
-    /// change of width in the banded mode interns again into the band the
-    /// row stands in (`Paint::thaw_bands`).
-    pub(crate) fn parked_pen(&self) -> (Row, StyleWord) {
-        (self.park.cy, self.park.style_raw)
-    }
-
-    /// The parked display's rendition, interned again.
-    pub(crate) fn set_parked_style(&mut self, id: StyleId) {
-        self.park.style = id;
     }
 
     /// The parked display's screen: the main display's while the line is
@@ -870,11 +859,20 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         core::mem::swap(&mut self.cold.screen, &mut p.screen);
         #[cfg(feature = "read-record")]
         core::mem::swap(&mut self.cold.alt_top, &mut p.alt_top);
+        // **Banded, the display parked keeps its rendition as its word alone**:
+        // its id names its own band's slot, which no sweep of the band the
+        // other display writes keeps, so it is never read; the display that
+        // comes back has its pen interned from its word into its own band by
+        // the band its cursor's row enters, below, and checked after.
+        if M::BANDED {
+            p.style = StyleId::DEFAULT;
+        }
         self.strs.status.park = p;
         self.strs.status.swapped = into;
         self.view
             .swap_surface(self.status.surface_mut(&mut self.strs.status.composed));
         self.row_changed_to(self.cy);
+        self.pen_repaired();
         // **What this display's home and limit do is taken again**: they
         // came back with it, and BDSM and DCSM, both displays', may have
         // changed while it was parked. So the modes that read them, the

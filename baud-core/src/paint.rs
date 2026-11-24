@@ -2604,10 +2604,12 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
     /// The band physical row `p` of the surface up is in.
     pub(crate) fn band_of_phys(&self, p: baud_domain::PhysRow) -> baud_domain::Band {
         use crate::bands::Surface;
-        let surface = match (self.strs.status.active, self.cold.screen) {
-            (baud_domain::ActiveDisplay::Status, _) => Surface::Status,
-            (_, crate::term::Screen::Alternate) => Surface::Alt,
-            (_, crate::term::Screen::Normal) => Surface::Primary,
+        // The display the live fields hold: between reads the main display's,
+        // whichever DECSASD selected (`feed.rs`).
+        let surface = match (self.on_status(), self.cold.screen) {
+            (true, _) => Surface::Status,
+            (false, crate::term::Screen::Alternate) => Surface::Alt,
+            (false, crate::term::Screen::Normal) => Surface::Primary,
         };
         self.style_log.layout.band_of(surface, p)
     }

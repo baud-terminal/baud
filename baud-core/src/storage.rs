@@ -1818,6 +1818,11 @@ pub(crate) struct StyleLog<'b> {
     /// none ([`Storage::with_frozen`]). Here because `Paint` carries this
     /// word by reference, so the per-byte loop carries nothing more for it.
     pub(crate) frozen: Option<FrozenStore<'b>>,
+    /// What the banded checks put right ([`baud_domain::BandRepairs`]).
+    pub(crate) repairs: baud_domain::BandRepairs,
+    /// Slots of one band a test holds (`probe-band-pin`).
+    #[cfg(feature = "probe-band-pin")]
+    pub(crate) pins: crate::bands::Pins,
 }
 
 impl<'b> StyleLog<'b> {
@@ -1837,6 +1842,9 @@ impl<'b> StyleLog<'b> {
             cur: baud_domain::Band::FIRST,
             layout: crate::bands::Layout::ONE,
             frozen: None,
+            repairs: baud_domain::BandRepairs { pens: 0 },
+            #[cfg(feature = "probe-band-pin")]
+            pins: crate::bands::Pins::NONE,
         }
     }
 }

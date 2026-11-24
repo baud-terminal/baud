@@ -5961,6 +5961,35 @@ impl<'b> Term<'b> {
         self.store.style_log.tables()
     }
 
+    /// **`n` spare slots of band `band` held** (`probe-band-pin`): renditions
+    /// no cell names, interned there and kept by its sweep, so a test fills
+    /// the band to its reserve exactly. The slots held.
+    #[cfg(feature = "probe-band-pin")]
+    pub fn pin_band_slots(
+        &mut self,
+        band: baud_domain::Band,
+        n: crate::storage::BandSlots,
+    ) -> crate::storage::BandSlots {
+        use crate::storage::BandSlots;
+        struct Pin(baud_domain::Band, BandSlots);
+        impl PaintJob for Pin {
+            type Out = BandSlots;
+            fn run<M: crate::bands::BandMode>(
+                self,
+                p: &mut crate::paint::Paint<'_, '_, M>,
+            ) -> BandSlots {
+                p.pin_band(self.0, self.1)
+            }
+        }
+        self.outside_read(Pin(band, n))
+    }
+
+    /// **What the banded checks put right** ([`BandRepairs`]): every count
+    /// is 0 unless a band entry left a pen on another band's id.
+    pub fn band_repairs(&self) -> BandRepairs {
+        self.store.style_log.repairs
+    }
+
     /// How many writes the rendition table has taken, for a reader to ask
     /// later what changed since ([`Term::styles_written`]).
     pub fn style_writes(&self) -> StyleWrites {
