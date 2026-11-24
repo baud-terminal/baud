@@ -14874,6 +14874,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // which under a flash is the colour a flip would leave.
         let block_paint = self.block_paint;
         let mut blinks = Blinking::UNSEEN;
+        // What every cell of the row draws with, read once: the selection's
+        // colours, the blink phase, and the cursor if it is on this row.
+        let (hilite, blink) = (self.hilite, self.blink);
+        let cursor_visual = cursor_visual.filter(|&(cr, _, _, _)| cr == r);
         for (c, cell) in row.iter().enumerate().take(chars) {
             let col = Col::at_index(c);
             // One load from the resolved table, which `sync_styles` keeps.
@@ -14889,7 +14893,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // The cursor is kept by its logical cell and drawn where that
             // cell is: `here` holds the logical column, for `cursor_px`.
             let here = cursor_visual
-                .filter(|&(cr, _, cv, _)| cr == r && cv == col)
+                .filter(|&(_, _, cv, _)| cv == col)
                 .map(|(cr, cc, _, s)| (cr, cc, s));
             let block = match here {
                 Some((_, _, style)) if self.swaps(style) => BlockCursor::Yes(block_paint),
@@ -14916,9 +14920,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 pictured: self.pictures.at(r, col),
                 line: Line::of(cell.content),
                 selected,
-                hilite: self.hilite,
+                hilite,
                 block,
-                blink: self.blink,
+                blink,
                 cursor: opacity,
             });
             let (fg, hidden) = (d.fg, !d.text.draws());
