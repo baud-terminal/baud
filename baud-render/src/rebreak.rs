@@ -780,17 +780,17 @@ pub(crate) fn line_styles<'t>(
         let want = Rows::of_index(back.index() + k.index());
         return match term.looking_back(want) == want {
             true => term.view(want).styles(Row::ZERO),
-            false => crate::frozen::live(term),
+            false => crate::frozen::held_none(term),
         };
     }
     let Some(last) = rows.index().checked_sub(1).map(Row::from_index) else {
-        return crate::frozen::live(term);
+        return crate::frozen::held_none(term);
     };
     match l.since(WindowLine::of(last)) {
         Some(k) if k.index() <= back.index() => term
             .view(Rows::of_count(back.index() - k.index()))
             .styles(last),
-        _ => crate::frozen::live(term),
+        _ => crate::frozen::held_none(term),
     }
 }
 

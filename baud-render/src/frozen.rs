@@ -122,6 +122,16 @@ pub fn live<'t>(term: &'t Term<'_>) -> RowStyles<'t> {
     RowStyles::Live(live_table(term))
 }
 
+/// **The table a reader names a line's ids in where the terminal no
+/// longer holds the line**: no cell of it is read. The live table on a
+/// terminal of one band, as before; on one of more, the first band's.
+pub fn held_none<'t>(term: &'t Term<'_>) -> RowStyles<'t> {
+    match term.styles().bands().len() {
+        1 => live(term),
+        _ => RowStyles::Live(term.styles().table(baud_domain::Band::FIRST)),
+    }
+}
+
 /// That table, as a view of copied rows carries it ([`baud_domain::Viewport::new`]).
 pub fn live_table<'t>(term: &'t Term<'_>) -> baud_domain::LiveTable<'t> {
     term.styles().one()

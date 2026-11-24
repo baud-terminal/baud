@@ -4170,6 +4170,9 @@ pub struct Renderer<'f, 'a> {
     /// converts that frame's rows through `styles` later syncs its bands at
     /// (`Renderer::sized_ready`).
     laid_back: Rows,
+    /// The band the leaving row's ids name, while the cell path slides on
+    /// a terminal of more bands than one ([`Renderer::sync_cell_window`]).
+    leaving_drawn: Option<baud_domain::Band>,
     /// The cell path's windows of bands, one a buffer set
     /// ([`Renderer::cell_bases`]): a set's copy is built from its own last
     /// frame, so its slots and bases are its own.
@@ -4889,6 +4892,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             window: crate::band_window::BandWindow::default(),
             cell_windows: Vec::new(),
             laid_back: Rows::ZERO,
+            leaving_drawn: None,
             cpu_lent: crate::frozen::Lent::default(),
             lendings: crate::frozen::Lendings::default(),
             frame_words: crate::frozen::Held::default(),
@@ -5807,18 +5811,37 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// **The band the leaving row's ids name**: its own row's, or its first
-    /// run's where the display draws it from two rows; the first band for a
-    /// frozen row's.
-    pub(crate) fn leaving_band(&self, term: &Term<'_>, back: Rows) -> baud_domain::Band {
+    /// **The bands the leaving row's ids name, by runs of its columns in
+    /// the order the row is drawn**: its own row's, or each run's where the
+    /// display draws it from two rows; the first band for a frozen row's.
+    pub(crate) fn leaving_runs(
+        &self,
+        term: &Term<'_>,
+        back: Rows,
+    ) -> Vec<(core::ops::Range<usize>, baud_domain::Band)> {
         use baud_domain::{Band, RowStyles};
         let band = |s: &RowStyles<'_>| match s {
             RowStyles::Live(t) => t.band(),
             RowStyles::Frozen(_) => Band::FIRST,
         };
         match self.leaving_source(term, back) {
-            crate::frozen::RowSource::One(s) => band(&s),
-            crate::frozen::RowSource::Runs(r) => r.first().map_or(Band::FIRST, |(_, s)| band(s)),
+            crate::frozen::RowSource::One(s) => vec![(0..self.cols.index(), band(&s))],
+            crate::frozen::RowSource::Runs(r) => {
+                r.iter().map(|(c, s)| (c.clone(), band(s))).collect()
+            }
+        }
+    }
+
+    /// **The table the leaving row's ids name**, as the frame's copy holds
+    /// them: its band's while the cell path slides on a terminal of more
+    /// bands than one, the live table on one of one band.
+    pub(crate) fn leaving_table<'t>(&self, term: &'t Term<'_>) -> baud_domain::LiveTable<'t> {
+        match self
+            .leaving_drawn
+            .filter(|_| term.styles().bands().len() > 1)
+        {
+            Some(b) => term.styles().table(b),
+            None => crate::frozen::live_table(term),
         }
     }
 
@@ -13820,7 +13843,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// sweeps. It counts the blinking slots, and the overlay's walk answers.
     pub fn resolve_styles_into(&mut self, term: &Term<'_>, out: &mut [Resolved]) -> Tally {
         self.refresh_screen(term);
-        let table = term.styles().one().slots();
+        let table = term.styles().slots();
         let mut n = Tally::default();
         let mut blinking = Tally::default();
         for (slot, dst) in table.iter().zip(out.iter_mut()) {
@@ -14326,16 +14349,30 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &mut self,
         term: &Term<'_>,
         (back, set): (Rows, crate::screens::SetIx),
-        leaving: Option<baud_domain::Band>,
+        leaving: Option<Vec<(core::ops::Range<usize>, baud_domain::Band)>>,
         (styles, stamp): (&mut [Resolved], &mut StyleStamp),
     ) -> StyleSync {
         let held = self.bidi.orders().display_held();
         let (mut bands, mut joined, frozen) = self.row_bands(term, back, held.as_deref());
-        if let Some(b) = leaving {
-            bands.insert(0, b);
+        self.leaving_drawn = None;
+        if let Some(runs) = leaving {
+            let first = runs.first().map_or(baud_domain::Band::FIRST, |&(_, b)| b);
+            self.leaving_drawn = Some(first);
+            bands.insert(0, first);
             bands.truncate(self.rows.index());
             for j in &mut joined {
                 j.row = Row::from_index(j.row.index() + 1);
+            }
+            // A leaving row joining two bands is a joined line of its own,
+            // its runs in the order it is drawn.
+            if runs.iter().any(|&(_, b)| b != first) {
+                joined.insert(
+                    0,
+                    crate::band_window::Joined {
+                        row: Row::ZERO,
+                        runs,
+                    },
+                );
             }
         }
         let bs = term.styles().band_slots();

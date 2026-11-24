@@ -2903,7 +2903,7 @@ impl Overlay {
             Rows::of_count(1),
             Rows::of_count(1),
             baud_domain::RowRot::NONE,
-            crate::frozen::live_table(term),
+            r.leaving_table(term),
         );
         let scene = Scene {
             term,

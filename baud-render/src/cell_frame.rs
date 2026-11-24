@@ -230,11 +230,11 @@ where
             );
         }
         true => {
-            let leaving_band = sliding.then(|| renderer.leaving_band(term, back));
+            let leaving_runs = sliding.then(|| renderer.leaving_runs(term, back));
             renderer.sync_cell_window(
                 term,
                 (back, at),
-                leaving_band,
+                leaving_runs,
                 (&mut cell.styles_mem[set][..], &mut cell.style_stamps[set]),
             );
         }
@@ -411,7 +411,7 @@ where
                 &mut cell.styles_mem[set][..],
             ),
             (at, view.cols()),
-            Rows::of_count(usize::from(sliding)),
+            (Rows::of_count(usize::from(sliding)), view.rows()),
         );
     }
     // What the walk, the overlay and a sized line read the copy
@@ -450,7 +450,7 @@ where
             Rows::of_count(1),
             Rows::of_count(1),
             RowRot::NONE,
-            crate::frozen::live_table(term),
+            renderer.leaving_table(term),
         );
         cell.exceptions.ensure_leaving(
             cell.map,
@@ -741,7 +741,7 @@ fn number_joined(
     term: &Term<'_>,
     (copy, lent, styles): (&mut [PackedCell], &mut Lent, &mut [Resolved]),
     (set, cols): (SetIx, Cols),
-    slide: Rows,
+    (slide, rows): (Rows, Rows),
 ) {
     let Some(window) = renderer.cell_window(set) else {
         return;
@@ -751,8 +751,12 @@ fn number_joined(
     let orders = renderer.bidi();
     let mut pairs = Vec::new();
     for j in window.all_joined() {
-        let Some(y) = j.row.index().checked_sub(slide.index()) else {
-            continue;
+        // A window row is copied at its row, its runs logical; the leaving
+        // row, draw row 0 while sliding, after the window's, its runs in
+        // the order it is drawn already.
+        let (y, logical) = match j.row.index().checked_sub(slide.index()) {
+            Some(y) => (y, true),
+            None => (rows.index(), false),
         };
         let Some(row) = copy.get_mut(y * stride..y * stride + cols) else {
             continue;
@@ -760,7 +764,10 @@ fn number_joined(
         let r = Row::from_index(y);
         j.rewrite_drawn(
             row,
-            |l| orders.visual_col(r, l),
+            |l| match logical {
+                true => orders.visual_col(r, l),
+                false => l,
+            },
             &mut pairs,
             |x, was| lent.rewrote(r, x, was),
         );

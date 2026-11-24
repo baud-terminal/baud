@@ -115,16 +115,20 @@ impl<'m> Cells<'m> {
 fn built(
     r: &mut Renderer<'_, '_>,
     t: &mut Term<'_>,
-    back: Rows,
+    (back, slide): (Rows, Option<Px>),
     cell: &mut Cells<'_>,
     at: SetIx,
 ) -> Vec<(baud_domain::Content, Resolved)> {
+    let (leaving, pan) = match slide {
+        Some(p) => (Leaving::Drawn, p),
+        None => (Leaving::None, Px::of(0)),
+    };
     let seal = t.seal_writes();
     let t = &*t;
     r.fit(t);
     r.set_images(t, back);
     r.splash_yields_to(t, Px::of(0));
-    r.place_marks(t, back, Leaving::None, Px::of(0));
+    r.place_marks(t, back, leaving, pan);
     r.place_lights(t);
     let inputs = CellInputs {
         back,
@@ -132,8 +136,8 @@ fn built(
         live: None,
         composition: &None,
         highlight: None,
-        leaving: Leaving::None,
-        pan: Px::of(0),
+        leaving,
+        pan,
     };
     {
         let mut copies = cell.copies_mem.each_mut().map(|c| &mut c[..]);
@@ -169,8 +173,15 @@ fn built(
     let (bases, _) = r.cell_bases(at);
     let styles = &cell.styles_mem[at.0];
     let mut out = Vec::new();
-    for y in 0..rows {
-        let base = bases.get(y).map_or(0, |&b| usize::try_from(b).unwrap());
+    // While sliding the leaving row is copied after the window's and
+    // drawn first: window row `y` is draw row `y + 1`.
+    let slid = usize::from(slide.is_some());
+    for y in 0..rows + slid {
+        let drawn = match (slid, y == rows) {
+            (1, true) => 0,
+            _ => y + slid,
+        };
+        let base = bases.get(drawn).map_or(0, |&b| usize::try_from(b).unwrap());
         for x in 0..cols {
             let c = cell.copies_mem[at.0][y * stride + x];
             out.push((c.content, styles[base + c.style.index()]));
@@ -204,8 +215,8 @@ fn every_set_reads_its_cells_as_one_table_does() {
     let backs = [0, 10, 3, 0, 10, 0].map(Rows::of_count);
     for (k, back) in backs.into_iter().enumerate() {
         let at = SetIx(k % SETS);
-        let want = built(&mut rs, &mut ts, back, &mut cs, at);
-        let got = built(&mut rb, &mut tb, back, &mut cb, at);
+        let want = built(&mut rs, &mut ts, (back, None), &mut cs, at);
+        let got = built(&mut rb, &mut tb, (back, None), &mut cb, at);
         let differ: Vec<usize> = (0..want.len()).filter(|&i| want[i] != got[i]).collect();
         assert_eq!(
             differ.len(),
@@ -289,7 +300,7 @@ fn a_set_s_table_at_960x254_is_mostly_address_space() {
         .into_iter()
         .enumerate()
     {
-        built(&mut r, &mut t, back, &mut cell, SetIx(k % SETS));
+        built(&mut r, &mut t, (back, None), &mut cell, SetIx(k % SETS));
     }
     let size = core::mem::size_of::<Resolved>();
     let pages = n * size / 4096 + 1;
@@ -371,13 +382,58 @@ fn every_set_reads_strings_joins_links_and_the_status_line_as_one_table_does() {
     let backs = [0, 10, 0, 10].map(Rows::of_count);
     for (k, back) in backs.into_iter().enumerate() {
         let at = SetIx(k % SETS);
-        let want = built(&mut rs, &mut ts, back, &mut cs, at);
-        let got = built(&mut rb, &mut tb, back, &mut cb, at);
+        let want = built(&mut rs, &mut ts, (back, None), &mut cs, at);
+        let got = built(&mut rb, &mut tb, (back, None), &mut cb, at);
         let differ = (0..want.len()).filter(|&i| want[i] != got[i]).count();
         assert_eq!(
             differ, 0,
             "frame {k}, {back:?} back, set {at:?}: cells that differ"
         );
         assert_eq!(cb.records, cs.records, "frame {k}: the same records");
+    }
+}
+
+/// **A smooth scroll's frames, banded, as one table's**: the long feed at
+/// the bottom, each frame drawing the leaving row -- the line above the
+/// window, in a band of its own on a terminal of bands of four -- at a pan
+/// of half a row, into both sets in turn. Each cell, the leaving row's
+/// among them, is read through its set's base for its draw row, the
+/// leaving row's first, and the overlay's records are compared whole.
+/// Breaks: read the leaving row's one-row view through one table.
+#[test]
+fn a_slide_reads_its_leaving_row_as_one_table_does() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let geom = CacheGeometry::new(None, None, None, None);
+    let p = Provision::banded_in(&WS, BandRows::of(Rows::of_index(4)), BandSlots(1_024))
+        .expect("40x32 is admitted banded");
+    let mut banded = Owned::with_history(p, &geom, Depth::of(100));
+    let mut single = Owned::with_history(&WS, &geom, Depth::of(100));
+    let mut tb = Term::new(banded.storage(), &WS);
+    let mut ts = Term::new(single.storage(), &WS);
+    feed(&mut tb, &the_long_feed());
+    feed(&mut ts, &the_long_feed());
+    let (mut rb, mut rs) = (renderer(&faces), renderer(&faces));
+    let (mut kb, mut ks) = (GlyphMap::backing(), GlyphMap::backing());
+    let mut cb = Cells::new(&mut kb, &tb);
+    let mut cs = Cells::new(&mut ks, &ts);
+    let pan = Px::of(8);
+    for k in 0..4usize {
+        let at = SetIx(k % SETS);
+        let want = built(&mut rs, &mut ts, (Rows::ZERO, Some(pan)), &mut cs, at);
+        let got = built(&mut rb, &mut tb, (Rows::ZERO, Some(pan)), &mut cb, at);
+        assert_eq!(want.len(), got.len());
+        let differ: Vec<(usize, usize)> = (0..want.len())
+            .filter(|&i| want[i] != got[i])
+            .map(|i| (i / usize::from(WS.ws_col), i % usize::from(WS.ws_col)))
+            .collect();
+        assert_eq!(
+            differ,
+            vec![],
+            "frame {k}, set {at:?}: cells that differ (copy row, col)"
+        );
+        assert_eq!(cb.records, cs.records, "frame {k}: the same records");
+        let (bases, _) = rb.cell_bases(at);
+        assert_eq!(bases.len(), usize::from(WS.ws_row), "a base a draw row");
     }
 }

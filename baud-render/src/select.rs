@@ -1123,14 +1123,14 @@ pub fn row_styles_of<'t>(
 ) -> baud_domain::RowStyles<'t> {
     if line.0 >= scrolled.0 {
         let Ok(y) = usize::try_from(line.0 - scrolled.0) else {
-            return crate::frozen::live(term);
+            return crate::frozen::held_none(term);
         };
         return term.viewport().styles(Row::from_index(y));
     }
     let back = Rows::of_count(usize::try_from(scrolled.0 - line.0).unwrap_or(0));
     match term.looking_back(back) == back {
         true => term.view(back).styles(Row::ZERO),
-        false => crate::frozen::live(term),
+        false => crate::frozen::held_none(term),
     }
 }
 
