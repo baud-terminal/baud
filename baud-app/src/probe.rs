@@ -141,7 +141,9 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::time::Duration;
 
 use baud_core::Term;
-use baud_domain::{PendingGen, Rows, SpanSet, Tracked, WalkSteps};
+use baud_domain::{
+    IntervalMap, LineInterval, PendingGen, RemapOverlap, Rows, SpanSet, Spanned, Tracked, WalkSteps,
+};
 use baud_render::Scrolled;
 
 use crate::bell::Moment;
@@ -2183,6 +2185,10 @@ pub struct Counts {
     /// Runs of lines a read erased whole that its part's lines could not
     /// place here, which kept their facts.
     pub erase_unplaced: u64,
+    /// **Runs of lines two groups' carried spans both covered**
+    /// (`Lit::carry`): whose verdict lit them cannot be told apart, so
+    /// none does (`RemapOverlap::Neither`).
+    pub lit_overlaps: u64,
 }
 
 impl Counts {
@@ -2222,81 +2228,110 @@ impl Seen<'_, '_> {
 /// a hold released, the shell's own read filed at once -- the source a
 /// line had before giving way to the new one; carried with the text
 /// through every part's moves, as the lines still to be named are; and
-/// dropped above the window, where no write reaches. Spans of one source
-/// that touch are one. `Paths`'s facts keep no group, and a fact carried
-/// keeps none of where it came from, so the group lives here.
+/// dropped above the window, where no write reaches. Per surface, runs of
+/// lines each lit by one group, a line lit by none in no run: runs of one
+/// group that touch are one, and a line two groups' carried runs both
+/// cover is lit by neither (`RemapOverlap::Neither`): whose text it
+/// holds cannot be told apart. `Paths`'s facts keep no group, and a fact
+/// carried keeps none of where it came from, so the group lives here.
 #[derive(Debug, Default)]
 struct Lit {
-    spans: Vec<(Option<Pid>, LineSpan)>,
-    /// The spans visited or compared: each one `set` meets, each pair
-    /// `merge` compares, each one a carry maps, each one `cut` cuts and
-    /// `keep_from` keeps or drops, and each own span and piece `not_of`
-    /// takes apart.
+    on: Vec<(
+        crate::paths::Surface,
+        IntervalMap<baud_render::AbsLine, Pid>,
+    )>,
+    /// The runs compared or visited: by `set`'s and `cut`'s binary search
+    /// and splice, each run a carry moves and lays over the others,
+    /// `keep_from`'s compare and the runs it drains, and `not_of`'s binary
+    /// search and the runs that meet each span asked.
     steps: WalkSteps,
 }
 
+/// A span's lines, as an interval of its surface.
+fn lines_of(span: LineSpan) -> LineInterval<baud_render::AbsLine> {
+    LineInterval::new(Spanned::first(span), Spanned::last(span))
+}
+
+/// **Intervals of one surface, written as its spans**: what
+/// `IntervalMap::gaps_of` writes for `Lit::not_of`.
+struct Onto<'a>(crate::paths::Surface, &'a mut Vec<LineSpan>);
+
+impl Extend<LineInterval<baud_render::AbsLine>> for Onto<'_> {
+    fn extend<I: IntoIterator<Item = LineInterval<baud_render::AbsLine>>>(&mut self, lines: I) {
+        let surface = self.0;
+        self.1.extend(
+            lines
+                .into_iter()
+                .map(|l| LineSpan::on(surface, l.first(), l.last())),
+        );
+    }
+}
+
 impl Lit {
-    /// **`span` lit by `by`'s verdict**: whatever lit its lines before
-    /// gives way there, and keeps the rest of its span.
+    /// The runs of `surface` in `on`, made empty where there are none.
+    fn runs_on(
+        on: &mut Vec<(
+            crate::paths::Surface,
+            IntervalMap<baud_render::AbsLine, Pid>,
+        )>,
+        surface: crate::paths::Surface,
+    ) -> &mut IntervalMap<baud_render::AbsLine, Pid> {
+        let at = match on.iter().position(|e| e.0 == surface) {
+            Some(at) => at,
+            None => {
+                on.push((surface, IntervalMap::new()));
+                on.len() - 1
+            }
+        };
+        &mut on[at].1
+    }
+
+    /// **`span` lit by `by`'s verdict**, or by none: whatever lit its
+    /// lines before gives way there, and keeps the rest of its run.
     fn set(&mut self, by: Option<Pid>, span: LineSpan) {
-        let mut i = 0;
-        while let Some(&(g, s)) = self.spans.get(i) {
-            self.steps.bump();
-            if s.meet(span).is_none() {
-                i += 1;
-                continue;
+        match by {
+            Some(g) => {
+                let Lit { on, steps } = self;
+                Lit::runs_on(on, span.surface()).assign(lines_of(span), g, steps);
             }
-            self.spans.swap_remove(i);
-            self.spans.extend(s.outside(span).map(|rest| (g, rest)));
-        }
-        self.spans.push((by, span));
-        self.merge();
-    }
-
-    /// Spans of one source that touch, joined.
-    fn merge(&mut self) {
-        let mut i = 0;
-        while i < self.spans.len() {
-            let (g, s) = self.spans[i];
-            let (spans, steps) = (&self.spans, &mut self.steps);
-            let next = (i + 1..spans.len()).find(|&j| {
-                steps.bump();
-                spans[j].0 == g && spans[j].1.touches(s)
-            });
-            match next {
-                Some(j) => {
-                    let (_, t) = self.spans.swap_remove(j);
-                    self.spans[i].1 = s.joined(t);
-                }
-                None => i += 1,
-            }
+            None => self.cut(span),
         }
     }
 
-    /// Every span carried where `carry` says its text went, unless
-    /// `carried` says no line moved.
-    fn carry(&mut self, carried: Carried, carry: impl Fn(LineSpan) -> LineSpan) {
+    /// **Every run carried where `carry` says its text went**, unless
+    /// `carried` says no line moved; a line two groups' carried runs both
+    /// cover is lit by neither. Returns how many runs of such lines there
+    /// were.
+    fn carry(
+        &mut self,
+        carried: Carried,
+        carry: impl Fn(LineSpan) -> LineSpan,
+    ) -> baud_render::Tally {
         if carried == Carried::Nowhere {
-            return;
+            return baud_render::Tally::ZERO;
         }
-        for e in &mut self.spans {
-            self.steps.bump();
-            e.1 = carry(e.1);
+        let mut both = baud_render::Tally::ZERO;
+        for (surface, runs) in &mut self.on {
+            let surface = *surface;
+            let moved = runs.remap(
+                |l| lines_of(carry(LineSpan::on(surface, l.first(), l.last()))),
+                RemapOverlap::Neither,
+                &mut self.steps,
+            );
+            both.add(baud_render::Tally::of(
+                usize::try_from(moved.get()).unwrap_or(usize::MAX),
+            ));
         }
-        self.merge();
+        both
     }
 
-    /// `erased`'s lines out of every span: what lit them was filed over
-    /// text that is gone (`Probes::erased`).
+    /// `erased`'s lines lit by none: what lit them was filed over text
+    /// that is gone (`Probes::erased`).
     fn cut(&mut self, erased: LineSpan) {
-        let steps = &mut self.steps;
-        self.spans = core::mem::take(&mut self.spans)
-            .into_iter()
-            .flat_map(|(g, s)| {
-                steps.bump();
-                s.outside(erased).map(move |p| (g, p))
-            })
-            .collect();
+        let Lit { on, steps } = self;
+        if let Some((_, runs)) = on.iter_mut().find(|e| e.0 == erased.surface()) {
+            runs.erase(lines_of(erased), steps);
+        }
     }
 
     /// **Only what a write can reach**: the lines on `surfaces`, and on
@@ -2306,45 +2341,51 @@ impl Lit {
         surfaces: [crate::paths::Surface; 2],
         top: Option<baud_render::AbsLine>,
     ) {
-        let steps = &mut self.steps;
-        self.spans.retain_mut(|(_, s)| {
-            steps.bump();
-            if !surfaces.contains(&s.surface()) {
-                return false;
+        let Lit { on, steps } = self;
+        on.retain(|e| {
+            let kept = surfaces.contains(&e.0);
+            if !kept {
+                steps.bump();
             }
-            match top {
-                Some(top) => match s.below_or_at(surfaces[0], top) {
-                    Some(kept) => {
-                        *s = kept;
-                        true
-                    }
-                    None => false,
-                },
-                None => true,
-            }
+            kept
         });
+        if let (Some(top), Some((_, runs))) = (top, on.iter_mut().find(|e| e.0 == surfaces[0])) {
+            runs.keep_from(top, steps);
+        }
     }
 
-    /// **The lines of `lit` that `g`'s own verdict did not light**: each
-    /// span less the lines this names `g` for. A line it names no source
-    /// for is among them.
-    fn not_of(&mut self, g: Option<Pid>, lit: Vec<LineSpan>) -> Vec<LineSpan> {
-        let mut out = lit;
-        let steps = &mut self.steps;
-        for &(_, own) in self.spans.iter().filter(|e| e.0 == g) {
-            out = out
-                .into_iter()
-                .flat_map(|s| {
-                    steps.bump();
-                    s.outside(own)
-                })
-                .collect();
+    /// **The lines of `lit` that `g`'s own verdict did not light**, each
+    /// span's found by a binary search and the runs that meet it. A line
+    /// lit by no group is among them.
+    fn not_of(&mut self, g: Pid, lit: Vec<LineSpan>) -> Vec<LineSpan> {
+        let Lit { on, steps } = self;
+        let mut out = Vec::with_capacity(lit.len());
+        for span in lit {
+            match on.iter().find(|e| e.0 == span.surface()) {
+                Some((surface, runs)) => {
+                    runs.gaps_of(g, lines_of(span), &mut Onto(*surface, &mut out), steps);
+                }
+                None => out.push(span),
+            }
         }
         out
     }
 
+    /// Every run, as the group and the span it lights.
+    #[cfg(test)]
+    fn spans(&self) -> Vec<(Option<Pid>, LineSpan)> {
+        self.on
+            .iter()
+            .flat_map(|(surface, runs)| {
+                let surface = *surface;
+                runs.runs()
+                    .map(move |(l, g)| (Some(g), LineSpan::on(surface, l.first(), l.last())))
+            })
+            .collect()
+    }
+
     fn clear(&mut self) {
-        self.spans.clear();
+        self.on.clear();
     }
 }
 
@@ -3320,7 +3361,10 @@ impl<T: Moment> Probes<T> {
         for o in &mut self.off {
             *o = carry(*o);
         }
-        self.lit.carry(carried, carry);
+        self.counts.lit_overlaps = self
+            .counts
+            .lit_overlaps
+            .saturating_add(self.lit.carry(carried, carry).value());
     }
 
     /// **A resize the driver just made, filed at once** (`rec`, the core's
@@ -3611,7 +3655,7 @@ impl<T: Moment> Probes<T> {
         // rewrite of its own -- and a line `Lit` names no group for holds:
         // one the window trimmed and a resize brought back.
         for g in groups.into_iter().flatten() {
-            for over in self.lit.not_of(Some(g), paths.filed_lit(span)) {
+            for over in self.lit.not_of(g, paths.filed_lit(span)) {
                 // Less the line it began on, where it wrote no cell of it.
                 let mut written = [Some(over), None];
                 if let Some(start) = writers.untouched {
@@ -9235,9 +9279,9 @@ mod tests {
             pr.lit.set(by, LineSpan::of(line(n), line(n)));
             pr.lit.set(by, LineSpan::on(alternate, line(n), line(n)));
         }
-        assert_eq!(pr.lit.spans.len(), 2 * LINES, "L = 300");
+        assert_eq!(pr.lit.spans().len(), 2 * LINES, "L = 300");
         let sorted = |lit: &Lit| {
-            let mut v = lit.spans.clone();
+            let mut v = lit.spans();
             v.sort();
             v
         };
@@ -9273,6 +9317,172 @@ mod tests {
         assert!(
             steps >= u64::try_from(2 * LINES).expect("a small count"),
             "the control: every span carried, {steps} steps"
+        );
+    }
+
+    /// The lines of [`lit_of_three_hundred`], on each surface.
+    const LIT_LINES: usize = 150;
+
+    /// **L = 300 lit spans**: groups 2 and 9 lighting alternate lines, 2
+    /// on the even ones, over lines 0 to 149 of the primary and of the
+    /// alternate screen, `alternate`; the steps taken to light them
+    /// forgotten.
+    fn lit_of_three_hundred(lit: &mut Lit, alternate: crate::paths::Surface) {
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        for n in 0..LIT_LINES {
+            let by = Some([2, 9][n % 2]);
+            lit.set(by, LineSpan::of(line(n), line(n)));
+            lit.set(by, LineSpan::on(alternate, line(n), line(n)));
+        }
+        assert_eq!(lit.spans().len(), 2 * LIT_LINES, "L = 300");
+        lit.steps = WalkSteps::ZERO;
+    }
+
+    /// **Lighting one line steps by log** (`Lit::set`): at L = 300, group
+    /// 9 lighting line 74, which group 2 lit between two of group 9's,
+    /// takes at most 22 steps. The controls: lines 73 to 75 are one run
+    /// of group 9's, and the spans are 298. Named break: a set that meets
+    /// every span and compares every pair to join them -- 45,002 steps.
+    #[test]
+    fn lit_set_on_one_line_steps_by_log() {
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let alternate = Paths::new(None, Forms::DEFAULT).surface(Screen::Alternate);
+        let mut lit = Lit::default();
+        lit_of_three_hundred(&mut lit, alternate);
+        lit.set(Some(9), LineSpan::of(line(74), line(74)));
+        let steps = lit.steps.get();
+        assert!(
+            lit.spans()
+                .contains(&(Some(9), LineSpan::of(line(73), line(75)))),
+            "the control: one run of group 9's"
+        );
+        assert_eq!(lit.spans().len(), 2 * LIT_LINES - 2, "the control");
+        assert!(
+            steps <= 22,
+            "lighting one line took {steps} lit steps, against the bound 22"
+        );
+    }
+
+    /// **The lines of one line not lit by a group step by log**
+    /// (`Lit::not_of`): at L = 300, line 75, lit by group 9, is not group
+    /// 2's, and line 74, lit by group 2, is; each asked within 11 steps.
+    /// Named break: each of group 2's own spans taken out of the line in
+    /// turn -- 150 steps.
+    #[test]
+    fn lit_not_of_one_line_steps_by_log() {
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let one = |n| LineSpan::of(line(n), line(n));
+        let alternate = Paths::new(None, Forms::DEFAULT).surface(Screen::Alternate);
+        let mut lit = Lit::default();
+        lit_of_three_hundred(&mut lit, alternate);
+        for (n, want) in [(75, vec![one(75)]), (74, vec![])] {
+            lit.steps = WalkSteps::ZERO;
+            assert_eq!(lit.not_of(2, vec![one(n)]), want, "line {n}");
+            let steps = lit.steps.get();
+            assert!(
+                steps <= 11,
+                "line {n} not of group 2 took {steps} lit steps, against the bound 11"
+            );
+        }
+    }
+
+    /// **An unchanged window keeps what lit each line by log**
+    /// (`Lit::keep_from`): at L = 300, the window's first line at line 0
+    /// of the primary, with both surfaces up, keeps every span within 10
+    /// steps. The control: a window from line 100 keeps the primary's 50
+    /// lines from it and the alternate screen's 150. Named break: every
+    /// span looked at -- 300 steps.
+    #[test]
+    fn an_unchanged_window_keeps_lit_by_log() {
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let paths = Paths::new(None, Forms::DEFAULT);
+        let surfaces = [Screen::Normal, Screen::Alternate].map(|sc| paths.surface(sc));
+        let mut lit = Lit::default();
+        lit_of_three_hundred(&mut lit, surfaces[1]);
+        lit.keep_from(surfaces, Some(line(0)));
+        let steps = lit.steps.get();
+        assert_eq!(lit.spans().len(), 2 * LIT_LINES, "every span kept");
+        assert!(
+            steps <= 10,
+            "an unchanged window took {steps} lit steps, against the bound 10"
+        );
+        lit.keep_from(surfaces, Some(line(100)));
+        assert_eq!(lit.spans().len(), 50 + LIT_LINES, "the control");
+    }
+
+    /// **A one-line read steps what lit each line by log** (`Lit`): at L =
+    /// 300, the shell's own read of line 2, its verdict lighting it, a
+    /// drain of a part that moved no line, and group 9's read over the
+    /// line, which `Lit` names group 2 for, take at most 64 lit steps. The
+    /// controls: the line is lit by the shell's group, 2, and group 9's
+    /// read holds it. Named break: the set that meets every span and
+    /// compares every pair to join them -- over 45,000 steps.
+    #[test]
+    fn a_one_line_read_steps_lit_by_log() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let mut counts = crate::keep::Counts::new(&t);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let two = LineSpan::of(line(2), line(2));
+        lit_of_three_hundred(&mut pr.lit, paths.surface(Screen::Alternate));
+        pr.shell_group = Some(2);
+        let shell = Writers {
+            marked: crate::ran::Ran::Shell,
+            ..Writers::at(None)
+        };
+        pr.read_taken(&mut paths, shell, two, Linked::No);
+        pr.publish(&mut paths);
+        let began = paths.line_on(t.screen(), line(0));
+        let mut pace = crate::reads::Pace::new();
+        let mut took = Vec::new();
+        let _ = crate::reads::paced(
+            &mut t,
+            &mut pace,
+            Instant::now(),
+            [(&b"x"[..], Sampler::default().unasked())],
+            |_| {},
+            |t, r| page_width(t, &ws, r),
+            &mut crate::hostlog::NoLog,
+            &mut took,
+        );
+        let rec = took.iter().rev().find_map(|w| w.record);
+        assert_eq!(
+            rec.map(|r| r.moves().iter().count()),
+            Some(0),
+            "the control: a part that moved no line"
+        );
+        let _ = counts.numbered(&t, rec.as_ref());
+        pr.drain_taken(
+            &mut paths,
+            &t,
+            (began, began),
+            counts.core_lines(&t),
+            took.into_iter().map(|w| (w, Linked::No)),
+            Instant::now(),
+        );
+        pr.read_taken(&mut paths, Writers::at(Some(9)), two, Linked::No);
+        let steps = pr.lit.steps.get();
+        assert!(
+            pr.lit
+                .spans()
+                .iter()
+                .any(|&(g, s)| g == Some(2) && s.meet(two).is_some()),
+            "the control: the shell's group lights line 2"
+        );
+        assert!(
+            pr.held.get().iter().any(|(s, g)| g == Some(9) && s == two),
+            "the control: group 9's read holds line 2"
+        );
+        assert!(
+            steps <= 64,
+            "a one-line read took {steps} lit steps, against the bound 64"
         );
     }
 
@@ -12577,7 +12787,7 @@ mod tests {
                 (origin, 0)
             );
             let three = vec![LineSpan::of(line(3), line(3))];
-            assert!(pr.lit.not_of(Some(9), three).is_empty(), "lit by its group");
+            assert!(pr.lit.not_of(9, three).is_empty(), "lit by its group");
         }
     }
 
@@ -12609,7 +12819,7 @@ mod tests {
         let at = |n: usize| AbsLine::at(Rows::of_count(n));
         let span = |a, b| LineSpan::of(at(a), at(b));
         let sorted = |lit: &Lit| {
-            let mut v = lit.spans.clone();
+            let mut v = lit.spans();
             v.sort_by_key(|e| e.1.last());
             v
         };
@@ -12679,7 +12889,7 @@ mod tests {
         let at = |n: usize| AbsLine::at(Rows::of_count(n));
         let span = |a, b| LineSpan::of(at(a), at(b));
         let not_of = |lit: &mut Lit, g| {
-            let mut v = lit.not_of(Some(g), vec![span(0, 7)]);
+            let mut v = lit.not_of(g, vec![span(0, 7)]);
             v.sort();
             v
         };
@@ -12701,25 +12911,29 @@ mod tests {
         assert_eq!(not_of(&mut lit, 2), [span(6, 7)], "the control");
     }
 
-    /// **A line two groups' carried spans both cover is lit by each**
-    /// (`Lit::carry`): on a six-row screen group 2 lit row 3 and group 9
-    /// row 2, and a region of rows 2 to 4 scrolled up and then down, which
-    /// the record keeps as a move within the band, carries each span to
-    /// the band, rows 2 to 4. Spans of two groups are not merged, so each
-    /// group's verdict lights all three rows and neither group's write
-    /// over them is held. The controls: before the carry, each lights its
-    /// own row alone; after it, a third group's verdict lights none of
-    /// them. Named break: the second span carried over the first giving
-    /// way -- group 2 lights none of them.
+    /// **A line two groups' carried spans both cover is lit by neither**
+    /// (`Lit::carry`, `RemapOverlap::Neither`): on a six-row screen group
+    /// 2 lit row 3 and group 9 row 2, and a region of rows 2 to 4 scrolled
+    /// up and then down, which the record keeps as a move within the
+    /// band, carries each span to the band, rows 2 to 4. Whose text is on
+    /// those rows cannot be told apart, so no group's verdict lights them,
+    /// and the one run of them is counted in `Counts::lit_overlaps`. The
+    /// controls: before the carry, each lights its own row alone; a carry
+    /// of group 2's row 3 with group 9's on row 0, outside the band,
+    /// lights rows 2 to 4 by group 2 and counts nothing. Named break: the
+    /// carried spans of two groups both kept -- each group lights rows 2 to
+    /// 4 and nothing is counted.
     #[test]
-    fn a_line_two_writers_carried_spans_cover_is_lit_by_each() {
+    fn a_line_two_writers_carried_spans_cover_is_lit_by_neither() {
         let ws = WinSize {
             ws_col: 20,
             ws_row: 6,
         };
         let at = |n: usize| AbsLine::at(Rows::of_count(n));
         let span = |a, b| LineSpan::of(at(a), at(b));
-        let carried = |bytes: &[u8], s: LineSpan| {
+        let carry = |pr: &mut Probes<_>, bytes: &[u8]| {
+            let mut paths = Paths::new(None, Forms::DEFAULT);
+            paths.set(Turned::On);
             let mut owned = Owned::new(&ws);
             let mut t = Term::new(owned.storage(), &ws);
             let _ = t.take_record();
@@ -12729,38 +12943,41 @@ mod tests {
             let lines =
                 crate::paths::CoreLines::of(Some((t.history_mark().line(), Scrolled::START)))
                     .part(Some(t.history_mark().line()));
-            let mut p = Paths::new(None, Forms::DEFAULT);
-            p.set(Turned::On);
             let screens = [baud_core::Screen::Normal, baud_core::Screen::Alternate];
-            p.carried_span(&rec, &lines, &screens, s)
+            let was = pr.counts.lit_overlaps;
+            pr.carry_pending(&mut paths, &rec, &lines, &screens);
+            pr.counts.lit_overlaps - was
         };
         let not_of = |lit: &mut Lit, g| {
-            let mut v = lit.not_of(Some(g), vec![span(2, 4)]);
+            let mut v = lit.not_of(g, vec![span(2, 4)]);
             v.sort();
             v
         };
-        let mut lit = Lit::default();
-        lit.set(Some(2), span(3, 3));
-        lit.set(Some(9), span(2, 2));
+        let band = b"\x1b[3;5r\x1b[5;1H\n\x1b[3;1H\x1bM";
+        let (mut pr, _) = probes(named_groups());
+        pr.lit.set(Some(2), span(3, 3));
+        pr.lit.set(Some(9), span(2, 2));
         assert_eq!(
-            not_of(&mut lit, 2),
+            not_of(&mut pr.lit, 2),
             [span(2, 2), span(4, 4)],
             "the control: group 2 lights row 3"
         );
         assert_eq!(
-            not_of(&mut lit, 9),
+            not_of(&mut pr.lit, 9),
             [span(3, 4)],
             "the control: group 9 lights row 2"
         );
-        lit.carry(Carried::Anywhere, |s| {
-            carried(b"\x1b[3;5r\x1b[5;1H\n\x1b[3;1H\x1bM", s)
-        });
-        assert_eq!(not_of(&mut lit, 2), [], "group 2 lights rows 2 to 4");
-        assert_eq!(not_of(&mut lit, 9), [], "group 9 lights rows 2 to 4");
+        assert_eq!(carry(&mut pr, band), 1, "one run of rows lit by neither");
+        assert_eq!(not_of(&mut pr.lit, 2), [span(2, 4)], "group 2 lights none");
+        assert_eq!(not_of(&mut pr.lit, 9), [span(2, 4)], "group 9 lights none");
+        let (mut pr, _) = probes(named_groups());
+        pr.lit.set(Some(2), span(3, 3));
+        pr.lit.set(Some(9), span(0, 0));
+        assert_eq!(carry(&mut pr, band), 0, "the control: nothing counted");
         assert_eq!(
-            not_of(&mut lit, 7),
-            [span(2, 4)],
-            "the control: a third group lights none"
+            not_of(&mut pr.lit, 2),
+            [],
+            "the control: group 2 lights rows 2 to 4"
         );
     }
 

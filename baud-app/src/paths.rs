@@ -1358,18 +1358,6 @@ impl LineSpan {
         above.into_iter().chain(below)
     }
 
-    /// **The span less the lines above `line`** on `surface`: none where it
-    /// lies wholly above; the span whole on another surface.
-    pub fn below_or_at(self, surface: Surface, line: AbsLine) -> Option<LineSpan> {
-        match self.surface == surface {
-            false => Some(self),
-            true => (self.last >= line).then(|| LineSpan {
-                first: self.first.max(line),
-                ..self
-            }),
-        }
-    }
-
     /// Whether `line`, a line of this span's surface, is in it.
     pub(crate) fn holds(self, line: AbsLine) -> bool {
         self.first <= line && line <= self.last

@@ -60,6 +60,17 @@ impl AbsLine {
     }
 }
 
+/// A line's neighbours, `None` past the session's first line and past the
+/// last a `u64` numbers.
+impl baud_domain::LineStep for AbsLine {
+    fn next(self) -> Option<AbsLine> {
+        self.0.checked_add(1).map(AbsLine)
+    }
+    fn prev(self) -> Option<AbsLine> {
+        self.above()
+    }
+}
+
 /// How far the live surface's rotation has advanced since the session
 /// began: the absolute line of the live screen's top row. The driver adds
 /// every advance `pump` observes, the count the scrollback window already

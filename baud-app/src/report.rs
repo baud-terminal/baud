@@ -503,6 +503,7 @@ mod tests {
             hangs: 0,
             erase_overflowed: 0,
             erase_unplaced: 0,
+            lit_overlaps: 0,
         };
         assert_eq!(
             l.checks_line().as_deref(),
