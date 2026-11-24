@@ -136,7 +136,7 @@ impl<'m> Cells<'m> {
             &baud_render::Scene {
                 term: t,
                 view,
-                styles: &self.styles,
+                styles: baud_render::RowTables::one(&self.styles),
                 cursor,
                 highlight,
                 map: &self.map,

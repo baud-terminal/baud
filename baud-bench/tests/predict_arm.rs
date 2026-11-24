@@ -53,7 +53,7 @@ fn frame(
         &Scene {
             term: t,
             view: t.viewport(),
-            styles,
+            styles: baud_render::RowTables::one(styles),
             cursor: None,
             highlight: None,
             map,

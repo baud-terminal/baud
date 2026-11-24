@@ -302,7 +302,7 @@ fn a_blinking_slot_off_screen_is_not_seen() {
             &Scene {
                 term: t,
                 view: t.view(Rows::ZERO),
-                styles: &styles,
+                styles: baud_render::RowTables::one(&styles),
                 cursor: None,
                 highlight: None,
                 map: &map,
@@ -366,7 +366,7 @@ fn a_rapid_slot_alone_is_seen_on_the_cell_path() {
         &Scene {
             term: &t,
             view: t.view(Rows::ZERO),
-            styles: &styles,
+            styles: baud_render::RowTables::one(&styles),
             cursor: None,
             highlight: None,
             map: &map,
@@ -412,7 +412,7 @@ fn a_hidden_cells_records_are_not_drawn() {
             &Scene {
                 term: &t,
                 view: t.view(Rows::ZERO),
-                styles: &styles,
+                styles: baud_render::RowTables::one(&styles),
                 cursor: None,
                 highlight: None,
                 map: &map,
@@ -488,7 +488,7 @@ fn a_faint_cells_records_are_drawn_faint() {
             &Scene {
                 term: &t,
                 view: t.view(Rows::ZERO),
-                styles: &styles,
+                styles: baud_render::RowTables::one(&styles),
                 cursor: None,
                 highlight: None,
                 map: &map,

@@ -3142,6 +3142,7 @@ mod checks {
             )),
             [
                 "self.renderer.badge",
+                "self.renderer.overlay_rows",
                 "self.renderer.place_grounds",
                 "self.renderer.set_cursor_glow_at",
             ]

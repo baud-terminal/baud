@@ -74,7 +74,7 @@ pub fn draw(
                 style,
                 flags: baud_domain::CellFlags::NONE,
             },
-            styles,
+            baud_render::RowTables::one(styles),
             cursor,
             None,
             view.cols(),

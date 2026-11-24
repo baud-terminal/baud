@@ -282,3 +282,81 @@ fn a_banded_frame_meets_no_frozen_row_after_a_resize() {
     feed(&mut t, &the_long_feed());
     frames(&mut t, "the first size, fed");
 }
+
+/// **More of what a terminal draws, banded, as one table draws it**: the
+/// long feed, then Arabic in a rendition of its own, so letters take their
+/// joining forms; text in an SDS string, right to left; a hyperlink; and a
+/// host-writable status line, in renditions of its own. At the bottom and
+/// ten lines back.
+/// Breaks: any reader that resolves an id through one table.
+#[test]
+fn strings_joins_links_and_the_status_line_paint_as_one_table_does() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let geom = baud_domain::CacheGeometry::new(None, None, None, None);
+    let mut feed_bytes = the_long_feed();
+    // BDSM reset: rows are laid out by their joins, not reordered.
+    feed_bytes.extend(b"\x1b[8l");
+    for k in 0..6usize {
+        feed_bytes.extend(
+            format!(
+                "\x1b[0;38;2;200;{};0mمرحبا بالعالم {k}\x1b[0m \
+                 \x1b[48;2;0;0;{}m\x1b[2]שלום world {k}\x1b[0]\x1b[0m \
+                 \x1b]8;;https://example.com/{k}\x07link {k}\x1b]8;;\x07\r\n",
+                40 * k,
+                30 * k
+            )
+            .as_bytes(),
+        );
+    }
+    feed_bytes.extend(b"\x1b[2$~\x1b[1$}\x1b[38;2;250;250;0mstatus line\x1b[0m\x1b[0$}");
+    let painted = |owned: &mut Owned, back: Rows| {
+        let mut r = renderer(&faces);
+        // A composition holding a joining letter opens the joins, whatever
+        // the faces draw.
+        r.set_composition(Some(baud_render::Composition {
+            row: Row::from_index(8),
+            col: Col::ZERO,
+            text: "\u{628}\u{628}"
+                .chars()
+                .map(baud_domain::Codepoint::from_char)
+                .collect(),
+            measure: baud_render::Measure::default(),
+            hints: Vec::new(),
+            caret: baud_render::Caret::End,
+        }));
+        r.set_composition(None);
+        let mut c = Canvas::for_renderer(&r);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, &feed_bytes);
+        assert!(t.strings_seen(), "a string was begun");
+        assert!(t.status_line().is_some(), "the status line is shown");
+        let mut target = c.target();
+        r.render_at(&mut t, back, &mut target, Damage::Full);
+        // Joining forms are laid out once a frame has shaped a letter that
+        // takes one: the second frame draws them.
+        r.render_at(&mut t, back, &mut target, Damage::Full);
+        assert_eq!(
+            r.joins_seen(),
+            baud_render::Joins::Seen,
+            "a joining letter was shaped"
+        );
+        c.pixels
+    };
+    for back in [Rows::ZERO, Rows::of_count(10)] {
+        let p = Provision::banded_in(&WS, BandRows::of(Rows::of_index(4)), BandSlots(1_024))
+            .expect("40x32 is admitted banded");
+        let mut banded = Owned::with_history(p, &geom, baud_domain::Depth::of(100));
+        let mut single = Owned::with_history(&WS, &geom, baud_domain::Depth::of(100));
+        let want = painted(&mut single, back);
+        let got = painted(&mut banded, back);
+        let differ = want.iter().zip(&got).filter(|(a, b)| a != b).count();
+        assert_eq!(differ, 0, "{back:?} back: pixels that differ");
+        let mut alone = Owned::with_history(&WS, &geom, baud_domain::Depth::of(100));
+        let plain = painted_back(&mut alone, &faces, back, &|_, _| {}).0;
+        assert_ne!(
+            plain, want,
+            "{back:?} back: the control, the long feed alone"
+        );
+    }
+}

@@ -79,10 +79,7 @@ impl<'a> Words<'a> {
         match self {
             Words::Live => live(term).word(cell.style),
             Words::Row(s) => term.style_in(s, cell),
-            Words::Runs(runs) => match run_at(runs, col) {
-                Some(s) => term.style_in(s, cell),
-                None => live(term).word(cell.style),
-            },
+            Words::Runs(runs) => word_in_runs(term, runs, col, cell),
             Words::Lent(l) => match l.get(cell.style.index()) {
                 Some(Some(w)) => *w,
                 _ => live(term).word(cell.style),
@@ -165,6 +162,27 @@ fn run_at<'a>(runs: &[(Range<usize>, RowStyles<'a>)], col: Col) -> Option<RowSty
     runs.iter()
         .find(|(r, _)| r.contains(&col.index()))
         .map(|(_, s)| *s)
+}
+
+/// **The word cell `cell` at column `col` of a display line stands for**,
+/// through the run it is in. A column in none is padding, whose id is the
+/// default's in every table: read in the live table on a terminal of one
+/// band, as before, and on one of more, where no table is the live one, in
+/// the line's first run's.
+pub(crate) fn word_in_runs(
+    term: &Term<'_>,
+    runs: &[(Range<usize>, RowStyles<'_>)],
+    col: Col,
+    cell: PackedCell,
+) -> StyleWord {
+    match run_at(runs, col) {
+        Some(s) => term.style_in(s, cell),
+        None if term.styles().bands().len() == 1 => live(term).word(cell.style),
+        None => match runs.first() {
+            Some((_, s)) => term.style_in(*s, cell),
+            None => StyleWord::DEFAULT,
+        },
+    }
 }
 
 /// **Which lending a resolved table holds**: none, or one the renderer has

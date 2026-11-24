@@ -552,11 +552,13 @@ where
         }
         None => 0,
     };
+    // **The set's rows in the overlay's order** (`Renderer::overlay_rows`).
+    let overlay = renderer.overlay_rows(at, leaving);
     cell.exceptions.ensure_framed(
         &Scene {
             term,
             view,
-            styles: &cell.styles_mem[set][..],
+            styles: overlay.tables(&cell.styles_mem[set][..]),
             cursor,
             highlight,
             map: cell.map,
@@ -606,7 +608,7 @@ where
                     style,
                     flags: CellFlags::NONE,
                 },
-                &cell.styles_mem[set][..],
+                overlay.tables(&cell.styles_mem[set][..]),
                 cursor,
                 highlight,
                 view.cols(),
@@ -654,7 +656,7 @@ where
         cell.exceptions.leaving(
             renderer,
             term,
-            (cell.map, &cell.styles_mem[set][..]),
+            (cell.map, overlay.tables(&cell.styles_mem[set][..])),
             back,
             (view.cols(), view.rows()),
             pan,

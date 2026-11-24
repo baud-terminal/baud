@@ -1844,10 +1844,16 @@ impl Orders {
         let mut out: Vec<(core::ops::Range<usize>, baud_domain::RowStyles<'t>)> = Vec::new();
         for v in 0..self.cols.index() {
             let l = self.logical_col(y, Col::at_index(v)).index();
-            let s = runs
-                .iter()
-                .find(|(r, _)| r.contains(&l))
-                .map_or(crate::frozen::live(term), |(_, s)| *s);
+            // Padding, in no run, names the default, read as
+            // `crate::frozen::Words::word` reads it.
+            let s = match runs.iter().find(|(r, _)| r.contains(&l)) {
+                Some((_, s)) => *s,
+                None if term.styles().bands().len() == 1 => crate::frozen::live(term),
+                None => match runs.first() {
+                    Some((_, s)) => *s,
+                    None => continue,
+                },
+            };
             match out.last_mut() {
                 Some((r, last)) if r.end == v && last.serial() == s.serial() => r.end = v + 1,
                 _ => out.push((v..v + 1, s)),
@@ -2437,7 +2443,10 @@ impl Strung {
     /// a slot written since names a string only through a cell written
     /// with it, which stamps that cell's row.
     fn styles_moved(&mut self, term: &Term<'_>) {
-        if !term.strings_seen() {
+        // On a terminal of more bands than one an id names a slot of its
+        // row's band, which one set of bits cannot say: rows are read cell
+        // by cell instead (`Strung::row_strung`).
+        if !term.strings_seen() || term.styles().bands().len() > 1 {
             self.styles = None;
             return;
         }
@@ -2503,9 +2512,10 @@ impl Strung {
         if !term.strings_seen() {
             return Opens::No;
         }
-        // A frozen row's ids name its generation's words, which the slots'
-        // bits do not cover: its cells read one by one.
-        if !words.is_live() {
+        // A frozen row's ids name its generation's words, and a live row's
+        // of more bands than one its band's, which the slots' bits do not
+        // cover: its cells read one by one.
+        if !words.is_live() || term.styles().bands().len() > 1 {
             return match cells
                 .iter()
                 .enumerate()
@@ -2764,7 +2774,7 @@ impl Reorder {
             .maps
             .lift_row(Row::from_index(nrows.index()), relay);
         self.orders.maps.truncate(nrows);
-        // Its row is the status line's own, read through the live table.
+        // Its row is the status line's own, read through its band's table.
         let sourced = core::mem::take(&mut self.sourced);
         self.lay_out_status_row(term, joins, &line);
         self.sourced = sourced;
@@ -2774,6 +2784,8 @@ impl Reorder {
     }
 
     fn lay_out_status_row<'t>(&mut self, term: &'t Term<'_>, joins: Joins, line: &Viewport<'t>) {
+        // The line's ids name its own band's table.
+        let own = Words::Row(line.styles(Row::ZERO));
         let at = self.orders.maps.rows().len();
         let main = core::mem::take(&mut self.orders);
         self.strung.styles_moved(term);
@@ -2783,9 +2795,9 @@ impl Reorder {
             BidiSupport::Explicit => {
                 self.reverse_paths(term, line, &Unwritten);
                 if joins == Joins::Seen
-                    && self.test_row(term, Words::LIVE, line.row(Row::ZERO)).joins == Opens::Yes
+                    && self.test_row(term, own, line.row(Row::ZERO)).joins == Opens::Yes
                 {
-                    self.join_shown(term, (Row::ZERO, Words::LIVE), line.row(Row::ZERO));
+                    self.join_shown(term, (Row::ZERO, own), line.row(Row::ZERO));
                 }
             }
             BidiSupport::Implicit => {

@@ -2371,15 +2371,21 @@ impl App {
                 Some(b) => {
                     let set = b.at.0;
                     let n = b.rows.index() * b.stride.index();
-                    let view = baud_domain::Viewport::new(
-                        &cell.copies_mem[set][..n.min(cell.copies_mem[set].len())],
-                        &b.used,
+                    // The set's rows as its last frame drew them: each
+                    // read through its band's table.
+                    let leaving = match b.slide {
+                        Some(_) => baud_render::Leaving::Drawn,
+                        None => baud_render::Leaving::None,
+                    };
+                    let overlay = self.renderer.overlay_rows(b.at, leaving);
+                    let view = overlay.view(
+                        &self.term,
+                        (
+                            &cell.copies_mem[set][..n.min(cell.copies_mem[set].len())],
+                            &b.used,
+                        ),
                         b.stride,
-                        b.cols,
-                        b.rows,
-                        b.rows,
-                        RowRot::NONE,
-                        self.term.styles().one(),
+                        (b.cols, b.rows),
                     );
                     self.renderer.set_trail(None);
                     self.renderer.set_cursor_glow_at(None);
@@ -2389,7 +2395,7 @@ impl App {
                         &Scene {
                             term: &self.term,
                             view,
-                            styles: &cell.styles_mem[set][..],
+                            styles: overlay.tables(&cell.styles_mem[set][..]),
                             cursor: None,
                             highlight: b.highlight,
                             map: &cell.maps.live,

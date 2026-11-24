@@ -4166,6 +4166,10 @@ pub struct Renderer<'f, 'a> {
     /// it**, on a terminal of more bands than one ([`crate::band_window`]);
     /// empty, every base 0, on one of one band.
     pub(crate) window: crate::band_window::BandWindow,
+    /// **The `back` the last frame was laid out at**: what a reader that
+    /// converts that frame's rows through `styles` later syncs its bands at
+    /// (`Renderer::sized_ready`).
+    laid_back: Rows,
     /// The cell path's windows of bands, one a buffer set
     /// ([`Renderer::cell_bases`]): a set's copy is built from its own last
     /// frame, so its slots and bases are its own.
@@ -4884,6 +4888,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             styles_stamp: StyleStamp::default(),
             window: crate::band_window::BandWindow::default(),
             cell_windows: Vec::new(),
+            laid_back: Rows::ZERO,
             cpu_lent: crate::frozen::Lent::default(),
             lendings: crate::frozen::Lendings::default(),
             frame_words: crate::frozen::Held::default(),
@@ -5730,6 +5735,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         term: &Term<'_>,
         back: Rows,
     ) -> Option<crate::bidi::Rejoin> {
+        self.laid_back = back;
         match (term.bidi_support(), self.joins_seen) {
             (BidiSupport::Explicit, crate::bidi::Joins::Seen) => {
                 Some(self.keep_bidi_displayed(term, back, crate::bidi::Changes::Copied))
@@ -10527,6 +10533,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.fit(term);
         self.give_back_cpu();
         let mut styles = core::mem::take(&mut self.styles);
+        // On a terminal of more bands than one, the window's bands at the
+        // frame's layout, which the sized rows and the status line's read.
+        if term.styles().bands().len() > 1 {
+            let held = self.bidi.orders().display_held();
+            let _ = self.sync_window(term, self.laid_back, held.as_deref(), &mut styles);
+            self.styles = styles;
+            return;
+        }
         if styles.len() != term.styles().one().len() {
             styles = vec![Resolved::default(); term.styles().one().len()];
             self.styles_stamp = StyleStamp::default();
@@ -10764,6 +10778,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     ) -> Converted {
         let t0 = Instant::now();
         self.fit(term);
+        self.laid_back = back;
         // The lending the last frame's copy was drawn under, which this one
         // is compared with below, and what each slot it lent held, read into
         // a kept buffer. And `cur` put back as the terminal's where that
@@ -14356,6 +14371,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .get(set.0)
             .map_or((&[][..], crate::BaseStamp::default()), |w| {
                 (w.bases(), w.base_stamp())
+            })
+    }
+
+    /// **Buffer set `set`'s rows in the overlay's order**, their bases and
+    /// bands: the window's rows, then the leaving row's while `leaving` is
+    /// drawn, which the shader draws first ([`Renderer::cell_bases`]). What
+    /// the overlay's walk of the set's copy, and a view of it, read it
+    /// through; empty, every base 0, on a terminal of one band.
+    pub fn overlay_rows(
+        &self,
+        set: crate::screens::SetIx,
+        leaving: crate::Leaving,
+    ) -> crate::OverlayRows {
+        self.cell_windows
+            .get(set.0)
+            .map_or_else(crate::OverlayRows::default, |w| {
+                crate::OverlayRows::of(w, leaving)
             })
     }
 

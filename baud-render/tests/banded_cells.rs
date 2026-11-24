@@ -310,3 +310,74 @@ fn a_set_s_table_at_960x254_is_mostly_address_space() {
         );
     }
 }
+
+/// **The cell path over more of what a terminal draws, banded, as one
+/// table's**: the long feed with BDSM reset, then Arabic in a rendition of
+/// its own, text in an SDS string, a hyperlink, and a host-writable status
+/// line, the joins opened by a composition holding a joining letter, frames
+/// at the bottom and ten lines back into both sets.
+/// Breaks: any cell-path reader that resolves an id through one table.
+#[test]
+fn every_set_reads_strings_joins_links_and_the_status_line_as_one_table_does() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let geom = CacheGeometry::new(None, None, None, None);
+    let mut bytes = the_long_feed();
+    bytes.extend(b"\x1b[8l");
+    for k in 0..6usize {
+        bytes.extend(
+            format!(
+                "\x1b[0;38;2;200;{};0mمرحبا بالعالم {k}\x1b[0m \
+                 \x1b[48;2;0;0;{}m\x1b[2]שלום world {k}\x1b[0]\x1b[0m \
+                 \x1b]8;;https://example.com/{k}\x07link {k}\x1b]8;;\x07\r\n",
+                40 * k,
+                30 * k
+            )
+            .as_bytes(),
+        );
+    }
+    bytes.extend(b"\x1b[2$~\x1b[1$}\x1b[38;2;250;250;0mstatus line\x1b[0m\x1b[0$}");
+    let p = Provision::banded_in(&WS, BandRows::of(Rows::of_index(4)), BandSlots(1_024))
+        .expect("40x32 is admitted banded");
+    let mut banded = Owned::with_history(p, &geom, Depth::of(100));
+    let mut single = Owned::with_history(&WS, &geom, Depth::of(100));
+    let mut tb = Term::new(banded.storage(), &WS);
+    let mut ts = Term::new(single.storage(), &WS);
+    feed(&mut tb, &bytes);
+    feed(&mut ts, &bytes);
+    assert!(
+        tb.strings_seen() && tb.status_line().is_some(),
+        "the control"
+    );
+    let (mut rb, mut rs) = (renderer(&faces), renderer(&faces));
+    for r in [&mut rb, &mut rs] {
+        r.set_composition(Some(baud_render::Composition {
+            row: baud_domain::Row::from_index(8),
+            col: baud_domain::Col::ZERO,
+            text: "\u{628}\u{628}"
+                .chars()
+                .map(baud_domain::Codepoint::from_char)
+                .collect(),
+            measure: baud_render::Measure::default(),
+            hints: Vec::new(),
+            caret: baud_render::Caret::End,
+        }));
+        r.set_composition(None);
+    }
+    assert_eq!(rb.joins_seen(), baud_render::Joins::Seen, "the joins open");
+    let (mut kb, mut ks) = (GlyphMap::backing(), GlyphMap::backing());
+    let mut cb = Cells::new(&mut kb, &tb);
+    let mut cs = Cells::new(&mut ks, &ts);
+    let backs = [0, 10, 0, 10].map(Rows::of_count);
+    for (k, back) in backs.into_iter().enumerate() {
+        let at = SetIx(k % SETS);
+        let want = built(&mut rs, &mut ts, back, &mut cs, at);
+        let got = built(&mut rb, &mut tb, back, &mut cb, at);
+        let differ = (0..want.len()).filter(|&i| want[i] != got[i]).count();
+        assert_eq!(
+            differ, 0,
+            "frame {k}, {back:?} back, set {at:?}: cells that differ"
+        );
+        assert_eq!(cb.records, cs.records, "frame {k}: the same records");
+    }
+}

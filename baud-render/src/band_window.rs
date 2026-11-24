@@ -49,6 +49,100 @@ pub(crate) struct SlotIx(usize);
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct TableLen(pub usize);
 
+/// **A frame's resolved table as each of its draw rows reads it**: from
+/// the row's base on ([`BandWindow`], [`crate::Renderer::cell_bases`]), so a
+/// cell's id indexes its own band's renditions. One table every row reads
+/// whole on a terminal of one band, where there are no bases.
+#[derive(Clone, Copy, Debug)]
+pub struct RowTables<'s> {
+    all: &'s [crate::Resolved],
+    bases: &'s [u32],
+}
+
+impl<'s> RowTables<'s> {
+    /// One table every row reads whole.
+    pub fn one(all: &'s [crate::Resolved]) -> RowTables<'s> {
+        RowTables { all, bases: &[] }
+    }
+
+    /// `all` read by each draw row from its base in `bases`; a row past
+    /// them from 0.
+    pub fn banded(all: &'s [crate::Resolved], bases: &'s [u32]) -> RowTables<'s> {
+        RowTables { all, bases }
+    }
+
+    /// **The table draw row `r` reads**: from its base on.
+    pub fn at(&self, r: Row) -> &'s [crate::Resolved] {
+        let b = self.bases.get(r.index()).copied().unwrap_or(0);
+        self.all
+            .get(usize::try_from(b).unwrap_or(0)..)
+            .unwrap_or(&[])
+    }
+
+    /// The whole table, every band's slots and the loose region: what a
+    /// reader that copies it as it is reads.
+    pub fn all(&self) -> &'s [crate::Resolved] {
+        self.all
+    }
+}
+
+/// **A buffer set's rows in the overlay's order** ([`crate::Renderer::overlay_rows`]):
+/// the window's rows, then the row after them -- the leaving row while
+/// sliding, which the shader draws first, or the status line's -- each
+/// with its base and its band. What a reader of the set's copy reads it
+/// through.
+#[derive(Clone, Debug, Default)]
+pub struct OverlayRows {
+    bases: Vec<u32>,
+    bands: Vec<Band>,
+}
+
+impl OverlayRows {
+    /// `window`'s rows put in the overlay's order, `leaving` whether the
+    /// first draw row is the leaving row's.
+    pub(crate) fn of(window: &BandWindow, leaving: crate::Leaving) -> OverlayRows {
+        let (bases, bands) = (window.bases(), window.bands());
+        let order = |n: usize| -> Vec<usize> {
+            match (leaving, n) {
+                (crate::Leaving::Drawn, 1..) => (1..n).chain(core::iter::once(0)).collect(),
+                _ => (0..n).collect(),
+            }
+        };
+        OverlayRows {
+            bases: order(bases.len()).into_iter().map(|k| bases[k]).collect(),
+            bands: order(bands.len()).into_iter().map(|k| bands[k]).collect(),
+        }
+    }
+
+    /// The set's table as each overlay row reads it.
+    pub fn tables<'s>(&'s self, all: &'s [crate::Resolved]) -> RowTables<'s> {
+        RowTables::banded(all, &self.bases)
+    }
+
+    /// **The set's copy as a view**, `cells` at `stride`, `cols` by `rows`
+    /// with `used` their extents, each row's ids read through its band's
+    /// table in `term`; through one table on a terminal of one band.
+    pub fn view<'a>(
+        &'a self,
+        term: &'a Term<'_>,
+        (cells, used): (&'a [PackedCell], &'a [baud_domain::RowExtent]),
+        stride: baud_domain::Stride,
+        (cols, rows): (Cols, Rows),
+    ) -> baud_domain::Viewport<'a> {
+        let view = term.styles();
+        baud_domain::Viewport::new_in(
+            cells,
+            used,
+            stride,
+            cols,
+            rows,
+            rows,
+            baud_domain::RowRot::NONE,
+            baud_domain::LiveBands::lines(view.slots(), view.band_slots().0, &self.bands),
+        )
+    }
+}
+
 /// **A display line whose cells name ids of two bands**: its draw row, and
 /// its columns in their logical order as runs, each with the band its ids
 /// are in.
@@ -126,6 +220,8 @@ pub(crate) struct BandWindow {
     stamps: Vec<StyleStamp>,
     bases: Vec<u32>,
     stamp: BaseStamp,
+    /// Each drawn row's band, in row order.
+    rows: Vec<Band>,
     joined: Vec<Joined>,
     loose: Range<usize>,
     generation: WindowGen,
@@ -189,6 +285,7 @@ impl BandWindow {
                 u32::try_from(at).unwrap_or(u32::MAX)
             })
             .collect();
+        self.rows = rows.to_vec();
         self.joined = joined;
         if bases != self.bases {
             self.bases = bases;
@@ -222,6 +319,11 @@ impl BandWindow {
     /// Each drawn row's base, in row order.
     pub(crate) fn bases(&self) -> &[u32] {
         &self.bases
+    }
+
+    /// Each drawn row's band, in row order.
+    pub(crate) fn bands(&self) -> &[Band] {
+        &self.rows
     }
 
     /// What the bases are at.

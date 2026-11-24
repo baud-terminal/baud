@@ -597,7 +597,7 @@ fn both_paths(faces: &[Face<'_>], text: &str) -> (Vec<Instance>, Vec<Instance>) 
         &Scene {
             term: &t,
             view,
-            styles: &styles,
+            styles: baud_render::RowTables::one(&styles),
             cursor: None,
             highlight: None,
             map: &map,
@@ -689,7 +689,7 @@ fn overlay_unmapped(faces: &[Face<'_>], text: &str) -> u64 {
         &Scene {
             term: &t,
             view,
-            styles: &styles,
+            styles: baud_render::RowTables::one(&styles),
             cursor: None,
             highlight: None,
             map: &map,

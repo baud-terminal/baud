@@ -120,7 +120,7 @@ pub enum CursorDrawn {
 pub struct Scene<'s, 't> {
     pub term: &'s Term<'t>,
     pub view: Viewport<'s>,
-    pub styles: &'s [Resolved],
+    pub styles: crate::RowTables<'s>,
     pub cursor: Option<(Row, Col, CursorStyle)>,
     /// The selection on this view, or none: the same swap the cell passes
     /// apply, so a record over a selected cell is drawn in the swapped
@@ -511,7 +511,7 @@ impl Laid {
 /// What colours a record: the resolved rendition table, the selection and
 /// the block cursor, each of which swaps its cells' colours.
 struct Paint<'p> {
-    styles: &'p [Resolved],
+    styles: crate::RowTables<'p>,
     block: Option<(Row, Col, CursorStyle)>,
     highlight: Option<Highlight>,
     /// The frame's `SGR 5` and `SGR 6` phases: a record for a hidden cell is
@@ -949,7 +949,7 @@ impl Overlay {
                 term,
                 (c, Laid::AsWritten),
                 under,
-                styles,
+                styles.at(c.row),
                 cursor,
                 view.cols(),
                 view.rendition(c.row),
@@ -968,7 +968,7 @@ impl Overlay {
         let mut sized = core::mem::take(&mut self.sized);
         r.sized_framed(
             term,
-            (&view, scene.styles),
+            (&view, scene.styles.all()),
             framed,
             cursor,
             scene.composition,
@@ -1313,7 +1313,7 @@ impl Overlay {
             let again = key.and_then(|k| {
                 self.painted[y]
                     .take()
-                    .filter(|p| p.matches(k, styles, pictured, &mask[span.clone()]))
+                    .filter(|p| p.matches(k, styles.at(at), pictured, &mask[span.clone()]))
             });
             if let Some(p) = again.as_ref().filter(|_| !cfg!(debug_assertions)) {
                 let (inside, above) = (records.len(), self.over.len());
@@ -1363,7 +1363,11 @@ impl Overlay {
             for (i, c) in row.iter().enumerate() {
                 let run = i > 0 && row[i - 1].style == c.style;
                 if !run && !styles_of.iter().any(|&(id, _)| id == c.style) {
-                    let res = styles.get(c.style.index()).copied().unwrap_or_default();
+                    let res = styles
+                        .at(at)
+                        .get(c.style.index())
+                        .copied()
+                        .unwrap_or_default();
                     styles_of.push((c.style, res));
                 }
             }
@@ -1415,7 +1419,7 @@ impl Overlay {
             let row = view.row(Row::from_index(y));
             for (x, cell) in row.iter().enumerate().take(cols) {
                 if blinks {
-                    if let Some(s) = styles.get(cell.style.index()) {
+                    if let Some(s) = styles.at(Row::from_index(y)).get(cell.style.index()) {
                         seen = seen.with(Blinking::of(s.shapes));
                     }
                 }
@@ -1549,7 +1553,8 @@ impl Overlay {
                     let Some(cp) = crate::renderer::drawn_base(scene.term, *cell) else {
                         continue;
                     };
-                    let style = crate::cellmap::face_of(scene.styles, *cell);
+                    let style =
+                        crate::cellmap::face_of(scene.styles.at(Row::from_index(yy)), *cell);
                     let Some(e) = scene
                         .map
                         .probe(cp, style, CellSpan::at(row, Col::at_index(xx)))
@@ -1685,7 +1690,7 @@ impl Overlay {
         geom: &Geom,
     ) {
         let (x, y) = at;
-        let (term, styles) = (scene.term, scene.styles);
+        let (term, styles) = (scene.term, scene.styles.at(Row::from_index(y)));
         let row = scene.view.row(Row::from_index(y));
         let cell = row[x];
         let Some(cp) = crate::renderer::drawn_base(term, cell) else {
@@ -1783,6 +1788,7 @@ impl Overlay {
         let drawn = |x: usize, cell: PackedCell, l: crate::word::Light| {
             let resolved = paint
                 .styles
+                .at(at)
                 .get(cell.style.index())
                 .copied()
                 .unwrap_or_default();
@@ -1854,7 +1860,7 @@ impl Overlay {
             let before = taken.ink_before(at, w.at, prev);
             // Its syllables' faces from the frame's table, which the
             // renderer's own is not kept to on this path.
-            let styles = crate::word::faces_of(scene.styles, row, w);
+            let styles = crate::word::faces_of(scene.styles.at(at), row, w);
             let laid = r.word_at(
                 (scene.term, &styles),
                 (at, row, kept.map(|k| (k, crate::kept::WordIx(i)))),
@@ -1909,7 +1915,7 @@ impl Overlay {
         geom: &Geom,
     ) {
         let (x, y) = at;
-        let (term, styles) = (scene.term, scene.styles);
+        let (term, styles) = (scene.term, scene.styles.at(Row::from_index(y)));
         let row = scene.view.row(Row::from_index(y));
         let Some(&cell) = row.get(x) else {
             return;
@@ -1980,7 +1986,12 @@ impl Overlay {
         if cps.is_empty() {
             return;
         }
-        let (lean, style) = slant_at(r, paint, at, crate::cellmap::face_of(scene.styles, cell));
+        let (lean, style) = slant_at(
+            r,
+            paint,
+            at,
+            crate::cellmap::face_of(scene.styles.at(Row::from_index(y)), cell),
+        );
         let mut key = ClusterKey::start().word(style.code());
         for &c in &cps {
             key = key.fold(c);
@@ -2053,13 +2064,22 @@ impl Overlay {
         if cps.is_empty() {
             return;
         }
-        let (lean, style) = slant_at(r, paint, at, crate::cellmap::face_of(scene.styles, cell));
+        let (lean, style) = slant_at(
+            r,
+            paint,
+            at,
+            crate::cellmap::face_of(scene.styles.at(Row::from_index(y)), cell),
+        );
         let mut key = ClusterKey::start().word(style.code());
         for &c in &cps {
             key = key.fold(c);
         }
         let word = r.joined_word(
-            (scene.term, scene.styles, frame.words()),
+            (
+                scene.term,
+                scene.styles.at(Row::from_index(y)),
+                frame.words(),
+            ),
             &cps,
             style,
             (around, (Row::from_index(y), Col::at_index(x))),
@@ -2232,14 +2252,16 @@ impl Overlay {
                 }
             }
             PairPart::LamWrapped(alef) => {
-                let style = crate::cellmap::face_of(scene.styles, here);
+                let style = crate::cellmap::face_of(scene.styles.at(window_row), here);
                 if !r.wrapped_ligates(scene.term, (here, alef), kind, style, stretch) {
                     return false;
                 }
                 (x, x, j.form, here, alef, PairSpan::LamCell)
             }
             PairPart::AlefWrapped(lam) => {
-                let style = crate::cellmap::face_of(scene.styles, lam);
+                // The lam is on the row before, its id in that row's table.
+                let before = Row::from_index(y.saturating_sub(1));
+                let style = crate::cellmap::face_of(scene.styles.at(before), lam);
                 if !r.wrapped_ligates(scene.term, (lam, here), kind, style, stretch) {
                     return false;
                 }
@@ -2265,7 +2287,7 @@ impl Overlay {
             r,
             paint,
             (lam_x, y),
-            crate::cellmap::face_of(scene.styles, lam_cell),
+            crate::cellmap::face_of(scene.styles.at(window_row), lam_cell),
         );
         let face = r.face_for(&lam, style);
         let alef_at = match span {
@@ -2273,7 +2295,7 @@ impl Overlay {
             PairSpan::Cells(..) => Some(alef_x),
         };
         let word = r.pair_word(
-            (scene.term, scene.styles, frame.words()),
+            (scene.term, scene.styles.at(window_row), frame.words()),
             window_row,
             (lam_x, alef_at),
             face,
@@ -2452,7 +2474,7 @@ impl Overlay {
                     .iter()
                     .zip(shaped)
                     .map(|((x, cell, at), glyphs)| {
-                        let style = crate::cellmap::face_of(scene.styles, *cell);
+                        let style = crate::cellmap::face_of(scene.styles.at(y), *cell);
                         let alone = scene
                             .map
                             .probe(all[at.start], style, CellSpan::at(row, Col::at_index(*x)))
@@ -2506,7 +2528,7 @@ impl Overlay {
                     .map
                     .probe(
                         cp,
-                        crate::cellmap::face_of(scene.styles, *cell),
+                        crate::cellmap::face_of(scene.styles.at(y), *cell),
                         CellSpan::at(row, Col::at_index(x)),
                     )
                     // A letter reaching past its cell cuts the window: the
@@ -2529,7 +2551,7 @@ impl Overlay {
             cps.clear();
             if let Some((cp, face, _)) = entry {
                 if cell.flags.is_marked() {
-                    let style = crate::cellmap::face_of(scene.styles, *cell);
+                    let style = crate::cellmap::face_of(scene.styles.at(y), *cell);
                     cps.push(cp);
                     cps.extend(
                         crate::renderer::drawn_marks(scene.term, r.frame_held().words(), *cell)
@@ -2590,7 +2612,7 @@ impl Overlay {
         r: &mut Renderer<'_, '_>,
         at: (Row, Col),
         cell: PackedCell,
-        styles: &[Resolved],
+        styles: crate::RowTables<'_>,
         block: Option<(Row, Col, CursorStyle)>,
         highlight: Option<Highlight>,
         cols: Cols,
@@ -2630,7 +2652,7 @@ impl Overlay {
         *slot |= MASK_RECORD;
         let glyphs = r.cluster(
             &[cp],
-            crate::cellmap::face_of(styles, cell),
+            crate::cellmap::face_of(styles.at(at.0), cell),
             // A prediction is one printable ASCII character.
             CellSpan::One,
         );
@@ -2821,7 +2843,7 @@ impl Overlay {
         &mut self,
         r: &mut Renderer<'_, '_>,
         term: &Term<'_>,
-        (map, styles): (&GlyphMap<'_>, &[Resolved]),
+        (map, styles): (&GlyphMap<'_>, crate::RowTables<'_>),
         back: Rows,
         (cols, rows): (Cols, Rows),
         pan: Px,
@@ -2859,7 +2881,7 @@ impl Overlay {
         &mut self,
         r: &mut Renderer<'_, '_>,
         term: &Term<'_>,
-        (map, styles): (&GlyphMap<'_>, &[Resolved]),
+        (map, styles): (&GlyphMap<'_>, crate::RowTables<'_>),
         (cols, rows): (Cols, Rows),
         pan: Px,
         mask: &mut [u8],
@@ -2886,7 +2908,8 @@ impl Overlay {
         let scene = Scene {
             term,
             view,
-            styles,
+            // The leaving row's table: the row after the window's.
+            styles: crate::RowTables::one(styles.at(Row::from_index(rows.index()))),
             cursor: None,
             highlight: None,
             map,
@@ -3013,6 +3036,7 @@ impl Overlay {
         let (x, y) = at;
         let resolved = paint
             .styles
+            .at(Row::from_index(y))
             .get(cell.style.index())
             .copied()
             .unwrap_or_default();
@@ -4570,7 +4594,7 @@ pub(crate) fn composition_parts(
             flags: baud_domain::CellFlags::NONE,
         };
         let paint = Paint {
-            styles: &one,
+            styles: crate::RowTables::one(&one),
             block,
             highlight: (look.selected == Selected::Yes).then(|| {
                 Highlight::new(
