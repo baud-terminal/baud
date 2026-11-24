@@ -288,17 +288,17 @@ pub use colour::KittyColours;
 /// The longest single reply the core writes, a DECRQSS rendition string, for
 /// a caller sizing what it drains into.
 pub use dcs::DECRQSS_MAX;
-/// The sixteen allocations a `Storage` borrows, for a caller that has an
-/// allocator. Not `Storage::boxed`: this `Storage` holds borrows, so there is
-/// nothing for a `Box` to own.
-#[cfg(feature = "alloc")]
-pub use storage::Owned;
 pub use storage::{
     ARENA, BAND_SLOTS, BandRows, BandSlots, Banding, CELLS3, CELLS3_PREFIXES, GRID, LINK_MAX,
     MAX_COLS, MAX_ROWS, Mode, NCLUSTER, NLINK, NSTYLE, NSTYLE_MAX, OSC_MAX, OverBudget,
     PALETTE_LEN, Provision, READ_CHUNK, REPLY, REPLY_MOST, RESERVED_SLOTS, Storage, StrBuf,
     StyleBook, StyleTable, TITLE_SLOTS, TITLE_STACK, grid_stride,
 };
+/// The sixteen allocations a `Storage` borrows, for a caller that has an
+/// allocator. Not `Storage::boxed`: this `Storage` holds borrows, so there is
+/// nothing for a `Box` to own.
+#[cfg(feature = "alloc")]
+pub use storage::{Footprint, Owned};
 /// Which surface is live, for a caller asking `Term::screen`.
 pub use term::{
     ColumnRefusals, Erasure, HistoryErasures, HistoryMark, HistoryWipes, Looking, Moved, Overrides,

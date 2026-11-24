@@ -1010,3 +1010,20 @@ impl Cells {
         self.0
     }
 }
+
+/// **Bytes a storage allocates**: a buffer's capacity times its element, as
+/// large as memory goes. Not a [`ByteLen`], which is a read's length and
+/// stops at `u16`'s top -- the first footprint counted with one read 65,535
+/// for a 632,896-byte set of tables.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+#[repr(transparent)]
+pub struct Allocated(usize);
+
+impl Allocated {
+    pub fn of(n: usize) -> Allocated {
+        Allocated(n)
+    }
+    pub fn index(self) -> usize {
+        self.0
+    }
+}

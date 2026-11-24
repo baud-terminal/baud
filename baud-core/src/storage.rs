@@ -1047,6 +1047,42 @@ impl Owned {
         self.stride
     }
 
+    /// **What this storage allocates for its cells, its rendition tables and
+    /// its generations**, in bytes, each a buffer's capacity times its
+    /// element: the cells of the primary's ring, the alternate screen and the
+    /// status row with their rows' marks; every band's slots, write log,
+    /// reach and book; and the pool, whose pages are committed only as a
+    /// generation writes them. The rest of the storage -- strings, images,
+    /// tabs -- is not counted.
+    pub fn footprint(&self) -> Footprint {
+        use core::mem::size_of_val;
+        let bytes = Allocated::of;
+        Footprint {
+            cells: bytes(
+                size_of_val(&self.vp[..])
+                    + size_of_val(&self.alt[..])
+                    + size_of_val(&self.status[..])
+                    + size_of_val(&self.used[..])
+                    + size_of_val(&self.alt_used[..])
+                    + size_of_val(&self.status_used[..])
+                    + size_of_val(&self.past[..]),
+            ),
+            tables: bytes(
+                size_of_val(&self.tmpl[..])
+                    + size_of_val(&self.order[..])
+                    + size_of_val(&self.reach[..])
+                    + size_of_val(&self.books[..]),
+            ),
+            pool: bytes(
+                size_of_val(&self.frozen_words[..])
+                    + size_of_val(&self.frozen_gens[..])
+                    + size_of_val(&self.frozen_tags[..])
+                    + size_of_val(&self.frozen_spare[..])
+                    + size_of_val(&self.frozen_map[..]),
+            ),
+        }
+    }
+
     /// **The rows each band's table covers**, as storage gave them: a
     /// forced band size is clamped to what fits, so a caller that asked for
     /// one reads here what it got.
@@ -2185,4 +2221,14 @@ impl<'b> Storage<'b> {
             images,
         }
     }
+}
+
+/// What a storage allocates for its cells, its rendition tables and its
+/// generations ([`Owned::footprint`]).
+#[cfg(feature = "alloc")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Footprint {
+    pub cells: Allocated,
+    pub tables: Allocated,
+    pub pool: Allocated,
 }
