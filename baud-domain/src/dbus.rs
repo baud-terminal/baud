@@ -31,11 +31,13 @@
 //! kept from `Hello`'s reply. A reply finds the call it answers in an
 //! [`Awaiting`] in one slot read, and a signal is acted on only as
 //! [`Trusted`], vouched for by the [`Peer`] that owns the name it speaks
-//! for.
+//! for. The bus's own signals are [`FromBus`], and its `NameOwnerChanged`
+//! says which connection holds a watched name ([`HolderChange`]).
 
 mod auth;
 mod awaiting;
 mod body;
+mod bus;
 mod decode;
 mod header;
 mod name;
@@ -50,6 +52,7 @@ pub use awaiting::{Awaiting, Refusals, Refused};
 pub use body::{ArrayLen, EncodeError, MessageLen};
 #[cfg(feature = "alloc")]
 pub use body::{Body, BodyWriter};
+pub use bus::{FromBus, HolderChange};
 pub use decode::{
     ArrayRead, BodyError, BodyReader, BodyRef, Called, ErrorReply, Frame, Header, Inbound,
     Malformed, Order, Peer, Return, Signal, Trusted, Unread, decode, frame,

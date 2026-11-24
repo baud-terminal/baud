@@ -1292,6 +1292,17 @@ const _: for<'a> fn(
 ) -> Option<baud_domain::dbus::Trusted<'a>> = baud_domain::dbus::Peer::vouch;
 const _: fn(&baud_domain::dbus::Trusted<'static>) -> baud_domain::dbus::Signal<'static> =
     baud_domain::dbus::Trusted::signal;
+const _: fn(&baud_domain::dbus::Signal<'static>) -> Option<baud_domain::dbus::FromBus<'static>> =
+    baud_domain::dbus::Signal::from_bus;
+const _: fn(&baud_domain::dbus::FromBus<'static>) -> baud_domain::dbus::Signal<'static> =
+    baud_domain::dbus::FromBus::signal;
+const _: for<'a, 'b> fn(
+    &baud_domain::dbus::FromBus<'a>,
+    baud_domain::dbus::BusName<'b>,
+) -> Option<baud_domain::dbus::HolderChange> = baud_domain::dbus::HolderChange::of;
+const _: fn(baud_domain::dbus::Peer) -> baud_domain::dbus::HolderChange =
+    baud_domain::dbus::HolderChange::To;
+const _: baud_domain::dbus::HolderChange = baud_domain::dbus::HolderChange::Gone;
 // dbus signatures: the rest of the surface
 const _: baud_domain::dbus::SigLen = baud_domain::dbus::SigLen::ZERO;
 const _: baud_domain::dbus::SigLen = baud_domain::dbus::SigLen::MAX;
@@ -1654,6 +1665,8 @@ const WITNESSED: &[(&str, &str)] = &[
     ("Awaiting", "E0080"),
     ("Trusted", "E0308"),
     ("Trusted", "E0451"),
+    ("FromBus", "E0308"),
+    ("FromBus", "E0451"),
     ("HeaderField", "E0308"),
     ("Body", "E0451"),
     ("Body", "E0277"),

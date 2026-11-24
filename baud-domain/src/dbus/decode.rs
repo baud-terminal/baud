@@ -967,8 +967,16 @@ impl Peer {
     /// The connection that sent `reply`, if its SENDER is there and is a
     /// unique name.
     pub fn from_reply(reply: &Return<'_>) -> Option<Peer> {
-        let name = OwnedBusName::unique(reply.header.sender()?)?;
-        Some(Peer { name })
+        Peer::unique(reply.header.sender()?)
+    }
+
+    /// The connection whose unique name is `name`; a well-known name is
+    /// `None`.
+    pub(crate) const fn unique(name: BusName<'_>) -> Option<Peer> {
+        match OwnedBusName::unique(name) {
+            Some(name) => Some(Peer { name }),
+            None => None,
+        }
     }
 
     /// The peer's unique name.
