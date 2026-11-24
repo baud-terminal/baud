@@ -1254,9 +1254,21 @@ pub struct LineSpan {
     last: AbsLine,
 }
 
-/// Whether `b` holds the spans `a` does, in whatever order.
-fn same_spans(a: &[LineSpan], b: impl Iterator<Item = LineSpan> + Clone) -> bool {
-    b.clone().all(|s| a.contains(&s)) && a.iter().all(|p| b.clone().any(|s| s == *p))
+/// **Whether `b` holds the spans `a` does, in whatever order**, each two
+/// spans compared counted in `n`. Spans handed again unchanged come in the
+/// order they were kept in, so the two are walked side by side first,
+/// each pair compared once; only where they part is each held against
+/// every other.
+fn same_spans(a: &[LineSpan], b: impl Iterator<Item = LineSpan> + Clone, n: &mut Tally) -> bool {
+    let mut eq = |p: LineSpan, s: LineSpan| {
+        n.bump();
+        p == s
+    };
+    let mut side = b.clone();
+    if a.iter().all(|&p| side.next().is_some_and(|s| eq(p, s))) && side.next().is_none() {
+        return true;
+    }
+    b.clone().all(|s| a.iter().any(|&p| eq(p, s))) && a.iter().all(|&p| b.clone().any(|s| eq(p, s)))
 }
 
 impl LineSpan {
@@ -1928,6 +1940,8 @@ pub struct Paths {
     alt_epoch: AltEpoch,
     pieces: Vec<(LineSpan, Facts)>,
     looked: core::cell::Cell<Tally>,
+    /// The spans [`Paths::set_pending`] has compared, each two once.
+    compared: Tally,
     /// Moved by every span named, which may join or part two rows
     /// ([`PathsAt::origins`]).
     origins: Generation,
@@ -2850,7 +2864,14 @@ impl Paths {
         I: Iterator<Item = LineSpan> + Clone,
         J: Iterator<Item = LineSpan> + Clone,
     {
-        same_spans(&self.pending, pending) && same_spans(&self.held, held)
+        let mut n = Tally::default();
+        same_spans(&self.pending, pending, &mut n) && same_spans(&self.held, held, &mut n)
+    }
+
+    /// The spans [`Paths::set_pending`] has compared so far.
+    #[cfg(test)]
+    pub(crate) fn compares(&self) -> Tally {
+        self.compared
     }
 
     /// **The lines whose writer is still to be named, where their text is
@@ -2867,12 +2888,12 @@ impl Paths {
         I: Iterator<Item = LineSpan> + Clone,
         J: Iterator<Item = LineSpan> + Clone,
     {
-        if !same_spans(&self.pending, pending.clone()) {
+        if !same_spans(&self.pending, pending.clone(), &mut self.compared) {
             self.pending.clear();
             self.pending.extend(pending);
             self.named();
         }
-        if same_spans(&self.held, held.clone()) {
+        if same_spans(&self.held, held.clone(), &mut self.compared) {
             return;
         }
         for span in self.held.iter().copied().chain(held.clone()) {
@@ -10433,5 +10454,34 @@ mod joined_rows {
             }
         }
         assert!(checked > 300, "{checked} cases");
+    }
+
+    /// **The same held lines handed again are compared once each**
+    /// (`Paths::set_pending`): two thousand lines held one by one, as a
+    /// re-cut holds each line it moves under a group still to be named,
+    /// handed again unchanged, cost at most one comparison per line, where
+    /// every read hands them while they stay held. The control: the same
+    /// lines in the other order are still the same and refile nothing, and
+    /// one line fewer refiles. Named break: compare each line with every
+    /// other on each hand -- 4,002,000 comparisons for 2,000 lines.
+    #[test]
+    fn the_same_held_lines_handed_again_are_compared_once_each() {
+        let mut p = paths();
+        let held: Vec<LineSpan> = (0..2_000)
+            .map(|i| {
+                let l = line(Row::from_index(i));
+                LineSpan::of(l, l)
+            })
+            .collect();
+        p.set_pending(core::iter::empty(), held.iter().copied());
+        let (before, origins) = (p.compares().value(), p.origins);
+        p.set_pending(core::iter::empty(), held.iter().copied());
+        let again = p.compares().value() - before;
+        assert!(again <= 2_000, "{again} comparisons for 2,000 lines");
+        assert_eq!(p.origins, origins, "nothing refiled");
+        p.set_pending(core::iter::empty(), held.iter().rev().copied());
+        assert_eq!(p.origins, origins, "the other order is the same lines");
+        p.set_pending(core::iter::empty(), held[1..].iter().copied());
+        assert_ne!(p.origins, origins, "one line fewer refiles");
     }
 }
