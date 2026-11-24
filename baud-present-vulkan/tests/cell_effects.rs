@@ -97,7 +97,7 @@ fn effect_on(gpu: &Gpu, theme: Theme, effect: Effect) {
             &format!("{name}, the cell frame against the CPU path's"),
             &f.cell,
             &f.cpu,
-            &f.covers,
+            (&f.covers, &f.ties),
             a.bar,
             f.width,
         );
@@ -141,6 +141,7 @@ fn the_cover_is_the_cap_both_ways() {
     };
     let want = [0xff20_2020u32; 4];
     let covers = [Cover(0), Cover(1), Cover(3), Cover(1)];
+    let ties = [common::Ties::AWAY; 4];
     let off =
         |steps: [u32; 4]| -> Vec<u32> { want.iter().zip(steps).map(|(&w, s)| w + s).collect() };
     let holds = |got: Vec<u32>| {
@@ -149,7 +150,7 @@ fn the_cover_is_the_cap_both_ways() {
                 "a control",
                 &got,
                 &want,
-                &covers,
+                (&covers, &ties),
                 bar,
                 baud_present_wayland::Px(4),
             )
@@ -170,7 +171,7 @@ fn the_cover_is_the_cap_both_ways() {
 /// of one to four.
 #[test]
 fn the_allowance_is_the_bound_term_by_term_rounding_reaches() {
-    use common::{Cover, Rounding, allowance};
+    use common::{Cover, Rounding, Tie, allowance};
     let apart = |page: u8, records: &[(u8, u8)]| -> u32 {
         let (mut once, mut terms) = (u32::from(page), u32::from(page));
         for &(alpha, source) in records {
@@ -183,6 +184,7 @@ fn the_allowance_is_the_bound_term_by_term_rounding_reaches() {
     let cap = |n: usize| {
         allowance(
             Cover(u8::try_from(n).expect("a cover")),
+            Tie::Away,
             Rounding::TermByTerm,
         )
     };

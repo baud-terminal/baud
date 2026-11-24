@@ -1,8 +1,10 @@
 //! **The instance path draws a frame**, on lavapipe and on RADV: the cells'
 //! backgrounds, a flat record and a mask record over them, read back and
 //! checked pixel for pixel against the CPU renderer's own blend
-//! (`composite.rs`, `Blend::over`, native), with the one allowance
-//! `common::assert_frame` gives a device that rounds term by term. RADV
+//! (`composite.rs`, `Blend::over`, native), with the allowance
+//! `common::assert_frame` gives: a step a blended channel on a device that
+//! rounds term by term, and on one that rounds the sum once a step only on
+//! a channel whose exact sum lies at a tie (`common::Tie`). RADV
 //! needs the GPU, so it is `#[ignore]`d and run by name from
 //! `scripts/linux-vulkan-radv.sh`.
 
@@ -15,7 +17,7 @@ use baud_present_vulkan::draw::{Pass, Records, Scene, Texel, Texels};
 use baud_present_vulkan::frame::{Gpu, Premultiplied};
 use baud_present_vulkan::pipeline::Pipelines;
 use baud_present_wayland::Px;
-use common::{Bar, Rounding, assert_frame, lavapipe, radv, record};
+use common::{Bar, Rounding, Tie, Ties, assert_frame, lavapipe, radv, record};
 
 /// The CPU renderer's over (`Blend::over`, native) of an opaque straight
 /// `color` at coverage `cov` over an opaque `dst`.
@@ -25,6 +27,16 @@ fn over(color: u32, cov: u32, dst: u32) -> u32 {
         (c * cov + d * (255 - cov) + 127) / 255
     };
     0xff00_0000 | mix(16) << 16 | mix(8) << 8 | mix(0)
+}
+
+/// **Where [`over`]'s exact sums lie against a half**, a channel: the
+/// colours' by their sum, the alpha, opaque over opaque, exact.
+fn over_ties(color: u32, cov: u32, dst: u32) -> Ties {
+    let tie = |s: u32| {
+        let (c, d) = ((color >> s) & 0xff, (dst >> s) & 0xff);
+        Tie::of(c * cov + d * (255 - cov))
+    };
+    Ties([tie(0), tie(8), tie(16), Tie::Away])
 }
 
 /// **Backgrounds, a flat record and a mask record, as the pipelines blend
@@ -37,8 +49,9 @@ fn the_instance_path_draws_backgrounds_and_records() {
     draw_and_check(&lavapipe(), Rounding::TermByTerm);
 }
 
-/// **The same frame on RADV**: every unblended pixel the CPU's, every blended
-/// one within a step of it.
+/// **The same frame on RADV**: every pixel the CPU's, but a blended
+/// channel whose exact sum lies within [`common::TIE_WINDOW`] of a half,
+/// which may be a step off.
 #[test]
 #[ignore = "needs the GPU: scripts/linux-vulkan-radv.sh"]
 fn the_instance_path_is_the_cpu_path_on_radv() {
@@ -119,7 +132,7 @@ fn draw_and_check(gpu: &Gpu, rounding: Rounding) {
     gpu.draw(&mut pipes, &t, &scene, Pass::Whole)
         .expect("a drawn frame");
     let got = gpu.read(&t).expect("the frame read back");
-    let (mut want, mut blended) = (Vec::new(), Vec::new());
+    let (mut want, mut blended, mut ties) = (Vec::new(), Vec::new(), Vec::new());
     for py in 0..h {
         for px in 0..w {
             let (cx, cy) = (px / cell, py / cell);
@@ -130,19 +143,23 @@ fn draw_and_check(gpu: &Gpu, rounding: Rounding) {
                 (3, 2) => over(ink, c, under),
                 _ => under,
             });
-            blended.push((cx, cy) == (3, 2) && c > 0 && c < 255);
+            let mixed = (cx, cy) == (3, 2) && c > 0 && c < 255;
+            blended.push(mixed);
+            ties.push(match mixed {
+                true => over_ties(ink, c, under),
+                false => Ties::AWAY,
+            });
         }
     }
-    let width = usize::try_from(w).expect("a width");
     assert_frame(
         &got,
         &want,
-        &blended,
+        (&blended, &ties),
         Bar {
             rounding,
             driver: gpu.driver(),
         },
-        width,
+        Px(w),
     );
     sheets.destroy(gpu);
     gpu.drop_target(t);
@@ -156,7 +173,9 @@ fn draw_and_check(gpu: &Gpu, rounding: Rounding) {
 /// premultiplied colour over nothing, and every other pixel is still
 /// transparent. A whole pass would have painted the backgrounds over it.
 /// Exact on lavapipe too: over a transparent target the destination term
-/// is zero, so there is no second term to round.
+/// is zero, so there is no second term to round, and each device rounds
+/// the source term once -- a step off only on a channel whose exact
+/// product lies at a tie.
 #[test]
 fn a_pass_over_keeps_the_target_it_draws_on() {
     over_and_check(&lavapipe(), Rounding::OnceAtTies);
@@ -227,23 +246,26 @@ fn over_and_check(gpu: &Gpu, rounding: Rounding) {
         .expect("a pass over the target");
     let got = gpu.read(&t).expect("the frame read back");
     let painted = baud_domain::premultiply(ink);
-    let (mut want, mut blended) = (Vec::new(), Vec::new());
+    let tie = |s: u32| Tie::of(((ink >> s) & 0xff) * (ink >> 24));
+    let at_ties = Ties([tie(0), tie(8), tie(16), Tie::Away]);
+    let (mut want, mut blended, mut ties) = (Vec::new(), Vec::new(), Vec::new());
     for py in 0..h {
         for px in 0..w {
             let inside = (8..16).contains(&px) && (8..16).contains(&py);
             want.push(if inside { painted } else { 0 });
             blended.push(inside);
+            ties.push(if inside { at_ties } else { Ties::AWAY });
         }
     }
     assert_frame(
         &got,
         &want,
-        &blended,
+        (&blended, &ties),
         Bar {
             rounding,
             driver: gpu.driver(),
         },
-        usize::try_from(w).expect("a width"),
+        Px(w),
     );
     sheets.destroy(gpu);
     gpu.drop_target(t);
@@ -260,6 +282,7 @@ fn over_and_check(gpu: &Gpu, rounding: Rounding) {
 fn a_step_every_pixel_takes_one_way_fails() {
     let want: Vec<u32> = (0..64u32).map(|i| 0x8040_2010 + i * 0x0001_0101).collect();
     let blended: Vec<bool> = (0..64).map(|i| i % 4 != 0).collect();
+    let ties = vec![Ties::AWAY; 64];
     let step = |up: &dyn Fn(usize) -> bool| -> Vec<u32> {
         want.iter()
             .enumerate()
@@ -275,12 +298,12 @@ fn a_step_every_pixel_takes_one_way_fails() {
     assert_frame(
         &both_ways,
         &want,
-        &blended,
+        (&blended, &ties),
         Bar {
             rounding: Rounding::TermByTerm,
             driver: radv,
         },
-        8,
+        Px(8),
     );
     let planted = step(&|_| true);
     assert!(
@@ -288,12 +311,12 @@ fn a_step_every_pixel_takes_one_way_fails() {
             assert_frame(
                 &planted,
                 &want,
-                &blended,
+                (&blended, &ties),
                 Bar {
                     rounding: Rounding::TermByTerm,
                     driver: radv,
                 },
-                8,
+                Px(8),
             )
         })
         .is_err(),
@@ -302,11 +325,49 @@ fn a_step_every_pixel_takes_one_way_fails() {
     assert_frame(
         &planted,
         &want,
-        &blended,
+        (&blended, &ties),
         Bar {
             rounding: Rounding::TermByTerm,
             driver: llvmpipe,
         },
-        8,
+        Px(8),
     );
+}
+
+/// **Rounded once, a step is allowed only at a tie**: on a frame whose
+/// other pixels are exact, a blended pixel a step off on the one channel
+/// whose exact sum lies at a tie passes; a step on a channel of the same
+/// pixel away from one fails, as does a step on a blended pixel with no
+/// channel at a tie and one on an unblended pixel. No GPU: the frames are
+/// made here, and the driver named.
+#[test]
+fn rounded_once_a_step_away_from_a_tie_fails() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    let want = vec![0xff40_6080u32; 8];
+    let blended = [false, true, true, true, true, true, true, true];
+    let near_red = Ties([Tie::Away, Tie::Away, Tie::Near, Tie::Away]);
+    let mut ties = vec![Ties::AWAY; 8];
+    ties[1] = near_red;
+    let bar = Bar {
+        rounding: Rounding::OnceAtTies,
+        driver: DriverId::MESA_RADV,
+    };
+    let holds = |at: usize, by: u32| {
+        let mut got = want.clone();
+        got[at] += by;
+        catch_unwind(AssertUnwindSafe(|| {
+            assert_frame(&got, &want, (&blended, &ties), bar, Px(8))
+        }))
+        .is_ok()
+    };
+    assert!(holds(1, 0x0001_0000), "a step on the channel at a tie");
+    assert!(
+        !holds(1, 0x0000_0100),
+        "a step on a channel away from a tie"
+    );
+    assert!(
+        !holds(2, 0x0001_0000),
+        "a step on a pixel with no channel at a tie"
+    );
+    assert!(!holds(0, 0x0001_0000), "a step on an unblended pixel");
 }

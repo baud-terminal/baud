@@ -9,12 +9,18 @@
 //!   device ([`Frames::cell_is_instance`]);
 //! - the cell frame and the instance frame are each the CPU path's
 //!   premultiplied frame through `common::assert_frame_covered`: exact where
-//!   no record blends, within a step a channel where one does, the step
-//!   rounded term by term on llvmpipe and once
-//!   everywhere else, and on llvmpipe a step a record where records blend
-//!   over each other (`common::allowance`); the lean gated everywhere but
-//!   on llvmpipe
-//!   ([`Frames::against_cpu`]).
+//!   no record blends; where one does, on llvmpipe, which rounds term by
+//!   term, a step a channel a record that blends it; everywhere else exact
+//!   but on a channel whose exact sum lies at a tie on some blend, a step
+//!   off there (`common::allowance`, `common::Tie`); the lean gated
+//!   everywhere but on llvmpipe ([`Frames::against_cpu`]).
+//!
+//! **Where a channel's exact sum lies** is found by replaying the
+//! records, in the order the instance path draws them, over the frame
+//! drawn with none, by the CPU path's blend in premultiplied bytes
+//! ([`replay`]); the replay must come out as the CPU path's frame on every
+//! pixel no effect draws, or the scene fails ([`Arms::draw`]), so a
+//! replay that is wrong cannot put a pixel at a tie it is not at.
 //!
 //! **A pixel is blended** where a record of the instance path's frame
 //! draws it at a source alpha strictly between nothing and all: a mask
@@ -42,7 +48,7 @@
 
 #![allow(dead_code)]
 
-use crate::common::{Bar, Cover, Rounding, assert_frame_covered};
+use crate::common::{Bar, Cover, Rounding, Tie, Ties, assert_frame_covered};
 use baud_core::Term;
 use baud_domain::{BytePos, Codepoint, Col, PackedCell, ReadLen, Row, RowExtent, Rows, WinSize};
 use baud_font::Px as FontPx;
@@ -118,6 +124,9 @@ pub struct Frames {
     pub blended: Vec<bool>,
     /// How many records blend each pixel, counted from the scene's records.
     pub covers: Vec<Cover>,
+    /// Where each channel's exact sum lies against a half, from the
+    /// replay of the scene's records.
+    pub ties: Vec<Ties>,
     pub width: Px,
     /// Images and effect records the cell frame left undrawn.
     pub skipped: Skips,
@@ -178,7 +187,7 @@ impl Frames {
                 &format!("{scene}, {path} against the CPU path's"),
                 got,
                 &self.cpu,
-                &self.covers,
+                (&self.covers, &self.ties),
                 bar,
                 self.width,
             );
@@ -471,8 +480,10 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
     }
 
     /// **The instance frame of `t`**: the renderer's records and
-    /// backgrounds drawn whole, and the pixels a record of it blends.
-    pub fn instance_frame(&mut self, t: &Term<'_>) -> (Vec<u32>, Vec<bool>) {
+    /// backgrounds drawn whole; and the ground, the same frame drawn with
+    /// no record, which no record blends and so is the CPU path's under
+    /// them.
+    pub fn instance_frame(&mut self, t: &Term<'_>) -> (Vec<u32>, Vec<u32>) {
         let Held { pipes, sheets, .. } = self.held.as_mut().expect("the arms' memory");
         let r = &mut self.renderer;
         r.fit(t);
@@ -541,12 +552,28 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
             .gpu
             .read(&target)
             .expect("the instance frame read back");
+        // One record of no alpha, which leaves every pixel as it is.
+        let none = crate::common::record((0, 0), (1, 1), (0, 0), (0, 2));
+        let ground = Scene {
+            records: &none,
+            count: Records(1),
+            framing: scene.framing.map(|f| Framing {
+                chrome: f.chrome,
+                strips: [&[], &[], &[]],
+            }),
+            ..scene
+        };
         self.gpu.drop_target(target);
-        let blended = covers(r, (w.value(), h.value()))
-            .into_iter()
-            .map(|c| c > 0)
-            .collect();
-        (got, blended)
+        let target = self
+            .gpu
+            .target(Px(w.value()), Px(h.value()))
+            .expect("a target");
+        self.gpu
+            .draw(pipes, &target, &ground, Pass::Whole)
+            .expect("a drawn ground");
+        let under = self.gpu.read(&target).expect("the ground read back");
+        self.gpu.drop_target(target);
+        (got, under)
     }
 
     /// **The CPU path's frame of `t`**, the whole frame, premultiplied.
@@ -565,19 +592,42 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
     /// instance path's, then the CPU path's.
     pub fn draw(&mut self, t: &mut Term<'_>) -> Frames {
         let (cell, skipped) = self.cell_frame(t);
-        let (instance, blended) = self.instance_frame(t);
+        let (instance, ground) = self.instance_frame(t);
         let (w, h) = self.renderer.whole_size();
-        let covers = covers(&self.renderer, (w.value(), h.value()))
-            .into_iter()
-            .map(Cover)
-            .collect();
+        let Replay {
+            covers,
+            ties,
+            frame,
+        } = replay(&self.renderer, (w.value(), h.value()), ground);
         let cpu = self.cpu_frame(t);
+        let width = usize::try_from(w.value()).expect("a width");
+        let apart: Vec<String> = (0..cpu.len())
+            .filter(|&i| !ties[i].effect() && frame[i] != cpu[i])
+            .map(|i| {
+                format!(
+                    "({}, {}, {:08x}, {:08x})",
+                    i % width,
+                    i / width,
+                    frame[i],
+                    cpu[i]
+                )
+            })
+            .collect();
+        assert!(
+            apart.is_empty(),
+            "the records replayed over the ground are {} pixels apart from the CPU path's \
+             frame, the first (x, y, replayed, cpu) {}: the ties read from the replay are \
+             not the CPU path's",
+            apart.len(),
+            apart[..apart.len().min(6)].join(" ")
+        );
         Frames {
             cpu,
             instance,
             cell,
-            blended,
-            covers,
+            blended: covers.iter().map(|&c| c > 0).collect(),
+            covers: covers.into_iter().map(Cover).collect(),
+            ties,
             width: Px(w.value()),
             skipped,
         }
@@ -629,7 +679,7 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
             &format!("{scene}, the cell frame against the CPU path's"),
             &frames.cell,
             &frames.cpu,
-            &frames.covers,
+            (&frames.covers, &frames.ties),
             self.bar,
             frames.width,
         );
@@ -637,14 +687,37 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
     }
 }
 
-/// **How many records of the renderer's last convert blend each pixel**:
-/// draw it at a source alpha strictly between nothing and all, as
-/// `glyph.frag` forms it, in a frame `w` by `h` -- the grid's records from
-/// its pad, and each strip's from its viewport's origin.
-fn covers(r: &Renderer<'_, '_>, (w, h): (u32, u32)) -> Vec<u8> {
+/// **The renderer's last convert replayed over its ground**: how many
+/// records blend each pixel, where each channel's exact sums lie, and the
+/// frame they leave.
+struct Replay {
+    covers: Vec<u8>,
+    ties: Vec<Ties>,
+    /// Premultiplied, as the frames compared are.
+    frame: Vec<u32>,
+}
+
+/// **The records of the renderer's last convert, replayed in the order
+/// the instance path draws them over `ground`**, in a frame `w` by `h` --
+/// the grid's records from its pad, and each strip's from its viewport's
+/// origin. A pixel is covered by a record that draws it at a source alpha
+/// strictly between nothing and all, as `glyph.frag` forms it. Each record
+/// is blended as the CPU path blends it (`Blend::over` and
+/// `Blend::over_glass`, native) in premultiplied bytes: a source alpha `a`
+/// of a mask's coverage bent by its curve and scaled by its colour's alpha
+/// ([`baud_domain::premultiply_chan`]), of a colour texel's alpha, of a
+/// solid's colour's; each channel `c a + d (255 - a)` over 255, the alpha
+/// `255 a + d_a (255 - a)`, rounded once, and its tie read before the
+/// rounding ([`Tie::of`]). An effect's record is drawn from floats each path
+/// forms on its own, so its pixels and everything later over them are the
+/// effect's ([`Tie::Effect`]) and left out of the replay's frame.
+fn replay(r: &Renderer<'_, '_>, (w, h): (u32, u32), ground: Vec<u32>) -> Replay {
     let wide = usize::try_from(w).expect("a width");
     let high = usize::try_from(h).expect("a height");
+    assert_eq!(ground.len(), wide * high, "the ground is the frame's size");
     let mut out = vec![0u8; wide * high];
+    let mut ties = vec![Ties::AWAY; wide * high];
+    let mut frame = ground;
     let atlas = r.atlas();
     let side = usize::try_from(atlas.side().value()).expect("a side");
     let cside = usize::try_from(atlas.color_side().value()).expect("a side");
@@ -677,24 +750,74 @@ fn covers(r: &Renderer<'_, '_>, (w, h): (u32, u32)) -> Vec<u8> {
                     continue;
                 }
                 let (u, v) = (usize::from(i.u.0) + dx, usize::from(i.v.0) + dy);
-                let a = match i.kind {
+                let at = y * wide + x;
+                // The source alpha as `glyph.frag` forms it, and the CPU
+                // path's source: its colour and alpha, or none where it
+                // leaves the pixel as it is.
+                let (a, source) = match i.kind {
                     Kind::Mask => {
                         let cov = mask.get(v * side + u).copied().unwrap_or(0);
-                        alpha_byte(ca, i.curve.apply(cov))
+                        let bent = i.curve.apply(cov);
+                        let cpu = baud_domain::premultiply_chan(
+                            baud_domain::Chan::from_u8(bent),
+                            baud_domain::Chan::from_u8(ca),
+                        )
+                        .get();
+                        (alpha_byte(ca, bent), (cov != 0).then_some((i.color.0, cpu)))
                     }
-                    Kind::Color => color
-                        .get(v * cside + u)
-                        .map_or(0, |&p| u8::try_from(p >> 24).expect("a byte")),
-                    Kind::Solid => ca,
-                    Kind::Quad | Kind::Band | Kind::Particle => 128,
+                    Kind::Color => {
+                        let p = color.get(v * cside + u).copied().unwrap_or(0);
+                        let pa = u8::try_from(p >> 24).expect("a byte");
+                        (pa, (pa != 0).then_some((p, pa)))
+                    }
+                    Kind::Solid => (ca, Some((i.color.0, ca))),
+                    Kind::Quad | Kind::Band | Kind::Particle => {
+                        ties[at] = Ties::EFFECT;
+                        (128, None)
+                    }
                 };
                 if a != 0 && a != 255 {
-                    out[y * wide + x] = out[y * wide + x].saturating_add(1);
+                    out[at] = out[at].saturating_add(1);
+                }
+                if ties[at].effect() {
+                    continue;
+                }
+                if let Some((src, sa)) = source {
+                    let (blended, tie) = blend(src, u32::from(sa), frame[at]);
+                    frame[at] = blended;
+                    ties[at] = ties[at].or(tie);
                 }
             }
         }
     }
-    out
+    Replay {
+        covers: out,
+        ties,
+        frame,
+    }
+}
+
+/// **`src`'s colour at source alpha `a` over the premultiplied `dst`**, as
+/// the CPU path blends it, premultiplied, with where each channel's exact
+/// sum lay: a whole source is itself; otherwise each colour channel `(c a +
+/// d (255 - a) + 127) / 255` and the alpha `(255 a + d_a (255 - a) + 127) /
+/// 255`.
+fn blend(src: u32, a: u32, dst: u32) -> (u32, Ties) {
+    if a == 255 {
+        return (0xff00_0000 | src & 0x00ff_ffff, Ties::AWAY);
+    }
+    let mut word = 0;
+    let mut ties = [Tie::Away; 4];
+    for (k, s) in [0u32, 8, 16, 24].into_iter().enumerate() {
+        let c = match s {
+            24 => 255,
+            _ => (src >> s) & 0xff,
+        };
+        let n = c * a + ((dst >> s) & 0xff) * (255 - a);
+        word |= ((n + 127) / 255) << s;
+        ties[k] = Tie::of(n);
+    }
+    (word, Ties(ties))
 }
 
 /// `alpha_byte` in `glyph.frag`: coverage `cov` in a colour of alpha `ca`,
