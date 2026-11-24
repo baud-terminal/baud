@@ -1,7 +1,7 @@
 //! **A frame drawn by the instance path into a target**: the cells'
 //! backgrounds, then the records over them, each pipeline from
 //! [`Pipelines`], and the image released to the compositor's queue family
-//! after, as [`Gpu::clear`] leaves it. The glyphs are sampled from the
+//! after, as `Gpu::clear`, a test hook, leaves it. The glyphs are sampled from the
 //! persistent [`Sheets`], whose owed copies the frame records ahead of its
 //! draws; the scene's other buffers and textures are made for the frame and
 //! destroyed after it.
@@ -49,7 +49,7 @@ pub enum Pass {
     Whole,
     /// The records alone, blended over what the target holds, which is
     /// taken back from the compositor's queue family as it was left
-    /// ([`Gpu::clear`], an earlier draw): an effect over a page.
+    /// (`Gpu::clear` under test hooks, an earlier draw): an effect over a page.
     Over,
 }
 
