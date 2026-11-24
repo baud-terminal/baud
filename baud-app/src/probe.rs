@@ -1461,6 +1461,24 @@ fn hold(held: &mut Tracked<SpanSet<LineSpan, Option<Pid>>>, (g, span): (Option<P
     }
 }
 
+/// **Each of `more`'s spans held under its group, by one merge**
+/// (`SpanSet::extend_sorted`): a pair already held is dropped first, so
+/// the holds move once, and only when one is new. Each group looked at and
+/// each pair compared is counted in `steps`.
+fn hold_all(
+    held: &mut Tracked<SpanSet<LineSpan, Option<Pid>>>,
+    mut more: Vec<(LineSpan, Option<Pid>)>,
+    steps: &mut WalkSteps,
+) {
+    more.retain(|&(span, g)| {
+        let mut keys = held.get().keys_of(span).inspect(|_| steps.bump());
+        !keys.any(|k| k == g)
+    });
+    if !more.is_empty() {
+        held.edit().extend_sorted(&mut more, steps);
+    }
+}
+
 /// A newer screen batch in `newer`'s place: the groups `older` carried go
 /// with it, so a batch left untaken drops none.
 fn replace(slot: &mut Option<Ask>, mut newer: Ask, answers: &Sender<Answer>) -> bool {
@@ -2376,6 +2394,10 @@ pub struct Probes<T> {
     /// **The probe runs** (`Probes::drain_recut`): one a drain, none while
     /// nothing is read.
     probe_runs: baud_render::Tally,
+    /// **The steps the holds a re-cut, a part's moves or a local answer
+    /// leave took to find and put in** (`Probes::recut`,
+    /// `Probes::drain_segment`, `Probes::file_answered`).
+    hold_steps: WalkSteps,
     /// **The cursor's line each batch out was sent with**, by the batch,
     /// carried with its text through a re-cut (`Probes::recut`): the line
     /// its answer's program in front is named from, where it is now, not
@@ -2485,6 +2507,7 @@ impl<T: Moment> Probes<T> {
             dir_dropped: Owed::No,
             kept: Tracked::new(Kept::default()),
             probe_runs: baud_render::Tally::default(),
+            hold_steps: WalkSteps::ZERO,
             cursors: Vec::new(),
             held: Tracked::new(SpanSet::new()),
             lit: Lit::default(),
@@ -2545,6 +2568,13 @@ impl<T: Moment> Probes<T> {
     #[cfg(test)]
     pub fn probe_runs(&self) -> baud_render::Tally {
         self.probe_runs
+    }
+
+    /// The steps the holds of re-cuts, parts' moves and local answers took
+    /// to find and put in, so far.
+    #[cfg(test)]
+    fn hold_steps(&self) -> WalkSteps {
+        self.hold_steps
     }
 
     /// **A drain of reads was taken**, the cursor on `began` before the first
@@ -2852,16 +2882,15 @@ impl<T: Moment> Probes<T> {
             // no fact until named, and what was filed over the line was
             // another text's. Found on the spans as they were, held after
             // they are carried, where the line already is.
-            let mut held = Vec::new();
-            for (line, by) in moved {
-                let found: Vec<_> = self.groups_of(by).collect();
-                debug_assert!(!found.is_empty(), "a covering span with no group");
-                held.extend(holders(found).into_iter().map(|g| (g, line)));
-            }
+            debug_assert!(
+                moved.iter().all(|&(_, by)| self.pending().any(|p| p == by)),
+                "a covering span with no group"
+            );
+            let mut steps = WalkSteps::ZERO;
+            let held = self.holds_of(&moved, &mut steps);
             self.carry_pending(paths, &rec, &at, screens);
-            for h in held {
-                hold(&mut self.held, h);
-            }
+            hold_all(&mut self.held, held, &mut steps);
+            self.hold_steps.add(steps);
             // What it erased whole, forgotten after its moves and before
             // any of the drain is filed.
             self.erased(paths, &rec, &at, screens);
@@ -3020,17 +3049,58 @@ impl<T: Moment> Probes<T> {
         }
     }
 
-    /// **The group of each line still to be named that is `span`**, as
-    /// handed to `Paths` (`Probes::publish`): none for the lines past the
-    /// groups kept.
-    fn groups_of(&self, span: LineSpan) -> impl Iterator<Item = Option<Pid>> + '_ {
+    /// **The spans kept to send and sent, each with its group, sorted**
+    /// (none for the lines past the groups kept), for
+    /// [`Probes::groups_of`] to look a span up in by a binary search, as
+    /// it does in the holds, which are sorted already. Each span taken is
+    /// counted in `steps`.
+    fn kept_groups(&self, steps: &mut WalkSteps) -> SpanSet<LineSpan, Option<Pid>> {
         let kept = self.kept.get();
-        let seen = kept.seen.iter().map(|e| (Some(e.0), e.1));
-        seen.chain(kept.unnamed.map(|l| (None, l)))
-            .chain(kept.inflight.iter().map(|e| (e.1, e.2)))
-            .chain(self.held.get().iter().map(|(s, g)| (g, s)))
-            .filter(move |e| e.1 == span)
-            .map(|e| e.0)
+        let seen = kept.seen.iter().map(|e| (e.1, Some(e.0)));
+        let all = seen
+            .chain(kept.unnamed.map(|l| (l, None)))
+            .chain(kept.inflight.iter().map(|e| (e.2, e.1)));
+        SpanSet::of_unsorted(all.inspect(|_| steps.bump()))
+    }
+
+    /// **The group of each line still to be named that is `span`**, as
+    /// handed to `Paths` (`Probes::publish`), none for the lines past the
+    /// groups kept: in `kept` ([`Probes::kept_groups`]) and in the holds,
+    /// each by a binary search to the first, each group found counted in
+    /// `steps`.
+    fn groups_of(
+        &self,
+        kept: &SpanSet<LineSpan, Option<Pid>>,
+        span: LineSpan,
+        steps: &mut WalkSteps,
+    ) -> Vec<Option<Pid>> {
+        let held = self.held.get().keys_of(span);
+        kept.keys_of(span)
+            .chain(held)
+            .inspect(|_| steps.bump())
+            .collect()
+    }
+
+    /// **Each moved line with each group of the span still to be named
+    /// that covered its text** (`Paths::carried`, `Paths::reflowed`),
+    /// found on the spans as they are now ([`Probes::groups_of`]), under
+    /// none where that span names no group (`holders`). The kept spans
+    /// are sorted only when a line moved.
+    fn holds_of(
+        &self,
+        moved: &[(LineSpan, LineSpan)],
+        steps: &mut WalkSteps,
+    ) -> Vec<(LineSpan, Option<Pid>)> {
+        let mut out = Vec::new();
+        if moved.is_empty() {
+            return out;
+        }
+        let kept = self.kept_groups(steps);
+        for &(line, by) in moved {
+            let found = self.groups_of(&kept, by, steps);
+            out.extend(holders(found).into_iter().map(|g| (line, g)));
+        }
+        out
     }
 
     /// `span` written by a read not kept with paths off, joined to what
@@ -3266,20 +3336,16 @@ impl<T: Moment> Probes<T> {
         last: baud_render::AbsLine,
     ) {
         let moved = paths.reflowed(map, at, last);
-        let mut held = Vec::new();
-        for (line, by) in moved {
-            let found: Vec<_> = self.groups_of(by).collect();
-            held.extend(holders(found).into_iter().map(|g| (g, line)));
-        }
+        let mut steps = WalkSteps::ZERO;
+        let held = self.holds_of(&moved, &mut steps);
         self.carry_spans(|span| paths.recut_span(span));
         // Each batch out's cursor line, where its text is now, as the
         // program in front's is (`Paths::recut_line`).
         for e in &mut self.cursors {
             e.1 = paths.recut_line(e.1);
         }
-        for h in held {
-            hold(&mut self.held, h);
-        }
+        hold_all(&mut self.held, held, &mut steps);
+        self.hold_steps.add(steps);
         self.publish(paths);
     }
 
@@ -3342,13 +3408,15 @@ impl<T: Moment> Probes<T> {
                     .chain(kept.unnamed.map(|l| (None, l)))
                     .chain(kept.inflight.iter().map(|e| (e.1, e.2)))
                     .filter(|e| e.0 != g);
+                let mut more = Vec::new();
                 for &(_, _, span) in kept.inflight.iter().filter(|e| mine(e)) {
                     for (h, other) in others.clone() {
                         if let Some(both) = span.meet(other) {
-                            hold(&mut self.held, (h, both));
+                            more.push((both, h));
                         }
                     }
                 }
+                hold_all(&mut self.held, more, &mut self.hold_steps);
             }
             let lit = &mut self.lit;
             self.kept.edit().inflight.retain(|e| {
@@ -9004,6 +9072,91 @@ mod tests {
             after.1 - before.1 <= most,
             "the hold compared {} pairs, against the bound {most}",
             after.1 - before.1
+        );
+    }
+
+    /// **A re-cut puts its holds in by one merge** (`Probes::recut`):
+    /// M = 150 lines of thirty columns kept to send under one group, and
+    /// H = 200 lines of the alternate screen held, on a 40-column window
+    /// narrowed to 20, so each kept line's text takes two lines and is held
+    /// under the group there. Finding each moved line's groups and putting
+    /// the holds in take at most M·⌈log2 M⌉ + H = 1,400 steps. The
+    /// controls: every moved line held once, the holds handed on once, and
+    /// the steps counted. Named break: each moved line's groups found by a
+    /// walk of every span still to be named and each hold put in alone --
+    /// about M·(P + H) steps.
+    #[test]
+    fn a_resize_merges_its_holds_once() {
+        const MOVED: usize = 150;
+        const HELD: usize = 200;
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 4,
+        };
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::with_history(
+            &ws,
+            &baud_core::CacheGeometry::UNKNOWN,
+            baud_core::Depth::of(4 * MOVED),
+        );
+        let mut t = Term::new(owned.storage(), &ws);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let mut counts = crate::keep::Counts::new(&t);
+        let text: Vec<u8> = (0..MOVED + 10)
+            .flat_map(|i| format!("{i:03}{}\r\n", "y".repeat(27)).into_bytes())
+            .collect();
+        t.write_at(BytePos::ZERO, &text);
+        t.feed(BytePos::ZERO, ReadLen::from_index(text.len()));
+        let _ = t.take_record();
+        let _ = counts.numbered(&t, None);
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let group = Pid::try_from(2).expect("a pid");
+        pr.kept
+            .edit()
+            .seen
+            .push((group, LineSpan::of(line(0), line(MOVED - 1))));
+        let alternate = crate::paths::Surface::Alternate(crate::paths::AltEpoch::default());
+        for h in 0..HELD {
+            hold(
+                &mut pr.held,
+                (Some(9), LineSpan::on(alternate, line(h), line(h))),
+            );
+        }
+        pr.publish(&mut paths);
+        let was = (t.geometry().0, t.screen());
+        let was_last = crate::paths::last_line(&t, counts.primary());
+        let mut recuts = crate::paths::Recuts::default();
+        let _ = recuts.resize(
+            &mut t,
+            &WinSize {
+                ws_col: 20,
+                ws_row: 4,
+            },
+        );
+        let rec = t.take_record();
+        let _ = crate::keep::kept_across_resize(&t, was, None, &mut counts, &rec);
+        let (steps, publishes) = (pr.hold_steps().get(), paths.publishes().value());
+        pr.resized(&mut paths, (&rec, recuts.last()), &t, was_last, &counts);
+        let steps = pr.hold_steps().get() - steps;
+        let mine = pr.held.get().iter().filter(|e| e.1 == Some(group)).count();
+        assert_eq!(
+            (mine, pr.held.get().len().index()),
+            (MOVED, MOVED + HELD),
+            "the control: each moved line held once under its group"
+        );
+        assert_eq!(
+            paths.publishes().value() - publishes,
+            1,
+            "the control: the holds handed on once"
+        );
+        assert!(steps > 0, "the control: the steps counted");
+        let log = u64::from(usize::BITS - (MOVED - 1).leading_zeros());
+        let most = u64::try_from(MOVED).expect("a small count") * log
+            + u64::try_from(HELD).expect("a small count");
+        assert!(
+            steps <= most,
+            "the re-cut took {steps} steps to put its holds in, against the bound {most}"
         );
     }
 
