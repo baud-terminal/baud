@@ -49,7 +49,9 @@ pub struct Interface {
 }
 
 impl Interface {
-    /// The interface named `name`, if the pinned protocols declare it.
+    /// The interface named `name`, if the pinned protocols declare it: for
+    /// a name read off the wire. An interface baud names in its own source
+    /// is `protocol::<name>::INTERFACE`, which walks nothing.
     pub fn named(name: &str) -> Option<&'static Interface> {
         crate::protocol::INTERFACES
             .iter()

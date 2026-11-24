@@ -54,7 +54,7 @@ impl Pool {
         let len = one * BUFFERS;
         let fd = sys::anonymous(sys::FileLen(len.max(4096)))?;
         let map = sys::Map::shared(&fd, sys::FileLen(len.max(4096)))?;
-        let pool = s.new_id(baud_wayland::Interface::named("wl_shm_pool").expect("pinned"));
+        let pool = s.new_id(&baud_wayland::protocol::wl_shm_pool::INTERFACE);
         let size = i32::try_from(len.max(4096))
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "pool size"))?;
         s.request(
@@ -65,7 +65,7 @@ impl Pool {
         .map_err(|e| io::Error::other(e.to_string()))?;
         let mut buffers = [(ObjectId::NULL, Held::Free); BUFFERS];
         for (i, b) in buffers.iter_mut().enumerate() {
-            let id = s.new_id(baud_wayland::Interface::named("wl_buffer").expect("pinned"));
+            let id = s.new_id(&baud_wayland::protocol::wl_buffer::INTERFACE);
             let offset = i32::try_from(i * one)
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "offset"))?;
             let (w, h, st) = (

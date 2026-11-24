@@ -613,13 +613,13 @@ impl Window {
         app_id: &str,
     ) -> Result<Window, baud_wayland::client::Error> {
         let mut s = conn.sender();
-        let registry = s.new_id(Interface::named("wl_registry").expect("pinned"));
+        let registry = s.new_id(&protocol::wl_registry::INTERFACE);
         s.request(
             ObjectId::DISPLAY,
             Opcode(protocol::wl_display::request::GET_REGISTRY),
             &[Arg::NewId(registry)],
         )?;
-        let sync = s.new_id(Interface::named("wl_callback").expect("pinned"));
+        let sync = s.new_id(&protocol::wl_callback::INTERFACE);
         s.request(
             ObjectId::DISPLAY,
             Opcode(protocol::wl_display::request::SYNC),
@@ -895,7 +895,7 @@ impl Window {
         let surface = match self.cursor_surface {
             Some(c) => c,
             None => {
-                let c = s.new_id(Interface::named("wl_surface").expect("pinned"));
+                let c = s.new_id(&protocol::wl_surface::INTERFACE);
                 let _ = s.request(
                     compositor,
                     Opcode(protocol::wl_compositor::request::CREATE_SURFACE),
@@ -1006,7 +1006,7 @@ impl Window {
     fn cursor_viewport(&mut self, s: &mut Sender<'_>, surface: ObjectId) -> Option<ObjectId> {
         if self.cursor_viewport.is_none() {
             let viewporter = self.globals.viewporter?;
-            let id = s.new_id(Interface::named("wp_viewport").expect("pinned"));
+            let id = s.new_id(&protocol::wp_viewport::INTERFACE);
             let _ = s.request(
                 viewporter,
                 Opcode(protocol::wp_viewporter::request::GET_VIEWPORT),
@@ -1369,17 +1369,17 @@ impl Window {
         s: &mut Sender<'_>,
         registry: ObjectId,
         name: u32,
-        iface: &str,
+        iface: &'static Interface,
         version: u32,
     ) -> Option<ObjectId> {
-        let id = s.new_id(Interface::named(iface)?);
+        let id = s.new_id(iface);
         s.request(
             registry,
             Opcode(protocol::wl_registry::request::BIND),
             &[
                 Arg::Uint(name),
                 Arg::NewIdWith {
-                    interface: iface,
+                    interface: iface.name,
                     version,
                     id,
                 },
@@ -1397,19 +1397,19 @@ impl Window {
         if self.surface.is_some() {
             return;
         }
-        let surface = s.new_id(Interface::named("wl_surface").expect("pinned"));
+        let surface = s.new_id(&protocol::wl_surface::INTERFACE);
         let _ = s.request(
             compositor,
             Opcode(protocol::wl_compositor::request::CREATE_SURFACE),
             &[Arg::NewId(surface)],
         );
-        let xdg = s.new_id(Interface::named("xdg_surface").expect("pinned"));
+        let xdg = s.new_id(&protocol::xdg_surface::INTERFACE);
         let _ = s.request(
             wm_base,
             Opcode(protocol::xdg_wm_base::request::GET_XDG_SURFACE),
             &[Arg::NewId(xdg), Arg::Object(surface)],
         );
-        let top = s.new_id(Interface::named("xdg_toplevel").expect("pinned"));
+        let top = s.new_id(&protocol::xdg_toplevel::INTERFACE);
         let _ = s.request(
             xdg,
             Opcode(protocol::xdg_surface::request::GET_TOPLEVEL),
@@ -1462,7 +1462,7 @@ impl Window {
         top: ObjectId,
         _: AskServerSide,
     ) -> ObjectId {
-        let id = s.new_id(Interface::named("zxdg_toplevel_decoration_v1").expect("pinned"));
+        let id = s.new_id(&protocol::zxdg_toplevel_decoration_v1::INTERFACE);
         let _ = s.request(
             manager,
             Opcode(protocol::zxdg_decoration_manager_v1::request::GET_TOPLEVEL_DECORATION),
@@ -1495,14 +1495,14 @@ impl Window {
             self.globals.fractional,
             self.viewport,
         ) {
-            let id = s.new_id(Interface::named("wp_viewport").expect("pinned"));
+            let id = s.new_id(&protocol::wp_viewport::INTERFACE);
             let _ = s.request(
                 v,
                 Opcode(protocol::wp_viewporter::request::GET_VIEWPORT),
                 &[Arg::NewId(id), Arg::Object(surface)],
             );
             self.viewport = Some(id);
-            let id = s.new_id(Interface::named("wp_fractional_scale_v1").expect("pinned"));
+            let id = s.new_id(&protocol::wp_fractional_scale_v1::INTERFACE);
             let _ = s.request(
                 f,
                 Opcode(protocol::wp_fractional_scale_manager_v1::request::GET_FRACTIONAL_SCALE),
@@ -1513,7 +1513,7 @@ impl Window {
         // The surface's own feedback, not the default: it adds the
         // tranches "the compositor prefers to directly scan-out" for it.
         if let (Some(m), None) = (self.globals.dmabuf, self.formats_object) {
-            let id = s.new_id(Interface::named("zwp_linux_dmabuf_feedback_v1").expect("pinned"));
+            let id = s.new_id(&protocol::zwp_linux_dmabuf_feedback_v1::INTERFACE);
             let _ = s.request(
                 m,
                 Opcode(protocol::zwp_linux_dmabuf_v1::request::GET_SURFACE_FEEDBACK),
@@ -1522,7 +1522,7 @@ impl Window {
             self.formats_object = Some(id);
         }
         if let (Some(m), None) = (self.globals.fifo, self.fifo) {
-            let id = s.new_id(Interface::named("wp_fifo_v1").expect("pinned"));
+            let id = s.new_id(&protocol::wp_fifo_v1::INTERFACE);
             let _ = s.request(
                 m,
                 Opcode(protocol::wp_fifo_manager_v1::request::GET_FIFO),
@@ -1531,7 +1531,7 @@ impl Window {
             self.fifo = Some(id);
         }
         if let (Some(m), None) = (self.globals.commit_timing, self.timer) {
-            let id = s.new_id(Interface::named("wp_commit_timer_v1").expect("pinned"));
+            let id = s.new_id(&protocol::wp_commit_timer_v1::INTERFACE);
             let _ = s.request(
                 m,
                 Opcode(protocol::wp_commit_timing_manager_v1::request::GET_TIMER),
@@ -1542,7 +1542,7 @@ impl Window {
         if let (Tearing::On, Some(m), None) =
             (self.tearing, self.globals.tearing, self.tearing_control)
         {
-            let id = s.new_id(Interface::named("wp_tearing_control_v1").expect("pinned"));
+            let id = s.new_id(&protocol::wp_tearing_control_v1::INTERFACE);
             let _ = s.request(
                 m,
                 Opcode(protocol::wp_tearing_control_manager_v1::request::GET_TEARING_CONTROL),
@@ -1812,14 +1812,14 @@ impl Window {
         surface: ObjectId,
         presentation: Option<ObjectId>,
     ) -> (ObjectId, Option<ObjectId>) {
-        let cb = s.new_id(Interface::named("wl_callback").expect("pinned"));
+        let cb = s.new_id(&protocol::wl_callback::INTERFACE);
         let _ = s.request(
             surface,
             Opcode(protocol::wl_surface::request::FRAME),
             &[Arg::NewId(cb)],
         );
         let fb = presentation.map(|p| {
-            let fb = s.new_id(Interface::named("wp_presentation_feedback").expect("pinned"));
+            let fb = s.new_id(&protocol::wp_presentation_feedback::INTERFACE);
             let _ = s.request(
                 p,
                 Opcode(protocol::wp_presentation::request::FEEDBACK),
@@ -1943,9 +1943,7 @@ impl Window {
                 let sync = match self.sync_surface {
                     Some(sync) => sync,
                     None => {
-                        let id = s.new_id(
-                            Interface::named("wp_linux_drm_syncobj_surface_v1").expect("pinned"),
-                        );
+                        let id = s.new_id(&protocol::wp_linux_drm_syncobj_surface_v1::INTERFACE);
                         let _ = s.request(
                             m,
                             Opcode(protocol::wp_linux_drm_syncobj_manager_v1::request::GET_SURFACE),
@@ -2098,7 +2096,7 @@ impl Window {
         if self.token.is_some() {
             return Activated::Pending;
         }
-        let token = s.new_id(Interface::named("xdg_activation_token_v1").expect("pinned"));
+        let token = s.new_id(&protocol::xdg_activation_token_v1::INTERFACE);
         let _ = s.request(
             activation,
             Opcode(protocol::xdg_activation_v1::request::GET_ACTIVATION_TOKEN),
@@ -2127,7 +2125,7 @@ impl Window {
         else {
             return;
         };
-        let exported = s.new_id(Interface::named("zxdg_exported_v2").expect("pinned"));
+        let exported = s.new_id(&protocol::zxdg_exported_v2::INTERFACE);
         let _ = s.request(
             exporter,
             Opcode(protocol::zxdg_exporter_v2::request::EXPORT_TOPLEVEL),
@@ -2187,7 +2185,7 @@ impl Window {
         else {
             return;
         };
-        let device = s.new_id(Interface::named("wp_cursor_shape_device_v1").expect("pinned"));
+        let device = s.new_id(&protocol::wp_cursor_shape_device_v1::INTERFACE);
         let _ = s.request(
             manager,
             Opcode(protocol::wp_cursor_shape_manager_v1::request::GET_POINTER),
@@ -2288,16 +2286,32 @@ impl Handler for Window {
                             3.. => Scaling::Outputs,
                             _ => Scaling::None,
                         };
-                        self.globals.compositor =
-                            Window::bind(s, self.registry, name, iface, version)
+                        self.globals.compositor = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::wl_compositor::INTERFACE,
+                            version,
+                        )
                     }
                     "wl_shm" => {
-                        self.globals.shm =
-                            Window::bind(s, self.registry, name, iface, version.min(2))
+                        self.globals.shm = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::wl_shm::INTERFACE,
+                            version.min(2),
+                        )
                     }
                     "xdg_wm_base" => {
                         let version = version.min(6);
-                        self.globals.wm_base = Window::bind(s, self.registry, name, iface, version);
+                        self.globals.wm_base = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::xdg_wm_base::INTERFACE,
+                            version,
+                        );
                         self.globals.configure_bounds = match self.globals.wm_base {
                             Some(_) if version >= 4 => ConfigureBounds::Offered,
                             _ => ConfigureBounds::Never,
@@ -2313,8 +2327,13 @@ impl Handler for Window {
                             true => Release::Request,
                             false => Release::Forget,
                         };
-                        self.globals.seat =
-                            Window::bind(s, self.registry, name, iface, version.min(9));
+                        self.globals.seat = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::wl_seat::INTERFACE,
+                            version.min(9),
+                        );
                         self.clip.devices(s, self.globals.seat);
                         self.ime.object_for(s, self.globals.seat);
                     }
@@ -2322,7 +2341,13 @@ impl Handler for Window {
                     // sends what version 2 adds only to an object of it.
                     "zwp_text_input_manager_v3" => {
                         let version = version.min(2);
-                        self.ime.manager = Window::bind(s, self.registry, name, iface, version);
+                        self.ime.manager = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::zwp_text_input_manager_v3::INTERFACE,
+                            version,
+                        );
                         self.ime.version = version;
                         self.ime.object_for(s, self.globals.seat);
                     }
@@ -2331,7 +2356,7 @@ impl Handler for Window {
                             s,
                             self.registry,
                             name,
-                            iface,
+                            &protocol::wl_data_device_manager::INTERFACE,
                             version.min(DATA_DEVICE_VERSION),
                         ) {
                             self.clip.bound(Board::Clipboard, m);
@@ -2339,8 +2364,13 @@ impl Handler for Window {
                         }
                     }
                     "zwp_primary_selection_device_manager_v1" => {
-                        if let Some(m) = Window::bind(s, self.registry, name, iface, version.min(1))
-                        {
+                        if let Some(m) = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::zwp_primary_selection_device_manager_v1::INTERFACE,
+                            version.min(1),
+                        ) {
                             self.clip.bound(Board::Primary, m);
                             self.clip.devices(s, self.globals.seat);
                         }
@@ -2349,47 +2379,94 @@ impl Handler for Window {
                     // for an output without a constant rate, which
                     // `timing.rs` reads as any refresh.
                     "wp_presentation" => {
-                        self.globals.presentation =
-                            Window::bind(s, self.registry, name, iface, version.min(2));
+                        self.globals.presentation = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::wp_presentation::INTERFACE,
+                            version.min(2),
+                        );
                     }
                     // Version 1 of each, the only one: fifo-v1's barrier,
                     // commit-timing-v1's timer and tearing-control-v1's
                     // hint, each a surface's once its surface exists.
                     "wp_fifo_manager_v1" => {
-                        self.globals.fifo = Window::bind(s, self.registry, name, iface, 1);
+                        self.globals.fifo = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::wp_fifo_manager_v1::INTERFACE,
+                            1,
+                        );
                         self.surface_objects(s);
                     }
                     "wp_commit_timing_manager_v1" => {
-                        self.globals.commit_timing = Window::bind(s, self.registry, name, iface, 1);
+                        self.globals.commit_timing = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::wp_commit_timing_manager_v1::INTERFACE,
+                            1,
+                        );
                         self.surface_objects(s);
                     }
                     "wp_tearing_control_manager_v1" => {
-                        self.globals.tearing = Window::bind(s, self.registry, name, iface, 1);
+                        self.globals.tearing = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::wp_tearing_control_manager_v1::INTERFACE,
+                            1,
+                        );
                         self.surface_objects(s);
                     }
                     "xdg_system_bell_v1" => {
-                        self.globals.system_bell =
-                            Window::bind(s, self.registry, name, iface, version.min(1));
+                        self.globals.system_bell = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::xdg_system_bell_v1::INTERFACE,
+                            version.min(1),
+                        );
                     }
                     "xdg_activation_v1" => {
-                        self.globals.activation =
-                            Window::bind(s, self.registry, name, iface, version.min(1));
+                        self.globals.activation = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::xdg_activation_v1::INTERFACE,
+                            version.min(1),
+                        );
                     }
                     "zxdg_decoration_manager_v1" => {
                         self.globals.decoration = ManagerVersion::bound(version).and_then(|v| {
-                            Window::bind(s, self.registry, name, iface, v.wire()).map(|id| (id, v))
+                            Window::bind(
+                                s,
+                                self.registry,
+                                name,
+                                &protocol::zxdg_decoration_manager_v1::INTERFACE,
+                                v.wire(),
+                            )
+                            .map(|id| (id, v))
                         });
                         self.decorate(s);
                     }
                     "zxdg_exporter_v2" => {
-                        self.globals.exporter =
-                            Window::bind(s, self.registry, name, iface, version.min(1));
+                        self.globals.exporter = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::zxdg_exporter_v2::INTERFACE,
+                            version.min(1),
+                        );
                     }
                     // An output's scale, which a compositor older than
                     // version 6 leaves the pointer's image to: `wl_output`
                     // has `scale` from version 2.
                     "wl_output" if version >= 2 => {
-                        if let Some(id) = Window::bind(s, self.registry, name, iface, 2) {
+                        if let Some(id) =
+                            Window::bind(s, self.registry, name, &protocol::wl_output::INTERFACE, 2)
+                        {
                             self.globals.outputs.push(Output {
                                 name: GlobalName(name),
                                 id,
@@ -2404,11 +2481,23 @@ impl Handler for Window {
                     // is drawn through the viewport, both made for the
                     // surface once both are bound (`scale.rs`).
                     "wp_viewporter" => {
-                        self.globals.viewporter = Window::bind(s, self.registry, name, iface, 1);
+                        self.globals.viewporter = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::wp_viewporter::INTERFACE,
+                            1,
+                        );
                         self.surface_objects(s);
                     }
                     "wp_fractional_scale_manager_v1" => {
-                        self.globals.fractional = Window::bind(s, self.registry, name, iface, 1);
+                        self.globals.fractional = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::wp_fractional_scale_manager_v1::INTERFACE,
+                            1,
+                        );
                         self.surface_objects(s);
                     }
                     // Version 4 for the feedback, which a surface's formats
@@ -2416,18 +2505,34 @@ impl Handler for Window {
                     // longer sent", and a tranche's device is chosen by its
                     // `sampling` flag instead, which nothing here reads.
                     "zwp_linux_dmabuf_v1" if version >= 4 => {
-                        self.globals.dmabuf =
-                            Window::bind(s, self.registry, name, iface, version.min(5));
+                        self.globals.dmabuf = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::zwp_linux_dmabuf_v1::INTERFACE,
+                            version.min(5),
+                        );
                         self.surface_objects(s);
                     }
                     "wp_linux_drm_syncobj_manager_v1" => {
-                        self.globals.syncobj = Window::bind(s, self.registry, name, iface, 1);
+                        self.globals.syncobj = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::wp_linux_drm_syncobj_manager_v1::INTERFACE,
+                            1,
+                        );
                     }
                     // Version 1: its 34 shapes are every one `pointer::shape`
                     // names.
                     "wp_cursor_shape_manager_v1" => {
-                        self.globals.cursor_shape =
-                            Window::bind(s, self.registry, name, iface, version.min(1));
+                        self.globals.cursor_shape = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            &protocol::wp_cursor_shape_manager_v1::INTERFACE,
+                            version.min(1),
+                        );
                         self.shape_device_for_pointer(s);
                     }
                     _ => {}
@@ -2564,7 +2669,7 @@ impl Handler for Window {
                 let keyboard = caps & protocol::wl_seat::capability::KEYBOARD != 0;
                 match (keyboard, self.keyboard) {
                     (true, None) => {
-                        let kb = s.new_id(Interface::named("wl_keyboard").expect("pinned"));
+                        let kb = s.new_id(&protocol::wl_keyboard::INTERFACE);
                         let _ = s.request(
                             ev.object,
                             Opcode(protocol::wl_seat::request::GET_KEYBOARD),
@@ -2592,7 +2697,7 @@ impl Handler for Window {
                 let pointer = caps & protocol::wl_seat::capability::POINTER != 0;
                 match (pointer, self.pointer) {
                     (true, None) => {
-                        let p = s.new_id(Interface::named("wl_pointer").expect("pinned"));
+                        let p = s.new_id(&protocol::wl_pointer::INTERFACE);
                         let _ = s.request(
                             ev.object,
                             Opcode(protocol::wl_seat::request::GET_POINTER),
@@ -3010,7 +3115,7 @@ impl Handler for Window {
                     // The binds went out as the burst was read, so a sync
                     // now is answered after the outputs have said.
                     if !self.globals.outputs.is_empty() {
-                        let cb = s.new_id(Interface::named("wl_callback").expect("pinned"));
+                        let cb = s.new_id(&protocol::wl_callback::INTERFACE);
                         if s.request(
                             ObjectId::DISPLAY,
                             Opcode(protocol::wl_display::request::SYNC),

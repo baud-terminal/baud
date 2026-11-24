@@ -224,10 +224,7 @@ impl TextInput {
         let (Some(manager), Some(seat), None) = (self.manager, seat, self.object) else {
             return;
         };
-        let Some(iface) = baud_wayland::Interface::named("zwp_text_input_v3") else {
-            return;
-        };
-        let id = s.new_id(iface);
+        let id = s.new_id(&protocol::zwp_text_input_v3::INTERFACE);
         let _ = s.request(
             manager,
             Opcode(protocol::zwp_text_input_manager_v3::request::GET_TEXT_INPUT),

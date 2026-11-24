@@ -22,7 +22,7 @@
 
 use crate::shm::Px;
 use crate::sys;
-use baud_wayland::{Arg, Interface, ObjectId, Opcode, Sender, protocol};
+use baud_wayland::{Arg, ObjectId, Opcode, Sender, protocol};
 use std::io;
 use std::os::fd::{BorrowedFd, OwnedFd};
 
@@ -301,7 +301,7 @@ pub fn import(
         return Imported::NotOffered;
     }
     use protocol::zwp_linux_buffer_params_v1::request as params;
-    let p = s.new_id(Interface::named("zwp_linux_buffer_params_v1").expect("pinned"));
+    let p = s.new_id(&protocol::zwp_linux_buffer_params_v1::INTERFACE);
     let _ = s.request(
         manager,
         Opcode(protocol::zwp_linux_dmabuf_v1::request::CREATE_PARAMS),
@@ -322,7 +322,7 @@ pub fn import(
             ],
         );
     }
-    let buffer = s.new_id(Interface::named("wl_buffer").expect("pinned"));
+    let buffer = s.new_id(&protocol::wl_buffer::INTERFACE);
     let side = |p: Px| Arg::Int(i32::try_from(p.0).unwrap_or(i32::MAX));
     let _ = s.request(
         p,
@@ -371,7 +371,7 @@ impl Points {
 
 /// **Import `fd`, a DRM syncobj, as a timeline**, through the manager.
 pub fn import_timeline(s: &mut Sender<'_>, manager: ObjectId, fd: BorrowedFd<'_>) -> Timeline {
-    let id = s.new_id(Interface::named("wp_linux_drm_syncobj_timeline_v1").expect("pinned"));
+    let id = s.new_id(&protocol::wp_linux_drm_syncobj_timeline_v1::INTERFACE);
     let _ = s.request(
         manager,
         Opcode(protocol::wp_linux_drm_syncobj_manager_v1::request::IMPORT_TIMELINE),

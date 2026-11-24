@@ -153,7 +153,7 @@ struct Side {
 /// device, the source's `offer`, its `destroy`, the device's
 /// `set_selection`, the offer's `receive`, its `destroy`).
 struct Ops {
-    source: &'static str,
+    source: &'static Interface,
     create_source: Opcode,
     get_device: Opcode,
     source_offer: Opcode,
@@ -166,7 +166,7 @@ struct Ops {
 fn ops(b: Board) -> Ops {
     match b {
         Board::Clipboard => Ops {
-            source: "wl_data_source",
+            source: &protocol::wl_data_source::INTERFACE,
             create_source: Opcode(protocol::wl_data_device_manager::request::CREATE_DATA_SOURCE),
             get_device: Opcode(protocol::wl_data_device_manager::request::GET_DATA_DEVICE),
             source_offer: Opcode(protocol::wl_data_source::request::OFFER),
@@ -176,7 +176,7 @@ fn ops(b: Board) -> Ops {
             offer_destroy: Opcode(protocol::wl_data_offer::request::DESTROY),
         },
         Board::Primary => Ops {
-            source: "zwp_primary_selection_source_v1",
+            source: &protocol::zwp_primary_selection_source_v1::INTERFACE,
             create_source: Opcode(
                 protocol::zwp_primary_selection_device_manager_v1::request::CREATE_SOURCE,
             ),
@@ -254,11 +254,11 @@ impl Clip {
             let (Some(manager), None) = (side.manager, side.device) else {
                 continue;
             };
-            let name = match b {
-                Board::Clipboard => "wl_data_device",
-                Board::Primary => "zwp_primary_selection_device_v1",
+            let iface = match b {
+                Board::Clipboard => &protocol::wl_data_device::INTERFACE,
+                Board::Primary => &protocol::zwp_primary_selection_device_v1::INTERFACE,
             };
-            let device = s.new_id(Interface::named(name).expect("pinned"));
+            let device = s.new_id(iface);
             let _ = s.request(
                 manager,
                 ops(b).get_device,
@@ -292,7 +292,7 @@ impl Clip {
         else {
             return Copied::Unavailable;
         };
-        let source = s.new_id(Interface::named(o.source).expect("pinned"));
+        let source = s.new_id(o.source);
         let _ = s.request(manager, o.create_source, &[Arg::NewId(source)]);
         for mime in OFFERED {
             let _ = s.request(source, o.source_offer, &[Arg::Str(Some(mime))]);
