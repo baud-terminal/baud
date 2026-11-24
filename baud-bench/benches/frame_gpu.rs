@@ -81,6 +81,24 @@
 //! non-zero if an effect's is the control's, which has no trail, or if any
 //! kept control pair's difference is not above zero.
 //!
+//! `FRAME_IMAGES=n` prices an image store's epoch move on the waited arm:
+//! after everything else it draws, two kitty images of `FRAME_IMAGES_PX`
+//! square pixels (256 by default) are placed on the final screen by a
+//! frame of their own, in no line, and then n rounds of four frames, each
+//! drawn whole and waited for, the images placed (`Renderer::set_images`)
+//! before the walk as the app places them: `still`, nothing written; `still2`, the same again, the
+//! A/A control; `store`, a third image stored and never placed, which
+//! moves the store's epoch; and `edit`, both placed images' pixels
+//! rewritten, which uploads both -- what every epoch move uploaded when the
+//! caches were dropped whole at one. Each kind has a line: its frames,
+//! the image snapshots made a frame (each one a texture upload), and the
+//! median and range of its upload column (the CPU's building of the frame,
+//! texture uploads included), its GPU start-to-end and its placing, each
+//! less `still`'s on the same round; the first round is dropped as cold.
+//! The bench exits non-zero unless `still` and `still2` snapshot nothing,
+//! `store` moves the epoch and snapshots nothing, and `edit` moves it and
+//! snapshots exactly two a frame.
+//!
 //! Usage: `frame_gpu <recording> [rounds] [full|incremental]`. macOS only.
 
 #[cfg(target_os = "macos")]
@@ -485,6 +503,101 @@ fn main() {
         Lead,
         On,
     }
+    // `FRAME_IMAGES=n`: n rounds of the four image frames, on the waited
+    // arm after the trail's; see the header.
+    let images_n: usize = std::env::var("FRAME_IMAGES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let images_px: usize = std::env::var("FRAME_IMAGES_PX")
+        .map_or(256, |v| v.parse().expect("FRAME_IMAGES_PX is a size"));
+    let mut images_wrong = false;
+    /// **A kind of `FRAME_IMAGES` frame**, in the order each round draws
+    /// them.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Pic {
+        /// The frame that places the two images, drawn before the rounds
+        /// and kept in no line.
+        Setup,
+        Still,
+        Still2,
+        Store,
+        Edit,
+    }
+    impl Pic {
+        const ALL: [Pic; 4] = [Pic::Still, Pic::Still2, Pic::Store, Pic::Edit];
+        fn name(self) -> &'static str {
+            match self {
+                Pic::Setup => "setup",
+                Pic::Still => "still",
+                Pic::Still2 => "still2",
+                Pic::Store => "store",
+                Pic::Edit => "edit",
+            }
+        }
+        /// The snapshots a frame of this kind must make.
+        fn snapshots(self) -> Tally {
+            match self {
+                Pic::Setup | Pic::Edit => Tally::of(2),
+                Pic::Still | Pic::Still2 | Pic::Store => Tally::ZERO,
+            }
+        }
+        /// Whether its write must move the image store's epoch.
+        fn moves(self) -> bool {
+            matches!(self, Pic::Setup | Pic::Store | Pic::Edit)
+        }
+    }
+    /// Whether a `FRAME_IMAGES` frame's write moved the image store's
+    /// epoch.
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
+    enum Epoch {
+        #[default]
+        Kept,
+        Moved,
+    }
+    /// **One `FRAME_IMAGES` frame**: its upload column, GPU start-to-end,
+    /// placing, the snapshots it made and whether its write moved the
+    /// store's epoch.
+    #[derive(Clone, Copy, Default)]
+    struct Shot {
+        upload: Duration,
+        gpu: Duration,
+        place: Duration,
+        snapshots: Tally,
+        epoch: Epoch,
+    }
+    /// A kitty graphics command, its RGBA payload in base64 and sent in
+    /// chunks of at most 4096 bytes (`m=1` on all but the last).
+    fn kitty(keys: &str, rgba: &[u8]) -> Vec<u8> {
+        const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut text = Vec::with_capacity(rgba.len().div_ceil(3) * 4);
+        for q in rgba.chunks(3) {
+            let mut b = [0u8; 3];
+            b[..q.len()].copy_from_slice(q);
+            let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+            for k in 0..4 {
+                match k <= q.len() {
+                    true => text.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]),
+                    false => text.push(b'='),
+                }
+            }
+        }
+        let chunks: Vec<&[u8]> = text.chunks(4096).collect();
+        let mut out = Vec::with_capacity(text.len() + 64 * chunks.len());
+        for (i, c) in chunks.iter().enumerate() {
+            let more = u8::from(i + 1 < chunks.len());
+            match i {
+                0 => out.extend_from_slice(format!("\x1b_G{keys},m={more};").as_bytes()),
+                _ => out.extend_from_slice(format!("\x1b_Gm={more};").as_bytes()),
+            }
+            out.extend_from_slice(c);
+            out.extend_from_slice(b"\x1b\\");
+        }
+        out
+    }
+    // `px` square pixels of one opaque colour, RGBA.
+    let square =
+        |rgb: [u8; 3]| -> Vec<u8> { [rgb[0], rgb[1], rgb[2], 0xFF].repeat(images_px * images_px) };
     let first_n: usize = std::env::var("FRAME_FIRST")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -1052,7 +1165,14 @@ the first cpu {:.1}, copy {:.2}",
                 (None, None)
             };
             let mut owned = if cell_arm {
-                Owned::without_surfaces(&prov, &geom, Depth::DEFAULT)
+                let owned = Owned::without_surfaces(&prov, &geom, Depth::DEFAULT);
+                // `FRAME_IMAGES`' arena: its three images, and a fourth's
+                // room for the store frames' replacement of the third.
+                match arm == Arm::Cells && images_n > 0 {
+                    true => owned
+                        .with_images(baud_domain::ImageBudget::of(4 * images_px * images_px + 64)),
+                    false => owned,
+                }
             } else {
                 Owned::with_geometry(&prov, &geom)
             };
@@ -1137,8 +1257,25 @@ the first cpu {:.1}, copy {:.2}",
             // control's first on frame's.
             let mut trail_off = Duration::ZERO;
             let mut trail_lead = Duration::ZERO;
+            // `FRAME_IMAGES`' frames, after the trail's: each round's
+            // four kinds in turn, each frame's measures kept by kind.
+            let images_len = match arm == Arm::Cells && images_n > 0 {
+                true => 1 + Pic::ALL.len() * images_n,
+                false => 0,
+            };
+            let mut images_at = 0usize;
+            let mut shots: [Vec<Shot>; 4] = core::array::from_fn(|_| Vec::with_capacity(images_n));
+            // The frame being drawn's snapshots and epoch before its write,
+            // and its placing.
+            let mut shot = Shot::default();
+            let mut snaps_before = Tally::ZERO;
             let mut total = None;
-            while at < data.len() || idle_left > 0 || hash_left || trail_at < trail_plan.len() {
+            while at < data.len()
+                || idle_left > 0
+                || hash_left
+                || trail_at < trail_plan.len()
+                || images_at < images_len
+            {
                 let idle = at >= data.len();
                 // `FRAME_HASH`'s frame: the replay and its idle frames done,
                 // so the arm's time is taken here, before it.
@@ -1153,12 +1290,24 @@ the first cpu {:.1}, copy {:.2}",
                 let lit = (idle && idle_left == 0 && !fin)
                     .then(|| trail_plan.get(trail_at).copied())
                     .flatten();
+                // A `FRAME_IMAGES` frame, once the trail's are drawn:
+                // its kind, each round's four in turn.
+                let pic =
+                    (idle && idle_left == 0 && !fin && lit.is_none() && images_at < images_len)
+                        .then(|| match images_at {
+                            0 => Pic::Setup,
+                            i => Pic::ALL[(i - 1) % Pic::ALL.len()],
+                        });
                 // A priced frame is in none of the arm's columns, and the
                 // arm's time is taken before the first.
-                let priced = lit.is_some();
+                let priced = lit.is_some() || pic.is_some();
                 if priced && total.is_none() {
                     went_idle(gpu.idle_within(Deadline::WAIT));
                     total = Some(t0.elapsed());
+                }
+                if pic.is_some() && images_at == 0 {
+                    // No trail over the image frames.
+                    r.set_trail(None);
                 }
                 if let Some((_, _, effect)) = lit {
                     let jump = baud_bench::trail::jump(
@@ -1201,10 +1350,69 @@ the first cpu {:.1}, copy {:.2}",
                     t.feed(BytePos::ZERO, ReadLen::from_index(n));
                     at += n;
                 }
+                // A `FRAME_IMAGES` frame's write, outside the timing: the
+                // setup frame's two placed images, or what its kind writes,
+                // each round in its own colours so every edit and store
+                // changes pixels. Fed in `read(2)`-sized pieces, as the
+                // replay is.
+                if let Some(kind) = pic {
+                    let mut bytes = Vec::new();
+                    if kind == Pic::Setup {
+                        bytes.extend_from_slice(b"\x1b[2;2H");
+                        bytes.extend_from_slice(&kitty(
+                            &format!("a=T,f=32,s={images_px},v={images_px},i=1,C=1,q=2"),
+                            &square([200, 40, 40]),
+                        ));
+                        bytes.extend_from_slice(b"\x1b[2;100H");
+                        bytes.extend_from_slice(&kitty(
+                            &format!("a=T,f=32,s={images_px},v={images_px},i=2,C=1,q=2"),
+                            &square([40, 40, 200]),
+                        ));
+                    }
+                    let turn = images_at.saturating_sub(1) / Pic::ALL.len();
+                    let shade = u8::try_from(turn % 200).unwrap_or(0);
+                    match kind {
+                        Pic::Setup | Pic::Still | Pic::Still2 => {}
+                        Pic::Store => bytes.extend_from_slice(&kitty(
+                            &format!("a=t,f=32,s={images_px},v={images_px},i=3,q=2"),
+                            &square([shade, 200, 40]),
+                        )),
+                        Pic::Edit => {
+                            for id in [1, 2] {
+                                bytes.extend_from_slice(&kitty(
+                                    &format!(
+                                        "a=f,f=32,s={images_px},v={images_px},x=0,y=0,r=1,i={id},q=2"
+                                    ),
+                                    &square([shade, 40, 200 - shade]),
+                                ));
+                            }
+                        }
+                    }
+                    let was = t.images().generation();
+                    for piece in bytes.chunks(4096) {
+                        t.write_at(BytePos::ZERO, piece);
+                        t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
+                    }
+                    shot = Shot {
+                        epoch: match t.images().generation() != was {
+                            true => Epoch::Moved,
+                            false => Epoch::Kept,
+                        },
+                        ..Shot::default()
+                    };
+                }
                 if cell_arm {
                     // One write generation closed a frame, before anything
                     // reads, as the app's frame closes it.
                     let seal = t.seal_writes();
+                    // A `FRAME_IMAGES` frame places the images before the
+                    // walk, as the app does on its GPU path.
+                    if pic.is_some() {
+                        snaps_before = r.image_snapshots();
+                        let tp = Instant::now();
+                        r.set_images(&t, Rows::ZERO);
+                        shot.place = tp.elapsed();
+                    }
                     // The styles first, as the app syncs them: the map walk
                     // reads each cell's face style from them.
                     let tr = Instant::now();
@@ -1462,6 +1670,17 @@ the first cpu {:.1}, copy {:.2}",
                             if let Some(k) = trail_pairs.iter_mut().find(|k| k.0 == pair) {
                                 k.3 = fnv(&pixels[..]);
                             }
+                        }
+                        continue;
+                    }
+                    if let Some(kind) = pic {
+                        images_at += 1;
+                        shot.upload = g.upload;
+                        shot.gpu = g.gpu.unwrap_or_default();
+                        let made = r.image_snapshots().value() - snaps_before.value();
+                        shot.snapshots = Tally::of(usize::try_from(made).unwrap_or(usize::MAX));
+                        if let Some(ix) = Pic::ALL.iter().position(|&k| k == kind) {
+                            shots[ix].push(shot);
                         }
                         continue;
                     }
@@ -1730,6 +1949,63 @@ the other {}: {:.1} us/frame, {} misses ({:.2} a frame)",
                     mid(&diffs[..]),
                 );
             }
+            // Each kind of image frame: its snapshots a frame, and its
+            // upload column, GPU time and placing, each as its median and
+            // that less `still`'s on the same round, median and range; the
+            // first round dropped as cold. `still2` less `still` is the
+            // A/A range. A kind that snapshots other than it must, or whose
+            // write did not move the epoch it must move, is marked.
+            if images_len > 0 {
+                let warm = usize::from(images_n > 1);
+                let sorted = |mut v: Vec<f64>| {
+                    v.sort_by(f64::total_cmp);
+                    v
+                };
+                let us = |d: Duration| d.as_secs_f64() * 1e6;
+                let mid = |v: &[f64]| v.get(v.len() / 2).copied().unwrap_or(f64::NAN);
+                let ends = |v: &[f64]| {
+                    (
+                        v.first().copied().unwrap_or(f64::NAN),
+                        v.last().copied().unwrap_or(f64::NAN),
+                    )
+                };
+                let still = &shots[0][warm.min(shots[0].len())..];
+                for (kind, all) in Pic::ALL.iter().zip(&shots) {
+                    let kept = &all[warm.min(all.len())..];
+                    let frames = u32::try_from(all.len()).unwrap_or(u32::MAX);
+                    let snaps: u64 = all.iter().map(|s| s.snapshots.value()).sum();
+                    let wrong = all.iter().any(|s| {
+                        s.snapshots != kind.snapshots() || (kind.moves() && s.epoch == Epoch::Kept)
+                    });
+                    images_wrong |= wrong;
+                    let column = |f: fn(&Shot) -> Duration| {
+                        let own = sorted(kept.iter().map(|s| us(f(s))).collect());
+                        let over = sorted(
+                            kept.iter()
+                                .zip(still)
+                                .map(|(s, b)| us(f(s)) - us(f(b)))
+                                .collect(),
+                        );
+                        let (lo, hi) = ends(&over);
+                        format!(
+                            "{:.1} us ({:+.1} [{lo:+.1}..{hi:+.1}])",
+                            mid(&own),
+                            mid(&over)
+                        )
+                    };
+                    println!(
+                        "      images: round {round} {:<6} {frames} frames, {:.2} snapshots a frame, \
+upload {}, gpu {}, place {}{}",
+                        kind.name(),
+                        f64::from(u32::try_from(snaps).unwrap_or(u32::MAX))
+                            / f64::from(frames.max(1)),
+                        column(|s| s.upload),
+                        column(|s| s.gpu),
+                        column(|s| s.place),
+                        if wrong { "  WRONG" } else { "" },
+                    );
+                }
+            }
         }
         // Every cell arm's final frame against the copy's, which is the
         // screen by construction; else against the first arm's.
@@ -1758,6 +2034,12 @@ the other {}: {:.1} us/frame, {} misses ({:.2} a frame)",
     }
     if trail_control {
         eprintln!("frame_gpu: a control pair's difference is not above zero");
+        std::process::exit(1);
+    }
+    if images_wrong {
+        eprintln!(
+            "frame_gpu: an image frame snapshotted other than its kind must, or its write did not move the epoch"
+        );
         std::process::exit(1);
     }
 }
