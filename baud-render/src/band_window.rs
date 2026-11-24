@@ -27,7 +27,7 @@ use core::ops::Range;
 
 use crate::{StyleStamp, Tally};
 use baud_core::{BandSlots, Term};
-use baud_domain::{Band, Col, Cols, PackedCell, Row, Rows, StyleId};
+use baud_domain::{Band, Col, Cols, PackedCell, Row, Rows, StyleId, StyleSlot};
 
 /// **Moves when any row's base moves**: what a reader that uploads the
 /// bases (the cell shader's `seg_base`) compares, so it uploads them only
@@ -95,12 +95,22 @@ impl<'s> RowTables<'s> {
 pub struct OverlayRows {
     bases: Vec<u32>,
     bands: Vec<Band>,
+    /// The rows of a line of its own ([`Joined`]), in the overlay's order,
+    /// and each one's table of its pairs' words, `cols` a row: what the
+    /// copy's ids name on that row ([`OverlayRows::view`]).
+    own_rows: Vec<Row>,
+    own: Vec<StyleSlot>,
 }
 
 impl OverlayRows {
     /// `window`'s rows put in the overlay's order, `leaving` whether the
-    /// first draw row is the leaving row's.
-    pub(crate) fn of(window: &BandWindow, leaving: crate::Leaving) -> OverlayRows {
+    /// first draw row is the leaving row's; each line of its own a table
+    /// of its pairs' words, `cols` a row, read in `term`.
+    pub(crate) fn of(
+        window: &BandWindow,
+        leaving: crate::Leaving,
+        (term, cols): (&Term<'_>, Cols),
+    ) -> OverlayRows {
         let (bases, bands) = (window.bases(), window.bands());
         let order = |n: usize| -> Vec<usize> {
             match (leaving, n) {
@@ -108,10 +118,35 @@ impl OverlayRows {
                 _ => (0..n).collect(),
             }
         };
+        let n = bases.len();
+        // A draw row's place in the overlay's order.
+        let place = |d: usize| match (leaving, d) {
+            (crate::Leaving::Drawn, 0) => n.saturating_sub(1),
+            (crate::Leaving::Drawn, d) => d - 1,
+            (_, d) => d,
+        };
+        let view = term.styles();
+        let mut own_rows = Vec::new();
+        let mut own = Vec::new();
+        for (j, pairs) in window.all_joined().iter().zip(&window.pairs) {
+            own_rows.push(Row::from_index(place(j.row.index())));
+            own.extend((0..cols.index()).map(|k| match pairs.get(k) {
+                Some(&(b, id, _)) => StyleSlot::Word(view.table(b).word(id)),
+                None => StyleSlot::Empty,
+            }));
+        }
         OverlayRows {
             bases: order(bases.len()).into_iter().map(|k| bases[k]).collect(),
             bands: order(bands.len()).into_iter().map(|k| bands[k]).collect(),
+            own_rows,
+            own,
         }
+    }
+
+    /// Whether any row is a line of its own: a view of the set's copy reads
+    /// its ids as numbered there.
+    pub fn any_own(&self) -> bool {
+        !self.own_rows.is_empty()
     }
 
     /// The set's table as each overlay row reads it.
@@ -121,7 +156,8 @@ impl OverlayRows {
 
     /// **The set's copy as a view**, `cells` at `stride`, `cols` by `rows`
     /// with `used` their extents, each row's ids read through its band's
-    /// table in `term`; through one table on a terminal of one band.
+    /// table in `term`, a line of its own's through its pairs' words;
+    /// through one table on a terminal of one band.
     pub fn view<'a>(
         &'a self,
         term: &'a Term<'_>,
@@ -138,7 +174,12 @@ impl OverlayRows {
             rows,
             rows,
             baud_domain::RowRot::NONE,
-            baud_domain::LiveBands::lines(view.slots(), view.band_slots().0, &self.bands),
+            baud_domain::LiveBands::lines_own(
+                view.slots(),
+                view.band_slots().0,
+                &self.bands,
+                (&self.own_rows, &self.own),
+            ),
         )
     }
 }
@@ -254,6 +295,9 @@ pub(crate) struct BandWindow {
     /// Each drawn row's band, in row order.
     rows: Vec<Band>,
     joined: Vec<Joined>,
+    /// Each line's pairs, by the same index as `joined`, as the cell path's
+    /// copy last numbered them ([`BandWindow::keep_pairs`]).
+    pairs: Vec<Vec<Pair>>,
     loose: Range<usize>,
     generation: WindowGen,
     /// Frozen sources the last placing met.
@@ -317,6 +361,7 @@ impl BandWindow {
             .collect();
         self.rows = rows.to_vec();
         self.joined = joined;
+        self.pairs.clear();
         if bases != self.bases {
             self.bases = bases;
             self.stamp = BaseStamp(self.stamp.0 + 1);
@@ -403,6 +448,13 @@ impl BandWindow {
     /// How many lines join two bands.
     pub(crate) fn joined_lines(&self) -> Tally {
         Tally::of(self.joined.len())
+    }
+
+    /// **Each line's pairs as its copy numbered them**, by the same index as
+    /// [`BandWindow::all_joined`]: what a reader of the copy names a line's
+    /// ids by.
+    pub(crate) fn keep_pairs(&mut self, pairs: Vec<Vec<Pair>>) {
+        self.pairs = pairs;
     }
 
     /// Every line that joins two bands.

@@ -490,7 +490,13 @@ fn every_set_draws_struck_links_on_every_row_within_its_table() {
     let mut tb = Term::new(banded.storage(), &WS);
     let mut ts = Term::new(single.storage(), &WS);
     feed(&mut tb, &the_long_feed());
+    feed(&mut tb, SIZED);
     feed(&mut ts, &the_long_feed());
+    feed(&mut ts, SIZED);
+    for y in [4, 8, 9] {
+        let r = baud_domain::Row::from_index(y);
+        assert!(tb.viewport().rendition(r).is_double(), "row {y} is sized");
+    }
     let (mut rb, mut rs) = (renderer(&faces), renderer(&faces));
     let (mut kb, mut ks) = (GlyphMap::backing(), GlyphMap::backing());
     let mut cb = Cells::new(&mut kb, &tb);
@@ -540,3 +546,7 @@ fn every_set_draws_struck_links_on_every_row_within_its_table() {
         );
     }
 }
+
+/// **Sized lines among the long feed's rows**: row 5 double-width, rows 9
+/// and 10 a double-height line's top and bottom.
+const SIZED: &[u8] = b"\x1b[5;1H\x1b#6\x1b[9;1H\x1b#3\x1b[10;1H\x1b#4\x1b[13;3He\xcc\x81\x1b[17;2H\xd8\xa8\xd9\x8a\xd8\xaa";

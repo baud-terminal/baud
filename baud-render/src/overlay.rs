@@ -968,7 +968,7 @@ impl Overlay {
         let mut sized = core::mem::take(&mut self.sized);
         r.sized_framed(
             term,
-            (&view, scene.styles.all()),
+            (&view, scene.styles),
             framed,
             cursor,
             scene.composition,

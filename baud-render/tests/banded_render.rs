@@ -377,6 +377,7 @@ fn struck_links_paint_as_one_table_does() {
         let mut c = Canvas::for_renderer(&r);
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, &the_long_feed());
+        feed(&mut t, SIZED);
         if strike {
             let view = t.view(back);
             let lines: Vec<baud_render::LinkLine> = (0..usize::from(WS.ws_row))
@@ -417,3 +418,7 @@ fn struck_links_paint_as_one_table_does() {
         );
     }
 }
+
+/// **Sized lines among the long feed's rows**: row 5 double-width, rows 9
+/// and 10 a double-height line's top and bottom.
+const SIZED: &[u8] = b"\x1b[5;1H\x1b#6\x1b[9;1H\x1b#3\x1b[10;1H\x1b#4";

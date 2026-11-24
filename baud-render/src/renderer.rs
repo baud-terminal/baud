@@ -4173,6 +4173,9 @@ pub struct Renderer<'f, 'a> {
     /// The band the leaving row's ids name, while the cell path slides on
     /// a terminal of more bands than one ([`Renderer::sync_cell_window`]).
     leaving_drawn: Option<baud_domain::Band>,
+    /// The buffer set the cell path last synced a frame into
+    /// ([`Renderer::sync_cell_window`]): the frame being built.
+    built_set: Option<crate::screens::SetIx>,
     /// The cell path's windows of bands, one a buffer set
     /// ([`Renderer::cell_bases`]): a set's copy is built from its own last
     /// frame, so its slots and bases are its own.
@@ -4893,6 +4896,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             cell_windows: Vec::new(),
             laid_back: Rows::ZERO,
             leaving_drawn: None,
+            built_set: None,
             cpu_lent: crate::frozen::Lent::default(),
             lendings: crate::frozen::Lendings::default(),
             frame_words: crate::frozen::Held::default(),
@@ -10325,7 +10329,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         composition: Option<&Composition>,
         out: &mut Vec<Row>,
     ) {
-        self.sized_framed(term, (view, table), None, cursor, composition, out);
+        self.sized_framed(
+            term,
+            (view, crate::RowTables::one(table)),
+            None,
+            cursor,
+            composition,
+            out,
+        );
     }
 
     /// **[`Renderer::sized_lines`] over the window a frame's build keyed**
@@ -10337,7 +10348,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     pub(crate) fn sized_framed(
         &mut self,
         term: &Term<'_>,
-        (view, table): (&Viewport<'_>, &[Resolved]),
+        (view, table): (&Viewport<'_>, crate::RowTables<'_>),
         framed: Option<Framed>,
         cursor: Option<(Row, Col, CursorStyle)>,
         composition: Option<&Composition>,
@@ -10356,10 +10367,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             return;
         }
-        self.sized_ready(term);
+        self.sized_ready(term, Some(table));
         // `view` is the frame's copy, whose frozen cells name the slots its
         // table, `table`, lent them (`crate::frozen`): lent this table too.
-        self.adopt_frame(table);
+        self.adopt_frame(table.all());
         if self.theme.finds_pictures() {
             let frame = self.frame_held();
             let lent = !frame.words().is_live();
@@ -10565,15 +10576,39 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// The renderer fitted to `term` and its rendition table brought up to
     /// date, for a conversion outside [`Renderer::convert`].
-    fn sized_ready(&mut self, term: &Term<'_>) {
+    fn sized_ready(&mut self, term: &Term<'_>, frame: Option<crate::RowTables<'_>>) {
         self.fit(term);
         self.give_back_cpu();
         let mut styles = core::mem::take(&mut self.styles);
         // On a terminal of more bands than one, the window's bands at the
-        // frame's layout, which the sized rows and the status line's read.
+        // frame's layout, which the sized rows and the status line's read;
+        // and a line of its own for each window row the frame's set drew as
+        // one (`crate::band_window::Joined`), its entries copied from the
+        // set's table, as the set's copy numbered that row's ids.
         if term.styles().bands().len() > 1 {
+            let slid = usize::from(self.leaving_drawn.is_some());
+            let lines: Vec<(Row, core::ops::Range<usize>)> = self
+                .built_set
+                .and_then(|s| self.cell_windows.get(s.0))
+                .map(|w| {
+                    w.all_joined()
+                        .iter()
+                        .filter_map(|j| j.row.index().checked_sub(slid))
+                        .map(|y| (Row::from_index(y), 0..0))
+                        .collect()
+                })
+                .unwrap_or_default();
             let held = self.bidi.orders().display_held();
-            let _ = self.sync_window(term, self.laid_back, held.as_deref(), &[], &mut styles);
+            let _ = self.sync_window(term, self.laid_back, held.as_deref(), &lines, &mut styles);
+            if let Some(frame) = frame {
+                let cols = self.cols.index();
+                for &(r, _) in &lines {
+                    let from = styles.len() - self.window.row_table(r, &styles).len();
+                    let src = frame.at(r);
+                    let n = cols.min(src.len()).min(styles.len() - from);
+                    styles[from..from + n].copy_from_slice(&src[..n]);
+                }
+            }
             self.styles = styles;
             return;
         }
@@ -10661,7 +10696,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if !size.is_double() {
             return;
         }
-        self.sized_ready(term);
+        self.sized_ready(term, None);
         let Some(leaving) = self.beside.as_deref().and_then(|b| b.leaving.as_ref()) else {
             return;
         };
@@ -10773,7 +10808,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         cursor: Option<(Row, Col, CursorStyle)>,
         out: &mut Vec<Instance>,
     ) {
-        self.sized_ready(term);
+        self.sized_ready(term, None);
         let Some(line) = term.status_line() else {
             return;
         };
@@ -14397,6 +14432,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         struck: &[(Row, core::ops::Range<usize>)],
         (styles, stamp): (&mut [Resolved], &mut StyleStamp),
     ) -> StyleSync {
+        self.built_set = Some(set);
         let held = self.bidi.orders().display_held();
         let (mut bands, mut joined, frozen) = self.row_bands(term, back, held.as_deref(), struck);
         self.leaving_drawn = None;
@@ -14464,14 +14500,27 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// through; empty, every base 0, on a terminal of one band.
     pub fn overlay_rows(
         &self,
+        term: &Term<'_>,
         set: crate::screens::SetIx,
         leaving: crate::Leaving,
     ) -> crate::OverlayRows {
         self.cell_windows
             .get(set.0)
             .map_or_else(crate::OverlayRows::default, |w| {
-                crate::OverlayRows::of(w, leaving)
+                crate::OverlayRows::of(w, leaving, (term, self.cols))
             })
+    }
+
+    /// **Set `set`'s lines' pairs as its copy numbered them**
+    /// (`crate::band_window::BandWindow::keep_pairs`).
+    pub(crate) fn keep_line_pairs(
+        &mut self,
+        set: crate::screens::SetIx,
+        pairs: Vec<Vec<crate::band_window::Pair>>,
+    ) {
+        if let Some(w) = self.cell_windows.get_mut(set.0) {
+            w.keep_pairs(pairs);
+        }
     }
 
     /// The display lines of set `set`'s last frame that joined two bands.

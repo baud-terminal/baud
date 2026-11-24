@@ -1030,6 +1030,12 @@ pub struct LiveBands<'a> {
     /// **Each row's band by its place**, for a copy whose rows are not a
     /// surface's: a display of re-broken lines. Empty for a surface.
     lines: &'a [crate::Band],
+    /// **Rows of a copy with tables of their own**, by their place, and
+    /// those tables, laid end to end, each as long: a row whose cells
+    /// were given ids of their own names each one's word there. Empty
+    /// but for such a copy.
+    own_rows: &'a [crate::Row],
+    own: &'a [StyleSlot],
 }
 
 impl<'a> LiveBands<'a> {
@@ -1041,6 +1047,8 @@ impl<'a> LiveBands<'a> {
             rows: 0,
             first: table.band(),
             lines: &[],
+            own_rows: &[],
+            own: &[],
         }
     }
 
@@ -1059,6 +1067,24 @@ impl<'a> LiveBands<'a> {
             rows: 0,
             first: crate::Band::FIRST,
             lines,
+            own_rows: &[],
+            own: &[],
+        }
+    }
+
+    /// **[`LiveBands::lines`], with rows of tables of their own**: row
+    /// `own_rows[k]` resolves through the `k`-th of `own`'s tables, `own`
+    /// holding as many tables as `own_rows` has rows, each as long.
+    pub fn lines_own(
+        slots: &'a [StyleSlot],
+        band_slots: usize,
+        lines: &'a [crate::Band],
+        (own_rows, own): (&'a [crate::Row], &'a [StyleSlot]),
+    ) -> LiveBands<'a> {
+        LiveBands {
+            own_rows,
+            own,
+            ..LiveBands::lines(slots, band_slots, lines)
         }
     }
 
@@ -1076,6 +1102,8 @@ impl<'a> LiveBands<'a> {
             rows: rows.index().max(1),
             first,
             lines: &[],
+            own_rows: &[],
+            own: &[],
         }
     }
 
@@ -1083,6 +1111,13 @@ impl<'a> LiveBands<'a> {
     #[inline(always)]
     pub fn table(&self, p: RowRot) -> LiveTable<'a> {
         if !self.lines.is_empty() {
+            if let Some(k) = self.own_rows.iter().position(|r| r.index() == p.index()) {
+                let w = self.own.len() / self.own_rows.len();
+                return LiveTable::of_band(
+                    self.own.get(k * w..(k + 1) * w).unwrap_or(&[]),
+                    crate::Band::FIRST,
+                );
+            }
             let b = self
                 .lines
                 .get(p.index())

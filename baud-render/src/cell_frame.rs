@@ -409,7 +409,7 @@ where
     // through it, and the line's entries of the loose region filled from
     // its bands' slots.
     if banded {
-        number_joined(
+        let pairs = number_joined(
             renderer,
             term,
             (
@@ -420,6 +420,7 @@ where
             (at, view.cols()),
             (Rows::of_count(usize::from(sliding)), view.rows()),
         );
+        renderer.keep_line_pairs(at, pairs);
     }
     // What the walk, the overlay and a sized line read the copy
     // through: the words its lent slots were given.
@@ -467,8 +468,14 @@ where
             renderer,
         );
     }
-    let view = match lend {
-        crate::Lend::Nothing => view,
+    // **The set's rows in the overlay's order** (`Renderer::overlay_rows`).
+    let overlay = renderer.overlay_rows(term, at, leaving);
+    // The copy the walk reads: the set's, where its lending rewrote ids or
+    // a row is a line of its own (`crate::band_window::Joined`), whose ids
+    // the copy numbered.
+    let own = overlay.any_own();
+    let view = match (&lend, own) {
+        (crate::Lend::Nothing, false) => view,
         _ => {
             cell.lent_cells.clear();
             cell.lent_cells
@@ -488,16 +495,24 @@ where
                 }
                 cell.lent_used.push(e);
             }
-            baud_domain::Viewport::new(
-                cell.lent_cells,
-                cell.lent_used,
-                term.stride(),
-                view.cols(),
-                view.rows(),
-                view.rows(),
-                RowRot::NONE,
-                crate::frozen::live_table(term),
-            )
+            match own {
+                true => overlay.view(
+                    term,
+                    (cell.lent_cells, cell.lent_used),
+                    term.stride(),
+                    (view.cols(), view.rows()),
+                ),
+                false => baud_domain::Viewport::new(
+                    cell.lent_cells,
+                    cell.lent_used,
+                    term.stride(),
+                    view.cols(),
+                    view.rows(),
+                    view.rows(),
+                    RowRot::NONE,
+                    crate::frozen::live_table(term),
+                ),
+            }
         }
     };
     // The kept joins found again on the rows that compare found
@@ -559,8 +574,6 @@ where
         }
         None => 0,
     };
-    // **The set's rows in the overlay's order** (`Renderer::overlay_rows`).
-    let overlay = renderer.overlay_rows(at, leaving);
     cell.exceptions.ensure_framed(
         &Scene {
             term,
@@ -742,17 +755,20 @@ where
 /// ids of its own in the set's copy**, `cols` cells a row, its window row
 /// `slide` draw rows below its draw row: each logical column found where
 /// the row's order draws it, its rewrite kept in the set's lending, and the
-/// line's pairs resolved into the loose region from the set's slots.
+/// line's pairs resolved into the loose region from the set's slots. Each
+/// line's pairs, by the window's order of its lines: what a reader of the
+/// copy names the line's ids by.
 fn number_joined(
     renderer: &Renderer<'_, '_>,
     term: &Term<'_>,
     (copy, lent, styles): (&mut [PackedCell], &mut Lent, &mut [Resolved]),
     (set, cols): (SetIx, Cols),
     (slide, rows): (Rows, Rows),
-) {
+) -> Vec<Vec<crate::band_window::Pair>> {
     let Some(window) = renderer.cell_window(set) else {
-        return;
+        return Vec::new();
     };
+    let mut kept = Vec::new();
     let (stride, cols) = (term.stride().index(), cols.index());
     let bs = term.styles().band_slots();
     let orders = renderer.bidi();
@@ -766,6 +782,7 @@ fn number_joined(
             None => (rows.index(), false),
         };
         let Some(row) = copy.get_mut(y * stride..y * stride + cols) else {
+            kept.push(Vec::new());
             continue;
         };
         let r = Row::from_index(y);
@@ -781,5 +798,7 @@ fn number_joined(
             crate::band_window::Strike::No => None,
         }));
         j.fill((&pairs, &greys), (window, bs), styles);
+        kept.push(pairs.clone());
     }
+    kept
 }

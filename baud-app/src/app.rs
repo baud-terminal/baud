@@ -2377,7 +2377,7 @@ impl App {
                         Some(_) => baud_render::Leaving::Drawn,
                         None => baud_render::Leaving::None,
                     };
-                    let overlay = self.renderer.overlay_rows(b.at, leaving);
+                    let overlay = self.renderer.overlay_rows(&self.term, b.at, leaving);
                     let view = overlay.view(
                         &self.term,
                         (
