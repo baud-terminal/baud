@@ -135,6 +135,10 @@ const _: fn(usize) -> baud_domain::Count = baud_domain::Count::of;
 const _: baud_domain::Count = baud_domain::Count::ONE;
 const _: baud_domain::Count = baud_domain::Count::ZERO;
 const _: fn(Option<baud_domain::Param>) -> baud_domain::Count = baud_domain::Count::from_param;
+// CursorChange
+const _: baud_domain::CursorChange = baud_domain::CursorChange::Same;
+const _: baud_domain::CursorChange = baud_domain::CursorChange::Moved;
+const _: baud_domain::CursorChange = baud_domain::CursorChange::Restyled;
 // CursorStyle
 const _: fn(baud_domain::CursorShape, baud_domain::CursorBlink) -> baud_domain::CursorStyle =
     baud_domain::CursorStyle::of;
@@ -155,6 +159,25 @@ const _: fn(usize) -> baud_domain::DecodeBudget = baud_domain::DecodeBudget::of;
 // DecodeProgress
 const _: baud_domain::DecodeProgress = baud_domain::DecodeProgress::Idle;
 const _: baud_domain::DecodeProgress = baud_domain::DecodeProgress::More;
+// DIRTY_ROWS
+const _: usize = baud_domain::DIRTY_ROWS;
+// DirtyRows
+const _: baud_domain::DirtyRows = baud_domain::DirtyRows::NONE;
+const _: fn(baud_domain::DirtyRows, baud_domain::Row) -> Option<baud_domain::DirtyRows> =
+    baud_domain::DirtyRows::with;
+const _: fn(
+    baud_domain::DirtyRows,
+    baud_domain::Row,
+    baud_domain::Row,
+) -> Option<baud_domain::DirtyRows> = baud_domain::DirtyRows::span;
+const _: fn(baud_domain::DirtyRows, baud_domain::DirtyRows) -> baud_domain::DirtyRows =
+    baud_domain::DirtyRows::union;
+const _: fn(baud_domain::DirtyRows, baud_domain::Row) -> bool = baud_domain::DirtyRows::contains;
+#[allow(dead_code)]
+fn dirty_rows_iter(d: baud_domain::DirtyRows) {
+    let _: &mut dyn Iterator<Item = baud_domain::Row> = &mut d.iter();
+}
+const _: () = assert!(core::mem::size_of::<baud_domain::DirtyRows>() == 88);
 // DynamicColor
 const _: usize = baud_domain::DynamicColor::COUNT;
 const _: fn(baud_domain::DynamicColor) -> usize = baud_domain::DynamicColor::index;
@@ -171,6 +194,21 @@ const _: baud_domain::Found = baud_domain::Found {
         line: baud_domain::LineIdx::FIRST,
         col: baud_domain::Col::ZERO,
     },
+};
+// FrameDamage
+const _: fn(baud_domain::WholeWhy) -> baud_domain::FrameDamage = baud_domain::FrameDamage::Whole;
+const _: fn(
+    baud_domain::DirtyRows,
+    baud_domain::CursorChange,
+    baud_domain::OverlayChanges,
+) -> baud_domain::FrameDamage = |rows, cursor, overlays| baud_domain::FrameDamage::Rows {
+    rows,
+    cursor,
+    overlays,
+};
+const _: fn() = || {
+    fn copy<T: Copy>() {}
+    copy::<baud_domain::FrameDamage>();
 };
 // FrameNo
 const _: fn(u32) -> baud_domain::FrameNo = baud_domain::FrameNo::of;
@@ -406,6 +444,20 @@ const _: fn(baud_domain::Modifiers, baud_domain::Modifiers) -> baud_domain::Modi
     baud_domain::Modifiers::with;
 const _: fn(baud_domain::Modifiers) -> u8 = baud_domain::Modifiers::wire;
 const _: fn(u8) -> Option<baud_domain::Modifiers> = baud_domain::Modifiers::from_wire;
+// OverlayChanges
+const _: baud_domain::OverlayChanges = baud_domain::OverlayChanges::NONE;
+const _: baud_domain::OverlayChanges = baud_domain::OverlayChanges::SELECTION;
+const _: baud_domain::OverlayChanges = baud_domain::OverlayChanges::FIND;
+const _: baud_domain::OverlayChanges = baud_domain::OverlayChanges::HOVER;
+const _: baud_domain::OverlayChanges = baud_domain::OverlayChanges::SCROLLBAR;
+const _: baud_domain::OverlayChanges = baud_domain::OverlayChanges::IME;
+const _: baud_domain::OverlayChanges = baud_domain::OverlayChanges::SPLASH;
+const _: fn(
+    baud_domain::OverlayChanges,
+    baud_domain::OverlayChanges,
+) -> baud_domain::OverlayChanges = baud_domain::OverlayChanges::union;
+const _: fn(baud_domain::OverlayChanges, baud_domain::OverlayChanges) -> bool =
+    baud_domain::OverlayChanges::contains;
 // PackedCell
 const _: baud_domain::PackedCell = baud_domain::PackedCell::EMPTY;
 const _: fn(
@@ -813,6 +865,16 @@ const _: baud_domain::WatchedLines = baud_domain::WatchedLines {
     last: baud_domain::SurfaceLine::At(baud_domain::Row::ZERO),
     moved: baud_domain::TextMoved::Up(baud_domain::Rows::ZERO),
 };
+// WholeWhy
+const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Resized;
+const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Screen;
+const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Reset;
+const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Erased;
+const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Wiped;
+const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Colours;
+const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Clusters;
+const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Renditions;
+const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Overflow;
 // Width
 const _: baud_domain::Width = baud_domain::Width::WIDE;
 const _: baud_domain::Width = baud_domain::Width::NARROW;
@@ -934,6 +996,9 @@ const WITNESSED: &[(&str, &str)] = &[
     ("ColorWord", "E0603"),
     ("Cols", "E0603"),
     ("Content", "E0603"),
+    ("DirtyRows", "E0423"),
+    ("DirtyRows", "E0608"),
+    ("DirtyRows", "E0616"),
     ("DecodeBudget", "E0423"),
     ("HeldCover", "E0451"),
     ("HostTime", "E0369"),
@@ -951,6 +1016,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("LineInterval", "E0451"),
     ("Modifiers", "E0423"),
     ("OverlapRuns", "E0423"),
+    ("OverlayChanges", "E0423"),
     ("PendingGen", "E0423"),
     ("ReadLen", "E0369"),
     ("RemapOverlap", "E0599"),

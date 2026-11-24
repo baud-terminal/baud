@@ -117,6 +117,7 @@ mod dec_sets_data {
     //! never index it. A reserved position holds DEC's error character.
     include!(concat!(env!("OUT_DIR"), "/dec_sets_data.rs"));
 }
+mod damage;
 mod decode;
 mod decoration;
 mod expression;
@@ -280,6 +281,7 @@ pub use brand::*;
 pub use cache::*;
 pub use caseless::*;
 pub use cell::*;
+pub use damage::*;
 pub use dec_graphics::*;
 pub use decode::*;
 pub use decoration::*;
