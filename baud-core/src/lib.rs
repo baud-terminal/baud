@@ -107,6 +107,7 @@ mod status;
 mod storage;
 mod strings;
 mod term;
+mod term_read;
 mod tsr;
 mod variants;
 mod vt52;
@@ -217,6 +218,8 @@ pub use baud_domain::{
     FullScreen, LogMode, Logging, Maximize, Osc52Writes, PasteControls, SizeAsk, WindowAbilities,
     WindowManipulation, WindowOps, WindowRequest,
 };
+/// What a renderer reads a [`Term`] and its images through.
+pub use baud_domain::{ImageRead, TermRead};
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
 /// What [`Term::keyboard_lights`] returns: the lights DECLL lit.
 pub use baud_domain::{KeyLed, KeyLeds, LedState};

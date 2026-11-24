@@ -261,6 +261,30 @@ const _: baud_domain::ImagePx = baud_domain::ImagePx::ZERO;
 const _: fn(u16) -> baud_domain::ImagePx = baud_domain::ImagePx::of;
 const _: fn(baud_domain::ImagePx) -> u16 = baud_domain::ImagePx::raw;
 const _: fn(baud_domain::ImagePx, usize) -> baud_domain::ImagePx = baud_domain::ImagePx::span;
+// ImageRead
+const _: fn() = || {
+    fn read<I: baud_domain::ImageRead + Copy>() {}
+    read::<&'static baud_domain::ImageStore<'static>>();
+};
+#[allow(dead_code)]
+fn image_read<I: baud_domain::ImageRead + 'static>(i: &I) {
+    let _: for<'a> fn(&'a I) -> baud_domain::ImageGen = I::generation;
+    let _: for<'a> fn(
+        &'a I,
+        baud_domain::ImageId,
+        baud_domain::ImageAge,
+        baud_domain::ImageGen,
+    ) -> baud_domain::ImageSince = I::image_since;
+    let _: for<'a> fn(&'a I, baud_domain::ImageId) -> Option<baud_domain::ImageView<'a>> = I::image;
+    let _: for<'a> fn(&'a I, baud_domain::PlacementId) -> baud_domain::KittyRoot = I::kitty_root;
+    let _: for<'a> fn(
+        &'a I,
+        baud_domain::ImageId,
+    ) -> Option<(baud_domain::KittyId, baud_domain::KittyNumber)> = I::kitty_names;
+    let _: for<'a> fn(&'a I, baud_domain::ImageId) -> Option<baud_domain::ImageAge> = I::born;
+    let _: &mut dyn Iterator<Item = (baud_domain::PlacementId, &baud_domain::PlacementSlot)> =
+        &mut i.placements();
+}
 // ImageScreen
 const _: baud_domain::ImageScreen = baud_domain::ImageScreen::Primary;
 const _: baud_domain::ImageScreen = baud_domain::ImageScreen::Alternate;
@@ -642,6 +666,106 @@ const _: fn(baud_domain::StyleWrites, usize) -> bool = baud_domain::StyleWrites:
 // SurfaceLine
 const _: fn(baud_domain::Rows) -> baud_domain::SurfaceLine = baud_domain::SurfaceLine::Above;
 const _: fn(baud_domain::Row) -> baud_domain::SurfaceLine = baud_domain::SurfaceLine::At;
+// TermRead
+#[allow(dead_code)]
+fn term_read<T: baud_domain::TermRead + 'static>() {
+    use baud_domain::*;
+    // geometry and cursor
+    let _: for<'a> fn(&'a T) -> (Cols, Rows) = T::geometry;
+    let _: for<'a> fn(&'a T) -> Stride = T::stride;
+    let _: for<'a> fn(&'a T) -> (Row, Col) = T::cursor;
+    let _: for<'a> fn(&'a T) -> bool = T::cursor_visible;
+    let _: for<'a> fn(&'a T) -> CursorStyle = T::cursor_style;
+    let _: for<'a> fn(&'a T) -> WrapPending = T::wrap_pending;
+    let _: for<'a> fn(&'a T) -> Rows = T::window_back;
+    let _: for<'a> fn(&'a T, Rows) -> Rows = T::looking_back;
+    let _: for<'a> fn(&'a T) -> Rows = T::status_rows;
+    // rows and views
+    let _: for<'a> fn(&'a T, Row) -> Option<&'a [PackedCell]> = T::row;
+    let _: for<'a> fn(&'a T, Rows) -> Viewport<'a> = T::view;
+    let _: for<'a> fn(&'a T) -> Viewport<'a> = T::viewport;
+    let _: for<'a> fn(&'a T, Rows) -> RowGens<'a> = T::row_gens;
+    let _: for<'a> fn(&'a T) -> Option<Viewport<'a>> = T::status_view;
+    let _: for<'a> fn(&'a T) -> Option<StatusLine<'a>> = T::status_line;
+    let _: for<'a> fn(&'a T) -> Option<StatusGen> = T::status_gen;
+    let _: for<'a> fn(&'a T, Rows, Row) -> BidiDirection = T::line_direction;
+    let _: for<'a> fn(&'a T, Rows) -> ImageOrigin = T::image_origin;
+    // change signals
+    let _: for<'a> fn(&'a T) -> Seal = T::sealed;
+    let _: for<'a, 'k> fn(&'a T, &'k Seal) -> bool = T::wrote_since;
+    let _: for<'a> fn(&'a T) -> Screen = T::screen;
+    let _: for<'a> fn(&'a T) -> ScreenEpoch = T::screen_epoch;
+    let _: for<'a> fn(&'a T) -> Resets = T::resets;
+    let _: for<'a> fn(&'a T) -> HistoryErasures = T::history_erasures;
+    let _: for<'a> fn(&'a T) -> HistoryWipes = T::history_wipes;
+    let _: for<'a> fn(&'a T) -> ClusterEpoch = T::cluster_epoch;
+    let _: for<'a> fn(&'a T) -> ColorEpoch = T::color_epoch;
+    let _: for<'a> fn(&'a T) -> StyleWrites = T::style_writes;
+    let _: for<'a> fn(&'a T) -> TableSerial = T::style_table;
+    let _: for<'a> fn(&'a T, StyleWrites) -> Written<'a> = T::styles_written;
+    let _: for<'a> fn(&'a T) -> Option<Rows> = T::band_rows;
+    let _: for<'a> fn(&'a T, Band) -> TableSerial = T::band_style_table;
+    let _: for<'a> fn(&'a T, Band) -> StyleWrites = T::band_style_writes;
+    let _: for<'a> fn(&'a T, Band, StyleWrites) -> Written<'a> = T::band_styles_written;
+    // renditions and colours
+    let _: for<'a> fn(&'a T) -> BandsView<'a> = T::styles;
+    let _: for<'a, 's> fn(&'a T, RowStyles<'s>, PackedCell) -> StyleWord = T::style_in;
+    let _: for<'a> fn(&'a T) -> Reclaims = T::style_reclaims;
+    let _: for<'a> fn(&'a T, Band) -> Reclaims = T::band_style_reclaims;
+    let _: for<'a> fn(&'a T, Chan) -> Option<(u8, u8, u8)> = T::palette;
+    let _: for<'a> fn(&'a T, DynamicColor) -> Option<(u8, u8, u8)> = T::dynamic_color;
+    let _: for<'a> fn(&'a T, SpecialColor) -> Option<(u8, u8, u8)> = T::special_color;
+    let _: for<'a> fn(&'a T, Video) -> Option<(u8, u8, u8)> = T::cursor_color_in;
+    let _: for<'a> fn(&'a T, PaintRole) -> ProgramPaint = T::program_paint;
+    let _: for<'a> fn(&'a T) -> ColorModes = T::color_modes;
+    let _: for<'a> fn(&'a T) -> bool = T::reverse_video;
+    // text and clusters
+    let _: for<'a> fn(&'a T, PackedCell) -> Content = T::base_of;
+    let _: for<'a> fn(&'a T) -> ClusterCells = T::cluster_cells;
+    let _: for<'a> fn(&'a T) -> AmbiguousWidth = T::ambiguous_width;
+    let _: for<'a> fn(&'a T) -> UnicodeWidths = T::unicode_widths;
+    let _: for<'a> fn(&'a T) -> Vs16Width = T::vs16_width;
+    let _: for<'a> fn(&'a T) -> bool = T::variants_seen;
+    let _: for<'a> fn(&'a T) -> BidiSupport = T::bidi_support;
+    let _: for<'a> fn(&'a T) -> CopyDirection = T::copy_direction;
+    let _: for<'a> fn(&'a T, StringId) -> Option<StringEntry> = T::string_entry;
+    let _: for<'a> fn(&'a T) -> bool = T::strings_seen;
+    // search and prompts
+    let _: for<'a> fn(&'a T) -> SearchLines = T::search_lines;
+    let _: for<'a> fn(&'a T, LineIdx) -> LineIdx = T::line_start;
+    let _: for<'a> fn(&'a T, LineIdx) -> Option<SurfaceLine> = T::surface_line;
+    let _: for<'a> fn(&'a T) -> Option<Row> = T::prompt_row;
+    let _: for<'a> fn(&'a T) -> Zone = T::primary_zone;
+    // images
+    let _: for<'a> fn(&'a T) -> T::Images<'a> = T::images;
+    let _: for<'a> fn(&'a T, KittyId, KittyPlacement) -> Option<KittyVirtual> = T::kitty_virtual;
+    let _: for<'a> fn(&'a T) -> bool = T::kitty_virtuals;
+    // present planning
+    let _: for<'a> fn(&'a T) -> Option<CursorGuide> = T::cursor_guide;
+    let _: for<'a> fn(&'a T) -> Option<Highlighted> = T::highlight;
+    let _: for<'a> fn(&'a T) -> RegisBlink = T::regis_blink;
+}
+/// The four reads that return an iterator and the one that takes a
+/// closure: their types cannot be spelled as a fn pointer, so each is
+/// pinned by a call whose result must have the pinned item.
+#[allow(dead_code)]
+fn term_read_iterators<T: baud_domain::TermRead>(
+    t: &T,
+    cell: baud_domain::PackedCell,
+    styles: baud_domain::RowStyles<'_>,
+    needle: &baud_domain::Needle,
+    lines: (baud_domain::LineIdx, baud_domain::LineIdx),
+) {
+    fn runs<I: Iterator<Item = baud_domain::PlaceholderCell>>(_: baud_domain::PlaceholderRuns<I>) {}
+    let _: &mut dyn Iterator<Item = u32> = &mut t.cluster_marks(cell);
+    let _: &mut dyn Iterator<Item = baud_domain::PromptMark> = &mut t.prompts();
+    let _: &mut dyn Iterator<Item = baud_domain::PromptMark> =
+        &mut t.prompts_from(baud_domain::Rows::ZERO);
+    runs(t.placeholder_runs(&[], styles));
+    t.find(needle, lines.0, lines.1, |_: baud_domain::Found| {});
+    fn images<I: baud_domain::ImageRead + Copy>(_: I) {}
+    images(t.images());
+}
 // TextMoved
 const _: fn(baud_domain::Rows) -> baud_domain::TextMoved = baud_domain::TextMoved::Up;
 const _: fn(baud_domain::Rows) -> baud_domain::TextMoved = baud_domain::TextMoved::Down;
@@ -815,6 +939,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("HostTime", "E0369"),
     ("ImageGen", "E0423"),
     ("ImageId", "E0423"),
+    ("ImageRead", "E0599"),
     ("ImagePx", "E0369"),
     ("ImageStore", "E0616"),
     ("IntervalMap", "E0616"),
@@ -848,6 +973,8 @@ const WITNESSED: &[(&str, &str)] = &[
     ("StyleId", "E0616"),
     ("StyleWord", "E0451"),
     ("StyleWrites", "E0423"),
+    ("TermRead", "E0038"),
+    ("TermRead", "E0599"),
     ("Tracked", "E0616"),
     ("Tracked", "E0599"),
     ("Variants", "E0603"),
