@@ -29452,6 +29452,430 @@ bytes  = 4575
 status = "external"
 group  = "AS"
 
+# Group AS, for pictures drawn under the glass (2026-11-16): whether a decoded
+# image or a picture made of block characters is held to the text floor.
+# Apple's guidance on content under materials and Liquid Glass, vibrancy and
+# what it applies to, the Differentiate Without Color setting, and WCAG's
+# Understanding pages and techniques for text over pictures and for non-text
+# contrast. Each page was fetched 2026-11-16 from the documentation JSON
+# endpoint or as HTML. Re-fetched the same day and byte-identical to their
+# entries, so cited by those keys: apple-hig-materials, apple-hig-accessibility,
+# apple-hig-color, apple-hig-dark-mode, apple-hig-windows,
+# apple-nsvisualeffectview-2026-10-17, apple-nsglasseffectview-2026-10-17,
+# apple-nsvisualeffectview-state, apple-nsworkspace-reduce-transparency,
+# apple-nsworkspace-increase-contrast,
+# apple-nsworkspace-display-options-notification, apple-appkit-rn-older,
+# wcag22, wcag2ict-22, wcag22-technique-f83. Re-fetch and compare the sha256.
+
+[sources.apple-hig-image-views]
+key    = "apple-hig-image-views"
+title  = "Human Interface Guidelines: Image views -- 'Take care when overlaying text on images', 'ensure the text contrasts well with the image'; a template image is one 'in which the nontransparent pixels can receive color' (documentation JSON, retrieved 2026-11-16; change log latest June 21, 2023)"
+author = "Apple Inc."
+year   = 2023
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/image-views.json"
+file   = ""
+sha256 = "aeb9a17799e50b8ed0781daba4c042e398e8766e26c6e51c8c52e3a96b949b49"
+bytes  = 27034
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# hig-image-views.json, and the digest is of that copy.
+
+[sources.apple-hig-layout]
+key    = "apple-hig-layout"
+title  = "Human Interface Guidelines: Layout -- 'Differentiate controls from content'; Liquid Glass and a scroll edge effect instead of 'a solid or semi-opaque background color beneath controls'; full-screen background content extends underneath sidebars, toolbars and tab bars (documentation JSON, retrieved 2026-11-16; change log latest September 9, 2026)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/layout.json"
+file   = ""
+sha256 = "d41f32ddf76c597f0edd54eac361fa294a8736cfc4ccc627d1709fe092ed7267"
+bytes  = 84939
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# hig-layout.json, and the digest is of that copy.
+
+[sources.apple-hig-images]
+key    = "apple-hig-images"
+title  = "Human Interface Guidelines: Images -- resolution, formats, 'Include a color profile with each image'; 'No additional considerations for iOS, iPadOS, or macOS', and nothing on materials or contrast (documentation JSON, retrieved 2026-11-16; change log latest December 16, 2025)"
+author = "Apple Inc."
+year   = 2025
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/images.json"
+file   = ""
+sha256 = "5c53562f2d8dec11133ae7a3fbe9aa78dc2899fc0069c3059d0c94bb3dcc45f6"
+bytes  = 43685
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# hig-images.json, and the digest is of that copy.
+
+[sources.apple-liquid-glass-overview]
+key    = "apple-liquid-glass-overview"
+title  = "Liquid Glass (technology overview) -- 'Be judicious with your use of color in controls and navigation so they stay legible and allow your content to infuse them and shine through' (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/technologyoverviews/liquid-glass.json"
+file   = ""
+sha256 = "ec090bc8611dc31a1408b408fb31799e47f344ad75d57d1501b43d55d7bf366b"
+bytes  = 22651
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-liquid-glass-overview.json, and the digest is of that copy.
+
+[sources.apple-adopting-liquid-glass-2026-11-16]
+key    = "apple-adopting-liquid-glass-2026-11-16"
+title  = "Adopting Liquid Glass -- 'Test your interface with a variety of display and accessibility settings'; a background extension effect 'applies a blur to maintain legibility of the sidebar or inspector'; the page as re-fetched 2026-11-16, whose bytes differ from apple-adopting-liquid-glass's and apple-adopting-liquid-glass-2026-11-09's (documentation JSON)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/technologyoverviews/adopting-liquid-glass.json"
+file   = ""
+sha256 = "6ebae3d6b1486d33757ab6c7bff3c170df0874416287b08bc1576e44449d0909"
+bytes  = 151832
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-adopting-liquid-glass.json, and the digest is of that copy. Neither
+# earlier copy is held, so what changed in the text is not known.
+
+[sources.apple-swiftui-applying-liquid-glass-to-custom-views]
+key    = "apple-swiftui-applying-liquid-glass-to-custom-views"
+title  = "Applying Liquid Glass to custom views -- 'a material that blurs content behind it, reflects color and light of surrounding content'; glassEffect defaults to the regular variant (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/swiftui/applying-liquid-glass-to-custom-views.json"
+file   = ""
+sha256 = "5ceb483599a015780e9a0718cb555529bf9bc190e20215ff50e019ee34ade69c"
+bytes  = 40112
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-applying-liquid-glass-to-custom-views.json, and the digest is of that copy.
+
+[sources.apple-nsvisualeffectview-material]
+key    = "apple-nsvisualeffectview-material"
+title  = "NSVisualEffectView.material -- 'The default value is NSVisualEffectView.Material.appearanceBased' (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsvisualeffectview/material-swift.property.json"
+file   = ""
+sha256 = "b524c2920af99929053b9826a25f2bc4f6b9935683568ebeb40080ada92b633a"
+bytes  = 10307
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-nsvisualeffectview-material.json, and the digest is of that copy.
+
+[sources.apple-nsvisualeffectview-material-enum]
+key    = "apple-nsvisualeffectview-material-enum"
+title  = "NSVisualEffectView.Material -- the material catalog: windowBackground 'for the background of opaque windows', contentBackground 'for the background of opaque content', underWindowBackground; appearanceBased, light, dark, mediumLight, ultraDark deprecated (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsvisualeffectview/material-swift.enum.json"
+file   = ""
+sha256 = "609adce85e240e8896dd21fd0429c7748528a53ac43facf6aaa3b892df2f5bf1"
+bytes  = 38612
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-nsvisualeffectview-material-enum.json, and the digest is of that copy.
+
+[sources.apple-nsvisualeffectview-blendingmode]
+key    = "apple-nsvisualeffectview-blendingmode"
+title  = "NSVisualEffectView.blendingMode -- behindWindow, the default, 'blurs the content behind the window'; withinWindow 'blurs the content behind the view of the current window' (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsvisualeffectview/blendingmode-swift.property.json"
+file   = ""
+sha256 = "5d509958ae494a2549ee864a3cf816cff9bad109c4287c5bd4e8ab3944c24182"
+bytes  = 16341
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-nsvisualeffectview-blendingmode.json, and the digest is of that copy.
+
+[sources.apple-nsview-allowsvibrancy]
+key    = "apple-nsview-allowsvibrancy"
+title  = "NSView.allowsVibrancy -- 'The default value of this property is false. However, some of AppKit’s view subclasses change the value of this property based on the artwork they draw' (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsview/allowsvibrancy.json"
+file   = ""
+sha256 = "58dbb88c9705d14046cc49f14a237313f779e10d5ff2dde99577cea2e52b2c78"
+bytes  = 9071
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-nsview-allowsvibrancy.json, and the digest is of that copy.
+
+[sources.apple-nsappearance-vibrantdark]
+key    = "apple-nsappearance-vibrantdark"
+title  = "NSAppearance.Name.vibrantDark -- 'available only in visual effect views'; 'Vibrant appearances use color blending to make the foreground appearance stand out from the background more prominently' (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsappearance/name-swift.struct/vibrantdark.json"
+file   = ""
+sha256 = "576dbeb4fc6f7376b7e4c6afbce1e9b146b1314a3a961bd0ea6d0d746e39618d"
+bytes  = 24285
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-nsappearance-vibrantdark.json, and the digest is of that copy.
+
+[sources.apple-nsappearance-vibrantlight]
+key    = "apple-nsappearance-vibrantlight"
+title  = "NSAppearance.Name.vibrantLight -- 'available only in visual effect views'; assign a light appearance, allowsVibrancy true, and embed the view in a visual effect view (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsappearance/name-swift.struct/vibrantlight.json"
+file   = ""
+sha256 = "69fa5b55a705e0ef95df6750059965c004ec2652edfb29c5289bde4a59d185f6"
+bytes  = 24298
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-nsappearance-vibrantlight.json, and the digest is of that copy.
+
+[sources.apple-nsimage-istemplate]
+key    = "apple-nsimage-istemplate"
+title  = "NSImage.isTemplate -- template images 'should consist of only black and clear colors' and 'are not intended to be used as standalone images. They are always mixed with other content and processed' (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsimage/istemplate.json"
+file   = ""
+sha256 = "7eedb70a820156d3d571a6a31e32c6b6bcad0701a61a9403520599e86bc09ef4"
+bytes  = 9516
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-nsimage-istemplate.json, and the digest is of that copy.
+
+[sources.apple-nsworkspace-differentiate-without-color]
+key    = "apple-nsworkspace-differentiate-without-color"
+title  = "NSWorkspace.accessibilityDisplayShouldDifferentiateWithoutColor -- 'the user interface avoids conveying information using color alone. Instead, use shapes or glyphs' (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsworkspace/accessibilitydisplayshoulddifferentiatewithoutcolor.json"
+file   = ""
+sha256 = "ab3a561fd417bfa7ae87168ac90c067b0267c79b566e14d6e9461a9276a596d6"
+bytes  = 21422
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-nsworkspace-differentiate-without-color.json, and the digest is of that copy.
+
+[sources.apple-nsglasseffectview-style]
+key    = "apple-nsglasseffectview-style"
+title  = "NSGlassEffectView.style -- 'The style of glass this view uses'; macOS introducedAt 26.0 (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsglasseffectview/style-swift.property.json"
+file   = ""
+sha256 = "5a928535306b2c13f86daa070c278a479d922b1c5600f8d96f8e693b42a0691f"
+bytes  = 7938
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-nsglasseffectview-style.json, and the digest is of that copy.
+
+[sources.apple-nsglasseffectview-style-enum]
+key    = "apple-nsglasseffectview-style-enum"
+title  = "NSGlassEffectView.Style -- two cases, regular 'Standard glass effect style' and clear 'Clear glass effect style', with no discussion (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsglasseffectview/style-swift.enum.json"
+file   = ""
+sha256 = "73b8b474b7853531de93074bd2ad146b10ed472650275d37a6ce94ccf0151f09"
+bytes  = 15824
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-nsglasseffectview-style-enum.json, and the digest is of that copy.
+# The two case pages (appkit-nsglasseffectview-style-regular.json, 6894
+# bytes, 9588735559e9474e407de738907fe8120e4293274063ccd51c41b5585f64e446;
+# appkit-nsglasseffectview-style-clear.json, 6846 bytes,
+# 45bd354826b42686ffd88c6cfa99b878817a49994bdda5de5516fe38a3eb5ed4) carry
+# only those abstracts and have no entry.
+
+[sources.apple-nsglasseffectview-tintcolor]
+key    = "apple-nsglasseffectview-tintcolor"
+title  = "NSGlassEffectView.tintColor -- 'The color the glass effect view uses to tint the background and glass effect toward' (documentation JSON, retrieved 2026-11-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsglasseffectview/tintcolor.json"
+file   = ""
+sha256 = "ee1c0e5ca31e5e2446ebb2f81f2b245abfb3a2bce10f1c10e11abaf8605fcc54"
+bytes  = 7548
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-nsglasseffectview-tintcolor.json, and the digest is of that copy.
+
+[sources.apple-wwdc25-219-2026-11-16]
+key    = "apple-wwdc25-219-2026-11-16"
+title  = "WWDC25 session 219, Meet Liquid Glass -- 'Reduced Transparency, makes Liquid Glass frostier and obscures more of the content behind it. Increased contrast, makes elements predominantly black or white'; Clear 'needs a dimming layer to darken the underlying content'; the page re-fetched 2026-11-16, the same length as apple-wwdc25-219 and apple-wwdc25-219-refetch and different bytes (page with transcript)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/videos"
+url    = "https://developer.apple.com/videos/play/wwdc2025/219/"
+file   = ""
+sha256 = "cc3b9a9d068dfb68c0dbf2c80b5362b5bde89cef73aa89ce1d3d9217c9434fa0"
+bytes  = 156313
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-wwdc25-219.html, and the digest is of that copy; a second fetch the
+# same day was byte-identical.
+
+[sources.apple-wwdc25-356-2026-11-16]
+key    = "apple-wwdc25-356-2026-11-16"
+title  = "WWDC25 session 356, Get to know the new design system -- background extension 'for hero images, tinted backgrounds'; 'make sure any text and controls are layered above'; scroll edge effects 'don’t block or darken like overlays'; the page re-fetched 2026-11-16, the same length as apple-wwdc25-356 and different bytes (page with transcript)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/videos"
+url    = "https://developer.apple.com/videos/play/wwdc2025/356/"
+file   = ""
+sha256 = "85783891ebce3cd861842e35a2b71ad0c36c1e5f3643825445bc7c83ed2d9167"
+bytes  = 151042
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-wwdc25-356.html, and the digest is of that copy.
+
+[sources.apple-wwdc25-310-2026-11-16]
+key    = "apple-wwdc25-310-2026-11-16"
+title  = "WWDC25 session 310, Build an AppKit app with the new design -- 'Rich content, like photographs or artwork' under the sidebar glass; NSBackgroundExtensionView mirrors and blurs 'without actually obscuring any of its content'; NSGlassEffectView's contentView gets 'the necessary visual treatments to keep your content legible'; the page re-fetched 2026-11-16, the same length as apple-wwdc25-310 and apple-wwdc25-310-refetch and different bytes (page with transcript)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/videos"
+url    = "https://developer.apple.com/videos/play/wwdc2025/310/"
+file   = ""
+sha256 = "de27cc0ef7573bcb9b44294a559bfe6b4197ce0e007a459a146dea57e8fdfad9"
+bytes  = 170551
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page. It was read as
+# appkit-wwdc25-310.html, and the digest is of that copy.
+
+[sources.wcag22-understanding-contrast-minimum]
+key    = "wcag22-understanding-contrast-minimum"
+title  = "Understanding SC 1.4.3 Contrast (Minimum) -- the incidental clause 'is intended to separate pictures that have text in them from images of text'; text characters used as symbols are non-text content under 1.4.11 (Updated 04 October 2026)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Understanding WCAG 2.2"
+url    = "https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html"
+file   = "wcag22-understanding-contrast-minimum.html"
+sha256 = "80ecbe547e7e963560df5e62ed92305ce1af6f8965a7e48457fe38b0d76f8d1b"
+bytes  = 80501
+status = "retrieved"
+# Read 2026-11-16 for pictures under the glass; committed: a W3C documentation page.
+group  = "AS"
+
+[sources.wcag22-understanding-contrast-enhanced]
+key    = "wcag22-understanding-contrast-enhanced"
+title  = "Understanding SC 1.4.6 Contrast (Enhanced) -- 7:1, 4.5:1 for large-scale text, the same incidental clause for 'part of a picture that contains significant other visual content' (Updated 04 October 2026)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Understanding WCAG 2.2"
+url    = "https://www.w3.org/WAI/WCAG22/Understanding/contrast-enhanced.html"
+file   = "wcag22-understanding-contrast-enhanced.html"
+sha256 = "9b4c38bf97ad791fa0d43bad0518a5e9386fcf32c29550b0b7d31bf92e9b6193"
+bytes  = 79471
+status = "retrieved"
+# Read 2026-11-16 for pictures under the glass; committed: a W3C documentation page.
+group  = "AS"
+
+[sources.wcag22-understanding-images-of-text]
+key    = "wcag22-understanding-images-of-text"
+title  = "Understanding SC 1.4.5 Images of Text -- pictures with significant other visual content: 'graphs, screenshots, and diagrams which visually convey important information through more than just text' (Updated 28 June 2026)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Understanding WCAG 2.2"
+url    = "https://www.w3.org/WAI/WCAG22/Understanding/images-of-text.html"
+file   = "wcag22-understanding-images-of-text.html"
+sha256 = "bb62fabaecea238898045fb59501d17c63e2f55bfb6a52bf65f40fe8798d935d"
+bytes  = 48337
+status = "retrieved"
+# Read 2026-11-16 for pictures under the glass; committed: a W3C documentation page.
+group  = "AS"
+
+[sources.wcag22-technique-g18]
+key    = "wcag22-technique-g18"
+title  = "Technique G18: Ensuring that a contrast ratio of at least 4.5:1 exists between text (and images of text) and background behind the text -- a varying background 'chosen or shaded' behind the letters, a halo, letters re-lit as the background changes; the campus picture 'fogged white' behind the text; measured against 'the background pixels immediately next to the letter' (Updated 06 September 2026)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Techniques for WCAG 2.2 (informative)"
+url    = "https://www.w3.org/WAI/WCAG22/Techniques/general/G18"
+file   = "wcag22-technique-g18.html"
+sha256 = "5ddb0d46c9f33d6dcf902d09bbccbd9d2b16f3b275a8484e035dab42012deb1d"
+bytes  = 38250
+status = "retrieved"
+# Read 2026-11-16 for pictures under the glass; committed: a W3C documentation page.
+group  = "AS"
+
+[sources.wcag22-technique-g145]
+key    = "wcag22-technique-g145"
+title  = "Technique G145: Ensuring that a contrast ratio of at least 3:1 exists between text (and images of text) and background behind the text -- G18's method at 3:1 for large-scale text, the fogged picture behind it (Updated 06 September 2026)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Techniques for WCAG 2.2 (informative)"
+url    = "https://www.w3.org/WAI/WCAG22/Techniques/general/G145"
+file   = "wcag22-technique-g145.html"
+sha256 = "09f50223b9a2b3ada125ebaf4d95c879140d12f675cd61aaa32ea032fbc0c4e4"
+bytes  = 36309
+status = "retrieved"
+# Read 2026-11-16 for pictures under the glass; committed: a W3C documentation page.
+group  = "AS"
+
+[sources.wcag22-technique-g17]
+key    = "wcag22-technique-g17"
+title  = "Technique G17: Ensuring that a contrast ratio of at least 7:1 exists between text (and images of text) and background behind the text -- 1.4.6's sufficient technique, G18's method at 7:1 (Updated 06 September 2026)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Techniques for WCAG 2.2 (informative)"
+url    = "https://www.w3.org/WAI/WCAG22/Techniques/general/G17"
+file   = "wcag22-technique-g17.html"
+sha256 = "4dc7f94ed90635b194f2ff2280b9f60b8d4a0706c29dd4c832965bc92a86c0ec"
+bytes  = 36910
+status = "retrieved"
+# Read 2026-11-16 for pictures under the glass; committed: a W3C documentation page.
+group  = "AS"
+
+[sources.wcag22-understanding-non-text-contrast-2026-11-16]
+key    = "wcag22-understanding-non-text-contrast-2026-11-16"
+title  = "Understanding SC 1.4.11 Non-text Contrast, as fetched 2026-11-16 -- essential exception: 'no requirement to change pictures of real life scenes', 'Screenshots to demonstrate how a website appeared'; 'Essential exception and author choice': a low-contrast presentation by author choice is not essential; test 'the least contrasting area' (Updated 04 October 2026)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Understanding WCAG 2.2"
+url    = "https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html"
+file   = "wcag22-understanding-non-text-contrast-2026-11-16.html"
+sha256 = "03d76897dff9851b8ee1d8be24f72d687bf3e863603de76bd9c52c06270f4557"
+bytes  = 203158
+status = "retrieved"
+# Read 2026-11-16 for pictures under the glass. The live page moved from
+# wcag22-understanding-non-text-contrast's copy (203097 bytes) by four
+# editorial lines ("best practice" and "recommended practice" became
+# "encouraged (but not required)"), with no normative change; that entry's
+# file still hashes to its sha256 and stays. Committed: a W3C documentation page.
+group  = "AS"
+
 # Group AT, for a standard material behind the window body (note AT, which
 # follows Apple's recommendations for macOS, 2026-10-17): the
 # NSVisualEffectView pages note AS did not pin, today's copies of two WWDC pages

@@ -1968,9 +1968,9 @@ THIS SOFTWARE.
 | status | research sources | other entries | meaning |
 |---|---|---|---|
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 346 | 69 | redistributable, and its notice is satisfied |
+| kept | 353 | 69 | redistributable, and its notice is satisfied |
 | own | 10 | 11 | the work of baud's author |
-| total | 357 | 80 | |
+| total | 364 | 80 | |
 
 ## Licence texts in LICENSES/
 
@@ -3659,7 +3659,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** LicenseRef-W3C-Document (https://www.w3.org/copyright/document-license/)
 - **Notice:** in the file
-- **Files:** 16
+- **Files:** 23
 
 | file | copied from |
 |---|---|
@@ -3668,10 +3668,17 @@ notice is, and the URL each file was copied from.
 | [wcag22-20241212.html](docs/research/sources/wcag22-20241212.html) | https://www.w3.org/TR/2024/REC-WCAG22-20241212/ |
 | [wcag22-errata.html](docs/research/sources/wcag22-errata.html) | https://www.w3.org/WAI/WCAG22/errata/ |
 | [wcag22-technique-f83.html](docs/research/sources/wcag22-technique-f83.html) | https://www.w3.org/WAI/WCAG22/Techniques/failures/F83 |
+| [wcag22-technique-g145.html](docs/research/sources/wcag22-technique-g145.html) | https://www.w3.org/WAI/WCAG22/Techniques/general/G145 |
 | [wcag22-technique-g15.html](docs/research/sources/wcag22-technique-g15.html) | https://www.w3.org/WAI/WCAG22/Techniques/general/G15 |
+| [wcag22-technique-g17.html](docs/research/sources/wcag22-technique-g17.html) | https://www.w3.org/WAI/WCAG22/Techniques/general/G17 |
 | [wcag22-technique-g176.html](docs/research/sources/wcag22-technique-g176.html) | https://www.w3.org/WAI/WCAG22/Techniques/general/G176 |
+| [wcag22-technique-g18.html](docs/research/sources/wcag22-technique-g18.html) | https://www.w3.org/WAI/WCAG22/Techniques/general/G18 |
 | [wcag22-technique-g19.html](docs/research/sources/wcag22-technique-g19.html) | https://www.w3.org/WAI/WCAG22/Techniques/general/G19 |
 | [wcag22-understanding-animation-from-interactions.html](docs/research/sources/wcag22-understanding-animation-from-interactions.html) | https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html |
+| [wcag22-understanding-contrast-enhanced.html](docs/research/sources/wcag22-understanding-contrast-enhanced.html) | https://www.w3.org/WAI/WCAG22/Understanding/contrast-enhanced.html |
+| [wcag22-understanding-contrast-minimum.html](docs/research/sources/wcag22-understanding-contrast-minimum.html) | https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html |
+| [wcag22-understanding-images-of-text.html](docs/research/sources/wcag22-understanding-images-of-text.html) | https://www.w3.org/WAI/WCAG22/Understanding/images-of-text.html |
+| [wcag22-understanding-non-text-contrast-2026-11-16.html](docs/research/sources/wcag22-understanding-non-text-contrast-2026-11-16.html) | https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html |
 | [wcag22-understanding-non-text-contrast.html](docs/research/sources/wcag22-understanding-non-text-contrast.html) | https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html |
 | [wcag22-understanding-pause-stop-hide.html](docs/research/sources/wcag22-understanding-pause-stop-hide.html) | https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html |
 | [wcag22-understanding-seizures-and-physical-reactions.html](docs/research/sources/wcag22-understanding-seizures-and-physical-reactions.html) | https://www.w3.org/WAI/WCAG22/Understanding/seizures-and-physical-reactions.html |
