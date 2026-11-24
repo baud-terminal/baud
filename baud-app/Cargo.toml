@@ -115,6 +115,13 @@ take = []
 # build that ships.
 effect-probe = ["baud-present-macos/effect-probe"]
 
+# **The held slide, test-only** (`src/timed.rs`, `SlideClock`): with
+# `BAUD_SLIDE_HOLD=1` a screen switch's slide stays at its start, where
+# the frame shown is the one kept at the switch, so a capture can read
+# that frame (`scripts/linux-kept-frame.sh`). Off, the variable is never
+# read. Never in a build that ships.
+slide-hold = []
+
 # The binary is `baud`, as the package is.
 [[bin]]
 name = "baud"

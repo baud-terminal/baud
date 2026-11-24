@@ -70,7 +70,7 @@ pub const CRATES: [(&str, Floor); 14] = [
     ("baud-font", Floor(0)),
     ("baud-render", Floor(4)),
     ("baud-present-macos", Floor(2)),
-    ("baud-app", Floor(3)),
+    ("baud-app", Floor(4)),
     ("baud-wayland", Floor(0)),
     ("baud-xkb", Floor(0)),
     ("baud-present-wayland", Floor(0)),

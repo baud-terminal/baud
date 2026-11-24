@@ -62,6 +62,37 @@ impl Clock {
     }
 }
 
+/// **Whether a screen switch's slide runs on the clock or is held at its
+/// start**, test-only (`slide-hold`). Held, the slide stays at progress 0
+/// under the faint veil, where the frame drawn is the one kept at the
+/// switch, so a capture can read that frame however long it takes.
+#[cfg(feature = "slide-hold")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum SlideClock {
+    Runs,
+    Held,
+}
+
+#[cfg(feature = "slide-hold")]
+impl SlideClock {
+    /// The clock `BAUD_SLIDE_HOLD` asks for: held at `1`, running
+    /// otherwise.
+    fn told(value: Option<&std::ffi::OsStr>) -> SlideClock {
+        match value.and_then(|v| v.to_str()) {
+            Some("1") => SlideClock::Held,
+            _ => SlideClock::Runs,
+        }
+    }
+
+    /// The instant a switch that began at `start` is drawn at, at `secs`.
+    fn at(self, start: f64, secs: f64) -> f64 {
+        match self {
+            SlideClock::Runs => secs,
+            SlideClock::Held => start,
+        }
+    }
+}
+
 /// A ghost's sweep in flight: the cells it left and reached, when it began
 /// on the clock, how far the cell it left has ridden the screen's scroll
 /// and whether it still rides (`trail::ghost_ride`), and how it is drawn.
@@ -155,6 +186,9 @@ pub(crate) struct Timed {
     period: Option<Duration>,
     parity: Parity,
     paced_wake: Option<Instant>,
+    /// Whether a switch's slide runs or is held at its start.
+    #[cfg(feature = "slide-hold")]
+    slide: SlideClock,
 }
 
 /// Which of two trail-only turns at half rate a turn is.
@@ -196,6 +230,8 @@ impl Timed {
             period: None,
             parity: Parity::Skipped,
             paced_wake: None,
+            #[cfg(feature = "slide-hold")]
+            slide: SlideClock::told(std::env::var_os("BAUD_SLIDE_HOLD").as_deref()),
         }
     }
 
@@ -605,9 +641,11 @@ impl Timed {
         };
         // The switch: settled, this frame draws no veil, which repaints the
         // screen once to clear it, and no slide, which goes whole.
-        let switch = self
-            .switch
-            .and_then(|(start, form)| crate::effects::switch_at(start, form, secs));
+        let switch = self.switch.and_then(|(start, form)| {
+            #[cfg(feature = "slide-hold")]
+            let secs = self.slide.at(start, secs);
+            crate::effects::switch_at(start, form, secs)
+        });
         if switch.is_none() {
             self.switch = None;
         }
@@ -1353,6 +1391,54 @@ mod tests {
                 fx.turn(t0 + Duration::from_millis(420), &mut t),
                 Owes::Nothing
             );
+        }
+    }
+
+    /// **A held slide stays at its start**: with the clock held, a switch
+    /// slides at progress 0 under the faint veil however long after it
+    /// began, and owes a frame each turn; the clock that runs, the control,
+    /// has landed and settled by then. `BAUD_SLIDE_HOLD=1` holds it, and
+    /// any other value, or none, runs it.
+    #[cfg(feature = "slide-hold")]
+    #[test]
+    fn a_held_slide_stays_at_progress_zero() {
+        use std::ffi::OsStr;
+        assert_eq!(SlideClock::told(Some(OsStr::new("1"))), SlideClock::Held);
+        for v in [None, Some("0"), Some(""), Some("yes"), Some("11")] {
+            assert_eq!(
+                SlideClock::told(v.map(OsStr::new)),
+                SlideClock::Runs,
+                "{v:?}"
+            );
+        }
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let start = Some(baud_render::ScreenSlide {
+            progress: 0.0,
+            toward: baud_render::Toward::Alternate,
+        });
+        for (clock, held) in [(SlideClock::Held, true), (SlideClock::Runs, false)] {
+            let mut fx = Timed::new(t0, TrailPick::Named(CursorTrail::Off), ScreenTransition::On);
+            fx.slide = clock;
+            let _ = fx.switched(t0, baud_core::Screen::Alternate);
+            let p = fx.plan(t0, &t, rect, CELL, widths());
+            assert_eq!(p.slide, start, "{clock:?}: at the switch");
+            for ms in [500u64, 10_000] {
+                let now = t0 + Duration::from_millis(ms);
+                let p = fx.plan(now, &t, rect, CELL, widths());
+                assert_eq!(
+                    (p.slide, p.fade),
+                    if held {
+                        (start, Some(Transition::faint(0.0)))
+                    } else {
+                        (None, None)
+                    },
+                    "{clock:?} at {ms} ms"
+                );
+                let owes = fx.turn(now + Duration::from_millis(1), &mut t);
+                assert_eq!(owes == Owes::Frame, held, "{clock:?} at {ms} ms: {owes:?}");
+            }
         }
     }
 
