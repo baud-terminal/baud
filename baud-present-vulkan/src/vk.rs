@@ -5,6 +5,7 @@
 //! every Vulkan call is `unsafe` in `ash`.
 
 use crate::choose::{Candidate, Extensions, Kind, Major, Minor, Node, TimelineExport};
+use crate::reported::{DeviceType, PciId, Reported};
 use ash::vk;
 use baud_present_wayland::dmabuf::Modifier;
 use std::ffi::CStr;
@@ -21,6 +22,9 @@ pub const REQUIRED: [&CStr; 4] = [
 
 /// Explicit sync's extension: a timeline semaphore exported as an fd.
 pub const SEMAPHORE_FD: &CStr = c"VK_KHR_external_semaphore_fd";
+
+/// The driver's name and info before Vulkan 1.2.
+pub const DRIVER_PROPERTIES: &CStr = c"VK_KHR_driver_properties";
 
 /// What the device match reads: the DRM nodes.
 pub const PHYSICAL_DEVICE_DRM: &CStr = c"VK_EXT_physical_device_drm";
@@ -67,6 +71,48 @@ impl Vulkan {
             .into_iter()
             .map(|pd| (pd, self.candidate(pd)))
             .collect()
+    }
+
+    /// **What `pd` reports of itself** ([`Reported`]): its name, PCI ids
+    /// and type, and its driver's name and info where the device reports
+    /// them -- from Vulkan 1.2, or through the driver properties extension
+    /// -- and empty where it does not.
+    #[allow(unsafe_code)]
+    pub fn reported(&self, pd: vk::PhysicalDevice) -> Reported {
+        // SAFETY: a physical device of this instance.
+        let plain = unsafe { self.instance.get_physical_device_properties(pd) };
+        let mut driver = vk::PhysicalDeviceDriverProperties::default();
+        let mut props = vk::PhysicalDeviceProperties2::default();
+        if plain.api_version >= vk::API_VERSION_1_2 || self.has(pd, DRIVER_PROPERTIES) {
+            props = props.push_next(&mut driver);
+        }
+        // SAFETY: a physical device of this instance, and a chain whose
+        // members live through the call.
+        unsafe {
+            self.instance
+                .get_physical_device_properties2(pd, &mut props)
+        };
+        let p = props.properties;
+        let text = |c: Result<&CStr, _>| {
+            c.map_or_else(
+                |_| String::new(),
+                |c: &CStr| c.to_string_lossy().into_owned(),
+            )
+        };
+        Reported {
+            name: text(p.device_name_as_c_str()),
+            vendor: PciId(p.vendor_id),
+            device: PciId(p.device_id),
+            kind: match p.device_type {
+                vk::PhysicalDeviceType::INTEGRATED_GPU => DeviceType::IntegratedGpu,
+                vk::PhysicalDeviceType::DISCRETE_GPU => DeviceType::DiscreteGpu,
+                vk::PhysicalDeviceType::VIRTUAL_GPU => DeviceType::VirtualGpu,
+                vk::PhysicalDeviceType::CPU => DeviceType::Cpu,
+                _ => DeviceType::Other,
+            },
+            driver: text(driver.driver_name_as_c_str()),
+            info: text(driver.driver_info_as_c_str()),
+        }
     }
 
     #[allow(unsafe_code)]

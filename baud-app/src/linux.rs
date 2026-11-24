@@ -1571,6 +1571,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             }
         }
     }
+    // Every frame the window drew, by the arm that drew it (`gpu_arm.rs`).
+    d.gpu.exit();
     // The notifications still waiting for their pictures, posted with
     // their text alone (`Delivery::linux_closing`).
     d.pictures_at_close();
@@ -4551,7 +4553,7 @@ impl Driver {
                 return;
             }
             crate::gpu_arm::Arm::Owed => return,
-            crate::gpu_arm::Arm::Cpu => {}
+            crate::gpu_arm::Arm::Cpu(_) => {}
         }
         if self.gpu.cpu_owes_whole() {
             self.damage = Damage::Full;

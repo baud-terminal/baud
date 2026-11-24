@@ -21,6 +21,7 @@ pub mod lend;
 mod loader;
 pub mod pipeline;
 pub mod present;
+pub mod reported;
 pub mod sheets;
 pub mod sys;
 pub mod vk;

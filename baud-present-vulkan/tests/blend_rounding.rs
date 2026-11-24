@@ -152,39 +152,11 @@ fn measure(gpu: &Gpu) -> Measured {
     pipes.destroy();
     eprintln!(
         "{}: the furthest miss from a half {}/255, the most a miss is off {} step; {m:?}",
-        device(gpu),
+        gpu.vulkan.reported(gpu.physical),
         m.from_half.0,
         m.worst.0
     );
     m
-}
-
-/// **The device and driver a measurement ran on**: its name, PCI vendor and
-/// device ids, and the driver's name and version string, as the device
-/// reports them.
-#[allow(unsafe_code)]
-fn device(gpu: &Gpu) -> String {
-    let mut driver = ash::vk::PhysicalDeviceDriverProperties::default();
-    let mut props = ash::vk::PhysicalDeviceProperties2::default().push_next(&mut driver);
-    // SAFETY: the device's own physical device, and a chain whose members
-    // live through the call.
-    unsafe {
-        gpu.vulkan
-            .instance
-            .get_physical_device_properties2(gpu.physical, &mut props)
-    };
-    let p = props.properties;
-    let text = |c: Result<&core::ffi::CStr, _>| {
-        c.map_or_else(|_| String::from("?"), |c| c.to_string_lossy().into_owned())
-    };
-    format!(
-        "{} ({:04x}:{:04x}), {} {}",
-        text(p.device_name_as_c_str()),
-        p.vendor_id,
-        p.device_id,
-        text(driver.driver_name_as_c_str()),
-        text(driver.driver_info_as_c_str())
-    )
 }
 
 #[test]
