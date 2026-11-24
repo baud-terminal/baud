@@ -2228,6 +2228,11 @@ impl Seen<'_, '_> {
 #[derive(Debug, Default)]
 struct Lit {
     spans: Vec<(Option<Pid>, LineSpan)>,
+    /// The spans visited or compared: each one `set` meets, each pair
+    /// `merge` compares, each one a carry maps, each one `cut` cuts and
+    /// `keep_from` keeps or drops, and each own span and piece `not_of`
+    /// takes apart.
+    steps: WalkSteps,
 }
 
 impl Lit {
@@ -2236,6 +2241,7 @@ impl Lit {
     fn set(&mut self, by: Option<Pid>, span: LineSpan) {
         let mut i = 0;
         while let Some(&(g, s)) = self.spans.get(i) {
+            self.steps.bump();
             if s.meet(span).is_none() {
                 i += 1;
                 continue;
@@ -2252,8 +2258,11 @@ impl Lit {
         let mut i = 0;
         while i < self.spans.len() {
             let (g, s) = self.spans[i];
-            let next = (i + 1..self.spans.len())
-                .find(|&j| self.spans[j].0 == g && self.spans[j].1.touches(s));
+            let (spans, steps) = (&self.spans, &mut self.steps);
+            let next = (i + 1..spans.len()).find(|&j| {
+                steps.bump();
+                spans[j].0 == g && spans[j].1.touches(s)
+            });
             match next {
                 Some(j) => {
                     let (_, t) = self.spans.swap_remove(j);
@@ -2264,9 +2273,14 @@ impl Lit {
         }
     }
 
-    /// Every span carried where `carry` says its text went.
-    fn carry(&mut self, carry: impl Fn(LineSpan) -> LineSpan) {
+    /// Every span carried where `carry` says its text went, unless
+    /// `carried` says no line moved.
+    fn carry(&mut self, carried: Carried, carry: impl Fn(LineSpan) -> LineSpan) {
+        if carried == Carried::Nowhere {
+            return;
+        }
         for e in &mut self.spans {
+            self.steps.bump();
             e.1 = carry(e.1);
         }
         self.merge();
@@ -2275,9 +2289,13 @@ impl Lit {
     /// `erased`'s lines out of every span: what lit them was filed over
     /// text that is gone (`Probes::erased`).
     fn cut(&mut self, erased: LineSpan) {
+        let steps = &mut self.steps;
         self.spans = core::mem::take(&mut self.spans)
             .into_iter()
-            .flat_map(|(g, s)| s.outside(erased).map(move |p| (g, p)))
+            .flat_map(|(g, s)| {
+                steps.bump();
+                s.outside(erased).map(move |p| (g, p))
+            })
             .collect();
     }
 
@@ -2288,7 +2306,9 @@ impl Lit {
         surfaces: [crate::paths::Surface; 2],
         top: Option<baud_render::AbsLine>,
     ) {
+        let steps = &mut self.steps;
         self.spans.retain_mut(|(_, s)| {
+            steps.bump();
             if !surfaces.contains(&s.surface()) {
                 return false;
             }
@@ -2308,16 +2328,43 @@ impl Lit {
     /// **The lines of `lit` that `g`'s own verdict did not light**: each
     /// span less the lines this names `g` for. A line it names no source
     /// for is among them.
-    fn not_of(&self, g: Option<Pid>, lit: Vec<LineSpan>) -> Vec<LineSpan> {
+    fn not_of(&mut self, g: Option<Pid>, lit: Vec<LineSpan>) -> Vec<LineSpan> {
         let mut out = lit;
+        let steps = &mut self.steps;
         for &(_, own) in self.spans.iter().filter(|e| e.0 == g) {
-            out = out.into_iter().flat_map(|s| s.outside(own)).collect();
+            out = out
+                .into_iter()
+                .flat_map(|s| {
+                    steps.bump();
+                    s.outside(own)
+                })
+                .collect();
         }
         out
     }
 
     fn clear(&mut self) {
         self.spans.clear();
+    }
+}
+
+/// **Whether a carry can move a line at all**: a part whose record holds
+/// no move leaves every line where it was, as `Paths::carried_span`
+/// reads nothing of the record but its moves and is the identity without
+/// one; a re-cut, or a record with a move, may move any line.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Carried {
+    Nowhere,
+    Anywhere,
+}
+
+impl Carried {
+    /// What `rec`'s moves say.
+    fn of(rec: &baud_core::ReadRecord) -> Carried {
+        match rec.moves().iter().next() {
+            None => Carried::Nowhere,
+            Some(_) => Carried::Anywhere,
+        }
     }
 }
 
@@ -3170,7 +3217,10 @@ impl<T: Moment> Probes<T> {
         lines: &crate::paths::PartLines,
         screens: &[baud_core::Screen],
     ) {
-        self.carry_spans(|span| paths.carried_span(rec, lines, screens, span));
+        let carried = Carried::of(rec);
+        self.carry_spans(carried, |span| {
+            paths.carried_span(rec, lines, screens, span)
+        });
         self.publish(paths);
     }
 
@@ -3249,8 +3299,8 @@ impl<T: Moment> Probes<T> {
 
     /// Every span this keeps of the lines, carried where `carry` says their
     /// text went: those still to be named, held, written with paths off,
-    /// and lit.
-    fn carry_spans(&mut self, carry: impl Fn(LineSpan) -> LineSpan) {
+    /// and lit, the last only where `carried` says a line can move.
+    fn carry_spans(&mut self, carried: Carried, carry: impl Fn(LineSpan) -> LineSpan) {
         // A carry is a function of the span alone, so a generation moves
         // only where some span is carried elsewhere.
         let moves = |s: LineSpan| carry(s) != s;
@@ -3270,7 +3320,7 @@ impl<T: Moment> Probes<T> {
         for o in &mut self.off {
             *o = carry(*o);
         }
-        self.lit.carry(carry);
+        self.lit.carry(carried, carry);
     }
 
     /// **A resize the driver just made, filed at once** (`rec`, the core's
@@ -3338,7 +3388,7 @@ impl<T: Moment> Probes<T> {
         let moved = paths.reflowed(map, at, last);
         let mut steps = WalkSteps::ZERO;
         let held = self.holds_of(&moved, &mut steps);
-        self.carry_spans(|span| paths.recut_span(span));
+        self.carry_spans(Carried::Anywhere, |span| paths.recut_span(span));
         // Each batch out's cursor line, where its text is now, as the
         // program in front's is (`Paths::recut_line`).
         for e in &mut self.cursors {
@@ -9160,6 +9210,72 @@ mod tests {
         );
     }
 
+    /// **A read that moved nothing carries no lit run** (`Lit::carry`):
+    /// L = 300 spans, groups 2 and 9 lighting alternate lines over 150
+    /// lines of the primary and 150 of the alternate screen, and a part
+    /// whose record holds no move, `x` and a new line. Carrying it visits
+    /// no span. The controls: the lit lines are as they were, and a part
+    /// that scrolled a region, which holds a move, carries every span.
+    /// Named break: every span mapped through `Paths::carried_span` and
+    /// every pair compared to merge, 300 + 300·299/2 = 45,150 steps.
+    #[test]
+    fn a_read_that_moved_nothing_carries_no_lit_run() {
+        const LINES: usize = 150;
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let alternate = paths.surface(baud_core::Screen::Alternate);
+        for n in 0..LINES {
+            let by = Some([2, 9][n % 2]);
+            pr.lit.set(by, LineSpan::of(line(n), line(n)));
+            pr.lit.set(by, LineSpan::on(alternate, line(n), line(n)));
+        }
+        assert_eq!(pr.lit.spans.len(), 2 * LINES, "L = 300");
+        let sorted = |lit: &Lit| {
+            let mut v = lit.spans.clone();
+            v.sort();
+            v
+        };
+        let was = sorted(&pr.lit);
+        let carry = |pr: &mut Probes<_>, paths: &mut Paths, bytes: &[u8]| {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            let _ = t.take_record();
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let rec = t.take_record();
+            let lines =
+                crate::paths::CoreLines::of(Some((t.history_mark().line(), Scrolled::START)))
+                    .part(Some(t.history_mark().line()));
+            let screens = [baud_core::Screen::Normal, baud_core::Screen::Alternate];
+            pr.lit.steps = WalkSteps::ZERO;
+            pr.carry_pending(paths, &rec, &lines, &screens);
+            (rec.moves().iter().count(), pr.lit.steps.get())
+        };
+        let (moves, steps) = carry(&mut pr, &mut paths, b"x\r\n");
+        assert_eq!(moves, 0, "a record with no move");
+        assert_eq!(
+            sorted(&pr.lit),
+            was,
+            "the control: the lit lines as they were"
+        );
+        assert_eq!(
+            steps, 0,
+            "a read that moved nothing took {steps} lit steps, against the bound 0"
+        );
+        let (moves, steps) = carry(&mut pr, &mut paths, b"\x1b[3;5r\x1b[5;1H\n");
+        assert_eq!(moves, 1, "the control: a record with a move");
+        assert!(
+            steps >= u64::try_from(2 * LINES).expect("a small count"),
+            "the control: every span carried, {steps} steps"
+        );
+    }
+
     /// **A hold over a line erased whole is let go** (`Probes::cut`,
     /// `held`): `ls`'s lit text on rows 0 and 1; a program gone before it
     /// was named wrote over both, so they are held under its group, its
@@ -9225,7 +9341,7 @@ mod tests {
         pr.lit.set(Some(1), one(2));
         erased_by(&mut pr, &mut paths, b"\x1b[2;1H\x1b[2K");
         paths.written_under(local, one(1));
-        pr.lit.carry(|s| match s == one(2) {
+        pr.lit.carry(Carried::Anywhere, |s| match s == one(2) {
             true => one(1),
             false => s,
         });
@@ -12528,11 +12644,13 @@ mod tests {
         };
         let mut lit = Lit::default();
         lit.set(Some(2), span(3, 3));
-        lit.carry(|s| carried(b"\x1b[3;5r\x1b[5;1H\n", s));
+        lit.carry(Carried::Anywhere, |s| carried(b"\x1b[3;5r\x1b[5;1H\n", s));
         assert_eq!(sorted(&lit), [(Some(2), span(2, 2))], "exact");
         let mut lit = Lit::default();
         lit.set(Some(2), span(3, 3));
-        lit.carry(|s| carried(b"\x1b[3;5r\x1b[5;1H\n\x1b[3;1H\x1bM", s));
+        lit.carry(Carried::Anywhere, |s| {
+            carried(b"\x1b[3;5r\x1b[5;1H\n\x1b[3;1H\x1bM", s)
+        });
         assert_eq!(sorted(&lit), [(Some(2), span(2, 4))], "within");
         let p = Paths::new(None, Forms::DEFAULT);
         let alt = |n| LineSpan::on(p.surface(baud_core::Screen::Alternate), at(n), at(n));
@@ -12546,6 +12664,104 @@ mod tests {
             [baud_core::Screen::Normal, baud_core::Screen::Alternate].map(|sc| gone.surface(sc));
         lit.keep_from(surfaces, Some(at(2)));
         assert_eq!(sorted(&lit), [(Some(9), span(2, 3))], "dropped");
+    }
+
+    /// **A line lit by no group reads as a line nothing lit** (`Lit`):
+    /// group 2 lights rows 0 to 5, then no group lights rows 2 and 3.
+    /// Asked of rows 0 to 7, the lines neither group 2's nor group 9's
+    /// verdict lit are the same as where rows 2 and 3 were cut out
+    /// instead: rows 2, 3, 6 and 7 for group 2, which lit none of them.
+    /// The control: group 2 lighting rows 2 and 3 again leaves only rows
+    /// 6 and 7. Named break: no group read as lighting for every group --
+    /// rows 2 and 3 drop out.
+    #[test]
+    fn a_line_lit_by_no_group_reads_as_a_line_nothing_lit() {
+        let at = |n: usize| AbsLine::at(Rows::of_count(n));
+        let span = |a, b| LineSpan::of(at(a), at(b));
+        let not_of = |lit: &mut Lit, g| {
+            let mut v = lit.not_of(Some(g), vec![span(0, 7)]);
+            v.sort();
+            v
+        };
+        let mut lit = Lit::default();
+        lit.set(Some(2), span(0, 5));
+        lit.set(None, span(2, 3));
+        let mut cut = Lit::default();
+        cut.set(Some(2), span(0, 5));
+        cut.cut(span(2, 3));
+        for g in [2, 9] {
+            assert_eq!(not_of(&mut lit, g), not_of(&mut cut, g), "group {g}");
+        }
+        assert_eq!(
+            not_of(&mut lit, 2),
+            [span(2, 3), span(6, 7)],
+            "rows 2 and 3 lit by none"
+        );
+        lit.set(Some(2), span(2, 3));
+        assert_eq!(not_of(&mut lit, 2), [span(6, 7)], "the control");
+    }
+
+    /// **A line two groups' carried spans both cover is lit by each**
+    /// (`Lit::carry`): on a six-row screen group 2 lit row 3 and group 9
+    /// row 2, and a region of rows 2 to 4 scrolled up and then down, which
+    /// the record keeps as a move within the band, carries each span to
+    /// the band, rows 2 to 4. Spans of two groups are not merged, so each
+    /// group's verdict lights all three rows and neither group's write
+    /// over them is held. The controls: before the carry, each lights its
+    /// own row alone; after it, a third group's verdict lights none of
+    /// them. Named break: the second span carried over the first giving
+    /// way -- group 2 lights none of them.
+    #[test]
+    fn a_line_two_writers_carried_spans_cover_is_lit_by_each() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let at = |n: usize| AbsLine::at(Rows::of_count(n));
+        let span = |a, b| LineSpan::of(at(a), at(b));
+        let carried = |bytes: &[u8], s: LineSpan| {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            let _ = t.take_record();
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let rec = t.take_record();
+            let lines =
+                crate::paths::CoreLines::of(Some((t.history_mark().line(), Scrolled::START)))
+                    .part(Some(t.history_mark().line()));
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            p.set(Turned::On);
+            let screens = [baud_core::Screen::Normal, baud_core::Screen::Alternate];
+            p.carried_span(&rec, &lines, &screens, s)
+        };
+        let not_of = |lit: &mut Lit, g| {
+            let mut v = lit.not_of(Some(g), vec![span(2, 4)]);
+            v.sort();
+            v
+        };
+        let mut lit = Lit::default();
+        lit.set(Some(2), span(3, 3));
+        lit.set(Some(9), span(2, 2));
+        assert_eq!(
+            not_of(&mut lit, 2),
+            [span(2, 2), span(4, 4)],
+            "the control: group 2 lights row 3"
+        );
+        assert_eq!(
+            not_of(&mut lit, 9),
+            [span(3, 4)],
+            "the control: group 9 lights row 2"
+        );
+        lit.carry(Carried::Anywhere, |s| {
+            carried(b"\x1b[3;5r\x1b[5;1H\n\x1b[3;1H\x1bM", s)
+        });
+        assert_eq!(not_of(&mut lit, 2), [], "group 2 lights rows 2 to 4");
+        assert_eq!(not_of(&mut lit, 9), [], "group 9 lights rows 2 to 4");
+        assert_eq!(
+            not_of(&mut lit, 7),
+            [span(2, 4)],
+            "the control: a third group lights none"
+        );
     }
 
     /// **An answer naming a group twice files its verdict where the

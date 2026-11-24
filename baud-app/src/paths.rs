@@ -9146,6 +9146,100 @@ mod tests {
         assert_eq!(carried(b"\x1b[4H\x1b[L", span(3, 3)).0, span(4, 4), "IL");
     }
 
+    /// **A record with no move carries every span to itself**
+    /// (`Paths::carried_span`), which is what lets a carry with no move do
+    /// nothing (`Lit::carry`): text written, the whole screen scrolled, the
+    /// screen erased and the alternate screen entered and left hold no
+    /// move on a six-row screen, and every span within lines 0 to 23 of the
+    /// primary, the alternate screen and a cleared alternate screen's
+    /// epoch, under every pair of core line and count 0, 7 and 30 and every
+    /// part top from 0 to 40, unplaced too, and with the alternate screen
+    /// in `screens` or not, comes back as it went in. The control: a
+    /// region scrolled up holds a move, which carries a span on row 3 to
+    /// row 2. Named break: an exact move read from a record with none --
+    /// the span leaves its line.
+    #[test]
+    fn a_record_with_no_move_carries_every_span_to_itself() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let at = |n: usize| AbsLine::at(Rows::of_count(n));
+        let record = |bytes: &[u8]| {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            let _ = t.take_record();
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            t.take_record()
+        };
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        let alternate = p.surface(Screen::Alternate);
+        let mut gone = Paths::new(None, Forms::DEFAULT);
+        gone.alternate_cleared();
+        let surfaces = [Surface::Primary, alternate, gone.surface(Screen::Alternate)];
+        let core = |n: usize| baud_domain::LineIdx::FIRST.plus(Rows::of_count(n));
+        let numbers = [0, 7, 30];
+        let mut placements = vec![CoreLines::of(None).part(Some(core(0)))];
+        for from in numbers {
+            for count in numbers {
+                let base = CoreLines::of(Some((
+                    core(from),
+                    Scrolled::START.advanced(Rows::of_count(count)),
+                )));
+                placements.push(base.part(None));
+                for top in 0..=40 {
+                    placements.push(base.part(Some(core(top))));
+                }
+            }
+        }
+        let still: [&[u8]; 4] = [
+            b"x\r\n",
+            b"\x1b[6;1H\n\n\n\n\n\n\n\n",
+            b"ab\x1b[2J\x1b[H",
+            b"\x1b[?1049hcd\x1b[?1049l",
+        ];
+        let mut checked = 0;
+        for bytes in still {
+            let rec = record(bytes);
+            assert_eq!(rec.moves().iter().count(), 0, "{bytes:?} holds no move");
+            for lines in &placements {
+                for screens in [&[Screen::Normal, Screen::Alternate][..], &[Screen::Normal]] {
+                    for surface in surfaces {
+                        for a in 0..24 {
+                            for b in a..24 {
+                                let s = LineSpan::on(surface, at(a), at(b));
+                                assert_eq!(
+                                    p.carried_span(&rec, lines, screens, s),
+                                    s,
+                                    "{bytes:?} carries {s:?} to itself"
+                                );
+                                checked += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            checked,
+            4 * (1 + 9 * 42) * 2 * 3 * 300,
+            "every case checked"
+        );
+        let up = record(b"\x1b[3;5r\x1b[5;1H\n");
+        assert_eq!(up.moves().iter().count(), 1, "the control: a move");
+        let lines = CoreLines::of(Some((baud_domain::LineIdx::FIRST, Scrolled::START)))
+            .part(Some(baud_domain::LineIdx::FIRST));
+        let screens = [Screen::Normal, Screen::Alternate];
+        let s = LineSpan::on(Surface::Primary, at(3), at(3));
+        assert_eq!(
+            p.carried_span(&up, &lines, &screens, s),
+            LineSpan::on(Surface::Primary, at(2), at(2)),
+            "the control: the span carried"
+        );
+    }
+
     /// **A part the core says renumbered lines leaves each surface it
     /// names not known, up to the line it is given** (N2): both surfaces
     /// filed local at lines 2 and 9, then a re-cut (`Resize`) through line
