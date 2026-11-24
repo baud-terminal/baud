@@ -126,6 +126,7 @@ pub(crate) mod ghostty {
     pub const PLACEMENT_DATA_IMAGE_ID: i32 = 1;
     pub const PLACEMENT_DATA_IS_VIRTUAL: i32 = 3;
     pub const PLACEMENT_DATA_Z: i32 = 12;
+    pub const IMAGE_DATA_NUMBER: i32 = 2;
     pub const IMAGE_DATA_WIDTH: i32 = 3;
     pub const IMAGE_DATA_HEIGHT: i32 = 4;
     pub const IMAGE_DATA_FORMAT: i32 = 5;

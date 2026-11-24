@@ -22,12 +22,20 @@
 //! is not timed either. One whose compared count is "n/a" on an arm is
 //! UNEQUAL-UNKNOWN: timed, its rate printed unquotable, and it fails the
 //! run. The counters are printed beside the rates.
+//!
+//! The same rep tracks each arm's images from the read at which each was
+//! first seen, and checks the order each arm evicted them in
+//! ([`crate::counts::Track`]). An arm that evicts out of the kitty quota's
+//! order is not timed. Where the orders hold with a case, what each arm
+//! holds and evicted stops deciding, the frames are compared image by
+//! image, and a placement one arm shows may be missing on the other only
+//! where the other evicted its image.
 
 // Without libghostty-vt there is no second arm to compare, so `check`
 // returns nothing and what it would build goes unused.
 #![cfg_attr(not(have_ghostty), allow(dead_code))]
 
-use crate::counts::{Counter, Counts, Verdict, verdict};
+use crate::counts::{Counter, Counts, Eviction, Left, Rule, Verdict, judged};
 #[cfg(have_ghostty)]
 use crate::transport::through_memory;
 use crate::{COLS, ROWS};
@@ -98,6 +106,40 @@ pub(crate) struct Placed {
     pub(crate) col: usize,
     pub(crate) z: i32,
     pub(crate) picture: Picture,
+    /// The read at which the arm first saw its image; `None` for an image
+    /// it does not track.
+    pub(crate) first: Option<usize>,
+}
+
+impl Placed {
+    /// The same cell, `z`, picture and first read.
+    fn matches(&self, other: &Placed) -> bool {
+        (self.row, self.col, self.z, self.first) == (other.row, other.col, other.z, other.first)
+            && self.picture.same(other.picture)
+    }
+}
+
+/// Whether every placement of `ours` and `theirs` is matched on the other
+/// arm ([`Placed::matches`]), or is of an image first seen at a read the
+/// other arm evicted an image from: `ours_evicted` and `theirs_evicted`
+/// are the reads of each arm's evictions.
+fn match_apart_from_evicted(
+    ours: &[Placed],
+    theirs: &[Placed],
+    ours_evicted: &[usize],
+    theirs_evicted: &[usize],
+) -> bool {
+    let mut rest: Vec<Option<&Placed>> = theirs.iter().map(Some).collect();
+    for a in ours {
+        match rest.iter_mut().find(|b| b.is_some_and(|b| a.matches(b))) {
+            Some(b) => *b = None,
+            None if a.first.is_some_and(|f| theirs_evicted.contains(&f)) => {}
+            None => return false,
+        }
+    }
+    rest.into_iter()
+        .flatten()
+        .all(|b| b.first.is_some_and(|f| ours_evicted.contains(&f)))
 }
 
 impl std::fmt::Display for Placed {
@@ -161,15 +203,31 @@ pub(crate) struct Compared {
     pub(crate) pixels_unread: usize,
     /// baud-core's and ghostty's counters from the same rep.
     pub(crate) counts: [Counts; 2],
+    /// The eviction check from the same rep.
+    pub(crate) eviction: Option<Eviction>,
 }
 
 impl Compared {
-    /// Whether the placements anchored on the screen differ.
+    /// The eviction check, where it applies ([`Eviction::applies`]).
+    fn applied(&self) -> Option<&Eviction> {
+        self.eviction.as_ref().filter(|e| e.applies())
+    }
+
+    /// Whether the placements anchored on the screen differ. Where the
+    /// eviction check applies, a placement one arm shows and the other
+    /// does not is no difference if the other arm evicted an image first
+    /// seen at the same read as its image, and every other placement
+    /// matches in its cell, `z`, picture and first read.
     pub(crate) fn placements_differ(&self) -> bool {
         let [ours, theirs] = &self.placed;
-        ours.len() != theirs.len()
+        let differ = ours.len() != theirs.len()
             || ours.iter().zip(theirs).any(|(a, b)| {
                 (a.row, a.col, a.z) != (b.row, b.col, b.z) || !a.picture.same(b.picture)
+            });
+        differ
+            && !self.applied().is_some_and(|e| {
+                let [o, t] = &e.arms;
+                match_apart_from_evicted(ours, theirs, &o.evicted, &t.evicted)
             })
     }
 
@@ -178,16 +236,16 @@ impl Compared {
         self.cells_differing == 0 && !self.placements_differ() && self.virtuals.is_empty()
     }
 
-    /// What the two arms' counts say ([`verdict`]).
+    /// What the two arms' counts say, with the eviction check ([`judged`]).
     pub(crate) fn counted(&self) -> Verdict {
         let [ours, theirs] = &self.counts;
-        verdict(ours, theirs)
+        judged(ours, theirs, self.eviction.as_ref())
     }
 
-    /// Whether the recording is timed: the same screen, and no compared
-    /// count that differs.
+    /// Whether the recording is timed: the same screen, no compared count
+    /// that differs, and no order of the quota departed.
     pub(crate) fn timed(&self) -> bool {
-        self.equal() && !matches!(self.counted(), Verdict::Differ(_))
+        self.equal() && !matches!(self.counted(), Verdict::Differ(_) | Verdict::Departs(_))
     }
 
     /// Whether its rate is quotable and the run passes on it: the same
@@ -204,7 +262,16 @@ impl Compared {
             0 => String::new(),
             n => format!("; {n} images compared by size, their pixels not read"),
         };
-        if self.equal() {
+        if self.equal() && ours.len() != theirs.len() {
+            out.push(format!(
+                "{label}: baud-core and ghostty show the same screen: {ROWS}x{COLS} cells, \
+                 placements on the screen baud-core {} and ghostty {}, those on one arm \
+                 alone of images the other evicted, {} virtual placements{unread}",
+                ours.len(),
+                theirs.len(),
+                self.virtuals_compared
+            ));
+        } else if self.equal() {
             out.push(format!(
                 "{label}: baud-core and ghostty show the same screen: {ROWS}x{COLS} cells, \
                  {} placements on the screen, {} virtual placements{unread}",
@@ -262,6 +329,13 @@ impl Compared {
             }
         };
         match self.counted() {
+            Verdict::Equal if self.applied().is_some() => out.push(format!(
+                "{label}: baud-core and ghostty counted the same: {}, the frames image by \
+                 image; refused is baud-core's own, and none; {} do not decide, as the \
+                 eviction check below says",
+                names(&[Counter::Stored, Counter::StoredBytes, Counter::Frames]),
+                names(&Counter::EXEMPT)
+            )),
             Verdict::Equal => out.push(format!(
                 "{label}: baud-core and ghostty counted the same: {}{own}",
                 names(&Counter::COMPARED)
@@ -281,8 +355,132 @@ impl Compared {
                 ));
                 each(&missing, &mut out);
             }
+            Verdict::Departs(_) => {
+                let departures = self.eviction.iter().flat_map(|e| {
+                    ["baud-core", "ghostty"]
+                        .into_iter()
+                        .zip(&e.arms)
+                        .flat_map(|(arm, o)| o.departures.iter().map(move |d| (arm, d)))
+                });
+                for (arm, d) in departures {
+                    out.push(format!(
+                        "{label}: EVICTION ORDER DEPARTS, no rate: {}: {arm} {}",
+                        d.rule.name(),
+                        d.says()
+                    ));
+                }
+            }
+        }
+        if let Some(e) = &self.eviction {
+            self.eviction_lines(label, e, &mut out);
         }
         out
+    }
+
+    /// The eviction check's lines: whether it ran, each rule's cases on
+    /// each arm, the images that left the observed set and why, the
+    /// evictions against baud-core's own count, and what stopped deciding
+    /// where it applies. Nothing where neither arm tracked an image.
+    fn eviction_lines(&self, label: &str, e: &Eviction, out: &mut Vec<String>) {
+        let [o, t] = &e.arms;
+        if o.seen == 0 && t.seen == 0 {
+            return;
+        }
+        if e.deletes {
+            out.push(format!(
+                "{label}: eviction order not checked: the recording sends a=d"
+            ));
+            return;
+        }
+        let [ours, theirs] = &self.counts;
+        let n = |x: Option<usize>| x.map_or("n/a".to_string(), |n| n.to_string());
+        let sign = if ours.stored == theirs.stored {
+            "="
+        } else {
+            "!="
+        };
+        out.push(format!(
+            "{label}: eviction order checked, the recording sends no a=d: stored {} {sign} {}",
+            n(ours.stored),
+            n(theirs.stored)
+        ));
+        let arm = |name: &str, cases: usize| match cases {
+            0 => format!("{name} not checked"),
+            1 => format!("{name} 1 case"),
+            n => format!("{name} {n} cases"),
+        };
+        for rule in Rule::ALL {
+            let (a, b) = (o.cases(rule), t.cases(rule));
+            if a == 0 && b == 0 {
+                out.push(format!("  {}: not checked", rule.name()));
+                continue;
+            }
+            let status = if o.departs(rule) || t.departs(rule) {
+                "DEPARTS"
+            } else {
+                "passed"
+            };
+            out.push(format!(
+                "  {}: {}, {}: {status}",
+                rule.name(),
+                arm("baud-core", a),
+                arm("ghostty", b)
+            ));
+        }
+        let left = |x: &crate::counts::Order| {
+            let why: Vec<String> = Left::ALL
+                .into_iter()
+                .map(|w| format!("{} {}", w.name(), x.left(w)))
+                .collect();
+            format!("{} ({})", x.left.iter().sum::<usize>(), why.join(", "))
+        };
+        out.push(format!(
+            "  left the observed set: baud-core {}, ghostty {}",
+            left(o),
+            left(t)
+        ));
+        out.push(format!(
+            "  evicted: baud-core {}, ghostty {}, of images tracked baud-core {}, ghostty {}; \
+             placements lost from an image still held: baud-core {}, ghostty {}; baud-core's \
+             store counted {} evicted",
+            o.evicted.len(),
+            t.evicted.len(),
+            o.seen,
+            t.seen,
+            o.lost,
+            t.lost,
+            e.store_evicted
+        ));
+        let checked = e.checked();
+        let rules = checked
+            .iter()
+            .map(|r| r.name())
+            .collect::<Vec<_>>()
+            .join(", ");
+        if e.applies() {
+            let exempt = Counter::EXEMPT
+                .iter()
+                .map(|c| c.name())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let f = e.frames;
+            out.push(format!(
+                "  exempted: {exempt} do not decide, the rules with cases being {rules}; \
+                 animation frames held compared per image: {} images both arms hold, {} \
+                 differ, {} unread, {} not paired",
+                f.compared, f.differ, f.unread, f.unmatched
+            ));
+        } else if !e.departs().is_empty() {
+            out.push("  not applied: an order departs".to_string());
+        } else if checked.is_empty() {
+            out.push("  not applied: no rule had a case".to_string());
+        } else if !e.control() {
+            out.push(format!(
+                "  not applied: baud-core's evictions here are {} and its store counted {}",
+                o.evicted.len(),
+                e.store_evicted
+            ));
+        }
     }
 
     /// `arm`'s counters from the check's rep, as printed beside its rates:
@@ -334,26 +532,66 @@ pub(crate) fn check_with(
     total: usize,
     images: crate::cores::GhosttyImages,
 ) -> Option<Compared> {
-    use crate::counts::{Tally, kitty_ids};
+    let whole = (total / p.len().max(1)).max(1) * p.len();
+    let reads = |read: &mut dyn FnMut(usize, &[u8])| {
+        // Each replay is read from its start, so a read's offset in the
+        // recording is the bytes read so far, modulo its length.
+        let mut at = 0;
+        through_memory(p, whole, |chunk| {
+            read(at, chunk);
+            at = (at + chunk.len()) % p.len();
+        });
+    };
+    Some(compare(p, reads, images, |_, _| {}))
+}
+
+/// The check over recording `p` fed as `reads` gives it, each read with
+/// its offset in `p`: `before` is handed each read's number, from one,
+/// and ghostty's terminal before the read is fed to either arm.
+#[cfg(have_ghostty)]
+fn compare(
+    p: &[u8],
+    reads: impl FnOnce(&mut dyn FnMut(usize, &[u8])),
+    images: crate::cores::GhosttyImages,
+    mut before: impl FnMut(usize, crate::ffi::ghostty::Terminal),
+) -> Compared {
+    use crate::counts::{Framed, Scan, Tally, Track, frames_per_image, kitty_ids};
     use crate::ffi::ghostty as g;
     let ws = crate::cores::baud_ws();
-    let mut owned = crate::cores::baud_owned(&ws);
+    let mut owned = crate::cores::baud_owned_with(&ws, images.baud());
     let mut t = crate::cores::baud_new(&mut owned, &ws);
     let term = crate::cores::ghostty_with(images);
     let ids = kitty_ids(p);
+    let scan = Scan::of(p);
     let mut tally = [Tally::default(), Tally::default()];
-    let whole = (total / p.len().max(1)).max(1) * p.len();
-    through_memory(p, whole, |chunk| {
+    let mut ours_track = Track::new(scan.deletes);
+    let mut theirs_track = Track::new(scan.deletes);
+    let mut n = 0;
+    reads(&mut |at: usize, chunk: &[u8]| {
+        n += 1;
+        before(n, term);
         crate::cores::baud_feed(&mut t, chunk);
         // SAFETY: `term` is a live terminal and `chunk` a live slice.
         unsafe { g::ghostty_terminal_vt_write(term, chunk.as_ptr(), chunk.len()) };
+        let read = scan.read(at, chunk.len());
         tally[0].observe(baud::held(&t, &ids).into_iter().map(|(h, _)| h).collect());
         // SAFETY: `term` is live and nothing writes to it while it is read.
         tally[1].observe(unsafe { ghostty::held(term, &ids) });
+        ours_track.step(&read, &baud::seen(&t, &ids), |h| baud::lookup(&t, h));
+        // SAFETY: `term` is live and nothing writes to it while it is read.
+        let placed = unsafe { ghostty::placed_ids(term) };
+        // SAFETY: as above.
+        let now = unsafe { ghostty::seen(term, &ids, &placed) };
+        // SAFETY: as above; each lookup reads before the next write.
+        theirs_track.step(&read, &now, |h| unsafe {
+            ghostty::lookup(term, h, &placed)
+        });
     });
-    let ours = baud::shown(&t).sort();
+    let ours_first = |id: baud_domain::ImageId| ours_track.first(|h| h.0 == id);
+    let ours = baud::shown(&t, &ours_first).sort();
+    let theirs_first = |id: u32| theirs_track.first(|h| h.0 == id);
     // SAFETY: `term` is live and nothing writes to it while it is read.
-    let theirs = unsafe { ghostty::shown(term) }.sort();
+    let theirs = unsafe { ghostty::shown(term, &theirs_first) }.sort();
 
     let mut cells = Vec::new();
     let mut cells_differing = 0;
@@ -431,9 +669,35 @@ pub(crate) fn check_with(
         .map(|h| unsafe { ghostty::frames(term, h.id) })
         .sum();
     let ghostty_counts = tally[1].counts(ghostty_frames, None, None);
+    let ours_framed: Vec<Framed> = ours_track
+        .held()
+        .map(|(h, first, named)| Framed {
+            first,
+            named,
+            frames: store
+                .kitty_frames(h.0)
+                .and_then(|(n, _, _)| usize::try_from(n).ok()),
+        })
+        .collect();
+    let theirs_framed: Vec<Framed> = theirs_track
+        .held()
+        .map(|(h, first, named)| Framed {
+            first,
+            named,
+            // SAFETY: `term` is live; each probe reads it before the next
+            // write.
+            frames: unsafe { ghostty::frames(term, h.0) },
+        })
+        .collect();
     // SAFETY: `term` came from `ghostty_with` and is not used after this.
     unsafe { g::ghostty_terminal_free(term) };
-    Some(Compared {
+    let eviction = Eviction {
+        deletes: scan.deletes,
+        frames: frames_per_image(&ours_framed, &theirs_framed),
+        store_evicted: store.images_evicted,
+        arms: [ours_track.order, theirs_track.order],
+    };
+    Compared {
         cells,
         cells_differing,
         placed: [ours.placed, theirs.placed],
@@ -441,7 +705,37 @@ pub(crate) fn check_with(
         virtuals_compared,
         pixels_unread,
         counts: [baud_counts, ghostty_counts],
-    })
+        eviction: Some(eviction),
+    }
+}
+
+/// [`compare`] over `reads`, each one read, ghostty's image storage given
+/// `images`, and each of `plants` fed to ghostty alone before the read it
+/// names: a delete outside the recording, a departure planted on one arm.
+#[cfg(all(test, have_ghostty))]
+pub(crate) fn check_reads(
+    reads: &[Vec<u8>],
+    images: crate::cores::GhosttyImages,
+    plants: &[crate::cores::Plant],
+) -> Compared {
+    let p = reads.concat();
+    let feed = |read: &mut dyn FnMut(usize, &[u8])| {
+        let mut at = 0;
+        for r in reads {
+            read(at, &p[at..at + r.len()]);
+            at += r.len();
+        }
+    };
+    let plant = |n: usize, term: crate::ffi::ghostty::Terminal| {
+        for x in plants.iter().filter(|x| x.read == n) {
+            let cmd = format!("\x1b_Ga=d,d=I,i={},q=2\x1b\\", x.id);
+            // SAFETY: `term` is a live terminal and `cmd` a live string.
+            unsafe {
+                crate::ffi::ghostty::ghostty_terminal_vt_write(term, cmd.as_ptr(), cmd.len())
+            };
+        }
+    };
+    compare(&p, feed, images, plant)
 }
 
 /// With no libghostty-vt there is no second screen.
@@ -454,10 +748,10 @@ pub(crate) fn check_with(_: &[u8], _: usize, _: crate::cores::GhosttyImages) -> 
 #[cfg(have_ghostty)]
 mod baud {
     use super::{Glyph, Picture, Placed, Shown, digest};
-    use crate::counts::Held;
+    use crate::counts::{Held, Lookup, Seen};
     use crate::{COLS, ROWS};
     use baud_core::Term;
-    use baud_domain::{ImageId, ImageView, KittyId, KittyPlacement, Row, Rows};
+    use baud_domain::{ImageAge, ImageId, ImageView, KittyId, KittyPlacement, Row, Rows};
 
     pub(super) fn picture(v: &ImageView<'_>) -> Picture {
         Picture {
@@ -467,9 +761,10 @@ mod baud {
         }
     }
 
-    /// The cells, the kitty placements anchored on the live screen, and
-    /// the image ids the placeholder cells on it name.
-    pub(super) fn shown(t: &Term<'_>) -> Shown {
+    /// The cells, the kitty placements anchored on the live screen, each
+    /// with the read `first` gives for its image, and the image ids the
+    /// placeholder cells on it name.
+    pub(super) fn shown(t: &Term<'_>, first: &dyn Fn(ImageId) -> Option<usize>) -> Shown {
         let mut cells = Vec::with_capacity(ROWS * COLS);
         let mut virtual_ids = Vec::new();
         let view = t.viewport();
@@ -502,6 +797,7 @@ mod baud {
                     col,
                     z: s.z.raw(),
                     picture: picture(&image),
+                    first: first(s.image),
                 })
             })
             .collect();
@@ -552,13 +848,45 @@ mod baud {
         out.dedup_by_key(|&mut (h, _)| h);
         out
     }
+
+    /// The kitty images [`held`] finds, each with the slot and age that
+    /// find it again, whether it is placed, and its `i=`.
+    pub(super) fn seen(t: &Term<'_>, ids: &[u32]) -> Vec<Seen<(ImageId, ImageAge)>> {
+        let store = t.images();
+        held(t, ids)
+            .into_iter()
+            .filter_map(|(_, id)| {
+                let born = store.born(id)?;
+                let (kitty, number) = store.kitty_names(id)?;
+                Some(Seen {
+                    handle: (id, born),
+                    placed: store.is_placed(id),
+                    named: (number.is_none() && !kitty.is_none()).then_some(kitty.raw()),
+                    has_id: !kitty.is_none(),
+                })
+            })
+            .collect()
+    }
+
+    /// The image `h` names, held while its slot holds the image stored
+    /// when `h` was taken.
+    pub(super) fn lookup(t: &Term<'_>, h: (ImageId, ImageAge)) -> Lookup<(ImageId, ImageAge)> {
+        let store = t.images();
+        match store.born(h.0) {
+            Some(born) if born == h.1 => Lookup::Held {
+                handle: h,
+                placed: store.is_placed(h.0),
+            },
+            _ => Lookup::Gone,
+        }
+    }
 }
 
 /// ghostty's screen, read through libghostty-vt's C API.
 #[cfg(have_ghostty)]
 mod ghostty {
     use super::{Glyph, Picture, Placed, Shown, digest};
-    use crate::counts::Held;
+    use crate::counts::{Held, Lookup, Seen};
     use crate::ffi::ghostty::*;
     use crate::{COLS, ROWS};
     use std::ffi::c_void;
@@ -638,12 +966,13 @@ mod ghostty {
         }
     }
 
-    /// The cells, the placements anchored on the screen, and the client
-    /// image ids of the virtual placements.
+    /// The cells, the placements anchored on the screen, each with the
+    /// read `first` gives for its image id, and the client image ids of
+    /// the virtual placements.
     ///
     /// # Safety
     /// `t` is a live terminal, not written while this runs.
-    pub(super) unsafe fn shown(t: Terminal) -> Shown {
+    pub(super) unsafe fn shown(t: Terminal, first: &dyn Fn(u32) -> Option<usize>) -> Shown {
         let mut cells = Vec::with_capacity(ROWS * COLS);
         for y in 0..ROWS as u32 {
             for x in 0..COLS as u16 {
@@ -748,6 +1077,7 @@ mod ghostty {
                         col,
                         z,
                         picture: picture(image),
+                        first: first(id),
                     });
                 }
             }
@@ -760,15 +1090,16 @@ mod ghostty {
         }
     }
 
-    /// The images the active screen's storage holds that client ids `ids`
-    /// or a placement there name.
+    /// The image id of every placement in the active screen's storage,
+    /// sorted, each once. The storage lists a placement whose row left the
+    /// retained history until its next placement is added.
     ///
     /// # Safety
     /// `t` is a live terminal, not written while this runs.
-    pub(super) unsafe fn held(t: Terminal, ids: &[u32]) -> Vec<Held> {
-        let mut named = ids.to_vec();
-        // SAFETY: `t` is live; the storage, iterator and images are read
-        // before the next write, and the iterator is freed here.
+    pub(super) unsafe fn placed_ids(t: Terminal) -> Vec<u32> {
+        let mut ids = Vec::new();
+        // SAFETY: `t` is live; the storage and iterator are read before
+        // the next write, and the iterator is freed here.
         unsafe {
             let g = graphics(t);
             let mut it: Placements = std::ptr::null_mut();
@@ -794,9 +1125,84 @@ mod ghostty {
                     ),
                     0
                 );
-                named.push(id);
+                ids.push(id);
             }
             ghostty_kitty_graphics_placement_iterator_free(it);
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
+    /// The images the active screen's storage holds that client ids `ids`
+    /// or a placement there name, each with its id and generation, whether
+    /// `placed`, the ids of the placements, names it, and its `i=`. An
+    /// image with an image number has an id the storage gave it; one with
+    /// neither a number nor an id the recording names has none.
+    ///
+    /// # Safety
+    /// `t` is a live terminal, not written while this runs.
+    pub(super) unsafe fn seen(t: Terminal, ids: &[u32], placed: &[u32]) -> Vec<Seen<(u32, u64)>> {
+        let mut all: Vec<u32> = placed.iter().chain(ids).copied().collect();
+        all.sort_unstable();
+        all.dedup();
+        // SAFETY: `t` is live; the storage and images are read before the
+        // next write.
+        unsafe {
+            let g = graphics(t);
+            all.into_iter()
+                .filter_map(|id| {
+                    let image = ghostty_kitty_graphics_image(g, id);
+                    if image.is_null() {
+                        return None;
+                    }
+                    let (mut generation, mut number) = (0u64, 0u32);
+                    let read = image_get(image, IMAGE_DATA_GENERATION, &mut generation)
+                        && image_get(image, IMAGE_DATA_NUMBER, &mut number);
+                    assert!(
+                        read,
+                        "reading a ghostty image's generation and number failed"
+                    );
+                    let named = (number == 0 && ids.binary_search(&id).is_ok()).then_some(id);
+                    Some(Seen {
+                        handle: (id, generation),
+                        placed: placed.binary_search(&id).is_ok(),
+                        named,
+                        has_id: number != 0 || named.is_some(),
+                    })
+                })
+                .collect()
+        }
+    }
+
+    /// The image `h`'s id names now, read with its generation, and whether
+    /// `placed`, the ids of the placements, names it.
+    ///
+    /// # Safety
+    /// `t` is a live terminal, not written while this runs.
+    pub(super) unsafe fn lookup(t: Terminal, h: (u32, u64), placed: &[u32]) -> Lookup<(u32, u64)> {
+        // SAFETY: the caller's.
+        match unsafe { generation(t, h.0) } {
+            None => Lookup::Gone,
+            Some(g) => Lookup::Held {
+                handle: (h.0, g),
+                placed: placed.binary_search(&h.0).is_ok(),
+            },
+        }
+    }
+
+    /// The images the active screen's storage holds that client ids `ids`
+    /// or a placement there name.
+    ///
+    /// # Safety
+    /// `t` is a live terminal, not written while this runs.
+    pub(super) unsafe fn held(t: Terminal, ids: &[u32]) -> Vec<Held> {
+        let mut named = ids.to_vec();
+        // SAFETY: `t` is live; the storage and images are read before the
+        // next write.
+        unsafe {
+            named.extend(placed_ids(t));
+            let g = graphics(t);
             named.sort_unstable();
             named.dedup();
             named
@@ -889,7 +1295,7 @@ mod ghostty {
 /// no rate and the run says so, with the reason, instead of failing; one
 /// listed here whose screens and counts agree fails the run, so the list
 /// cannot outlive its reason.
-pub(crate) const UNEQUAL: [(&str, &str); 3] = [
+pub(crate) const UNEQUAL: [(&str, &str); 2] = [
     (
         "mpv-logo-40x6.raw",
         "uploads a bare ESC cuts, dropped by both arms at different stages: mpv's status \
@@ -904,14 +1310,6 @@ pub(crate) const UNEQUAL: [(&str, &str); 3] = [
         "uploads refused (a bare ESC in an upload): the recording is one continuation \
          chunk that mpv's status line cuts, a bare ESC cancels it, and baud-core refuses \
          the upload whole; ghostty reports no refusals, so equal work is not shown",
-    ),
-    (
-        "icat-logo-dark-140.raw",
-        "the terminals size the image quota differently (frame data accounting); both \
-         evict unplaced images first: each replay is a new image under one image number, \
-         both store every one, and ghostty's quota fills sooner, so it holds and places \
-         only the newest of what baud-core still places; baud-core's pixel bytes held counts \
-         each image's base frame only, not what its quota charges, which holds every frame",
     ),
 ];
 
@@ -1127,35 +1525,414 @@ mod tests {
         assert!(!c.placements_differ(), "{report}");
     }
 
-    /// **icat stores alike on both arms and parts only where the quota is
-    /// full**: each replay transmits a new image under one image number, and
-    /// both arms store every one; ghostty's quota fills sooner, so the
-    /// placements it keeps are fewer and are the newest of baud-core's. That
-    /// is the reason [`super::UNEQUAL`] lists it, and it is listed.
+    /// **icat comes off [`super::UNEQUAL`] under the eviction check**: each
+    /// replay transmits a new image under one image number and places it,
+    /// and both arms evict the oldest of them as their quotas fill. The
+    /// check finds cases for the store order and for the newest surviving
+    /// on both arms, and none for the placed-over-unplaced order, since no
+    /// image is named by `i=`; baud-core's evictions as classified are the
+    /// ones its store counted; and the recording is rated.
     #[cfg(have_ghostty)]
     #[test]
-    fn icat_stores_alike_and_ghostty_keeps_the_newest_of_the_placements() {
+    fn icat_comes_off_unequal_under_the_eviction_check() {
+        use crate::counts::Rule;
         let p = recording("kitty/icat-logo-dark-140.raw");
         let _hook = HOOK.lock().unwrap_or_else(|e| e.into_inner());
         crate::ffi::ghostty::set_png_decoder(crate::ffi::ghostty::PngDecoder::Registered);
         let c = super::check(&p, 32 << 20).expect("libghostty-vt is linked");
         let report = c.report("icat").join("\n");
+        assert_eq!(super::known_unequal("icat-logo-dark-140.raw"), None);
+        let e = c.eviction.as_ref().expect("the check ran");
+        for (arm, o) in ["baud-core", "ghostty"].into_iter().zip(&e.arms) {
+            assert_eq!(o.cases(Rule::PlacedKept), 0, "{arm}\n{report}");
+            assert!(o.cases(Rule::OlderFirst) > 0, "{arm}\n{report}");
+            assert!(o.cases(Rule::NewestSurvives) > 0, "{arm}\n{report}");
+        }
+        assert!(
+            report.contains("placed kept over unplaced: not checked"),
+            "{report}"
+        );
+        assert!(e.store_evicted > 0, "{report}");
+        assert_eq!(e.arms[0].evicted.len(), e.store_evicted, "{report}");
+        assert!(c.rated(), "{report}");
+    }
+
+    /// A 1x1 picture's keys and pixels, after a command's own keys.
+    #[cfg(have_ghostty)]
+    const PIXEL: &str = "f=32,s=1,v=1,c=1,r=1,q=2;AAAA/w==\x1b\\";
+
+    /// A kitty transmission of a 1x1 picture with the keys `keys`.
+    #[cfg(have_ghostty)]
+    fn kitty(keys: &str) -> Vec<u8> {
+        format!("\x1b_G{keys},{PIXEL}").into_bytes()
+    }
+
+    /// A placement of image `id` at the cursor.
+    #[cfg(have_ghostty)]
+    fn place(id: u32) -> Vec<u8> {
+        format!("\x1b_Ga=p,i={id},c=1,r=1,q=2\x1b\\").into_bytes()
+    }
+
+    /// The cursor to column 1 of `row`.
+    #[cfg(have_ghostty)]
+    fn cup(row: usize) -> Vec<u8> {
+        format!("\x1b[{row};1H").into_bytes()
+    }
+
+    /// A read that changes nothing either arm stores or shows.
+    #[cfg(have_ghostty)]
+    fn quiet() -> Vec<u8> {
+        b"\x1b[m".to_vec()
+    }
+
+    /// The check over `reads`, one read each, with `plants` fed to ghostty.
+    #[cfg(have_ghostty)]
+    fn by_reads(
+        reads: &[Vec<u8>],
+        images: crate::cores::GhosttyImages,
+        plants: &[crate::cores::Plant],
+    ) -> super::Compared {
+        let _hook = HOOK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::ffi::ghostty::set_png_decoder(crate::ffi::ghostty::PngDecoder::Registered);
+        super::check_reads(reads, images, plants)
+    }
+
+    /// **The quota orders by when an image was stored, not by when it was
+    /// placed**: images 1 and 2 stored in that order and placed in the
+    /// other, then a third over a two-image budget. Both arms evict image
+    /// 1, the first stored, and the store order passes with one case on
+    /// each; a check by place order would have wanted image 2 gone.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn store_early_place_late_evicts_the_first_stored() {
+        use crate::counts::Rule;
+        let reads = [
+            kitty("a=t,i=1"),
+            kitty("a=t,i=2"),
+            [cup(1), place(2)].concat(),
+            [cup(3), place(1)].concat(),
+            [cup(5), kitty("a=T,i=3")].concat(),
+        ];
+        let c = by_reads(&reads, crate::cores::GhosttyImages::Small(2), &[]);
+        let report = c.report("store-early").join("\n");
+        let e = c.eviction.as_ref().expect("the check ran");
+        for (arm, o) in ["baud-core", "ghostty"].into_iter().zip(&e.arms) {
+            assert_eq!(o.evicted, [1], "{arm} evicts the first stored\n{report}");
+            assert_eq!(o.cases(Rule::OlderFirst), 1, "{arm}\n{report}");
+            assert!(o.departures.is_empty(), "{arm}\n{report}");
+        }
+        assert_eq!(e.store_evicted, 1, "{report}");
+        assert!(e.applies(), "{report}");
+        assert!(c.rated(), "{report}");
+        assert!(
+            report.contains("older stored goes first: baud-core 1 case, ghostty 1 case: passed"),
+            "{report}"
+        );
+    }
+
+    /// **A re-transmission under one id is a younger store**: image 1 sent
+    /// again after image 2, then a third over a two-image budget. Image 2
+    /// goes on both arms, the first image 1 left the observed set as
+    /// re-transmitted, and the store order passes.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn a_retransmission_under_one_id_is_a_younger_store() {
+        use crate::counts::{Left, Rule};
+        let reads = [
+            kitty("a=t,i=1"),
+            kitty("a=t,i=2"),
+            kitty("a=t,i=1"),
+            kitty("a=t,i=3"),
+        ];
+        let c = by_reads(&reads, crate::cores::GhosttyImages::Small(2), &[]);
+        let report = c.report("re-sent").join("\n");
+        let e = c.eviction.as_ref().expect("the check ran");
+        for (arm, o) in ["baud-core", "ghostty"].into_iter().zip(&e.arms) {
+            assert_eq!(o.evicted, [2], "{arm} evicts image 2\n{report}");
+            assert_eq!(o.left(Left::Resent), 1, "{arm}\n{report}");
+            assert_eq!(o.cases(Rule::OlderFirst), 1, "{arm}\n{report}");
+            assert!(o.departures.is_empty(), "{arm}\n{report}");
+        }
+        assert!(e.applies(), "{report}");
+        assert!(c.rated(), "{report}");
+    }
+
+    /// **A lost placement is not an eviction**: an `i=` image placed, then
+    /// lines past the 10,000 kept, so its row leaves the history on both
+    /// arms, then a second image placed, which has ghostty drop the
+    /// placements whose rows left. The first image's placement is gone on
+    /// both arms and the image is held, unplaced: nothing is evicted, no
+    /// rule has a case, and the check does not apply.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn a_lost_placement_is_not_an_eviction() {
+        let mut p = [cup(1), kitty("a=T,i=1")].concat();
+        for _ in 0..13_000 {
+            p.extend_from_slice(b"x\r\n");
+        }
+        p.extend_from_slice(&[cup(1), kitty("a=T,i=2")].concat());
+        let _hook = HOOK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::ffi::ghostty::set_png_decoder(crate::ffi::ghostty::PngDecoder::Registered);
+        let c = super::check(&p, p.len()).expect("libghostty-vt is linked");
+        let report = c.report("lost").join("\n");
+        let e = c.eviction.as_ref().expect("the check ran");
+        for (arm, o) in ["baud-core", "ghostty"].into_iter().zip(&e.arms) {
+            assert_eq!(o.lost, 1, "{arm} lost the first placement\n{report}");
+            assert_eq!(o.seen, 2, "{arm}\n{report}");
+            assert!(o.evicted.is_empty(), "{arm}\n{report}");
+            assert_eq!(o.cases, [0, 0, 0], "{arm}\n{report}");
+        }
+        assert!(!e.applies(), "{report}");
+        for rule in crate::counts::Rule::ALL {
+            assert!(
+                report.contains(&format!("  {}: not checked", rule.name())),
+                "{report}"
+            );
+        }
+        assert!(
+            report.contains("not applied: no rule had a case"),
+            "{report}"
+        );
         let [ours, theirs] = &c.counts;
-        assert!(ours.stored.is_some(), "{report}");
         assert_eq!(
-            ours.stored, theirs.stored,
-            "both store every image\n{report}"
+            c.counted(),
+            crate::counts::verdict(ours, theirs),
+            "{report}"
         );
-        let [ours, theirs] = &c.placed;
-        assert!(theirs.len() < ours.len(), "ghostty places fewer\n{report}");
+    }
+
+    /// Each planted departure: the check over `reads` with `plant` fed to
+    /// ghostty, its screen the same as baud-core's, its verdict a
+    /// departure from `rule` alone, no rate, and the report naming it.
+    #[cfg(have_ghostty)]
+    fn planted(reads: &[Vec<u8>], plant: crate::cores::Plant, rule: crate::counts::Rule) {
+        use crate::counts::Verdict;
+        let c = by_reads(reads, crate::cores::GhosttyImages::Budget, &[plant]);
+        let report = c.report("planted").join("\n");
+        assert!(c.equal(), "{report}");
+        assert_eq!(c.counted(), Verdict::Departs(vec![rule]), "{report}");
+        assert!(!c.timed(), "{report}");
+        assert!(!c.rated(), "{report}");
         assert!(
-            theirs.iter().all(|t| ours.contains(t)),
-            "each of ghostty's placements is one of baud-core's\n{report}"
+            report.contains(&format!(
+                "planted: EVICTION ORDER DEPARTS, no rate: {}: ghostty",
+                rule.name()
+            )),
+            "{report}"
+        );
+    }
+
+    /// **A placed `i=` image evicted while an unplaced one stays departs
+    /// from the placed-over-unplaced order**: image 1 placed and scrolled
+    /// into the history, so the screens stay alike, image 2 stored
+    /// unplaced, and image 1 deleted on ghostty alone.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn planted_r2_departure_is_unequal() {
+        let reads = [
+            [cup(1), kitty("a=T,i=1"), cup(50), vec![b'\n'; 60]].concat(),
+            kitty("a=t,i=2"),
+            quiet(),
+        ];
+        let plant = crate::cores::Plant { read: 3, id: 1 };
+        planted(&reads, plant, crate::counts::Rule::PlacedKept);
+    }
+
+    /// **The newer of two unplaced images evicted while the older stays
+    /// departs from the store order**: images 1 and 2 stored unplaced, a
+    /// third placed, and image 2 deleted on ghostty alone.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn planted_r3_departure_is_unequal() {
+        let reads = [
+            kitty("a=t,i=1"),
+            kitty("a=t,i=2"),
+            [cup(1), kitty("a=T,i=3")].concat(),
+            quiet(),
+        ];
+        let plant = crate::cores::Plant { read: 4, id: 2 };
+        planted(&reads, plant, crate::counts::Rule::OlderFirst);
+    }
+
+    /// **The newest image evicted with nothing newer held departs from
+    /// the newest surviving**: image 1 placed, image 2 stored unplaced,
+    /// and image 2 deleted on ghostty alone in a read that stores nothing.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn planted_r4_departure_is_unequal() {
+        let reads = [
+            [cup(1), kitty("a=T,i=1")].concat(),
+            kitty("a=t,i=2"),
+            quiet(),
+        ];
+        let plant = crate::cores::Plant { read: 3, id: 2 };
+        planted(&reads, plant, crate::counts::Rule::NewestSurvives);
+    }
+
+    /// **A store under a reused id is neither an eviction nor a
+    /// departure**: three images sent by image number, ghostty's first
+    /// deleted on ghostty alone just before the third is sent, which
+    /// ghostty gives the lowest free id, the deleted one's. The id's
+    /// generation moved in a read that transmits, so the image it named
+    /// leaves the observed set; nothing is evicted on either arm.
+    #[cfg(have_ghostty)]
+    #[test]
+    fn a_store_under_a_reused_id_is_no_eviction() {
+        use crate::counts::{Left, Verdict};
+        let reads = [
+            [cup(1), kitty("a=T,I=7")].concat(),
+            [cup(3), kitty("a=T,I=8")].concat(),
+            [cup(5), kitty("a=T,I=9")].concat(),
+        ];
+        let plant = crate::cores::Plant { read: 3, id: 1 };
+        let c = by_reads(&reads, crate::cores::GhosttyImages::Budget, &[plant]);
+        let report = c.report("reused").join("\n");
+        let e = c.eviction.as_ref().expect("the check ran");
+        let [ours, theirs] = &e.arms;
+        assert!(ours.evicted.is_empty(), "{report}");
+        assert!(theirs.evicted.is_empty(), "{report}");
+        assert_eq!(ours.left, [0; 5], "{report}");
+        assert_eq!(theirs.left(Left::Moved), 1, "{report}");
+        assert_eq!(theirs.seen, 3, "the store under the reused id\n{report}");
+        assert!(!matches!(c.counted(), Verdict::Departs(_)), "{report}");
+        assert!(
+            report.contains("ghostty 1 (generation moved under a transmission 1,"),
+            "{report}"
+        );
+    }
+
+    /// One arm's eviction outcome with `cases` and `evicted`.
+    fn order(cases: [usize; 3], evicted: Vec<usize>) -> crate::counts::Order {
+        crate::counts::Order {
+            seen: 2,
+            cases,
+            evicted,
+            ..crate::counts::Order::default()
+        }
+    }
+
+    /// A same-screen comparison with these placements and eviction check,
+    /// and equal counts.
+    fn compared(
+        placed: [Vec<super::Placed>; 2],
+        eviction: Option<crate::counts::Eviction>,
+    ) -> super::Compared {
+        let full = crate::counts::Counts {
+            stored: Some(1),
+            stored_bytes: Some(4),
+            held: Some(1),
+            held_bytes: Some(4),
+            frames: Some(1),
+            evicted: Some(0),
+            refused: Some(0),
+        };
+        super::Compared {
+            cells: Vec::new(),
+            cells_differing: 0,
+            placed,
+            virtuals: Vec::new(),
+            virtuals_compared: 0,
+            pixels_unread: 0,
+            counts: [full, full],
+            eviction,
+        }
+    }
+
+    /// **A rule with no case prints "not checked"**, never "equal" or
+    /// "passed", on each arm and for the rule.
+    #[test]
+    fn a_rule_with_no_case_prints_not_checked() {
+        use crate::counts::{Eviction, FrameCheck, Rule};
+        let e = Eviction {
+            deletes: false,
+            arms: [order([0, 0, 0], vec![]), order([0, 2, 0], vec![1])],
+            frames: FrameCheck::default(),
+            store_evicted: 0,
+        };
+        let c = compared([Vec::new(), Vec::new()], Some(e));
+        let report = c.report("r").join("\n");
+        assert!(
+            report.contains("  placed kept over unplaced: not checked"),
+            "{report}"
         );
         assert!(
-            super::known_unequal("icat-logo-dark-140.raw").is_some_and(|w| w.contains("quota")),
-            "listed, with the quota as its reason"
+            report.contains(
+                "  older stored goes first: baud-core not checked, ghostty 2 cases: passed"
+            ),
+            "{report}"
         );
+        assert!(
+            report.contains("  newest survives: not checked"),
+            "{report}"
+        );
+        for rule in [Rule::PlacedKept, Rule::NewestSurvives] {
+            let line = report
+                .lines()
+                .find(|l| l.starts_with(&format!("  {}:", rule.name())))
+                .expect("a line for each rule");
+            assert!(
+                !line.contains("equal") && !line.contains("passed"),
+                "{line}"
+            );
+        }
+        let none = Eviction {
+            arms: [order([0, 0, 0], vec![]), order([0, 0, 0], vec![])],
+            ..c.eviction.clone().expect("given")
+        };
+        let report = compared([Vec::new(), Vec::new()], Some(none))
+            .report("r")
+            .join("\n");
+        assert!(!report.contains("passed"), "{report}");
+        assert!(
+            report.contains("not applied: no rule had a case"),
+            "{report}"
+        );
+    }
+
+    /// **A placement one arm shows and the other does not passes only for
+    /// an image the other evicted**, and only where the check applies:
+    /// baud-core shows images first seen at reads 1 and 3, ghostty only
+    /// the one from read 3, having evicted one from read 1.
+    #[test]
+    fn a_missing_placement_passes_only_for_an_evicted_image() {
+        use crate::counts::{Eviction, FrameCheck};
+        let at = |row: usize, first: usize| super::Placed {
+            row,
+            col: 0,
+            z: 0,
+            picture: super::Picture {
+                width: 1,
+                height: 1,
+                pixels: Some(7),
+            },
+            first: Some(first),
+        };
+        let check = |ghostty_evicted: Vec<usize>| Eviction {
+            deletes: false,
+            arms: [order([0, 0, 0], vec![]), order([0, 1, 1], ghostty_evicted)],
+            frames: FrameCheck::default(),
+            store_evicted: 0,
+        };
+        let placed = [vec![at(0, 1), at(2, 3)], vec![at(2, 3)]];
+        let c = compared(placed.clone(), Some(check(vec![1])));
+        assert!(!c.placements_differ());
+        assert!(c.equal());
+        assert!(c.rated());
+        let report = c.report("r").join("\n");
+        assert!(
+            report.contains("placements on the screen baud-core 2 and ghostty 1"),
+            "{report}"
+        );
+        assert!(compared(placed.clone(), Some(check(vec![2]))).placements_differ());
+        assert!(compared(placed, None).placements_differ());
+        let first_differs = [vec![at(0, 1), at(2, 3)], vec![at(2, 4)]];
+        assert!(compared(first_differs, Some(check(vec![1]))).placements_differ());
+        let not_applied = Eviction {
+            store_evicted: 5,
+            ..check(vec![1])
+        };
+        let placed = [vec![at(0, 1), at(2, 3)], vec![at(2, 3)]];
+        assert!(compared(placed, Some(not_applied)).placements_differ());
     }
 
     /// **An upload a bare ESC cuts is dropped by both arms, at different
@@ -1222,6 +1999,7 @@ mod tests {
             virtuals_compared: 0,
             pixels_unread: 0,
             counts: [full, blind],
+            eviction: None,
         };
         let report = c.report("r").join("\n");
         assert!(c.equal(), "{report}");

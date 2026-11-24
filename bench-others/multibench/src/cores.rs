@@ -92,9 +92,17 @@ pub(crate) fn baud_ws() -> baud_core::WinSize {
 
 /// baud-core's storage as every rep and the screen check are given it.
 pub(crate) fn baud_owned(ws: &baud_core::WinSize) -> baud_core::Owned {
+    baud_owned_with(ws, IMAGE_BUDGET)
+}
+
+/// [`baud_owned`], its images given `budget`.
+pub(crate) fn baud_owned_with(
+    ws: &baud_core::WinSize,
+    budget: baud_domain::ImageBudget,
+) -> baud_core::Owned {
     use baud_core as nb;
     nb::Owned::with_history(ws, &nb::CacheGeometry::UNKNOWN, nb::Depth::of(10_000))
-        .with_images(IMAGE_BUDGET)
+        .with_images(budget)
 }
 
 /// **The cell both baud-core and ghostty are given**, in pixels. A kitty
@@ -163,6 +171,35 @@ pub(crate) enum GhosttyImages {
     /// check's positive control.
     #[cfg(all(test, have_ghostty))]
     Off,
+    /// A budget of this many pixels on both arms, four bytes each on
+    /// ghostty: a quota a few small images fill.
+    #[cfg(all(test, have_ghostty))]
+    Small(usize),
+}
+
+impl GhosttyImages {
+    /// The image budget baud-core is given beside it: [`IMAGE_BUDGET`],
+    /// or the [`GhosttyImages::Small`] budget.
+    #[cfg(have_ghostty)]
+    pub(crate) fn baud(self) -> baud_domain::ImageBudget {
+        match self {
+            GhosttyImages::Budget => IMAGE_BUDGET,
+            #[cfg(test)]
+            GhosttyImages::Off => IMAGE_BUDGET,
+            #[cfg(test)]
+            GhosttyImages::Small(px) => baud_domain::ImageBudget::of(px),
+        }
+    }
+}
+
+/// A delete fed to ghostty alone before read `read` of the screen check
+/// (`equal::check_reads`), outside the recording: `a=d,d=I` of image
+/// `id`, which takes its placements with it.
+#[cfg(all(test, have_ghostty))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Plant {
+    pub(crate) read: usize,
+    pub(crate) id: u32,
 }
 
 /// [`ghostty_new`], its image storage given `images`.
@@ -212,6 +249,8 @@ pub(crate) fn ghostty_with(images: GhosttyImages) -> ghostty::Terminal {
         GhosttyImages::Budget => IMAGE_BUDGET_BYTES,
         #[cfg(all(test, have_ghostty))]
         GhosttyImages::Off => 0,
+        #[cfg(all(test, have_ghostty))]
+        GhosttyImages::Small(px) => (px as u64) * 4,
     };
     let ri = unsafe {
         ghostty::ghostty_terminal_set(
