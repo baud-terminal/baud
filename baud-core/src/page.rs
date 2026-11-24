@@ -21,7 +21,7 @@ use baud_domain::{OneBased, PageOp, PageSought};
 
 use crate::paint::Paint;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// **A page function**: page 1 is the only page, so the active position
     /// stays on it; NP and PP go home obeying DECOM, as their algorithms
     /// do after the clamp (pp. 5-78, 5-80).

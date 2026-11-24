@@ -187,7 +187,7 @@ pub(crate) fn upss_start(csi: &Csi) -> StrKind {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// A DECAUPSS's terminator, its body the final `u` and the `Dscs`, every
     /// C0 dropped and a GR byte read as its 7-bit byte under ISO 8859-1
     /// (`Paint::str_put`). `u % 5` assigns DEC Supplemental, which the UPSS
@@ -530,7 +530,7 @@ impl Paint<'_, '_> {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// An SGR sequence for `w`, `CSI 0 ; Ps... m`, XTREPORTSGR's answer:
     /// built by [`Status::sgr`], the encoder DECRQSS's SGR answer uses, and
     /// sent whole or dropped and counted as that answer is. The introducer

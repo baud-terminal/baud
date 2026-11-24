@@ -19,7 +19,7 @@ use crate::storage::{
 use crate::paint::Paint;
 use crate::write::Csi;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// One stack control, its parameters read here.
     #[cold]
     #[inline(never)]

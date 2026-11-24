@@ -31,7 +31,7 @@
 //! [`View::retreat_rot`]: crate::View::retreat_rot
 //! [`View::reset_rot`]: crate::View::reset_rot
 
-use crate::RowMut;
+use crate::{Col, RowMut};
 
 /// **A physical row of the ring**: a slot of storage, which screen row it
 /// shows changing as the ring turns.
@@ -53,19 +53,64 @@ impl PhysRow {
     }
 }
 
+/// **A band of rows, by its index among a terminal's bands**: which
+/// rendition table its rows resolve through. Not a row and not a slot -- a
+/// row becomes one through the layout that says which band holds it, and
+/// a band's slots start at its index times the slots a band holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct Band(usize);
+
+impl Band {
+    /// The first band, which a terminal of one band has alone.
+    pub const FIRST: Band = Band(0);
+
+    /// Band `b`.
+    #[inline(always)]
+    pub const fn of(b: usize) -> Band {
+        Band(b)
+    }
+
+    /// Its index, from 0.
+    #[inline(always)]
+    pub const fn index(self) -> usize {
+        self.0
+    }
+
+    /// The bands from this one up to `end`, not including it.
+    pub fn up_to(self, end: Band) -> impl Iterator<Item = Band> + Clone {
+        (self.0..end.0).map(Band)
+    }
+
+    /// The first of its slots, `slots` a band.
+    #[inline(always)]
+    pub const fn first_slot(self, slots: usize) -> usize {
+        self.0 * slots
+    }
+}
+
 /// **What makes cells copied between two physical rows mean in the row they
 /// reached what they meant in the row they left.**
 pub trait CrossBand {
     /// `cells`, just copied from physical row `from` into physical row `to`,
-    /// where they now are: translate each one's rendition from `from`'s
-    /// table to `to`'s.
-    fn translate(&mut self, from: PhysRow, to: PhysRow, cells: RowMut<'_>);
+    /// where they now are from column `at`: translate each one's rendition
+    /// from `from`'s table to `to`'s.
+    fn translate(&mut self, from: PhysRow, to: PhysRow, at: Col, cells: RowMut<'_>);
 
     /// The ring turned: physical row `top` is now the screen's first. A
     /// row moved under the cursor with no cursor move, so whatever is kept
     /// per row (the current rendition's id in the row's table) is looked
     /// at again.
     fn rotated(&mut self, top: PhysRow);
+
+    /// Columns `cols` of physical row `row` were filled with the blank the
+    /// operation was handed, whose rendition is the caller's current
+    /// table's: what a caller of one table for every row has nothing to do
+    /// about.
+    #[inline(always)]
+    fn blanked(&mut self, row: PhysRow, cols: core::ops::Range<usize>) {
+        let _ = (row, cols);
+    }
 }
 
 /// **One table for every row**: nothing to translate.
@@ -74,7 +119,7 @@ pub struct OneTable;
 
 impl CrossBand for OneTable {
     #[inline(always)]
-    fn translate(&mut self, _: PhysRow, _: PhysRow, _: RowMut<'_>) {}
+    fn translate(&mut self, _: PhysRow, _: PhysRow, _: Col, _: RowMut<'_>) {}
 
     #[inline(always)]
     fn rotated(&mut self, _: PhysRow) {}

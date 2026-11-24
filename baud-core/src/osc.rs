@@ -24,7 +24,7 @@ use crate::storage::{LINK_MAX, OSC_MAX, StyleLog};
 use crate::term::Cold;
 use baud_domain::*;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// Begin a control string: record which one, and empty the accumulator.
     ///
     /// **Reset here, at the introducer, and not at the terminator.** A string
@@ -1063,7 +1063,7 @@ impl Paint<'_, '_> {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// Answer `OSC 10 ; ?` / `OSC 11 ; ?`: the application's override if it
     /// set one, else the embedder's default if it supplied one, else nothing
     /// -- the `OSC 4` refusal, for the same reason. Of the colour shown in

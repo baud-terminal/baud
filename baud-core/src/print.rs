@@ -565,7 +565,7 @@ const PRINTED: Attrs = Attrs::BOLD
     .with(Attrs::BLINKS)
     .with(Attrs::REVERSE);
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// MC, `CSI Ps i` and `CSI ? Ps i`, and VT52's six print commands.
     #[cold]
     #[inline(never)]

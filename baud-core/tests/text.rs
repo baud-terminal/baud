@@ -434,6 +434,7 @@ fn growing_past_the_row_capacity_is_truncated() {
             assert_eq!(cols.index(), 100, "columns are free to the pitch");
         }
         Resized::Ok => panic!("growing past the capacity must not report Ok"),
+        Resized::BandsUnlent => panic!("a single table refuses no change of width"),
     }
     // And shrinking within it is not truncation.
     let small = WinSize {

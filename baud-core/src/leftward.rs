@@ -38,7 +38,7 @@ use baud_domain::{Codepoint, Col, Count, CursorCol, ModeBit, PackedCell, Row, Ro
 use crate::paint::{Paint, Pen};
 use crate::term::Pinned;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// **The column a write under DECRLM stops at**: the left margin for a
     /// cursor at or right of it, the screen's first column left of it; the
     /// start of the part HEM's PRECEDING shifts (`crate::editing`).

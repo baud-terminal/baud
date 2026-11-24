@@ -53,7 +53,7 @@ pub(crate) trait Writer {
     /// SAPV's, which the one-by-one graph sends every character to while
     /// it is set; never the text path's, which then never tests it.
     const LEFTWARD: bool = false;
-    fn before(p: &mut Paint<'_, '_>, cp: Codepoint, need: Count);
+    fn before<M: crate::bands::BandMode>(p: &mut Paint<'_, '_, M>, cp: Codepoint, need: Count);
 }
 
 /// What [`Paint::overflow`] leaves room for: the whole character, or a
@@ -78,7 +78,7 @@ pub(crate) struct Plain;
 
 impl Writer for Plain {
     #[inline(always)]
-    fn before(p: &mut Paint<'_, '_>, _: Codepoint, need: Count) {
+    fn before<M: crate::bands::BandMode>(p: &mut Paint<'_, '_, M>, _: Codepoint, need: Count) {
         if p.inserting() {
             p.open_gap(need);
         }
@@ -92,13 +92,13 @@ pub(crate) struct Formed;
 impl Writer for Formed {
     const LEFTWARD: bool = true;
     #[inline(always)]
-    fn before(p: &mut Paint<'_, '_>, cp: Codepoint, need: Count) {
+    fn before<M: crate::bands::BandMode>(p: &mut Paint<'_, '_, M>, cp: Codepoint, need: Count) {
         p.write_slowly(cp, need);
     }
 }
 
 /// The grid, the bytes, and the cursor, borrowed together for one read.
-pub(crate) struct Paint<'a, 'b> {
+pub(crate) struct Paint<'a, 'b, M: crate::bands::BandMode = crate::bands::OneBand> {
     pub(crate) arena: &'a [u8],
     /// The three-byte cell table; empty when the core is computing instead.
     ///
@@ -111,7 +111,7 @@ pub(crate) struct Paint<'a, 'b> {
     #[cfg(feature = "cell-table")]
     pub(crate) cells3: &'a [PackedCell],
     /// The rendition table, written by SGR and read by a renderer.
-    pub(crate) tmpl: crate::bands::Table<'a>,
+    pub(crate) tmpl: M::Table<'a>,
     /// Tab stops.
     pub(crate) tabs: &'a mut [bool],
     pub(crate) view: View<'a>,
@@ -418,7 +418,7 @@ const _: () = assert!(
     "Paint past 504 bytes and a line"
 );
 
-impl<'a, 'b> Paint<'a, 'b> {
+impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
     /// **One destructure, one view.** `arena` and `vp` are different fields of
     /// the same `Storage`, so splitting the single `&mut` is what lets a run be
     /// blitted straight out of the arena with no copy in between.
@@ -449,7 +449,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         title_len: ByteLen,
         icon_len: ByteLen,
         link: LinkId,
-    ) -> Paint<'a, 'b> {
+    ) -> Paint<'a, 'b, M> {
         let Storage {
             arena,
             depth,
@@ -505,11 +505,14 @@ impl<'a, 'b> Paint<'a, 'b> {
         // `cell-table`; the default build must not carry a borrow of it.
         #[cfg(not(feature = "cell-table"))]
         let _ = cells3;
+        // The table the band the last read ended in.
+        let mut tmpl = M::lend(tmpl.reborrow(), style_log.band_slots());
+        M::at(&mut tmpl, style_log.band());
         Paint {
             arena,
             #[cfg(feature = "cell-table")]
             cells3,
-            tmpl: tmpl.reborrow(),
+            tmpl,
             tabs,
             reply,
             title_len,
@@ -2060,8 +2063,17 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.clear_erased_rows_past_edge(Row::from_index(from), Row::from_index(to));
         }
         for y in from..to {
+            // Banded, each row's blank in its own band.
+            let blank = match M::BANDED {
+                true => {
+                    self.band_for(Row::from_index(y));
+                    self.blank()
+                }
+                false => blank,
+            };
             self.erase_span(Row::from_index(y), Col::ZERO, cols, blank);
         }
+        self.band_for(self.cy);
         if from < to {
             // The lines it erases whole take the direction in force, the
             // draft's "spreads the current BiDi modes into the entire
@@ -2535,6 +2547,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// which lands on the area's top, marked ([`RegionTop`]).
     #[inline(always)]
     fn enter_row(&mut self, r: Row, how: Arrival) {
+        self.band_for(r);
         let e = self.view.extent(r);
         self.row_written = Col::at_index(e.index());
         if e.fenced_apart() {
@@ -2562,6 +2575,49 @@ impl<'a, 'b> Paint<'a, 'b> {
             true => self.cold.right,
             false => self.fence_of_line(),
         })
+    }
+
+    /// **The write path goes to row `r`'s band**: in the banded mode the
+    /// table and log `r`'s band holds, and the pen interned there, so
+    /// what is written on `r` names its own band's slots. Nothing in the
+    /// single mode, whose one band every row is in.
+    #[inline(always)]
+    pub(crate) fn band_for(&mut self, r: Row) {
+        if M::BANDED {
+            self.band_to(r);
+        }
+    }
+
+    #[inline(never)]
+    fn band_to(&mut self, r: Row) {
+        let b = self.band_of(r);
+        if b != self.style_log.band() {
+            self.enter_band(b);
+        }
+    }
+
+    /// The band row `r` of the surface up is in.
+    pub(crate) fn band_of(&self, r: Row) -> baud_domain::Band {
+        self.band_of_phys(self.view.phys_row(r))
+    }
+
+    /// The band physical row `p` of the surface up is in.
+    pub(crate) fn band_of_phys(&self, p: baud_domain::PhysRow) -> baud_domain::Band {
+        use crate::bands::Surface;
+        let surface = match (self.strs.status.active, self.cold.screen) {
+            (baud_domain::ActiveDisplay::Status, _) => Surface::Status,
+            (_, crate::term::Screen::Alternate) => Surface::Alt,
+            (_, crate::term::Screen::Normal) => Surface::Primary,
+        };
+        self.style_log.layout.band_of(surface, p)
+    }
+
+    /// **Band `b` is the write path's**: its table and log, and the pen
+    /// interned into it from the rendition word.
+    pub(crate) fn enter_band(&mut self, b: baud_domain::Band) {
+        M::at(&mut self.tmpl, b);
+        self.style_log.set_band(b);
+        self.style = self.intern_style(self.style_raw);
     }
 
     #[cold]
@@ -3164,6 +3220,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         );
         self.retire();
         let rot = self.view.advance_rot(1, &mut OneTable);
+        self.band_for(Row::from_index(last));
         #[cfg(feature = "probe-warm-scroll")]
         self.warm_incoming();
         // **Ceiling arm: the blank behind a scroll.** The ring still advances

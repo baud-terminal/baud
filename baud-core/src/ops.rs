@@ -12,6 +12,7 @@
 //! this repo has measured that a large `match` inlined into a per-byte body
 //! costs every payload whether or not it executes.
 
+use crate::bands::Slots;
 use crate::paint::{Paint, Pen};
 use crate::term::{AltStyle, Saved, SavedWait, Screen, Strip, SurfaceLine};
 use baud_domain::*;
@@ -64,7 +65,7 @@ pub(crate) enum Wrote {
     Copies,
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// Where row 1 is. DECOM makes the scrolling region's top the origin.
     pub(crate) fn origin_row(&self) -> Row {
         match self.cold.modes.is_set(ModeBit::Origin) {
@@ -674,9 +675,12 @@ impl Paint<'_, '_> {
     }
 
     fn fill_row_counted(&mut self, r: Row) {
+        // The blank in `r`'s band, and the cursor's band again after.
+        self.band_for(r);
         let b = self.blank();
         let n = self.view.fill_row(r, b);
         self.cells = self.cells.plus(n.index());
+        self.band_for(self.cy);
     }
 
     /// A row is about to scroll off the top of the primary screen: **nothing
@@ -956,9 +960,11 @@ impl Paint<'_, '_> {
             return;
         }
         let b = self.blank();
+        let mut x = M::Cross::default();
         let w = self
             .view
-            .scroll_rect(at, bot, left, right.after(), n, way, b, &mut OneTable);
+            .scroll_rect(at, bot, left, right.after(), n, way, b, &mut x);
+        self.moved(&x);
         self.cells = self.cells.plus(w);
         self.cold.moved_in_place(at, bot, self.book.top);
         if self.images.any_placed() {
@@ -1264,7 +1270,9 @@ impl Paint<'_, '_> {
                 self.clear_swept();
             }
             let b = self.blank();
-            self.view.delete_lines_in(top, n, bot, b, &mut OneTable);
+            let mut x = M::Cross::default();
+            self.view.delete_lines_in(top, n, bot, b, &mut x);
+            self.moved(&x);
             if self.past_edge() {
                 self.lines_moved_past_edge(top, n, bot, BandMove::Up);
             }
@@ -1332,17 +1340,16 @@ impl Paint<'_, '_> {
             // passes past the edge and the put-backs all run, so the arms
             // differ by the copies and by what the rows under the region
             // then hold. `diag` counts the cells the copies wrote.
+            let mut x = M::Cross::default();
             #[cfg(not(feature = "ceiling-no-region-repair"))]
             {
                 #[cfg(feature = "diag")]
                 let before = moved;
                 // **Descending, so a row is read before it is overwritten.**
                 for y in (bot.index() + 1..=last).rev() {
-                    moved += self.view.copy_row(
-                        Row::from_index(y - 1),
-                        Row::from_index(y),
-                        &mut OneTable,
-                    );
+                    moved += self
+                        .view
+                        .copy_row(Row::from_index(y - 1), Row::from_index(y), &mut x);
                 }
                 #[cfg(feature = "diag")]
                 {
@@ -1356,14 +1363,11 @@ impl Paint<'_, '_> {
                     flags: &mut *self.book.past,
                     held: &mut self.book.held,
                 };
-                moved += self.view.copy_past_edge(
-                    bot,
-                    Row::from_index(last),
-                    reach,
-                    &mut past,
-                    &mut OneTable,
-                );
+                moved +=
+                    self.view
+                        .copy_past_edge(bot, Row::from_index(last), reach, &mut past, &mut x);
             }
+            self.moved(&x);
             self.fill_row_counted(bot);
             // The line the scroll opens is on the row the first row under
             // the region held, just copied down: past the edge it held
@@ -1562,16 +1566,16 @@ impl Paint<'_, '_> {
             flags: &mut *self.book.past,
             held: &mut self.book.held,
         };
+        let mut x = M::Cross::default();
         let w = match way {
-            BandMove::Down => {
-                self.view
-                    .insert_lines_past_edge(at, n, bottom, reach, &mut past, &mut OneTable)
-            }
-            BandMove::Up => {
-                self.view
-                    .delete_lines_past_edge(at, n, bottom, reach, &mut past, &mut OneTable)
-            }
+            BandMove::Down => self
+                .view
+                .insert_lines_past_edge(at, n, bottom, reach, &mut past, &mut x),
+            BandMove::Up => self
+                .view
+                .delete_lines_past_edge(at, n, bottom, reach, &mut past, &mut x),
         };
+        self.moved(&x);
         self.cells = self.cells.plus(w);
         self.settle_reach();
     }
@@ -1689,7 +1693,9 @@ impl Paint<'_, '_> {
             self.clear_swept();
         }
         let b = self.blank();
-        self.view.insert_lines_in(top, n, bot, b, &mut OneTable);
+        let mut x = M::Cross::default();
+        self.view.insert_lines_in(top, n, bot, b, &mut x);
+        self.moved(&x);
         if self.past_edge() {
             self.lines_moved_past_edge(top, n, bot, BandMove::Down);
         }
@@ -1841,7 +1847,9 @@ impl Paint<'_, '_> {
             self.clear_swept();
         }
         let b = self.blank();
-        self.view.insert_lines_in(at, n, bot, b, &mut OneTable);
+        let mut x = M::Cross::default();
+        self.view.insert_lines_in(at, n, bot, b, &mut x);
+        self.moved(&x);
         self.lines_bounded(at, bot, Rows::of_count(k), BandMove::Down);
         self.path_rows(at, Row::from_index(at.index() + k - 1));
         if self.past_edge() {
@@ -1937,7 +1945,9 @@ impl Paint<'_, '_> {
             self.clear_swept();
         }
         let b = self.blank();
-        self.view.delete_lines_in(at, n, bot, b, &mut OneTable);
+        let mut x = M::Cross::default();
+        self.view.delete_lines_in(at, n, bot, b, &mut x);
+        self.moved(&x);
         self.lines_bounded(at, bot, Rows::of_count(k), BandMove::Up);
         self.path_rows(Row::from_index(bot.index() + 1 - k), bot);
         if self.past_edge() {
@@ -2737,22 +2747,25 @@ impl Paint<'_, '_> {
     #[inline(never)]
     fn intern_far(&mut self, base: StyleId, raw: StyleWord) -> StyleId {
         let len = self.tmpl.as_slice().len();
-        let far = self.style_log.reach[base.index()].slots();
+        let far = self.style_log.reach_mut()[base.index()].slots();
         let mut k = (base.index() + SweepBook::INLINE) & (len - 1);
         for n in SweepBook::INLINE..far {
             match self.tmpl.as_slice()[k] {
                 Some(w) if w == raw => {
-                    self.style_log.book.sweep.probed(n + 1);
+                    self.style_log.book_mut().sweep.probed(n + 1);
                     return StyleId::from_index(k);
                 }
                 None => {
-                    self.style_log.book.sweep.probed(n + 1);
+                    self.style_log.book_mut().sweep.probed(n + 1);
                     return self.intern_new(StyleId::from_index(k), raw);
                 }
                 Some(_) => k = (k + 1) & (len - 1),
             }
         }
-        self.style_log.book.sweep.probed(far.max(SweepBook::INLINE));
+        self.style_log
+            .book_mut()
+            .sweep
+            .probed(far.max(SweepBook::INLINE));
         if !raw.is_plain() {
             return self.intern_new(base, raw);
         }
@@ -2767,18 +2780,18 @@ impl Paint<'_, '_> {
     /// every filled slot but slot 0, which is never empty.
     fn first_empty(&mut self, from: StyleId) -> Option<StyleId> {
         let len = self.tmpl.as_slice().len();
-        if self.style_log.book.sweep.filled + 1 >= len {
+        if self.style_log.book_mut().sweep.filled + 1 >= len {
             return None;
         }
         let mut j = from.index();
         for n in 0..len {
             if self.tmpl.as_slice()[j].is_none() {
-                self.style_log.book.sweep.probed(n + 1);
+                self.style_log.book_mut().sweep.probed(n + 1);
                 return Some(StyleId::from_index(j));
             }
             j = (j + 1) & (len - 1);
         }
-        self.style_log.book.sweep.probed(len);
+        self.style_log.book_mut().sweep.probed(len);
         None
     }
 
@@ -2804,21 +2817,21 @@ impl Paint<'_, '_> {
                 }
             },
         };
-        if self.style_log.book.sweep.tombs > 0 {
+        if self.style_log.book_mut().sweep.tombs > 0 {
             let mut j = StyleId::bucket(raw, len);
             let mut n = 0;
             while j != k.index() {
                 n += 1;
                 if self.tmpl.as_slice()[j] == Some(StyleWord::TOMBSTONE) {
-                    self.style_log.book.sweep.probed(n);
-                    self.style_log.book.sweep.tomb_taken();
+                    self.style_log.book_mut().sweep.probed(n);
+                    self.style_log.book_mut().sweep.tomb_taken();
                     return self.write_slot(StyleId::from_index(j), Some(raw));
                 }
                 j = (j + 1) & (len - 1);
             }
-            self.style_log.book.sweep.probed(n);
+            self.style_log.book_mut().sweep.probed(n);
         }
-        let book = &self.style_log.book;
+        let book = self.style_log.book();
         if book.sweep.over_load(len) && book.sweep.due(book.writes, len) {
             if let Some(id) = self.sweep_styles(raw) {
                 return id;
@@ -2830,7 +2843,7 @@ impl Paint<'_, '_> {
         // empty slot reads to its bucket's reach, which near a full table
         // is most of it. A freeze with nothing new off the screen since the
         // last returns before it walks a row.
-        if self.style_log.book.sweep.over_load(len)
+        if self.style_log.book_mut().sweep.over_load(len)
             && self.freeze_off_screen() == crate::freeze::Froze::Rows
         {
             if let Some(id) = self.sweep_styles(raw) {
@@ -2839,7 +2852,7 @@ impl Paint<'_, '_> {
         }
         // `probe-double-intern-full` writes here over a filled slot.
         if self.tmpl.as_slice()[k.index()].is_none() {
-            self.style_log.book.sweep.filled_one();
+            self.style_log.book_mut().sweep.filled_one();
         }
         self.write_slot(k, Some(raw))
     }
@@ -2850,22 +2863,22 @@ impl Paint<'_, '_> {
     fn variants_probe(&mut self, raw: StyleWord) -> Probed {
         let len = self.tmpl.as_slice().len();
         let home = StyleId::bucket(raw, len);
-        let far = self.style_log.reach[home].slots();
+        let far = self.style_log.reach_mut()[home].slots();
         let mut k = home;
         for n in 0..far {
             match self.tmpl.as_slice()[k] {
                 Some(w) if w == raw => {
-                    self.style_log.book.sweep.probed(n + 1);
+                    self.style_log.book_mut().sweep.probed(n + 1);
                     return Probed::Hit(StyleId::from_index(k));
                 }
                 None => {
-                    self.style_log.book.sweep.probed(n + 1);
+                    self.style_log.book_mut().sweep.probed(n + 1);
                     return Probed::Empty(StyleId::from_index(k));
                 }
                 Some(_) => k = (k + 1) & (len - 1),
             }
         }
-        self.style_log.book.sweep.probed(far);
+        self.style_log.book_mut().sweep.probed(far);
         match self.first_empty(StyleId::from_index(k)) {
             Some(e) => Probed::Empty(e),
             None => Probed::Full,
@@ -2893,19 +2906,19 @@ impl Paint<'_, '_> {
             true => base,
             false => StyleId::from_index(StyleId::bucket(raw, len)),
         };
-        if self.style_log.book.sweep.tombs > 0 {
+        if self.style_log.book_mut().sweep.tombs > 0 {
             let mut k = base.index();
             for n in 0..len {
                 if self.tmpl.as_slice()[k] == Some(StyleWord::TOMBSTONE) {
-                    self.style_log.book.sweep.probed(n + 1);
-                    self.style_log.book.sweep.tomb_taken();
+                    self.style_log.book_mut().sweep.probed(n + 1);
+                    self.style_log.book_mut().sweep.tomb_taken();
                     return self.write_slot(StyleId::from_index(k), Some(raw));
                 }
                 k = (k + 1) & (len - 1);
             }
-            self.style_log.book.sweep.probed(len);
+            self.style_log.book_mut().sweep.probed(len);
         }
-        let book = &self.style_log.book;
+        let book = self.style_log.book();
         if book.sweep.due(book.writes, len) {
             if let Some(id) = self.sweep_styles(raw) {
                 return id;
@@ -2917,7 +2930,7 @@ impl Paint<'_, '_> {
             }
         }
         let _ = base;
-        self.style_log.book.sweep.refused();
+        self.style_log.book_mut().sweep.refused();
         StyleId::DEFAULT
     }
 
@@ -2961,16 +2974,30 @@ impl Paint<'_, '_> {
         let len = self.tmpl.as_slice().len();
         let mut live = SlotSet::new();
         live.insert(StyleId::DEFAULT);
-        live.insert(self.style);
-        // Every row that resolves through the table: the active screen, the
-        // status line's row, and whatever off the screen is not frozen
-        // (`Paint::mark_live`). And the parked display's rendition.
-        self.mark_live(&mut live);
-        live.insert(self.strs.status.parked_style());
+        match M::BANDED {
+            // The band's own rows and its roots: nothing else names its
+            // slots (`Paint::mark_band_live`).
+            true => {
+                let roots = crate::bands::BandRoots {
+                    pen: self.style,
+                    parked: self.strs.status.parked_style(),
+                };
+                self.mark_band_live(&mut live, self.style_log.band(), roots);
+            }
+            false => {
+                live.insert(self.style);
+                // Every row that resolves through the table: the active
+                // screen, the status line's row, and whatever off the
+                // screen is not frozen (`Paint::mark_live`). And the parked
+                // display's rendition.
+                self.mark_live(&mut live);
+                live.insert(self.strs.status.parked_style());
+            }
+        }
         let (mut freed, mut filled, mut tombs) = (0, 0, 0);
         let mut need = 0usize;
         // Each bucket's reach again, from the renditions the sweep keeps.
-        self.style_log.reach.fill(Reach::ZERO);
+        self.style_log.reach_mut().fill(Reach::ZERO);
         for step in 0..2 * len {
             let k = (len - 1) - (step & (len - 1));
             let was = self.tmpl.as_slice()[k];
@@ -3000,24 +3027,27 @@ impl Paint<'_, '_> {
             };
             if step >= len {
                 if let Some(w) = was.filter(|w| named && *w != StyleWord::TOMBSTONE) {
-                    let at = &mut self.style_log.reach[StyleId::bucket(w, len)];
+                    let at = &mut self.style_log.reach_mut()[StyleId::bucket(w, len)];
                     *at = (*at).max(Reach::of(reach));
                 }
             }
             need = need.saturating_sub(1).max(reach);
         }
-        let now = self.style_log.book.writes;
-        self.style_log.book.sweep.swept(now, freed, filled, tombs);
+        let now = self.style_log.book_mut().writes;
+        self.style_log
+            .book_mut()
+            .sweep
+            .swept(now, freed, filled, tombs);
         let raw = raw?;
         let mut k = StyleId::bucket(raw, len);
         for _ in 0..len {
             match self.tmpl.as_slice()[k] {
                 Some(w) if w == StyleWord::TOMBSTONE => {
-                    self.style_log.book.sweep.tomb_taken();
+                    self.style_log.book_mut().sweep.tomb_taken();
                     return Some(self.write_slot(StyleId::from_index(k), Some(raw)));
                 }
                 None => {
-                    self.style_log.book.sweep.filled_one();
+                    self.style_log.book_mut().sweep.filled_one();
                     return Some(self.write_slot(StyleId::from_index(k), Some(raw)));
                 }
                 Some(_) => k = (k + 1) & (len - 1),
@@ -5615,10 +5645,13 @@ impl Paint<'_, '_> {
             self.clear_screen_images();
         }
         for y in 0..self.rows.index() {
+            // Banded, each row's blank in its own band.
+            self.band_for(Row::from_index(y));
             let b = self.blank();
             let n = self.view.fill_row(Row::from_index(y), b);
             self.cells = self.cells.plus(n.index());
         }
+        self.band_for(self.cy);
         self.path_rows(Row::ZERO, Row::from_index(self.rows.index() - 1));
         self.wrote_rows(Row::ZERO, Row::from_index(self.rows.index() - 1));
         // Every row filled whatever is guarded: erased whole
@@ -6380,7 +6413,7 @@ fn encoding_state(cur: MouseEncoding, mode: MouseEncoding) -> ModeState {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// Whether DA lists Sixel: the embedder's claim and a provisioned store.
     /// **The one condition for every Sixel query and mode**, so DA, DECRQM
     /// and XTSMGRAPHICS cannot disagree. `[[source: ctlseqs]]` puts all of

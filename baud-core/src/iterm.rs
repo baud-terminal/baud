@@ -275,7 +275,7 @@ impl Iterm {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// `OSC 1337`: each key baud acts on, and every other one counted.
     pub(crate) fn osc1337(&mut self, o: Osc1337<'_>, body: Body, term: StringTerm) {
         match o {

@@ -47,6 +47,7 @@
 //! path.** `ICH` and `DCH` test it out of line, and a write under IRM is a
 //! character at a time already, its gap opened out of line.
 
+use crate::bands::Slots;
 use baud_domain::{Col, Cols, Count, EditExtent, ModeBit, PackedCell, PathIdx, Row};
 
 use crate::component::Drawn;
@@ -148,7 +149,7 @@ impl Run {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// **SEE**: the extent, or a value 8.3.115 does not define counted.
     /// `None` in [`crate::term::Cold::extent`] is DEC's, before any SEE.
     #[cold]

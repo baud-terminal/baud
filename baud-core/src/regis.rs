@@ -144,7 +144,7 @@ pub(crate) struct Want {
     ch: ImagePx,
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// The string a `DcsQuery` byte other than DECRQSS's `q` begins:
     /// DECRSPS's `t`, DECLKD's `w` and DECRSTS's `p` after `$`, ReGIS's bare
     /// `p`, the `+` of XTGETTCAP and XTSETTCAP, or DECAUPSS's `!`. Out of

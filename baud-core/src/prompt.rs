@@ -193,7 +193,7 @@ impl Shell {
     };
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// **`OSC 133`, acted on.** See [`Semantic`] for each letter's text.
     pub(crate) fn semantic(&mut self, mark: Semantic<'_>) {
         self.end_input_at_eol(mark);
@@ -449,13 +449,15 @@ impl Paint<'_, '_> {
         if self.past_edge() {
             self.clear_swept();
         }
+        let mut x = M::Cross::default();
         self.view.insert_lines_in(
             from,
             n,
             bot,
             PackedCell::empty_with(StyleId::DEFAULT),
-            &mut OneTable,
+            &mut x,
         );
+        self.moved(&x);
         if self.past_edge() {
             self.lines_moved_past_edge(from, n, bot, BandMove::Down);
         }

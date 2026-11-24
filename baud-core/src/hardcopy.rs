@@ -35,6 +35,7 @@
 //! kept at its end while it is written. A hard copy the area has no room
 //! for prints nothing and is counted.
 
+use crate::bands::Slots;
 use crate::paint::Paint;
 use crate::print::{JobKind, Status};
 use baud_domain::*;
@@ -132,8 +133,8 @@ struct CellPx {
 }
 
 /// The picture a dump draws: the region's pixels, read from the screen.
-struct Visible<'p, 'a, 'b> {
-    paint: &'p Paint<'a, 'b>,
+struct Visible<'p, 'a, 'b, M: crate::bands::BandMode> {
+    paint: &'p Paint<'a, 'b, M>,
     /// The region's upper left in page pixels, and its width.
     x0: i64,
     y0: i64,
@@ -165,7 +166,11 @@ enum Hit {
 }
 
 /// A colour word's pixel: its own, the palette's, or `default`.
-fn resolve(paint: &Paint<'_, '_>, w: ColorWord, default: Pixel) -> Pixel {
+fn resolve<M: crate::bands::BandMode>(
+    paint: &Paint<'_, '_, M>,
+    w: ColorWord,
+    default: Pixel,
+) -> Pixel {
     let px = |(r, g, b): (u8, u8, u8)| {
         Pixel::opaque(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
     };
@@ -184,7 +189,7 @@ fn resolve(paint: &Paint<'_, '_>, w: ColorWord, default: Pixel) -> Pixel {
     }
 }
 
-impl Visible<'_, '_, '_> {
+impl<M: crate::bands::BandMode> Visible<'_, '_, '_, M> {
     /// The cell at page pixel `(gx, gy)`: its row, its column on that row,
     /// and the column's width in pixels.
     fn cell_at(&self, at: PagePx) -> Option<(Row, Col)> {
@@ -318,7 +323,7 @@ impl Visible<'_, '_, '_> {
     }
 }
 
-impl DumpCanvas for Visible<'_, '_, '_> {
+impl<M: crate::bands::BandMode> DumpCanvas for Visible<'_, '_, '_, M> {
     fn at(&self, x: ImagePx, y: ImagePx) -> Option<Pixel> {
         let at = PagePx {
             x: self.x0 + i64::from(x.raw()),
@@ -347,7 +352,7 @@ impl DumpCanvas for Visible<'_, '_, '_> {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// **`S(H)`**: the dump of `area` as a job of its own, its upper left at
     /// `offset` on the printer, a form feed after it under DECPFF, which
     /// "affect[s] both 'Print page' and 'Print Screen'" (070-7 § 7.9.3) and

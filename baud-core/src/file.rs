@@ -24,7 +24,7 @@ use crate::osc::StrKind;
 use crate::paint::Paint;
 use baud_domain::*;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// **A file's arguments ended**: a `File=` body reached its `:`, or a
     /// `MultipartFile` arrived. The data that follows goes to the file
     /// stream; a file open before it is abandoned and counted.

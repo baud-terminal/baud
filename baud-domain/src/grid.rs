@@ -3,7 +3,7 @@ use crate::*;
 mod cross;
 mod reflow;
 mod store;
-pub use cross::{CrossBand, OneTable, PhysRow};
+pub use cross::{Band, CrossBand, OneTable, PhysRow};
 pub use reflow::{Follow, Recut, Reflowed};
 pub use store::*;
 
@@ -357,9 +357,9 @@ pub struct Viewport<'a> {
     rows: Rows,
     ring: Rows,
     rot: RowRot,
-    /// The live table of the band this view's rows are in: what a row
+    /// The live tables this view's rows are in, a band's each: what a row
     /// that is not frozen resolves through ([`Viewport::styles`]).
-    live: crate::LiveTable<'a>,
+    live: crate::LiveBands<'a>,
     /// The primary's generations and the line row 0 holds, on a view of the
     /// primary with any row frozen (`crate::frozen`); `None` reads every row
     /// through the live table.
@@ -414,7 +414,7 @@ impl<'a> Viewport<'a> {
             rows,
             ring,
             rot,
-            live,
+            crate::LiveBands::one(live),
         )
     }
 
@@ -432,7 +432,7 @@ impl<'a> Viewport<'a> {
         rows: Rows,
         ring: Rows,
         rot: RowRot,
-        live: crate::LiveTable<'a>,
+        live: crate::LiveBands<'a>,
     ) -> Viewport<'a> {
         Viewport::over(
             cells,
@@ -459,7 +459,7 @@ impl<'a> Viewport<'a> {
         rows: Rows,
         ring: Rows,
         rot: RowRot,
-        live: crate::LiveTable<'a>,
+        live: crate::LiveBands<'a>,
     ) -> Viewport<'a> {
         Viewport {
             cells,
@@ -508,8 +508,10 @@ impl<'a> Viewport<'a> {
             None => RowRot(self.phys(y.index())),
         };
         match self.frozen {
-            Some((f, line0)) => f.styles(p, line0.plus(Rows::of_count(y.index())), self.live),
-            None => crate::RowStyles::Live(self.live),
+            Some((f, line0)) => {
+                f.styles(p, line0.plus(Rows::of_count(y.index())), self.live.table(p))
+            }
+            None => crate::RowStyles::Live(self.live.table(p)),
         }
     }
 
@@ -1271,7 +1273,7 @@ impl<'a> View<'a> {
         dst[..n].copy_from_slice(&src[..n]);
         *m = from;
         if n == w {
-            x.translate(pa, pb, row.part(0..n));
+            x.translate(pa, pb, Col::ZERO, row.part(0..n));
             return n;
         }
         let last = src[w - 1];
@@ -1280,11 +1282,11 @@ impl<'a> View<'a> {
             "a row is not uniform past its mark"
         );
         if dst[w - 1] == last {
-            x.translate(pa, pb, row.part(0..n));
+            x.translate(pa, pb, Col::ZERO, row.part(0..n));
             return n;
         }
         dst[n..].fill(last);
-        x.translate(pa, pb, row.part(0..w));
+        x.translate(pa, pb, Col::ZERO, row.part(0..w));
         w
     }
 
@@ -1357,7 +1359,7 @@ impl<'a> View<'a> {
             return 0;
         }
         let cells = self.store.copy_within_rows(a, w..end, b, w);
-        x.translate(PhysRow::of(a), PhysRow::of(b), cells);
+        x.translate(PhysRow::of(a), PhysRow::of(b), Col::ZERO, cells);
         past.set(b, from);
         end - w
     }
@@ -1786,6 +1788,13 @@ impl<'a> View<'a> {
         );
         self.cols = cols;
         self.rows = rows;
+    }
+
+    /// **The physical row screen row `r` is**, through the rotation: what
+    /// a row's band is read from, which the rotation never changes.
+    #[inline(always)]
+    pub fn phys_row(&self, r: Row) -> PhysRow {
+        PhysRow::of(self.phys(r))
     }
 
     /// Screen row to physical offset, through the rotation. Every addressing
@@ -3070,7 +3079,12 @@ impl<'a> View<'a> {
             // stamps the destination once, for its cells and its mark.
             let (src, from, mut row, mut m) = self.store.read_write(ps, pd);
             row[..cols].copy_from_slice(&src[..cols]);
-            x.translate(PhysRow::of(ps), PhysRow::of(pd), row.part(0..cols));
+            x.translate(
+                PhysRow::of(ps),
+                PhysRow::of(pd),
+                Col::ZERO,
+                row.part(0..cols),
+            );
             // **The mark travels with the row**, in the same loop and under
             // the same `phys`. Kept here rather than in a second pass because a
             // second pass over the same indices is a second chance to compute
@@ -3083,6 +3097,7 @@ impl<'a> View<'a> {
             let p = self.phys(Row::from_index(y));
             let (mut row, mut m) = self.store.row_and_mark(p);
             row[..cols].fill(blank);
+            x.blanked(PhysRow::of(p), 0..cols);
             *m = m
                 .refilled(match blank.content == Content::EMPTY {
                     true => 0,
@@ -3124,13 +3139,19 @@ impl<'a> View<'a> {
             );
             let (src, from, mut row, mut m) = self.store.read_write(ps, pd);
             row[..cols].copy_from_slice(&src[..cols]);
-            x.translate(PhysRow::of(ps), PhysRow::of(pd), row.part(0..cols));
+            x.translate(
+                PhysRow::of(ps),
+                PhysRow::of(pd),
+                Col::ZERO,
+                row.part(0..cols),
+            );
             *m = from;
         }
         for y in bot + 1 - n..=bot {
             let p = self.phys(Row::from_index(y));
             let (mut row, mut m) = self.store.row_and_mark(p);
             row[..cols].fill(blank);
+            x.blanked(PhysRow::of(p), 0..cols);
             *m = m
                 .refilled(match blank.content == Content::EMPTY {
                     true => 0,
@@ -3215,7 +3236,7 @@ impl<'a> View<'a> {
             let (ps, pd) = (v.phys(Row::from_index(from)), v.phys(Row::from_index(to)));
             let (src, dst) = (v.store.mark_at(ps), v.store.mark_at(pd));
             let cells = v.store.copy_within_rows(ps, l..l + w, pd, l);
-            x.translate(PhysRow::of(ps), PhysRow::of(pd), cells);
+            x.translate(PhysRow::of(ps), PhysRow::of(pd), Col::at_index(l), cells);
             let moved = match (ours(src), ours(dst)) {
                 (true, _) => dst.wrapping(cols).with_margins(inside),
                 (false, true) => dst.ended().at_edge(),
@@ -3245,6 +3266,7 @@ impl<'a> View<'a> {
                 }
                 for y in bot + 1 - n..=bot {
                     blank_row(self, y);
+                    x.blanked(PhysRow::of(self.phys(Row::from_index(y))), l..l + w);
                 }
             }
             BandMove::Down => {
@@ -3253,6 +3275,7 @@ impl<'a> View<'a> {
                 }
                 for y in cy..cy + n {
                     blank_row(self, y);
+                    x.blanked(PhysRow::of(self.phys(Row::from_index(y))), l..l + w);
                 }
             }
         }

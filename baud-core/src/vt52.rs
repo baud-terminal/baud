@@ -14,7 +14,7 @@
 use crate::paint::Paint;
 use baud_domain::*;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// Act on one VT52 command.
     ///
     /// Takes `&mut Node` because `ESC <` leaves the protocol, and leaving is a

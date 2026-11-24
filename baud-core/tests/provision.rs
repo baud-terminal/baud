@@ -108,6 +108,7 @@ fn a_resize_past_the_budget_is_clamped_at_its_width() {
             assert_eq!((c.index(), r.index()), (pitch, most));
         }
         Resized::Ok => panic!("{pitch}x162 is past the budget and was not clamped"),
+        Resized::BandsUnlent => panic!("a single table refuses no change of width"),
     }
     assert_eq!(t.resize(&ws!(400, 162)), Resized::Ok, "back within it");
 }

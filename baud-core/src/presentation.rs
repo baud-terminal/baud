@@ -12,7 +12,7 @@ use crate::paint::Paint;
 use crate::write::Csi;
 use baud_domain::*;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// DECRQPSR, `CSI Ps $ w`: "0 ignored, no report sent", 1 DECCIR, 2
     /// DECTABSR (p. 5-198); any other `Ps` is ignored as 0 is.
     #[cold]

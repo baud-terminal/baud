@@ -49,6 +49,7 @@
 //!
 //! Everything here is out of line and cold: the per-byte path is unchanged.
 
+use crate::bands::Slots;
 use crate::paint::Paint;
 use crate::term::Screen;
 use baud_domain::*;
@@ -200,7 +201,7 @@ fn rebuild_all(frz: &mut FrozenStore<'_>, prim: &mut Stamped<'_>, alt: &mut Stam
     }
 }
 
-impl<'a, 'b> Paint<'a, 'b> {
+impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
     /// **The main display's geometry**: on the status line, the display
     /// parked while it is written.
     pub(crate) fn main(&self) -> Main {
@@ -269,10 +270,15 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// row of it while the alternate screen is up -- that is not frozen
     /// already and names a slot but the default. Returns at once when
     /// nothing has moved since the last freeze, so a full table that misses
-    /// on every rendition walks no row.
+    /// on every rendition walks no row. Nothing in the banded mode, whose
+    /// bands hold every rendition their rows name and freeze only across a
+    /// change of width ([`Paint::freeze_bands`]).
     #[cold]
     #[inline(never)]
     pub(crate) fn freeze_off_screen(&mut self) -> Froze {
+        if M::BANDED {
+            return Froze::Nothing;
+        }
         let m = self.main();
         let Some(parts) = self.parts() else {
             return Froze::Nothing;
@@ -372,7 +378,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
         if froze == Froze::Rows {
             frz.counted_freeze();
-            self.style_log.book.sweep.rewrote();
+            self.style_log.book_mut().sweep.rewrote();
         }
         froze
     }
@@ -383,6 +389,52 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// rendition there. A row the ring holds no line in names nothing a
     /// reader can reach: whatever comes into it next is written or blanked
     /// first.
+    /// **The ids band `b`'s rows name**, in the banded mode: its surface's
+    /// rows in its span, on whichever store holds that surface now, and
+    /// the roots ([`crate::bands::BandRoots`]). No other row names its
+    /// slots, and nothing is frozen.
+    pub(crate) fn mark_band_live(
+        &self,
+        live: &mut SlotSet,
+        b: Band,
+        roots: crate::bands::BandRoots,
+    ) {
+        use crate::bands::Surface;
+        let m = self.main();
+        let s = self.view.stride().index();
+        let on_status = self.on_status();
+        let (other, line) = (self.other.store().cells(), self.status.store().cells());
+        let (prim, alt, status): (&[PackedCell], &[PackedCell], &[PackedCell]) =
+            match (on_status, m.up) {
+                (false, Up::Primary) => (self.view.ring_cells(), other, line),
+                (false, Up::Alternate) => (other, self.view.ring_cells(), line),
+                (true, Up::Primary) => (line, other, self.view.ring_cells()),
+                (true, Up::Alternate) => (other, line, self.view.ring_cells()),
+            };
+        let (surface, rows) = self.style_log.layout.span_of(b);
+        let cells = match surface {
+            Surface::Primary => prim,
+            Surface::Alt => alt,
+            Surface::Status => status,
+        };
+        let from = (rows.start * s).min(cells.len());
+        let to = rows.end.saturating_mul(s).min(cells.len());
+        live.mark(&cells[from..to]);
+        for id in roots.ids() {
+            live.insert(id);
+        }
+        // A thaw's interned slots, which the cells it has not rewritten yet
+        // do not name ([`Paint::thaw_bands`]).
+        if let Some(f) = self
+            .style_log
+            .frozen
+            .as_ref()
+            .filter(|f| f.thawing() == Thawing::Busy)
+        {
+            f.pin(live);
+        }
+    }
+
     pub(crate) fn mark_live(&self, live: &mut SlotSet) {
         let m = self.main();
         let s = self.view.stride().index();
@@ -422,6 +474,76 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// The surface `up` names, whole -- the primary's ring or the alternate
     /// screen's buffer -- and the frozen store beside it, two disjoint
     /// borrows.
+    /// **Rows a View operation wrote with another band's ids, translated
+    /// into their own band's** ([`crate::bands::Moves`]): each recorded
+    /// row's columns whose ids name a band other than the row's, read
+    /// through that band's table and interned into the row's, and then the
+    /// cursor's band again. Nothing in the single mode.
+    #[inline(always)]
+    pub(crate) fn moved(&mut self, x: &M::Cross) {
+        if M::BANDED {
+            self.moved_banded(x);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn moved_banded(&mut self, x: &M::Cross) {
+        use crate::bands::{Origin, Recorded};
+        let ran = self.style_log.band();
+        for (to, origin, cols) in x.moves() {
+            let from = match origin {
+                Origin::Row(p) => self.band_of_phys(p),
+                Origin::Blank => ran,
+            };
+            if self.band_of_phys(to) != from {
+                self.translate_cells(to, from, cols);
+            }
+        }
+        self.band_for(self.cy);
+    }
+
+    /// **Columns `cols` of physical row `p`, whose ids name band `from`'s
+    /// slots, interned into `p`'s band**: their words read first and their
+    /// ids reset to the default, so no sweep while they are interned keeps
+    /// a slot of `p`'s band for an id that is `from`'s.
+    #[cold]
+    #[inline(never)]
+    fn translate_cells(&mut self, p: PhysRow, from: Band, cols: core::ops::Range<usize>) {
+        let (row, p) = (p, p.index());
+        const WIDE: usize = widest_stride_cells(crate::storage::MAX_COLS);
+        let up = self.main().up;
+        let n = cols.len().min(WIDE);
+        let mut ids = [StyleId::DEFAULT; WIDE];
+        for (i, c) in self.surface(up).0.row(p)[cols.start..cols.start + n]
+            .iter()
+            .enumerate()
+        {
+            ids[i] = c.style;
+        }
+        let mut words = [StyleWord::DEFAULT; WIDE];
+        let src = M::band(&self.tmpl, from);
+        for i in 0..n {
+            words[i] = src
+                .get(ids[i].index())
+                .copied()
+                .flatten()
+                .unwrap_or(StyleWord::DEFAULT);
+        }
+        for c in self.surface(up).0.row_mut(p)[cols.start..cols.start + n].iter_mut() {
+            c.style = StyleId::DEFAULT;
+        }
+        let to = self.band_of_phys(row);
+        self.enter_band(to);
+        for (i, &w) in words[..n].iter().enumerate() {
+            if ids[i] == StyleId::DEFAULT {
+                continue;
+            }
+            let id = self.intern_style(w);
+            self.surface(up).0.row_mut(p)[cols.start + i].style = id;
+        }
+    }
+
     fn surface(&mut self, up: Up) -> (&mut Stamped<'a>, Option<&mut FrozenStore<'b>>) {
         let on_status = self.on_status();
         let screen = match on_status {
@@ -500,7 +622,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     pub(crate) fn thaw_screen(&mut self) {
-        if self.on_status() {
+        if self.on_status() || M::BANDED {
             return;
         }
         let m = self.main();
@@ -531,7 +653,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             return;
         }
         let len = self.tmpl.as_slice().len();
-        let filled = self.style_log.book.sweep.filled;
+        let filled = self.style_log.book_mut().sweep.filled;
         if (filled + cells.min(len)) * SweepBook::LOAD.1 > len * SweepBook::LOAD.0 {
             let _ = self.freeze_off_screen();
             if let Some(f) = self.style_log.frozen.as_mut() {
@@ -578,7 +700,184 @@ impl<'a, 'b> Paint<'a, 'b> {
             f.set_thawing(Thawing::Idle);
             f.moved();
         }
-        self.style_log.book.sweep.rewrote();
+        self.style_log.book_mut().sweep.rewrote();
+    }
+
+    /// **Every retained row of the primary that names a slot but the
+    /// default, frozen through its own band's table**, in the banded mode,
+    /// before a change of width moves cells from row to row and so from
+    /// band to band: a row's ids name its band's slots and no other's. A
+    /// generation holds one band's rows, so its map reads one table. Room
+    /// is found before a row is touched: `Short` when the pool lent cannot
+    /// take every row, and then nothing is frozen.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn freeze_bands(&mut self) -> FreezeBands {
+        use crate::bands::Surface;
+        let m = self.main();
+        let s = self.view.stride().index();
+        let layout = self.style_log.layout;
+        let screen = match self.on_status() {
+            true => (true, self.strs.status.park_screen()),
+            false => (false, self.cold.screen),
+        };
+        let prim: &mut Stamped<'a> = match screen {
+            (false, Screen::Normal) => self.view.store_mut(),
+            (true, Screen::Normal) => self.status.write(&mut self.strs.status.composed),
+            (_, Screen::Alternate) => self.other.store_mut(),
+        };
+        let Some(frz) = self.style_log.frozen.as_mut() else {
+            return FreezeBands::Short;
+        };
+        let tmpl = &self.tmpl;
+        let due = m
+            .lines()
+            .filter(|&l| names_any(prim.row(m.phys(l).index())))
+            .count();
+        if due == 0 {
+            return FreezeBands::Nothing;
+        }
+        // Every row due and a default word for each generation, which is at
+        // most a row each.
+        let need = due * (s + 1);
+        if frz.room() < need {
+            frz.reclaim();
+        }
+        if frz.room() < need || frz.free_gens() < due {
+            return FreezeBands::Short;
+        }
+        let mut cur: Option<(Band, GenIdx)> = None;
+        for l in m.lines() {
+            let (at, p) = (m.at(l), m.phys(l));
+            if !names_any(prim.row(p.index())) {
+                continue;
+            }
+            let b = layout.band_of(Surface::Primary, PhysRow::of(p.index()));
+            let table = M::band(tmpl, b);
+            let placed = loop {
+                let g = match cur {
+                    Some((cb, g)) if cb == b => g,
+                    _ => {
+                        if cur.is_some() {
+                            frz.finish();
+                        }
+                        match frz.begin() {
+                            Some(g) => {
+                                cur = Some((b, g));
+                                g
+                            }
+                            None => break None,
+                        }
+                    }
+                };
+                match frz.freeze_row(g, prim.row_mut(p.index()), table) {
+                    RowFreeze::Frozen => break Some(g),
+                    RowFreeze::NoRoom if frz.table(g).words().len() <= 1 => break None,
+                    RowFreeze::NoRoom => {
+                        frz.finish();
+                        cur = None;
+                    }
+                }
+            };
+            match placed {
+                Some(g) => {
+                    frz.set_tag(
+                        p,
+                        Some(RowFrozen {
+                            line: l,
+                            at,
+                            generation: g,
+                        }),
+                    );
+                    frz.counted_frozen();
+                }
+                // Not reached: the room above holds every row due, a
+                // generation each at worst. A row left on its old ids would
+                // read another rendition once its table is emptied, so a
+                // test build stops here.
+                None => {
+                    frz.counted_unfrozen();
+                    debug_assert!(
+                        false,
+                        "a band freeze found no room the check before it promised"
+                    );
+                }
+            }
+        }
+        if cur.is_some() {
+            frz.finish();
+        }
+        frz.counted_freeze();
+        FreezeBands::Froze
+    }
+
+    /// **After a change of width in the banded mode, every row a band
+    /// freeze tagged interned again into the band it stands in now**
+    /// (`Term::frozen_resized` has tagged each by where its line landed).
+    /// Every primary band's table is emptied to its default first: no row
+    /// names its slots while all are frozen, and an emptied table holds
+    /// every rendition its rows can name ([`crate::Provision`]), so a thaw
+    /// never needs a slot a stale one holds. Then the roots are interned
+    /// again from their words -- the pen into the cursor's band, the parked
+    /// display's into its row's -- and each primary band's table is a new
+    /// one to a drawer that kept its slots. The pool is released.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn thaw_bands(&mut self) {
+        use crate::bands::Surface;
+        let layout = self.style_log.layout;
+        let (first, end) = layout.surface_bands(Surface::Primary);
+        let primary = first.up_to(end);
+        for b in primary.clone() {
+            M::at(&mut self.tmpl, b);
+            self.tmpl.as_mut()[1..].fill(None);
+            self.style_log.emptied(b);
+        }
+        let ring = self.surface(Up::Primary).0.rows();
+        if let Some(f) = self.style_log.frozen.as_mut() {
+            f.forget_map();
+            f.set_thawing(Thawing::Busy);
+        }
+        let mut last: Option<(Band, GenIdx)> = None;
+        for k in 0..ring {
+            let p = RowRot::NONE.advance(k, Rows::of_index(ring));
+            let Some(t) = self.style_log.frozen.as_ref().and_then(|f| f.tag(p)) else {
+                continue;
+            };
+            let b = layout.band_of(Surface::Primary, PhysRow::of(k));
+            if last != Some((b, t.generation)) {
+                if let Some(f) = self.style_log.frozen.as_mut() {
+                    f.forget_map();
+                }
+                M::at(&mut self.tmpl, b);
+                self.style_log.set_band(b);
+                last = Some((b, t.generation));
+            }
+            self.thaw_row(Up::Primary, t.generation, p);
+        }
+        if let Some(f) = self.style_log.frozen.as_mut() {
+            f.forget_map();
+            f.clear_tags();
+            f.clear_spare();
+            f.set_thawing(Thawing::Idle);
+            f.release();
+        }
+        // The parked display's rendition, when it is the primary's.
+        if self.on_status() && self.strs.status.park_screen() == Screen::Normal {
+            let (row, raw) = self.strs.status.parked_pen();
+            let p = self.status.rot().advance(row.index(), self.status.ring());
+            let b = layout.band_of(Surface::Primary, PhysRow::of(p.index()));
+            M::at(&mut self.tmpl, b);
+            self.style_log.set_band(b);
+            let id = self.intern_style(raw);
+            self.strs.status.set_parked_style(id);
+        }
+        // The pen, into the band the write path is in.
+        self.enter_band(self.band_of(self.cy));
+        for b in primary {
+            self.style_log.reminted(b);
+        }
+        self.style_log.book_mut().sweep.rewrote();
     }
 
     /// **A reverse scroll on the primary took a row back at the top and
@@ -654,6 +953,17 @@ impl<'a, 'b> Paint<'a, 'b> {
             f.moved();
         }
     }
+}
+
+/// What a band freeze did ([`Paint::freeze_bands`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum FreezeBands {
+    /// Every row that names a slot but the default is frozen.
+    Froze,
+    /// No row names one: nothing to carry.
+    Nothing,
+    /// No pool is lent, or it cannot take every row: nothing is frozen.
+    Short,
 }
 
 /// Whether a reverse scroll moved the rotation without the numbering: at

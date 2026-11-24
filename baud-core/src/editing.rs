@@ -70,7 +70,7 @@ pub(crate) struct Gapless;
 
 impl Writer for Gapless {
     #[inline(always)]
-    fn before(p: &mut Paint<'_, '_>, cp: Codepoint, _: Count) {
+    fn before<M: crate::bands::BandMode>(p: &mut Paint<'_, '_, M>, cp: Codepoint, _: Count) {
         p.form_step(cp);
     }
 }
@@ -81,12 +81,12 @@ pub(crate) struct Gapped;
 
 impl Writer for Gapped {
     #[inline(always)]
-    fn before(p: &mut Paint<'_, '_>, cp: Codepoint, need: Count) {
+    fn before<M: crate::bands::BandMode>(p: &mut Paint<'_, '_, M>, cp: Codepoint, need: Count) {
         p.write_slowly(cp, need);
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// **[`ModeBit::InsertShifted`] set as its conditions say**, and the
     /// graph chosen again: called wherever IRM, HEM or
     /// [`ModeBit::PresentationEdits`] change.

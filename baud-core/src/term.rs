@@ -1,6 +1,7 @@
 //! The terminal's state, and the one borrow the parser holds.
 
 use crate::bands::BandsView;
+use crate::bands::Slots;
 use crate::cwd::{DirectoriesRefused, WorkingDirectory};
 use crate::font::{FontChange, FontsRefused};
 use crate::graph::Node;
@@ -2717,6 +2718,13 @@ pub enum Resized {
         cols: Cols,
         rows: Rows,
     },
+    /// **A banded terminal kept its geometry**: a change of width moves cells
+    /// from row to row and so from one band's table to another's, and
+    /// carries their renditions through generations (`crate::freeze`). A
+    /// storage lent none, or too few for every row, cannot carry them, and
+    /// the resize is refused rather than letting a cell name another band's
+    /// slot. Its rows and columns are the ones it had.
+    BandsUnlent,
 }
 
 impl<'b> Term<'b> {
@@ -3156,6 +3164,16 @@ impl<'b> Term<'b> {
             rows,
             cols,
         };
+        // **A banded terminal carries its renditions through a change of
+        // width in generations** (`Paint::freeze_bands`), every row frozen
+        // through its band's table before anything here moves one, and
+        // keeps its geometry when its pool cannot take them all.
+        if self.store.bands.is_banded()
+            && cols.index() != old_cols.index()
+            && self.bands_frozen() == crate::freeze::FreezeBands::Short
+        {
+            return (Resized::BandsUnlent, crate::record::Following::Followed);
+        }
         // Where the cursor was, which an open aligned string left it at.
         let before = (self.cy, self.cx);
         // The column a pending wrap waits on, which the steps below keep it
@@ -4070,27 +4088,15 @@ impl<'b> Term<'b> {
             self.cold.left = Col::ZERO;
             self.cold.right = last;
         }
-        let mut p = crate::paint::Paint::new(
-            &mut self.store,
-            self.cy,
-            self.cx,
-            self.rows,
-            self.cols,
-            self.cell_height,
-            self.cell_width,
-            self.rot,
-            self.style,
-            self.style_raw,
-            self.flags,
-            self.charset,
-            self.cluster,
-            self.last_cp,
-            &mut self.cold,
-            self.title_len,
-            self.icon_len,
-            self.link,
-        );
-        p.refence();
+        // In the band mode the storage has, as every `Paint` outside a read.
+        struct Refence;
+        impl PaintJob for Refence {
+            type Out = ();
+            fn run<M: crate::bands::BandMode>(self, p: &mut crate::paint::Paint<'_, '_, M>) {
+                p.refence();
+            }
+        }
+        self.outside_read(Refence);
     }
 
     /// **The in-band report, after the resize is complete.** The
@@ -4129,9 +4135,7 @@ impl<'b> Term<'b> {
         //
         // Written and logged once, when the table is new: a storage lent again
         // has slot 0 already, and its log already holds the write.
-        if store.style_log.book.writes == StyleWrites::NEVER {
-            crate::bands::seed_default(&mut store.tmpl, &mut store.style_log);
-        }
+        crate::bands::seed_defaults(&mut store.tmpl, &mut store.style_log);
         // The dynamic colours restart with `Cold`, and the palette does not:
         // what a rendition resolves through may have changed.
         store.style_log.colors_moved();
@@ -4252,7 +4256,10 @@ impl<'b> Term<'b> {
     /// and takes [`Viewport::parts`] otherwise.
     pub fn viewport(&self) -> Viewport<'_> {
         let (cells, used, ring, rot) = self.surface();
-        let live = self.store.tmpl.live();
+        let live = self.store.live_bands(match self.cold.screen {
+            Screen::Normal => crate::bands::Surface::Primary,
+            Screen::Alternate => crate::bands::Surface::Alt,
+        });
         let v = Viewport::stored(
             cells,
             used,
@@ -4304,7 +4311,10 @@ impl<'b> Term<'b> {
                 Rows::ZERO,
             ),
         };
-        let live = self.store.tmpl.live();
+        let live = self.store.live_bands(match screen {
+            Screen::Normal => crate::bands::Surface::Primary,
+            Screen::Alternate => crate::bands::Surface::Alt,
+        });
         let v = Viewport::stored(
             cells,
             used,
@@ -4684,7 +4694,7 @@ impl<'b> Term<'b> {
             self.store.ring_rows(),
             self.rot,
             self.store.book.hist,
-            self.store.tmpl.live(),
+            self.store.live_bands(crate::bands::Surface::Primary),
         );
         // A retained line that was frozen names ids in its generation's
         // words (`Scrollback::styles`), whichever screen is up.
@@ -4712,15 +4722,17 @@ impl<'b> Term<'b> {
     /// view asks before it resolves the line's cells; a line the ring no
     /// longer holds reads live.
     pub fn line_styles(&self, line: LineIdx) -> RowStyles<'_> {
-        let live = self.store.tmpl.live();
+        let m = self.frozen_main(self.rows);
+        let p = m.phys(line);
+        let live = self
+            .store
+            .live_bands(crate::bands::Surface::Primary)
+            .table(p);
         let Some(f) = self.store.style_log.frozen.as_ref().filter(|f| f.any()) else {
             return RowStyles::Live(live);
         };
-        let m = self.frozen_main(self.rows);
-        match m.line_of(m.phys(line)) == Some(line) {
-            true => f
-                .rows(m.top, m.rows, m.screen())
-                .styles(m.phys(line), line, live),
+        match m.line_of(p) == Some(line) {
+            true => f.rows(m.top, m.rows, m.screen()).styles(p, line, live),
             false => RowStyles::Live(live),
         }
     }
@@ -4752,6 +4764,22 @@ impl<'b> Term<'b> {
         }
     }
 
+    /// **Every retained row of the primary frozen through its band's table**
+    /// before a change of width in the banded mode (`Paint::freeze_bands`).
+    fn bands_frozen(&mut self) -> crate::freeze::FreezeBands {
+        struct Freeze;
+        impl PaintJob for Freeze {
+            type Out = crate::freeze::FreezeBands;
+            fn run<M: crate::bands::BandMode>(
+                self,
+                p: &mut crate::paint::Paint<'_, '_, M>,
+            ) -> Self::Out {
+                p.freeze_bands()
+            }
+        }
+        self.outside_read(Freeze)
+    }
+
     /// **Before a resize moves a row: each row's generation, where its tag
     /// holds, kept in the spare by its physical row, and every tag
     /// cleared.** The height step moves the window over the rows and the
@@ -4760,6 +4788,9 @@ impl<'b> Term<'b> {
     /// to keep.
     fn frozen_held(&mut self) -> FrozenResize {
         let m = self.frozen_main(self.rows);
+        // A band freeze tags the screen's rows too (`Paint::freeze_bands`):
+        // a tag there holds while its row holds its line.
+        let banded = self.store.bands.is_banded();
         let Some(f) = self.store.style_log.frozen.as_mut().filter(|f| f.any()) else {
             return FrozenResize::Untouched;
         };
@@ -4768,7 +4799,10 @@ impl<'b> Term<'b> {
             let p = RowRot::NONE.advance(p, m.ring);
             let g = f
                 .tag(p)
-                .filter(|t| m.holds(p, *t))
+                .filter(|t| match banded {
+                    true => m.line_of(p) == Some(t.line),
+                    false => m.holds(p, *t),
+                })
                 .and_then(|t| f.valid(p, t.line, t.at));
             f.set_spare(p, g);
         }
@@ -4790,7 +4824,8 @@ impl<'b> Term<'b> {
         let ring = m.ring;
         let n = m.hist.index() + m.rows.index() + m.hidden.index();
         let base = m.rot.retreat(m.hist.index(), ring);
-        let slots = self.store.tmpl.as_slice().len();
+        // A generation is one table's at most: the band's, in the banded mode.
+        let slots = self.store.style_log.band_slots().0;
         let mut prim = self.store.surfaces.stamped(Which::Primary);
         let live = self.store.tmpl.as_slice();
         let Some(f) = self.store.style_log.frozen.as_mut() else {
@@ -4890,28 +4925,28 @@ impl<'b> Term<'b> {
         }
         f.clear_spare();
         f.moved();
+        // In the banded mode every row comes back into its band, on the
+        // screen and off it: nothing stays frozen past a resize.
+        if self.store.bands.is_banded() {
+            struct ThawBands;
+            impl PaintJob for ThawBands {
+                type Out = ();
+                fn run<M: crate::bands::BandMode>(self, p: &mut crate::paint::Paint<'_, '_, M>) {
+                    p.thaw_bands();
+                }
+            }
+            self.outside_read(ThawBands);
+            return;
+        }
         if self.cold.screen == Screen::Normal {
-            let mut p = crate::paint::Paint::new(
-                &mut self.store,
-                self.cy,
-                self.cx,
-                self.rows,
-                self.cols,
-                self.cell_height,
-                self.cell_width,
-                self.rot,
-                self.style,
-                self.style_raw,
-                self.flags,
-                self.charset,
-                self.cluster,
-                self.last_cp,
-                &mut self.cold,
-                self.title_len,
-                self.icon_len,
-                self.link,
-            );
-            p.thaw_screen();
+            struct Thaw;
+            impl PaintJob for Thaw {
+                type Out = ();
+                fn run<M: crate::bands::BandMode>(self, p: &mut crate::paint::Paint<'_, '_, M>) {
+                    p.thaw_screen();
+                }
+            }
+            self.outside_read(Thaw);
         }
     }
 
@@ -4996,7 +5031,7 @@ impl<'b> Term<'b> {
                 Rows::of_count(1),
                 Rows::of_count(1),
                 RowRot::NONE,
-                self.store.tmpl.live(),
+                self.store.live_bands(crate::bands::Surface::Status),
             )
         })
     }
@@ -5153,32 +5188,23 @@ impl<'b> Term<'b> {
     /// read builds one, and the one thing the pin changes that is carried
     /// by value, the cursor's row, carried back.
     fn pin_prompt_now(&mut self) {
-        let mut p = crate::paint::Paint::new(
-            &mut self.store,
-            self.cy,
-            self.cx,
-            self.rows,
-            self.cols,
-            self.cell_height,
-            self.cell_width,
-            self.rot,
-            self.style,
-            self.style_raw,
-            self.flags,
-            self.charset,
-            self.cluster,
-            self.last_cp,
-            &mut self.cold,
-            self.title_len,
-            self.icon_len,
-            self.link,
-        );
-        p.pin_prompt_block();
-        self.cy = p.cy;
-        self.cells_written += p.cells.index();
-        p.strs
-            .link_book
-            .read_ends(p.cells, baud_domain::ReadLen::ZERO);
+        struct Pin;
+        impl PaintJob for Pin {
+            type Out = (Row, usize);
+            fn run<M: crate::bands::BandMode>(
+                self,
+                p: &mut crate::paint::Paint<'_, '_, M>,
+            ) -> (Row, usize) {
+                p.pin_prompt_block();
+                p.strs
+                    .link_book
+                    .read_ends(p.cells, baud_domain::ReadLen::ZERO);
+                (p.cy, p.cells.index())
+            }
+        }
+        let (cy, cells) = self.outside_read(Pin);
+        self.cy = cy;
+        self.cells_written += cells;
     }
 
     /// What [`Term::set_prompt_at_bottom`] last set.
@@ -5868,7 +5894,7 @@ impl<'b> Term<'b> {
             self.rows,
             self.store.ring_rows(),
             self.rot,
-            self.store.tmpl.live(),
+            self.store.live_bands(crate::bands::Surface::Primary),
         )
         .past_edge_check(
             self.store.book.reach,
@@ -5914,19 +5940,31 @@ impl<'b> Term<'b> {
     /// reads. `None` is a slot nothing was minted in, and reads as
     /// [`StyleWord::DEFAULT`].
     pub fn styles(&self) -> BandsView<'_> {
-        BandsView::of(self.store.tmpl.live())
+        BandsView::of(
+            self.store.tmpl.as_slice(),
+            self.store.style_log.band_slots(),
+        )
     }
 
     /// Which rendition table this terminal writes: a renderer that caches
     /// what it resolved keeps the serial it resolved against.
     pub fn style_table(&self) -> TableSerial {
-        self.store.style_log.book.table
+        self.store.style_log.book().table
+    }
+
+    /// **Each band's rendition table, in band order**: a drawer that
+    /// resolved a band keeps the serial it resolved against and resolves
+    /// the band again when its serial moves, which a change of width in
+    /// the banded mode does for every band of the primary (`crate::freeze`).
+    /// One serial, [`Term::style_table`]'s, in the single mode.
+    pub fn band_tables(&self) -> impl ExactSizeIterator<Item = TableSerial> + '_ {
+        self.store.style_log.tables()
     }
 
     /// How many writes the rendition table has taken, for a reader to ask
     /// later what changed since ([`Term::styles_written`]).
     pub fn style_writes(&self) -> StyleWrites {
-        self.store.style_log.book.writes
+        self.store.style_log.book().writes
     }
 
     /// **What the rendition table has reclaimed**: evictions, sweeps and the
@@ -5935,7 +5973,7 @@ impl<'b> Term<'b> {
     /// cells, and a slot a sweep freed can be given another rendition at a
     /// position the last frame showed in the old one.
     pub fn style_reclaims(&self) -> Reclaims {
-        self.store.style_log.book.sweep.reclaims
+        self.store.style_log.book().sweep.reclaims
     }
 
     /// **Slots read by the rendition table's long probes**: every probe
@@ -5944,7 +5982,7 @@ impl<'b> Term<'b> {
     /// table with no empty slot reads to its bucket's [`Reach`], not the
     /// whole table.
     pub fn style_probes(&self) -> SlotsRead {
-        self.store.style_log.book.sweep.probes
+        self.store.style_log.book().sweep.probes
     }
 
     /// **The slots written since a count**, oldest first, as up to two slices
@@ -5955,9 +5993,10 @@ impl<'b> Term<'b> {
     /// every live slot until the table has filled.
     pub fn styles_written(&self, since: StyleWrites) -> Written<'_> {
         let log = &self.store.style_log;
-        match log.book.writes.replay(since, log.order.len()) {
+        let order = log.order();
+        match log.book().writes.replay(since, order.len()) {
             Replay::Every => Written::Every,
-            Replay::Entries([a, b]) => Written::Slots([&log.order[a], &log.order[b]]),
+            Replay::Entries([a, b]) => Written::Slots([&order[a], &order[b]]),
         }
     }
 
@@ -5965,7 +6004,7 @@ impl<'b> Term<'b> {
     /// entry, or the default foreground or background. A renderer resolves
     /// the table again under a new epoch.
     pub fn color_epoch(&self) -> ColorEpoch {
-        self.store.style_log.book.colors
+        self.store.style_log.book().colors
     }
 
     /// The live surface's ring as the core holds it: [`Term::ring`] rows of
@@ -8005,6 +8044,52 @@ impl Term<'_> {
     /// so an embedder owes a frame after a key, not after the next read.
     pub fn local_echo(&self) -> bool {
         !self.cold.modes.is_set(ModeBit::SendReceive)
+    }
+}
+
+/// **Work a `Paint` does outside a read** ([`Term::outside_read`]): run on a
+/// `Paint` of whichever band mode the storage has.
+pub(crate) trait PaintJob {
+    type Out;
+    fn run<M: crate::bands::BandMode>(self, p: &mut crate::paint::Paint<'_, '_, M>) -> Self::Out;
+}
+
+impl Term<'_> {
+    /// **`job` on a `Paint` built as a read builds one**, of the storage's
+    /// band mode, and the pen carried back as a read carries it: a banded
+    /// write path may have interned it into another band.
+    pub(crate) fn outside_read<J: PaintJob>(&mut self, job: J) -> J::Out {
+        match self.store.bands.is_banded() {
+            true => self.outside_read_in::<crate::bands::ManyBands, J>(job),
+            false => self.outside_read_in::<crate::bands::OneBand, J>(job),
+        }
+    }
+
+    fn outside_read_in<M: crate::bands::BandMode, J: PaintJob>(&mut self, job: J) -> J::Out {
+        let mut p = crate::paint::Paint::<M>::new(
+            &mut self.store,
+            self.cy,
+            self.cx,
+            self.rows,
+            self.cols,
+            self.cell_height,
+            self.cell_width,
+            self.rot,
+            self.style,
+            self.style_raw,
+            self.flags,
+            self.charset,
+            self.cluster,
+            self.last_cp,
+            &mut self.cold,
+            self.title_len,
+            self.icon_len,
+            self.link,
+        );
+        let out = job.run(&mut p);
+        let style = p.style;
+        self.style = style;
+        out
     }
 }
 

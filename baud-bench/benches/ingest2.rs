@@ -372,7 +372,7 @@ fn main() {
             baud_core::StyleTable {
                 slots: &mut tmpl,
                 order: &mut order,
-                book: &mut book,
+                books: core::slice::from_mut(&mut book),
                 reach: &mut reach,
             },
             &mut tabs,

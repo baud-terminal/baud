@@ -11,7 +11,7 @@ use crate::paint::{Paint, Pen};
 use crate::write::glyph_any;
 use baud_domain::*;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// A byte `A0-FF` under ISO 8859-1: the character of the set GR invokes
     /// at the byte's 7-bit code (`[[source: ecma35]]` 8.3.2; `[[source:
     /// dec-std-070]]` 070-5 p. 5-140, `code = parv[0] & 0x7F` with the GR

@@ -145,7 +145,7 @@ impl Clip {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// The body just became `52;`: what follows is a clipboard string.
     #[cold]
     #[inline(never)]
@@ -260,7 +260,7 @@ impl Paint<'_, '_> {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// **A `1337;Copy=` body reached its `:`**, the header before it in
     /// `pending` up to `colon`: a whole copy streams from here, and so does
     /// a piece of the segmented copy open under its `uid`. Any other header

@@ -93,7 +93,7 @@ impl Cwd {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// An `OSC 7` read: kept, or refused and counted, and either way it
     /// replaces the directory known before it. One naming a host also
     /// names the host the session is on (`crate::SessionHost`); one naming

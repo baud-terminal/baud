@@ -52,7 +52,7 @@ use crate::paint::Paint;
 use crate::term::Screen;
 use baud_domain::ModeBit;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// SCP: the direction in force, and at once the paragraph holding the
     /// cursor's line; `Ps2` 1 moves the cursor to the line's first
     /// character position, as `CHA 1` addresses it.

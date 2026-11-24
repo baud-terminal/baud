@@ -507,6 +507,11 @@ impl<'a> FrozenStore<'a> {
         self.words.len() - self.book.used
     }
 
+    /// The generation records free past the last one begun.
+    pub fn free_gens(&self) -> usize {
+        self.gens.len() - self.book.gens
+    }
+
     /// **A new generation at the pool's end**, its id 0 the default as the
     /// table's slot 0 is, or `None` when no record or word is free.
     pub fn begin(&mut self) -> Option<GenIdx> {
@@ -997,6 +1002,50 @@ impl<'a> LiveTable<'a> {
 
     pub fn is_empty(&self) -> bool {
         self.slots.is_empty()
+    }
+}
+
+/// **The live tables a surface's rows resolve through**: one table of every
+/// row in the single mode, or a table each band of `rows` physical rows,
+/// `band_slots` slots each, in band order.
+#[derive(Clone, Copy, Debug)]
+pub struct LiveBands<'a> {
+    slots: &'a [Option<StyleWord>],
+    band_slots: usize,
+    /// The rows a band holds; 0 for one table of every row.
+    rows: usize,
+}
+
+impl<'a> LiveBands<'a> {
+    /// One table every row resolves through.
+    pub fn one(table: LiveTable<'a>) -> LiveBands<'a> {
+        LiveBands {
+            slots: table.slots(),
+            band_slots: table.len(),
+            rows: 0,
+        }
+    }
+
+    /// A table each band of `rows` rows, `band_slots` slots each, over
+    /// `slots`.
+    pub fn banded(slots: &'a [Option<StyleWord>], band_slots: usize, rows: Rows) -> LiveBands<'a> {
+        LiveBands {
+            slots,
+            band_slots,
+            rows: rows.index().max(1),
+        }
+    }
+
+    /// **The table physical row `p` resolves through**: its band's.
+    #[inline(always)]
+    pub fn table(&self, p: RowRot) -> LiveTable<'a> {
+        match self.rows {
+            0 => LiveTable::of(self.slots),
+            r => {
+                let at = (p.index() / r) * self.band_slots;
+                LiveTable::of(self.slots.get(at..at + self.band_slots).unwrap_or(&[]))
+            }
+        }
     }
 }
 

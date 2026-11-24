@@ -10,12 +10,13 @@
 //! body byte (`Paint::str_put`). The graph's tables are what they were, so
 //! the text path's are too.
 
+use crate::bands::Slots;
 use crate::osc::StrKind;
 use crate::paint::Paint;
 use crate::term::Term;
 use baud_domain::*;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// The `G` of an `APC G`: a kitty graphics chunk begins.
     #[cold]
     #[inline(never)]
@@ -319,33 +320,24 @@ impl Term<'_> {
         if self.store.strs.kitty.file_owed() == KittyFileOwed::No {
             return;
         }
-        let mut p = crate::paint::Paint::new(
-            &mut self.store,
-            self.cy,
-            self.cx,
-            self.rows,
-            self.cols,
-            self.cell_height,
-            self.cell_width,
-            self.rot,
-            self.style,
-            self.style_raw,
-            self.flags,
-            self.charset,
-            self.cluster,
-            self.last_cp,
-            &mut self.cold,
-            self.title_len,
-            self.icon_len,
-            self.link,
-        );
-        p.kitty_file_done(read);
-        self.cy = p.cy;
-        self.cx = p.cx;
-        let rots = (p.view.rot(), p.other.rot());
-        self.cells_written += p.cells.index();
-        p.strs.link_book.read_ends(p.cells, ReadLen::ZERO);
-        drop(p);
+        // In the band mode the storage has, as every `Paint` outside a read.
+        struct FileDone(Result<(), KittyFileFailed>);
+        impl crate::term::PaintJob for FileDone {
+            type Out = (Row, CursorCol, (RowRot, RowRot), usize);
+            fn run<M: crate::bands::BandMode>(
+                self,
+                p: &mut Paint<'_, '_, M>,
+            ) -> (Row, CursorCol, (RowRot, RowRot), usize) {
+                p.kitty_file_done(self.0);
+                let rots = (p.view.rot(), p.other.rot());
+                p.strs.link_book.read_ends(p.cells, ReadLen::ZERO);
+                (p.cy, p.cx, rots, p.cells.index())
+            }
+        }
+        let (cy, cx, rots, cells) = self.outside_read(FileDone(read));
+        self.cy = cy;
+        self.cx = cx;
+        self.cells_written += cells;
         self.set_rots(rots);
     }
 

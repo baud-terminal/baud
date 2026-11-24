@@ -228,6 +228,11 @@ impl Csi {
     /// building a `Params` at all. `parse_one` returns `None` for `38`/`48`
     /// and anything it does not recognise, so an unhandled attribute falls
     /// through to the general loop rather than being dropped.
+    ///
+    /// **Inlined at every call**, as LLVM chose for it while `Paint` was not
+    /// generic; the generic `Paint` tipped its estimate and the call cost
+    /// less +1.1% of instructions on its own.
+    #[inline(always)]
     pub(crate) fn fold_sgr(&self, raw: &mut StyleWord) {
         let n = self.count().index();
         // **One parameter, and the range chain beat both alternatives.**
@@ -324,8 +329,8 @@ impl Csi {
 /// `BytePos`, `ReadLen`, `ByteLen` and `Count`, not nine `usize`.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
-pub(crate) fn act(
-    p: &mut Paint<'_, '_>,
+pub(crate) fn act<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
     a: Act,
     node: &mut Node,
     enc: &mut InputEncoding,
@@ -1046,7 +1051,11 @@ pub const RUN_SCAN: RunScan = RunScan::Portable;
 /// tail. **Zero only for `Paint::str_run`**, which calls it on any string
 /// body byte; the table names `Text` only for a byte that is one.
 #[inline(always)]
-pub(crate) fn run_of_text(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> ByteLen {
+pub(crate) fn run_of_text<M: crate::bands::BandMode>(
+    p: &Paint<'_, '_, M>,
+    from: BytePos,
+    left: ReadLen,
+) -> ByteLen {
     let left = left.index();
     let s = StreamByte::slice_from(&p.arena[from.index()..from.index() + left]);
     let mut n = 0usize;
@@ -1119,7 +1128,12 @@ pub(crate) fn run_of_text(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> By
 /// run scan at all before this**, one character each by omission, and they are
 /// 7% and 25% of `cat-cjk.raw`'s dispatched actions.
 #[inline(always)]
-fn chars(p: &mut Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> ReadLen {
+fn chars<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
+    from: BytePos,
+    left: ReadLen,
+    len: ByteLen,
+) -> ReadLen {
     let k = run_of(p, from, left, len);
     // **The run scan, priced by doing it twice.** Same bytes, same answer,
     // every counter unchanged. It is **7% of cat-cjk** -- the largest single
@@ -1249,7 +1263,12 @@ fn maximal_subpart(s: &[StreamByte], len: ByteLen) -> ReadLen {
 /// **Never zero**: the graph only names a character action for a byte that
 /// leads one, and the split test has already established its bytes are here.
 #[inline(always)]
-fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Count {
+fn run_of<M: crate::bands::BandMode>(
+    p: &Paint<'_, '_, M>,
+    from: BytePos,
+    left: ReadLen,
+    len: ByteLen,
+) -> Count {
     let (left, len) = (left.index(), len.index());
     let s = StreamByte::slice_from(&p.arena[from.index()..from.index() + left]);
     // **The median run here is one character, and one byte test says so
@@ -1362,7 +1381,7 @@ fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Coun
 /// paying for a buffer to hold one codepoint, plus the `all_wide` bookkeeping
 /// and the writer choice that a run of one has already settled.
 #[inline(always)]
-fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
+fn put_one<M: crate::bands::BandMode>(p: &mut Paint<'_, '_, M>, from: BytePos, len: ByteLen) {
     #[cfg(feature = "diag")]
     {
         p.runs[1] += 1;
@@ -1491,8 +1510,8 @@ fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
 /// 3-9). Decoding one to a single replacement here, as this did, wrote one
 /// where the standard's practice writes three or four.
 #[inline(always)]
-fn put_run(
-    p: &mut Paint<'_, '_>,
+fn put_run<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
     from: BytePos,
     len: ByteLen,
     count: Count,
@@ -1766,7 +1785,7 @@ fn put_run(
 /// an ill-formed byte, and the three arms are the error path.
 #[cold]
 #[inline(never)]
-fn replace(p: &mut Paint<'_, '_>) {
+fn replace<M: crate::bands::BandMode>(p: &mut Paint<'_, '_, M>) {
     p.replacements += 1;
     glyph_any(p, Codepoint::REPLACEMENT, Pen::Decoded);
 }
@@ -1785,7 +1804,7 @@ fn replace(p: &mut Paint<'_, '_>) {
 /// recording holds a `SUB`, and none more than twelve `BEL`s.
 #[cold]
 #[inline(never)]
-fn signal(p: &mut Paint<'_, '_>, b: StreamByte) -> ReadLen {
+fn signal<M: crate::bands::BandMode>(p: &mut Paint<'_, '_, M>, b: StreamByte) -> ReadLen {
     if b.is(StreamByte::BEL) {
         p.bells += 1;
         return ReadLen::ONE;
@@ -1813,8 +1832,8 @@ fn signal(p: &mut Paint<'_, '_>, b: StreamByte) -> ReadLen {
 /// graph is the text path's again, and the next byte is read by it.
 #[cold]
 #[inline(never)]
-fn eight(
-    p: &mut Paint<'_, '_>,
+fn eight<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
     a: Act,
     from: BytePos,
     left: ReadLen,
@@ -1832,7 +1851,7 @@ fn eight(
                 p.received(cp, None);
                 glyph_formed(p, cp, Pen::Decoded)
             }
-            false => glyph_eight::<Plain>(p, utf8.finish(*min), Pen::Decoded),
+            false => glyph_eight::<_, Plain>(p, utf8.finish(*min), Pen::Decoded),
         }
         return ReadLen::ONE;
     }
@@ -1875,7 +1894,7 @@ fn eight(
             p.received(Codepoint::decoded(raw), None);
             glyph_formed(p, Codepoint::decoded(raw), Pen::Decoded)
         }
-        false => glyph_eight::<Plain>(p, Codepoint::decoded(raw), Pen::Decoded),
+        false => glyph_eight::<_, Plain>(p, Codepoint::decoded(raw), Pen::Decoded),
     }
     ReadLen::of_bytes(len)
 }
@@ -1884,13 +1903,17 @@ fn eight(
 /// writers outside the text path, a GR byte, a single shift, `DEL` in a
 /// 96-character set, a `SUB`'s mark and a replacement; by SAPV's writer
 /// while a form waits or was just taken.
-pub(crate) fn glyph_any(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
+pub(crate) fn glyph_any<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
+    cp: Codepoint,
+    pen: Pen,
+) {
     if crate::variants::form_read(p.cold.modes) == crate::graph::FormRead::OneByOne {
         return glyph_formed(p, cp, pen);
     }
     match p.cold.widths.widths() {
         UnicodeWidths::Current => glyph_with(p, cp, pen),
-        UnicodeWidths::Eight => glyph_eight::<Plain>(p, cp, pen),
+        UnicodeWidths::Eight => glyph_eight::<_, Plain>(p, cp, pen),
     }
 }
 
@@ -1901,10 +1924,14 @@ pub(crate) fn glyph_any(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
 /// and leaves a form as it was.
 #[cold]
 #[inline(never)]
-pub(crate) fn glyph_formed(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
+pub(crate) fn glyph_formed<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
+    cp: Codepoint,
+    pen: Pen,
+) {
     match p.cold.widths.widths() {
-        UnicodeWidths::Current => glyph_with_by::<Formed>(p, cp, pen),
-        UnicodeWidths::Eight => glyph_eight::<Formed>(p, cp, pen),
+        UnicodeWidths::Current => glyph_with_by::<_, Formed>(p, cp, pen),
+        UnicodeWidths::Eight => glyph_eight::<_, Formed>(p, cp, pen),
     }
 }
 
@@ -1912,7 +1939,11 @@ pub(crate) fn glyph_formed(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
 /// from the version's code ([`Classified::width`]).
 #[cold]
 #[inline(never)]
-fn glyph_eight<W: Writer>(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
+fn glyph_eight<M: crate::bands::BandMode, W: Writer>(
+    p: &mut Paint<'_, '_, M>,
+    cp: Codepoint,
+    pen: Pen,
+) {
     #[cfg(feature = "ceiling-no-classify")]
     let w = Width::NARROW;
     #[cfg(not(feature = "ceiling-no-classify"))]
@@ -1945,7 +1976,7 @@ fn glyph_eight<W: Writer>(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
 /// incorrect by construction and both move `cells_written`, so a pair that
 /// disagrees there is not measuring what it says.
 #[inline(always)]
-fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
+fn glyph<M: crate::bands::BandMode>(p: &mut Paint<'_, '_, M>, cp: Codepoint) {
     glyph_with(p, cp, Pen::Decoded);
 }
 
@@ -1955,13 +1986,21 @@ fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
 /// current tables: the graph sends no character here under Unicode 8, and
 /// [`glyph_any`] asks the version for the writers it does not route.
 #[inline(always)]
-pub(crate) fn glyph_with(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
-    glyph_with_by::<Plain>(p, cp, pen);
+pub(crate) fn glyph_with<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
+    cp: Codepoint,
+    pen: Pen,
+) {
+    glyph_with_by::<_, Plain>(p, cp, pen);
 }
 
 /// [`glyph_with`] by the writer `W` ([`Writer`]).
 #[inline(always)]
-fn glyph_with_by<W: Writer>(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
+fn glyph_with_by<M: crate::bands::BandMode, W: Writer>(
+    p: &mut Paint<'_, '_, M>,
+    cp: Codepoint,
+    pen: Pen,
+) {
     #[cfg(feature = "ceiling-no-classify")]
     let w = Width::NARROW;
     #[cfg(not(feature = "ceiling-no-classify"))]
@@ -2121,13 +2160,18 @@ pub(crate) const fn csi_op_of(f: FinalByte) -> CsiOp {
 /// one takes: DECRSTS's restore, a field at a time.
 #[cold]
 #[inline(never)]
-pub(crate) fn replay(p: &mut Paint<'_, '_>, bytes: &[u8], node: &mut Node, at: BytePos) {
+pub(crate) fn replay<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
+    bytes: &[u8],
+    node: &mut Node,
+    at: BytePos,
+) {
     if let Some((csi, f)) = Csi::control(bytes) {
         csi_final(p, &csi, f, node, at);
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// `S7C1T` and `S8C1T`: which controls the replies use. `S8C1T` "if
     /// (conformance_level != LEVEL_1)" (`[[source: dec-std-070]]` 070-3 p.
     /// 3-72): Level 1 is seven-bit only, so there it is counted and changes
@@ -2166,7 +2210,13 @@ impl Paint<'_, '_> {
 /// a per-byte body costs every payload whether or not it executes.
 #[cold]
 #[inline(never)]
-fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at: BytePos) {
+fn csi_final<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
+    csi: &Csi,
+    f: FinalByte,
+    node: &mut Node,
+    at: BytePos,
+) {
     #[cfg(feature = "probe-no-csi-op")]
     {
         let _ = (&p, &csi, f, &node, at);
@@ -2195,7 +2245,13 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
 /// finals, paid on each.
 #[cold]
 #[inline(never)]
-fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at: BytePos) {
+fn csi_dispatch<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
+    csi: &Csi,
+    f: FinalByte,
+    node: &mut Node,
+    at: BytePos,
+) {
     let lrm = match p.cold.modes.is_set(ModeBit::SideMargins) {
         true => MarginMode::On,
         false => MarginMode::Off,
@@ -2973,7 +3029,7 @@ fn esc_writes_no_cell(csi: &Csi, b: StreamByte) -> bool {
 /// honest: an application that reads it then draws with Sixel rather than a
 /// text fallback, and an unprovisioned baud that refuses every Sixel must not
 /// claim it.
-fn primary_device_attributes(p: &mut Paint<'_, '_>) {
+fn primary_device_attributes<M: crate::bands::BandMode>(p: &mut Paint<'_, '_, M>) {
     p.want_reply(Report::PrimaryDeviceAttributes(match p.sixel_claim() {
         SixelClaim::No => DeviceAttribute::Vt100Avo,
         SixelClaim::Yes => DeviceAttribute::Vt102Sixel,
@@ -2986,8 +3042,8 @@ fn primary_device_attributes(p: &mut Paint<'_, '_>) {
 /// call a byte.
 #[cold]
 #[inline(never)]
-fn esc_final(
-    p: &mut Paint<'_, '_>,
+fn esc_final<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
     csi: &Csi,
     b: StreamByte,
     enc: &mut InputEncoding,
@@ -3293,7 +3349,11 @@ fn esc_final(
 /// tail cannot drift from the vector body.
 #[inline(always)]
 #[cfg(feature = "two-pass-csi")]
-fn final_byte_at(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> Option<ByteLen> {
+fn final_byte_at<M: crate::bands::BandMode>(
+    p: &Paint<'_, '_, M>,
+    from: BytePos,
+    left: ReadLen,
+) -> Option<ByteLen> {
     let s = StreamByte::slice_from(&p.arena[from.index()..from.index() + left.index()]);
     let (lo, hi) = (StreamByte::from_stream(0x40), StreamByte::from_stream(0x7e));
     let mut n = 0usize;
@@ -3345,8 +3405,8 @@ fn final_byte_at(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> Option<Byte
 /// and the parameter walk are small; only `csi_final`'s match is big, and that
 /// is `#[cold]` on its own.
 #[inline(always)]
-fn fast_csi(
-    p: &mut Paint<'_, '_>,
+fn fast_csi<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
     csi: &mut Csi,
     from: BytePos,
     left: ReadLen,
@@ -3703,8 +3763,8 @@ fn fast_csi(
 /// the corpus sends: `ESC [ ... final`, `ESC <intermediate> <final>` -- the
 /// character-set designators -- and the bare two-byte `ESC <final>`.
 #[inline(always)]
-fn fast_esc(
-    p: &mut Paint<'_, '_>,
+fn fast_esc<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
     csi: &mut Csi,
     from: BytePos,
     left: ReadLen,
@@ -3777,7 +3837,7 @@ fn fast_esc(
 /// what stops every other payload paying for it.
 #[cfg(feature = "sgr-table")]
 #[inline(never)]
-fn sgr_from_table(p: &mut Paint<'_, '_>, seq: &[StreamByte]) -> bool {
+fn sgr_from_table<M: crate::bands::BandMode>(p: &mut Paint<'_, '_, M>, seq: &[StreamByte]) -> bool {
     if seq.len() > SGR_KEY_BYTES {
         return false;
     }
@@ -3799,7 +3859,11 @@ fn sgr_from_table(p: &mut Paint<'_, '_>, seq: &[StreamByte]) -> bool {
 /// lookups.
 #[cfg(feature = "sgr-table")]
 #[inline(never)]
-fn sgr_into_table(p: &mut Paint<'_, '_>, csi: &Csi, seq: &[StreamByte]) {
+fn sgr_into_table<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
+    csi: &Csi,
+    seq: &[StreamByte],
+) {
     if let Some(key) = SgrKey::of(seq) {
         let fold = StyleFold::derive(|w| csi.fold_sgr(w));
         p.cold.sgr[SgrKey::bucket_of(seq, NSGR)] = SgrSlot { key, fold };

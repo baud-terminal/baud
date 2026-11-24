@@ -284,7 +284,7 @@ impl KittyColours {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// The body is `21;`: what follows is kitty's records.
     #[cold]
     #[inline(never)]

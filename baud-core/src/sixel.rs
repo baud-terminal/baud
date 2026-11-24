@@ -34,7 +34,7 @@ use crate::paint::Paint;
 use crate::term::{Screen, SixelBg};
 use baud_domain::*;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// Begin the decoder for a Sixel drawn at `aspect`. **Out of line**: it
     /// reads the modes, the foreground and the screen's height, which the
     /// byte loop does not, and inlined into `Act::SixelStart` it grew the

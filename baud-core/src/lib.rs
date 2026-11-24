@@ -67,7 +67,7 @@ mod iterm;
 pub use graph::Hist;
 mod aligned;
 mod bands;
-pub use bands::BandsView;
+pub use bands::{BAND_RESERVED, BandsView};
 mod bounds;
 mod component;
 mod extent;

@@ -31,7 +31,7 @@ use crate::paint::Paint;
 use crate::storage::LINK_MAX;
 use crate::term::Screen;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// The slot for `uri` under `key`, taken if it is new: `NONE`, counted,
     /// when the table has none to give.
     pub(crate) fn intern_link(&mut self, key: LinkKey, uri: &[u8]) -> LinkId {

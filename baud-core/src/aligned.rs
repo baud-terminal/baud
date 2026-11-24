@@ -176,7 +176,7 @@ impl Aligned {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// **Character `cp` received at code table position `code`**, or
     /// decoded (`None`), from the entries that write while a string is
     /// open: a GL code by a form's graph, a GR code, a single shift's and

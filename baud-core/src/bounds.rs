@@ -116,7 +116,7 @@ pub(crate) fn report_fence(own: Col, cold: &Cold, cols: Cols) -> Col {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// The fence a report reads the cursor against ([`report_fence`]).
     pub(crate) fn report_fence(&self) -> Col {
         report_fence(self.line_fence(), self.cold, self.cols)

@@ -6,7 +6,10 @@
 //! that never fills (`Owned::new` at 400x150, drawn at the same window).
 //! After every step each retained line and the screen up read, through its
 //! row's table, the reference's contents and renditions, and the small
-//! table refuses none.
+//! table refuses none. The same programs go to two banded terminals at
+//! 40x10, in bands of one row and of four (a band straddling the screen's
+//! edge), each read against the reference the same way: banded against
+//! single at a shape one table holds.
 //!
 //! `[[source: dec-std-070]]`'s SGR, page 5-104, note 3: "In no way does the
 //! selection of current rendition affect the rendition of characters already
@@ -27,6 +30,24 @@ const BIG: WinSize = WinSize {
     ws_row: 150,
     ws_col: 400,
 };
+
+/// 40x10 in bands of `rows` rows each, each band's table 1,024 slots, as
+/// the single arm's is, so the bands fill and freeze as it does.
+fn banded(rows: usize) -> Provision {
+    Provision::banded_in(&WS, BandRows::of(Rows::of_index(rows)), BandSlots(1_024))
+        .expect("40x10 is admitted banded")
+}
+
+/// **A forced band size is the size storage gives**: the banded arms of the
+/// property are banded, not one table that reads the same as the reference
+/// whatever the bands would do.
+#[test]
+fn the_banded_arms_have_the_bands_they_ask_for() {
+    for rows in [1, 4] {
+        let owned = Owned::new(banded(rows));
+        assert_eq!(owned.band_rows(), BandRows::of(Rows::of_index(rows)));
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 enum Atom {
@@ -174,6 +195,10 @@ fn run(prog: &[Atom]) -> Result<baud_domain::FreezeCounts, TestCaseError> {
     let mut s = Term::new(small_owned.storage(), &WS);
     let mut big_owned = Owned::new(&BIG);
     let mut b = Term::new(big_owned.storage(), &WS);
+    let mut one_owned = Owned::new(banded(1));
+    let mut one = Term::new(one_owned.storage(), &WS);
+    let mut four_owned = Owned::new(banded(4));
+    let mut four = Term::new(four_owned.storage(), &WS);
     prop_assert_eq!(s.styles().one().len(), 1024);
     let mut next = 1usize;
     for (k, &a) in prog.iter().enumerate() {
@@ -187,6 +212,8 @@ fn run(prog: &[Atom]) -> Result<baud_domain::FreezeCounts, TestCaseError> {
                 let before = snap(&s, &kept);
                 let _ = s.resize(&ws);
                 let _ = b.resize(&ws);
+                let _ = one.resize(&ws);
+                let _ = four.resize(&ws);
                 moved(&s, &kept, &before, k, a)?;
             }
             _ => {
@@ -205,6 +232,8 @@ fn run(prog: &[Atom]) -> Result<baud_domain::FreezeCounts, TestCaseError> {
                     let before = snap(&s, &kept);
                     feed(&mut s, part);
                     feed(&mut b, part);
+                    feed(&mut one, part);
+                    feed(&mut four, part);
                     moved(&s, &kept, &before, k, a)?;
                 }
             }
@@ -216,6 +245,31 @@ fn run(prog: &[Atom]) -> Result<baud_domain::FreezeCounts, TestCaseError> {
             prop_assert!(ls == lb, "step {} {:?}: line {} drawn otherwise", k, a, i);
         }
         prop_assert_eq!(s.style_reclaims().refusals, 0, "step {}: refused", k);
+        // **Banded against single**, at a shape one table holds: every line
+        // both keep reads the same through its band as through the
+        // reference's one table.
+        for (name, f) in [("bands of 1", &one), ("bands of 4", &four)] {
+            let lines = f.scrollback().len().min(b.scrollback().len());
+            let (rf, rb) = (read(f, lines), read(&b, lines));
+            prop_assert_eq!(rf.len(), rb.len(), "{} step {}: lines", name, k);
+            for (i, (lf, lb)) in rf.iter().zip(&rb).enumerate() {
+                prop_assert!(
+                    lf == lb,
+                    "{} step {} {:?}: line {} drawn otherwise",
+                    name,
+                    k,
+                    a,
+                    i
+                );
+            }
+            prop_assert_eq!(
+                f.style_reclaims().refusals,
+                0,
+                "{} step {}: refused",
+                name,
+                k
+            );
+        }
     }
     Ok(s.frozen().counts)
 }
@@ -287,4 +341,197 @@ fn the_generator_reaches_the_freeze() {
     eprintln!("{froze} of {n} programs froze, {thawed} thawed a frozen row");
     assert!(froze * 2 > n, "only {froze} of {n} programs froze");
     assert!(thawed > 0, "no program thawed a frozen row");
+}
+
+/// The bytes of `lines` flood lines, numbered on from `next`.
+fn flooded(lines: u8, next: &mut usize) -> Vec<u8> {
+    bytes(Atom::Flood(lines), next)
+}
+
+/// `a` reads, line for line, as the reference `b` does.
+fn same_lines(a: &Term<'_>, b: &Term<'_>, what: &str) {
+    let lines = a.scrollback().len().min(b.scrollback().len());
+    let (ra, rb) = (read(a, lines), read(b, lines));
+    assert_eq!(ra.len(), rb.len(), "{what}: lines");
+    for (i, (la, lb)) in ra.iter().zip(&rb).enumerate() {
+        assert!(la == lb, "{what}: line {i} drawn otherwise");
+    }
+}
+
+/// **The alternate screen keeps every rendition through a banded resize**:
+/// its rows stay where they were written, so each stays in its band, and
+/// the primary's history behind it comes back through its own bands.
+#[test]
+fn a_banded_alternate_screen_keeps_its_renditions_through_a_resize() {
+    for band in [1, 4] {
+        let mut f_owned = Owned::new(banded(band));
+        let mut f = Term::new(f_owned.storage(), &WS);
+        let mut b_owned = Owned::new(&BIG);
+        let mut b = Term::new(b_owned.storage(), &WS);
+        let mut next = 1usize;
+        let both = |bytes: &[u8], f: &mut Term<'_>, b: &mut Term<'_>| {
+            feed(f, bytes);
+            feed(b, bytes);
+        };
+        let primary = flooded(12, &mut next);
+        both(&primary, &mut f, &mut b);
+        both(b"\x1b[?1049h", &mut f, &mut b);
+        let alt = flooded(9, &mut next);
+        both(&alt, &mut f, &mut b);
+        for (cols, rows) in [(30, 6), (40, 8), (30, 10), (40, 10)] {
+            let ws = WinSize {
+                ws_col: cols,
+                ws_row: rows,
+            };
+            assert_eq!(f.resize(&ws), Resized::Ok);
+            let _ = b.resize(&ws);
+            same_lines(
+                &f,
+                &b,
+                &format!("bands of {band}, alternate at {cols}x{rows}"),
+            );
+        }
+        both(b"\x1b[?1049l", &mut f, &mut b);
+        same_lines(&f, &b, &format!("bands of {band}, the primary back"));
+    }
+}
+
+/// **A banded terminal lent no pool keeps its geometry on a change of
+/// width**, and says so: carrying its renditions from band to band needs
+/// the generations. A change of height moves no cell from its row, and
+/// is taken. The control: the same terminal lent its pool takes the width.
+#[test]
+fn a_banded_resize_with_no_pool_keeps_its_geometry() {
+    let mut owned = Owned::new(banded(1)).without_frozen();
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut next = 1usize;
+    feed(&mut t, &flooded(14, &mut next));
+    let lines = t.scrollback().len();
+    let before = read(&t, lines);
+    let narrower = WinSize {
+        ws_col: 30,
+        ws_row: 10,
+    };
+    assert_eq!(t.resize(&narrower), Resized::BandsUnlent);
+    assert_eq!(t.viewport().cols().index(), 40, "the width it had");
+    assert_eq!(read(&t, lines), before, "every cell as it was");
+    let shorter = WinSize {
+        ws_col: 40,
+        ws_row: 6,
+    };
+    assert_eq!(t.resize(&shorter), Resized::Ok, "a change of height alone");
+    let mut lent = Owned::new(banded(1));
+    let mut c = Term::new(lent.storage(), &WS);
+    feed(&mut c, &flooded(14, &mut 1usize));
+    assert_eq!(
+        c.resize(&narrower),
+        Resized::Ok,
+        "the control: lent its pool"
+    );
+}
+
+/// **The roots cross a banded resize as words**: the pen set before a
+/// change of width writes the text after it in that rendition, on the main
+/// display and, parked while the status line is written, when the main
+/// display is selected again.
+#[test]
+fn the_pen_and_the_parked_pen_cross_a_banded_resize() {
+    let mut f_owned = Owned::new(banded(1));
+    let mut f = Term::new(f_owned.storage(), &WS);
+    let mut b_owned = Owned::new(&BIG);
+    let mut b = Term::new(b_owned.storage(), &WS);
+    let mut next = 1usize;
+    let flood = flooded(12, &mut next);
+    let steps: [&[u8]; 4] = [
+        &flood,
+        b"\x1b[38;2;1;2;3;48;2;4;5;6mpen before\r\n",
+        b"\x1b[2$~\x1b[1$}\x1b[38;2;7;8;9mon the line",
+        b"\x1b[0$}parked pen after\r\n",
+    ];
+    for (k, s) in steps.iter().enumerate() {
+        feed(&mut f, s);
+        feed(&mut b, s);
+        if k >= 1 {
+            for cols in [30, 40] {
+                let ws = WinSize {
+                    ws_col: cols,
+                    ws_row: 10,
+                };
+                assert_eq!(f.resize(&ws), Resized::Ok);
+                let _ = b.resize(&ws);
+            }
+        }
+    }
+    feed(&mut f, b"pen after\r\n");
+    feed(&mut b, b"pen after\r\n");
+    same_lines(&f, &b, "after the pens wrote");
+}
+
+/// **A banded resize's tables are new ones to a drawer**: every band of
+/// the primary, whose rows a change of width re-interned, has another
+/// serial, and the bands it did not touch -- the alternate screen's, the
+/// status row's -- keep theirs.
+#[test]
+fn a_banded_resize_gives_the_primary_bands_new_tables() {
+    let mut owned = Owned::new(banded(1));
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut next = 1usize;
+    feed(&mut t, &flooded(14, &mut next));
+    let before: Vec<_> = t.band_tables().collect();
+    let ws = WinSize {
+        ws_col: 30,
+        ws_row: 10,
+    };
+    assert_eq!(t.resize(&ws), Resized::Ok);
+    let after: Vec<_> = t.band_tables().collect();
+    assert_eq!(before.len(), after.len());
+    let moved: Vec<bool> = before.iter().zip(&after).map(|(a, b)| a != b).collect();
+    let primary = moved.iter().take_while(|&&m| m).count();
+    assert!(primary > 1, "the primary's bands have new tables");
+    assert!(
+        moved[primary..].iter().all(|&m| !m),
+        "the alternate screen's bands and the status row's keep theirs"
+    );
+}
+
+/// **A clamped band stays the band it was given across a change of
+/// width**: storage fits a forced band to its table at the pitch it lays
+/// out, which no resize changes, so an alternate screen's rows -- which a
+/// resize never moves -- stay in their bands and keep their renditions.
+/// Asked 64 rows of 1,024 slots, a band is clamped to what fits.
+#[test]
+fn a_clamped_band_keeps_its_rows_across_a_change_of_width() {
+    let mut f_owned = Owned::new(banded(64));
+    let given = f_owned.band_rows();
+    assert!(
+        given.rows().index() < 64,
+        "the control: the band was clamped"
+    );
+    {
+        let mut f = Term::new(f_owned.storage(), &WS);
+        let mut b_owned = Owned::new(&BIG);
+        let mut b = Term::new(b_owned.storage(), &WS);
+        let mut next = 1usize;
+        for bytes in [
+            flooded(12, &mut next),
+            b"\x1b[?1049h".to_vec(),
+            flooded(9, &mut next),
+        ] {
+            feed(&mut f, &bytes);
+            feed(&mut b, &bytes);
+        }
+        for (cols, rows) in [(30, 10), (40, 6), (30, 8), (40, 10)] {
+            let ws = WinSize {
+                ws_col: cols,
+                ws_row: rows,
+            };
+            assert_eq!(f.resize(&ws), Resized::Ok);
+            let _ = b.resize(&ws);
+            same_lines(&f, &b, &format!("clamped band, alternate at {cols}x{rows}"));
+        }
+        feed(&mut f, b"\x1b[?1049l");
+        feed(&mut b, b"\x1b[?1049l");
+        same_lines(&f, &b, "clamped band, the primary back");
+    }
+    assert_eq!(f_owned.band_rows(), given, "the band storage gave, kept");
 }

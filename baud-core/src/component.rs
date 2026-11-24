@@ -231,7 +231,11 @@ impl Drawn {
 
     /// Row `r`'s map, `None` in the data component or where the row holds
     /// no string.
-    fn read(&mut self, p: &Paint<'_, '_>, r: Row) -> Option<&LineMap> {
+    fn read<M: crate::bands::BandMode>(
+        &mut self,
+        p: &Paint<'_, '_, M>,
+        r: Row,
+    ) -> Option<&LineMap> {
         if self.component == DeviceComponent::Data {
             return None;
         }
@@ -243,14 +247,18 @@ impl Drawn {
     }
 
     /// Row `r`'s map, taken out for an erase that writes the row.
-    pub(crate) fn map_of(&mut self, p: &Paint<'_, '_>, r: Row) -> Option<LineMap> {
+    pub(crate) fn map_of<M: crate::bands::BandMode>(
+        &mut self,
+        p: &Paint<'_, '_, M>,
+        r: Row,
+    ) -> Option<LineMap> {
         self.read(p, r)?;
         self.row = None;
         self.map.take()
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// The cell drawn at presentation position `p` of row `r`.
     pub(crate) fn drawn_at(&self, d: &mut Drawn, r: Row, p: Col) -> Col {
         d.read(self, r).map_or(p, |m| m.data(p))

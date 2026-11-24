@@ -80,7 +80,7 @@ impl Logger {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// `OSC 46 ; Pt`: the name the next start opens, unless the body
     /// reached `OSC_MAX` and the name may be cut.
     pub(crate) fn log_file(&mut self, f: LogFile<'_>, body: Body) {

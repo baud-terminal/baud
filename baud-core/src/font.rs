@@ -214,7 +214,7 @@ enum Entry {
     None,
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// Act on `OSC 50`.
     pub(crate) fn font_request(&mut self, req: FontRequest<'_>, term: StringTerm) {
         match req {

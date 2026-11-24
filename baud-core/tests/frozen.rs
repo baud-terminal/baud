@@ -156,7 +156,7 @@ impl Lent {
             StyleTable {
                 slots: &mut self.tmpl,
                 order: &mut self.order,
-                book: &mut self.book,
+                books: core::slice::from_mut(&mut self.book),
                 reach: &mut self.reach,
             },
             &mut self.tabs,

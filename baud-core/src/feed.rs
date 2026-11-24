@@ -27,7 +27,11 @@ use baud_domain::*;
 /// [`AfterStop`] after playing on a macrograph its reports stopped
 /// (`Term::feed_playing_on`).
 trait ReadStart {
-    fn start(p: &mut Paint<'_, '_>, base: BytePos, n: ReadLen) -> ReadLen;
+    fn start<M: crate::bands::BandMode>(
+        p: &mut Paint<'_, '_, M>,
+        base: BytePos,
+        n: ReadLen,
+    ) -> ReadLen;
 }
 
 /// A read parsed from its first byte.
@@ -35,7 +39,11 @@ struct Fresh;
 
 impl ReadStart for Fresh {
     #[inline(always)]
-    fn start(_: &mut Paint<'_, '_>, _: BytePos, _: ReadLen) -> ReadLen {
+    fn start<M: crate::bands::BandMode>(
+        _: &mut Paint<'_, '_, M>,
+        _: BytePos,
+        _: ReadLen,
+    ) -> ReadLen {
         ReadLen::ZERO
     }
 }
@@ -47,7 +55,11 @@ struct AfterStop;
 
 impl ReadStart for AfterStop {
     #[inline(always)]
-    fn start(p: &mut Paint<'_, '_>, base: BytePos, n: ReadLen) -> ReadLen {
+    fn start<M: crate::bands::BandMode>(
+        p: &mut Paint<'_, '_, M>,
+        base: BytePos,
+        n: ReadLen,
+    ) -> ReadLen {
         match p.strs.regis.waits_on_replies() {
             false => ReadLen::ZERO,
             true => p.regis_play_on(base, n),
@@ -64,27 +76,43 @@ impl Term<'_> {
     /// length lost before it arrived.
     #[inline(always)]
     pub fn feed(&mut self, base: BytePos, n: ReadLen) {
+        // **A banded terminal takes its own copy of the feed**
+        // ([`crate::bands::ManyBands`]): one compare a read.
+        if self.store.bands.is_banded() {
+            return self.feed_banded(base, n);
+        }
+        self.feed_in::<crate::bands::OneBand>(base, n);
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn feed_banded(&mut self, base: BytePos, n: ReadLen) {
+        self.feed_in::<crate::bands::ManyBands>(base, n);
+    }
+
+    #[inline(always)]
+    fn feed_in<M: crate::bands::BandMode>(&mut self, base: BytePos, n: ReadLen) {
         // **Level 1 under ISO 8859-1 strips the eighth bit** "before any
         // processing occurs" (`Cold::strips`), and a control in a read can
         // start or end the strip (`Paint::restrip_from`): both out of line,
         // so the read is parsed here as it always was, one compare before it
         // and one after.
         if self.cold.strips() == crate::term::Strip::Seven {
-            return self.feed_stripping(base, n);
+            return self.feed_stripping::<M>(base, n);
         }
-        self.feed_read::<Fresh>(base, n);
+        self.feed_read::<Fresh, M>(base, n);
         if self.cold.restrip == crate::term::Restrip::Held {
-            self.feed_restripped();
+            self.feed_restripped::<M>();
         }
     }
 
     /// The rest a change of the strip held, parsed as the strip now says.
     #[cold]
     #[inline(never)]
-    fn feed_restripped(&mut self) {
+    fn feed_restripped<M: crate::bands::BandMode>(&mut self) {
         self.cold.restrip = crate::term::Restrip::Clear;
         if let Some(r) = self.cold.width.held.take() {
-            self.feed_stripping(r.at, r.len);
+            self.feed_stripping::<M>(r.at, r.len);
         }
     }
 
@@ -94,7 +122,7 @@ impl Term<'_> {
     /// embedder's hold hands the rest of the read to the embedder.
     #[cold]
     #[inline(never)]
-    fn feed_stripping(&mut self, base: BytePos, n: ReadLen) {
+    fn feed_stripping<M: crate::bands::BandMode>(&mut self, base: BytePos, n: ReadLen) {
         let (mut at, mut left) = (base, n);
         loop {
             let step = match (self.cold.strips(), left.index()) {
@@ -104,7 +132,7 @@ impl Term<'_> {
                 }
                 _ => left,
             };
-            self.feed_read_outlined(at, step);
+            self.feed_read_outlined::<M>(at, step);
             at = at.advance_read(step);
             left = left.less(step);
             let held = self.cold.width.held.take();
@@ -133,8 +161,8 @@ impl Term<'_> {
     }
 
     #[inline(never)]
-    fn feed_read_outlined(&mut self, base: BytePos, n: ReadLen) {
-        self.feed_read::<Fresh>(base, n);
+    fn feed_read_outlined<M: crate::bands::BandMode>(&mut self, base: BytePos, n: ReadLen) {
+        self.feed_read::<Fresh, M>(base, n);
     }
 
     /// **A macrograph its reports stopped, played on** before the rest of
@@ -144,18 +172,21 @@ impl Term<'_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn feed_playing_on(&mut self, at: BytePos) {
-        self.feed_read::<AfterStop>(at, ReadLen::ZERO);
+        match self.store.bands.is_banded() {
+            true => self.feed_read::<AfterStop, crate::bands::ManyBands>(at, ReadLen::ZERO),
+            false => self.feed_read::<AfterStop, crate::bands::OneBand>(at, ReadLen::ZERO),
+        }
     }
 
     #[inline(always)]
-    fn feed_read<S: ReadStart>(&mut self, base: BytePos, n: ReadLen) {
+    fn feed_read<S: ReadStart, M: crate::bands::BandMode>(&mut self, base: BytePos, n: ReadLen) {
         self.bytes_in += n.index();
         // Where this read starts, for a hide looking back past it
         // (`placed.rs`).
         self.cold.placement.begin(base);
         // A rest no one took is the previous read's.
         self.cold.width.held = None;
-        let mut p = Paint::new(
+        let mut p = Paint::<M>::new(
             &mut self.store,
             self.cy,
             self.cx,
@@ -537,8 +568,8 @@ impl Term<'_> {
 /// loop cannot stall on malformed input.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-fn step(
-    p: &mut Paint<'_, '_>,
+fn step<M: crate::bands::BandMode>(
+    p: &mut Paint<'_, '_, M>,
     enc: &mut InputEncoding,
     node: &mut Node,
     utf8: &mut Utf8Acc,

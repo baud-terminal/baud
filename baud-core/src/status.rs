@@ -471,6 +471,18 @@ impl Status {
         self.park.style
     }
 
+    /// **The parked display's cursor row and rendition word**, which a
+    /// change of width in the banded mode interns again into the band the
+    /// row stands in (`Paint::thaw_bands`).
+    pub(crate) fn parked_pen(&self) -> (Row, StyleWord) {
+        (self.park.cy, self.park.style_raw)
+    }
+
+    /// The parked display's rendition, interned again.
+    pub(crate) fn set_parked_style(&mut self, id: StyleId) {
+        self.park.style = id;
+    }
+
     /// The parked display's screen: the main display's while the line is
     /// written, what a freeze reads the primary's rows by
     /// (`crate::freeze`).
@@ -791,7 +803,7 @@ fn compose_indicator(
     key.set(ind);
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// Whether the live fields are the line's.
     pub(crate) fn on_status(&self) -> bool {
         self.strs.status.swapped == Swapped::Status

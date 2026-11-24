@@ -29,7 +29,7 @@ const _: () = assert!(
     b"\x1b]".len() + NOTICE_ALIVE_REPLY_MAX + b"\x1b\\".len() <= crate::storage::REPLY_MOST
 );
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// The body is `99;` and its metadata just ended: what follows is the
     /// payload, which goes to the desk's chunk.
     #[cold]

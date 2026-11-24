@@ -102,7 +102,7 @@ pub(crate) fn form_read(m: Modes) -> FormRead {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// SAPV: each parameter value folded into the rendition being built,
     /// in order; an omitted one is 0.
     #[cold]

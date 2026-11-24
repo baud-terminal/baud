@@ -36,14 +36,14 @@
 //! which acting at every level would close.
 
 use baud_domain::{
-    Codepoint, HebrewEncoding, HebrewKeyboard, HebrewLayout, KeyCode, KeyEvent, Modifiers,
-    hebrew_key, hebrew_key_shifted, seven_bit_hebrew, us_shifted,
+    CellFlags, Charset, Codepoint, HebrewEncoding, HebrewKeyboard, HebrewLayout, KeyCode, KeyEvent,
+    Modifiers, Width, hebrew_key, hebrew_key_shifted, seven_bit_hebrew, us_shifted,
 };
 
 use crate::Term;
 use crate::paint::Paint;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// **Whether ASCII in GL is drawn as DEC 7-bit Hebrew**: DECHEBM's
     /// Group 2 active, with a Hebrew layout, under 7-bit characters.
     pub(crate) fn hebrew_group_two(&self) -> bool {
@@ -72,28 +72,22 @@ impl Term<'_> {
             return;
         }
         self.cold.hebrew_layout = l;
-        let mut p = crate::paint::Paint::new(
-            &mut self.store,
-            self.cy,
-            self.cx,
-            self.rows,
-            self.cols,
-            self.cell_height,
-            self.cell_width,
-            self.rot,
-            self.style,
-            self.style_raw,
-            self.flags,
-            self.charset,
-            self.cluster,
-            self.last_cp,
-            &mut self.cold,
-            self.title_len,
-            self.icon_len,
-            self.link,
-        );
-        p.invoke();
-        (self.charset, self.flags, self.last_cp) = (p.charset, p.flags, p.last_cp);
+        struct Invoke;
+        impl crate::term::PaintJob for Invoke {
+            type Out = (
+                Charset,
+                CellFlags,
+                Option<(Codepoint, Width, crate::paint::Pen)>,
+            );
+            fn run<M: crate::bands::BandMode>(
+                self,
+                p: &mut crate::paint::Paint<'_, '_, M>,
+            ) -> Self::Out {
+                p.invoke();
+                (p.charset, p.flags, p.last_cp)
+            }
+        }
+        (self.charset, self.flags, self.last_cp) = self.outside_read(Invoke);
     }
 
     /// What [`Term::set_hebrew_layout`] last set.

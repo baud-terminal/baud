@@ -12,6 +12,7 @@
 //! holds the nine allocations and lends them, which is the same convenience in
 //! the shape this design admits.
 
+use crate::bands::{BAND_RESERVED, Slots};
 use baud_domain::*;
 
 /// The read buffer, sized to what one `read(2)` returns.
@@ -145,6 +146,9 @@ pub struct Storage<'b> {
     /// what a renderer that caches the resolved table replays instead of
     /// resolving every slot a frame. See [`StyleTable`].
     pub(crate) style_log: StyleLog<'b>,
+    /// **Which rows each table holds** ([`Storage::with_bands`]): one band of
+    /// every row in the single mode.
+    pub(crate) bands: crate::bands::Layout,
     /// Tab stops, one per column.
     pub(crate) tabs: &'b mut [bool],
     /// Interned grapheme clusters, indexed **from the cell**.
@@ -721,9 +725,11 @@ impl<'b> StrBuf<'b> {
 pub struct Owned {
     stride: Stride,
     depth: Depth,
-    /// The rows each band's table covers: all of them, in one band, until
-    /// banded storage is built ([`Mode`]).
+    /// The rows each band's table covers: every row, in one band, in the
+    /// single mode ([`Mode`]).
     band_rows: Rows,
+    /// Which rows each table holds.
+    layout: crate::bands::Layout,
     arena: alloc::vec::Vec<u8>,
     vp: alloc::vec::Vec<PackedCell>,
     used: alloc::vec::Vec<RowMeta>,
@@ -731,7 +737,7 @@ pub struct Owned {
     cells3: alloc::vec::Vec<PackedCell>,
     tmpl: alloc::vec::Vec<Option<StyleWord>>,
     order: alloc::vec::Vec<StyleId>,
-    book: StyleBook,
+    books: alloc::vec::Vec<StyleBook>,
     reach: alloc::vec::Vec<Reach>,
     frozen_words: alloc::vec::Vec<StyleWord>,
     frozen_gens: alloc::vec::Vec<FrozenGen>,
@@ -802,13 +808,8 @@ impl Owned {
     /// of scrollback costs a row of the pitch.
     pub fn with_history(size: impl Into<Provision>, geom: &CacheGeometry, depth: Depth) -> Owned {
         use alloc::vec;
-        // A banded provision is stored as single, its rows clamped to what
-        // one table holds, until banded storage is built ([`Mode`]).
         let p = size.into();
-        let ws = &match p.mode() {
-            Mode::Single => p.size(),
-            Mode::Banded(_) => Provision::clamped(&p.size()).size(),
-        };
+        let ws = &p.size();
         let (cols, rows) = ws.geometry();
         let stride = grid_stride(geom, cols);
         let span = RowBlock::leading(rows, stride);
@@ -834,8 +835,44 @@ impl Owned {
         // 408 pitch) it is the ceiling, and a screen naming more than the
         // table holds refuses the next rendition.
         let live = span.len() + stride.index() + RESERVED_SLOTS;
-        let styles = live.min(NSTYLE_MAX).next_power_of_two().max(NSTYLE);
-        let frozen = FrozenBudget::of(Rows::of_index(rows.index() + depth.lines()), stride, styles);
+        let ring_rows = rows.index() + depth.lines();
+        // **A banded provision's tables are a band of rows each**, fixed to
+        // the band: a table each `band_rows` of the primary's ring and of
+        // the alternate screen, and one for the status row, each
+        // `band_slots` slots ([`crate::bands::Layout`]). The pool is lent for
+        // a change of width alone, which carries every row's renditions
+        // through it from band to band (`Paint::freeze_bands`), and it is
+        // the ring's, as the single mode's is.
+        let (band_rows, styles, bands, frozen) = match p.mode() {
+            Mode::Single => {
+                let styles = live.min(NSTYLE_MAX).next_power_of_two().max(NSTYLE);
+                let frozen = FrozenBudget::of(Rows::of_index(ring_rows), stride, styles);
+                (rows, styles, 1, frozen)
+            }
+            Mode::Banded(banding) => {
+                let slots = p.band_slots().0;
+                let band = match banding {
+                    Banding::Forced(b) => b
+                        .rows()
+                        .index()
+                        .min((slots - BAND_RESERVED) / stride.index()),
+                    Banding::Auto => (slots - BAND_RESERVED) / stride.index(),
+                };
+                let tables = crate::bands::Layout::banded(
+                    Rows::of_index(ring_rows),
+                    rows,
+                    Rows::of_index(band),
+                )
+                .end()
+                .index();
+                (
+                    Rows::of_index(band),
+                    slots,
+                    tables,
+                    FrozenBudget::of(Rows::of_index(ring_rows), stride, slots),
+                )
+            }
+        };
         // A placement for every cell of the largest screen this storage
         // displays, `span.len()` as the rendition table's is, so a picture
         // placed one cell at a time fits however large it is drawn.
@@ -843,7 +880,13 @@ impl Owned {
         Owned {
             stride,
             depth,
-            band_rows: rows,
+            band_rows,
+            layout: match p.mode() {
+                Mode::Single => crate::bands::Layout::ONE,
+                Mode::Banded(_) => {
+                    crate::bands::Layout::banded(Rows::of_index(ring_rows), rows, band_rows)
+                }
+            },
             arena: vec![0u8; ARENA],
             vp: vec![PackedCell::EMPTY; ring.len()],
             // A row's mark and its write generation, one 16-byte entry a
@@ -851,10 +894,10 @@ impl Owned {
             used: vec![RowMeta::ZERO; rows.index() + depth.lines()],
             past: vec![PastEdge::Clear; rows.index() + depth.lines()],
             cells3: vec::Vec::new(),
-            tmpl: vec![None; styles],
-            order: vec![StyleId::DEFAULT; styles],
-            book: StyleBook::new(),
-            reach: vec![Reach::ZERO; styles],
+            tmpl: vec![None; styles * bands],
+            order: vec![StyleId::DEFAULT; styles * bands],
+            books: (0..bands).map(|_| StyleBook::new()).collect(),
+            reach: vec![Reach::ZERO; styles * bands],
             // The pool from zeroed pages, so a terminal that never fills
             // its table commits none of it; the tags and the map are a
             // ring's rows and a table's slots.
@@ -1041,7 +1084,7 @@ impl Owned {
             StyleTable {
                 slots: &mut self.tmpl,
                 order: &mut self.order,
-                book: &mut self.book,
+                books: &mut self.books,
                 reach: &mut self.reach,
             },
             &mut self.tabs,
@@ -1133,6 +1176,7 @@ impl Owned {
             map: &mut self.frozen_map,
             book: &mut self.frozen_book,
         })
+        .with_layout(self.layout)
     }
 
     /// Lend them all to a `Storage`.
@@ -1148,7 +1192,7 @@ impl Owned {
             StyleTable {
                 slots: &mut self.tmpl,
                 order: &mut self.order,
-                book: &mut self.book,
+                books: &mut self.books,
                 reach: &mut self.reach,
             },
             &mut self.tabs,
@@ -1240,6 +1284,7 @@ impl Owned {
             map: &mut self.frozen_map,
             book: &mut self.frozen_book,
         })
+        .with_layout(self.layout)
     }
 }
 
@@ -1444,15 +1489,18 @@ impl Provision {
 
     /// **`ws` banded, `band` rows a band**: the oracle's and the forced-band
     /// measurement's entry. Admits any size from 1x1 to `MAX_COLS` x
-    /// `MAX_ROWS`; storage clamps `band` to what a band's table holds at its
-    /// pitch and says what it gave (`Owned::band_rows`).
+    /// `MAX_ROWS` whose bands fit their tables ([`Provision::banded_in`]);
+    /// storage gives the bands asked (`Owned::band_rows`).
     pub fn banded(ws: &WinSize, band: BandRows) -> Result<Provision, OverBudget> {
         Provision::banded_in(ws, band, BAND_SLOTS)
     }
 
     /// [`Provision::banded`] with bands of `band_slots` slots: a shape is
-    /// refused when not one of its rows fits a band at the widest pitch any
-    /// cache line gives its columns, so no geometry can make it unbandable.
+    /// refused when one row, at the widest pitch any cache line gives its
+    /// columns, and [`BAND_RESERVED`] slots more do not fit a band's table.
+    /// Storage gives a band as many of the rows asked as fit at the pitch it
+    /// lays out (`Owned::band_rows`), so no geometry can make a band refuse a
+    /// rendition its cells name.
     pub fn banded_in(
         ws: &WinSize,
         band: BandRows,
@@ -1467,7 +1515,11 @@ impl Provision {
             .map(|&l| grid_stride(&CacheGeometry::new(Some(l), None, None, None), cols).index())
             .max()
             .unwrap_or(usize::MAX);
-        let within = within && widest < band_slots.0.saturating_sub(1);
+        // **A band holds at least one row** with the slots none of its
+        // cells names ([`BAND_RESERVED`]), at the widest pitch a line size
+        // can give; storage fits the band asked to its table.
+        let need = widest.saturating_add(BAND_RESERVED);
+        let within = within && need <= band_slots.0;
         match within {
             true => Ok(Provision {
                 cols,
@@ -1737,7 +1789,9 @@ pub struct StyleTable<'b> {
     pub slots: &'b mut [Option<StyleWord>],
     /// One entry a slot.
     pub order: &'b mut [StyleId],
-    pub book: &'b mut StyleBook,
+    /// **One a band**, whose table is `slots.len() / books.len()` of the
+    /// slots in order: one in the single mode, whose band is the table.
+    pub books: &'b mut [StyleBook],
     /// One entry a slot: how far past it the farthest rendition homed there
     /// lies, which bounds a miss's probe. Every entry is [`Reach::ZERO`] with
     /// a new table, and the entries are lent with that same table ever after,
@@ -1747,11 +1801,18 @@ pub struct StyleTable<'b> {
     pub reach: &'b mut [Reach],
 }
 
-/// The log half of a [`StyleTable`], which the write path carries.
+/// **The log half of a [`StyleTable`], which the write path carries**: a
+/// band's write log, reach and book each, `band_slots` entries of the logs
+/// to a band, and which band the write path is in. One band in the single
+/// mode, whose band is the table.
 pub(crate) struct StyleLog<'b> {
-    pub(crate) order: &'b mut [StyleId],
-    pub(crate) book: &'b mut StyleBook,
-    pub(crate) reach: &'b mut [Reach],
+    order: &'b mut [StyleId],
+    books: &'b mut [StyleBook],
+    reach: &'b mut [Reach],
+    band_slots: BandSlots,
+    cur: baud_domain::Band,
+    /// Which rows each band's table holds.
+    pub(crate) layout: crate::bands::Layout,
     /// **The generations what lies off the active screen is frozen into**
     /// when the table fills (`crate::freeze`), or `None` for a storage lent
     /// none ([`Storage::with_frozen`]). Here because `Paint` carries this
@@ -1759,17 +1820,110 @@ pub(crate) struct StyleLog<'b> {
     pub(crate) frozen: Option<FrozenStore<'b>>,
 }
 
+impl<'b> StyleLog<'b> {
+    /// The logs of `books.len()` bands, each a band's write log and reach
+    /// (`band_slots` entries a band, in band order) and book.
+    pub(crate) fn new(
+        order: &'b mut [StyleId],
+        books: &'b mut [StyleBook],
+        reach: &'b mut [Reach],
+    ) -> StyleLog<'b> {
+        let band_slots = order.len() / books.len().max(1);
+        StyleLog {
+            order,
+            books,
+            reach,
+            band_slots: BandSlots(band_slots),
+            cur: baud_domain::Band::FIRST,
+            layout: crate::bands::Layout::ONE,
+            frozen: None,
+        }
+    }
+}
+
 impl StyleLog<'_> {
-    /// Records a write to slot `k`.
-    pub(crate) fn note(&mut self, k: StyleId) {
-        self.book.writes = self.book.writes.next();
-        let at = self.book.writes.index_in(self.order.len());
-        self.order[at] = k;
+    /// The band the write path is in.
+    #[inline(always)]
+    pub(crate) fn band(&self) -> baud_domain::Band {
+        self.cur
     }
 
-    /// A colour a rendition resolves through changed.
+    /// The write path goes to band `b`.
+    pub(crate) fn set_band(&mut self, b: baud_domain::Band) {
+        self.cur = b;
+    }
+
+    /// The slots a band's table holds.
+    #[inline(always)]
+    pub(crate) fn band_slots(&self) -> BandSlots {
+        self.band_slots
+    }
+
+    /// Past the last band's logs: every band before it has its own.
+    pub(crate) fn bands(&self) -> baud_domain::Band {
+        baud_domain::Band::of(self.books.len())
+    }
+
+    /// The current band's book.
+    #[inline(always)]
+    pub(crate) fn book(&self) -> &StyleBook {
+        &self.books[self.cur.index()]
+    }
+
+    #[inline(always)]
+    pub(crate) fn book_mut(&mut self) -> &mut StyleBook {
+        &mut self.books[self.cur.index()]
+    }
+
+    /// The current band's reach, a slot each.
+    #[inline(always)]
+    pub(crate) fn reach_mut(&mut self) -> &mut [Reach] {
+        let (at, n) = (self.cur.first_slot(self.band_slots.0), self.band_slots.0);
+        &mut self.reach[at..at + n]
+    }
+
+    /// Records a write to slot `k` of the current band.
+    pub(crate) fn note(&mut self, k: StyleId) {
+        let at = self.cur.first_slot(self.band_slots.0);
+        let book = &mut self.books[self.cur.index()];
+        book.writes = book.writes.next();
+        let i = book.writes.index_in(self.band_slots.0);
+        self.order[at + i] = k;
+    }
+
+    /// The current band's write log, a slot each, in ring order.
+    pub(crate) fn order(&self) -> &[StyleId] {
+        let (at, n) = (self.cur.first_slot(self.band_slots.0), self.band_slots.0);
+        &self.order[at..at + n]
+    }
+
+    /// **Band `b` as a new table's, but its slots**: its reach and its
+    /// sweep's counts, whose slots the caller empties to the default.
+    pub(crate) fn emptied(&mut self, b: baud_domain::Band) {
+        let (at, n) = (b.first_slot(self.band_slots.0), self.band_slots.0);
+        self.reach[at..at + n].fill(Reach::ZERO);
+        let sweep = &mut self.books[b.index()].sweep;
+        sweep.filled = 0;
+        sweep.tombs = 0;
+    }
+
+    /// Every band's table serial, in band order.
+    pub(crate) fn tables(&self) -> impl ExactSizeIterator<Item = TableSerial> + '_ {
+        self.books.iter().map(|b| b.table)
+    }
+
+    /// **Band `b`'s table is another table** to a drawer that kept its
+    /// slots, which resolves them all again.
+    pub(crate) fn reminted(&mut self, b: baud_domain::Band) {
+        self.books[b.index()].table = TableSerial::mint();
+    }
+
+    /// A colour a rendition resolves through changed, which every band's
+    /// book records.
     pub(crate) fn colors_moved(&mut self) {
-        self.book.colors = self.book.colors.next();
+        for b in self.books.iter_mut() {
+            b.colors = b.colors.next();
+        }
     }
 }
 
@@ -1809,7 +1963,7 @@ impl<'b> Storage<'b> {
             false => Some(FrozenStore::new(
                 buf,
                 self.surfaces.rows(Which::Primary),
-                self.tmpl.as_slice().len(),
+                self.style_log.band_slots().0,
             )),
         };
         self
@@ -1821,6 +1975,38 @@ impl<'b> Storage<'b> {
     ///
     /// # Panics
     /// If `row` is shorter than the pitch or has no extent, and is not empty.
+    /// **The live tables `surface`'s rows resolve through**: its bands'
+    /// tables, or the single mode's one.
+    pub(crate) fn live_bands(&self, surface: crate::bands::Surface) -> baud_domain::LiveBands<'_> {
+        let all = self.tmpl.as_slice();
+        match self.bands.rows() {
+            None => baud_domain::LiveBands::one(baud_domain::LiveTable::of(all)),
+            Some(rows) => {
+                let bs = self.style_log.band_slots().0;
+                let (first, end) = self.bands.surface_bands(surface);
+                baud_domain::LiveBands::banded(
+                    &all[first.first_slot(bs)..end.first_slot(bs)],
+                    bs,
+                    rows,
+                )
+            }
+        }
+    }
+
+    /// **Which rows each of the tables holds** ([`crate::bands::Layout`]),
+    /// which must be as many as the books lent ([`StyleTable::books`]).
+    #[cfg(feature = "alloc")]
+    pub(crate) fn with_layout(mut self, layout: crate::bands::Layout) -> Storage<'b> {
+        assert_eq!(
+            layout.end(),
+            self.style_log.bands(),
+            "a table a band, and a book a table"
+        );
+        self.bands = layout;
+        self.style_log.layout = layout;
+        self
+    }
+
     pub fn with_status_line(mut self, row: crate::status::StatusBuf<'b>) -> Storage<'b> {
         // **The row's one move into the store**, its only use: from here on
         // the status line is the store's third surface and written only
@@ -1929,9 +2115,14 @@ impl<'b> Storage<'b> {
             "the three-byte cell table is 1024 x 256 entries, or absent"
         );
         let tmpl = &styles.slots;
+        let bands = styles.books.len();
+        let band = tmpl.len() / bands.max(1);
         assert!(
-            tmpl.len().is_power_of_two() && tmpl.len() >= NSTYLE && tmpl.len() <= NSTYLE_MAX,
-            "the rendition table is a power of two between NSTYLE and NSTYLE_MAX slots"
+            bands >= 1
+                && band * bands == tmpl.len()
+                && band.is_power_of_two()
+                && (NSTYLE..=NSTYLE_MAX).contains(&band),
+            "each band's rendition table is a power of two between NSTYLE and NSTYLE_MAX slots"
         );
         assert!(
             styles.order.len() == tmpl.len(),
@@ -1942,9 +2133,13 @@ impl<'b> Storage<'b> {
             "the rendition table's reach is one entry a slot"
         );
         assert!(
-            styles.book.writes == StyleWrites::NEVER
-                || tmpl[StyleId::DEFAULT.index()] == Some(StyleWord::DEFAULT),
-            "a written rendition table holds the default in slot 0"
+            styles
+                .books
+                .iter()
+                .enumerate()
+                .all(|(b, book)| book.writes == StyleWrites::NEVER
+                    || tmpl[b * (tmpl.len() / styles.books.len())] == Some(StyleWord::DEFAULT)),
+            "a written band's table holds the default in its slot 0"
         );
         assert!(tabs.len() >= MAX_COLS, "tab stops are one per column");
         assert!(answers.len() >= REPLY, "the reply buffer is REPLY bytes");
@@ -1959,12 +2154,8 @@ impl<'b> Storage<'b> {
             surfaces: SurfaceStore::new(stride, (vp, used), (alt, alt_used)),
             cells3,
             tmpl: crate::bands::Table::new(styles.slots),
-            style_log: StyleLog {
-                order: styles.order,
-                book: styles.book,
-                reach: styles.reach,
-                frozen: None,
-            },
+            style_log: StyleLog::new(styles.order, styles.books, styles.reach),
+            bands: crate::bands::Layout::ONE,
             tabs,
             reply: crate::outgoing::Outgoing::new(answers),
             clusters: ClusterStore::new(clusters),

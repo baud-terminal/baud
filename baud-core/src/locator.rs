@@ -124,7 +124,7 @@ fn available(cold: &Cold) -> bool {
     cold.mouse == MouseTracking::Locator && cold.locator.device == LocatorDevice::Present
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// DECELR, DECSLE, DECEFR or DECRQLP: its parameters read here, as a
     /// report's are ([`Paint::answer_query`]).
     #[cold]

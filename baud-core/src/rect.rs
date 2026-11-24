@@ -11,6 +11,7 @@
 //! three, on every `CSI` it dispatches.
 
 use crate::aligned::EditRows;
+use crate::bands::Slots;
 use crate::paint::Paint;
 use crate::storage::MAX_COLS;
 use baud_domain::*;
@@ -27,7 +28,7 @@ enum Spare {
 /// already re-interned: a rectangle of one rendition interns once.
 const MEMO: usize = 8;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// A rectangle operation: its parameters read, then performed.
     #[cold]
     #[inline(never)]
@@ -285,12 +286,19 @@ impl Paint<'_, '_> {
                 continue;
             };
             self.cut_wide_edges(r, rect.left, right, Spare::Nothing);
+            // Banded, the pen of the row's own band.
+            let mut cell = cell;
+            if M::BANDED {
+                self.band_for(r);
+                cell.style = self.style;
+            }
             for x in rect.left.index()..=right.index() {
                 self.view.put(r, Col::at_index(x), cell);
             }
             self.overwrite_images_on(r, rect.left, right.after());
             self.cells = self.cells.plus(right.index() + 1 - rect.left.index());
         }
+        self.band_for(self.cy);
         self.area_written(rect.top, rect.bottom);
     }
 
@@ -397,12 +405,37 @@ impl Paint<'_, '_> {
                 buf[n - 1] = space(buf[n - 1]);
             }
             self.cut_wide_edges(dr, left, right, Spare::Nothing);
+            // **Banded, a cell copied from another band's row names that
+            // band's slot**: its word read there, and interned into the row's
+            // band as it is put, so no more than one new rendition is held
+            // for a cell that still names its old one.
+            let (from_band, to_band) = match M::BANDED {
+                true => (self.band_of(sr), self.band_of(dr)),
+                false => (Band::FIRST, Band::FIRST),
+            };
+            let mut words = [StyleWord::DEFAULT; MAX_COLS];
+            if from_band != to_band {
+                let t = M::band(&self.tmpl, from_band);
+                for (w, b) in words.iter_mut().zip(buf.iter()).take(n) {
+                    *w = t
+                        .get(b.style.index())
+                        .copied()
+                        .flatten()
+                        .unwrap_or(StyleWord::DEFAULT);
+                }
+                self.band_for(dr);
+            }
             for (j, b) in buf.iter().enumerate().take(n) {
-                self.view.put(dr, Col::at_index(left.index() + j), *b);
+                let mut b = *b;
+                if from_band != to_band && b.style != StyleId::DEFAULT {
+                    b.style = self.intern_style(words[j]);
+                }
+                self.view.put(dr, Col::at_index(left.index() + j), b);
             }
             self.overwrite_images_on(dr, left, right.after());
             self.cells = self.cells.plus(n);
         }
+        self.band_for(self.cy);
         if h > 0 {
             let bottom = Row::from_index(top.index() + h - 1);
             self.area_written(top, bottom);
@@ -442,6 +475,12 @@ impl Paint<'_, '_> {
         let mut known = 0;
         for y in rect.top.index()..=rect.bottom.index() {
             let r = Row::from_index(y);
+            // Banded, the row's band first, before any of its ids is read:
+            // the memo's ids are a band's.
+            if M::BANDED {
+                self.band_for(r);
+                known = 0;
+            }
             let (from, to) = match extent {
                 AttrExtent::Rectangle => (rect.left, rect.right),
                 AttrExtent::Stream => (

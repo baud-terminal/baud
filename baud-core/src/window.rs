@@ -226,7 +226,7 @@ impl Names {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// One XTWINOPS operation: a window request queued, a report, a push or
     /// a pop of the title stack, or a refusal.
     #[cold]

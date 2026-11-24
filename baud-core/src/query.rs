@@ -13,7 +13,7 @@
 use crate::paint::Paint;
 use baud_domain::*;
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// A report: its parameters read, then answered.
     #[cold]
     #[inline(never)]

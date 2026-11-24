@@ -27,7 +27,7 @@ struct Told {
 struct Recorder(Vec<Told>);
 
 impl CrossBand for Recorder {
-    fn translate(&mut self, from: PhysRow, to: PhysRow, mut cells: RowMut<'_>) {
+    fn translate(&mut self, from: PhysRow, to: PhysRow, _: Col, mut cells: RowMut<'_>) {
         self.0.push(Told {
             from: from.index(),
             to: to.index(),
@@ -221,7 +221,7 @@ fn one_table_is_zero_sized() {
 struct Turns(Vec<usize>);
 
 impl CrossBand for Turns {
-    fn translate(&mut self, _: PhysRow, _: PhysRow, _: RowMut<'_>) {
+    fn translate(&mut self, _: PhysRow, _: PhysRow, _: Col, _: RowMut<'_>) {
         unreachable!("a turn copies no cell");
     }
 

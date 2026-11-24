@@ -902,7 +902,7 @@ impl Grounded {
 }
 
 #[cfg(feature = "read-record")]
-impl crate::paint::Paint<'_, '_> {
+impl<M: crate::bands::BandMode> crate::paint::Paint<'_, '_, M> {
     /// **Row `r` of the live screen as a line of the record**: the primary's
     /// window-top line plus the row, the alternate screen's own count plus
     /// it.
@@ -1116,7 +1116,7 @@ impl crate::term::Cold {
 pub(crate) const ALT_BASE: LineIdx = LineIdx::of(1 << 40);
 
 #[cfg(feature = "read-record")]
-impl crate::paint::Paint<'_, '_> {
+impl<M: crate::bands::BandMode> crate::paint::Paint<'_, '_, M> {
     /// **The alternate screen took a line back** (a scroll down of the
     /// whole screen): its count goes back one, or, at its first line, its
     /// text moves down a line under the numbers it had.

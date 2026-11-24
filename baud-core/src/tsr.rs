@@ -83,7 +83,7 @@ impl Ctl {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// DECRQTSR, `CSI Ps $ u`: 1 the terminal state report, 2 the colour
     /// table report in the system `Pu` names, `CSI 2 ; Pu $ u`; 0, omitted,
     /// and any other `Ps` or `Pu` are ignored, "no report sent" and "the

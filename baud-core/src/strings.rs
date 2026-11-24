@@ -24,6 +24,7 @@
 //! not read; erasing reads strings only once one has been begun since
 //! power-on ([`Strings::begun`]).
 
+use crate::bands::Slots;
 use baud_domain::{
     Col, PackedCell, Row, STRING_DEPTH, StringEdge, StringEntry, StringId, StringKind, StyleId,
     StyleWord,
@@ -159,7 +160,7 @@ impl Strings {
     }
 }
 
-impl Paint<'_, '_> {
+impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// **SDS or SRS** ([`StringEdge`]).
     #[cold]
     #[inline(never)]
