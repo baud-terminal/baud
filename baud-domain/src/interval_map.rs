@@ -77,7 +77,7 @@ impl<K: LineStep> LineInterval<K> {
     }
 }
 
-/// **What a [`IntervalMap::remap`] gives a line two values' moved runs both
+/// **What `IntervalMap::remap` gives a line two values' moved runs both
 /// cover**: `Neither`, so the line takes no value. A line whose value
 /// cannot be told apart is given none, never one of them and never both;
 /// each run of such lines is counted in the [`OverlapRuns`] `remap`
@@ -97,7 +97,7 @@ pub enum RemapOverlap {
     Neither,
 }
 
-/// **The runs of lines a [`IntervalMap::remap`] left with no value**
+/// **The runs of lines `IntervalMap::remap` left with no value**
 /// under [`RemapOverlap::Neither`]: each maximal run of lines that two
 /// values' moved runs both covered, counted once. Made only by `remap`:
 /// the field is private.
