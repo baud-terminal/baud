@@ -45,9 +45,9 @@
 //! * **Typing never ignites**: a move of two cells or fewer snaps, as it does
 //!   for the quad, and a burning flame follows the cursor it snapped to.
 //!
-//! And an effect lights only on a long move that **follows input**: a key, a
-//! paste, a click, the wheel or a focus gain at most [`FOLLOWS`] before the move
-//! ([`Chase::input`]). Output that moves the cursor on its own -- a stream,
+//! And an effect lights only on the **first move after a keystroke**, when
+//! that move is long and starts at most [`FOLLOWS`] after the key
+//! ([`Chase::keyed`]). Output that moves the cursor on its own -- a stream,
 //! a build log, a full-screen program redrawing itself -- lights nothing, so
 //! nothing is shaded while it runs.
 //!
@@ -103,14 +103,67 @@ pub const THRESHOLD: f32 = 2.0;
 /// long move ([`Chase::ignite`]).
 pub const REIGNITE: Duration = Duration::from_millis(334);
 
-/// **How near to input a long move must start to light an effect**: a key,
-/// a paste, a click, the wheel or a focus gain at most this long before the
-/// move. A program's own output moves the cursor with no input behind it --
-/// a stream, a build log, a full-screen program redrawing itself -- and
-/// lights nothing. A keystroke's echo from a local program comes back well
-/// inside it; over a link whose round trip is longer -- ssh to a far host
-/// -- the move a key asked for arrives after it and lights nothing.
-pub const FOLLOWS: Duration = Duration::from_millis(150);
+/// **How long a keystroke keeps the trail armed**: the first cursor move
+/// after a keystroke uses up the arming, whatever its length, and an effect
+/// lights on it only when it is a long move starting at most this long
+/// after the keystroke ([`Arming`]). Every later move stays dark until the
+/// next keystroke, so output that moves the cursor on its own -- a stream,
+/// a build log, a full-screen program redrawing itself -- lights nothing.
+/// A focus gain arms nothing.
+pub const FOLLOWS: Duration = Duration::from_secs(1);
+
+/// **Whether a keystroke has armed the trail**: not yet armed in this
+/// chase, armed by the key at `at` until the next move, or spent by the
+/// move after the key at `at`. The key is handed again before every frame,
+/// so only a key later than the one held arms again.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Arming<M> {
+    Never,
+    Armed { at: M },
+    Spent { at: M },
+}
+
+/// Whether a move lights an effect: the answer [`Arming::spend`] gives.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Lit {
+    Yes,
+    No,
+}
+
+impl<M: Moment> Arming<M> {
+    /// **The key at `key`, handed before a frame**: one later than the key
+    /// held, or the first, arms; the key held, handed again, changes
+    /// nothing.
+    fn keyed(&mut self, key: Option<M>) {
+        let Some(key) = key else {
+            return;
+        };
+        let later = match *self {
+            Arming::Never => true,
+            Arming::Armed { at } | Arming::Spent { at } => key > at,
+        };
+        if later {
+            *self = Arming::Armed { at: key };
+        }
+    }
+
+    /// **A move starting at `start`**, which uses the arming up: it lights
+    /// when the key armed the trail at most [`FOLLOWS`] before it. A spent
+    /// or never armed trail lights nothing. No timer runs: the expiry is
+    /// read here, at the move.
+    fn spend(&mut self, start: M) -> Lit {
+        match *self {
+            Arming::Armed { at } => {
+                *self = Arming::Spent { at };
+                match start.elapsed_since(at) <= FOLLOWS {
+                    true => Lit::Yes,
+                    false => Lit::No,
+                }
+            }
+            Arming::Spent { .. } | Arming::Never => Lit::No,
+        }
+    }
+}
 
 /// **How long a hidden cursor's trail takes to fade out**, seconds, and a
 /// shown one's to come back: kitty's slow corner's decay time, which its
@@ -315,9 +368,10 @@ pub struct Chase<M> {
     /// is out in 0.32 s, inside [`REIGNITE`], so a guard read off the live
     /// ignition would let a fourth bolt a second through.
     last_lit: Option<M>,
-    /// The last input -- a key, a paste, a click, the wheel, a focus gain --
-    /// which a long move must follow within [`FOLLOWS`] to light an effect.
-    input: Option<M>,
+    /// **Whether a keystroke has armed the trail**, which the next move
+    /// uses up and a snap and a restyle keep, as they keep
+    /// [`Chase::last_lit`].
+    arming: Arming<M>,
     /// The seed the next ignition takes: one an ignition, so no two in a
     /// session burn alike.
     next_seed: Seed,
@@ -393,7 +447,7 @@ impl<M: Moment> Chase<M> {
             pending: None,
             live: None,
             last_lit: None,
-            input: None,
+            arming: Arming::Never,
             next_seed: Seed(1),
             axis: Pt { x: 1.0, y: 0.0 },
             swept: Ledger::new(),
@@ -464,6 +518,8 @@ impl<M: Moment> Chase<M> {
             self.target = Some(rect);
             self.pending = None;
             self.moving = None;
+            // The move a keystroke's echo makes: the key is used up.
+            self.arming.spend(now);
         } else {
             match self.pending {
                 Some((p, since)) if p == rect => {
@@ -477,11 +533,12 @@ impl<M: Moment> Chase<M> {
         self.look(rect, now, level)
     }
 
-    /// **Input at `at`**: a key, a paste, a click, the wheel or a focus
-    /// gain, which a long move starting within [`FOLLOWS`] of it lights an
-    /// effect on.
-    pub fn input(&mut self, at: M) {
-        self.input = Some(at);
+    /// **The last keystroke, `key`** -- a key, a paste or the wheel's keys
+    /// (`Caret::last_key`) -- handed before every frame: one later than the
+    /// key held arms the trail for the next move ([`Arming`]), and the same
+    /// key handed again does not.
+    pub fn keyed(&mut self, key: Option<M>) {
+        self.arming.keyed(key);
     }
 
     /// **The trail's opacity at `now`**, for a frame whose cursor is
@@ -608,6 +665,7 @@ impl<M: Moment> Chase<M> {
             // do not jump -- and a short move on the fast constant, so typing
             // after a jump folds the trail in rather than keeping it alive.
             Some((seg, t0)) => {
+                let lit = self.arming.spend(now);
                 let from = seg.at(self.clock(t0, now));
                 self.turn(centre(from), rect);
                 let next = if near(target, rect, cell) {
@@ -617,7 +675,7 @@ impl<M: Moment> Chase<M> {
                     {
                         self.longs.0 += 1;
                     }
-                    self.ignite(centre(from), rect, now, cell);
+                    self.ignite(centre(from), rect, now, cell, lit);
                     self.weigh(from, rect, now, (cell, height));
                     self.long(from, rect)
                 };
@@ -628,9 +686,10 @@ impl<M: Moment> Chase<M> {
                 {
                     self.longs.0 += 1;
                 }
+                let lit = self.arming.spend(since);
                 let from = target.corners();
                 self.turn(centre(from), rect);
-                self.ignite(centre(from), rect, since, cell);
+                self.ignite(centre(from), rect, since, cell, lit);
                 self.weigh(from, rect, since, (cell, height));
                 self.moving = Some((self.long(from, rect), since));
             }
@@ -685,7 +744,7 @@ impl<M: Moment> Chase<M> {
     }
 
     /// An effect's long move from `tail` to `rect`, starting `at`: nothing
-    /// unless input came at most [`FOLLOWS`] before it, then a new
+    /// unless a keystroke armed it (`keyed`, [`Arming::spend`]), then a new
     /// ignition, unless the last was lit within [`REIGNITE`] and still burns,
     /// which the quad carries on retargeted -- the liquid's restarting its
     /// back on this move (`Chase::restart`).
@@ -700,16 +759,13 @@ impl<M: Moment> Chase<M> {
     /// still holds every repeat under the thresholds
     /// (MEASUREMENTS.md, "The plasma at full strength"). Its `last_lit`
     /// still runs, so a switch to another effect keeps that effect's guard.
-    fn ignite(&mut self, tail: Pt, rect: Rect, at: M, cell: (f32, f32)) {
+    fn ignite(&mut self, tail: Pt, rect: Rect, at: M, cell: (f32, f32), keyed: Lit) {
         let Style::Effect(effect) = self.style else {
             return;
         };
-        // A move no input led to -- a program's own output -- lights
+        // A move no keystroke armed -- a program's own output -- lights
         // nothing, the liquid's restart included.
-        if !self
-            .input
-            .is_some_and(|input| at.elapsed_since(input) <= FOLLOWS)
-        {
+        if keyed == Lit::No {
             return;
         }
         if effect != Effect::Plasma
@@ -909,10 +965,13 @@ impl<M: Moment> Chase<M> {
     /// Forget where the cursor was, and any trail: the next sighting starts
     /// none. A resize moves every cell under it and a screen switch shows
     /// another cursor, and a trail across either would join two screens.
+    /// The arming stays: the key a move used up, handed again after the
+    /// snap, arms nothing.
     pub fn snap(&mut self) {
         *self = Chase {
             next_seed: self.next_seed,
             last_lit: self.last_lit,
+            arming: self.arming,
             swept: self.swept,
             #[cfg(test)]
             longs: self.longs,
@@ -945,6 +1004,7 @@ impl<M: Moment> Chase<M> {
         *self = Chase {
             next_seed: self.next_seed,
             last_lit: self.last_lit,
+            arming: self.arming,
             swept: self.swept,
             #[cfg(test)]
             longs: self.longs,
@@ -1098,10 +1158,10 @@ mod tests {
     }
 
     impl Chase<Instant> {
-        /// The frame's trail as an effect, for the fire's tests, with input
+        /// The frame's trail as an effect, for the fire's tests, with a key
         /// at every frame: a person's moves.
         fn fire(&mut self, cursor: Option<Rect>, now: Instant) -> Option<Vfx> {
-            self.input(now);
+            self.keyed(Some(now));
             self.streamed(cursor, now)
         }
 
@@ -1891,7 +1951,7 @@ mod tests {
                 assert_eq!(q.owes(t0 + MS * (ms + 14)), Owes::Nothing, "{effect:?}");
             }
             assert_eq!(q.longs, Count(4), "{effect:?}: every move taken");
-            q.input(t0 + MS * 1960);
+            q.keyed(Some(t0 + MS * 1960));
             q.streamed(Some(b), t0 + MS * 2000);
             assert!(
                 q.streamed(Some(b), t0 + MS * 2012).is_some(),
@@ -1902,11 +1962,11 @@ mod tests {
 
     /// **A move lights within [`FOLLOWS`] of the input and not past it**,
     /// counted from when the cursor was first seen at its new place, the
-    /// moment the move is backdated to: seen 150 ms after a key it lights,
-    /// at 151 ms it does not. A key while the move waits out its dwell
+    /// moment the move is backdated to: seen 1000 ms after a key it lights,
+    /// at 1001 ms it does not. A key while the move waits out its dwell
     /// lights it too: the echo of a key can land before the key's event is
     /// read. Perturbation: count from the frame that takes the move -- the
-    /// move seen at 150 ms is 162 ms old there and stays dark.
+    /// move seen at 1000 ms is 1012 ms old there and stays dark.
     #[test]
     fn a_move_lights_within_follows_of_the_input() {
         let follows = u32::try_from(FOLLOWS.as_millis()).unwrap();
@@ -1914,7 +1974,7 @@ mod tests {
             let t0 = Instant::now();
             let mut q = Chase::new(Style::Effect(Effect::Plasma));
             q.streamed(Some(at(10.0, 5.0)), t0);
-            q.input(t0);
+            q.keyed(Some(t0));
             q.streamed(Some(at(60.0, 5.0)), t0 + MS * seen);
             assert_eq!(
                 q.streamed(Some(at(60.0, 5.0)), t0 + MS * (seen + 12))
@@ -1927,11 +1987,270 @@ mod tests {
         let mut q = Chase::new(Style::Effect(Effect::Plasma));
         q.streamed(Some(at(10.0, 5.0)), t0);
         q.streamed(Some(at(60.0, 5.0)), t0 + MS * 8);
-        q.input(t0 + MS * 12);
+        q.keyed(Some(t0 + MS * 12));
         assert!(
             q.streamed(Some(at(60.0, 5.0)), t0 + MS * 20).is_some(),
             "a key inside the dwell"
         );
+    }
+
+    impl Chase<Instant> {
+        /// The frame's trail as an effect, `key` handed to the chase first,
+        /// as the frame hands it the caret's last key before every trail.
+        fn handed(
+            &mut self,
+            key: Option<Instant>,
+            cursor: Option<Rect>,
+            now: Instant,
+        ) -> Option<Vfx> {
+            self.keyed(key);
+            self.streamed(cursor, now)
+        }
+    }
+
+    /// **A key arms a long move seen 300 ms after it**, for every effect:
+    /// the move a key asked for over a link whose round trip is longer
+    /// than a local echo's still lights. Perturbation: [`FOLLOWS`] at
+    /// 150 ms -- every effect stays dark.
+    #[test]
+    fn a_key_arms_a_long_move_300_ms_later() {
+        for effect in Effect::ALL {
+            let t0 = Instant::now();
+            let key = Some(t0);
+            let mut q = Chase::new(Style::Effect(effect));
+            q.handed(key, Some(at(10.0, 5.0)), t0);
+            q.handed(key, Some(at(60.0, 5.0)), t0 + MS * 300);
+            assert!(
+                q.handed(key, Some(at(60.0, 5.0)), t0 + MS * 312).is_some(),
+                "{effect:?}: seen 300 ms after the key"
+            );
+        }
+    }
+
+    /// **A short echo uses the key up**: the first move after a key is the
+    /// one it arms, whatever its length, so after the key's one-cell echo
+    /// a long move 40 ms on -- output, not the key's -- lights nothing,
+    /// for every effect. The control: the same long move with no echo
+    /// before it lights. Perturbation: spend the key only on a long move
+    /// -- the echo's case lights.
+    #[test]
+    fn a_short_echo_uses_up_the_key() {
+        for effect in Effect::ALL {
+            for (echo, lit) in [(true, false), (false, true)] {
+                let t0 = Instant::now();
+                let key = Some(t0);
+                let mut q = Chase::new(Style::Effect(effect));
+                q.handed(key, Some(at(10.0, 5.0)), t0);
+                if echo {
+                    assert_eq!(
+                        q.handed(key, Some(at(11.0, 5.0)), t0 + MS * 10),
+                        None,
+                        "{effect:?}: the echo snaps"
+                    );
+                }
+                q.handed(key, Some(at(60.0, 5.0)), t0 + MS * 40);
+                assert_eq!(
+                    q.handed(key, Some(at(60.0, 5.0)), t0 + MS * 52).is_some(),
+                    lit,
+                    "{effect:?}, echo {echo}"
+                );
+            }
+        }
+    }
+
+    /// **A key keeps the trail armed for [`FOLLOWS`], a second, and no
+    /// longer**, counted to when the long move was first seen, for every
+    /// effect: seen 1000 ms after the key it lights, and at 1001, 1500 and
+    /// 2000 ms it does not. Perturbation: drop the expiry from
+    /// `Arming::spend` -- the later three light.
+    #[test]
+    fn a_key_expires_after_follows() {
+        for effect in Effect::ALL {
+            for (seen, lit) in [(1000, true), (1001, false), (1500, false), (2000, false)] {
+                let t0 = Instant::now();
+                let key = Some(t0);
+                let mut q = Chase::new(Style::Effect(effect));
+                q.handed(key, Some(at(10.0, 5.0)), t0);
+                q.handed(key, Some(at(60.0, 5.0)), t0 + MS * seen);
+                assert_eq!(
+                    q.handed(key, Some(at(60.0, 5.0)), t0 + MS * (seen + 12))
+                        .is_some(),
+                    lit,
+                    "{effect:?}: seen {seen} ms after the key"
+                );
+            }
+        }
+    }
+
+    /// **A focus gain arms nothing, and neither does start-up**: the
+    /// caret's last key, handed to the chase as the frame hands it, leaves
+    /// a long move dark after a focus gain or after no input at all, for
+    /// every effect. The control: after a key it lights. Perturbation: let
+    /// `Input::arms` say yes to a focus gain -- its case lights.
+    #[test]
+    fn a_focus_gain_arms_nothing() {
+        use crate::caret::{Caret, Cycle, Gate, Input};
+        use crate::config::{BlinkAnimation, StopAfter};
+        for effect in Effect::ALL {
+            for (by, lit) in [
+                (Some(Input::FocusGain), false),
+                (None, false),
+                (Some(Input::Key), true),
+            ] {
+                let t0 = Instant::now();
+                let mut caret = Caret::new(
+                    t0,
+                    Cycle::DEFAULT,
+                    Gate::Free,
+                    StopAfter::Never,
+                    BlinkAnimation::None,
+                );
+                let mut q = Chase::new(Style::Effect(effect));
+                q.handed(caret.last_key(), Some(at(10.0, 5.0)), t0);
+                if let Some(by) = by {
+                    let _ = caret.input(t0 + MS * 4, by);
+                }
+                q.handed(caret.last_key(), Some(at(60.0, 5.0)), t0 + MS * 8);
+                assert_eq!(
+                    q.handed(caret.last_key(), Some(at(60.0, 5.0)), t0 + MS * 20)
+                        .is_some(),
+                    lit,
+                    "{effect:?} after {by:?}"
+                );
+            }
+        }
+    }
+
+    /// **A key's release does not arm the trail again**, for every effect:
+    /// a press, its echo spending it, the release 80 ms later, then the
+    /// program's own long move within [`FOLLOWS`] -- dark. A second press
+    /// in its place lights the move. Perturbation: make `Input::of` answer
+    /// `Key` for a release -- the program's move lights.
+    #[test]
+    fn a_release_does_not_arm_the_trail_again() {
+        use crate::caret::{Caret, Cycle, Gate, Input};
+        use crate::config::{BlinkAnimation, StopAfter};
+        use baud_domain::{Codepoint, KeyCode, KeyEvent, KeyEventKind, Modifiers};
+        let press = KeyEvent::press(KeyCode::Char(Codepoint::from_char('a')), Modifiers::NONE);
+        let release = KeyEvent {
+            kind: KeyEventKind::Release,
+            ..press
+        };
+        for effect in Effect::ALL {
+            for (then, lit) in [(release, false), (press, true)] {
+                let t0 = Instant::now();
+                let mut caret = Caret::new(
+                    t0,
+                    Cycle::DEFAULT,
+                    Gate::Free,
+                    StopAfter::Never,
+                    BlinkAnimation::None,
+                );
+                let mut q = Chase::new(Style::Effect(effect));
+                q.handed(caret.last_key(), Some(at(10.0, 5.0)), t0);
+                let _ = caret.input(t0 + MS, Input::of(press));
+                assert_eq!(
+                    q.handed(caret.last_key(), Some(at(11.0, 5.0)), t0 + MS * 10),
+                    None,
+                    "{effect:?}: the echo snaps"
+                );
+                let _ = caret.input(t0 + MS * 90, Input::of(then));
+                q.handed(caret.last_key(), Some(at(60.0, 5.0)), t0 + MS * 400);
+                assert_eq!(
+                    q.handed(caret.last_key(), Some(at(60.0, 5.0)), t0 + MS * 412)
+                        .is_some(),
+                    lit,
+                    "{effect:?}: the program's move after {:?}",
+                    then.kind
+                );
+            }
+        }
+    }
+
+    /// The seed after a long move from (60, 5) back to (10, 5) first seen
+    /// at `seen`, `key` handed before each of its two frames.
+    fn back(q: &mut Chase<Instant>, key: Option<Instant>, seen: Instant) -> Seed {
+        q.handed(key, Some(at(10.0, 5.0)), seen);
+        q.handed(key, Some(at(10.0, 5.0)), seen + MS * 12);
+        q.next_seed()
+    }
+
+    /// How long after the start an effect's second move comes: the
+    /// plasma's, which lights every long move, 100 ms, 80 ms after the
+    /// first was seen at 20; every other's past [`REIGNITE`], whose guard
+    /// would hold it dark whatever the key.
+    fn second_move(effect: Effect) -> Duration {
+        match effect {
+            Effect::Plasma => MS * 100,
+            _ => MS * 400,
+        }
+    }
+
+    /// **The key handed every frame arms one move**: the frame hands the
+    /// caret's last key before every trail, so the key a move used up is
+    /// handed again, and the next long move -- a program's own, inside
+    /// [`FOLLOWS`] of the key -- lights nothing, for every effect. Counted
+    /// by the seed, which moves only on an ignition. The control: a later
+    /// key lights it. Perturbation: re-arm on a key no later than the one
+    /// held -- the second move lights.
+    #[test]
+    fn the_stamp_handed_each_frame_arms_once() {
+        for effect in Effect::ALL {
+            let second = second_move(effect);
+            for (again, want) in [(false, Seed(2)), (true, Seed(3))] {
+                let t0 = Instant::now();
+                let mut key = Some(t0);
+                let mut q = Chase::new(Style::Effect(effect));
+                q.handed(key, Some(at(10.0, 5.0)), t0);
+                q.handed(key, Some(at(60.0, 5.0)), t0 + MS * 20);
+                assert!(
+                    q.handed(key, Some(at(60.0, 5.0)), t0 + MS * 32).is_some(),
+                    "{effect:?}: the first move lights"
+                );
+                assert_eq!(q.next_seed(), Seed(2), "{effect:?}: one ignition");
+                if again {
+                    key = Some(t0 + second - MS * 4);
+                }
+                assert_eq!(
+                    back(&mut q, key, t0 + second),
+                    want,
+                    "{effect:?}, a later key {again}"
+                );
+            }
+        }
+    }
+
+    /// **A snap does not re-arm a spent key**: a resize or a screen switch
+    /// snaps the chase, and the frames after it hand the same key again;
+    /// the long move after the snap lights nothing, for every effect. The
+    /// control: a later key lights it. Perturbation: let `snap` start the
+    /// arming afresh -- the move after the snap lights.
+    #[test]
+    fn a_snap_does_not_rearm_a_spent_key() {
+        for effect in Effect::ALL {
+            let second = second_move(effect);
+            for (again, want) in [(false, Seed(2)), (true, Seed(3))] {
+                let t0 = Instant::now();
+                let mut key = Some(t0);
+                let mut q = Chase::new(Style::Effect(effect));
+                q.handed(key, Some(at(10.0, 5.0)), t0);
+                q.handed(key, Some(at(60.0, 5.0)), t0 + MS * 20);
+                assert!(
+                    q.handed(key, Some(at(60.0, 5.0)), t0 + MS * 32).is_some(),
+                    "{effect:?}: the first move lights"
+                );
+                q.snap();
+                q.handed(key, Some(at(60.0, 5.0)), t0 + second - MS * 40);
+                if again {
+                    key = Some(t0 + second - MS * 4);
+                }
+                assert_eq!(
+                    back(&mut q, key, t0 + second),
+                    want,
+                    "{effect:?}, a later key {again}"
+                );
+            }
+        }
     }
 
     impl Chase<Instant> {
@@ -1975,7 +2294,7 @@ mod tests {
     /// seen at `t0` and at 8 ms, taken at 18 and backdated to 8.
     fn in_flight(style: Style, t0: Instant) -> Chase<Instant> {
         let mut q = Chase::new(style);
-        q.input(t0);
+        q.keyed(Some(t0));
         assert_eq!(q.frame(Some(at(10.0, 5.0)), t0, CELL, PT), None);
         assert_eq!(q.frame(Some(at(60.0, 5.0)), t0 + MS * 8, CELL, PT), None);
         assert!(
@@ -2289,7 +2608,7 @@ mod tests {
                     let t0 = Instant::now();
                     let mut q = Chase::new(style);
                     q.frame(Some(at(10.0, 44.0)), t0, CELL, PT);
-                    q.input(t0);
+                    q.keyed(Some(t0));
                     q.frame(Some(to), t0 + MS * 8, CELL, PT);
                     let mut slide = Slide::new(Px::of(34));
                     if !settled {
@@ -2725,7 +3044,7 @@ mod tests {
     /// A long move from (0, 0) to (90, 20), seen at `t0` and 2 ms on and
     /// taken at 20 ms, backdated to 2: what that frame draws.
     fn jumped(q: &mut Chase<Instant>, t0: Instant) -> TrailLook {
-        q.input(t0);
+        q.keyed(Some(t0));
         q.frame(Some(at(0.0, 0.0)), t0, CELL, PT);
         q.frame(Some(at(90.0, 20.0)), t0 + MS * 2, CELL, PT);
         q.frame(Some(at(90.0, 20.0)), t0 + MS * 20, CELL, PT)
@@ -2892,7 +3211,7 @@ mod tests {
             after: Duration,
             pt: Points,
         ) -> Option<Strength> {
-            q.input(t0 + after);
+            q.keyed(Some(t0 + after));
             q.frame(Some(to), t0 + after, CELL, pt);
             strength(q.frame(Some(to), t0 + after + MS * 12, CELL, pt))
         }
@@ -2915,7 +3234,7 @@ mod tests {
             let mut seeds = std::collections::BTreeSet::new();
             for k in 1..10u32 {
                 let to = if k % 2 == 1 { a } else { b };
-                q.input(t0 + MS * (8 + 100 * k));
+                q.keyed(Some(t0 + MS * (8 + 100 * k)));
                 q.frame(Some(to), t0 + MS * (8 + 100 * k), CELL, ABOVE);
                 let look = q.frame(Some(to), t0 + MS * (20 + 100 * k), CELL, ABOVE);
                 if let Some(TrailLook::Vfx(v)) = look {
@@ -2968,7 +3287,7 @@ mod tests {
             let mut q = Chase::new(Style::Effect(Effect::Fire));
             q.frame(Some(a), t0, CELL, ABOVE);
             assert_eq!(moved(&mut q, t0, b, MS * 8, ABOVE), Some(Strength::Full));
-            q.input(t0 + MS * 408);
+            q.keyed(Some(t0 + MS * 408));
             q.frame(Some(a), t0 + MS * 408, CELL, ABOVE);
             let look = q.frame(Some(a), t0 + MS * 420, CELL, ABOVE);
             let Some(TrailLook::Vfx(v)) = look else {

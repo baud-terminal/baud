@@ -69,7 +69,7 @@
 use core::time::Duration;
 
 use baud_core::{CursorStyle, Focus, Term};
-use baud_domain::{Chan, Col, Row};
+use baud_domain::{Chan, Col, KeyCode, KeyEvent, KeyEventKind, Row};
 use baud_render::det::Det;
 use baud_render::{CursorLook, CursorPhase};
 
@@ -412,6 +412,44 @@ pub enum CaretHalf {
     Steady,
 }
 
+/// **Which input restarts the caret**: a key typed, a key let go, a
+/// modifier key on its own, a paste, the wheel's cursor keys on the
+/// alternate screen, or a focus gain.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Input {
+    Key,
+    Release,
+    Modifier,
+    Paste,
+    WheelKeys,
+    FocusGain,
+}
+
+impl Input {
+    /// **What a key event sent to the program is**: a press or a repeat of
+    /// a key that is not a modifier is a key typed; a release is the end of
+    /// one; a lock or modifier key pressed on its own types nothing.
+    pub fn of(e: KeyEvent) -> Input {
+        match (e.kind, e.code) {
+            (KeyEventKind::Release, _) => Input::Release,
+            (_, KeyCode::Pua(p)) if p.is_modifier() => Input::Modifier,
+            (KeyEventKind::Press | KeyEventKind::Repeat, _) => Input::Key,
+        }
+    }
+
+    /// **Whether it arms the cursor trail** ([`Caret::last_key`]): a key
+    /// typed, a paste and the wheel's keys send bytes on the person's
+    /// behalf through the key path, and the move they ask for may light an
+    /// effect; a release, a modifier on its own and a focus gain ask for no
+    /// move and arm nothing.
+    pub fn arms(self) -> bool {
+        match self {
+            Input::Key | Input::Paste | Input::WheelKeys => true,
+            Input::Release | Input::Modifier | Input::FocusGain => false,
+        }
+    }
+}
+
 /// Whether the blink owes a frame: what a frame drawn now would show is
 /// not what the last drawn one showed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -437,6 +475,9 @@ pub struct Caret<M> {
     animation: BlinkAnimation,
     /// The last input; output never moves it.
     quiet_since: M,
+    /// The last input that arms the cursor trail ([`Input::arms`]); `None`
+    /// until the first, so start-up arms nothing.
+    keyed: Option<M>,
     /// The cursor the last frame on screen presented, and the one the frame
     /// being planned presents, which [`Caret::commit`] makes the last.
     presented: Option<PresentedCursor>,
@@ -460,6 +501,7 @@ impl<M: Moment> Caret<M> {
             stop,
             animation,
             quiet_since: now,
+            keyed: None,
             presented: None,
             planned: None,
         }
@@ -479,14 +521,19 @@ impl<M: Moment> Caret<M> {
         self.planned = Some(cursor);
     }
 
-    /// Input -- a key sent, a paste, a focus gain: the cycle restarts shown,
-    /// and the stop is a whole quiet time away again. Owes the frame that
-    /// shows the caret when the last drawn hid it: with the link paused
-    /// nothing else draws it before the next flip, which hides it again.
+    /// Input `by` -- a key sent, a paste, the wheel's keys, a focus gain:
+    /// the cycle restarts shown, and the stop is a whole quiet time away
+    /// again; all but a focus gain are the last key too
+    /// ([`Caret::last_key`]). Owes the frame that shows the caret when the
+    /// last drawn hid it: with the link paused nothing else draws it before
+    /// the next flip, which hides it again.
     #[must_use = "a hidden caret shown again owes a frame"]
-    pub fn input(&mut self, now: M) -> Owes {
+    pub fn input(&mut self, now: M, by: Input) -> Owes {
         self.epoch = now;
         self.quiet_since = now;
+        if by.arms() {
+            self.keyed = Some(now);
+        }
         match self.drawn == CursorPhase::SHOWN {
             true => Owes::Nothing,
             false => Owes::Frame,
@@ -501,11 +548,13 @@ impl<M: Moment> Caret<M> {
         self.quiet_since = now;
     }
 
-    /// **When the last input came** -- a key, a paste, a click, the wheel,
-    /// a focus gain -- which the cursor trail lights an effect after
-    /// (`Chase::input`). Output never moves it.
-    pub fn last_input(&self) -> M {
-        self.quiet_since
+    /// **When the last key came** -- a key, a paste, the wheel's keys --
+    /// which the frame hands the cursor trail before it, to arm it for the
+    /// move that follows (`Chase::keyed`). `None` before the first; a
+    /// click, the wheel's scroll, a key let go, a modifier key on its own,
+    /// a focus gain and output never move it.
+    pub fn last_key(&self) -> Option<M> {
+        self.keyed
     }
 
     /// The system's rate and switch, read again -- or on Linux, where no
@@ -739,6 +788,34 @@ mod tests {
         Caret::new(t0, SET, Gate::Free, StopAfter::Never, BlinkAnimation::None)
     }
 
+    /// **Only a key typed arms the trail**: a press and a repeat of a
+    /// letter move [`Caret::last_key`]; that key's release, and a Shift
+    /// pressed and let go on its own, restart the caret and leave the key
+    /// where the press put it. Perturbation: make [`Input::of`] answer
+    /// `Key` for every event -- the release moves the key to 90 ms.
+    #[test]
+    fn only_a_key_typed_arms_the_trail() {
+        let t0 = Instant::now();
+        let at = |ms: u32| t0 + MS * ms;
+        let letter = KeyCode::Char(baud_domain::Codepoint::from_char('a'));
+        let shift = KeyCode::Pua(baud_domain::PuaKey::LeftShift);
+        let ev = |code, kind| KeyEvent {
+            kind,
+            ..KeyEvent::press(code, baud_domain::Modifiers::NONE)
+        };
+        let mut c = caret(t0);
+        assert_eq!(c.last_key(), None);
+        let _ = c.input(at(1), Input::of(ev(letter, KeyEventKind::Press)));
+        assert_eq!(c.last_key(), Some(at(1)), "a press arms");
+        let _ = c.input(at(30), Input::of(ev(letter, KeyEventKind::Repeat)));
+        assert_eq!(c.last_key(), Some(at(30)), "a repeat arms");
+        let _ = c.input(at(90), Input::of(ev(letter, KeyEventKind::Release)));
+        assert_eq!(c.last_key(), Some(at(30)), "a release arms nothing");
+        let _ = c.input(at(120), Input::of(ev(shift, KeyEventKind::Press)));
+        let _ = c.input(at(150), Input::of(ev(shift, KeyEventKind::Release)));
+        assert_eq!(c.last_key(), Some(at(30)), "Shift alone arms nothing");
+    }
+
     fn cycle(on: Duration, off: Duration) -> Cycle {
         Cycle::Blinks {
             on: Phase(on),
@@ -787,7 +864,7 @@ mod tests {
         let system = std::cell::Cell::new(NonBlinking::Off);
         let gain = |c: &mut Caret<Instant>, ms| {
             let read = c.read_system(rate, BlinkChoice::Auto, || system.get());
-            let _ = c.input(at(ms));
+            let _ = c.input(at(ms), Input::Key);
             read
         };
         assert_eq!(gain(&mut c, 0), (NonBlinking::Off, Overridden::No));
@@ -880,7 +957,7 @@ mod tests {
                     c.present(now, at_col(Col::at_index(usize::try_from(tick).unwrap())));
                 }
                 Event::Key => {
-                    let _ = c.input(now);
+                    let _ = c.input(now, Input::Key);
                 }
                 Event::Click => c.quiet(now),
                 Event::None => {}
@@ -1116,7 +1193,7 @@ mod tests {
             BlinkAnimation::None,
         );
         c.set_system(rate(set(250), 1000.0, 200.0), Gate::Free);
-        let _ = c.input(at(10));
+        let _ = c.input(at(10), Input::Key);
         c.plan(at(10), Blinks::Yes);
         assert_eq!(c.plan(at(259), Blinks::Yes), SHOWN);
         assert_eq!(c.plan(at(260), Blinks::Yes), HIDDEN);
@@ -1449,7 +1526,7 @@ mod tests {
             c.commit(hidden);
             match restart {
                 Event::Key => {
-                    let _ = c.input(at(750));
+                    let _ = c.input(at(750), Input::Key);
                 }
                 _ => c.present(at(750), at_col(Col::at_index(1))),
             }
@@ -1492,10 +1569,14 @@ mod tests {
         let hidden = c.plan(at(700), Blinks::Yes);
         assert_eq!(hidden, HIDDEN);
         c.commit(hidden);
-        assert_eq!(c.input(at(710)), Owes::Frame);
+        assert_eq!(c.input(at(710), Input::Key), Owes::Frame);
         assert_eq!(c.plan(at(710), Blinks::Yes), SHOWN, "shown again");
         c.commit(SHOWN);
-        assert_eq!(c.input(at(720)), Owes::Nothing, "the control: shown");
+        assert_eq!(
+            c.input(at(720), Input::Key),
+            Owes::Nothing,
+            "the control: shown"
+        );
     }
 
     /// **A click after the stop owes no frame, only the restart**: the
@@ -1675,7 +1756,7 @@ mod tests {
         let at = |ms: u64| t0 + MS * u32::try_from(ms).unwrap();
         c.plan(t0, Blinks::Yes);
         assert_eq!(c.plan(at(5700), Blinks::Yes), SHOWN, "stopped");
-        let _ = c.input(at(6000));
+        let _ = c.input(at(6000), Input::Key);
         // The frame the key draws: the first plan after the blink resumes
         // is where its cycle restarts.
         assert_eq!(c.plan(at(6000), Blinks::Yes), SHOWN);
@@ -1878,7 +1959,7 @@ mod tests {
         c.plan(t0, Blinks::Yes);
         c.plan(at(300), Blinks::No);
         c.set_system(cycle(MS * 1000, MS * 200), Gate::Free);
-        let _ = c.input(at(400));
+        let _ = c.input(at(400), Input::Key);
         c.plan(at(410), Blinks::Yes);
         assert_eq!(c.plan(at(1409), Blinks::Yes), SHOWN);
         assert_eq!(c.plan(at(1410), Blinks::Yes), HIDDEN);
@@ -1899,7 +1980,7 @@ mod tests {
             let now = t0 + Duration::from_nanos(tick * 1_000_000_000 / 120);
             if tick == 600 {
                 c.set_system(cycle(MS * 400, MS * 400), Gate::Free);
-                let _ = c.input(now);
+                let _ = c.input(now, Input::Key);
             }
             let b = if focused(tick) {
                 Blinks::Yes

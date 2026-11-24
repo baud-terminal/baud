@@ -464,10 +464,11 @@ impl Timed {
         self.regis = regis;
     }
 
-    /// **Input at `at`** -- the caret's last -- which a long move must
-    /// follow for an effect to light (`Chase::input`).
-    pub(crate) fn input(&mut self, at: Instant) {
-        self.chase.input(self.clock.host(at));
+    /// **The last key, `key`** -- the caret's (`Caret::last_key`) -- handed
+    /// before every plan, which arms the trail for the move after it
+    /// (`Chase::keyed`).
+    pub(crate) fn keyed(&mut self, key: Option<Instant>) {
+        self.chase.keyed(key.map(|k| self.clock.host(k)));
     }
 
     /// **The cells moved under the trail** -- a resize, a font change: the
@@ -1183,7 +1184,7 @@ mod tests {
                 let mut fx = Timed::new(t0, pick, ScreenTransition::Off);
                 let _ = fx.set_motion(motion, t0);
                 let _ = fx.plan(t0, &t, rect, CELL, widths());
-                fx.input(t0);
+                fx.keyed(Some(t0));
                 feed(&mut t, b"\x1b[8;30H");
                 let at = t0 + Duration::from_millis(2);
                 let _ = fx.plan(at, &t, rect, CELL, widths());
@@ -1226,7 +1227,7 @@ mod tests {
         feed(&mut t, b"\x1b[2C");
         let _ = fx.plan(t0 + Duration::from_millis(1), &t, rect, CELL, widths());
         assert_eq!(fx.deadline(t0), None, "a short move snaps");
-        fx.input(t0);
+        fx.keyed(Some(t0));
         feed(&mut t, b"\x1b[8;30H");
         let at = t0 + Duration::from_millis(2);
         let _ = fx.plan(at, &t, rect, CELL, widths());
@@ -1255,10 +1256,10 @@ mod tests {
 
     /// **A program's long move lights no effect**: the default plasma, the
     /// same move as [`a_long_move_trails_as_the_effect_and_lands`] with no
-    /// input in the [`crate::trail::FOLLOWS`] before it draws nothing and
-    /// owes nothing once the dwell runs out. Input 40 ms before the next
-    /// move lights it. Perturbation: drop `Timed::input`'s forwarding --
-    /// the last assertion fails.
+    /// key behind it -- the caret's last key at start-up, none -- draws
+    /// nothing and owes nothing once the dwell runs out. A key 40 ms before
+    /// the next move lights it. Perturbation: drop `Timed::keyed`'s
+    /// forwarding -- the last assertion fails.
     #[test]
     fn a_programs_long_move_lights_no_effect() {
         let t0 = Instant::now();
@@ -1266,7 +1267,7 @@ mod tests {
         let mut t = Term::new(s.storage(), &WS);
         let mut fx = Timed::new(t0, TrailPick::Default, ScreenTransition::Off);
         let _ = fx.plan(t0, &t, rect, CELL, widths());
-        fx.input(t0);
+        fx.keyed(None);
         feed(&mut t, b"\x1b[8;30H");
         let at = t0 + Duration::from_millis(400);
         let _ = fx.plan(at, &t, rect, CELL, widths());
@@ -1282,7 +1283,7 @@ mod tests {
             Owes::Nothing
         );
         let at = dwell + Duration::from_millis(100);
-        fx.input(at - Duration::from_millis(40));
+        fx.keyed(Some(at - Duration::from_millis(40)));
         feed(&mut t, b"\x1b[1;1H");
         let _ = fx.plan(at, &t, rect, CELL, widths());
         let dwell = fx.deadline(at).expect("the dwell");
@@ -1313,7 +1314,7 @@ mod tests {
         assert!(fx.deadline(t0).is_some(), "the control: it blinks");
         assert_eq!(fx.trail(), CursorTrail::default(), "the control: trailed");
         // A long move, in flight when the preference changes.
-        fx.input(t0);
+        fx.keyed(Some(t0));
         feed(&mut t, b"\x1b[8;30H");
         let at = t0 + Duration::from_millis(2);
         let _ = fx.plan(at, &t, rect, CELL, widths());
@@ -1600,7 +1601,7 @@ mod tests {
             feed(&mut t, &lines);
             let mut fx = Timed::new(t0, TrailPick::Named(trail), ScreenTransition::Off);
             let _ = fx.plan(t0, &t, rect, CELL, widths());
-            fx.input(t0);
+            fx.keyed(Some(t0));
             feed(&mut t, b"\x1b[1;30H");
             let _ = fx.plan(t0 + ms(5), &t, rect, CELL, widths());
             let p = fx.plan(t0 + ms(20), &t, rect, CELL, widths());
@@ -2162,7 +2163,7 @@ mod tests {
     fn in_flight(t0: Instant, t: &mut Term<'_>) -> (Timed, Instant) {
         let mut fx = Timed::new(t0, TrailPick::Default, ScreenTransition::Off);
         let _ = fx.plan(t0, t, rect, CELL, widths());
-        fx.input(t0);
+        fx.keyed(Some(t0));
         feed(t, b"\x1b[8;30H");
         let at = t0 + Duration::from_millis(2);
         let _ = fx.plan(at, t, rect, CELL, widths());

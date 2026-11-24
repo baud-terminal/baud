@@ -1918,10 +1918,10 @@ impl App {
             .map_or(0.0, |d| d.as_secs_f64())
     }
 
-    /// **Input to the caret** (`Caret::input`): its cycle restarted shown,
-    /// and the frame that shows it owed when the last drawn hid it.
-    fn caret_input(&mut self) {
-        if self.caret.input(host_now()) == crate::caret::Owes::Frame {
+    /// **Input `by` to the caret** (`Caret::input`): its cycle restarted
+    /// shown, and the frame that shows it owed when the last drawn hid it.
+    fn caret_input(&mut self, by: crate::caret::Input) {
+        if self.caret.input(host_now(), by) == crate::caret::Owes::Frame {
             self.owe_frame();
         }
     }
@@ -2018,7 +2018,7 @@ impl App {
         // here: `Route::Keys` sends them through `Term::wheel_key`, which
         // KAM does not lock and SRM does not draw, and restarts the caret
         // itself.
-        self.caret_input();
+        self.caret_input(crate::caret::Input::of(e));
         match (encoded, self.flush_reply(Asked::Typed)) {
             (true, Sent::Bytes) => Sent::Bytes,
             _ => Sent::Nothing,
@@ -2711,7 +2711,7 @@ impl App {
         // The cursor it follows is `trail_cursor`'s: the one drawn, or where a
         // program placed a cursor it hid and draws its own.
         let ridden = core::mem::replace(&mut self.ridden, Rows::ZERO);
-        self.chase.input(self.caret.last_input());
+        self.chase.keyed(self.caret.last_key());
         let trail_look = frame_trail(
             (self.cursor_trail, self.trail_scroll),
             &self.term,
@@ -6191,7 +6191,7 @@ mod ghost_tests {
             feed(&mut t, &lines);
             let mut chase = crate::trail::Chase::new(trail.style());
             // The move below is a person's: a key just before it.
-            chase.input(HostTime::of_nanos(1_000_000));
+            chase.keyed(Some(HostTime::of_nanos(1_000_000)));
             let mut frame = |t: &Term<'_>, n: u64| {
                 let cursor = trail_cursor(t).map(rect);
                 chase_frame(&mut chase, t, cursor, ms(n), size)
@@ -11511,7 +11511,7 @@ mod trail_cursor_tests {
         let mut chase: Chase<Instant> = Chase::new(Style::Effect(Effect::Fire));
         let mut drawn = |t: &Term<'_>, ms: u64| {
             // Every frame here follows a key, as `ge` does.
-            chase.input(at(ms));
+            chase.keyed(Some(at(ms)));
             let now = trail_cursor(t).map(|f| block(f.cell()));
             match chase.frame(now, at(ms), CELL, PT) {
                 Some(TrailLook::Vfx(v)) => Some(v.emitter.opacity),
@@ -11598,8 +11598,10 @@ mod trail_cursor_tests {
                 let mut last: Option<(TrailLook, Rect)> = None;
                 for (k, bytes) in frames.iter().enumerate() {
                     feed(&mut t, bytes);
-                    // Each frame answers a wheel line: input.
-                    chase.input(t0 + tick * (u32::try_from(k).unwrap() * 36));
+                    // Each frame answers a wheel line, and stands for a key:
+                    // the test is about the trail's direction, not what arms
+                    // it.
+                    chase.keyed(Some(t0 + tick * (u32::try_from(k).unwrap() * 36)));
                     let cell = trail_cursor(&t).map(|f| f.cell());
                     let (r, c) = cell.unwrap_or_else(|| panic!("{case}: frame {k} placed nothing"));
                     assert_eq!(c.index(), 7, "{case}: frame {k}");
@@ -12032,7 +12034,7 @@ mod motion_tests {
     fn a_switch_mid_fire_owes_one_frame_and_then_none() {
         let mut chase: Chase<HostTime> = Chase::new(T::Fire.style());
         chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0), PT);
-        chase.input(at(1.008));
+        chase.keyed(Some(at(1.008)));
         chase.frame(Some(cell(60.0, 3.0)), at(1.008), (10.0, 20.0), PT);
         assert!(
             chase
@@ -12094,7 +12096,7 @@ mod motion_tests {
         ] {
             let mut chase: Chase<HostTime> = Chase::new(T::Plasma.style());
             chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0), pt);
-            chase.input(at(1.008));
+            chase.keyed(Some(at(1.008)));
             chase.frame(Some(cell(60.0, 3.0)), at(1.008), (10.0, 20.0), pt);
             let lit = chase.frame(Some(cell(60.0, 3.0)), at(1.020), (10.0, 20.0), pt);
             let strength = |l: Option<baud_render::TrailLook>| match l {
@@ -12117,7 +12119,7 @@ mod motion_tests {
             assert_eq!(first, Some(Full), "the control: a full ghost");
             let _ = retrail(&mut chase, &mut ghost, &mut last, T::Plasma, None);
             chase.frame(Some(cell(60.0, 3.0)), at(t - 0.02), (10.0, 20.0), pt);
-            chase.input(at(t - 0.012));
+            chase.keyed(Some(at(t - 0.012)));
             chase.frame(Some(cell(5.0, 3.0)), at(t - 0.012), (10.0, 20.0), pt);
             let moved = chase.frame(Some(cell(5.0, 3.0)), at(t), (10.0, 20.0), pt);
             assert_eq!(
@@ -12151,18 +12153,18 @@ mod motion_tests {
         }
     }
 
-    /// **The frame hands the chase the last input before its trail**: in
-    /// the frame, `self.chase.input(self.caret.last_input());` comes
-    /// straight before the `frame_trail(` call, so an effect lights on a
-    /// move that follows a key, a paste, a click, the wheel or a focus gain
-    /// (`trail::FOLLOWS`). Without it every effect stays dark on macOS and
-    /// nothing else here fails. The planted control: the same source with
-    /// the line taken out fails the check.
+    /// **The frame hands the chase the last key before its trail**: in
+    /// the frame, `self.chase.keyed(self.caret.last_key());` comes straight
+    /// before the `frame_trail(` call, so an effect lights on the first
+    /// move after a key, a paste or the wheel's keys (`trail::FOLLOWS`).
+    /// Without it every effect stays dark on macOS and nothing else here
+    /// fails. The planted control: the same source with the line taken out
+    /// fails the check.
     #[test]
-    fn the_frame_hands_the_chase_the_last_input_before_its_trail() {
+    fn the_frame_hands_the_chase_the_last_key_before_its_trail() {
         let src = crate::app_source::app_source();
         // Spelled apart, so this test does not match its own source.
-        let line = concat!("self.chase.input(", "self.caret.last_input());");
+        let line = concat!("self.chase.keyed(", "self.caret.last_key());");
         let call = concat!("let trail_look = ", "frame_trail(");
         let hands = |src: &str| {
             let bare: String = src.split_whitespace().collect();
@@ -12170,7 +12172,7 @@ mod motion_tests {
             let parts: Vec<&str> = bare.split(call.as_str()).collect();
             parts.len() == 2 && parts[0].ends_with(line)
         };
-        assert!(hands(src), "the frame hands the chase its input");
+        assert!(hands(src), "the frame hands the chase the last key");
         assert!(
             !hands(&src.replacen(line, "", 1)),
             "the planted control: without the line"
@@ -15318,7 +15320,7 @@ impl Responder for Driver {
                         |b| outbox.push(b),
                     );
                 }
-                self.app.caret_input();
+                self.app.caret_input(crate::caret::Input::WheelKeys);
                 self.app.flush_reply(Asked::Typed);
                 return;
             }
@@ -18658,7 +18660,7 @@ impl Driver {
             // And the keyboard layouts, which DECHEBM needs a Hebrew one of
             // (`layouts.rs`).
             crate::host::set_hebrew_layout(&mut self.app.term, crate::layouts::hebrew_layout());
-            self.app.caret_input();
+            self.app.caret_input(crate::caret::Input::FocusGain);
             // And the printer list, off this thread: a printer added in
             // System Settings is the core's at the next gain (`print.rs`).
             self.app.read_printers(crate::print::Ask::Now);
@@ -20612,7 +20614,7 @@ impl Driver {
             return;
         }
         self.snap_to_live();
-        self.app.caret_input();
+        self.app.caret_input(crate::caret::Input::Paste);
         // Through the outbox, behind anything owed and ahead of anything
         // typed after it: a paste longer than the slave's queue -- 1022
         // bytes on Darwin -- waited in `write(2)` for the child to read it.

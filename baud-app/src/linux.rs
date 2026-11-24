@@ -1451,7 +1451,10 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                     d.renderer
                         .set_cursor_look(crate::caret::look(f, d.unfocused_cursor));
                     if f == Focus::Gained {
-                        if d.caret.input(Instant::now()) == crate::caret::Owes::Frame {
+                        if d.caret
+                            .input(Instant::now(), crate::caret::Input::FocusGain)
+                            == crate::caret::Owes::Frame
+                        {
                             d.pending = Pending::Dirty;
                         }
                         // Back from another app: what is struck is asked
@@ -2021,7 +2024,11 @@ impl Driver {
             Owed::Nothing => {}
             Owed::Frame => self.pending = Pending::Dirty,
             Owed::Keys => {
-                if self.caret.input(Instant::now()) == crate::caret::Owes::Frame {
+                if self
+                    .caret
+                    .input(Instant::now(), crate::caret::Input::WheelKeys)
+                    == crate::caret::Owes::Frame
+                {
                     self.pending = Pending::Dirty;
                 }
             }
@@ -3497,7 +3504,8 @@ impl Driver {
         }
         // A key shows the cursor, restarts its blink, and is input to its
         // stop.
-        if self.caret.input(Instant::now()) == crate::caret::Owes::Frame {
+        if self.caret.input(Instant::now(), crate::caret::Input::of(k)) == crate::caret::Owes::Frame
+        {
             self.pending = Pending::Dirty;
         }
         // SRM reset: the core drew the key itself, a frame owed now rather
@@ -3637,7 +3645,8 @@ impl Driver {
         if self.seat.key(&mut self.term) {
             self.reveal_thumb();
         }
-        if self.caret.input(Instant::now()) == crate::caret::Owes::Frame {
+        if self.caret.input(Instant::now(), crate::caret::Input::Paste) == crate::caret::Owes::Frame
+        {
             self.pending = Pending::Dirty;
         }
         self.flush_reply();
@@ -4431,8 +4440,8 @@ impl Driver {
             px: (side(m.cell_w), side(m.cell_h)),
             height: baud_render::Points(side(m.cell_h) / scale as f32),
         };
-        self.timed.input(self.caret.last_input());
         let renderer = &self.renderer;
+        self.timed.keyed(self.caret.last_key());
         let plan = self.timed.plan(
             seen_at,
             &self.term,
@@ -5015,5 +5024,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// **The frame hands the plan the last key before its trail**: in the
+    /// frame, `self.timed.keyed(self.caret.last_key());` comes straight
+    /// before the `self.timed.plan(` call, so an effect lights on the first
+    /// move after a key, a paste or the wheel's keys (`trail::FOLLOWS`).
+    /// Without it every effect stays dark on Linux and nothing else here
+    /// fails. The planted control: the same source with the line taken out
+    /// fails the check.
+    #[test]
+    fn the_frame_hands_the_plan_the_last_key_before_its_trail() {
+        const SRC: &str = include_str!("linux.rs");
+        // Spelled apart, so this test does not match its own source.
+        let line = concat!("self.timed.keyed(", "self.caret.last_key());");
+        let call = concat!("let plan = ", "self.timed.plan(");
+        let hands = |src: &str| {
+            let bare: String = src.split_whitespace().collect();
+            let call: String = call.split_whitespace().collect();
+            let parts: Vec<&str> = bare.split(call.as_str()).collect();
+            parts.len() == 2 && parts[0].ends_with(line)
+        };
+        assert!(hands(SRC), "the frame hands the plan the last key");
+        assert!(
+            !hands(&SRC.replacen(line, "", 1)),
+            "the planted control: without the line"
+        );
     }
 }
