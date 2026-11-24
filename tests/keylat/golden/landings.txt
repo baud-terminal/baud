@@ -11,7 +11,7 @@ arm base: tests/keylat/stub/app sha256=55429b552627270f765f67750fe02bdfbba79fc71
 arm order rotates every round so no arm is always last
 
 round 1: order ['base']
-  round 1 arm base: predict refused: zone=1
+  round 1 arm base: instrument refused: zone=1
   round 1 arm base: NOT QUOTABLE -- 1 landing(s) refused; 2 GPU-path row(s) with landed=- excluded as refused-landing
   round 1 arm base: excluded seq=2 (app seq=2): negative build
   round 1 arm base: excluded seq=4 (app seq=4): negative child
@@ -21,7 +21,7 @@ round 1: order ['base']
   round 1 arm base: pid=PID posted=8 keylats=8 paired=8 unpaired posts=0 unpaired keylats=0 seq mismatches=1 negative=2 parse failures=0 landings refused=1 -> <dir>/scratch/keylat-base-1.tsv
 
 round 2: order ['base']
-  round 2 arm base: predict refused: zone=1
+  round 2 arm base: instrument refused: zone=1
   round 2 arm base: NOT QUOTABLE -- 1 landing(s) refused; 2 GPU-path row(s) with landed=- excluded as refused-landing
   round 2 arm base: excluded seq=2 (app seq=2): negative build
   round 2 arm base: excluded seq=4 (app seq=4): negative child
@@ -32,7 +32,7 @@ round 2: order ['base']
 
 == arm base ==
 posted=8 paired=8 completed=2 excluded=5 shared_a_frame=0
-predict refused: zone=1
+instrument refused: zone=1
 excluded by reason: negative=2, refused-landing=2, seq-mismatch=1
 unpaired posts=0 unpaired keylats=0 parse failures=0 landings refused=1
 NOT QUOTABLE -- 1 landing(s) refused in the runs pooled here: a GPU end stamp off the clock; 2 row(s) on the GPU path with landed=- excluded as refused-landing

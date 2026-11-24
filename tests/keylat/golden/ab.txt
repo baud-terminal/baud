@@ -15,18 +15,18 @@ arm order rotates every round so no arm is always last
 
 round 1: order ['base', 'new', 'aa']
   round 1 arm base: PARSE FAILURE missing written,echo,fed,commit,landed,shown,vsync,vsync_hi: keylat: seq=12 event=1011800000000 handled=+306.5
-  round 1 arm base: predict refused: zone=1
+  round 1 arm base: instrument refused: zone=1
   round 1 arm base: excluded seq=2 (app seq=2): negative build
   round 1 arm base: excluded seq=4 (app seq=4): negative child
   round 1 arm base: excluded seq=5 (app seq=500): seq-mismatch
   round 1 arm base: pid=PID posted=12 keylats=11 paired=11 unpaired posts=1 unpaired keylats=0 seq mismatches=1 negative=2 parse failures=1 landings refused=0 -> <dir>/scratch/keylat-base-1.tsv
   round 1 arm new: PARSE FAILURE missing written,echo,fed,commit,landed,shown,vsync,vsync_hi: keylat: seq=12 event=1021800000000 handled=+317.8
-  round 1 arm new: predict refused: zone=1
+  round 1 arm new: instrument refused: zone=1
   round 1 arm new: excluded seq=4 (app seq=4): negative child
   round 1 arm new: excluded seq=5 (app seq=500): seq-mismatch
   round 1 arm new: pid=PID posted=12 keylats=11 paired=11 unpaired posts=1 unpaired keylats=0 seq mismatches=1 negative=1 parse failures=1 landings refused=0 -> <dir>/scratch/keylat-new-1.tsv
   round 1 arm aa: PARSE FAILURE missing written,echo,fed,commit,landed,shown,vsync,vsync_hi: keylat: seq=12 event=1031800000000 handled=+329.1
-  round 1 arm aa: predict refused: zone=1
+  round 1 arm aa: instrument refused: zone=1
   round 1 arm aa: excluded seq=2 (app seq=2): negative build
   round 1 arm aa: excluded seq=4 (app seq=4): negative child
   round 1 arm aa: excluded seq=5 (app seq=500): seq-mismatch
@@ -34,18 +34,18 @@ round 1: order ['base', 'new', 'aa']
 
 round 2: order ['new', 'aa', 'base']
   round 2 arm new: PARSE FAILURE missing written,echo,fed,commit,landed,shown,vsync,vsync_hi: keylat: seq=12 event=1041800000000 handled=+340.4
-  round 2 arm new: predict refused: zone=1
+  round 2 arm new: instrument refused: zone=1
   round 2 arm new: excluded seq=4 (app seq=4): negative child
   round 2 arm new: excluded seq=5 (app seq=500): seq-mismatch
   round 2 arm new: pid=PID posted=12 keylats=11 paired=11 unpaired posts=1 unpaired keylats=0 seq mismatches=1 negative=1 parse failures=1 landings refused=0 -> <dir>/scratch/keylat-new-2.tsv
   round 2 arm aa: PARSE FAILURE missing written,echo,fed,commit,landed,shown,vsync,vsync_hi: keylat: seq=12 event=1051800000000 handled=+301.7
-  round 2 arm aa: predict refused: zone=1
+  round 2 arm aa: instrument refused: zone=1
   round 2 arm aa: excluded seq=2 (app seq=2): negative build
   round 2 arm aa: excluded seq=4 (app seq=4): negative child
   round 2 arm aa: excluded seq=5 (app seq=500): seq-mismatch
   round 2 arm aa: pid=PID posted=12 keylats=11 paired=11 unpaired posts=1 unpaired keylats=0 seq mismatches=1 negative=2 parse failures=1 landings refused=0 -> <dir>/scratch/keylat-aa-2.tsv
   round 2 arm base: PARSE FAILURE missing written,echo,fed,commit,landed,shown,vsync,vsync_hi: keylat: seq=12 event=1061800000000 handled=+313.0
-  round 2 arm base: predict refused: zone=1
+  round 2 arm base: instrument refused: zone=1
   round 2 arm base: excluded seq=2 (app seq=2): negative build
   round 2 arm base: excluded seq=4 (app seq=4): negative child
   round 2 arm base: excluded seq=5 (app seq=500): seq-mismatch
@@ -53,7 +53,7 @@ round 2: order ['new', 'aa', 'base']
 
 == arm base ==
 posted=12 paired=11 completed=7 excluded=3 shared_a_frame=0
-predict refused: zone=1
+instrument refused: zone=1
 excluded by reason: negative=2, seq-mismatch=1
 unpaired posts=1 unpaired keylats=0 parse failures=1 landings refused=0
       leg  median us   (n)  IQR [q1-q3]              range [min-max]
@@ -74,7 +74,7 @@ unpaired posts=1 unpaired keylats=0 parse failures=1 landings refused=0
 
 == arm new ==
 posted=12 paired=11 completed=8 excluded=2 shared_a_frame=2
-predict refused: zone=1
+instrument refused: zone=1
 excluded by reason: negative=1, seq-mismatch=1
 unpaired posts=1 unpaired keylats=0 parse failures=1 landings refused=0
       leg  median us   (n)  IQR [q1-q3]              range [min-max]
@@ -95,7 +95,7 @@ unpaired posts=1 unpaired keylats=0 parse failures=1 landings refused=0
 
 == arm aa ==
 posted=12 paired=11 completed=7 excluded=3 shared_a_frame=0
-predict refused: zone=1
+instrument refused: zone=1
 excluded by reason: negative=2, seq-mismatch=1
 unpaired posts=1 unpaired keylats=0 parse failures=1 landings refused=0
       leg  median us   (n)  IQR [q1-q3]              range [min-max]

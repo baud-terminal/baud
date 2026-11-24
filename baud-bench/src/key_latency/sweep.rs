@@ -4,7 +4,7 @@
 //! three, which is the whole of what a headless box can check of it.
 
 use super::cli::{AaArm, Args, Child};
-use super::parse::{Count, PREDICT_REFUSED, Post};
+use super::parse::{Count, INSTRUMENT_REFUSED, Post};
 use super::parse::{parse_front_line, parse_keylat_lines, parse_post_line};
 use super::report::{aa_text, deltas_text, summary_text};
 use super::rows::{Diag, Row, Tally, exclude_refused_landings, pair_by_order};
@@ -526,13 +526,13 @@ fn run_arm(
     stop_app(&mut app, &stop);
 
     let parsed = parse_keylat_lines(&snapshot(keylat_start));
-    let mut predict_refused = Tally::default();
+    let mut instrument_refused = Tally::default();
     for r in parsed
         .reports
         .iter()
-        .filter(|r| r.starts_with(PREDICT_REFUSED))
+        .filter(|r| r.starts_with(INSTRUMENT_REFUSED))
     {
-        predict_refused.add(py::strip(&r[PREDICT_REFUSED.len()..]), Count(1));
+        instrument_refused.add(py::strip(&r[INSTRUMENT_REFUSED.len()..]), Count(1));
     }
     if !posts.is_empty() && parsed.records.is_empty() {
         println!(
@@ -546,13 +546,13 @@ fn run_arm(
     let (mut rows, mut diag) = pair_by_order(&posts, &parsed.records, window);
     diag.parse_failures = Some(Count(parsed.failures.len()));
     diag.landing_refused = Some(parsed.refusals);
-    if !predict_refused.is_empty() {
+    if !instrument_refused.is_empty() {
         println!(
-            "  round {round} arm {arm}: predict refused: {}",
-            predict_refused.sorted_line()
+            "  round {round} arm {arm}: instrument refused: {}",
+            instrument_refused.sorted_line()
         );
     }
-    diag.predict_refused = predict_refused;
+    diag.instrument_refused = instrument_refused;
     let excluded = exclude_refused_landings(&mut rows, parsed.refusals);
     diag.refused_landing_rows = Some(excluded);
     if parsed.refusals != Count(0) {

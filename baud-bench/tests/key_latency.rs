@@ -599,21 +599,21 @@ fn every_negative_reason_pools_as_one() {
 }
 
 #[test]
-fn diags_sum_and_the_predictor_s_sum_by_gate() {
-    let one = |gate: &str, n| {
+fn diags_sum_and_the_instrument_s_refusals_sum_by_why() {
+    let one = |why: &str, n| {
         let mut d = Diag {
             posted: Count(n),
             landing_refused: Some(Count(n)),
             ..Diag::default()
         };
-        d.predict_refused.add(gate, Count(n));
+        d.instrument_refused.add(why, Count(n));
         Some(d)
     };
     let m = merge_diags(&[one("zone", 2), None, one("zone", 3), one("hold", 1)]).expect("a sum");
     assert_eq!(m.posted, Count(6));
     assert_eq!(m.landing_refused, Some(Count(6)));
     assert!(
-        m.predict_refused
+        m.instrument_refused
             .equals(&[("zone", Count(5)), ("hold", Count(1))])
     );
 }
@@ -916,13 +916,13 @@ fn a_diag_adds_the_unpaired_line_and_a_refusal_the_warning() {
 }
 
 #[test]
-fn the_predictor_s_lines_sort_by_gate() {
+fn the_instrument_s_refusals_sort_by_why() {
     let row = one_row(post(1, 1_000_000_000), rec(LINE));
     let mut d = Diag::default();
-    d.predict_refused.add("zone", Count(1));
-    d.predict_refused.add("hold", Count(2));
+    d.instrument_refused.add("zone", Count(1));
+    d.instrument_refused.add("hold", Count(2));
     let text = summary_of(&[row], Some(&d));
-    assert!(text.contains("predict refused: hold=2, zone=1\n"));
+    assert!(text.contains("instrument refused: hold=2, zone=1\n"));
 }
 
 #[test]

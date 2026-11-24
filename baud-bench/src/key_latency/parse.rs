@@ -35,7 +35,7 @@ pub const OFFSETS: [&str; 9] = [
 
 /// What the instrument refused, and why: `keylat: refused <why>`, one line
 /// beside the records, not a record.
-pub const PREDICT_REFUSED: &str = "keylat: refused ";
+pub const INSTRUMENT_REFUSED: &str = "keylat: refused ";
 
 /// The line a landing whose GPU end stamp is off the clock prints.
 pub const REFUSAL_PREFIX: &str = "keylat: landing refused";
@@ -224,7 +224,7 @@ pub fn parse_keylat_lines<S: AsRef<str>>(lines: &[S]) -> Parsed {
             Ok(Some(rec)) => out.records.push(rec),
             Ok(None) => {
                 let open = s.starts_with("keylat:") && s.ends_with("keys open");
-                if open || s.starts_with(PREDICT_REFUSED) {
+                if open || s.starts_with(INSTRUMENT_REFUSED) {
                     out.reports.push(s.to_string());
                 }
             }

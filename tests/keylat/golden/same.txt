@@ -14,12 +14,12 @@ WARNING: arms a and b are byte-identical -- an A/B of one binary against itself 
 arm order rotates every round so no arm is always last
 
 round 1: order ['a', 'b']
-  round 1 arm a: predict refused: zone=1
+  round 1 arm a: instrument refused: zone=1
   round 1 arm a: excluded seq=2 (app seq=2): negative build
   round 1 arm a: excluded seq=4 (app seq=4): negative child
   round 1 arm a: excluded seq=5 (app seq=500): seq-mismatch
   round 1 arm a: pid=PID posted=8 keylats=8 paired=8 unpaired posts=0 unpaired keylats=0 seq mismatches=1 negative=2 parse failures=0 landings refused=0 -> <dir>/scratch/keylat-a-1.tsv
-  round 1 arm b: predict refused: zone=1
+  round 1 arm b: instrument refused: zone=1
   round 1 arm b: excluded seq=2 (app seq=2): negative build
   round 1 arm b: excluded seq=4 (app seq=4): negative child
   round 1 arm b: excluded seq=5 (app seq=500): seq-mismatch
@@ -27,7 +27,7 @@ round 1: order ['a', 'b']
 
 == arm a ==
 posted=8 paired=8 completed=4 excluded=3 shared_a_frame=0
-predict refused: zone=1
+instrument refused: zone=1
 excluded by reason: negative=2, seq-mismatch=1
 unpaired posts=0 unpaired keylats=0 parse failures=0 landings refused=0
       leg  median us   (n)  IQR [q1-q3]              range [min-max]
@@ -48,7 +48,7 @@ unpaired posts=0 unpaired keylats=0 parse failures=0 landings refused=0
 
 == arm b ==
 posted=8 paired=8 completed=4 excluded=3 shared_a_frame=0
-predict refused: zone=1
+instrument refused: zone=1
 excluded by reason: negative=2, seq-mismatch=1
 unpaired posts=0 unpaired keylats=0 parse failures=0 landings refused=0
       leg  median us   (n)  IQR [q1-q3]              range [min-max]

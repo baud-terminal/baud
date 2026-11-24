@@ -14,12 +14,12 @@ arm order rotates every round so no arm is always last
 
 round 1: order ['base']
   round 1 arm base: keys posted, none reached the app (Accessibility? wrong target?)
-  round 1 arm base: predict refused: zone=1
+  round 1 arm base: instrument refused: zone=1
   round 1 arm base: pid=PID posted=3 keylats=0 paired=0 unpaired posts=3 unpaired keylats=0 seq mismatches=0 negative=0 parse failures=0 landings refused=0 -> <dir>/scratch/keylat-base-1.tsv
 
 == arm base ==
 posted=3 paired=0 completed=0 excluded=0 shared_a_frame=0
-predict refused: zone=1
+instrument refused: zone=1
 unpaired posts=3 unpaired keylats=0 parse failures=0 landings refused=0
       leg  median us   (n)  IQR [q1-q3]              range [min-max]
     stamp          -        -                        -

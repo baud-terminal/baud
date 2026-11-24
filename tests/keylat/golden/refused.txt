@@ -16,13 +16,13 @@ round 1: order ['base']
 post 1 1010149999900 a
 post 2 1010150099800 a
 REFUSED front window 1 Other App front app 1 Other App posted 2 
-  round 1 arm base: predict refused: zone=1
+  round 1 arm base: instrument refused: zone=1
   round 1 arm base: excluded seq=2 (app seq=2): negative build
   round 1 arm base: pid=PID posted=2 keylats=2 paired=2 unpaired posts=0 unpaired keylats=0 seq mismatches=0 negative=1 parse failures=0 landings refused=0 -> <dir>/scratch/keylat-base-1.tsv
 
 == arm base ==
 posted=2 paired=2 completed=1 excluded=1 shared_a_frame=0
-predict refused: zone=1
+instrument refused: zone=1
 excluded by reason: negative=1
 unpaired posts=0 unpaired keylats=0 parse failures=0 landings refused=0
       leg  median us   (n)  IQR [q1-q3]              range [min-max]

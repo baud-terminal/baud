@@ -147,8 +147,8 @@ pub fn merge_diags(diags: &[Option<Diag>]) -> Option<Diag> {
                 *sum.get_or_insert(Count(0)) += one;
             }
         }
-        for (k, v) in &d.predict_refused.0 {
-            m.predict_refused.add(k, *v);
+        for (k, v) in &d.instrument_refused.0 {
+            m.instrument_refused.add(k, *v);
         }
     }
     merged

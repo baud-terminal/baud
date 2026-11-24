@@ -3,7 +3,7 @@
 
 use super::cli::Child;
 use super::parse::{
-    Count, Front, Ns, OFFSETS, PREDICT_REFUSED, Post, Record, Seq, parse_front_line,
+    Count, Front, INSTRUMENT_REFUSED, Ns, OFFSETS, Post, Record, Seq, parse_front_line,
     parse_keylat_line, parse_keylat_lines, parse_post_line,
 };
 use super::py;
@@ -174,12 +174,12 @@ pub fn selftest(dir: &str) -> Result<Outcome, String> {
     // The two classes of non-record line, told apart the way a run tells
     // them apart: the open-keys report, and the `refused` lines by why.
     let mut refused_seen = Tally::default();
-    for r in reports.iter().filter(|r| r.starts_with(PREDICT_REFUSED)) {
-        refused_seen.add(py::strip(&r[PREDICT_REFUSED.len()..]), Count(1));
+    for r in reports.iter().filter(|r| r.starts_with(INSTRUMENT_REFUSED)) {
+        refused_seen.add(py::strip(&r[INSTRUMENT_REFUSED.len()..]), Count(1));
     }
     let opens: Vec<String> = reports
         .iter()
-        .filter(|r| !r.starts_with(PREDICT_REFUSED))
+        .filter(|r| !r.starts_with(INSTRUMENT_REFUSED))
         .cloned()
         .collect();
     if opens != ["keylat: 3 keys open"] {
@@ -190,30 +190,30 @@ pub fn selftest(dir: &str) -> Result<Outcome, String> {
     }
     if !refused_seen.equals(&[("zone", Count(1)), ("occupied", Count(1))]) {
         failures.push(format!(
-            "the fixture's refusals must be counted by gate: {}",
+            "the fixture's refusals must be counted by why: {}",
             refused_seen.repr_counter()
         ));
     }
-    // And the per-round counters are summed by gate rather than overwritten.
+    // And the per-round counters are summed by why rather than overwritten.
     let one = |refused: &[(&str, usize)]| {
         let mut d = Diag {
             paired: Count(1),
             ..Diag::default()
         };
         for (k, n) in refused {
-            d.predict_refused.add(k, Count(*n));
+            d.instrument_refused.add(k, Count(*n));
         }
         Some(d)
     };
     let pooled = merge_diags(&[one(&[("zone", 2), ("hold", 1)]), one(&[("zone", 5)])])
         .expect("two diags merge");
     if !pooled
-        .predict_refused
+        .instrument_refused
         .equals(&[("zone", Count(7)), ("hold", Count(1))])
     {
         failures.push(format!(
-            "refusals must pool by gate: {}",
-            pooled.predict_refused.repr_dict()
+            "refusals must pool by why: {}",
+            pooled.instrument_refused.repr_dict()
         ));
     }
     if pooled.paired != Count(2) {

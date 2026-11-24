@@ -180,7 +180,7 @@ pub struct Diag {
     /// Rows excluded for a refused landing, once they have been.
     pub refused_landing_rows: Option<Count>,
     /// The `refused` lines, by why.
-    pub predict_refused: Tally,
+    pub instrument_refused: Tally,
 }
 
 impl Diag {

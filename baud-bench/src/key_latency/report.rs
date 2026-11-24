@@ -32,8 +32,11 @@ pub fn summary_text(name: &str, summ: &Summary, diag: Option<&Diag>) -> String {
         "posted={} paired={} completed={} excluded={} shared_a_frame={}\n",
         summ.posted, summ.paired, summ.completed, summ.excluded, summ.shared
     );
-    if let Some(d) = diag.filter(|d| !d.predict_refused.is_empty()) {
-        o += &format!("predict refused: {}\n", d.predict_refused.sorted_line());
+    if let Some(d) = diag.filter(|d| !d.instrument_refused.is_empty()) {
+        o += &format!(
+            "instrument refused: {}\n",
+            d.instrument_refused.sorted_line()
+        );
     }
     if !summ.reasons.is_empty() {
         o += &format!("excluded by reason: {}\n", summ.reasons.sorted_line());
