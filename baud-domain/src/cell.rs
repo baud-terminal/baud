@@ -390,6 +390,192 @@ impl Default for LinkLive {
     }
 }
 
+/// **A slot a cell names**: `1..LinkLive::SLOTS`, never `LinkId::NONE`'s.
+/// Made only by [`LinkId::slot`]; the field is private.
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::LinkSlot(core::num::NonZeroU8::MIN);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// use baud_domain::LinkId;
+/// let s = LinkId::from_index(5).slot().expect("a slot");
+/// assert_eq!(s.id(), LinkId::from_index(5));
+/// assert!(LinkId::NONE.slot().is_none());
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct LinkSlot(core::num::NonZeroU8);
+
+impl LinkId {
+    /// **The slot this names**: none for `NONE`, and none for an index no
+    /// cell's link bits can spell.
+    pub fn slot(self) -> Option<LinkSlot> {
+        match self.index() < LinkLive::SLOTS {
+            true => core::num::NonZeroU8::new(self.0 as u8).map(LinkSlot),
+            false => None,
+        }
+    }
+}
+
+impl LinkSlot {
+    /// The link the slot is, as a cell names it.
+    pub fn id(self) -> LinkId {
+        LinkId(u16::from(self.0.get()))
+    }
+
+    fn bit(self) -> u128 {
+        1 << self.0.get()
+    }
+
+    fn index(self) -> usize {
+        usize::from(self.0.get())
+    }
+}
+
+/// **Which link slots a run of cells names**: one bit a slot, the width of
+/// every index a cell's link bits can spell, and bit 0 -- `NONE`'s -- never
+/// set. A value a row of a view holds, never a field of a cell. Made from
+/// cells, or from slots, never from bits; the field is private.
+///
+/// ```compile_fail,E0308
+/// let _ = baud_domain::LinkSet::EMPTY.with(baud_domain::LinkId::NONE);
+/// ```
+///
+/// ```compile_fail,E0423
+/// let _ = baud_domain::LinkSet(1);
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// use baud_domain::{LinkId, LinkSet};
+/// let s = LinkId::from_index(3).slot().expect("a slot");
+/// let set = LinkSet::EMPTY.with(s);
+/// assert!(set.has(s) && set.meets(LinkSet::EMPTY.with(s)));
+/// assert_eq!(set.slots().collect::<Vec<_>>(), [s]);
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct LinkSet(u128);
+
+const _: () = assert!(u128::BITS as usize == LinkLive::SLOTS);
+
+impl LinkSet {
+    /// No slot.
+    pub const EMPTY: LinkSet = LinkSet(0);
+
+    /// **Every slot a cell of `cells` names.** Sixteen cells at a time, and
+    /// a block naming none is skipped: the link bits of sixteen flag words
+    /// OR-ed are one test a block, and nearly every cell names no link.
+    pub fn of_cells(cells: &[PackedCell]) -> LinkSet {
+        const LINKS: u16 = CellFlags::LINK_MASK << CellFlags::LINK_SHIFT;
+        let mut bits = 0u128;
+        for block in cells.chunks(16) {
+            if block.iter().fold(0, |a, c| a | c.flags.0) & LINKS == 0 {
+                continue;
+            }
+            for c in block {
+                bits |= 1 << c.flags.link().index();
+            }
+        }
+        LinkSet(bits & !1)
+    }
+
+    /// This set and slot `s`.
+    pub fn with(self, s: LinkSlot) -> LinkSet {
+        LinkSet(self.0 | s.bit())
+    }
+
+    /// Whether the set holds slot `s`.
+    pub fn has(self, s: LinkSlot) -> bool {
+        self.0 & s.bit() != 0
+    }
+
+    /// The slots either set holds.
+    pub fn union(self, o: LinkSet) -> LinkSet {
+        LinkSet(self.0 | o.0)
+    }
+
+    /// Whether the two sets hold a slot in common.
+    pub fn meets(self, o: LinkSet) -> bool {
+        self.0 & o.0 != 0
+    }
+
+    /// Whether the set holds no slot.
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The slots held, lowest first.
+    pub fn slots(self) -> impl Iterator<Item = LinkSlot> {
+        let mut rest = self.0;
+        // Bit 0 is never set, so a set bit's place is never zero.
+        core::iter::from_fn(move || {
+            let low = (rest != 0).then(|| rest.trailing_zeros() as u8)?;
+            rest &= rest - 1;
+            core::num::NonZeroU8::new(low).map(LinkSlot)
+        })
+    }
+}
+
+/// **A mark per link slot, each judged once between clears**: the first
+/// [`SlotMarks::get_or_judge`] of a slot runs its judge and keeps the
+/// answer, and every later one until [`SlotMarks::clear`] returns it. There
+/// is no setter, and the fields are private.
+///
+/// ```compile_fail,E0616
+/// fn f(m: &mut baud_domain::SlotMarks<u8>) { let _ = &mut m.marks; }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// use baud_domain::{LinkId, SlotMarks};
+/// let s = LinkId::from_index(9).slot().expect("a slot");
+/// let mut m = SlotMarks::<u8>::new();
+/// assert_eq!(m.get_or_judge(s, || 4), 4);
+/// assert_eq!(m.get_or_judge(s, || 7), 4);
+/// m.clear();
+/// assert_eq!(m.get_or_judge(s, || 7), 7);
+/// ```
+#[derive(Clone, Debug)]
+pub struct SlotMarks<M: Copy + Default> {
+    judged: LinkSet,
+    marks: [M; LinkLive::SLOTS],
+}
+
+impl<M: Copy + Default> SlotMarks<M> {
+    /// Nothing judged.
+    pub fn new() -> SlotMarks<M> {
+        SlotMarks {
+            judged: LinkSet::EMPTY,
+            marks: [M::default(); LinkLive::SLOTS],
+        }
+    }
+
+    /// Every slot to be judged again.
+    pub fn clear(&mut self) {
+        self.judged = LinkSet::EMPTY;
+    }
+
+    /// **Slot `s`'s mark**: the one kept after the last clear, else
+    /// `judge`'s, kept.
+    pub fn get_or_judge(&mut self, s: LinkSlot, judge: impl FnOnce() -> M) -> M {
+        if !self.judged.has(s) {
+            self.marks[s.index()] = judge();
+            self.judged = self.judged.with(s);
+        }
+        self.marks[s.index()]
+    }
+}
+
+impl<M: Copy + Default> Default for SlotMarks<M> {
+    fn default() -> Self {
+        SlotMarks::new()
+    }
+}
+
 impl CellFlags {
     /// **What the cursor advances by, parked in the flag field.** The cursor
     /// *position* is unbounded state and no table can enumerate it -- but the

@@ -424,6 +424,15 @@ const _: baud_domain::LineRendition = baud_domain::LineRendition::DoubleBottom;
 const _: fn(baud_domain::LineRendition) -> bool = baud_domain::LineRendition::is_double;
 const _: fn(baud_domain::LineRendition, baud_domain::Cols) -> baud_domain::Cols =
     baud_domain::LineRendition::end_of_line;
+// LinkId
+const _: fn(baud_domain::LinkId) -> Option<baud_domain::LinkSlot> = baud_domain::LinkId::slot;
+// LinkSet
+const _: baud_domain::LinkSet = baud_domain::LinkSet::EMPTY;
+const _: fn(&[baud_domain::PackedCell]) -> baud_domain::LinkSet = baud_domain::LinkSet::of_cells;
+const _: fn(baud_domain::LinkSet, baud_domain::LinkSet) -> bool = baud_domain::LinkSet::meets;
+fn _slots(s: baud_domain::LinkSet) -> impl Iterator<Item = baud_domain::LinkSlot> {
+    s.slots()
+}
 // LiveTable
 const _: fn(&'static [baud_domain::StyleSlot]) -> baud_domain::LiveTable<'static> =
     baud_domain::LiveTable::of;
@@ -628,6 +637,10 @@ const _: fn(baud_domain::SixelPx) -> u16 = baud_domain::SixelPx::raw;
 // Slant
 const _: baud_domain::Slant = baud_domain::Slant::AsFace;
 const _: baud_domain::Slant = baud_domain::Slant::ByDirection;
+// SlotMarks, at u8
+fn _get_or_judge(m: &mut baud_domain::SlotMarks<u8>, s: baud_domain::LinkSlot) -> u8 {
+    m.get_or_judge(s, || 1)
+}
 // SlotSet
 const _: fn() -> baud_domain::SlotSet = baud_domain::SlotSet::new;
 const _: fn(&mut baud_domain::SlotSet, baud_domain::StyleId) = baud_domain::SlotSet::insert;
@@ -1683,6 +1696,9 @@ const WITNESSED: &[(&str, &str)] = &[
     ("LineBidi", "E0423"),
     ("LineIdx", "E0369"),
     ("LineInterval", "E0451"),
+    ("LinkSet", "E0308"),
+    ("LinkSet", "E0423"),
+    ("LinkSlot", "E0423"),
     ("Modifiers", "E0423"),
     ("OverlapRuns", "E0423"),
     ("OverlayChanges", "E0423"),
@@ -1698,6 +1714,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("Seal", "E0451"),
     ("SixelAspect", "E0451"),
     ("SixelCanvas", "E0451"),
+    ("SlotMarks", "E0616"),
     ("SlotSet", "E0599"),
     ("SpanCount", "E0423"),
     ("SpanSet", "E0616"),
