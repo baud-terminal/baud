@@ -271,7 +271,7 @@ fn the_window_exclusion_gone() {
 
 #[test]
 fn a_negative_leg() {
-    let from = "seq=1 event=1000000000 handled=+300.0 written=+350.0 pred=- echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0";
+    let from = "seq=1 event=1000000000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0";
     let to = from.replace("shown=+385.0", "shown=+375.0");
     perturbed("negative-leg", KEYLAT, &[(from, &to)], 3, "'negative show'");
 }
@@ -393,7 +393,7 @@ fn the_late_bound_legs() {
 
 #[test]
 fn a_leg_loses_one_value() {
-    let from = "seq=1 event=1000000000 handled=+300.0 written=+350.0 pred=- echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0";
+    let from = "seq=1 event=1000000000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0";
     let to = from.replace("commit=+370.0", "commit=-");
     perturbed(
         "leg-n",
@@ -430,7 +430,7 @@ fn a_leg_loses_every_value() {
 
 #[test]
 fn a_key_that_never_reached_vsync() {
-    let from = "seq=1 event=1000000000 handled=+300.0 written=+350.0 pred=- echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+400.0";
+    let from = "seq=1 event=1000000000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+400.0";
     let to = from.replace("vsync=+400.0", "vsync=-");
     perturbed(
         "not-completed",
@@ -447,8 +447,8 @@ fn two_keys_on_one_frame() {
         "shared-frame",
         KEYLAT,
         &[(
-            "seq=2 event=1000010000 handled=+300.0 written=+350.0 pred=- echo=+360.0 fed=+365.0 commit=+370.0",
-            "seq=2 event=1000010000 handled=+300.0 written=+350.0 pred=- echo=+352.0 fed=+355.0 commit=+360.0",
+            "seq=2 event=1000010000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0",
+            "seq=2 event=1000010000 handled=+300.0 written=+350.0 echo=+352.0 fed=+355.0 commit=+360.0",
         )],
         3,
         "expected 0 shared-frame keys, got 2",
@@ -461,8 +461,8 @@ fn a_second_refused_landing() {
         "second-refused-landing",
         KEYLAT,
         &[(
-            "seq=5 event=1001500000 handled=+300.0 written=+350.0 pred=- echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0",
-            "seq=5 event=1001500000 handled=+300.0 written=+350.0 pred=- echo=+360.0 fed=+365.0 commit=+370.0 landed=-",
+            "seq=5 event=1001500000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0",
+            "seq=5 event=1001500000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=-",
         )],
         3,
         "expected 1 refused-landing row, got 2",
@@ -488,10 +488,7 @@ fn an_unknown_token_changes_nothing() {
     perturbed(
         "unknown-token",
         KEYLAT,
-        &[(
-            "predok=- extra=tolerated",
-            "predok=- extra=tolerated more=+1.0",
-        )],
+        &[(" extra=tolerated", " extra=tolerated more=+1.0")],
         0,
         "SELFTEST OK",
     );

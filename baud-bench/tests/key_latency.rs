@@ -13,9 +13,9 @@ use baud_bench::key_latency::sha256;
 use baud_bench::key_latency::stats::*;
 use baud_bench::key_latency::sweep::{MUTE_CMD, STREAM_FLAG, child_env, tsv_text};
 
-const LINE: &str = "keylat: seq=1 event=1000000000 handled=+300.0 written=+350.0 pred=- \
+const LINE: &str = "keylat: seq=1 event=1000000000 handled=+300.0 written=+350.0 \
                     echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+400.0 \
-                    vsync_hi=+416.7 predok=-";
+                    vsync_hi=+416.7";
 
 fn err(line: &str) -> String {
     parse_keylat_line(line).expect_err("a parse failure").0

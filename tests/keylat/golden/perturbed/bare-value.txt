@@ -1,7 +1,7 @@
 exit 3
 SELFTEST FAILED:
   - expected 9 keylat records, got 8
-  - expected one parse failure naming vsync_hi on seq=10, got ['handled=300.0 is neither +<us> nor -: keylat: seq=2 event=1000010000 handled=300.0 written=+350.0 pred=- echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+410.0 vsync_hi=+426.7 predok=-', 'missing vsync_hi: keylat: seq=10 event=1004000000 handled=+300.0 written=+350.0 pred=- echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+400.0']
+  - expected one parse failure naming vsync_hi on seq=10, got ['handled=300.0 is neither +<us> nor -: keylat: seq=2 event=1000010000 handled=300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+410.0 vsync_hi=+426.7', 'missing vsync_hi: keylat: seq=10 event=1004000000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+400.0']
   - pairing counts wrong: {'posted': 10, 'keylats': 8, 'paired': 8, 'unpaired_posts': 2, 'unpaired_keylats': 0, 'seq_mismatch': 7, 'event_before_post': 0, 'window': 0, 'negative': 0}
   - expected 1 refused-landing row, got 0
   - expected exclusions {6: 'event<post', 7: 'event-post>=window', 8: 'seq-mismatch', 9: 'refused-landing'}, got {2: 'seq-mismatch', 3: 'seq-mismatch', 4: 'seq-mismatch', 5: 'seq-mismatch', 6: 'seq-mismatch', 7: 'seq-mismatch', 8: 'seq-mismatch'}

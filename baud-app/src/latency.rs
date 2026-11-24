@@ -199,11 +199,10 @@ impl Record {
     }
 
     /// The line the driver parses: `event` absolute in nanoseconds, so it
-    /// can align the stamp it posted; every other field an offset. The
-    /// `pred` and `predok` columns are always `-`.
+    /// can align the stamp it posted; every other field an offset.
     fn line(&self) -> String {
         format!(
-            "keylat: seq={} event={} handled={} written={} pred=- echo={} fed={} commit={} landed={} shown={} vsync={} vsync_hi={} predok=-",
+            "keylat: seq={} event={} handled={} written={} echo={} fed={} commit={} landed={} shown={} vsync={} vsync_hi={}",
             self.seq.value(),
             self.event.nanos(),
             self.offset(Some(self.handled)),
@@ -622,9 +621,9 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "keylat: seq=1 event=1000000000 handled=+300.0 written=+350.0 pred=- echo=+360.0 \
+                "keylat: seq=1 event=1000000000 handled=+300.0 written=+350.0 echo=+360.0 \
                  fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+8333.0 \
-                 vsync_hi=+16666.0 predok=-"
+                 vsync_hi=+16666.0"
             ]
         );
         assert_eq!(l.open().value(), 0);
@@ -642,8 +641,8 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "keylat: seq=1 event=1000000000 handled=+100.0 written=+120.0 pred=- echo=- fed=- \
-                 commit=- landed=- shown=- vsync=- vsync_hi=- predok=-"
+                "keylat: seq=1 event=1000000000 handled=+100.0 written=+120.0 echo=- fed=- \
+                 commit=- landed=- shown=- vsync=- vsync_hi=-"
             ]
         );
         assert_eq!(l.open().value(), 0);
@@ -665,17 +664,17 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert_eq!(
             lines[0],
-            "keylat: seq=1 event=1000000000 handled=+100.0 written=+120.0 pred=- echo=+400.0 \
+            "keylat: seq=1 event=1000000000 handled=+100.0 written=+120.0 echo=+400.0 \
              fed=+410.0 commit=+420.0 landed=+700.0 shown=+710.0 vsync=+1000.0 \
-             vsync_hi=+9333.0 predok=-"
+             vsync_hi=+9333.0"
         );
         // The second key's offsets are from its own, later event; the
         // stamps it shares are the same absolute moments.
         assert_eq!(
             lines[1],
-            "keylat: seq=2 event=1000010000 handled=+120.0 written=+140.0 pred=- echo=+390.0 \
+            "keylat: seq=2 event=1000010000 handled=+120.0 written=+140.0 echo=+390.0 \
              fed=+400.0 commit=+410.0 landed=+690.0 shown=+700.0 vsync=+990.0 \
-             vsync_hi=+9323.0 predok=-"
+             vsync_hi=+9323.0"
         );
     }
 
@@ -696,9 +695,9 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "keylat: seq=1 event=1000100000 handled=+0.0 written=+20.0 pred=- echo=+200.0 \
+                "keylat: seq=1 event=1000100000 handled=+0.0 written=+20.0 echo=+200.0 \
                  fed=+210.0 commit=+400.0 landed=- shown=+400.0 vsync=+7900.0 \
-                 vsync_hi=+16233.0 predok=-"
+                 vsync_hi=+16233.0"
             ]
         );
     }
@@ -761,7 +760,7 @@ mod tests {
         l.fed(|| t(us!(410)));
         let lines = l.settle(t(Duration::from_millis(2_500)));
         assert!(
-            lines[0].contains(" written=- pred=- echo=- fed=- "),
+            lines[0].contains(" written=- echo=- fed=- "),
             "{}",
             lines[0]
         );
@@ -786,7 +785,7 @@ mod tests {
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].starts_with("keylat: seq=2 "), "{}", lines[0]);
         assert!(
-            lines[0].contains(" written=+130.0 pred=- echo=+150.0 "),
+            lines[0].contains(" written=+130.0 echo=+150.0 "),
             "{}",
             lines[0]
         );
@@ -794,7 +793,7 @@ mod tests {
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].starts_with("keylat: seq=1 "), "{}", lines[0]);
         assert!(
-            lines[0].contains(" written=- pred=- echo=- fed=- commit=- "),
+            lines[0].contains(" written=- echo=- fed=- commit=- "),
             "{}",
             lines[0]
         );
@@ -818,7 +817,7 @@ mod tests {
         let lines = l.settle(t(us!(33_332)));
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(
-            lines[0].ends_with(" shown=+17100.0 vsync=- vsync_hi=- predok=-"),
+            lines[0].ends_with(" shown=+17100.0 vsync=- vsync_hi=-"),
             "{}",
             lines[0]
         );
@@ -834,7 +833,7 @@ mod tests {
         l.announced(|| Some(t(us!(49_998))));
         let lines = l.settle(t(us!(49_998)));
         assert!(
-            lines[0].ends_with(" vsync=+1665.0 vsync_hi=+9998.0 predok=-"),
+            lines[0].ends_with(" vsync=+1665.0 vsync_hi=+9998.0"),
             "{}",
             lines[0]
         );
@@ -915,7 +914,7 @@ mod tests {
         assert!(l.settle(t(us!(8_333))).is_empty());
         let lines = l.settle(t(us!(16_666)));
         assert!(
-            lines[0].ends_with(" vsync=+8333.0 vsync_hi=+16666.0 predok=-"),
+            lines[0].ends_with(" vsync=+8333.0 vsync_hi=+16666.0"),
             "{}",
             lines[0]
         );
@@ -932,7 +931,7 @@ mod tests {
         assert!(l.settle(t(us!(12_333))).is_empty());
         let lines = l.settle(t(us!(20_666)));
         assert!(
-            lines[0].ends_with(" vsync=+12333.0 vsync_hi=+20666.0 predok=-"),
+            lines[0].ends_with(" vsync=+12333.0 vsync_hi=+20666.0"),
             "{}",
             lines[0]
         );

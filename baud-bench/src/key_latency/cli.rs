@@ -25,9 +25,10 @@ options:
   --child {cat,shell,none,stream,mute}
                         cat: the tty's own echo; shell: the login shell; none:
                         `stty -echo; sleep 60`, the no-echo control; mute: a
-                        prompt (OSC 133 A and B) that never echoes, the row-9
-                        expiry-and-hold control; stream: a line printed every
-                        2 ms under the tty's echo, the row-6 workload
+                        prompt (OSC 133 A and B) that never echoes, so every
+                        key is posted and none completes; stream: a line
+                        printed every 2 ms under the tty's echo, the row-6
+                        workload
   --arm ARM             name=path/to/baud (repeatable)
   --aa                  add an A/A arm running the first arm's binary again
   --grid GRID
