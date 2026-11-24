@@ -124,7 +124,12 @@ const fn basic(c: u8) -> bool {
 
 /// The end of the single complete type that starts at `i`, `arrays` and
 /// `structs` deep.
-const fn single(s: &[u8], i: usize, arrays: Depth, structs: Depth) -> Result<usize, SigError> {
+pub(super) const fn single(
+    s: &[u8],
+    i: usize,
+    arrays: Depth,
+    structs: Depth,
+) -> Result<usize, SigError> {
     if i >= s.len() {
         return Err(SigError::ArrayNoElement);
     }

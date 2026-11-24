@@ -7,9 +7,13 @@
 //! and the SIGNATURE header field is that constant rather than a string a
 //! caller writes. Only the types here are [`Marshal`]: `&str` is not, so a
 //! string reaches a body only as a checked [`Str`].
+//!
+//! Each type also names what reading it from a received body yields, so a
+//! tuple of them reads a body whose signature is the tuple's own.
 
 #[cfg(feature = "alloc")]
 use super::body::{BodyWriter, EncodeError};
+use super::decode::{ArrayRead, BodyReader, Malformed, Unread};
 use super::name::{ObjectPath, Str};
 use super::sig::{Sig, SigCodes};
 
@@ -54,9 +58,13 @@ pub trait Marshal: sealed::Value {
     const ALIGN: Align;
     /// The value's type, one complete type.
     const SIG: SigCodes;
+    /// What reading the value from a received body yields.
+    type Read<'a>;
     /// Writes the value, aligned, at the writer's end.
     #[cfg(feature = "alloc")]
     fn marshal(&self, w: &mut BodyWriter<'_>) -> Result<(), EncodeError>;
+    /// Reads the value, aligned, at the reader's place.
+    fn read<'a>(r: &mut BodyReader<'a>) -> Result<Self::Read<'a>, Malformed>;
 }
 
 /// A basic type: the only types a dict entry's key may be ("Container
@@ -73,6 +81,8 @@ pub trait Args: sealed::Values {
     /// Writes each argument in order.
     #[cfg(feature = "alloc")]
     fn marshal_all(&self, w: &mut BodyWriter<'_>) -> Result<(), EncodeError>;
+    /// Reads each argument in order.
+    fn read_all<'a>(r: &mut BodyReader<'a>) -> Result<Self::Read<'a>, Malformed>;
 }
 
 impl sealed::Values for () {}
@@ -82,6 +92,9 @@ impl Args for () {
     type Read<'a> = ();
     #[cfg(feature = "alloc")]
     fn marshal_all(&self, _: &mut BodyWriter<'_>) -> Result<(), EncodeError> {
+        Ok(())
+    }
+    fn read_all<'a>(_: &mut BodyReader<'a>) -> Result<(), Malformed> {
         Ok(())
     }
 }
@@ -94,11 +107,14 @@ macro_rules! args {
 
         impl<$($t: Marshal),+> Args for ($($t,)+) {
             const SIG: SigCodes = SigCodes::EMPTY $(.concat(<$t as Marshal>::SIG))+;
-            type Read<'a> = ();
+            type Read<'a> = ($(<$t as Marshal>::Read<'a>,)+);
             #[cfg(feature = "alloc")]
             fn marshal_all(&self, w: &mut BodyWriter<'_>) -> Result<(), EncodeError> {
                 $(self.$i.marshal(w)?;)+
                 Ok(())
+            }
+            fn read_all<'a>(r: &mut BodyReader<'a>) -> Result<Self::Read<'a>, Malformed> {
+                Ok(($(<$t as Marshal>::read(r)?,)+))
             }
         }
     };
@@ -137,18 +153,27 @@ const _: () = assert!(SigCodes::eq(
 ));
 
 /// One basic type's `Marshal`: its signature from `$code`, its alignment,
-/// and the writer call that puts it down.
+/// the writer call that puts it down, and the reader call that takes it
+/// up, yielding `$rt`.
 macro_rules! basic {
-    ($ty:ty, $code:literal, $align:expr, |$v:ident, $w:ident| $write:expr) => {
+    (
+        $ty:ty, $code:literal, $align:expr,
+        |$v:ident, $w:ident| $write:expr,
+        <$l:lifetime> $rt:ty = |$r:ident| $read:expr
+    ) => {
         impl sealed::Value for $ty {}
 
         impl Marshal for $ty {
             const ALIGN: Align = $align;
             const SIG: SigCodes = SigCodes::of(Sig::lit($code));
+            type Read<$l> = $rt;
             #[cfg(feature = "alloc")]
             fn marshal(&self, $w: &mut BodyWriter<'_>) -> Result<(), EncodeError> {
                 let $v = self;
                 $write
+            }
+            fn read<$l>($r: &mut BodyReader<$l>) -> Result<$rt, Malformed> {
+                Ok($read)
             }
         }
 
@@ -177,7 +202,7 @@ impl Byte {
 basic!(Byte, "y", Align::One, |v, w| {
     w.byte(v.0);
     Ok(())
-});
+}, <'a> Byte = |r| Byte(r.byte()?));
 
 /// A BOOLEAN, `b`: a 32-bit word that is 0 or 1 and nothing else ("Basic
 /// types"), so it is two states rather than a number.
@@ -218,7 +243,7 @@ basic!(Boolean, "b", Align::Four, |v, w| {
         Boolean::True => 1,
     });
     Ok(())
-});
+}, <'a> Boolean = |r| r.boolean()?);
 
 /// An INT32, `i`: 32 bits, two's complement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -241,7 +266,7 @@ impl I32 {
 basic!(I32, "i", Align::Four, |v, w| {
     w.word(u32::from_le_bytes(v.0.to_le_bytes()));
     Ok(())
-});
+}, <'a> I32 = |r| I32(i32::from_ne_bytes(r.word()?.to_ne_bytes())));
 
 /// A UINT32, `u`: 32 bits, unsigned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -264,7 +289,7 @@ impl U32 {
 basic!(U32, "u", Align::Four, |v, w| {
     w.word(v.0);
     Ok(())
-});
+}, <'a> U32 = |r| U32(r.word()?));
 
 /// A DOUBLE, `d`: an IEEE 754 double, on 8.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
@@ -288,7 +313,7 @@ basic!(Double, "d", Align::Eight, |v, w| {
     w.align(Align::Eight);
     w.bytes(&v.0.to_le_bytes());
     Ok(())
-});
+}, <'a> Double = |r| Double(f64::from_bits(r.quad()?)));
 
 /// Which of a message's file descriptors a UNIX_FD names: an index into
 /// the array of descriptors that accompany it ("Summary of D-Bus
@@ -325,6 +350,11 @@ impl FdCount {
     #[inline]
     pub const fn get(self) -> u32 {
         self.0
+    }
+
+    /// A received UNIX_FDS field's count.
+    pub(super) const fn received(n: u32) -> FdCount {
+        FdCount(n)
     }
 
     /// The count that covers `index` as well as these: every index a body
@@ -383,17 +413,18 @@ impl UnixFd {
 basic!(UnixFd, "h", Align::Four, |v, w| {
     w.fd(v.0);
     Ok(())
-});
+}, <'a> FdIndex = |r| r.fd()?);
 
-basic!(Str<'_>, "s", Align::Four, |v, w| w.string(v.as_str()));
+basic!(Str<'_>, "s", Align::Four, |v, w| w.string(v.as_str()),
+    <'a> Str<'a> = |r| r.str()?);
 
-basic!(ObjectPath<'_>, "o", Align::Four, |v, w| w
-    .string(v.as_str()));
+basic!(ObjectPath<'_>, "o", Align::Four, |v, w| w.string(v.as_str()),
+    <'a> ObjectPath<'a> = |r| r.path()?);
 
 basic!(Sig<'_>, "g", Align::One, |v, w| {
     w.signature(*v);
     Ok(())
-});
+}, <'a> Sig<'a> = |r| r.signature()?);
 
 /// An ARRAY of `T`, `a` then `T`'s type: a length in bytes, padding to
 /// `T`'s boundary even when there is no element, then the elements
@@ -428,6 +459,10 @@ impl<T: Marshal> sealed::Value for Array<'_, T> {}
 impl<T: Marshal> Marshal for Array<'_, T> {
     const ALIGN: Align = Align::Four;
     const SIG: SigCodes = SigCodes::array(T::SIG);
+    type Read<'a> = ArrayRead<'a, T>;
+    fn read<'a>(r: &mut BodyReader<'a>) -> Result<ArrayRead<'a, T>, Malformed> {
+        ArrayRead::read(r)
+    }
     #[cfg(feature = "alloc")]
     fn marshal(&self, w: &mut BodyWriter<'_>) -> Result<(), EncodeError> {
         w.array(T::ALIGN, |w| {
@@ -463,6 +498,10 @@ impl sealed::Value for Bytes<'_> {}
 impl Marshal for Bytes<'_> {
     const ALIGN: Align = Align::Four;
     const SIG: SigCodes = SigCodes::array(Byte::SIG);
+    type Read<'a> = Bytes<'a>;
+    fn read<'a>(r: &mut BodyReader<'a>) -> Result<Bytes<'a>, Malformed> {
+        Ok(Bytes(r.bytes()?))
+    }
     #[cfg(feature = "alloc")]
     fn marshal(&self, w: &mut BodyWriter<'_>) -> Result<(), EncodeError> {
         w.array(Align::One, |w| {
@@ -490,6 +529,10 @@ impl sealed::Value for FlatPairs<'_> {}
 impl Marshal for FlatPairs<'_> {
     const ALIGN: Align = Align::Four;
     const SIG: SigCodes = SigCodes::array(Str::SIG);
+    type Read<'a> = ArrayRead<'a, Str<'static>>;
+    fn read<'a>(r: &mut BodyReader<'a>) -> Result<Self::Read<'a>, Malformed> {
+        ArrayRead::read(r)
+    }
     #[cfg(feature = "alloc")]
     fn marshal(&self, w: &mut BodyWriter<'_>) -> Result<(), EncodeError> {
         w.array(Align::Four, |w| {
@@ -559,6 +602,10 @@ impl<K: Basic, V: Marshal> sealed::Value for Dict<'_, K, V> {}
 impl<K: Basic, V: Marshal> Marshal for Dict<'_, K, V> {
     const ALIGN: Align = Align::Four;
     const SIG: SigCodes = SigCodes::dict(K::SIG, V::SIG);
+    type Read<'a> = Unread<'a>;
+    fn read<'a>(r: &mut BodyReader<'a>) -> Result<Unread<'a>, Malformed> {
+        r.unread(Self::SIG.as_sig())
+    }
     #[cfg(feature = "alloc")]
     fn marshal(&self, w: &mut BodyWriter<'_>) -> Result<(), EncodeError> {
         w.array(Align::Eight, |w| {
@@ -595,6 +642,11 @@ impl<T: Args> sealed::Value for Struct<T> {}
 impl<T: Args> Marshal for Struct<T> {
     const ALIGN: Align = Align::Eight;
     const SIG: SigCodes = SigCodes::structure(T::SIG);
+    type Read<'a> = T::Read<'a>;
+    fn read<'a>(r: &mut BodyReader<'a>) -> Result<T::Read<'a>, Malformed> {
+        r.align(Align::Eight)?;
+        T::read_all(r)
+    }
     #[cfg(feature = "alloc")]
     fn marshal(&self, w: &mut BodyWriter<'_>) -> Result<(), EncodeError> {
         w.structure(|w| self.0.marshal_all(w))
@@ -627,6 +679,20 @@ impl sealed::Value for ImageData<'_> {}
 impl Marshal for ImageData<'_> {
     const ALIGN: Align = Align::Eight;
     const SIG: SigCodes = <Struct<(I32, I32, I32, Boolean, I32, I32, Bytes<'static>)>>::SIG;
+    type Read<'a> = ImageData<'a>;
+    fn read<'a>(r: &mut BodyReader<'a>) -> Result<ImageData<'a>, Malformed> {
+        let (width, height, rowstride, alpha, bits_per_sample, channels, data) =
+            <Struct<(I32, I32, I32, Boolean, I32, I32, Bytes<'static>)>>::read(r)?;
+        Ok(ImageData {
+            width,
+            height,
+            rowstride,
+            alpha,
+            bits_per_sample,
+            channels,
+            data,
+        })
+    }
     #[cfg(feature = "alloc")]
     fn marshal(&self, w: &mut BodyWriter<'_>) -> Result<(), EncodeError> {
         let fields = (
@@ -705,6 +771,10 @@ impl sealed::Value for Variant<'_> {}
 impl Marshal for Variant<'_> {
     const ALIGN: Align = Align::One;
     const SIG: SigCodes = SigCodes::of(Sig::lit("v"));
+    type Read<'a> = Unread<'a>;
+    fn read<'a>(r: &mut BodyReader<'a>) -> Result<Unread<'a>, Malformed> {
+        r.unread(Self::SIG.as_sig())
+    }
     #[cfg(feature = "alloc")]
     fn marshal(&self, w: &mut BodyWriter<'_>) -> Result<(), EncodeError> {
         let sig = self.sig();

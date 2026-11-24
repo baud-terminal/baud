@@ -24,7 +24,7 @@ use super::value::{Align, FdCount};
 const LITTLE: u8 = b'l';
 
 /// The major protocol version this specification describes.
-const VERSION: u8 = 1;
+pub(super) const VERSION: u8 = 1;
 
 /// A message's type, its second header byte.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -77,6 +77,16 @@ impl Flags {
     pub const NO_AUTO_START: Flags = Flags(0x2);
     /// 0x4: the caller will wait for interactive authorization.
     pub const ALLOW_INTERACTIVE_AUTHORIZATION: Flags = Flags(0x4);
+
+    /// The flags of a received header byte `b`, the bits this
+    /// specification does not define ignored.
+    pub(super) const fn received(b: u8) -> Flags {
+        Flags(
+            b & (Flags::NO_REPLY_EXPECTED.0
+                | Flags::NO_AUTO_START.0
+                | Flags::ALLOW_INTERACTIVE_AUTHORIZATION.0),
+        )
+    }
 
     /// The header byte.
     #[inline]
@@ -137,6 +147,20 @@ impl FieldCode {
         }
     }
 
+    /// The type of the value this code takes, one complete type.
+    pub const fn value_sig(self) -> Sig<'static> {
+        match self {
+            FieldCode::Path => Sig::lit("o"),
+            FieldCode::Interface
+            | FieldCode::Member
+            | FieldCode::ErrorName
+            | FieldCode::Destination
+            | FieldCode::Sender => Sig::lit("s"),
+            FieldCode::ReplySerial | FieldCode::UnixFds => Sig::lit("u"),
+            FieldCode::Signature => Sig::lit("g"),
+        }
+    }
+
     /// The field a byte names, or `None` for 0 and the codes this
     /// specification does not define, which a receiver skips.
     pub const fn from_byte(b: u8) -> Option<FieldCode> {
@@ -164,9 +188,10 @@ enum FieldValue<'a> {
 }
 
 /// One header field: its code, and a value of the one type that code
-/// takes ("Header Fields"). The code, the signature written into the
-/// field's variant and the value all come from one `match`, so a field
-/// cannot carry a value of another type.
+/// takes ("Header Fields"). The code and the value come from one `match`
+/// and the signature written into the field's variant from the code
+/// ([`FieldCode::value_sig`], which the decoder checks a received field
+/// against), so a field cannot carry a value of another type.
 ///
 /// A path field holds an object path, not a string:
 ///
@@ -206,45 +231,21 @@ pub enum HeaderField<'a> {
 }
 
 impl<'a> HeaderField<'a> {
-    /// The code, the value's signature and the value, from one `match`.
+    /// The code and the value, from one `match`, and the value's
+    /// signature from the code.
     const fn parts(&self) -> (FieldCode, Sig<'static>, FieldValue<'a>) {
-        match *self {
-            HeaderField::Path(p) => (FieldCode::Path, Sig::lit("o"), FieldValue::Text(p.as_str())),
-            HeaderField::Interface(n) => (
-                FieldCode::Interface,
-                Sig::lit("s"),
-                FieldValue::Text(n.as_str()),
-            ),
-            HeaderField::Member(n) => (
-                FieldCode::Member,
-                Sig::lit("s"),
-                FieldValue::Text(n.as_str()),
-            ),
-            HeaderField::ErrorName(n) => (
-                FieldCode::ErrorName,
-                Sig::lit("s"),
-                FieldValue::Text(n.as_str()),
-            ),
-            HeaderField::ReplySerial(s) => (
-                FieldCode::ReplySerial,
-                Sig::lit("u"),
-                FieldValue::Word(s.get()),
-            ),
-            HeaderField::Destination(n) => (
-                FieldCode::Destination,
-                Sig::lit("s"),
-                FieldValue::Text(n.as_str()),
-            ),
-            HeaderField::Sender(n) => (
-                FieldCode::Sender,
-                Sig::lit("s"),
-                FieldValue::Text(n.as_str()),
-            ),
-            HeaderField::Signature(s) => (FieldCode::Signature, Sig::lit("g"), FieldValue::Sig(s)),
-            HeaderField::UnixFds(n) => {
-                (FieldCode::UnixFds, Sig::lit("u"), FieldValue::Word(n.get()))
-            }
-        }
+        let (code, value) = match *self {
+            HeaderField::Path(p) => (FieldCode::Path, FieldValue::Text(p.as_str())),
+            HeaderField::Interface(n) => (FieldCode::Interface, FieldValue::Text(n.as_str())),
+            HeaderField::Member(n) => (FieldCode::Member, FieldValue::Text(n.as_str())),
+            HeaderField::ErrorName(n) => (FieldCode::ErrorName, FieldValue::Text(n.as_str())),
+            HeaderField::ReplySerial(s) => (FieldCode::ReplySerial, FieldValue::Word(s.get())),
+            HeaderField::Destination(n) => (FieldCode::Destination, FieldValue::Text(n.as_str())),
+            HeaderField::Sender(n) => (FieldCode::Sender, FieldValue::Text(n.as_str())),
+            HeaderField::Signature(s) => (FieldCode::Signature, FieldValue::Sig(s)),
+            HeaderField::UnixFds(n) => (FieldCode::UnixFds, FieldValue::Word(n.get())),
+        };
+        (code, code.value_sig(), value)
     }
 
     /// The field's code.
@@ -329,6 +330,14 @@ impl Serial {
     #[inline]
     pub const fn get(self) -> u32 {
         self.0.get()
+    }
+
+    /// The serial a received header word names, or `None` for 0.
+    pub(super) const fn received(w: u32) -> Option<Serial> {
+        match NonZeroU32::new(w) {
+            Some(n) => Some(Serial(n)),
+            None => None,
+        }
     }
 }
 
@@ -490,7 +499,24 @@ impl<'a> MethodCall<'a> {
 
 /// An outgoing signal, sent to every connection that matches it: the
 /// object, interface and member it is emitted as, each required
-/// ("Message Types").
+/// ("Message Types"), so a signal without its interface does not compile:
+///
+/// ```compile_fail,E0063
+/// use baud_domain::dbus::{Emit, MemberName, ObjectPath};
+/// const P: ObjectPath<'static> = ObjectPath::lit("/org/example/A");
+/// const M: MemberName<'static> = MemberName::lit("Changed");
+/// let _ = Emit { path: P, member: M };
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// use baud_domain::dbus::{Emit, InterfaceName, MemberName, ObjectPath};
+/// const P: ObjectPath<'static> = ObjectPath::lit("/org/example/A");
+/// const M: MemberName<'static> = MemberName::lit("Changed");
+/// let e = Emit { path: P, interface: InterfaceName::lit("org.example.A"), member: M };
+/// assert_eq!(e.member, M);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Emit<'a> {
     /// The object emitting it.

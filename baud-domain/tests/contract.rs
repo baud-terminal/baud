@@ -1110,12 +1110,78 @@ const _: fn(&baud_domain::dbus::HeaderField<'static>) -> baud_domain::dbus::Fiel
     baud_domain::dbus::HeaderField::code;
 const _: baud_domain::dbus::MessageKind = baud_domain::dbus::MessageKind::MethodCall;
 const _: baud_domain::dbus::Flags = baud_domain::dbus::Flags::NONE;
+// dbus decoding
+const _: fn(&'static [u8]) -> baud_domain::dbus::Frame = baud_domain::dbus::frame;
+const _: fn(
+    &'static [u8],
+) -> Result<baud_domain::dbus::Inbound<'static>, baud_domain::dbus::Malformed> =
+    baud_domain::dbus::decode;
+const _: baud_domain::dbus::Frame = baud_domain::dbus::Frame::NeedMore;
+const _: fn(baud_domain::dbus::MessageLen) -> baud_domain::dbus::Frame =
+    baud_domain::dbus::Frame::Whole;
+const _: fn(baud_domain::dbus::FieldCode) -> baud_domain::dbus::Malformed =
+    baud_domain::dbus::Malformed::Missing;
+const _: fn(baud_domain::dbus::FieldCode) -> baud_domain::dbus::Malformed =
+    baud_domain::dbus::Malformed::FieldType;
+const _: [baud_domain::dbus::Malformed; 9] = [
+    baud_domain::dbus::Malformed::Endian,
+    baud_domain::dbus::Malformed::Version,
+    baud_domain::dbus::Malformed::Padding,
+    baud_domain::dbus::Malformed::Boolean,
+    baud_domain::dbus::Malformed::Nul,
+    baud_domain::dbus::Malformed::ZeroSerial,
+    baud_domain::dbus::Malformed::TooLong,
+    baud_domain::dbus::Malformed::ArrayTooLong,
+    baud_domain::dbus::Malformed::Trailing,
+];
+const _: baud_domain::dbus::BodyError = baud_domain::dbus::BodyError::Signature;
+// The impl's lifetime is the type's, so these are pinned at 'static.
+const _: fn(
+    &baud_domain::dbus::BodyRef<'static>,
+) -> Result<
+    (baud_domain::dbus::U32, baud_domain::dbus::Str<'static>),
+    baud_domain::dbus::BodyError,
+> = baud_domain::dbus::BodyRef::read::<(baud_domain::dbus::U32, baud_domain::dbus::Str<'static>)>;
+const _: fn(&baud_domain::dbus::BodyRef<'static>) -> baud_domain::dbus::Sig<'static> =
+    baud_domain::dbus::BodyRef::sig;
+const _: fn(&baud_domain::dbus::Return<'static>) -> baud_domain::dbus::BodyRef<'static> =
+    baud_domain::dbus::Return::body;
+const _: for<'b> fn(
+    &'b baud_domain::dbus::Signal<'static>,
+) -> &'b baud_domain::dbus::Header<'static> = baud_domain::dbus::Signal::header;
+const _: fn(&baud_domain::dbus::Header<'static>) -> baud_domain::dbus::Order =
+    baud_domain::dbus::Header::order;
+const _: fn(&baud_domain::dbus::Header<'static>) -> baud_domain::dbus::Flags =
+    baud_domain::dbus::Header::flags;
+const _: fn(&baud_domain::dbus::Header<'static>) -> Option<baud_domain::dbus::BusName<'static>> =
+    baud_domain::dbus::Header::sender;
+const _: fn(baud_domain::dbus::Return<'static>) -> baud_domain::dbus::Serial = |r| r.reply_to;
+const _: fn(baud_domain::dbus::ErrorReply<'static>) -> baud_domain::dbus::ErrorName<'static> =
+    |e| e.name;
+const _: fn(
+    baud_domain::dbus::Signal<'static>,
+) -> (
+    baud_domain::dbus::ObjectPath<'static>,
+    baud_domain::dbus::InterfaceName<'static>,
+    baud_domain::dbus::MemberName<'static>,
+) = |s| (s.path, s.interface, s.member);
+const _: fn(
+    baud_domain::dbus::Called<'static>,
+) -> (
+    baud_domain::dbus::ObjectPath<'static>,
+    baud_domain::dbus::MemberName<'static>,
+) = |c| (c.path, c.member);
+const _: fn(baud_domain::dbus::Header<'static>) -> baud_domain::dbus::Inbound<'static> =
+    baud_domain::dbus::Inbound::Unknown;
 /// Each type that holds a rule, and the error code its witness expects.
 const WITNESSED: &[(&str, &str)] = &[
     ("HeaderField", "E0308"),
     ("Body", "E0451"),
     ("Body", "E0277"),
     ("MethodCall", "E0560"),
+    ("Emit", "E0063"),
+    ("Header", "E0451"),
+    ("Signal", "E0308"),
     ("MethodCall", "E0308"),
     ("Dict", "E0277"),
     ("Dict", "E0425"),

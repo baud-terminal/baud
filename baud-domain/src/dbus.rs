@@ -16,8 +16,16 @@
 //! ([`HeaderField`]), and the serial is drawn from the connection's
 //! [`Serials`] as the message is encoded. Bodies and messages are built on
 //! the allocator, behind the `alloc` feature.
+//!
+//! Decoding is the same rules read back. [`frame`] says how long the
+//! message at the start of the received bytes is; [`decode`] checks one
+//! whole message, in either byte order, and yields it by its type
+//! ([`Inbound`]), each type's required fields held without `Option`; a
+//! body reads only as the [`Args`] whose signature is its own
+//! ([`BodyRef::read`]). Nothing here allocates.
 
 mod body;
+mod decode;
 mod header;
 mod name;
 mod sig;
@@ -26,6 +34,10 @@ mod value;
 pub use body::{ArrayLen, EncodeError, MessageLen};
 #[cfg(feature = "alloc")]
 pub use body::{Body, BodyWriter};
+pub use decode::{
+    ArrayRead, BodyError, BodyReader, BodyRef, Called, ErrorReply, Frame, Header, Inbound,
+    Malformed, Order, Return, Signal, Unread, decode, frame,
+};
 #[cfg(feature = "alloc")]
 pub use header::Encoded;
 pub use header::{
