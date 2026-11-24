@@ -1260,10 +1260,363 @@ const _: for<'a> fn(
 ) -> Option<baud_domain::dbus::Trusted<'a>> = baud_domain::dbus::Peer::vouch;
 const _: fn(&baud_domain::dbus::Trusted<'static>) -> baud_domain::dbus::Signal<'static> =
     baud_domain::dbus::Trusted::signal;
+// dbus signatures: the rest of the surface
+const _: baud_domain::dbus::SigLen = baud_domain::dbus::SigLen::ZERO;
+const _: baud_domain::dbus::SigLen = baud_domain::dbus::SigLen::MAX;
+const _: baud_domain::dbus::Depth = baud_domain::dbus::Depth::ZERO;
+const _: baud_domain::dbus::Depth = baud_domain::dbus::Depth::TOTAL;
+const _: fn(baud_domain::dbus::Depth) -> u8 = baud_domain::dbus::Depth::get;
+const _: fn(
+    baud_domain::dbus::Depth,
+    baud_domain::dbus::Depth,
+) -> Option<baud_domain::dbus::Depth> = baud_domain::dbus::Depth::enter;
+const _: [baud_domain::dbus::SigError; 11] = [
+    baud_domain::dbus::SigError::TooLong,
+    baud_domain::dbus::SigError::Code,
+    baud_domain::dbus::SigError::ArrayNoElement,
+    baud_domain::dbus::SigError::StructUnclosed,
+    baud_domain::dbus::SigError::CloseUnopened,
+    baud_domain::dbus::SigError::EmptyStruct,
+    baud_domain::dbus::SigError::DictOutsideArray,
+    baud_domain::dbus::SigError::DictKey,
+    baud_domain::dbus::SigError::DictArity,
+    baud_domain::dbus::SigError::ArraysTooDeep,
+    baud_domain::dbus::SigError::StructsTooDeep,
+];
+const _: fn(baud_domain::dbus::SigError) -> &'static str = baud_domain::dbus::SigError::rule;
+const _: baud_domain::dbus::Sig<'static> = baud_domain::dbus::Sig::EMPTY;
+const _: fn(&baud_domain::dbus::Sig<'static>) -> &'static [u8] = baud_domain::dbus::Sig::as_bytes;
+const _: fn(&baud_domain::dbus::Sig<'static>) -> baud_domain::dbus::SigLen =
+    baud_domain::dbus::Sig::len;
+const _: fn(&baud_domain::dbus::Sig<'static>) -> bool = baud_domain::dbus::Sig::is_empty;
+const _: fn(&baud_domain::dbus::Sig<'static>) -> bool = baud_domain::dbus::Sig::is_single;
+const _: fn(baud_domain::dbus::Sig<'static>) -> baud_domain::dbus::SigCodes =
+    baud_domain::dbus::SigCodes::of;
+const _: fn(baud_domain::dbus::SigCodes) -> baud_domain::dbus::SigCodes =
+    baud_domain::dbus::SigCodes::array;
+const _: fn(baud_domain::dbus::SigCodes) -> baud_domain::dbus::SigCodes =
+    baud_domain::dbus::SigCodes::structure;
+const _: fn(
+    baud_domain::dbus::SigCodes,
+    baud_domain::dbus::SigCodes,
+) -> baud_domain::dbus::SigCodes = baud_domain::dbus::SigCodes::dict;
+const _: fn(&baud_domain::dbus::SigCodes) -> baud_domain::dbus::SigLen =
+    baud_domain::dbus::SigCodes::len;
+const _: fn(&baud_domain::dbus::SigCodes) -> bool = baud_domain::dbus::SigCodes::is_empty;
+// dbus names: the rest of the surface
+const _: [baud_domain::dbus::NameError; 10] = [
+    baud_domain::dbus::NameError::Empty,
+    baud_domain::dbus::NameError::TooLong,
+    baud_domain::dbus::NameError::Nul,
+    baud_domain::dbus::NameError::NotAbsolute,
+    baud_domain::dbus::NameError::EmptyElement,
+    baud_domain::dbus::NameError::TrailingSlash,
+    baud_domain::dbus::NameError::Byte,
+    baud_domain::dbus::NameError::LeadingDigit,
+    baud_domain::dbus::NameError::OneElement,
+    baud_domain::dbus::NameError::Period,
+];
+const _: fn(baud_domain::dbus::NameError) -> &'static str = baud_domain::dbus::NameError::rule;
+const _: baud_domain::dbus::Str<'static> = baud_domain::dbus::Str::EMPTY;
+const _: fn(&baud_domain::dbus::Str<'static>) -> &'static str = baud_domain::dbus::Str::as_str;
+const _: fn(&baud_domain::dbus::ObjectPath<'static>) -> &'static str =
+    baud_domain::dbus::ObjectPath::as_str;
+const _: fn(&baud_domain::dbus::InterfaceName<'static>) -> &'static str =
+    baud_domain::dbus::InterfaceName::as_str;
+const _: fn(&baud_domain::dbus::MemberName<'static>) -> &'static str =
+    baud_domain::dbus::MemberName::as_str;
+const _: fn(&baud_domain::dbus::ErrorName<'static>) -> &'static str =
+    baud_domain::dbus::ErrorName::as_str;
+const _: fn(&baud_domain::dbus::BusName<'static>) -> &'static str =
+    baud_domain::dbus::BusName::as_str;
+const _: fn(&baud_domain::dbus::BusName<'static>) -> baud_domain::dbus::BusKind =
+    baud_domain::dbus::BusName::kind;
+const _: [baud_domain::dbus::BusKind; 2] = [
+    baud_domain::dbus::BusKind::Unique,
+    baud_domain::dbus::BusKind::WellKnown,
+];
+// dbus values: the rest of the surface
+const _: [baud_domain::dbus::Align; 3] = [
+    baud_domain::dbus::Align::One,
+    baud_domain::dbus::Align::Four,
+    baud_domain::dbus::Align::Eight,
+];
+const _: fn(baud_domain::dbus::Align) -> usize = baud_domain::dbus::Align::bytes;
+const _: fn(baud_domain::dbus::Byte) -> u8 = baud_domain::dbus::Byte::get;
+const _: fn(baud_domain::dbus::I32) -> i32 = baud_domain::dbus::I32::get;
+const _: fn(baud_domain::dbus::U32) -> u32 = baud_domain::dbus::U32::get;
+const _: fn(baud_domain::dbus::Double) -> f64 = baud_domain::dbus::Double::get;
+const _: fn(bool) -> baud_domain::dbus::Boolean = <baud_domain::dbus::Boolean as From<bool>>::from;
+const _: fn(u32) -> baud_domain::dbus::FdIndex = baud_domain::dbus::FdIndex::new;
+const _: fn(baud_domain::dbus::FdIndex) -> u32 = baud_domain::dbus::FdIndex::get;
+const _: fn(baud_domain::dbus::FdCount) -> u32 = baud_domain::dbus::FdCount::get;
+const _: fn(
+    &baud_domain::dbus::Array<'static, baud_domain::dbus::U32>,
+) -> &'static [baud_domain::dbus::U32] = baud_domain::dbus::Array::items;
+const _: fn(&baud_domain::dbus::Bytes<'static>) -> &'static [u8] = baud_domain::dbus::Bytes::get;
+const _: fn(
+    &baud_domain::dbus::Dict<
+        'static,
+        baud_domain::dbus::Str<'static>,
+        baud_domain::dbus::Variant<'static>,
+    >,
+) -> &'static [(
+    baud_domain::dbus::Str<'static>,
+    baud_domain::dbus::Variant<'static>,
+)] = baud_domain::dbus::Dict::entries;
+const _: for<'a> fn(
+    &'a baud_domain::dbus::Struct<(baud_domain::dbus::U32,)>,
+) -> &'a (baud_domain::dbus::U32,) = baud_domain::dbus::Struct::fields;
+const _: baud_domain::dbus::ImageData<'static> = baud_domain::dbus::ImageData {
+    width: baud_domain::dbus::I32::new(1),
+    height: baud_domain::dbus::I32::new(1),
+    rowstride: baud_domain::dbus::I32::new(4),
+    alpha: baud_domain::dbus::Boolean::True,
+    bits_per_sample: baud_domain::dbus::I32::new(8),
+    channels: baud_domain::dbus::I32::new(4),
+    data: baud_domain::dbus::Bytes::new(&[0, 0, 0, 0]),
+};
+const _: fn(baud_domain::dbus::Byte) -> baud_domain::dbus::Variant<'static> =
+    baud_domain::dbus::Variant::Byte;
+const _: fn(baud_domain::dbus::Boolean) -> baud_domain::dbus::Variant<'static> =
+    baud_domain::dbus::Variant::Boolean;
+const _: fn(baud_domain::dbus::Str<'static>) -> baud_domain::dbus::Variant<'static> =
+    baud_domain::dbus::Variant::Str;
+const _: fn(baud_domain::dbus::U32) -> baud_domain::dbus::Variant<'static> =
+    baud_domain::dbus::Variant::U32;
+const _: fn(baud_domain::dbus::I32) -> baud_domain::dbus::Variant<'static> =
+    baud_domain::dbus::Variant::I32;
+const _: fn(baud_domain::dbus::Double) -> baud_domain::dbus::Variant<'static> =
+    baud_domain::dbus::Variant::Double;
+const _: fn(
+    baud_domain::dbus::Array<'static, baud_domain::dbus::Str<'static>>,
+) -> baud_domain::dbus::Variant<'static> = baud_domain::dbus::Variant::Strs;
+const _: fn(baud_domain::dbus::ImageData<'static>) -> baud_domain::dbus::Variant<'static> =
+    baud_domain::dbus::Variant::Image;
+const _: fn(
+    baud_domain::dbus::Dict<
+        'static,
+        baud_domain::dbus::Str<'static>,
+        baud_domain::dbus::Variant<'static>,
+    >,
+) -> baud_domain::dbus::Variant<'static> = baud_domain::dbus::Variant::Dict;
+const _: fn(&baud_domain::dbus::Variant<'static>) -> baud_domain::dbus::SigCodes =
+    baud_domain::dbus::Variant::sig;
+// dbus body and messages: the rest of the surface
+const _: baud_domain::dbus::MessageLen = baud_domain::dbus::MessageLen::MAX;
+const _: fn(baud_domain::dbus::MessageLen) -> u32 = baud_domain::dbus::MessageLen::get;
+const _: baud_domain::dbus::ArrayLen = baud_domain::dbus::ArrayLen::MAX;
+const _: fn(baud_domain::dbus::ArrayLen) -> u32 = baud_domain::dbus::ArrayLen::get;
+const _: [baud_domain::dbus::EncodeError; 2] = [
+    baud_domain::dbus::EncodeError::ArrayTooLong,
+    baud_domain::dbus::EncodeError::TooDeep,
+];
+const _: fn(baud_domain::dbus::EncodeError) -> &'static str = baud_domain::dbus::EncodeError::rule;
+const _: baud_domain::dbus::Body = baud_domain::dbus::Body::EMPTY;
+const _: for<'a> fn(&'a baud_domain::dbus::Body) -> &'a [u8] = baud_domain::dbus::Body::bytes;
+const _: baud_domain::dbus::MethodCall<'static> = baud_domain::dbus::MethodCall {
+    destination: baud_domain::dbus::BusName::lit("org.freedesktop.Notifications"),
+    path: baud_domain::dbus::ObjectPath::lit("/org/freedesktop/Notifications"),
+    interface: baud_domain::dbus::InterfaceName::lit("org.freedesktop.Notifications"),
+    member: baud_domain::dbus::MemberName::lit("Notify"),
+};
+const _: baud_domain::dbus::Emit<'static> = baud_domain::dbus::Emit {
+    path: baud_domain::dbus::ObjectPath::lit("/org/example/A"),
+    interface: baud_domain::dbus::InterfaceName::lit("org.example.A"),
+    member: baud_domain::dbus::MemberName::lit("Changed"),
+};
+const _: fn(baud_domain::dbus::Serial) -> u32 = baud_domain::dbus::Serial::get;
+const _: fn() -> baud_domain::dbus::Serials = <baud_domain::dbus::Serials as Default>::default;
+const _: [baud_domain::dbus::MessageKind; 3] = [
+    baud_domain::dbus::MessageKind::MethodReturn,
+    baud_domain::dbus::MessageKind::Error,
+    baud_domain::dbus::MessageKind::Signal,
+];
+const _: fn(baud_domain::dbus::MessageKind) -> u8 = baud_domain::dbus::MessageKind::byte;
+const _: fn(u8) -> Option<baud_domain::dbus::MessageKind> =
+    baud_domain::dbus::MessageKind::from_byte;
+const _: [baud_domain::dbus::Flags; 3] = [
+    baud_domain::dbus::Flags::NO_REPLY_EXPECTED,
+    baud_domain::dbus::Flags::NO_AUTO_START,
+    baud_domain::dbus::Flags::ALLOW_INTERACTIVE_AUTHORIZATION,
+];
+const _: fn(baud_domain::dbus::Flags) -> u8 = baud_domain::dbus::Flags::bits;
+const _: fn(baud_domain::dbus::Flags, baud_domain::dbus::Flags) -> bool =
+    baud_domain::dbus::Flags::contains;
+const _: fn(baud_domain::dbus::Flags, baud_domain::dbus::Flags) -> baud_domain::dbus::Flags =
+    <baud_domain::dbus::Flags as core::ops::BitOr>::bitor;
+const _: [baud_domain::dbus::FieldCode; 9] = [
+    baud_domain::dbus::FieldCode::Path,
+    baud_domain::dbus::FieldCode::Interface,
+    baud_domain::dbus::FieldCode::Member,
+    baud_domain::dbus::FieldCode::ErrorName,
+    baud_domain::dbus::FieldCode::ReplySerial,
+    baud_domain::dbus::FieldCode::Destination,
+    baud_domain::dbus::FieldCode::Sender,
+    baud_domain::dbus::FieldCode::Signature,
+    baud_domain::dbus::FieldCode::UnixFds,
+];
+const _: fn(baud_domain::dbus::FieldCode) -> u8 = baud_domain::dbus::FieldCode::byte;
+const _: fn(u8) -> Option<baud_domain::dbus::FieldCode> = baud_domain::dbus::FieldCode::from_byte;
+const _: fn(baud_domain::dbus::FieldCode) -> baud_domain::dbus::Sig<'static> =
+    baud_domain::dbus::FieldCode::value_sig;
+const _: fn(baud_domain::dbus::ObjectPath<'static>) -> baud_domain::dbus::HeaderField<'static> =
+    baud_domain::dbus::HeaderField::Path;
+const _: fn(baud_domain::dbus::InterfaceName<'static>) -> baud_domain::dbus::HeaderField<'static> =
+    baud_domain::dbus::HeaderField::Interface;
+const _: fn(baud_domain::dbus::MemberName<'static>) -> baud_domain::dbus::HeaderField<'static> =
+    baud_domain::dbus::HeaderField::Member;
+const _: fn(baud_domain::dbus::ErrorName<'static>) -> baud_domain::dbus::HeaderField<'static> =
+    baud_domain::dbus::HeaderField::ErrorName;
+const _: fn(baud_domain::dbus::Serial) -> baud_domain::dbus::HeaderField<'static> =
+    baud_domain::dbus::HeaderField::ReplySerial;
+const _: fn(baud_domain::dbus::BusName<'static>) -> baud_domain::dbus::HeaderField<'static> =
+    baud_domain::dbus::HeaderField::Destination;
+const _: fn(baud_domain::dbus::BusName<'static>) -> baud_domain::dbus::HeaderField<'static> =
+    baud_domain::dbus::HeaderField::Sender;
+const _: fn(baud_domain::dbus::Sig<'static>) -> baud_domain::dbus::HeaderField<'static> =
+    baud_domain::dbus::HeaderField::Signature;
+const _: fn(baud_domain::dbus::FdCount) -> baud_domain::dbus::HeaderField<'static> =
+    baud_domain::dbus::HeaderField::UnixFds;
+const _: fn(&baud_domain::dbus::HeaderField<'static>) -> baud_domain::dbus::Sig<'static> =
+    baud_domain::dbus::HeaderField::sig;
+// dbus decoding: the rest of the surface
+const _: fn(baud_domain::dbus::Malformed) -> baud_domain::dbus::Frame =
+    baud_domain::dbus::Frame::Malformed;
+const _: [baud_domain::dbus::Order; 2] = [
+    baud_domain::dbus::Order::Little,
+    baud_domain::dbus::Order::Big,
+];
+const _: [baud_domain::dbus::Malformed; 12] = [
+    baud_domain::dbus::Malformed::Kind,
+    baud_domain::dbus::Malformed::Length,
+    baud_domain::dbus::Malformed::InvalidField,
+    baud_domain::dbus::Malformed::Terminator,
+    baud_domain::dbus::Malformed::Utf8,
+    baud_domain::dbus::Malformed::NotSingle,
+    baud_domain::dbus::Malformed::TooDeep,
+    baud_domain::dbus::Malformed::Overrun,
+    baud_domain::dbus::Malformed::FdIndex,
+    baud_domain::dbus::Malformed::Repeated(baud_domain::dbus::FieldCode::Sender),
+    baud_domain::dbus::Malformed::Name(baud_domain::dbus::NameError::Empty),
+    baud_domain::dbus::Malformed::Sig(baud_domain::dbus::SigError::Code),
+];
+const _: fn(baud_domain::dbus::Malformed) -> &'static str = baud_domain::dbus::Malformed::rule;
+const _: fn(baud_domain::dbus::Malformed) -> baud_domain::dbus::BodyError =
+    baud_domain::dbus::BodyError::Malformed;
+const _: fn(baud_domain::dbus::BodyError) -> &'static str = baud_domain::dbus::BodyError::rule;
+const _: fn(&baud_domain::dbus::BodyRef<'static>) -> &'static [u8] =
+    baud_domain::dbus::BodyRef::bytes;
+const _: fn(
+    &baud_domain::dbus::BodyRef<'static>,
+) -> Result<
+    (baud_domain::dbus::ArrayRead<'static, baud_domain::dbus::Str<'static>>,),
+    baud_domain::dbus::BodyError,
+> = baud_domain::dbus::BodyRef::read::<(
+    baud_domain::dbus::Array<'static, baud_domain::dbus::Str<'static>>,
+)>;
+const _: fn(&baud_domain::dbus::ArrayRead<'static, baud_domain::dbus::Str<'static>>) -> bool =
+    baud_domain::dbus::ArrayRead::is_empty;
+const _: fn(
+    &mut baud_domain::dbus::ArrayRead<'static, baud_domain::dbus::Str<'static>>,
+) -> Option<baud_domain::dbus::Str<'static>> =
+    <baud_domain::dbus::ArrayRead<'static, baud_domain::dbus::Str<'static>> as Iterator>::next;
+const _: fn(&baud_domain::dbus::Unread<'static>) -> &'static [u8] =
+    baud_domain::dbus::Unread::bytes;
+const _: fn(&baud_domain::dbus::Header<'static>) -> Option<baud_domain::dbus::MessageKind> =
+    baud_domain::dbus::Header::kind;
+const _: fn(&baud_domain::dbus::Header<'static>) -> baud_domain::dbus::Serial =
+    baud_domain::dbus::Header::serial;
+const _: fn(&baud_domain::dbus::Header<'static>) -> Option<baud_domain::dbus::ObjectPath<'static>> =
+    baud_domain::dbus::Header::path;
+const _: fn(
+    &baud_domain::dbus::Header<'static>,
+) -> Option<baud_domain::dbus::InterfaceName<'static>> = baud_domain::dbus::Header::interface;
+const _: fn(&baud_domain::dbus::Header<'static>) -> Option<baud_domain::dbus::MemberName<'static>> =
+    baud_domain::dbus::Header::member;
+const _: fn(&baud_domain::dbus::Header<'static>) -> Option<baud_domain::dbus::ErrorName<'static>> =
+    baud_domain::dbus::Header::error_name;
+const _: fn(&baud_domain::dbus::Header<'static>) -> Option<baud_domain::dbus::Serial> =
+    baud_domain::dbus::Header::reply_serial;
+const _: fn(&baud_domain::dbus::Header<'static>) -> Option<baud_domain::dbus::BusName<'static>> =
+    baud_domain::dbus::Header::destination;
+const _: fn(&baud_domain::dbus::Header<'static>) -> baud_domain::dbus::Sig<'static> =
+    baud_domain::dbus::Header::signature;
+const _: fn(&baud_domain::dbus::Header<'static>) -> baud_domain::dbus::FdCount =
+    baud_domain::dbus::Header::fds;
+const _: for<'b> fn(
+    &'b baud_domain::dbus::Return<'static>,
+) -> &'b baud_domain::dbus::Header<'static> = baud_domain::dbus::Return::header;
+const _: fn(&baud_domain::dbus::ErrorReply<'static>) -> baud_domain::dbus::BodyRef<'static> =
+    baud_domain::dbus::ErrorReply::body;
+const _: fn(&baud_domain::dbus::ErrorReply<'static>) -> Option<baud_domain::dbus::Str<'static>> =
+    baud_domain::dbus::ErrorReply::message;
+const _: fn(baud_domain::dbus::ErrorReply<'static>) -> baud_domain::dbus::Serial = |e| e.reply_to;
+const _: fn(&baud_domain::dbus::Signal<'static>) -> baud_domain::dbus::BodyRef<'static> =
+    baud_domain::dbus::Signal::body;
+const _: fn(&baud_domain::dbus::Called<'static>) -> baud_domain::dbus::BodyRef<'static> =
+    baud_domain::dbus::Called::body;
+const _: for<'b> fn(
+    &'b baud_domain::dbus::Called<'static>,
+) -> &'b baud_domain::dbus::Header<'static> = baud_domain::dbus::Called::header;
+const _: fn(baud_domain::dbus::Return<'static>) -> baud_domain::dbus::Inbound<'static> =
+    baud_domain::dbus::Inbound::Return;
+const _: fn(baud_domain::dbus::ErrorReply<'static>) -> baud_domain::dbus::Inbound<'static> =
+    baud_domain::dbus::Inbound::ErrorReply;
+const _: fn(baud_domain::dbus::Signal<'static>) -> baud_domain::dbus::Inbound<'static> =
+    baud_domain::dbus::Inbound::Signal;
+const _: fn(baud_domain::dbus::Called<'static>) -> baud_domain::dbus::Inbound<'static> =
+    baud_domain::dbus::Inbound::Called;
+const _: for<'a> fn(&'a baud_domain::dbus::Peer) -> baud_domain::dbus::BusName<'a> =
+    baud_domain::dbus::Peer::name;
+// dbus handshake and connection: the rest of the surface
+const _: fn(baud_domain::dbus::Uid) -> u32 = baud_domain::dbus::Uid::get;
+const _: fn(&baud_domain::dbus::LineIn<'static>) -> &'static [u8] =
+    baud_domain::dbus::LineIn::bytes;
+const _: fn(
+    baud_domain::dbus::Handshake<baud_domain::dbus::AuthSent>,
+    &'static [u8],
+) -> baud_domain::dbus::AuthStep = baud_domain::dbus::AuthStep::Data;
+const _: fn(
+    baud_domain::dbus::Handshake<baud_domain::dbus::AuthSent>,
+    &'static [u8],
+) -> baud_domain::dbus::AuthStep = baud_domain::dbus::AuthStep::Unknown;
+const _: fn(
+    baud_domain::dbus::Handshake<baud_domain::dbus::Authed>,
+) -> baud_domain::dbus::AuthStep = baud_domain::dbus::AuthStep::Ok;
+const _: fn(baud_domain::dbus::Refusal) -> baud_domain::dbus::AuthStep =
+    baud_domain::dbus::AuthStep::Refused;
+const _: fn(baud_domain::dbus::Begun<baud_domain::dbus::FdsAgreed>) -> baud_domain::dbus::FdAnswer =
+    baud_domain::dbus::FdAnswer::Agreed;
+const _: fn(baud_domain::dbus::Begun<baud_domain::dbus::NoFds>) -> baud_domain::dbus::FdAnswer =
+    baud_domain::dbus::FdAnswer::Refused;
+const _: fn(baud_domain::dbus::Refusal) -> baud_domain::dbus::FdAnswer =
+    baud_domain::dbus::FdAnswer::Unexpected;
+const _: fn(baud_domain::dbus::Refusal) -> &'static str = baud_domain::dbus::Refusal::rule;
+const _: fn(&baud_domain::dbus::Begun<baud_domain::dbus::FdsAgreed>) -> &'static [u8] =
+    baud_domain::dbus::Begun::bytes;
+const _: fn(
+    baud_domain::dbus::Begun<baud_domain::dbus::NoFds>,
+) -> baud_domain::dbus::Connection<baud_domain::dbus::NoFds> =
+    baud_domain::dbus::Begun::into_connection;
+const _: for<'a> fn(
+    &'a mut baud_domain::dbus::Connection<baud_domain::dbus::FdsAgreed>,
+) -> &'a mut baud_domain::dbus::Serials = baud_domain::dbus::Connection::serials;
+const _: for<'a> fn(
+    &mut baud_domain::dbus::Connection<baud_domain::dbus::FdsAgreed>,
+    &baud_domain::dbus::Return<'a>,
+) -> Result<(), baud_domain::dbus::Malformed> = baud_domain::dbus::Connection::on_hello;
+const _: for<'a> fn(
+    &'a baud_domain::dbus::Connection<baud_domain::dbus::FdsAgreed>,
+) -> Option<baud_domain::dbus::BusName<'a>> = baud_domain::dbus::Connection::unique;
+const _: fn() -> baud_domain::dbus::Awaiting<u8, 32> =
+    <baud_domain::dbus::Awaiting<u8, 32> as Default>::default;
+const _: fn(baud_domain::dbus::Refusals) -> u32 = baud_domain::dbus::Refusals::get;
 /// Each type that holds a rule, and the error code its witness expects.
 const WITNESSED: &[(&str, &str)] = &[
     ("Handshake", "E0599"),
     ("Connection", "E0599"),
+    ("NoFds", "E0599"),
     ("BusName", "E0599"),
     ("Awaiting", "E0308"),
     ("Awaiting", "E0080"),
@@ -1275,6 +1628,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("MethodCall", "E0560"),
     ("Emit", "E0063"),
     ("Header", "E0451"),
+    ("Order", "E0451"),
     ("Signal", "E0308"),
     ("MethodCall", "E0308"),
     ("Dict", "E0277"),
