@@ -22,7 +22,7 @@ use crate::bell::Moment;
 use crate::lined::{Lines, Uris, ViewLinks};
 use crate::link::{Click, ClickOn, Refused, Target, Under};
 use crate::paths::{CoreLines, LineOn, Links, Moved, Paths};
-use crate::probe::{Asks, Linked, Probes, Sampler, Seen, Turn, WatchCell, Writers};
+use crate::probe::{GroupAsk, Probes, ReadLinked, Sampler, Seen, Turn, WatchCell, Writers};
 use crate::rules::Run;
 
 /// **The parts of a window the link layer reads and keeps**, borrowed for
@@ -60,10 +60,10 @@ pub(crate) fn read(
     bytes: &[u8],
     master: crate::sys::Fd,
     watched: &WatchCell,
-) -> (Writers, Linked) {
+) -> (Writers, ReadLinked) {
     match sampler.read(now, bytes) {
-        Asks::Yes(l) => (sampler.writers(crate::fg::group(master), watched.take()), l),
-        Asks::No => (sampler.unasked(), Linked::No),
+        GroupAsk::Yes(l) => (sampler.writers(crate::fg::group(master), watched.take()), l),
+        GroupAsk::No => (sampler.unasked(), ReadLinked::No),
     }
 }
 
@@ -78,7 +78,7 @@ pub(crate) fn fed<T: Moment>(
     probes: &mut Probes<T>,
     paths: &mut Paths,
     term: &Term<'_>,
-    parts: impl Iterator<Item = (Writers, Linked)> + Clone,
+    parts: impl Iterator<Item = (Writers, ReadLinked)> + Clone,
     on: (LineOn, LineOn),
     lines: CoreLines,
     recuts: &crate::paths::Recuts,
@@ -232,7 +232,7 @@ pub(crate) fn decide_found(
 
 #[cfg(test)]
 mod tests {
-    use crate::probe::{Linked, Sampler, WatchCell, Watched};
+    use crate::probe::{ReadLinked, Sampler, WatchCell, Watched};
 
     /// **A turn's link part is the app's and the tap's alike**: the app's
     /// pump takes the worker's answers off the tick, asks again on the
@@ -304,7 +304,7 @@ mod tests {
         let (w, l) = super::read(&mut s, std::time::Instant::now(), link, -1, &cell);
         assert_eq!(
             (w.watched, l),
-            (Watched::Nothing, Linked::Yes),
+            (Watched::Nothing, ReadLinked::Yes),
             "the control"
         );
         cell.raise();

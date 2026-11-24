@@ -439,6 +439,13 @@ const _: fn(baud_domain::LinkSet, baud_domain::LinkSet) -> bool = baud_domain::L
 fn _slots(s: baud_domain::LinkSet) -> impl Iterator<Item = baud_domain::LinkSlot> {
     s.slots()
 }
+// LinkSniff
+const _: fn() -> baud_domain::LinkSniff = baud_domain::LinkSniff::new;
+const _: fn(
+    &mut baud_domain::LinkSniff,
+    &[u8],
+    &mut baud_domain::WalkSteps,
+) -> baud_domain::Sniffed = baud_domain::LinkSniff::read;
 // LiveTable
 const _: fn(&'static [baud_domain::StyleSlot]) -> baud_domain::LiveTable<'static> =
     baud_domain::LiveTable::of;
@@ -582,6 +589,8 @@ const _: fn(usize) -> baud_domain::Rows = baud_domain::Rows::of_count;
 const _: fn(usize) -> baud_domain::Rows = baud_domain::Rows::of_index;
 const _: baud_domain::Rows = baud_domain::Rows::ZERO;
 const _: fn(baud_domain::Rows) -> usize = baud_domain::Rows::index;
+// SNIFF_CARRY
+const _: usize = baud_domain::SNIFF_CARRY;
 // STRING_DEPTH
 const _: usize = baud_domain::STRING_DEPTH;
 const _: () = assert!(baud_domain::STRING_DEPTH == 125);
@@ -1709,11 +1718,13 @@ const WITNESSED: &[(&str, &str)] = &[
     ("LinkSet", "E0308"),
     ("LinkSet", "E0423"),
     ("LinkSlot", "E0423"),
+    ("LinkIntroducerAt", "E0616"),
     ("Modifiers", "E0423"),
     ("OverlapRuns", "E0423"),
     ("OverlayChanges", "E0423"),
     ("PendingGen", "E0423"),
     ("ReadLen", "E0369"),
+    ("ReadSniff", "E0080"),
     ("RemapOverlap", "E0599"),
     ("Row", "E0369"),
     ("RowExtent", "E0616"),

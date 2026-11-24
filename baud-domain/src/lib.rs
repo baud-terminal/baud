@@ -243,6 +243,7 @@ mod sequence_data {
 }
 mod sixel;
 mod sixel_dump;
+mod sniff;
 mod source;
 #[cfg(feature = "alloc")]
 mod span_set;
@@ -321,6 +322,7 @@ pub use scan::*;
 pub use search::*;
 pub use sixel::*;
 pub use sixel_dump::*;
+pub use sniff::*;
 pub use source::*;
 #[cfg(feature = "alloc")]
 pub use span_set::*;

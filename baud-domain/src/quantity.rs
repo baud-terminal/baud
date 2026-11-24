@@ -1134,6 +1134,11 @@ impl WalkSteps {
         self.0 = self.0.saturating_add(more.0);
     }
 
+    /// `n` elements visited at once, as a block of bytes passed whole.
+    pub(crate) fn over(&mut self, n: usize) {
+        self.0 = self.0.saturating_add(u64::try_from(n).unwrap_or(u64::MAX));
+    }
+
     /// The steps taken.
     pub const fn get(self) -> u64 {
         self.0

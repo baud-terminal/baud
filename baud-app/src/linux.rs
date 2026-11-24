@@ -222,7 +222,7 @@ enum Later {
 
 /// What a read was taken with: the writers sampled for it and whether it
 /// carried a link (`probe::Probes::read_taken`).
-type Taken = (crate::probe::Writers, crate::probe::Linked);
+type Taken = (crate::probe::Writers, crate::probe::ReadLinked);
 
 struct Driver {
     conn: Connection,
@@ -270,7 +270,7 @@ struct Driver {
     /// The reads a ReGIS delay holds, fed on the first turn at or after its
     /// deadline, which bounds the wait (`reads::paced`), each with what its
     /// read was taken with, so it is filed under its own verdict when fed.
-    pace: crate::reads::Pace<(crate::probe::Writers, crate::probe::Linked)>,
+    pace: crate::reads::Pace<(crate::probe::Writers, crate::probe::ReadLinked)>,
     /// The frame the renderer paints into and the window copies out of:
     /// the window's size, so row damage has a target that still holds the
     /// last frame, with the cells' margin filled with the default
@@ -1281,14 +1281,16 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                     // between two reads is the residual race
                     // (`probe::Writers`).
                     let (writers, linked) = match d.groups.read(Instant::now(), &bytes) {
-                        crate::probe::Asks::Yes(l) => (
+                        crate::probe::GroupAsk::Yes(l) => (
                             d.groups.writers(
                                 master.and_then(crate::fg::group),
                                 crate::probe::Watched::Nothing,
                             ),
                             l,
                         ),
-                        crate::probe::Asks::No => (d.groups.unasked(), crate::probe::Linked::No),
+                        crate::probe::GroupAsk::No => {
+                            (d.groups.unasked(), crate::probe::ReadLinked::No)
+                        }
                     };
                     if let crate::pty::Stamp::At(at) = stamp {
                         d.latency.echoed([at]);

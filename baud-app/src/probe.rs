@@ -142,7 +142,8 @@ use std::time::Duration;
 
 use baud_core::Term;
 use baud_domain::{
-    IntervalMap, LineInterval, PendingGen, RemapOverlap, Rows, SpanSet, Spanned, Tracked, WalkSteps,
+    AskPace, GroupBefore, IntervalMap, LineInterval, PendingGen, RemapOverlap, Rows, SpanSet,
+    Spanned, Tracked, WalkSteps,
 };
 use baud_render::Scrolled;
 
@@ -386,9 +387,10 @@ pub trait Fs: Send {
 #[derive(Clone, Debug, Default)]
 pub struct Sampler {
     last: Option<std::time::Instant>,
-    /// The last bytes of the reads so far, at most [`CARRY`]: an
-    /// introducer or a `file://` split across two reads is still seen.
-    tail: [Option<u8>; CARRY],
+    /// The link sniff of the reads so far ([`baud_domain::LinkSniff`]): an
+    /// introducer or a `file://` split across reads is seen in the read that
+    /// completes it, before that read is fed.
+    sniff: baud_domain::LinkSniff,
     /// The group the last read that asked was taken with, and what the
     /// process watch had named by then: the next read's "before"
     /// ([`Sampler::writers`]).
@@ -407,6 +409,8 @@ pub struct Sampler {
     /// command the group before was taken under once that read's writers
     /// are built ([`Sampler::writers`], [`Sampler::unasked`]).
     ended: Ended,
+    /// The bytes the last read's sniff walked: its own and the carried ones.
+    scanned: baud_domain::WalkSteps,
 }
 
 /// **Whether the last read ended a command at the shell's `D`**, to be
@@ -769,21 +773,10 @@ impl Writers {
     }
 }
 
-/// Whether a read carried an `OSC 8` link's introducer or a plain `file://` URI.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Linked {
-    #[default]
-    No,
-    Yes,
-}
-
-/// Whether a read asks for the foreground group, and whether it carried a
-/// link.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Asks {
-    No,
-    Yes(Linked),
-}
+/// Whether a read carried an `OSC 8` link's introducer or a plain `file://`
+/// URI, and whether it asks for the foreground group: baud-domain's, which
+/// the drivers name through this module.
+pub use baud_domain::{GroupAsk, ReadLinked};
 
 impl Sampler {
     /// **The sampler for a window whose shell baud handed `token`**: the
@@ -857,6 +850,13 @@ impl Sampler {
         }
     }
 
+    /// **What the last read's sniff walked**: its own bytes and the ones
+    /// carried into it, each once.
+    #[cfg(test)]
+    pub fn scanned(&self) -> baud_domain::WalkSteps {
+        self.scanned
+    }
+
     /// Whether the read at `now` asks, by the pace alone.
     pub fn due(&mut self, now: std::time::Instant) -> bool {
         let due = self
@@ -868,11 +868,12 @@ impl Sampler {
         due
     }
 
-    /// **Whether the read of `bytes` at `now` asks**: when [`Sampler::due`]
-    /// says so, or when the bytes carry `ESC ] 8 ;` or its 8-bit form `9D 8
-    /// ;`, or `file://` in any case, with the bytes the reads before them
-    /// ended on.
-    pub fn read(&mut self, now: std::time::Instant, bytes: &[u8]) -> Asks {
+    /// **Whether the read of `bytes` at `now` asks**
+    /// ([`GroupAsk::decide`]): when the pace is due; when the bytes, after
+    /// the ones the reads before them ended on, carry an `OSC 8` introducer
+    /// or a `file://` URI ([`baud_domain::LinkSniff`]); or when no group is
+    /// held for it.
+    pub fn read(&mut self, now: std::time::Instant, bytes: &[u8]) -> GroupAsk {
         self.marked = self.commands.read(bytes);
         // Where each mark ended: a part's are checked against the core's
         // record of it, and a folder report it fed is judged by what was
@@ -893,107 +894,21 @@ impl Sampler {
             crate::ran::ShellsD::Yes => Ended::AtD,
             crate::ran::ShellsD::No => Ended::No,
         };
-        // The tail, then the read's last bytes: what the next read follows.
-        let mut seam = [0u8; 2 * CARRY];
-        let mut n = 0;
-        for &b in self.tail.iter().flatten() {
-            seam[n] = b;
-            n += 1;
-        }
-        let linked = match linked(&seam[..n], bytes) {
-            true => Linked::Yes,
-            false => Linked::No,
-        };
-        for &b in &bytes[bytes.len() - bytes.len().min(CARRY)..] {
-            seam[n] = b;
-            n += 1;
-        }
-        self.tail = [None; CARRY];
-        let kept = n.min(CARRY);
-        for (slot, &b) in self.tail[CARRY - kept..].iter_mut().zip(&seam[n - kept..n]) {
-            *slot = Some(b);
-        }
+        self.scanned = baud_domain::WalkSteps::ZERO;
+        let sniffed = self.sniff.read(bytes, &mut self.scanned);
         // A read with no group to be taken under -- the shell's `D` forgot
         // the one sampled before, and the pace has not asked since -- asks
         // all the same: one sample, where none would leave its lines named
         // by nothing and filed not known (W3).
-        match (self.due(now), linked) {
-            (true, l) => Asks::Yes(l),
-            (false, Linked::Yes) => Asks::Yes(Linked::Yes),
-            (false, Linked::No) if self.previous.is_none() => Asks::Yes(Linked::No),
-            (false, Linked::No) => Asks::No,
-        }
-    }
-}
-
-/// The bytes a read's scan carries to the next: one fewer than `;file://`,
-/// the longest thing it looks at.
-const CARRY: usize = 7;
-
-/// Whether `bytes`, after `tail`, hold an `OSC 8` introducer or a
-/// `file://` URI: what one read holds, or what crosses from the tail into
-/// its first bytes.
-fn linked(tail: &[u8], bytes: &[u8]) -> bool {
-    let head = &bytes[..bytes.len().min(CARRY)];
-    let mut seam = [0u8; 2 * CARRY];
-    seam[..tail.len()].copy_from_slice(tail);
-    seam[tail.len()..tail.len() + head.len()].copy_from_slice(head);
-    let seam = &seam[..tail.len() + head.len()];
-    holds_link(seam) || holds_link(bytes)
-}
-
-/// **Whether `b` holds an `OSC 8` introducer -- `ESC ] 8 ;` or `9D 8 ;` --
-/// or a `file://` URI in any case**, in one pass over the bytes: a plain
-/// `file` URI is read as the text's links are ([`crate::link::scheme_at`]),
-/// and a click takes its line's origin as it does a marked one's
-/// ([`crate::paths::PathsAt::printed`]). A `file://` is found by its
-/// `:`, then the four bytes before and the two after, so `Makefile:12:`
-/// and `profile:` ask nothing. One after a `;` is a control string's
-/// parameter, `OSC 7`'s folder at every prompt, which no click reads, and
-/// asks nothing either: `OSC 8`'s is asked for by its introducer.
-///
-/// Sixteen bytes a step: one compare finds the lanes holding `ESC`, `9D` or
-/// `:`, and only those are looked at. The bytes past the last whole block
-/// are looked at one by one.
-fn holds_link(b: &[u8]) -> bool {
-    use baud_domain::{LANE_COUNT, Printable, StreamByte, Vectorized};
-    let s = StreamByte::slice_from(b);
-    let mut n = 0;
-    while n + LANE_COUNT <= b.len() {
-        let mut lanes = Vectorized::<Printable>::load(&s[n..]).any_of_three(
-            StreamByte::from_stream(0x1b),
-            StreamByte::from_stream(0x9d),
-            StreamByte::from_stream(b':'),
-        );
-        while let Some(l) = lanes.first() {
-            if link_at(b.split_at(n + l.index() + 1)) {
-                return true;
-            }
-            lanes = lanes.after_first();
-        }
-        n += LANE_COUNT;
-    }
-    (n..b.len()).any(|at| matches!(b[at], 0x1b | 0x9d | b':') && link_at(b.split_at(at + 1)))
-}
-
-/// Whether the `ESC`, `9D` or `:` that ends `head` begins an `OSC 8`
-/// introducer or is a `file://` URI's colon, `rest` being what follows it.
-fn link_at((head, rest): (&[u8], &[u8])) -> bool {
-    let Some((&mark, before)) = head.split_last() else {
-        return false;
-    };
-    match mark {
-        0x1b => rest.starts_with(b"]8;"),
-        0x9d => rest.starts_with(b"8;"),
-        _ => {
-            let name = before
-                .len()
-                .checked_sub(4)
-                .map(|s| (&before[s..], s.checked_sub(1).map(|q| before[q])));
-            name.is_some_and(|(name, before)| {
-                name.eq_ignore_ascii_case(b"file") && before != Some(b';')
-            }) && rest.starts_with(b"//")
-        }
+        let before = match self.previous {
+            Some(_) => GroupBefore::Named,
+            None => GroupBefore::Unnamed,
+        };
+        let pace = match self.due(now) {
+            true => AskPace::Due,
+            false => AskPace::Inside,
+        };
+        GroupAsk::decide(pace, sniffed.linked, before)
     }
 }
 
@@ -2723,7 +2638,7 @@ impl<T: Moment> Probes<T> {
         term: &Term<'_>,
         on: (LineOn, LineOn),
         lines: CoreLines,
-        reads: impl Iterator<Item = (Writers, Linked)>,
+        reads: impl Iterator<Item = (Writers, ReadLinked)>,
         now: T,
     ) {
         self.drain_recut(
@@ -2756,7 +2671,7 @@ impl<T: Moment> Probes<T> {
         term: &Term<'_>,
         (began, ended): (LineOn, LineOn),
         lines: CoreLines,
-        reads: impl Iterator<Item = (Writers, Linked)>,
+        reads: impl Iterator<Item = (Writers, ReadLinked)>,
         recuts: &crate::paths::Recuts,
         now: T,
     ) {
@@ -2768,7 +2683,7 @@ impl<T: Moment> Probes<T> {
         // Each part's marks against the core's, and the window's latch
         // stepped over them in order: a part whose marks are not trusted
         // is filed as the shell's marks had said nothing of it.
-        let stepped: Vec<(Writers, Linked)> = reads
+        let stepped: Vec<(Writers, ReadLinked)> = reads
             .map(|(w, linked)| {
                 let w = self.latched(w, now);
                 let untouched = untouched_start(paths, &lines.part(w.top), &w);
@@ -2777,7 +2692,7 @@ impl<T: Moment> Probes<T> {
             .collect();
         // The window taken back past the session's first line (N2, P1):
         // every line up to the window's last the batch's numbers reached.
-        let tops = |run: &[(Writers, Linked)]| -> Vec<baud_domain::LineIdx> {
+        let tops = |run: &[(Writers, ReadLinked)]| -> Vec<baud_domain::LineIdx> {
             run.iter().filter_map(|(w, _)| w.top).collect()
         };
         if lines.numbers() == crate::paths::Numbers::Clamped {
@@ -2864,8 +2779,8 @@ impl<T: Moment> Probes<T> {
         term: &Term<'_>,
         ((began, ended), lines): ((LineOn, LineOn), CoreLines),
         (before, run, follows): (
-            &[(Writers, Linked)],
-            &[(Writers, Linked)],
+            &[(Writers, ReadLinked)],
+            &[(Writers, ReadLinked)],
             &[Option<(crate::paths::RecutAt, Vec<crate::paths::Told<'_>>)>],
         ),
         ends: RunEnds,
@@ -2993,7 +2908,7 @@ impl<T: Moment> Probes<T> {
             .map(|(k, (w, linked))| (keep(k), w, linked))
             .collect();
         // Each part of a run with the lines its record names.
-        let spanned = |paths: &Paths, run: &[(Keeps, Writers, Linked)]| {
+        let spanned = |paths: &Paths, run: &[(Keeps, Writers, ReadLinked)]| {
             let mut out = Vec::new();
             for &(keeps, w, linked) in run {
                 let at = lines.part(w.top);
@@ -3537,7 +3452,7 @@ impl<T: Moment> Probes<T> {
 
     /// Parts of a drain, each filed over its own span, under the most
     /// cautious verdict of them all ([`Probes::drain_taken`]).
-    fn drain_parts(&mut self, paths: &mut Paths, parts: &[(Writers, Linked, LineSpan)]) {
+    fn drain_parts(&mut self, paths: &mut Paths, parts: &[(Writers, ReadLinked, LineSpan)]) {
         let Some(ran) = parts
             .iter()
             .map(|(w, _, _)| w.marked)
@@ -3578,7 +3493,7 @@ impl<T: Moment> Probes<T> {
         paths: &mut Paths,
         writers: Writers,
         span: LineSpan,
-        linked: Linked,
+        linked: ReadLinked,
     ) {
         use crate::ran::Ran;
         // A folder report sent while a command named not local ran is that
@@ -3618,7 +3533,7 @@ impl<T: Moment> Probes<T> {
         let shell = writers.marked == Ran::Shell && groups == [None, None];
         let kept = match paths.marks() {
             Marks::On => true,
-            Marks::Off => linked == Linked::Yes,
+            Marks::Off => linked == ReadLinked::Yes,
             Marks::Closed => false,
         };
         // A read not kept with paths off wrote its lines all the same:
@@ -4384,55 +4299,437 @@ mod tests {
     use crate::paths::{Forms, Origin};
     use baud_core::Owned;
     use baud_core::Screen;
-    use baud_domain::{BytePos, ReadLen, WinSize};
+    use baud_domain::{BytePos, ReadLen, SNIFF_CARRY, WinSize};
     use baud_render::AbsLine;
     use std::collections::HashMap;
     use std::sync::Mutex;
     use std::time::Instant;
 
-    /// `holds_link` one byte at a time: what the block scan must answer.
-    fn holds_link_bytewise(b: &[u8]) -> bool {
-        (0..b.len()).any(|at| matches!(b[at], 0x1b | 0x9d | b':') && link_at(b.split_at(at + 1)))
+    /// **The two-pass scan the sniff replaced**, a byte at a time: whether
+    /// `bytes`, after `tail` (the stream's last seven bytes), held an `OSC 8`
+    /// introducer as contiguous bytes or a `file://` not after a `;`, in the
+    /// carried bytes and the read's first seven, or in the read.
+    fn todays_link(tail: &[u8], bytes: &[u8], own: &[u8]) -> bool {
+        let holds = |b: &[u8]| {
+            (0..b.len()).any(|at| {
+                let rest = &b[at + 1..];
+                match b[at] {
+                    0x1b => rest.starts_with(b"]8;"),
+                    0x9d => rest.starts_with(b"8;"),
+                    b':' => {
+                        at >= 4
+                            && b[at - 4..at].eq_ignore_ascii_case(b"file")
+                            && (at < 5 || b[at - 5] != b';')
+                            && rest.starts_with(b"//")
+                    }
+                    _ => false,
+                }
+            })
+        };
+        let seam = [tail, &bytes[..bytes.len().min(7)]].concat();
+        holds(&seam) || holds(own)
     }
 
+    /// The cases the sampler's link tests read: links in each form, the
+    /// opening introducer alone, `OSC 7` folder reports, plain `file://` URIs
+    /// and the texts that are none.
+    const SNIFFED: [&[u8]; 13] = [
+        b"plain text\r\n",
+        b"\x1b]8;;file:///etc/hosts\x1b\\hosts\x1b]8;;\x1b\\",
+        b"\x9d8;;file:///x\x9c",
+        b"\x1b]8;;file:///etc/hosts\x07hosts",
+        b"\x1b]7;file://h/w\x07\x1b]8",
+        b"see file:///etc/hosts\r\n",
+        b"FILE://localhost/x",
+        b"(File://h/x)",
+        b"x file://localhost/etc/hosts",
+        b"Makefile:12: recipe for target\r\n",
+        b"profile: ok",
+        b"\x1b]7;file://h/home/x\x07$ ",
+        b"\x9d7;file://h/home/x\x9c$ ",
+    ];
+
+    /// **A read is sniffed once, and asks wherever the scan it replaced
+    /// found a link end**: each of [`SNIFFED`] read in pieces of every size
+    /// from 1 to 64 bytes and cut once at every byte, inside the pace with a
+    /// group held, each read walking at most its length and [`SNIFF_CARRY`]
+    /// bytes (`Sampler::scanned`), and asking for the group exactly where an
+    /// introducer's `;` stands, or a `file://` lies whole, in the carried
+    /// bytes and the read. Every read the two-pass scan asked on asks, but
+    /// one whose only find lay whole in the scan's seven carried bytes,
+    /// after a read that asked. Named break: scan the read's first bytes
+    /// again after the carried ones -- the walk passes its bound; drop the
+    /// carried bytes -- a split introducer asks nothing; skip a `file://`
+    /// whose byte before `file` is `;` -- the `OSC 7` reports ask nothing.
     #[test]
-    fn the_link_scan_answers_as_a_byte_at_a_time_scan_does_at_every_offset() {
-        let marks: [&[u8]; 8] = [
-            b"\x1b]8;",
-            b"\x9d8;",
-            b"file://",
-            b"FILE://",
-            b"profile:12",
-            b";file://",
-            b"\x1b]9;",
-            b"Makefile:12:",
-        ];
-        let mut asked = 0;
-        for mark in marks {
-            for len in mark.len()..80usize {
-                for at in 0..=len - mark.len() {
-                    let mut b = vec![b'a'; len];
-                    b[at..at + mark.len()].copy_from_slice(mark);
-                    assert_eq!(
-                        holds_link(&b),
-                        holds_link_bytewise(&b),
-                        "{mark:?} at {at} of {len}"
-                    );
-                    asked += 1;
+    fn a_read_is_sniffed_once() {
+        let t0 = Instant::now();
+        let soon = t0 + Duration::from_millis(1);
+        let mut worst = 0;
+        let mut wrong = Vec::new();
+        let mut reads = 0;
+        // Reads that ask where the scan asked nothing, of them those whose
+        // window holds a `file://` after a `;`, and reads the scan asked on
+        // for a find the read before held.
+        let (mut more, mut parameters, mut carried) = (0, 0, 0);
+        for case in SNIFFED {
+            // Where each introducer ends, at its `;`: the cases spell each
+            // as contiguous bytes.
+            let ends: Vec<usize> = (0..case.len())
+                .filter_map(|i| match &case[i..] {
+                    [0x1b, b']', b'8', b';', ..] => Some(i + 3),
+                    [0x9d, b'8', b';', ..] => Some(i + 2),
+                    _ => None,
+                })
+                .collect();
+            let mut splits: Vec<Vec<usize>> = (1..=64)
+                .map(|n| (n..case.len()).step_by(n).collect())
+                .collect();
+            splits.extend((1..case.len()).map(|c| vec![c]));
+            for cuts in splits {
+                let mut s = Sampler::default();
+                let _ = s.read(t0, b"$ ");
+                let _ = s.writers(Some(1), Watched::Nothing);
+                let mut tail = b"$ ".to_vec();
+                let mut from = 0;
+                let mut asked_before = false;
+                for to in cuts.iter().copied().chain([case.len()]) {
+                    let read = &case[from..to];
+                    let asks = s.read(soon, read);
+                    let walked = usize::try_from(s.scanned().get()).expect("a walk");
+                    worst = worst.max(walked.saturating_sub(read.len()));
+                    let today = todays_link(&tail, read, read);
+                    // The carried bytes and the read: an introducer whose
+                    // `;` they hold, or a `file://` whole in them.
+                    let window = from.saturating_sub(SNIFF_CARRY)..to;
+                    let refound = ends.iter().any(|e| window.contains(e));
+                    let w = &case[window];
+                    let files: Vec<usize> = (4..w.len().saturating_sub(2))
+                        .filter(|&i| {
+                            w[i] == b':'
+                                && w[i - 4..i].eq_ignore_ascii_case(b"file")
+                                && &w[i + 1..i + 3] == b"//"
+                        })
+                        .collect();
+                    let want = match refound || !files.is_empty() {
+                        true => GroupAsk::Yes(ReadLinked::Yes),
+                        false => GroupAsk::No,
+                    };
+                    let asked = asks == GroupAsk::Yes(ReadLinked::Yes);
+                    if asked && !today {
+                        more += 1;
+                        parameters +=
+                            usize::from(files.iter().any(|&i| i >= 5 && w[i - 5] == b';'));
+                    }
+                    // The scan found a pattern whole in its seven carried
+                    // bytes, which the read before ended.
+                    let refind = today && !asked;
+                    carried += usize::from(refind);
+                    if asks != want || (refind && !(todays_link(&tail, b"", b"") && asked_before)) {
+                        wrong.push(format!(
+                            "{:?} at {cuts:?}, read {from}..{to}: {asks:?}, want {want:?}",
+                            case.escape_ascii().to_string()
+                        ));
+                    }
+                    asked_before = asked;
+                    tail.extend_from_slice(read);
+                    tail.drain(..tail.len().saturating_sub(7));
+                    from = to;
+                    reads += 1;
                 }
             }
         }
-        // The marks that are links are found at every offset, in a block or
-        // in the tail past the last whole one.
-        for len in [16, 17, 31, 32, 33, 47, 63, 79] {
-            let mut b = vec![b'a'; len];
-            b[len - 4..].copy_from_slice(b"\x1b]8;");
-            assert!(holds_link(&b), "an introducer ending {len} bytes");
+        assert!(reads > 2_000, "{reads}");
+        // Reads that ask where the scan asked nothing, those of them holding
+        // a `file://` after a `;` (the `OSC 7` reports), and reads the scan
+        // asked on for a find the read before ended.
+        assert_eq!(
+            (more, parameters, carried),
+            (288, 256, 42),
+            "of {reads} reads"
+        );
+        assert!(
+            worst <= SNIFF_CARRY && wrong.is_empty(),
+            "a read walked up to {worst} bytes past its length (bound {SNIFF_CARRY}); \
+             {} reads asked otherwise, the first {:?}",
+            wrong.len(),
+            wrong.first()
+        );
+    }
+
+    /// **A `file://` asks whatever byte comes before it**: printed text
+    /// `x;file:///tmp/a`, read whole and cut once at every byte, inside the
+    /// pace with a group held, asks as linked on the read holding the second
+    /// `/` of its `file://`. Named break: skip a `file://` whose byte before
+    /// `file` is `;` -- the text read whole asks nothing.
+    #[test]
+    fn a_file_uri_after_a_semicolon_asks_at_every_split() {
+        let t0 = Instant::now();
+        let soon = t0 + Duration::from_millis(1);
+        let text = b"x;file:///tmp/a";
+        // The second `/` of its `file://`.
+        let ends = 8;
+        let mut wrong = Vec::new();
+        for cut in std::iter::once(text.len()).chain(1..text.len()) {
+            let mut s = Sampler::default();
+            let _ = s.read(t0, b"$ ");
+            let _ = s.writers(Some(1), Watched::Nothing);
+            let (a, b) = text.split_at(cut);
+            let first = s.read(soon, a);
+            let on = match ends < cut {
+                true => first,
+                false => s.read(soon, b),
+            };
+            if on != GroupAsk::Yes(ReadLinked::Yes) {
+                wrong.push(format!("cut at {cut}: {on:?}"));
+            }
         }
-        // A lane that is no link does not end its block's search: the link
-        // after it, in the same sixteen bytes, is found.
-        assert!(holds_link(b"a:b \x1b]9; file://h/aaaaaaaaaaaaaaaaaaaa"));
-        assert!(asked > 2000);
+        assert!(
+            wrong.is_empty(),
+            "{} of {} reads asked otherwise: {wrong:?}",
+            wrong.len(),
+            text.len()
+        );
+    }
+
+    /// **Every `file://` URI the lines draw lies in a read that asked**:
+    /// 20,000 lines of printed text -- `file://` URIs after `;`, `a;`, `=`,
+    /// a blank, `(` or nothing, between runs of `;`, `x`, `/` and blanks --
+    /// each cut into reads of 1 to 24 bytes, read by a sampler inside the
+    /// pace with a group held and fed to a core; every URI the lines' reader
+    /// draws there (`lined::Uris`, the reader `paths::Links` reads URIs
+    /// through, each line local) has the second `/` of its `file://` in a
+    /// read that asked as linked. Named break: skip a `file://` whose byte
+    /// before `file` is `;` -- the URIs after a `;` lie in reads that asked
+    /// nothing.
+    #[test]
+    fn every_file_uri_the_lines_draw_is_in_a_read_that_asked() {
+        const WIDE: WinSize = WinSize {
+            ws_col: 200,
+            ws_row: 2,
+        };
+        let t0 = Instant::now();
+        let soon = t0 + Duration::from_millis(1);
+        let uris: [&[u8]; 4] = [
+            b"file:///tmp/a",
+            b"FILE:///x",
+            b"file://localhost/etc/hosts",
+            b"File:///a;b",
+        ];
+        let before: [&[u8]; 6] = [b";", b"a;", b"=", b" ", b"(", b""];
+        let text: [&[u8]; 5] = [b";", b"x", b" ", b"/", b"ab;cd "];
+        let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut next = |n: usize| {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(seed >> 33).expect("31 bits") % n
+        };
+        let (mut drawn, mut after_semicolon, mut reads) = (0, 0, 0);
+        let mut missed = Vec::new();
+        for _ in 0..20_000 {
+            let mut line = Vec::new();
+            for _ in 0..1 + next(6) {
+                match next(2) {
+                    0 => {
+                        line.push(b' ');
+                        line.extend_from_slice(before[next(before.len())]);
+                        line.extend_from_slice(uris[next(uris.len())]);
+                    }
+                    _ => line.extend_from_slice(text[next(text.len())]),
+                }
+            }
+            let mut s = Sampler::default();
+            let _ = s.read(t0, b"$ ");
+            let _ = s.writers(Some(1), Watched::Nothing);
+            let mut asked = Vec::new();
+            let mut at = 0;
+            while at < line.len() {
+                let to = (at + 1 + next(24)).min(line.len());
+                let a = s.read(soon, &line[at..to]);
+                asked.push((at..to, a == GroupAsk::Yes(ReadLinked::Yes)));
+                at = to;
+                reads += 1;
+            }
+            let mut owned = Owned::new(&WIDE);
+            let mut t = Term::new(owned.storage(), &WIDE);
+            t.write_at(BytePos::ZERO, &line);
+            t.feed(BytePos::ZERO, ReadLen::from_index(line.len()));
+            let mut l = Lines::default();
+            let _ = l.scan_alone(&t, Scrolled::START, &mut Uris::default());
+            for run in l.lines() {
+                let from = run.from.index();
+                assert_eq!(run.row.index(), 0, "one row");
+                let scheme = &line[from..(from + 7).min(line.len())];
+                assert!(scheme.eq_ignore_ascii_case(b"file://"), "a file URI");
+                drawn += 1;
+                after_semicolon += usize::from(from > 0 && line[from - 1] == b';');
+                let slash = from + 6;
+                let read = asked.iter().find(|(r, _)| r.contains(&slash));
+                if !read.is_some_and(|(_, a)| *a) {
+                    missed.push(format!(
+                        "{:?} at {from}, reads {:?}",
+                        line.escape_ascii().to_string(),
+                        asked
+                    ));
+                }
+            }
+        }
+        assert!(
+            drawn > 20_000 && after_semicolon > 5_000,
+            "{drawn} drawn, {after_semicolon} after a `;`"
+        );
+        assert!(
+            missed.is_empty(),
+            "{} of {drawn} drawn URIs ({after_semicolon} after a `;`, {reads} reads) \
+             lie in a read that asked nothing, the first {:?}",
+            missed.len(),
+            missed.first()
+        );
+    }
+
+    /// The bytes an `OSC 8` link spelled with `put` inserted at `at` in
+    /// its introducer, and `gr` the introducer's bytes read as GR in the
+    /// positions it names, then its text.
+    fn spelled(put: Option<(usize, u8)>, gr: [bool; 3]) -> Vec<u8> {
+        let mut b = vec![
+            0x1b,
+            if gr[0] { 0xdd } else { b']' },
+            if gr[1] { 0xb8 } else { b'8' },
+            if gr[2] { 0xbb } else { b';' },
+        ];
+        if let Some((at, p)) = put {
+            b.insert(at, p);
+        }
+        b.extend_from_slice(b";file:///x\x1b\\x");
+        b
+    }
+
+    /// Whether the core, fed `bytes`, holds a cell naming a link.
+    fn core_links(bytes: &[u8]) -> bool {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        (0..)
+            .map_while(|y| t.row(baud_domain::Row::from_index(y)))
+            .any(|row| {
+                row.iter()
+                    .any(|c| c.flags.link() != baud_domain::LinkId::NONE)
+            })
+    }
+
+    /// **Every `OSC 8` introducer the core opens a link at asks for the
+    /// group before it is fed, at every split**: `ESC ] 8 SOH ; ; https://h/x
+    /// ST` and `ESC SOH ] 8 ; ; https://h/x ST` ask as linked on the read
+    /// holding the introducer's `;`, cut at every byte; and every byte
+    /// `00-FF` put after the `ESC`, the `]` and the `8`, and the introducer
+    /// with its `]`, `8` and `;` in GR, under UTF-8 and under ISO 8859-1
+    /// (`ESC % @` first), wherever the core then holds a cell naming a link,
+    /// asked as linked read whole and cut at every byte. A `BEL` or a `CAN`
+    /// between the `8` and the `;` opens none and asks nothing.
+    /// Named break: match `ESC ] 8 ;` as contiguous bytes -- the C0 forms and
+    /// the GR forms the core opens ask nothing.
+    #[test]
+    fn a_c0_inside_an_osc8_introducer_is_sniffed_at_every_split() {
+        let t0 = Instant::now();
+        let soon = t0 + Duration::from_millis(1);
+        // Whether some read of `bytes` cut at `cut` (none: whole) asked as
+        // linked, each read after a group was held.
+        let asked = |bytes: &[u8], cut: Option<usize>| {
+            let mut s = Sampler::default();
+            let _ = s.read(t0, b"$ ");
+            let _ = s.writers(Some(1), Watched::Nothing);
+            let (a, b) = bytes.split_at(cut.unwrap_or(bytes.len()));
+            [a, b]
+                .iter()
+                .filter(|r| !r.is_empty())
+                .map(|r| s.read(soon, r))
+                .any(|a| a == GroupAsk::Yes(ReadLinked::Yes))
+        };
+        let mut wrong = Vec::new();
+        for (bytes, links) in [
+            (&b"\x1b]8\x01;;https://h/x\x1b\\x"[..], true),
+            (b"\x1b\x01]8;;https://h/x\x1b\\x", true),
+            (b"\x1b]8\x07;;https://h/x\x1b\\x", false),
+            (b"\x1b]8\x18;;https://h/x\x1b\\x", false),
+        ] {
+            assert_eq!(
+                core_links(bytes),
+                links,
+                "{:?}",
+                bytes.escape_ascii().to_string()
+            );
+            for cut in 1..bytes.len() {
+                let mut s = Sampler::default();
+                let _ = s.read(t0, b"$ ");
+                let _ = s.writers(Some(1), Watched::Nothing);
+                let (a, b) = bytes.split_at(cut);
+                let first = s.read(soon, a);
+                let second = s.read(soon, b);
+                // The introducer's `;` is its fifth byte.
+                let on = match cut <= 4 {
+                    true => second,
+                    false => first,
+                };
+                let want = match links {
+                    true => GroupAsk::Yes(ReadLinked::Yes),
+                    false => GroupAsk::No,
+                };
+                if on != want {
+                    wrong.push(format!(
+                        "{:?} cut at {cut}: {on:?}",
+                        bytes.escape_ascii().to_string()
+                    ));
+                }
+            }
+        }
+        let mut opened = 0;
+        let mut forms_missed = 0;
+        let mut missed = Vec::new();
+        for latin1 in [false, true] {
+            let mut forms: Vec<Vec<u8>> = Vec::new();
+            for at in 1..4 {
+                for p in 0..=255u8 {
+                    forms.push(spelled(Some((at, p)), [false; 3]));
+                }
+            }
+            for g in 1..8u8 {
+                forms.push(spelled(None, [g & 1 != 0, g & 2 != 0, g & 4 != 0]));
+            }
+            for form in forms {
+                let bytes = match latin1 {
+                    true => [b"\x1b%@".as_slice(), &form].concat(),
+                    false => form,
+                };
+                if !core_links(&bytes) {
+                    continue;
+                }
+                opened += 1;
+                let before = missed.len();
+                let cuts = std::iter::once(None).chain((1..bytes.len()).map(Some));
+                for cut in cuts {
+                    if !asked(&bytes, cut) {
+                        missed.push(format!(
+                            "{:?} cut at {cut:?}",
+                            bytes.escape_ascii().to_string()
+                        ));
+                    }
+                }
+                forms_missed += usize::from(missed.len() > before);
+            }
+        }
+        assert!(opened > 150, "the core opened {opened}");
+        assert!(
+            wrong.is_empty() && missed.is_empty(),
+            "{} of the four cases' cuts asked otherwise, the first {:?}; of {opened} \
+             introducers the core opens, {forms_missed} asked nothing at some cut, \
+             {} reads in all, the first {:?}",
+            wrong.len(),
+            wrong.first(),
+            missed.len(),
+            missed.first()
+        );
     }
 
     /// What a stuck lookup waits on until the test lets it go.
@@ -6163,7 +6460,7 @@ mod tests {
             let s = Scrolled::START;
             let printed = s.line(Rows::ZERO, baud_domain::Row::ZERO);
             let span = crate::paths::LineSpan::of(printed, printed);
-            pr.read_taken(&mut paths, Writers::at(Some(at_read)), span, Linked::No);
+            pr.read_taken(&mut paths, Writers::at(Some(at_read)), span, ReadLinked::No);
             let t0 = Instant::now();
             let mut turn = |pr: &mut Probes<Instant>, now: Instant| {
                 let _ = lines.scan_alone(
@@ -6468,7 +6765,7 @@ mod tests {
             &mut paths,
             Writers::at(Some(1)),
             crate::paths::LineSpan::of(printed, printed),
-            Linked::Yes,
+            ReadLinked::Yes,
         );
         assert_eq!(
             paths.origin(printed),
@@ -6573,7 +6870,7 @@ mod tests {
         // The program's first read wrote the screen from its top.
         let top = s.line(Rows::ZERO, baud_domain::Row::ZERO);
         let span = LineSpan::on(paths.surface(t.screen()), top, line);
-        pr.read_taken(&mut paths, Writers::at(Some(read(0))), span, Linked::No);
+        pr.read_taken(&mut paths, Writers::at(Some(read(0))), span, ReadLinked::No);
         let t0 = Instant::now();
         for step in 0..40 {
             let now = t0 + Duration::from_millis(100 * u64::from(step));
@@ -6584,13 +6881,23 @@ mod tests {
                 t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
                 let line = s.line(Rows::ZERO, t.cursor().0);
                 let span = LineSpan::on(paths.surface(t.screen()), line, line);
-                pr.read_taken(&mut paths, Writers::at(Some(read(step))), span, Linked::No);
+                pr.read_taken(
+                    &mut paths,
+                    Writers::at(Some(read(step))),
+                    span,
+                    ReadLinked::No,
+                );
             }
             if step_on(step, &mut t) == Moved::Yes {
                 let line = s.line(Rows::ZERO, t.cursor().0);
                 let top = s.line(Rows::ZERO, baud_domain::Row::ZERO);
                 let span = LineSpan::on(paths.surface(t.screen()), top, line);
-                pr.read_taken(&mut paths, Writers::at(Some(read(step))), span, Linked::No);
+                pr.read_taken(
+                    &mut paths,
+                    Writers::at(Some(read(step))),
+                    span,
+                    ReadLinked::No,
+                );
             }
             let before = pr.counts.batches;
             let seen = Seen {
@@ -6624,7 +6931,7 @@ mod tests {
                 &mut paths,
                 Writers::at(Some(g)),
                 LineSpan::of(line, line),
-                Linked::No,
+                ReadLinked::No,
             );
             let mut seen = Seen {
                 term: &t,
@@ -6839,7 +7146,7 @@ mod tests {
             let mut s = Sampler::default();
             assert_eq!(
                 s.read(t0, b"$ "),
-                Asks::Yes(Linked::No),
+                GroupAsk::Yes(ReadLinked::No),
                 "the pace's first read"
             );
             // Its group taken, as the drivers take it after every ask.
@@ -6849,16 +7156,16 @@ mod tests {
         let mut s = fresh();
         assert_eq!(
             s.read(soon, b"plain text\r\n"),
-            Asks::No,
+            GroupAsk::No,
             "no link, inside the pace"
         );
         let mut s = fresh();
         let link = b"\x1b]8;;file:///etc/hosts\x1b\\hosts\x1b]8;;\x1b\\";
-        assert_eq!(s.read(soon, link), Asks::Yes(Linked::Yes), "a link");
+        assert_eq!(s.read(soon, link), GroupAsk::Yes(ReadLinked::Yes), "a link");
         let mut s = fresh();
         assert_eq!(
             s.read(soon, b"\x9d8;;file:///x\x9c"),
-            Asks::Yes(Linked::Yes),
+            GroupAsk::Yes(ReadLinked::Yes),
             "C1"
         );
         // Only the opening introducer, cut inside it: the second read holds
@@ -6868,12 +7175,16 @@ mod tests {
             let mut s = fresh();
             let (a, b) = open.split_at(cut);
             let _ = s.read(soon, a);
-            assert_eq!(s.read(soon, b), Asks::Yes(Linked::Yes), "split after {cut}");
+            assert_eq!(
+                s.read(soon, b),
+                GroupAsk::Yes(ReadLinked::Yes),
+                "split after {cut}"
+            );
         }
         let mut s = fresh();
         assert_eq!(
-            s.read(soon, b"\x1b]7;file://h/w\x07\x1b]8"),
-            Asks::No,
+            s.read(soon, b"\x1b]7;h\x07\x1b]8"),
+            GroupAsk::No,
             "OSC 7, no 8;"
         );
     }
@@ -6886,7 +7197,7 @@ mod tests {
     /// unknown.
     #[test]
     fn with_paths_off_a_links_read_is_named() {
-        let run = |linked: Linked| {
+        let run = |linked: ReadLinked| {
             let mut f = Fake::with(&[]);
             f.groups.insert(9, vec!["ssh".into()]);
             let (mut pr, starts) = probes(f);
@@ -6925,12 +7236,12 @@ mod tests {
             (started, paths.origin(line))
         };
         assert_eq!(
-            run(Linked::Yes),
+            run(ReadLinked::Yes),
             (1, Origin::Remote),
             "a link's read, named ssh's"
         );
         assert_eq!(
-            run(Linked::No),
+            run(ReadLinked::No),
             (0, Origin::Unknown),
             "no link: nothing started"
         );
@@ -6951,7 +7262,12 @@ mod tests {
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
         let s = Scrolled::START;
         let line = s.line(Rows::ZERO, baud_domain::Row::ZERO);
-        pr.read_taken(&mut paths, writers, LineSpan::of(line, line), Linked::Yes);
+        pr.read_taken(
+            &mut paths,
+            writers,
+            LineSpan::of(line, line),
+            ReadLinked::Yes,
+        );
         let t0 = Instant::now();
         for i in 0..1_000_000u32 {
             let seen = Seen {
@@ -7088,7 +7404,7 @@ mod tests {
                 &mut paths,
                 Writers::at(Some(1)),
                 LineSpan::of(row(0), row(0)),
-                Linked::No,
+                ReadLinked::No,
             );
             let later = Writers {
                 before: Some(1),
@@ -7096,7 +7412,12 @@ mod tests {
                 watched,
                 ..Writers::default()
             };
-            pr.read_taken(&mut paths, later, LineSpan::of(row(2), row(2)), Linked::No);
+            pr.read_taken(
+                &mut paths,
+                later,
+                LineSpan::of(row(2), row(2)),
+                ReadLinked::No,
+            );
             let t0 = Instant::now();
             let mut turn = |pr: &mut Probes<Instant>, now: Instant| {
                 let _ = lines.scan_alone(
@@ -7148,10 +7469,11 @@ mod tests {
     }
 
     /// **A read carrying `file://` as plain text asks for the group even
-    /// inside the pace**, in any case and split across two reads at every
-    /// cut; `Makefile:12:`, `profile:` and the folder `OSC 7` reports at a
-    /// prompt (`ESC ] 7 ; file://...`) ask nothing. Named break: look for
-    /// the `OSC 8` introducer alone -- the plain URI's read asks nothing.
+    /// inside the pace**, in any case, after a `;` and split across two
+    /// reads at every cut, and so does the folder `OSC 7` report at a prompt
+    /// (`ESC ] 7 ; file://...`); `Makefile:12:` and `profile:` ask nothing.
+    /// Named break: look for the `OSC 8` introducer alone -- the plain URI's
+    /// read asks nothing.
     #[test]
     fn a_plain_file_uris_read_always_asks_who_wrote_it() {
         let t0 = Instant::now();
@@ -7160,7 +7482,7 @@ mod tests {
             let mut s = Sampler::default();
             assert_eq!(
                 s.read(t0, b"$ "),
-                Asks::Yes(Linked::No),
+                GroupAsk::Yes(ReadLinked::No),
                 "the pace's first read"
             );
             // Its group taken, as the drivers take it after every ask.
@@ -7171,8 +7493,15 @@ mod tests {
             &b"see file:///etc/hosts\r\n"[..],
             b"FILE://localhost/x",
             b"(File://h/x)",
+            b"x;file:///tmp/a",
+            b"\x1b]7;file://h/home/x\x07$ ",
+            b"\x9d7;file://h/home/x\x9c$ ",
         ] {
-            assert_eq!(fresh().read(soon, text), Asks::Yes(Linked::Yes), "{text:?}");
+            assert_eq!(
+                fresh().read(soon, text),
+                GroupAsk::Yes(ReadLinked::Yes),
+                "{text:?}"
+            );
         }
         let uri = b"x file://localhost/etc/hosts";
         for cut in 1..uri.len() {
@@ -7181,17 +7510,12 @@ mod tests {
             let first = s.read(soon, a);
             let second = s.read(soon, b);
             assert!(
-                first == Asks::Yes(Linked::Yes) || second == Asks::Yes(Linked::Yes),
+                first == GroupAsk::Yes(ReadLinked::Yes) || second == GroupAsk::Yes(ReadLinked::Yes),
                 "split after {cut}: {first:?} {second:?}"
             );
         }
-        for text in [
-            &b"Makefile:12: recipe for target\r\n"[..],
-            b"profile: ok",
-            b"\x1b]7;file://h/home/x\x07$ ",
-            b"\x9d7;file://h/home/x\x9c$ ",
-        ] {
-            assert_eq!(fresh().read(soon, text), Asks::No, "{text:?}");
+        for text in [&b"Makefile:12: recipe for target\r\n"[..], b"profile: ok"] {
+            assert_eq!(fresh().read(soon, text), GroupAsk::No, "{text:?}");
         }
     }
 
@@ -7226,8 +7550,8 @@ mod tests {
             let _ = sampler.read(t0, b"$ ");
             let _ = sampler.writers(Some(1), Watched::Nothing);
             let (writers, linked) = match sampler.read(t0 + Duration::from_millis(1), bytes) {
-                Asks::Yes(l) => (sampler.writers(Some(g), Watched::Nothing), l),
-                Asks::No => (sampler.unasked(), Linked::No),
+                GroupAsk::Yes(l) => (sampler.writers(Some(g), Watched::Nothing), l),
+                GroupAsk::No => (sampler.unasked(), ReadLinked::No),
             };
             pr.read_taken(&mut paths, writers, LineSpan::of(line, line), linked);
             for i in 0..1_000_000u32 {
@@ -7303,8 +7627,8 @@ mod tests {
             let ended = s.line(Rows::ZERO, t.cursor().0);
             let now = t0 + Duration::from_millis(u64::try_from(k).expect("a count"));
             let (writers, linked) = match sampler.read(now, bytes) {
-                Asks::Yes(l) => (sampler.writers(Some(1), Watched::Nothing), l),
-                Asks::No => (sampler.unasked(), Linked::No),
+                GroupAsk::Yes(l) => (sampler.writers(Some(1), Watched::Nothing), l),
+                GroupAsk::No => (sampler.unasked(), ReadLinked::No),
             };
             pr.read_taken(&mut paths, writers, LineSpan::of(began, ended), linked);
         }
@@ -8215,7 +8539,7 @@ mod tests {
                     &t,
                     (began, ended),
                     core,
-                    took.into_iter().map(|w| (w, Linked::No)),
+                    took.into_iter().map(|w| (w, ReadLinked::No)),
                     &pace.recuts,
                     now,
                 );
@@ -8919,7 +9243,7 @@ mod tests {
                 &t,
                 (began, began),
                 lines,
-                took.into_iter().map(|w| (w, Linked::No)),
+                took.into_iter().map(|w| (w, ReadLinked::No)),
                 Instant::now(),
             );
             (
@@ -9045,7 +9369,7 @@ mod tests {
             &mut paths,
             Writers::at(Some(group(0))),
             LineSpan::of(line(1_000), line(1_000)),
-            Linked::No,
+            ReadLinked::No,
         );
         // A drain of text that moved no line: no scroll, no erase.
         let began = paths.line_on(t.screen(), line(0));
@@ -9073,7 +9397,7 @@ mod tests {
             &t,
             (began, began),
             counts.core_lines(&t),
-            took.into_iter().map(|w| (w, Linked::No)),
+            took.into_iter().map(|w| (w, ReadLinked::No)),
             Instant::now(),
         );
         assert_eq!(
@@ -9091,7 +9415,7 @@ mod tests {
             &mut paths,
             Writers::at(Some(group(0))),
             LineSpan::of(line(1_002), line(1_002)),
-            Linked::No,
+            ReadLinked::No,
         );
         let (publishes, steps) = count(&paths);
         assert_eq!(publishes - before.0, 1, "the control: one hand-on");
@@ -9137,7 +9461,7 @@ mod tests {
             &mut paths,
             Writers::at(Some(group(0))),
             LineSpan::of(line(1_002), line(1_002)),
-            Linked::No,
+            ReadLinked::No,
         );
         let after = count(&paths);
         let most = bound(GROUPS + HELD, HELD);
@@ -9442,7 +9766,7 @@ mod tests {
             marked: crate::ran::Ran::Shell,
             ..Writers::at(None)
         };
-        pr.read_taken(&mut paths, shell, two, Linked::No);
+        pr.read_taken(&mut paths, shell, two, ReadLinked::No);
         pr.publish(&mut paths);
         let began = paths.line_on(t.screen(), line(0));
         let mut pace = crate::reads::Pace::new();
@@ -9469,10 +9793,10 @@ mod tests {
             &t,
             (began, began),
             counts.core_lines(&t),
-            took.into_iter().map(|w| (w, Linked::No)),
+            took.into_iter().map(|w| (w, ReadLinked::No)),
             Instant::now(),
         );
-        pr.read_taken(&mut paths, Writers::at(Some(9)), two, Linked::No);
+        pr.read_taken(&mut paths, Writers::at(Some(9)), two, ReadLinked::No);
         let steps = pr.lit.steps.get();
         assert!(
             pr.lit
@@ -9564,7 +9888,7 @@ mod tests {
             &mut paths,
             Writers::at(Some(2)),
             LineSpan::of(line(0), line(1)),
-            Linked::No,
+            ReadLinked::No,
         );
         assert_eq!(
             [0, 1].map(|n| paths.origin(line(n))),
@@ -9633,7 +9957,7 @@ mod tests {
             &mut paths,
             Writers::at(Some(9)),
             LineSpan::of(line(2), line(2)),
-            Linked::No,
+            ReadLinked::No,
         );
         assert_eq!(paths.origin(line(2)), Origin::Unknown, "before the close");
         let (mut lines, mut turn) = (Lines::default(), Turn::default());
@@ -9678,7 +10002,7 @@ mod tests {
             Some(rows),
             "the hull after the erase"
         );
-        pr.read_taken(&mut paths, Writers::at(Some(2)), row2, Linked::No);
+        pr.read_taken(&mut paths, Writers::at(Some(2)), row2, ReadLinked::No);
         assert_eq!(paths.origin(line(2)), Origin::Unknown, "before the answer");
         let id = Id::default();
         let seen = core::mem::take(&mut pr.kept.edit().seen);
@@ -10232,7 +10556,7 @@ mod tests {
                     recut: None,
                 }));
             let ended = s.line(Rows::ZERO, t.cursor().0);
-            pr.read_taken(&mut paths, w, LineSpan::of(began, ended), Linked::No);
+            pr.read_taken(&mut paths, w, LineSpan::of(began, ended), ReadLinked::No);
             let _ = paths.observe(&t, s);
             paths.folder_now().map(<[u8]>::to_vec)
         };
@@ -10355,7 +10679,7 @@ mod tests {
                 &t,
                 (began, ended),
                 counts.core_lines_at(s, &t),
-                took.into_iter().map(|w| (w, Linked::No)),
+                took.into_iter().map(|w| (w, ReadLinked::No)),
                 now,
             );
             let _ = paths.observe(&t, s);
@@ -10429,7 +10753,7 @@ mod tests {
                 &t,
                 (began, ended),
                 counts.core_lines_at(s, &t),
-                took.into_iter().map(|w| (w, Linked::No)),
+                took.into_iter().map(|w| (w, ReadLinked::No)),
                 now,
             );
             let _ = paths.observe(&t, s);
@@ -10500,7 +10824,7 @@ mod tests {
                 &t,
                 (began, ended),
                 counts.core_lines_at(s, &t),
-                took.into_iter().map(|w| (w, Linked::No)),
+                took.into_iter().map(|w| (w, ReadLinked::No)),
                 now,
             );
             let _ = paths.observe(&t, s);
@@ -10564,7 +10888,7 @@ mod tests {
                 &t,
                 (began, ended),
                 counts.core_lines_at(s, &t),
-                took.into_iter().map(|w| (w, Linked::No)),
+                took.into_iter().map(|w| (w, ReadLinked::No)),
                 now,
             );
             let _ = paths.observe(&t, s);
@@ -10725,8 +11049,8 @@ mod tests {
                 let now = t0 + *after;
                 last = now;
                 let w = match sampler.read(now, bytes) {
-                    Asks::Yes(_) => sampler.writers(Some(*front), Watched::Nothing),
-                    Asks::No => sampler.unasked(),
+                    GroupAsk::Yes(_) => sampler.writers(Some(*front), Watched::Nothing),
+                    GroupAsk::No => sampler.unasked(),
                 };
                 tagged.push((bytes.as_slice(), w));
             }
@@ -10749,7 +11073,7 @@ mod tests {
                 &t,
                 (began, ended),
                 counts.core_lines_at(s, &t),
-                took.into_iter().map(|w| (w, Linked::No)),
+                took.into_iter().map(|w| (w, ReadLinked::No)),
                 last,
             );
             let _ = paths.observe(&t, s);
@@ -11581,7 +11905,7 @@ mod tests {
             &t,
             (began, began),
             counts.core_lines(&t),
-            took.into_iter().map(|w| (w, Linked::No)),
+            took.into_iter().map(|w| (w, ReadLinked::No)),
             Instant::now(),
         );
         paths.origin(AbsLine::at(Rows::ZERO))
@@ -12495,7 +12819,7 @@ mod tests {
         paths.written_by_shell(LineSpan::of(line(0), line(1)));
         pr.publish(&mut paths);
         let span = LineSpan::of(line(0), line(0));
-        pr.read_taken(&mut paths, Writers::at(None), span, Linked::No);
+        pr.read_taken(&mut paths, Writers::at(None), span, ReadLinked::No);
         let origins = [0, 1].map(|n| paths.origin(line(n)));
         assert_eq!(origins, [Origin::Unknown, Origin::Local]);
     }
@@ -13136,7 +13460,7 @@ mod tests {
             &t,
             (on, end),
             counts.core_lines(&t),
-            [(w, Linked::No)].into_iter(),
+            [(w, ReadLinked::No)].into_iter(),
             Instant::now(),
         );
         for n in [0, 1] {
@@ -13182,7 +13506,7 @@ mod tests {
                     recut: None,
                 }));
             let ended = s.line(Rows::ZERO, t.cursor().0);
-            pr.read_taken(&mut paths, w, LineSpan::of(began, ended), Linked::No);
+            pr.read_taken(&mut paths, w, LineSpan::of(began, ended), ReadLinked::No);
             let _ = paths.observe(&t, s);
             out.push(paths.folder_now().map(<[u8]>::to_vec));
         }
@@ -13863,7 +14187,7 @@ mod tests {
                 &t,
                 (began, ended),
                 core,
-                took.into_iter().map(|w| (w, Linked::No)),
+                took.into_iter().map(|w| (w, ReadLinked::No)),
                 &pace.recuts,
                 now,
             );
@@ -14487,7 +14811,7 @@ mod tests {
                         &t,
                         (began, ended),
                         counts.core_lines_at(s, &t),
-                        took.into_iter().map(|w| (w, Linked::No)),
+                        took.into_iter().map(|w| (w, ReadLinked::No)),
                         &pace.recuts,
                         ms(*at),
                     );

@@ -937,7 +937,7 @@ struct App {
     /// its deadline, and those behind a DSR `?15` waiting for the printer
     /// list (`reads::paced`), each with what its read was taken with, so it
     /// is filed under its own verdict when it is fed.
-    pace: crate::reads::Pace<(crate::probe::Writers, crate::probe::Linked)>,
+    pace: crate::reads::Pace<(crate::probe::Writers, crate::probe::ReadLinked)>,
     /// `[screen] printing`, read once at launch and passed with each
     /// read of the printer list (`print.rs`).
     printing: crate::config::Printing,

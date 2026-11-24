@@ -28,7 +28,7 @@ use baud_render::{AbsLine, LinkLine, Scrolled};
 use crate::link::{Chord, Press, Spot};
 use crate::link_layer::{Decision, Layer, Then};
 use crate::paths::{Asked, Found, Origin};
-use crate::probe::{Linked, Writers};
+use crate::probe::{ReadLinked, Writers};
 
 use super::session::StepAt;
 
@@ -289,7 +289,7 @@ impl Tap {
 
     /// **At a read, before it is fed**: who wrote it, as the app's reader
     /// thread asks (`link_layer::read`).
-    pub(crate) fn read(&mut self, bytes: &[u8]) -> (Writers, Linked) {
+    pub(crate) fn read(&mut self, bytes: &[u8]) -> (Writers, ReadLinked) {
         heard(&mut self.reads, (self.frame, self.step), bytes);
         crate::link_layer::read(
             &mut self.sampler,
@@ -309,7 +309,7 @@ impl Tap {
         scrolled: Scrolled,
         (screen, began): (baud_core::Screen, AbsLine),
         lines: crate::paths::CoreLines,
-        parts: &[(Writers, Linked)],
+        parts: &[(Writers, ReadLinked)],
     ) {
         let ended = scrolled.line(Rows::ZERO, term.cursor().0);
         let on = (

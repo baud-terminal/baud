@@ -692,7 +692,7 @@ pub struct Read {
     pub writers: crate::probe::Writers,
     /// Whether the bytes carried an `OSC 8` link's introducer or a plain
     /// `file://` URI, which always asks for the group (`probe::Sampler::read`).
-    pub linked: crate::probe::Linked,
+    pub linked: crate::probe::ReadLinked,
 }
 
 /// What a drain found: the chunks that arrived, and whether more can.
@@ -7440,7 +7440,7 @@ mod tests {
     #[test]
     #[ignore = "needs an sshd on localhost that takes this user's key"]
     fn a_short_ssh_link_read_on_linux_is_counted() {
-        use crate::probe::{Asks, Linked, Sampler, Watched};
+        use crate::probe::{GroupAsk, ReadLinked, Sampler, Watched};
         use std::os::fd::AsFd;
         let n: u32 = std::env::var("BAUD_SSH_RACE_N")
             .ok()
@@ -7499,13 +7499,13 @@ mod tests {
             }
             let asks = sampler.read(std::time::Instant::now(), &bytes);
             let writers = match asks {
-                Asks::Yes(_) => {
+                GroupAsk::Yes(_) => {
                     sampler.writers(master.and_then(crate::fg::group), Watched::Nothing)
                 }
-                Asks::No => sampler.unasked(),
+                GroupAsk::No => sampler.unasked(),
             };
             all.extend_from_slice(&bytes);
-            if asks != Asks::Yes(Linked::Yes) {
+            if asks != GroupAsk::Yes(ReadLinked::Yes) {
                 continue;
             }
             let here = u32::try_from(bytes.windows(9).filter(|x| *x == b"\x1b]8;;file").count())
@@ -7550,7 +7550,7 @@ mod tests {
     #[test]
     #[ignore = "needs an sshd on localhost that takes this user's key"]
     fn a_short_ssh_link_typed_at_a_shell_on_linux_is_counted() {
-        use crate::probe::{Asks, Linked, Sampler, Watched};
+        use crate::probe::{GroupAsk, ReadLinked, Sampler, Watched};
         use std::os::fd::AsFd;
         let n: u32 = std::env::var("BAUD_SSH_RACE_N")
             .ok()
@@ -7634,11 +7634,11 @@ mod tests {
                 }
                 let asks = sampler.read(std::time::Instant::now(), &bytes);
                 let writers = match asks {
-                    Asks::Yes(_) => sampler.writers(crate::fg::group(master), Watched::Nothing),
-                    Asks::No => sampler.unasked(),
+                    GroupAsk::Yes(_) => sampler.writers(crate::fg::group(master), Watched::Nothing),
+                    GroupAsk::No => sampler.unasked(),
                 };
                 all.extend_from_slice(&bytes);
-                if asks != Asks::Yes(Linked::Yes) {
+                if asks != GroupAsk::Yes(ReadLinked::Yes) {
                     continue;
                 }
                 let mut front = |g: Option<crate::sys::Pid>| {
