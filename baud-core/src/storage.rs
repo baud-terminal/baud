@@ -1939,10 +1939,15 @@ impl StyleLog<'_> {
         self.order[at + i] = k;
     }
 
-    /// The current band's write log, a slot each, in ring order.
-    pub(crate) fn order(&self) -> &[StyleId] {
-        let (at, n) = (self.cur.first_slot(self.band_slots.0), self.band_slots.0);
+    /// Band `b`'s write log, a slot each, in ring order.
+    pub(crate) fn order_of(&self, b: baud_domain::Band) -> &[StyleId] {
+        let (at, n) = (b.first_slot(self.band_slots.0), self.band_slots.0);
         &self.order[at..at + n]
+    }
+
+    /// Band `b`'s book.
+    pub(crate) fn book_of(&self, b: baud_domain::Band) -> &StyleBook {
+        &self.books[b.index()]
     }
 
     /// **Band `b` as a new table's, but its slots**: its reach and its
@@ -2030,6 +2035,7 @@ impl<'b> Storage<'b> {
                     &all[first.first_slot(bs)..end.first_slot(bs)],
                     bs,
                     rows,
+                    first,
                 )
             }
         }

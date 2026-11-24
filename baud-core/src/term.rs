@@ -6021,9 +6021,29 @@ impl<'b> Term<'b> {
     /// rendition was minted resolves none. From [`StyleWrites::NEVER`] it is
     /// every live slot until the table has filled.
     pub fn styles_written(&self, since: StyleWrites) -> Written<'_> {
+        self.band_styles_written(self.store.style_log.band(), since)
+    }
+
+    /// **Band `b`'s table's serial**, as [`Term::style_table`] is the
+    /// write path's band's: a drawer that resolved the band keeps it and
+    /// resolves the band again when it moves.
+    pub fn band_style_table(&self, b: baud_domain::Band) -> TableSerial {
+        self.store.style_log.book_of(b).table
+    }
+
+    /// How many writes band `b`'s table has taken, as [`Term::style_writes`]
+    /// counts the write path's band's.
+    pub fn band_style_writes(&self, b: baud_domain::Band) -> StyleWrites {
+        self.store.style_log.book_of(b).writes
+    }
+
+    /// **The slots of band `b` written since a count**, as
+    /// [`Term::styles_written`] gives the write path's band's: a renderer
+    /// that resolves a band's slots once resolves only these after.
+    pub fn band_styles_written(&self, b: baud_domain::Band, since: StyleWrites) -> Written<'_> {
         let log = &self.store.style_log;
-        let order = log.order();
-        match log.book().writes.replay(since, order.len()) {
+        let order = log.order_of(b);
+        match log.book_of(b).writes.replay(since, order.len()) {
             Replay::Every => Written::Every,
             Replay::Entries([a, b]) => Written::Slots([&order[a], &order[b]]),
         }

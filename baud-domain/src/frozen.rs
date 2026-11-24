@@ -963,18 +963,30 @@ impl<'a> FrozenTable<'a> {
 }
 
 /// **One band's live rendition table, as a reader sees it**: its slots,
-/// indexed by [`StyleId`], `None` a slot nothing was minted in, which reads
-/// as [`StyleWord::DEFAULT`]. A live row's [`RowStyles`] carries its band's,
-/// so a reader resolves the row's ids through the table they name and no
-/// other.
+/// indexed by [`StyleId`], [`StyleSlot::Empty`] a slot nothing was minted
+/// in, which reads as [`StyleWord::DEFAULT`], and which band it is. A live
+/// row's [`RowStyles`] carries its band's, so a reader resolves the row's
+/// ids through the table they name and no other.
 #[derive(Clone, Copy, Debug)]
 pub struct LiveTable<'a> {
     slots: &'a [StyleSlot],
+    band: crate::Band,
 }
 
 impl<'a> LiveTable<'a> {
+    /// The single mode's one table, band 0.
     pub fn of(slots: &'a [StyleSlot]) -> LiveTable<'a> {
-        LiveTable { slots }
+        LiveTable::of_band(slots, crate::Band::FIRST)
+    }
+
+    /// Band `band`'s table.
+    pub fn of_band(slots: &'a [StyleSlot], band: crate::Band) -> LiveTable<'a> {
+        LiveTable { slots, band }
+    }
+
+    /// Which band this table is.
+    pub fn band(&self) -> crate::Band {
+        self.band
     }
 
     /// The rendition slot `id` holds; the default where it holds none.
@@ -1013,6 +1025,8 @@ pub struct LiveBands<'a> {
     band_slots: usize,
     /// The rows a band holds; 0 for one table of every row.
     rows: usize,
+    /// The surface's first band, which `slots` begins with.
+    first: crate::Band,
 }
 
 impl<'a> LiveBands<'a> {
@@ -1022,16 +1036,23 @@ impl<'a> LiveBands<'a> {
             slots: table.slots(),
             band_slots: table.len(),
             rows: 0,
+            first: table.band(),
         }
     }
 
     /// A table each band of `rows` rows, `band_slots` slots each, over
-    /// `slots`.
-    pub fn banded(slots: &'a [StyleSlot], band_slots: usize, rows: Rows) -> LiveBands<'a> {
+    /// `slots`, the first of them band `first`.
+    pub fn banded(
+        slots: &'a [StyleSlot],
+        band_slots: usize,
+        rows: Rows,
+        first: crate::Band,
+    ) -> LiveBands<'a> {
         LiveBands {
             slots,
             band_slots,
             rows: rows.index().max(1),
+            first,
         }
     }
 
@@ -1039,10 +1060,14 @@ impl<'a> LiveBands<'a> {
     #[inline(always)]
     pub fn table(&self, p: RowRot) -> LiveTable<'a> {
         match self.rows {
-            0 => LiveTable::of(self.slots),
+            0 => LiveTable::of_band(self.slots, self.first),
             r => {
-                let at = (p.index() / r) * self.band_slots;
-                LiveTable::of(self.slots.get(at..at + self.band_slots).unwrap_or(&[]))
+                let k = p.index() / r;
+                let at = k * self.band_slots;
+                LiveTable::of_band(
+                    self.slots.get(at..at + self.band_slots).unwrap_or(&[]),
+                    crate::Band::of(self.first.index() + k),
+                )
             }
         }
     }
