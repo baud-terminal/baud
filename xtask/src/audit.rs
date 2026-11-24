@@ -311,7 +311,7 @@ const fn tree(dir: &'static str, limit: Sites) -> Tree {
 pub const TREES: [Tree; 16] = [
     tree("baud-bench/src", Sites(0)),
     tree("baud-bench/benches", Sites(11)),
-    tree("baud-domain/tests", Sites(43)),
+    tree("baud-domain/tests", Sites(35)),
     tree("baud-font/tests", Sites(48)),
     tree("baud-render/tests", Sites(6)),
     tree("baud-present-macos/tests", Sites(1)),
