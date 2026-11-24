@@ -447,7 +447,7 @@ fn main() {
                 &Scene {
                     term: &self.term,
                     view,
-                    styles: self.styles_mem,
+                    styles: baud_render::RowTables::one(&*self.styles_mem),
                     cursor,
                     highlight: None,
                     map: &self.map,

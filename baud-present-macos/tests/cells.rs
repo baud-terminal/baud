@@ -353,7 +353,7 @@ impl Arms<'_, '_> {
             &Scene {
                 term: t,
                 view,
-                styles: self.styles_mem,
+                styles: baud_render::RowTables::one(&*self.styles_mem),
                 cursor: None,
                 highlight: self.highlight,
                 map: &self.map,
@@ -561,7 +561,7 @@ impl Arms<'_, '_> {
             &Scene {
                 term: t,
                 view,
-                styles: self.styles_mem,
+                styles: baud_render::RowTables::one(&*self.styles_mem),
                 cursor,
                 highlight: self.highlight,
                 map: &self.map,
@@ -600,7 +600,7 @@ impl Arms<'_, '_> {
                         style,
                         flags: baud_domain::CellFlags::NONE,
                     },
-                    self.styles_mem,
+                    baud_render::RowTables::one(&*self.styles_mem),
                     cursor,
                     self.highlight,
                     view.cols(),
@@ -647,7 +647,7 @@ impl Arms<'_, '_> {
                 self.exceptions.leaving(
                     &mut self.renderer,
                     t,
-                    (&self.map, self.styles_mem),
+                    (&self.map, baud_render::RowTables::one(&*self.styles_mem)),
                     self.back,
                     (view.cols(), view.rows()),
                     pan,

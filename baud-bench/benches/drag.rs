@@ -243,7 +243,7 @@ fn main() {
                     &Scene {
                         term: t,
                         view,
-                        styles: &styles_mem[set][..],
+                        styles: baud_render::RowTables::one(&styles_mem[set][..]),
                         cursor,
                         highlight: None,
                         map: &map,
