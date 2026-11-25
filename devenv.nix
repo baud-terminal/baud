@@ -249,6 +249,14 @@ in
     cargo clippy --quiet ${scope} --all-targets -- -D warnings
   '';
 
+  # **`baud` runs the release build.** `cargo run` builds the dev profile, in
+  # which the app is unoptimised; this builds and runs the release profile, the
+  # one the package ships, from any directory, with any arguments passed
+  # through.
+  scripts.baud.exec = ''
+    cargo run --release --quiet --manifest-path "$DEVENV_ROOT/Cargo.toml" -p baud -- "$@"
+  '';
+
   scripts.dev-check.exec = ''
     echo "Checking compilation..."
     cargo check --quiet ${scope}
@@ -343,6 +351,7 @@ in
       } | ${pkgs.boxes}/bin/boxes -d stone -a l -i none
       echo
       echo "Available scripts:"
+      echo "  baud          - Build and run baud at the release profile (cargo run builds the dev one)"
       echo "  devenv test   - The check suite the pre-push hook runs"
       echo "  dev-ci        - A quicker subset (fmt, clippy, check, test, bare, linux, sources, no-python, audit)"
       echo "  dev-test      - Run tests"
