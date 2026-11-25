@@ -137,6 +137,12 @@ pub enum WholeWhy {
     Renditions,
     /// A changed row is at or past [`DIRTY_ROWS`].
     Overflow,
+    /// The caller asked for the whole frame: a first frame into a target,
+    /// or a redraw asked by name.
+    Requested,
+    /// The surface the grid is drawn on changed its size, its origin or
+    /// its margin colour, so every buffer lent for it is whole.
+    Surface,
 }
 
 /// What the cursor did between the frame drawn and the one to draw.

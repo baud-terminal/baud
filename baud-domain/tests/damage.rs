@@ -186,10 +186,28 @@ fn a_frame_damage_is_copied_whole() {
         WholeWhy::Clusters,
         WholeWhy::Renditions,
         WholeWhy::Overflow,
+        WholeWhy::Requested,
+        WholeWhy::Surface,
     ];
     for w in whys {
         assert!(matches!(FrameDamage::Whole(w), FrameDamage::Whole(x) if x == w));
     }
+    // A reason added without a row above fails to compile here, and a row
+    // above not yet in the list leaves the count short.
+    let listed = |w: WholeWhy| match w {
+        WholeWhy::Resized
+        | WholeWhy::Screen
+        | WholeWhy::Reset
+        | WholeWhy::Erased
+        | WholeWhy::Wiped
+        | WholeWhy::Colours
+        | WholeWhy::Clusters
+        | WholeWhy::Renditions
+        | WholeWhy::Overflow
+        | WholeWhy::Requested
+        | WholeWhy::Surface => 1,
+    };
+    assert_eq!(whys.iter().map(|w| listed(*w)).sum::<i32>(), 11);
     for c in [
         CursorChange::Same,
         CursorChange::Moved,

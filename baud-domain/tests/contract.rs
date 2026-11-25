@@ -907,6 +907,8 @@ const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Colours;
 const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Clusters;
 const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Renditions;
 const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Overflow;
+const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Requested;
+const _: baud_domain::WholeWhy = baud_domain::WholeWhy::Surface;
 // Width
 const _: baud_domain::Width = baud_domain::Width::WIDE;
 const _: baud_domain::Width = baud_domain::Width::NARROW;
