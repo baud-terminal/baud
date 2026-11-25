@@ -62,7 +62,7 @@ fn chromed(r: &mut Renderer<'_, '_>, t: &Term<'_>) -> (Px, Px) {
     r.fit(t);
     let (w, h) = r.whole_size();
     let size = (Px::of(w.value() + 30), Px::of(h.value() + 23));
-    r.set_surface(size, (Px::of(15), Px::of(9)));
+    r.set_lent_surface(size, (Px::of(15), Px::of(9)));
     size
 }
 
@@ -267,7 +267,7 @@ fn draw_lent_matches_render() {
             into = Some(buf);
             boxed.fit(t);
             let (w, h) = boxed.whole_size();
-            boxed.set_surface(
+            boxed.set_lent_surface(
                 (Px::of(w.value() + 11), Px::of(h.value() + 7)),
                 (Px::of(4), Px::of(3)),
             );
@@ -409,9 +409,9 @@ fn a_new_surface_or_margin_is_whole() {
     draw(&mut r, &mut t, &mut buf, Age::Whole);
     let still = |r: &Renderer<'_, '_>, t: &Term<'_>| matches!(r.damage(t, Rows::ZERO), FrameDamage::Rows { rows, .. } if rows == DirtyRows::NONE);
     assert!(still(&r, &t), "{:?}", r.damage(&t, Rows::ZERO));
-    r.set_surface(size, (Px::of(15), Px::of(9)));
+    r.set_lent_surface(size, (Px::of(15), Px::of(9)));
     assert!(still(&r, &t), "the same surface again");
-    r.set_surface(size, (Px::of(16), Px::of(9)));
+    r.set_lent_surface(size, (Px::of(16), Px::of(9)));
     assert_eq!(
         r.damage(&t, Rows::ZERO),
         FrameDamage::Whole(WholeWhy::Surface),
@@ -419,7 +419,7 @@ fn a_new_surface_or_margin_is_whole() {
     );
     draw(&mut r, &mut t, &mut buf, Age::Stale(SurfaceRows::NONE));
     assert!(still(&r, &t), "{:?}", r.damage(&t, Rows::ZERO));
-    r.set_surface(
+    r.set_lent_surface(
         (Px::of(size.0.value() + 8), size.1),
         (Px::of(16), Px::of(9)),
     );

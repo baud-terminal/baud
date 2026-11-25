@@ -3050,7 +3050,9 @@ mod checks {
     /// call `baud_render::cell_frame::build` once, every call the driver
     /// makes before it into the renderer is one `present` makes, in
     /// `present`'s order, and so is every call `cpu_frame` makes. And
-    /// `present` makes none of the calls `build` makes itself -- but the
+    /// `present` makes none of the calls `build` makes itself, its read of
+    /// the frame's damage and the calls of the `build_with` it hands the
+    /// damage to -- but the
     /// map's generation, which the GPU's input names the map by -- so no
     /// part of the frame is built twice or built where the driver does not
     /// reach it; `draw_kept` makes the four calls it makes to redraw a kept
@@ -3104,22 +3106,29 @@ mod checks {
             1,
             "and the driver once: {driver}"
         );
+        // `build` reads the frame's damage and hands it to `build_with`,
+        // which builds the frame, so build's calls are both bodies' calls.
         let library = read("baud-render/src/cell_frame.rs");
-        let moved: std::collections::BTreeSet<String> = calls(
-            &body_of(&library, "pub fn build<P>(", "\n}\n"),
-            &[
-                ("renderer.bidi().", "self.renderer.bidi()."),
-                ("renderer.", "self.renderer."),
-                ("cell.map.", "cell.maps.live."),
-                ("cell.exceptions.", "cell.exceptions."),
-                ("screens.", "screens."),
-            ],
-        )
-        .into_iter()
-        .collect();
+        let moved: std::collections::BTreeSet<String> =
+            ["pub fn build<P>(", "pub fn build_with<P>("]
+                .into_iter()
+                .flat_map(|name| {
+                    calls(
+                        &body_of(&library, name, "\n}\n"),
+                        &[
+                            ("renderer.bidi().", "self.renderer.bidi()."),
+                            ("renderer.", "self.renderer."),
+                            ("cell.map.", "cell.maps.live."),
+                            ("cell.exceptions.", "cell.exceptions."),
+                            ("screens.", "screens."),
+                        ],
+                    )
+                })
+                .collect();
         for control in [
-            "screens.take_lent",
-            "cell.maps.live.ensure",
+            "self.renderer.damage",
+            "screens.take_below",
+            "cell.maps.live.ensure_with",
             "cell.exceptions.ensure_framed",
             "self.renderer.sync_styles",
             "self.renderer.bidi().window_kept",

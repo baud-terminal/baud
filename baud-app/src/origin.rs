@@ -85,7 +85,7 @@ pub(crate) fn in_frame<R>(
 /// **`f` over the whole surface `frame`**, `width` pixels wide and its
 /// rows `stride` pixels apart, given the surface's size: the target a lent
 /// draw paints, the renderer placing the whole frame at its origin in it
-/// (`Renderer::set_surface`). `None` for a buffer of no whole row, or rows
+/// (`Renderer::set_lent_surface`). `None` for a buffer of no whole row, or rows
 /// narrower than `width`.
 #[cfg(target_os = "linux")]
 pub(crate) fn surface<R>(
@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(src.matches("crate::origin::in_frame(").count(), 1);
         assert_eq!(src.matches("crate::origin::surface(").count(), 1);
         assert_eq!(
-            src.matches("renderer.set_surface((sw, sh), (at.x, at.y))")
+            src.matches("renderer.set_lent_surface((sw, sh), (at.x, at.y))")
                 .count(),
             1
         );

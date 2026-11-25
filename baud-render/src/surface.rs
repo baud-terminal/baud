@@ -409,7 +409,7 @@ mod tests {
             assert!(r.lights_height().value() > 0, "the premise: a lights line");
             let (w, h) = r.whole_size();
             let size = (Px::of(w.value() + 30), Px::of(h.value() + 23));
-            r.set_surface(size, (Px::of(15), Px::of(9)));
+            r.set_lent_surface(size, (Px::of(15), Px::of(9)));
             let what = format!("lights at {edge:?}");
             let bands = pieces(&r);
             assert_eq!(

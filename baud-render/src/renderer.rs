@@ -9605,12 +9605,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// surface the last frame was drawn for makes the next damage whole
     /// ([`baud_domain::WholeWhy::Surface`]), as a change of that colour
     /// does.
-    pub fn set_surface(&mut self, size: (Px, Px), origin: (Px, Px)) {
+    pub fn set_lent_surface(&mut self, size: (Px, Px), origin: (Px, Px)) {
         self.surface = Some(crate::surface::Surface { size, origin });
     }
 
     /// **Draws the frame into a lent buffer**, `target` the surface
-    /// [`Renderer::set_surface`] set (the whole frame until one is set):
+    /// [`Renderer::set_lent_surface`] set (the whole frame until one is set):
     /// the rows `damage` names and the rows the buffer is missing, `age`,
     /// each at the surface's whole width, the margins, the strip, the
     /// gutter and the columns beside the whole frame included, and the
@@ -9723,7 +9723,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// either path, read off `term`'s window `back` lines up: every pixel
     /// before the first frame, when the geometry, the screen, a reset, an
     /// erasure, a colour, a cluster or a rendition moved what an unwritten
-    /// cell draws, and when the surface set ([`Renderer::set_surface`]) or
+    /// cell draws, and when the surface set ([`Renderer::set_lent_surface`]) or
     /// the margin's colour ([`Renderer::clear_color_of`]) is not the one
     /// the last frame was drawn with; else the rows written since, every row of a
     /// window that shows other rows, the cursor as it changed and the

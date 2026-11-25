@@ -5016,7 +5016,7 @@ fn draw_at(
         if !fits(at.x, w, sw) || !fits(at.y, h, sh) {
             return None;
         }
-        renderer.set_surface((sw, sh), (at.x, at.y));
+        renderer.set_lent_surface((sw, sh), (at.x, at.y));
         let damage = match damage {
             Damage::Full => baud_domain::FrameDamage::Whole(baud_domain::WholeWhy::Requested),
             Damage::Incremental => renderer.damage(term, back),
