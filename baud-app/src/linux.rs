@@ -271,20 +271,27 @@ struct Driver {
     /// deadline, which bounds the wait (`reads::paced`), each with what its
     /// read was taken with, so it is filed under its own verdict when fed.
     pace: crate::reads::Pace<(crate::probe::Writers, crate::probe::ReadLinked)>,
-    /// The frame the renderer paints into and the window copies out of:
-    /// the window's size, so row damage has a target that still holds the
-    /// last frame. The renderer paints all of it, the gutter and the
-    /// leftover around the whole frame included (`draw_kept`).
+    /// The frame a slide's live frames are painted into and the window
+    /// copies out of: the window's size, so row damage has a target that
+    /// still holds the last frame. Every other CPU frame is drawn in place
+    /// into the window's buffer (`draw_in_place`). The renderer paints all
+    /// of it, the gutter and the leftover around the whole frame included
+    /// (`draw_kept`).
     frame: Vec<u32>,
     /// The old screen kept at a screen switch for its slide, drawn with its
     /// cursor hidden, and the frame each slide frame is composed into:
     /// `frame` stays the live frame, which the renderer paints by rows.
-    /// `slid` says the window holds what `frame` does not -- a composed
-    /// frame, or the one before its cursor was hidden -- so the next frame
-    /// goes to it whole.
+    ///
+    /// The window copies each slide frame whole, and draws the frame after
+    /// whole (`Window::draw_cpu`).
     kept: Vec<u32>,
     composed: Vec<u32>,
-    slid: crate::effects::Composed,
+    /// Whether `frame` holds the last frame drawn, or frames drawn in
+    /// place since left it behind.
+    frame_holds: FrameHolds,
+    /// What the last lent draws changed, for the rows each buffer the
+    /// window lends misses.
+    since: Since,
     /// The frame's row pitch: the window's width.
     stride: Px,
     /// The default background at the window's opacity, for the margin
@@ -296,8 +303,12 @@ struct Driver {
     frame_for: FrameFor,
     damage: Damage,
     /// The rows the last frame painted, as the window is told them: what
-    /// it copies and damages (`Window::present`).
+    /// it copies and damages (`Window::present`), or premultiplies in
+    /// place (`Window::draw_cpu`).
     strips: Vec<baud_present_wayland::Strip>,
+    /// The pixel rows the last frame drawn in place changed of the one
+    /// before, which the compositor is told.
+    changed: Vec<baud_present_wayland::Strip>,
     /// When the frames held for a synchronised update began to be held,
     /// for `SYNC_MAX`.
     updates: UpdateClock<Instant>,
@@ -940,13 +951,15 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         frame: Vec::new(),
         kept: Vec::new(),
         composed: Vec::new(),
-        slid: crate::effects::Composed::No,
+        frame_holds: FrameHolds::Stale,
+        since: Since::NONE,
         stride: Px::of(0),
         margin,
         pending: Pending::Clean,
         frame_for: FrameFor::Soonest,
         damage: Damage::Full,
         strips: Vec::new(),
+        changed: Vec::new(),
         updates: UpdateClock::new(SYNC_MAX),
         titles: crate::title::Shown::new(),
         derive: crate::title::Derive::new(),
@@ -1574,6 +1587,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     }
     // Every frame the window drew, by the arm that drew it (`gpu_arm.rs`).
     d.gpu.exit();
+    // What the window copied into shared memory, on its own line.
+    crate::info!("{}", ShmCopies(d.window.copies()));
     // The notifications still waiting for their pictures, posted with
     // their text alone (`Delivery::linux_closing`).
     d.pictures_at_close();
@@ -1783,6 +1798,7 @@ impl Driver {
             // goes to the window whole. Nothing is kept for no slide.
             let form = self.timed.switched(Instant::now(), self.term.screen());
             if let Some(crate::effects::SwitchForm::Slide(_)) = form {
+                self.frame_from_window();
                 let whole = self.renderer.whole_size();
                 let (renderer, term) = (&mut self.renderer, &self.term);
                 let _ = crate::origin::in_frame(
@@ -1793,7 +1809,6 @@ impl Driver {
                     |target| renderer.render_hidden(term, target),
                 );
                 self.kept.clone_from(&self.frame);
-                self.slid = crate::effects::Composed::Yes;
             }
         }
         if after.thumb == crate::seat::Thumb::Reveal {
@@ -4556,59 +4571,18 @@ impl Driver {
         if self.gpu.cpu_owes_whole() {
             self.damage = Damage::Full;
         }
-        // A frame the driver draws whole -- a new size, a margin of
-        // another colour, the frame moved -- is the whole buffer's damage.
-        let whole = self.damage;
         // The rows the window shows, `window_back` lines up the history
         // while the wheel or the thumb holds it there: the rows the
         // selection, the link under a click and the thumb already read.
         let back = self.term.window_back();
-        let damage = self.damage;
+        // A frame a timed effect owed is drawn for the moment it is seen,
+        // and held to it.
+        if self.frame_for == FrameFor::Moment {
+            self.window.draw_for(seen_at);
+        }
         let painting = Instant::now();
-        let Some(drawn) = draw_kept(
-            &mut self.renderer,
-            &self.term,
-            (seal, back),
-            (&mut self.frame, self.stride, self.origin),
-            damage,
-            &mut self.strips,
-        ) else {
-            return;
-        };
-        self.report.drawn(drawn);
-        // The order each row was drawn in, which the pointer maps back
-        // through.
-        self.seat.drawn(self.renderer.bidi());
-        self.damage = Damage::Incremental;
-        let pitch = usize::try_from(self.stride.value()).unwrap_or(0);
-        // A sliding frame: the grid's rows composed from the live frame and
-        // the kept one, the margin below them the live frame's; it and the
-        // frame after it go whole.
-        let slid = match plan.slide {
-            Some(s) if self.kept.len() == self.frame.len() => {
-                self.composed.clone_from(&self.frame);
-                // The frame's own rows, not the activity lights' line, which
-                // holds still as the margin does.
-                let rows = self.renderer.frame_size().1;
-                let span = crate::width::slide_span(
-                    Px::of(self.origin.y.value() + self.renderer.grid_top().value()),
-                    rows,
-                    self.stride,
-                    &self.frame,
-                );
-                let o = baud_render::slide_offsets(s, rows);
-                match baud_render::compose_slide(
-                    &self.frame[span.clone()],
-                    &self.kept[span.clone()],
-                    &mut self.composed[span],
-                    self.stride,
-                    rows,
-                    o,
-                ) {
-                    true => crate::effects::Composed::Yes,
-                    false => crate::effects::Composed::No,
-                }
-            }
+        let shown = match plan.slide {
+            Some(s) if self.kept.len() == self.frame.len() => self.draw_slide(s, (seal, back)),
             _ => {
                 // Settled: the two frames go, so an idle window holds
                 // nothing for the slide.
@@ -4616,37 +4590,13 @@ impl Driver {
                     self.kept = Vec::new();
                     self.composed = Vec::new();
                 }
-                crate::effects::Composed::No
+                self.draw_in_place((seal, back))
             }
         };
-        // The CPU arm's cost: the paint and the slide's composition.
-        let cost = painting.elapsed();
-        let changed = match (whole, slid, self.slid) {
-            (Damage::Full, _, _)
-            | (_, crate::effects::Composed::Yes, _)
-            | (_, _, crate::effects::Composed::Yes) => Changed::Whole,
-            (Damage::Incremental, crate::effects::Composed::No, crate::effects::Composed::No) => {
-                Changed::Strips(&self.strips)
-            }
-        };
-        self.slid = slid;
-        let shown = match slid {
-            crate::effects::Composed::Yes => &self.composed,
-            crate::effects::Composed::No => &self.frame,
-        };
-        // The blink rates on screen, which bound the next wait.
-        self.timed
-            .drawn(self.renderer.blink_seen(), self.term.regis_blink());
-        // A frame a timed effect owed is drawn for the moment it is seen,
-        // and held to it.
-        if self.frame_for == FrameFor::Moment {
-            self.window.draw_for(seen_at);
-        }
-        if self
-            .window
-            .present(&mut self.conn.sender(), shown, pitch, changed)
-            == Presented::Yes
-        {
+        if shown == Presented::Yes {
+            // The CPU arm's cost: the paint, the slide's composition and
+            // the premultiply.
+            let cost = painting.elapsed();
             startup_first("first present", &FIRST_PRESENT);
             if let Some(drawn) = effect {
                 self.pace(crate::pacer::PacedArm::Cpu, drawn, cost, late);
@@ -4658,6 +4608,136 @@ impl Driver {
             self.pending = Pending::Clean;
             self.frame_for = FrameFor::Soonest;
         }
+    }
+
+    /// **The frame last drawn in place, read back into `frame`** for a
+    /// slide's old screen, straight again: the window's buffer that holds
+    /// it, while one does and is the surface's size. `frame` then holds the
+    /// last frame, and the slide's first live frame is still drawn whole.
+    fn frame_from_window(&mut self) {
+        let pitch = usize::try_from(self.stride.value()).unwrap_or(0);
+        let Some((pixels, stride)) = self.window.last_drawn() else {
+            return;
+        };
+        if pitch == 0 || self.frame.len() / pitch * stride > pixels.len() {
+            return;
+        }
+        for (to, from) in self.frame.chunks_mut(pitch).zip(pixels.chunks(stride)) {
+            for (t, &f) in to.iter_mut().zip(from) {
+                *t = straight(Argb(f)).0;
+            }
+        }
+    }
+
+    /// **What a CPU frame drew, kept**: what it cost for the report, the
+    /// order each row was drawn in, which the pointer maps back through,
+    /// and the blink rates on screen, which bound the next wait.
+    fn cpu_drawn(&mut self, frame: baud_render::Frame) {
+        self.report.drawn(frame);
+        self.seat.drawn(self.renderer.bidi());
+        self.damage = Damage::Incremental;
+        self.timed
+            .drawn(self.renderer.blink_seen(), self.term.regis_blink());
+    }
+
+    /// **The CPU arm's frame, drawn in place** into a buffer the window
+    /// lends (`Window::draw_cpu`), with the rows that buffer misses since
+    /// it was last drawn (`Since`); no pixel is copied. A buffer of
+    /// another size than the surface's is not drawn, and the frame is
+    /// owed.
+    fn draw_in_place(&mut self, (seal, back): (baud_domain::Seal, Rows)) -> Presented {
+        let (renderer, term, since) = (&mut self.renderer, &self.term, &mut self.since);
+        let (painted, changed) = (&mut self.strips, &mut self.changed);
+        let (damage, at) = (self.damage, self.origin);
+        let rows = usize::try_from(self.stride.value())
+            .ok()
+            .filter(|&p| p > 0)
+            .map_or(0, |p| self.frame.len() / p);
+        let surface = (self.stride.value(), u32::try_from(rows).unwrap_or(u32::MAX));
+        let mut cost = None;
+        let drew = &mut cost;
+        let shown = self.window.draw_cpu(&mut self.conn.sender(), move |lent| {
+            if (lent.size.0.0, lent.size.1.0) != surface {
+                return None;
+            }
+            let stride = Px::of(u32::try_from(lent.stride).ok()?);
+            let (frame, rows) = draw_at(
+                renderer,
+                term,
+                (seal, back),
+                (lent.pixels, stride, Px::of(surface.0), at),
+                (damage, since.age(lent.age)),
+                (&mut *painted, &mut *changed),
+            )?;
+            since.drawn(rows);
+            *drew = Some(frame);
+            let painted: &Vec<baud_present_wayland::Strip> = painted;
+            let changed: &Vec<baud_present_wayland::Strip> = changed;
+            Some(baud_present_wayland::InPlace {
+                painted,
+                changed: match damage {
+                    Damage::Full => Changed::Whole,
+                    Damage::Incremental => Changed::Strips(changed),
+                },
+            })
+        });
+        if let Some(frame) = cost {
+            self.cpu_drawn(frame);
+            self.frame_holds = FrameHolds::Stale;
+        }
+        shown
+    }
+
+    /// **A slide's frame**: the live frame drawn into the kept `frame` --
+    /// whole when the frames before were drawn in place -- the grid's rows
+    /// composed from it and the kept old screen, the margin below them the
+    /// live frame's, and copied into the window whole, as is the frame
+    /// after the slide.
+    fn draw_slide(
+        &mut self,
+        s: baud_render::ScreenSlide,
+        (seal, back): (baud_domain::Seal, Rows),
+    ) -> Presented {
+        if self.frame_holds == FrameHolds::Stale {
+            self.damage = Damage::Full;
+        }
+        let Some(drawn) = draw_kept(
+            &mut self.renderer,
+            &self.term,
+            (seal, back),
+            (&mut self.frame, self.stride, self.origin),
+            self.damage,
+            &mut self.strips,
+        ) else {
+            return Presented::No;
+        };
+        self.frame_holds = FrameHolds::Last;
+        self.cpu_drawn(drawn);
+        let pitch = usize::try_from(self.stride.value()).unwrap_or(0);
+        self.composed.clone_from(&self.frame);
+        // The frame's own rows, not the activity lights' line, which
+        // holds still as the margin does.
+        let rows = self.renderer.frame_size().1;
+        let span = crate::width::slide_span(
+            Px::of(self.origin.y.value() + self.renderer.grid_top().value()),
+            rows,
+            self.stride,
+            &self.frame,
+        );
+        let o = baud_render::slide_offsets(s, rows);
+        let shown = match baud_render::compose_slide(
+            &self.frame[span.clone()],
+            &self.kept[span.clone()],
+            &mut self.composed[span],
+            self.stride,
+            rows,
+            o,
+        ) {
+            true => &self.composed,
+            false => &self.frame,
+        };
+        self.window
+            .present(&mut self.conn.sender(), shown, pitch, Changed::Whole)
     }
 
     /// **An effect frame shown, fed to effect pacing** (`pacer.rs`): the arm
@@ -4862,14 +4942,11 @@ impl PresentedLog {
 
 /// **The CPU arm's frame, drawn into the kept `frame`**: the surface
 /// `stride` pixels wide, its rows below one another, the renderer's whole
-/// frame at `at` in it. Drawn through the renderer's lent draw with
-/// nothing stale -- `frame` holds the last frame -- every pixel for
-/// [`Damage::Full`], else the damage the renderer reads off `term`'s
-/// window `back` lines up; the renderer paints the gutter and the
-/// leftover around the whole frame on every band it paints. `strips` are
-/// set to the surface's pixel rows painted, at its whole width: what the
-/// window copies and damages. What the frame cost, or `None` when the
-/// surface does not hold the whole frame.
+/// frame at `at` in it, drawn by [`draw_at`] with nothing stale -- `frame`
+/// holds the last frame. `strips` are set to the surface's pixel rows
+/// painted, at its whole width: what the window copies and damages. What
+/// the frame cost, or `None` when the surface does not hold the whole
+/// frame.
 fn draw_kept(
     renderer: &mut Renderer<'_, '_>,
     term: &Term<'_>,
@@ -4878,10 +4955,44 @@ fn draw_kept(
     damage: Damage,
     strips: &mut Vec<baud_present_wayland::Strip>,
 ) -> Option<baud_render::Frame> {
+    let mut changed = Vec::new();
+    let stale = baud_render::Age::Stale(baud_render::SurfaceRows::NONE);
+    draw_at(
+        renderer,
+        term,
+        (seal, back),
+        (frame, stride, stride, at),
+        (damage, stale),
+        (strips, &mut changed),
+    )
+    .map(|(frame, _)| frame)
+}
+
+/// **The CPU arm's frame, drawn into a surface**: `frame`, `width` pixels
+/// wide and its rows `stride` pixels apart, the renderer's whole frame at
+/// `at` in it. Drawn through the renderer's lent draw: every pixel for
+/// [`Damage::Full`], else the damage the renderer reads off `term`'s
+/// window `back` lines up, with the rows `age` says the surface misses;
+/// the renderer paints the gutter and the leftover around the whole frame
+/// on every band it paints. `painted` is set to the surface's pixel rows
+/// painted, at its whole width, and `changed` to those it changed of the
+/// frame drawn before. What the frame cost and the rows it changed, or
+/// `None` when the surface does not hold the whole frame.
+fn draw_at(
+    renderer: &mut Renderer<'_, '_>,
+    term: &Term<'_>,
+    (seal, back): (baud_domain::Seal, Rows),
+    (frame, stride, width, at): (&mut [u32], Px, Px, crate::origin::Origin),
+    (damage, age): (Damage, baud_render::Age),
+    (painted, changed): (
+        &mut Vec<baud_present_wayland::Strip>,
+        &mut Vec<baud_present_wayland::Strip>,
+    ),
+) -> Option<(baud_render::Frame, baud_render::SurfaceRows)> {
     let (w, h) = renderer.whole_size();
     let fits =
         |at: Px, whole: Px, room: Px| at.value().checked_add(whole.value()) <= Some(room.value());
-    crate::origin::surface(frame, stride, |target, (sw, sh)| {
+    crate::origin::surface(frame, stride, width, |target, (sw, sh)| {
         if !fits(at.x, w, sw) || !fits(at.y, h, sh) {
             return None;
         }
@@ -4890,27 +5001,102 @@ fn draw_kept(
             Damage::Full => baud_domain::FrameDamage::Whole(baud_domain::WholeWhy::Requested),
             Damage::Incremental => renderer.damage(term, back),
         };
-        let painted = renderer.draw_lent(
-            term,
-            seal,
-            back,
-            &damage,
-            target,
-            baud_render::Age::Stale(baud_render::SurfaceRows::NONE),
-        );
-        strips.clear();
-        let px = |p: Px| baud_present_wayland::Px(p.value());
-        strips.extend(
-            renderer
-                .bands(&painted.rows())
-                .map(|b| baud_present_wayland::Strip {
-                    top: px(b.top),
-                    bottom: px(b.bottom),
-                }),
-        );
-        Some(renderer.lent_frame())
+        let drawn = renderer.draw_lent(term, seal, back, &damage, target, age);
+        let strip = |b: baud_render::Band| baud_present_wayland::Strip {
+            top: baud_present_wayland::Px(b.top.value()),
+            bottom: baud_present_wayland::Px(b.bottom.value()),
+        };
+        painted.clear();
+        painted.extend(renderer.bands(&drawn.rows()).map(strip));
+        changed.clear();
+        changed.extend(renderer.bands(&drawn.changed()).map(strip));
+        Some((renderer.lent_frame(), drawn.changed()))
     })
     .flatten()
+}
+
+/// Whether the driver's kept frame holds the last frame drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FrameHolds {
+    Last,
+    Stale,
+}
+
+/// How many lent draws [`Since`] keeps what they changed of: a buffer
+/// further behind is drawn whole.
+const SINCE: usize = 4;
+
+/// **What the last lent draws changed**, newest first: a buffer `n` draws
+/// behind misses the union of the `n` newest, and a buffer further behind
+/// than those kept, or whose frame the window does not know, is drawn
+/// whole.
+struct Since {
+    changed: [baud_render::SurfaceRows; SINCE],
+    kept: baud_present_wayland::Draws,
+}
+
+impl Since {
+    const NONE: Since = Since {
+        changed: [baud_render::SurfaceRows::NONE; SINCE],
+        kept: baud_present_wayland::Draws(0),
+    };
+
+    /// What a buffer of age `age` misses.
+    fn age(&self, age: baud_present_wayland::BufferAge) -> baud_render::Age {
+        use baud_present_wayland::BufferAge;
+        match age {
+            BufferAge::Behind(n) => match usize::try_from(n.0) {
+                Ok(i) if n <= self.kept => baud_render::Age::Stale(
+                    self.changed[..i]
+                        .iter()
+                        .fold(baud_render::SurfaceRows::NONE, |a, &c| a.union(c)),
+                ),
+                _ => baud_render::Age::Whole,
+            },
+            BufferAge::Whole => baud_render::Age::Whole,
+        }
+    }
+
+    /// A lent draw changed `changed`.
+    fn drawn(&mut self, changed: baud_render::SurfaceRows) {
+        self.changed.copy_within(0..SINCE - 1, 1);
+        self.changed[0] = changed;
+        let most = baud_present_wayland::Draws(u32::try_from(SINCE).unwrap_or(u32::MAX));
+        self.kept = baud_present_wayland::Draws(self.kept.0 + 1).min(most);
+    }
+}
+
+/// **A shared-memory word back to straight alpha**: each colour channel
+/// over the alpha, rounded to the nearest byte. Exact where the pixel is
+/// opaque; a clear pixel is clear black.
+fn straight(word: Argb) -> Argb {
+    let (w, a) = (word.0, word.0 >> 24);
+    match a {
+        0xFF => word,
+        0 => Argb(0),
+        _ => {
+            let ch = |shift: u32| ((((w >> shift) & 0xFF) * 255 + a / 2) / a).min(0xFF) << shift;
+            Argb((a << 24) | ch(16) | ch(8) | ch(0))
+        }
+    }
+}
+
+/// The exit line of what the window copied into shared memory over its
+/// life ([`baud_present_wayland::Window::copies`]), one line in a fixed
+/// format: `shm copies: <bytes> bytes over <presents> presents`, each a
+/// plain decimal.
+struct ShmCopies(baud_present_wayland::Copies);
+
+impl core::fmt::Display for ShmCopies {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let c = self.0;
+        write!(
+            f,
+            "shm copies: {} bytes over {} presents",
+            c.whole.0 + c.rows.0,
+            c.presents.0
+        )
+    }
 }
 
 /// `presented: at=<ns> refresh=<ns> presented=<n> discarded=<n>`: the
@@ -5112,6 +5298,183 @@ mod tests {
     /// surface's whole width -- the renderer's `bands` of it -- no poison
     /// is left in that band, the gutter's columns included, and every pixel
     /// outside it is still poison.
+    /// **Each buffer is drawn with what it missed since it was last drawn,
+    /// and a new one whole.** Three buffers the window would lend, each
+    /// filled with poison at first, take sixteen frames in the order
+    /// below, each frame writing a row of a 20 x 4 grid at a 7 px gutter;
+    /// once, between frames, every buffer's frame becomes unknown, as at a
+    /// new scale. Each draw's `BufferAge` comes from [`Ages`] and its
+    /// `Age` from [`Since`]. A buffer new or unknown paints every pixel
+    /// row. Otherwise it paints exactly the bands of the rows this frame
+    /// changed with the rows each frame drawn into another buffer since it
+    /// was last drawn changed -- no more, so the age decays. The painted
+    /// rows are premultiplied in place, and after every frame the buffer
+    /// equals a whole draw of the same screen by a second renderer,
+    /// premultiplied: no poison and no row of an older frame is left.
+    ///
+    /// [`Ages`]: baud_present_wayland::Ages
+    #[test]
+    fn each_buffer_is_drawn_with_what_it_missed_since_it_was_drawn() {
+        use baud_core::{BytePos, ReadLen};
+        use baud_present_wayland::{Ages, BufferAge, Slot, Strip};
+        use baud_render::{Stack, SurfaceRows, Theme};
+        const POISON: u32 = 0xDEAD_BEEF;
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 4,
+        };
+        let faces = [baud_font::Face::parse(crate::embedded::REGULAR.bytes).expect("the face")];
+        let mut store = Owned::new(&ws);
+        let mut t = Term::new(store.storage(), &ws);
+        let feed = |t: &mut Term<'_>, b: &[u8]| {
+            t.write_at(BytePos::ZERO, b);
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        };
+        feed(&mut t, b"\x1b[?25l");
+        let (cols, rows) = t.geometry();
+        let renderer = || {
+            let mut r = Renderer::new(
+                Stack::new(&faces).expect("a stack"),
+                PxSize::of(14.0).expect("a size"),
+                Theme::dark(),
+                Blend::Native,
+                cols,
+                rows,
+            )
+            .expect("cell metrics");
+            r.fit(&t);
+            r
+        };
+        let (mut r, mut whole) = (renderer(), renderer());
+        let (w, h) = r.whole_size();
+        let g = 7;
+        let stride = Px::of(w.value() + 2 * g);
+        let height = h.value() + 2 * g;
+        let at = crate::origin::Origin {
+            x: Px::of(g),
+            y: Px::of(g),
+        };
+        let pitch = usize::try_from(stride.value()).expect("a pitch");
+        let words = pitch * usize::try_from(height).expect("a height");
+        let mut buffers = vec![vec![POISON; words]; 3];
+        let mut ages = Ages::<3>::NEW;
+        let mut since = Since::NONE;
+        // What each buffer missed, by the test's own count: the rows every
+        // frame drawn into another buffer since changed.
+        let mut missed = [SurfaceRows::NONE; 3];
+        let (mut painted, mut changed) = (Vec::new(), Vec::new());
+        let rows_of = |strips: &[Strip]| {
+            let mut on = vec![false; usize::try_from(height).expect("a height")];
+            for s in strips {
+                for y in s.top.0..s.bottom.0 {
+                    on[usize::try_from(y).expect("a row")] = true;
+                }
+            }
+            on
+        };
+        let order = [0, 1, 2, 0, 0, 2, 1, 1, 0, 2, 2, 0, 1, 0, 2, 1];
+        for (n, &i) in order.iter().enumerate() {
+            if n == 9 {
+                ages.lose();
+            }
+            let row = n % 4 + 1;
+            feed(&mut t, format!("\x1b[{row};{}Hx{n}", n % 7 + 1).as_bytes());
+            let age = ages.age(Slot(i));
+            let seal = t.seal_writes();
+            let damage = match n {
+                0 => Damage::Full,
+                _ => Damage::Incremental,
+            };
+            let (_, rows_changed) = draw_at(
+                &mut r,
+                &t,
+                (seal, Rows::ZERO),
+                (&mut buffers[i], stride, stride, at),
+                (damage, since.age(age)),
+                (&mut painted, &mut changed),
+            )
+            .expect("the frame fits");
+            since.drawn(rows_changed);
+            ages.drawn(Slot(i));
+            let want = match age {
+                BufferAge::Whole => vec![true; usize::try_from(height).expect("a height")],
+                BufferAge::Behind(_) => {
+                    let s = missed[i].union(rows_changed);
+                    let bands: Vec<Strip> = r
+                        .bands(&s)
+                        .map(|b| Strip {
+                            top: baud_present_wayland::Px(b.top.value()),
+                            bottom: baud_present_wayland::Px(b.bottom.value()),
+                        })
+                        .collect();
+                    rows_of(&bands)
+                }
+            };
+            assert_eq!(rows_of(&painted), want, "frame {n}, buffer {i}, {age:?}");
+            for (j, m) in missed.iter_mut().enumerate() {
+                *m = match j == i {
+                    true => SurfaceRows::NONE,
+                    false => m.union(rows_changed),
+                };
+            }
+            for s in &painted {
+                let rows = usize::try_from(s.top.0).expect("a row")
+                    ..usize::try_from(s.bottom.0).expect("a row");
+                for p in &mut buffers[i][rows.start * pitch..rows.end * pitch] {
+                    *p = baud_domain::premultiply(*p);
+                }
+            }
+            let mut fresh = vec![POISON; words];
+            let mut scratch = (Vec::new(), Vec::new());
+            draw_at(
+                &mut whole,
+                &t,
+                (seal, Rows::ZERO),
+                (&mut fresh, stride, stride, at),
+                (Damage::Full, baud_render::Age::Whole),
+                (&mut scratch.0, &mut scratch.1),
+            )
+            .expect("the frame fits");
+            for p in &mut fresh {
+                *p = baud_domain::premultiply(*p);
+            }
+            assert!(
+                buffers[i] == fresh,
+                "frame {n}, buffer {i}: a whole draw's pixels"
+            );
+        }
+    }
+
+    /// **The exit line of the shared-memory copies** is the line the
+    /// measuring harness reads: the bytes copied whole and by rows,
+    /// summed, and the presents that copied them; and the driver's exit
+    /// path prints it, on its own line, after the GPU arm's.
+    #[test]
+    fn the_exit_line_says_what_was_copied_into_shared_memory() {
+        use baud_present_wayland::{Bytes, Copies, dmabuf::Count};
+        let c = Copies {
+            whole: Bytes(33_177_600),
+            rows: Bytes(15_360),
+            presents: Count(2),
+        };
+        assert_eq!(
+            ShmCopies(c).to_string(),
+            "shm copies: 33192960 bytes over 2 presents"
+        );
+        assert_eq!(
+            ShmCopies(Copies::default()).to_string(),
+            "shm copies: 0 bytes over 0 presents"
+        );
+        let src = include_str!("linux.rs");
+        let gpu = src
+            .find("\n    d.gpu.exit();\n")
+            .expect("the GPU arm's exit line");
+        let shm = src
+            .find("\n    crate::info!(\"{}\", ShmCopies(d.window.copies()));\n")
+            .expect("the shared-memory exit line");
+        assert!(gpu < shm, "after the GPU arm's line");
+    }
+
     #[test]
     fn the_cpu_arm_presents_what_it_painted() {
         use baud_core::{BytePos, ReadLen};

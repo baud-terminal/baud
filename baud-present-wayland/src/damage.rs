@@ -141,6 +141,76 @@ impl RowSet {
     }
 }
 
+/// **What a buffer lent to a draw holds** ([`crate::Window::draw_cpu`]):
+/// nothing known -- a new buffer, a new size or scale, or a frame shown
+/// some other way since -- so every pixel is painted; or the frame of the
+/// lent draw it last took, `Behind(n)` the lent draws into other buffers
+/// since, whose changes it misses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BufferAge {
+    Whole,
+    Behind(Draws),
+}
+
+/// A number of lent draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Draws(pub u32);
+
+/// One of a pool's buffers, by its place in the pool.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Slot(pub usize);
+
+/// The ordinal of a lent draw, from the first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Draw(u64);
+
+/// **Each of `N` buffers' place among the lent draws**: the draw each last
+/// took, `None` while what it holds is unknown, and the last draw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ages<const N: usize> {
+    last: [Option<Draw>; N],
+    draws: Draw,
+}
+
+impl<const N: usize> Ages<N> {
+    /// Every buffer unknown.
+    pub const NEW: Ages<N> = Ages {
+        last: [None; N],
+        draws: Draw(0),
+    };
+
+    /// What buffer `i` holds, against the draws since it was last drawn.
+    pub fn age(&self, i: Slot) -> BufferAge {
+        match self.last.get(i.0).copied().flatten() {
+            Some(at) => BufferAge::Behind(Draws(
+                u32::try_from(self.draws.0 - at.0).unwrap_or(u32::MAX),
+            )),
+            None => BufferAge::Whole,
+        }
+    }
+
+    /// Buffer `i` took the next draw: it holds that frame, and every other
+    /// buffer is one more draw behind.
+    pub fn drawn(&mut self, i: Slot) {
+        self.draws = Draw(self.draws.0 + 1);
+        if let Some(l) = self.last.get_mut(i.0) {
+            *l = Some(self.draws);
+        }
+    }
+
+    /// What buffer `i` holds is unknown.
+    pub fn forget(&mut self, i: Slot) {
+        if let Some(l) = self.last.get_mut(i.0) {
+            *l = None;
+        }
+    }
+
+    /// What every buffer holds is unknown.
+    pub fn lose(&mut self) {
+        self.last = [None; N];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

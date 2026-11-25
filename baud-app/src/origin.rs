@@ -82,19 +82,21 @@ pub(crate) fn in_frame<R>(
     Some(f(&mut target))
 }
 
-/// **`f` over the whole surface `frame`**, its rows `stride` pixels
-/// apart, given the surface's size: the target a lent draw paints, the
-/// renderer placing the whole frame at its origin in it
-/// (`Renderer::set_surface`). `None` for a buffer of no whole row.
+/// **`f` over the whole surface `frame`**, `width` pixels wide and its
+/// rows `stride` pixels apart, given the surface's size: the target a lent
+/// draw paints, the renderer placing the whole frame at its origin in it
+/// (`Renderer::set_surface`). `None` for a buffer of no whole row, or rows
+/// narrower than `width`.
 pub(crate) fn surface<R>(
     frame: &mut [u32],
     stride: Px,
+    width: Px,
     f: impl FnOnce(&mut Target<'_>, (Px, Px)) -> R,
 ) -> Option<R> {
     let pitch = usize::try_from(stride.value()).ok().filter(|&p| p > 0)?;
     let rows = Px::of(u32::try_from(frame.len() / pitch).ok()?);
-    let mut surface = Target::new(frame, stride, stride, rows)?;
-    Some(f(&mut surface, (stride, rows)))
+    let mut surface = Target::new(frame, stride, width, rows)?;
+    Some(f(&mut surface, (width, rows)))
 }
 
 #[cfg(test)]

@@ -27,7 +27,7 @@
 
 use crate::clip::{Board, Clip, Copied, Done, Pasting, Want};
 use crate::cursor::{self, Drawn, Scale};
-use crate::damage::{Changed, RowSet};
+use crate::damage::{BufferAge, Changed, RowSet, Strip};
 use crate::dmabuf::{self, Count, Dmabuf, Feedback, Imported, Points, Timeline};
 use crate::ime::{
     ActionCode, ByteAt, CursorAt, CursorRect, HintCode, Preedit, PreeditCursor, Serial, Step,
@@ -42,7 +42,8 @@ use crate::shm::{Bytes, Pool, Px};
 use crate::timing::{ClockId, Presentation, Stamp, Unseen};
 use baud_domain::{
     AskServerSide, DecorationMode, EventMillis, Focus, HebrewLayout, KeyEvent, KeyEventKind,
-    LocatorDevice, ManagerVersion, Modifiers, Negotiation, Toplevel, premultiply_row,
+    LocatorDevice, ManagerVersion, Modifiers, Negotiation, ROW_LANES, Toplevel, premultiply,
+    premultiply_row,
 };
 use baud_wayland::{
     Arg, Connection, Event as Wire, Fixed, Handler, Interface, ObjectId, Opcode, Read, Sender,
@@ -333,6 +334,34 @@ pub enum Resize {
     Bound,
 }
 
+/// **A free shared-memory buffer lent to a draw in place**
+/// ([`Window::draw_cpu`]): its pixels, `stride` words a row, `size` the
+/// buffer's in pixels, and what it holds.
+pub struct Lent<'a> {
+    pub pixels: &'a mut [u32],
+    pub stride: usize,
+    pub size: (Px, Px),
+    pub age: BufferAge,
+}
+
+/// **What a draw in place did to its lent buffer**: the pixel rows it
+/// painted, straight alpha at the buffer's whole width, which are
+/// premultiplied; and what it changed of the frame before, which the
+/// compositor is told.
+pub struct InPlace<'d> {
+    pub painted: &'d [Strip],
+    pub changed: Changed<'d>,
+}
+
+/// How the buffer the compositor last had attached was filled: none yet,
+/// drawn in place, or copied from a frame or imported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Attached {
+    Nothing,
+    Lent,
+    Other,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Presented {
     Yes,
@@ -546,6 +575,8 @@ pub struct Window {
     /// The rows the last frame shown copied into its buffer.
     copied: Px,
     copies: Copies,
+    /// How the buffer the compositor last had attached was filled.
+    attached: Attached,
     callback: Option<ObjectId>,
     /// The presentation clock, from `clock_id`, and the last frame the
     /// compositor said it showed (`timing.rs`).
@@ -689,6 +720,7 @@ impl Window {
             owed: RowSet::default(),
             copied: Px(0),
             copies: Copies::default(),
+            attached: Attached::Nothing,
             callback: None,
             clock: None,
             presented: None,
@@ -1745,8 +1777,10 @@ impl Window {
         }
         rows.add_changed(changed);
         // A buffer scale or a destination changes only with a buffer of
-        // the size it makes (`tell`): the whole frame goes with it.
-        if told != self.told {
+        // the size it makes (`tell`): the whole frame goes with it. So does
+        // the first frame copied after one drawn in place, which the
+        // compositor holds and the frame knows nothing of.
+        if told != self.told || self.attached == Attached::Lent {
             rows = RowSet::all(h);
         }
         if self.callback.is_some() || stride < wu || frame.len() < stride * hu {
@@ -1802,6 +1836,7 @@ impl Window {
         self.copies.add(copy.count(), w, h);
         pool.shown(buffer, &rows);
         pool.committed(buffer);
+        self.attached = Attached::Other;
         let _ = s.request(
             surface,
             Opcode(protocol::wl_surface::request::ATTACH),
@@ -1831,6 +1866,129 @@ impl Window {
         rows.clear();
         self.owed = rows;
         Presented::Yes
+    }
+
+    /// **A frame drawn in place into a free buffer**, with a frame callback
+    /// for the next. `draw` is lent the buffer -- every row of a new one,
+    /// or of one whose size, scale or destination changed, is
+    /// [`BufferAge::Whole`] -- and paints it in straight `0xAARRGGBB`; the
+    /// rows it says it painted are premultiplied in place, last, at the
+    /// buffer's whole width, the encoding `ARGB8888` names, by the function
+    /// [`Window::present`] copies with. The compositor holds the frame shown
+    /// before, so only the rows the draw changed are damaged: every row
+    /// when the frame before was not drawn in place. A draw that changed
+    /// nothing attaches no buffer, and the commit carries the frame
+    /// callback alone. `draw` is not called while a frame is in flight or
+    /// no buffer is free; a draw that returns `None` painted nothing it can
+    /// say, and its buffer's frame becomes unknown. No pixel is copied
+    /// ([`Window::copies`]).
+    pub fn draw_cpu<'d>(
+        &mut self,
+        s: &mut Sender<'_>,
+        draw: impl FnOnce(Lent<'_>) -> Option<InPlace<'d>>,
+    ) -> Presented {
+        let drawn_for = self.drawn_for.take();
+        let (Some(surface), Some(shm), Some(size)) = (self.surface, self.globals.shm, self.size)
+        else {
+            return Presented::No;
+        };
+        if !self.decorations.may_attach() || self.callback.is_some() {
+            return Presented::No;
+        }
+        let (scale, mapped) = self.mapping();
+        let (w, h) = (scale.buffer(size.0), scale.buffer(size.1));
+        let told = Told::of(mapped, size);
+        if self.pool.as_ref().is_some_and(|p| p.size() != (w, h)) {
+            if let Some(p) = self.pool.take() {
+                p.destroy(s);
+            }
+        }
+        if self.pool.is_none() {
+            match Pool::new(s, shm, w, h) {
+                Ok(p) => self.pool = Some(p),
+                Err(_) => return Presented::No,
+            }
+        }
+        self.drop_sync_surface(s);
+        let pool = self.pool.as_mut().expect("just made");
+        if told != self.told {
+            pool.lose_ages();
+        }
+        let stride = pool.stride();
+        let Some((i, buffer, age, pixels)) = pool.lend() else {
+            return Presented::No;
+        };
+        let wu = usize::try_from(w.0).unwrap_or(0);
+        let lent = Lent {
+            pixels: &mut *pixels,
+            stride,
+            size: (w, h),
+            age,
+        };
+        let Some(drawn) = draw(lent) else {
+            pool.lent_lost(i);
+            return Presented::No;
+        };
+        let at = |p: Px| usize::try_from(p.0).unwrap_or(0);
+        for strip in drawn.painted {
+            for y in at(strip.top)..at(strip.bottom).min(at(h)) {
+                premultiply_in_place(&mut pixels[y * stride..y * stride + wu]);
+            }
+        }
+        pool.lent_drawn(i);
+        let mut rows = RowSet::none(h);
+        match self.attached == Attached::Lent && told == self.told {
+            true => rows.add_changed(drawn.changed),
+            false => rows = RowSet::all(h),
+        }
+        // What refused copied frames owed is drawn here, by the draw's own
+        // damage.
+        self.owed = RowSet::default();
+        self.copied = Px(0);
+        let presentation = self.globals.presentation;
+        let (callback, feedback) = Window::frame_objects(s, surface, presentation);
+        if rows.is_empty() {
+            let stamp = self.pace(s, Picture::Same, drawn_for);
+            self.unseen = self.held(feedback, stamp);
+            let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
+            self.callback = Some(callback);
+            return Presented::Yes;
+        }
+        pool.committed(buffer);
+        let _ = s.request(
+            surface,
+            Opcode(protocol::wl_surface::request::ATTACH),
+            &[Arg::Object(buffer), Arg::Int(0), Arg::Int(0)],
+        );
+        self.attached = Attached::Lent;
+        self.tell(s, surface, told);
+        let int = |v: u32| Arg::Int(i32::try_from(v).unwrap_or(i32::MAX));
+        for strip in rows.runs() {
+            let _ = s.request(
+                surface,
+                Opcode(protocol::wl_surface::request::DAMAGE_BUFFER),
+                &[
+                    Arg::Int(0),
+                    int(strip.top.0),
+                    int(w.0),
+                    int(strip.bottom.0 - strip.top.0),
+                ],
+            );
+        }
+        let stamp = self.pace(s, Picture::New, drawn_for);
+        self.unseen = self.held(feedback, stamp);
+        let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
+        self.callback = Some(callback);
+        Presented::Yes
+    }
+
+    /// The pixels of the buffer the last frame drawn in place went into,
+    /// premultiplied, [`Window::buffer_size`]'s width a row at the pool's
+    /// stride in words, while it still holds that frame.
+    pub fn last_drawn(&mut self) -> Option<(&[u32], usize)> {
+        let pool = self.pool.as_mut()?;
+        let stride = pool.stride();
+        pool.last_lent().map(|p| (p, stride))
     }
 
     /// The frame callback, and the presentation feedback where the
@@ -1990,6 +2148,10 @@ impl Window {
             Opcode(protocol::wl_surface::request::ATTACH),
             &[Arg::Object(buffer), Arg::Int(0), Arg::Int(0)],
         );
+        self.attached = Attached::Other;
+        if let Some(p) = self.pool.as_mut() {
+            p.lose_ages();
+        }
         self.tell(s, surface, Told::of(mapped, window));
         let int = |v: u32| Arg::Int(i32::try_from(v).unwrap_or(i32::MAX));
         let mut rows = RowSet::none(h);
@@ -3193,6 +3355,20 @@ impl Handler for Window {
             _ => {}
         }
         self.follow_scale(s);
+    }
+}
+
+/// **`row` premultiplied in place**, word for word [`premultiply_row`]'s:
+/// [`ROW_LANES`] words a step through a copy of the step, the rest one
+/// word at a time.
+fn premultiply_in_place(row: &mut [u32]) {
+    let (steps, rest) = row.as_chunks_mut::<ROW_LANES>();
+    for step in steps {
+        let straight = *step;
+        premultiply_row(&straight, step);
+    }
+    for w in rest {
+        *w = premultiply(*w);
     }
 }
 

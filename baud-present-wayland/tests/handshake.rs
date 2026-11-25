@@ -976,6 +976,173 @@ fn a_one_row_change_copies_that_row_and_what_the_buffer_missed() {
     );
 }
 
+/// **A scroll drawn in place copies nothing into shared memory.** At 3840
+/// x 2160, scale 1, four frames are drawn into the buffers the window lends
+/// ([`Window::draw_cpu`]), each painting every row as a full-grid scroll
+/// does: a new buffer is lent `Whole`, the released one again `Behind` by
+/// the draws into the other since, and the painted rows are premultiplied
+/// in place. `copies()` reads 0 bytes in 0 presents after every frame,
+/// where [`Window::present`] copies 33,177,600 bytes a frame of the same
+/// scroll (`a_scroll_copies_every_row_into_shared_memory_each_frame`).
+/// The first frame and the first after one copied are damaged whole; a
+/// frame after one drawn in place, by what it changed alone.
+#[test]
+fn a_scroll_drawn_in_place_copies_nothing_into_shared_memory() {
+    let (mut conn, mut server, mut w, top, xdg) = opened(|_| {});
+    let (wu, hu) = UHD;
+    configure(
+        &mut server,
+        top,
+        xdg,
+        i32::try_from(wu).unwrap(),
+        i32::try_from(hu).unwrap(),
+        &[],
+    );
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert!(matches!(w.next_event(), Some(Event::Configured { .. })));
+    let every = [Strip {
+        top: Px(0),
+        bottom: Px(2160),
+    }];
+    // One straight, half-covering pixel a frame, painted over every row.
+    let px = |n: u32| 0x8000_0000 | ((n * 0x0011_2233) & 0x00ff_ffff);
+    let mut ages = Vec::new();
+    let mut draw = |w: &mut Window, conn: &mut Connection, n: u32, changed: Changed<'_>| {
+        let presented = w.draw_cpu(&mut conn.sender(), |lent| {
+            assert_eq!(lent.size, (Px(3840), Px(2160)));
+            ages.push(lent.age);
+            for row in lent.pixels.chunks_mut(lent.stride) {
+                row[..wu].fill(px(n));
+            }
+            Some(InPlace {
+                painted: &every,
+                changed,
+            })
+        });
+        assert_eq!(presented, Presented::Yes);
+        conn.flush().unwrap();
+        assert_eq!(w.copies(), Copies::default(), "frame {n}: 0 bytes");
+        assert_eq!(w.rows_copied(), Px(0));
+    };
+    draw(&mut w, &mut conn, 1, Changed::Whole);
+    server.expect("wl_shm", "create_pool");
+    let file = std::fs::File::from(server.fds.pop_front().unwrap());
+    let mut buffers = [ObjectId::DISPLAY; 2];
+    for b in &mut buffers {
+        let r = server.expect("wl_shm_pool", "create_buffer");
+        let Val::New(id) = r.args[0] else { panic!() };
+        *b = id;
+    }
+    let (attached, damage, mut cb) = frame_requests(&mut server);
+    assert_eq!(attached, Some(buffers[0]));
+    assert_eq!(damage, [[0, 0, 3840, 2160]]);
+    let held = |n: u32| vec![baud_domain::premultiply(px(n)); wu * hu];
+    assert!(buffer_words(&file, 0, wu, hu) == held(1), "premultiplied");
+    // Released at once: the same buffer, which missed no draw.
+    for (n, release, buffer, i) in [
+        (2, &[buffers[0]][..], buffers[0], 0),
+        (3, &[][..], buffers[1], 1),
+        (4, &[buffers[0]][..], buffers[0], 0),
+    ] {
+        turn(&mut conn, &mut server, &mut w, cb, release);
+        draw(&mut w, &mut conn, n, Changed::Strips(&every));
+        let (attached, damage, next) = frame_requests(&mut server);
+        assert_eq!(attached, Some(buffer), "frame {n}");
+        assert_eq!(damage, [[0, 0, 3840, 2160]], "frame {n}");
+        assert!(buffer_words(&file, i, wu, hu) == held(n), "frame {n}");
+        cb = next;
+    }
+    assert_eq!(
+        ages,
+        [
+            BufferAge::Whole,
+            BufferAge::Behind(Draws(0)),
+            BufferAge::Whole,
+            BufferAge::Behind(Draws(1)),
+        ]
+    );
+}
+
+/// **A frame drawn in place damages only what it changed, and a draw
+/// that changed nothing attaches nothing.** After a whole first frame, a
+/// one-row draw is damaged in that row alone; a draw that changed nothing
+/// commits the frame callback with no buffer; a frame copied in between
+/// makes the next draw's damage whole and its buffer's age `Whole`.
+#[test]
+fn a_frame_drawn_in_place_damages_only_what_it_changed() {
+    let (mut conn, mut server, mut w, _, _) = configured(&[]);
+    let (wu, hu) = (640usize, 480usize);
+    let all = [Strip {
+        top: Px(0),
+        bottom: Px(480),
+    }];
+    let row = [Strip {
+        top: Px(7),
+        bottom: Px(8),
+    }];
+    let draw = |w: &mut Window, conn: &mut Connection, changed: Changed<'_>| {
+        let mut age = None;
+        let painted: &[Strip] = match changed {
+            Changed::Whole => &all,
+            Changed::Strips(s) => s,
+        };
+        assert_eq!(
+            w.draw_cpu(&mut conn.sender(), |lent| {
+                age = Some(lent.age);
+                Some(InPlace { painted, changed })
+            }),
+            Presented::Yes
+        );
+        conn.flush().unwrap();
+        age.expect("lent")
+    };
+    assert_eq!(draw(&mut w, &mut conn, Changed::Whole), BufferAge::Whole);
+    server.expect("wl_shm", "create_pool");
+    server.fds.pop_front().unwrap();
+    let mut buffers = [ObjectId::DISPLAY; 2];
+    for b in &mut buffers {
+        let r = server.expect("wl_shm_pool", "create_buffer");
+        let Val::New(id) = r.args[0] else { panic!() };
+        *b = id;
+    }
+    let (_, damage, cb) = frame_requests(&mut server);
+    assert_eq!(damage, [[0, 0, 640, 480]]);
+    turn(&mut conn, &mut server, &mut w, cb, &[buffers[0]]);
+    assert_eq!(
+        draw(&mut w, &mut conn, Changed::Strips(&row)),
+        BufferAge::Behind(Draws(0))
+    );
+    let (attached, damage, cb) = frame_requests(&mut server);
+    assert_eq!((attached, damage), (Some(buffers[0]), vec![[0, 7, 640, 1]]));
+    turn(&mut conn, &mut server, &mut w, cb, &[buffers[0]]);
+    draw(&mut w, &mut conn, Changed::Strips(&[]));
+    let (attached, damage, cb) = frame_requests(&mut server);
+    assert_eq!((attached, damage), (None, Vec::new()), "nothing changed");
+    turn(&mut conn, &mut server, &mut w, cb, &[]);
+    let frame = vec![0xff10_2030u32; wu * hu];
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, wu, Changed::Strips(&row)),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let (_, damage, cb) = frame_requests(&mut server);
+    assert_eq!(damage, [[0, 0, 640, 480]], "copied after drawn in place");
+    turn(
+        &mut conn,
+        &mut server,
+        &mut w,
+        cb,
+        &[buffers[0], buffers[1]],
+    );
+    assert_eq!(
+        draw(&mut w, &mut conn, Changed::Strips(&row)),
+        BufferAge::Whole
+    );
+    let (_, damage, _) = frame_requests(&mut server);
+    assert_eq!(damage, [[0, 0, 640, 480]], "drawn in place after a copy");
+}
+
 /// **A frame that changed nothing copies nothing**: no buffer attached, no
 /// byte copied and no present counted as copying.
 #[test]

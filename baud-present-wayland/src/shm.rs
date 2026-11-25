@@ -6,7 +6,7 @@
 //! free again. Each buffer keeps the rows changed since it was last shown
 //! (`damage.rs`), so a frame copies only those.
 
-use crate::damage::RowSet;
+use crate::damage::{Ages, BufferAge, Draws, RowSet, Slot};
 use crate::sys;
 use baud_wayland::{Arg, ObjectId, Opcode, Sender, protocol};
 use std::io;
@@ -36,6 +36,9 @@ pub struct Pool {
     /// The rows each buffer is missing: every row of a new one, and since
     /// it was last shown, every row a frame shown in another changed.
     stale: [RowSet; BUFFERS],
+    /// What each buffer holds among the frames drawn into it in place
+    /// (`Window::draw_cpu`).
+    ages: Ages<BUFFERS>,
     width: Px,
     height: Px,
     /// Words a row, and `stride * 4` is a multiple of 256.
@@ -97,6 +100,7 @@ impl Pool {
             pool,
             buffers,
             stale: core::array::from_fn(|_| RowSet::all(height)),
+            ages: Ages::NEW,
             width,
             height,
             stride,
@@ -124,9 +128,55 @@ impl Pool {
         ))
     }
 
+    /// A free buffer lent to a draw in place: its index, its id, what it
+    /// holds and its pixels.
+    pub fn lend(&mut self) -> Option<(Slot, ObjectId, BufferAge, &mut [u32])> {
+        let i = self.buffers.iter().position(|(_, h)| *h == Held::Free)?;
+        let one = self.stride * usize::try_from(self.height.0).unwrap_or(0);
+        let (id, _) = self.buffers[i];
+        Some((
+            Slot(i),
+            id,
+            self.ages.age(Slot(i)),
+            &mut self.map.words()[i * one..(i + 1) * one],
+        ))
+    }
+
+    /// Buffer `i` took a draw in place: it holds that frame, and a frame
+    /// copied into any buffer next copies every row, as a copy knows
+    /// nothing of what the draws changed.
+    pub fn lent_drawn(&mut self, i: Slot) {
+        self.ages.drawn(i);
+        for stale in &mut self.stale {
+            *stale = RowSet::all(self.height);
+        }
+    }
+
+    /// What buffer `i` holds is unknown to the draws in place: a draw lent
+    /// it that painted nothing it could say.
+    pub fn lent_lost(&mut self, i: Slot) {
+        self.ages.forget(i);
+    }
+
+    /// Every buffer's frame is unknown to the draws in place: the buffer
+    /// scale or destination changed.
+    pub fn lose_ages(&mut self) {
+        self.ages.lose();
+    }
+
+    /// The pixels of the buffer that took the last draw in place, while it
+    /// still holds that frame.
+    pub fn last_lent(&mut self) -> Option<&[u32]> {
+        let i = (0..BUFFERS).find(|&i| self.ages.age(Slot(i)) == BufferAge::Behind(Draws(0)))?;
+        let one = self.stride * usize::try_from(self.height.0).unwrap_or(0);
+        Some(&self.map.words()[i * one..(i + 1) * one])
+    }
+
     /// `buffer` is up to date and shown with `changed`: it misses
-    /// nothing, and every other buffer misses those rows too.
+    /// nothing, and every other buffer misses those rows too. A frame
+    /// copied leaves every buffer's frame unknown to the draws in place.
     pub fn shown(&mut self, buffer: ObjectId, changed: &RowSet) {
+        self.ages.lose();
         for ((id, _), stale) in self.buffers.iter().zip(self.stale.iter_mut()) {
             match *id == buffer {
                 true => stale.clear(),

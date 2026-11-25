@@ -37,7 +37,7 @@ pub mod timing;
 pub mod window;
 
 pub use clip::{Board, Copied, Pasting, Want};
-pub use damage::{Changed, Strip};
+pub use damage::{Ages, BufferAge, Changed, Draws, Slot, Strip};
 pub use ime::{ByteAt, CursorAt, CursorRect, Hint, Hinted, Preedit, PreeditCursor};
 pub use keys::Shortcut;
 pub use pointer::{At, Button, CursorShape, EventCode, PointerEvent, Press, Scroll};
@@ -45,6 +45,6 @@ pub use scale::BufferScale;
 pub use shm::{Bytes, Pool, Px};
 pub use timing::{ClockId, Late, Presentation, Stamp, Synced, Unseen};
 pub use window::{
-    Activated, ConfigureBounds, Copies, DmabufShown, Event, Frames, Holds, OutputPx, Presented,
-    Resize, Rung, Shaped, Shown, Tearing, Toggle, Window,
+    Activated, ConfigureBounds, Copies, DmabufShown, Event, Frames, Holds, InPlace, Lent, OutputPx,
+    Presented, Resize, Rung, Shaped, Shown, Tearing, Toggle, Window,
 };

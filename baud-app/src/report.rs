@@ -432,14 +432,21 @@ mod tests {
             .expect("the report's turn");
         assert!(present < turn, "after the present");
         assert_eq!(body.matches("d.report.turn(").count(), 1, "once a turn");
-        let drawn = src
-            .split_once("let Some(drawn) = draw_kept(")
-            .and_then(|(_, rest)| rest.split_once(") else {"))
+        let kept = src
+            .split_once("fn cpu_drawn(&mut self, frame: baud_render::Frame) {")
             .map(|(_, rest)| bare(rest))
-            .expect("the paint");
+            .expect("what a CPU frame drew, kept");
+        assert!(kept.starts_with("self.report.drawn(frame);"), "kept");
+        let drawn = bare(src);
         assert!(
-            drawn.starts_with("return;};self.report.drawn(drawn);"),
-            "kept"
+            drawn.contains("ifletSome(frame)=cost{self.cpu_drawn(frame);"),
+            "a frame drawn in place"
+        );
+        assert!(
+            drawn.contains(
+                "returnPresented::No;};self.frame_holds=FrameHolds::Last;self.cpu_drawn(drawn);"
+            ),
+            "a slide's frame"
         );
         let taken = src
             .split_once("== Presented::Yes")
