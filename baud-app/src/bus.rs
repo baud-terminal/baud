@@ -47,9 +47,9 @@
 //!   as its own signature. The server's signals are acted on only from
 //!   the connection that owns its name: the SENDER of its first reply,
 //!   which "is controlled by the message bus" (`[[source: dbus-spec]]`,
-//!   "Header Fields"), dropped when the bus's own signal says the name
-//!   changed hands, the bus asked for that once the first holder is
-//!   known.
+//!   "Header Fields"), until the bus's own `NameOwnerChanged` names
+//!   another connection or none, the bus asked for that once the first
+//!   holder is known. No reply names the holder after the bus has.
 //! * **Progress**: `com.canonical.Unity.LauncherEntry`'s `Update`
 //!   signal, `progress` and `progress-visible`, and `urgent` for an
 //!   attention request, the interface docks read for a launcher
@@ -71,9 +71,9 @@ use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 
 use baud_domain::dbus::{
-    ADD_MATCH, Array, Body, Boolean, BusName, Byte, Bytes, CLOSE_NOTIFICATION, Dict, Double, Emit,
-    EncodeError, Encoded, FdoNotify, GET_CAPABILITIES, I32, ImageData, Inbound, InterfaceName,
-    MemberName, NOTIFY, ObjectPath, Peer, Return, Signal, Str, Trusted, U32, Variant,
+    ADD_MATCH, Array, Body, Boolean, Byte, Bytes, CLOSE_NOTIFICATION, Dict, Double, Emit,
+    EncodeError, Encoded, FdoNotify, GET_CAPABILITIES, HolderChange, I32, ImageData, Inbound,
+    InterfaceName, MemberName, NOTIFY, ObjectPath, Peer, Return, Str, Trusted, U32, Variant,
 };
 
 /// The portal's `color-scheme`.
@@ -400,12 +400,6 @@ const LAUNCHER_UPDATE: Emit<'static> = Emit {
 };
 /// The URI docks match to an installed desktop file: the Wayland app id's.
 const LAUNCHER_URI: &str = "application://org.baud.terminal.desktop";
-/// The bus itself, the SENDER of its own signals: no connection can own
-/// `org.freedesktop.DBus` (`[[source: dbus-spec]]`, "Message Bus Names").
-const BUS_NAME: BusName<'static> = BusName::lit("org.freedesktop.DBus");
-/// The bus's signal that a name changed hands, by its interface and
-/// member: its arguments are the name, the old holder and the new, `sss`.
-const NAME_CHANGED_HANDS: &str = "org.freedesktop.DBus.NameOwnerChanged";
 /// The name of baud's desktop file without `.desktop`, the `desktop-entry` hint a
 /// notification carries: "the prefix used for the application's .desktop file"
 /// (`[[source: freedesktop-notification-spec]]`), so a server can take baud's
@@ -978,22 +972,6 @@ fn fdo_signal(t: Trusted<'_>) -> Option<FromServer> {
     }
 }
 
-/// Whether `s` is the bus saying the notification server's name changed
-/// hands: [`NAME_CHANGED_HANDS`] from the bus itself, its first argument
-/// the server's name.
-fn changed_hands(s: &Signal<'_>) -> bool {
-    let member = NAME_CHANGED_HANDS
-        .strip_prefix(s.interface.as_str())
-        .and_then(|m| m.strip_prefix('.'));
-    s.header().sender() == Some(BUS_NAME)
-        && s.path == ADD_MATCH.path
-        && member == Some(s.member.as_str())
-        && matches!(
-            s.body().read::<(Str, Str, Str)>(),
-            Ok((name, _, _)) if name.as_str() == NOTIFY.destination.as_str()
-        )
-}
-
 /// Where the handshake is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Auth {
@@ -1033,6 +1011,28 @@ type Notifying = baud_domain::dbus::Awaiting<Waiting, 32>;
 enum HolderWatch {
     Unasked,
     Asked,
+}
+
+/// **Who holds the notification server's name**, and who said so.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Holder {
+    /// Nothing has named it.
+    Unknown,
+    /// The SENDER of the server's first reply, which the bus sets.
+    Replied(Peer),
+    /// What the bus's own `NameOwnerChanged` said last: a connection, or
+    /// none. No reply names the holder after it.
+    Told(Option<Peer>),
+}
+
+impl Holder {
+    /// The connection whose signals are acted on, if one is known.
+    fn peer(&self) -> Option<&Peer> {
+        match self {
+            Holder::Replied(p) | Holder::Told(Some(p)) => Some(p),
+            Holder::Unknown | Holder::Told(None) => None,
+        }
+    }
 }
 
 /// **Why a `Notify` was not sent**: its reply's slot held by a call still
@@ -1105,10 +1105,10 @@ pub(crate) struct Session {
     /// The notification server's calls waited for.
     awaiting: Notifying,
     /// The connection that owns the notification server's name: the
-    /// SENDER of the first reply from it, which the bus sets. The server's
-    /// signals are acted on only from it; the bus saying the name changed
-    /// hands drops it, and the next reply names the new one.
-    holder: Option<Peer>,
+    /// SENDER of the first reply from it, which the bus sets, until the
+    /// bus's own `NameOwnerChanged` names another or none. The server's
+    /// signals are acted on only from it.
+    holder: Holder,
     watch: HolderWatch,
     asked: Vec<Asked>,
     /// The last `ActivationToken` the notification server sent, for the
@@ -1155,7 +1155,7 @@ impl Session {
             // it.
             serials: baud_domain::dbus::Serials::new(),
             awaiting: Notifying::new(),
-            holder: None,
+            holder: Holder::Unknown,
             watch: HolderWatch::Unasked,
             asked: Vec::new(),
             token: baud_domain::TokenFor::new(),
@@ -1253,15 +1253,18 @@ impl Session {
     }
 
     /// The notification server's holder from `r`, a reply to one of its
-    /// calls, where none is held; with the first one known, `AddMatch`
-    /// for the bus's [`NAME_CHANGED_HANDS`] of the server's name, so a
-    /// change of hands drops it.
+    /// calls, where nothing has named one; with it known, `AddMatch` for
+    /// the bus's `NameOwnerChanged` of the server's name, which names the
+    /// holder from then on.
     fn hold(&mut self, r: &Return<'_>) {
-        if self.holder.is_some() {
+        if self.holder != Holder::Unknown {
             return;
         }
-        self.holder = Peer::from_reply(r);
-        if self.holder.is_none() || self.watch == HolderWatch::Asked {
+        let Some(peer) = Peer::from_reply(r) else {
+            return;
+        };
+        self.holder = Holder::Replied(peer);
+        if self.watch == HolderWatch::Asked {
             return;
         }
         self.watch = HolderWatch::Asked;
@@ -1706,11 +1709,18 @@ impl Session {
                     Waiting::Notify(token) => Heard::NotNotified(token, name),
                 }])
             }
-            Inbound::Signal(s) if changed_hands(s) => {
-                self.holder = None;
+            Inbound::Signal(s)
+                if let Some(change) = s
+                    .from_bus()
+                    .and_then(|bus| HolderChange::of(&bus, NOTIFY.destination)) =>
+            {
+                self.holder = Holder::Told(match change {
+                    HolderChange::To(peer) => Some(peer),
+                    HolderChange::Gone => None,
+                });
                 Some(Vec::new())
             }
-            Inbound::Signal(s) => Some(match fdo_signal(self.holder.as_ref()?.vouch(s)?)? {
+            Inbound::Signal(s) => Some(match fdo_signal(self.holder.peer()?.vouch(s)?)? {
                 FromServer::Token(id, token) => {
                     self.token.keep(id, token);
                     Vec::new()
@@ -2962,10 +2972,9 @@ mod tests {
         assert_eq!(bare.received(&reply_bytes("action_invoked_holder")), []);
     }
 
-    /// **A change of hands drops the holder**: once the bus says
+    /// **A change of hands names the new holder**: once the bus says
     /// `org.freedesktop.Notifications` passed from `:1.7` to `:1.9`, the
-    /// old holder's click says nothing, and the new holder is the SENDER of
-    /// the next reply, whose click is heard. The bus is asked for the
+    /// old holder's click says nothing and `:1.9`'s is heard. The bus is asked for the
     /// change once the first holder is known, as serial 6.
     #[test]
     fn after_the_name_changes_hands_the_old_holders_signal_is_not_acted_on() {
@@ -3001,6 +3010,38 @@ mod tests {
             "the new holder"
         );
         assert_eq!(s.received(&reply_bytes("action_invoked_holder")), []);
+    }
+
+    /// **A reply never names the holder once the bus has**: `:1.7`
+    /// answers serial 7, sent before the name passed to `:1.9`, after the
+    /// bus says so. The reply reaches its call, and `:1.7`'s click still
+    /// says nothing while `:1.9`'s is heard.
+    #[test]
+    fn a_late_reply_from_the_old_holder_does_not_make_it_the_holder_again() {
+        let mut s = ready();
+        let _ = s.received(&reply_bytes("capabilities_reply_holder"));
+        let n = s.outgoing().len();
+        s.sent(Len(n));
+        let tok = token();
+        s.notify(&quiet(), tok).expect("sent");
+        assert_eq!(last_serial(&s), Serial(Word(7)));
+        let n = s.outgoing().len();
+        s.sent(Len(n));
+        assert_eq!(s.received(&reply_bytes("name_changed_hands")), []);
+        assert_eq!(
+            s.received(&reply_bytes("notify_reply_holder")),
+            [Heard::Notified(tok, NotifyId(Word(42)))]
+        );
+        assert_eq!(
+            s.received(&reply_bytes("action_invoked_holder")),
+            [],
+            "the old holder"
+        );
+        assert_eq!(
+            s.received(&reply_bytes("action_invoked_other")),
+            [Heard::Invoked(NotifyId(Word(42)), "1".into(), None)],
+            "the holder the bus names"
+        );
     }
 
     /// **A reply is read only as its own signature**: `GetCapabilities`
