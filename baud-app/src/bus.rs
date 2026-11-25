@@ -43,11 +43,18 @@
 //!   `ADD_MATCH`), each serial drawn from the session's one counter; a
 //!   reply finds its call in the slot its serial names, and a `Notify`
 //!   whose slot a call still unanswered holds is refused, counted and not
-//!   sent.
+//!   sent. Replies and signals are decoded by it too, each body read only
+//!   as its own signature. The server's signals are acted on only from
+//!   the connection that owns its name: the SENDER of its first reply,
+//!   which "is controlled by the message bus" (`[[source: dbus-spec]]`,
+//!   "Header Fields"), dropped when the bus's own signal says the name
+//!   changed hands, the bus asked for that once the first holder is
+//!   known.
 //! * **Progress**: `com.canonical.Unity.LauncherEntry`'s `Update`
 //!   signal, `progress` and `progress-visible`, and `urgent` for an
 //!   attention request, the interface docks read for a launcher
-//!   (`[[source: libunity-launcher-entry]]`).
+//!   (`[[source: libunity-launcher-entry]]`), encoded by
+//!   `baud_domain::dbus` as an `Emit`.
 //! * **A reveal**: `ShowItems` of one `file:` URI on
 //!   `org.freedesktop.FileManager1`, which "is supposed to select the passed
 //!   items within their respective parent folders" (`[[source:
@@ -64,8 +71,9 @@ use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 
 use baud_domain::dbus::{
-    ADD_MATCH, Body, Boolean, Byte, Bytes, CLOSE_NOTIFICATION, EncodeError, Encoded, FdoNotify,
-    GET_CAPABILITIES, I32, ImageData, Inbound, Str, U32, Variant,
+    ADD_MATCH, Array, Body, Boolean, BusName, Byte, Bytes, CLOSE_NOTIFICATION, Dict, Double, Emit,
+    EncodeError, Encoded, FdoNotify, GET_CAPABILITIES, I32, ImageData, Inbound, InterfaceName,
+    MemberName, NOTIFY, ObjectPath, Peer, Return, Signal, Str, Trusted, U32, Variant,
 };
 
 /// The portal's `color-scheme`.
@@ -175,7 +183,8 @@ pub(crate) enum Heard {
     NotRevealed(String),
     /// The notification server's capabilities: there is one.
     Caps(baud_domain::ServerCaps),
-    /// `GetCapabilities` failed: no notification server, the error's name.
+    /// `GetCapabilities` failed, or its reply was not an `as`: no
+    /// notification server, the error's name or what the reply was.
     NoServer(String),
     /// A notification shown, as the server's id.
     Notified(baud_core::NoticeToken, NotifyId),
@@ -235,6 +244,13 @@ pub(crate) enum PrintEnd {
 /// greater than zero".
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct NotifyId(Word);
+
+impl NotifyId {
+    /// The id a server's reply or signal carries.
+    fn of(id: U32) -> NotifyId {
+        NotifyId(Word(id.get()))
+    }
+}
 
 /// A byte on the wire, a `y`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -374,14 +390,22 @@ const APPEARANCE: &str = "org.freedesktop.appearance";
 /// The interface namespace the portal relays, whose
 /// `text-scaling-factor` baud sizes a point by (`typesize.rs`).
 const INTERFACE: &str = "org.gnome.desktop.interface";
-const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
-const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
-const LAUNCHER_ENTRY: &str = "com.canonical.Unity.LauncherEntry";
-/// The object a launcher's signal comes from, `launcherentry/` and a name
-/// of the sender's choosing (libunity hashes the URI), and the URI docks
-/// match to an installed desktop file: the Wayland app id's.
-const LAUNCHER_PATH: &str = "/com/canonical/unity/launcherentry/baud";
+/// The launcher's `Update`, from the object a launcher's signal comes
+/// from: `launcherentry/` and a name of the sender's choosing (libunity
+/// hashes the URI).
+const LAUNCHER_UPDATE: Emit<'static> = Emit {
+    path: ObjectPath::lit("/com/canonical/unity/launcherentry/baud"),
+    interface: InterfaceName::lit("com.canonical.Unity.LauncherEntry"),
+    member: MemberName::lit("Update"),
+};
+/// The URI docks match to an installed desktop file: the Wayland app id's.
 const LAUNCHER_URI: &str = "application://org.baud.terminal.desktop";
+/// The bus itself, the SENDER of its own signals: no connection can own
+/// `org.freedesktop.DBus` (`[[source: dbus-spec]]`, "Message Bus Names").
+const BUS_NAME: BusName<'static> = BusName::lit("org.freedesktop.DBus");
+/// The bus's signal that a name changed hands, by its interface and
+/// member: its arguments are the name, the old holder and the new, `sss`.
+const NAME_CHANGED_HANDS: &str = "org.freedesktop.DBus.NameOwnerChanged";
 /// The name of baud's desktop file without `.desktop`, the `desktop-entry` hint a
 /// notification carries: "the prefix used for the application's .desktop file"
 /// (`[[source: freedesktop-notification-spec]]`), so a server can take baud's
@@ -429,15 +453,8 @@ impl Writer {
         self.buf.push(0);
     }
 
-    /// A `b`, a word of 0 or 1.
-    fn truth(&mut self, t: Truth) {
-        self.word(Word(match t {
-            Truth::False => 0,
-            Truth::True => 1,
-        }));
-    }
-
-    /// A `d`, eight-aligned.
+    /// A `d`, eight-aligned: the print tests' `Response`.
+    #[cfg(test)]
     fn double(&mut self, v: f64) {
         self.align(Align::EIGHT);
         self.buf.extend_from_slice(&v.to_le_bytes());
@@ -488,7 +505,9 @@ fn marshal(call: &Call<'_>, serial: Serial) -> Vec<u8> {
 }
 
 /// A signal's bytes: a call's, with no destination, "the message is a
-/// broadcast signal" (`[[source: dbus-spec]]`).
+/// broadcast signal" (`[[source: dbus-spec]]`): the print tests'
+/// `Response`.
+#[cfg(test)]
 fn marshal_signal(call: &Call<'_>, serial: Serial) -> Vec<u8> {
     header_and_body(SIGNAL, call, serial, Word(0))
 }
@@ -898,29 +917,25 @@ fn heard_in_signal(m: &Message<'_>) -> Option<Heard> {
     }
 }
 
-/// `GetCapabilities`' `as`: the capabilities it lists.
-fn caps_in_reply(m: &Message<'_>) -> baud_domain::ServerCaps {
-    use baud_domain::ServerCaps;
-    if m.signature != "as" {
-        return ServerCaps::heard([]);
+/// `GetCapabilities`' `as`: the capabilities it lists, read only as `as`.
+/// A reply of another signature says nothing of what the server shows, so
+/// nothing is claimed.
+fn caps_in(r: &Return<'_>) -> Heard {
+    match r.body().read::<(Array<Str>,)>() {
+        Ok((caps,)) => Heard::Caps(baud_domain::ServerCaps::heard(caps.map(|c| c.as_str()))),
+        Err(e) => Heard::NoServer(format!(
+            "GetCapabilities answered `{}`: {e}",
+            String::from_utf8_lossy(r.body().sig().as_bytes())
+        )),
     }
-    let mut r = Reader::new(m.body, m.order);
-    let Some(n) = r.len() else {
-        return ServerCaps::heard([]);
-    };
-    let end = Len(r.at.0.saturating_add(n.0));
-    ServerCaps::heard(core::iter::from_fn(|| match r.at < end {
-        true => r.string(),
-        false => None,
-    }))
 }
 
-/// `Notify`'s `u`.
-fn id_in_reply(m: &Message<'_>) -> Option<NotifyId> {
-    if m.signature != "u" {
-        return None;
+/// `Notify`'s `u`, read only as `u`: the server's id for `token`.
+fn id_in(r: &Return<'_>, token: baud_core::NoticeToken) -> Heard {
+    match r.body().read::<(U32,)>() {
+        Ok((id,)) => Heard::Notified(token, NotifyId::of(id)),
+        Err(e) => Heard::NotNotified(token, format!("a reply that is not its id: {e}")),
     }
-    Reader::new(m.body, m.order).word().map(NotifyId)
 }
 
 /// What one of the server's signals says.
@@ -931,33 +946,52 @@ enum FromServer {
 }
 
 /// `ActionInvoked(u, s)`, `ActivationToken(u, s)` and
-/// `NotificationClosed(u, u)` from the server.
-fn heard_from_server(m: &Message<'_>) -> Option<FromServer> {
-    if m.interface != Some(NOTIFICATIONS) || m.path != Some(NOTIFICATIONS_PATH) {
+/// `NotificationClosed(u, u)`, from the connection that owns the server's
+/// name, each read only as its own signature.
+fn fdo_signal(t: Trusted<'_>) -> Option<FromServer> {
+    let s = t.signal();
+    if s.interface != NOTIFY.interface || s.path != NOTIFY.path {
         return None;
     }
-    let mut r = Reader::new(m.body, m.order);
-    match (m.member, m.signature) {
-        (Some("ActionInvoked"), "us") => {
-            let id = NotifyId(r.word()?);
+    let body = s.body();
+    match s.member.as_str() {
+        "ActionInvoked" => {
+            let (id, key) = body.read::<(U32, Str)>().ok()?;
             Some(FromServer::Heard(Heard::Invoked(
-                id,
-                r.string()?.to_string(),
+                NotifyId::of(id),
+                key.as_str().to_owned(),
                 None,
             )))
         }
-        (Some("ActivationToken"), "us") => {
-            let id = NotifyId(r.word()?);
+        "ActivationToken" => {
+            let (id, token) = body.read::<(U32, Str)>().ok()?;
             Some(FromServer::Token(
-                id,
-                baud_domain::XdgToken::heard(r.string()?),
+                NotifyId::of(id),
+                baud_domain::XdgToken::heard(token.as_str()),
             ))
         }
-        (Some("NotificationClosed"), "uu") => {
-            Some(FromServer::Heard(Heard::NotifyClosed(NotifyId(r.word()?))))
+        "NotificationClosed" => {
+            let (id, _reason) = body.read::<(U32, U32)>().ok()?;
+            Some(FromServer::Heard(Heard::NotifyClosed(NotifyId::of(id))))
         }
         _ => None,
     }
+}
+
+/// Whether `s` is the bus saying the notification server's name changed
+/// hands: [`NAME_CHANGED_HANDS`] from the bus itself, its first argument
+/// the server's name.
+fn changed_hands(s: &Signal<'_>) -> bool {
+    let member = NAME_CHANGED_HANDS
+        .strip_prefix(s.interface.as_str())
+        .and_then(|m| m.strip_prefix('.'));
+    s.header().sender() == Some(BUS_NAME)
+        && s.path == ADD_MATCH.path
+        && member == Some(s.member.as_str())
+        && matches!(
+            s.body().read::<(Str, Str, Str)>(),
+            Ok((name, _, _)) if name.as_str() == NOTIFY.destination.as_str()
+        )
 }
 
 /// Where the handshake is.
@@ -992,6 +1026,14 @@ enum Waiting {
 
 /// Slots for the notification server's replies: 32 calls in flight.
 type Notifying = baud_domain::dbus::Awaiting<Waiting, 32>;
+
+/// Whether the bus has been asked to say when the notification server's
+/// name changes hands: asked once, with the first holder known.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum HolderWatch {
+    Unasked,
+    Asked,
+}
 
 /// **Why a `Notify` was not sent**: its reply's slot held by a call still
 /// unanswered (refused and counted), a text that is not a STRING, or a
@@ -1062,6 +1104,12 @@ pub(crate) struct Session {
     serials: baud_domain::dbus::Serials,
     /// The notification server's calls waited for.
     awaiting: Notifying,
+    /// The connection that owns the notification server's name: the
+    /// SENDER of the first reply from it, which the bus sets. The server's
+    /// signals are acted on only from it; the bus saying the name changed
+    /// hands drops it, and the next reply names the new one.
+    holder: Option<Peer>,
+    watch: HolderWatch,
     asked: Vec<Asked>,
     /// The last `ActivationToken` the notification server sent, for the
     /// notification it named: handed over with that notification's next
@@ -1107,6 +1155,8 @@ impl Session {
             // it.
             serials: baud_domain::dbus::Serials::new(),
             awaiting: Notifying::new(),
+            holder: None,
+            watch: HolderWatch::Unasked,
             asked: Vec::new(),
             token: baud_domain::TokenFor::new(),
             unique: None,
@@ -1202,6 +1252,27 @@ impl Session {
         }
     }
 
+    /// The notification server's holder from `r`, a reply to one of its
+    /// calls, where none is held; with the first one known, `AddMatch`
+    /// for the bus's [`NAME_CHANGED_HANDS`] of the server's name, so a
+    /// change of hands drops it.
+    fn hold(&mut self, r: &Return<'_>) {
+        if self.holder.is_some() {
+            return;
+        }
+        self.holder = Peer::from_reply(r);
+        if self.holder.is_none() || self.watch == HolderWatch::Asked {
+            return;
+        }
+        self.watch = HolderWatch::Asked;
+        const RULE: Str<'static> = Str::lit(
+            "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',path='/org/freedesktop/DBus',arg0='org.freedesktop.Notifications'",
+        );
+        if let Ok(e) = Body::of(&(RULE,)).and_then(|b| ADD_MATCH.encode(&b, &mut self.serials)) {
+            self.send(e.into_bytes(), Vec::new());
+        }
+    }
+
     /// **Show a notification**: `Notify`, its reply the server's id for
     /// `token`; not sent, and why, where its reply's slot is held or an
     /// argument breaks a bound.
@@ -1278,38 +1349,26 @@ impl Session {
     /// **The launcher's progress and urgency**, as libunity's
     /// `LauncherEntry` sends them: `Update(app_uri, properties)`.
     pub(crate) fn launcher(&mut self, l: Launcher) {
-        let mut b = Writer::default();
-        b.string(LAUNCHER_URI);
-        b.array(Align::EIGHT, |w| {
-            w.align(Align::EIGHT);
-            w.string("progress");
-            w.signature("d");
-            w.double(l.progress.unwrap_or(0.0));
-            w.align(Align::EIGHT);
-            w.string("progress-visible");
-            w.signature("b");
-            w.truth(match l.progress {
-                Some(_) => Truth::True,
-                None => Truth::False,
-            });
-            w.align(Align::EIGHT);
-            w.string("urgent");
-            w.signature("b");
-            w.truth(l.urgent);
-        });
-        let serial = self.next_serial();
-        let bytes = marshal_signal(
-            &Call {
-                destination: "",
-                path: LAUNCHER_PATH,
-                interface: LAUNCHER_ENTRY,
-                member: "Update",
-                signature: "sa{sv}",
-                body: b.buf,
-            },
-            serial,
-        );
-        self.send(bytes, Vec::new());
+        let truth = |t| match t {
+            Truth::False => Boolean::False,
+            Truth::True => Boolean::True,
+        };
+        let shown = match l.progress {
+            Some(_) => Truth::True,
+            None => Truth::False,
+        };
+        let properties = [
+            (
+                Str::lit("progress"),
+                Variant::Double(Double::new(l.progress.unwrap_or(0.0))),
+            ),
+            (Str::lit("progress-visible"), Variant::Boolean(truth(shown))),
+            (Str::lit("urgent"), Variant::Boolean(truth(l.urgent))),
+        ];
+        let body = Body::of(&(Str::lit(LAUNCHER_URI), Dict::new(&properties)));
+        if let Ok(e) = body.and_then(|b| LAUNCHER_UPDATE.encode(&b, &mut self.serials)) {
+            self.send(e.into_bytes(), Vec::new());
+        }
     }
 
     /// **Ask the file manager to show `uri` selected in its folder.**
@@ -1609,27 +1668,70 @@ impl Session {
                 break;
             }
             let bytes: Vec<u8> = self.inb.drain(..len.0).collect();
+            if let Some(h) = baud_domain::dbus::decode(&bytes)
+                .ok()
+                .and_then(|m| self.notifications_heard(&m))
+            {
+                heard.extend(h);
+                continue;
+            }
             let Some(m) = parse(&bytes) else {
                 continue;
             };
-            // The serial a reply names, from the message checked whole.
-            let reply_to = match baud_domain::dbus::decode(&bytes) {
-                Ok(Inbound::Return(r)) => Some(r.reply_to),
-                Ok(Inbound::ErrorReply(e)) => Some(e.reply_to),
-                _ => None,
-            };
-            heard.extend(self.heard(&m, reply_to));
+            heard.extend(self.heard(&m));
         }
         heard
     }
 
+    /// **What a message means to the notification half**, read through
+    /// the codec: a reply to a call it waits for, found in the slot its
+    /// serial names; the server's signal, acted on only from the
+    /// connection that owns the name; the bus saying the name changed
+    /// hands. `None` for any other message.
+    fn notifications_heard(&mut self, m: &Inbound<'_>) -> Option<Vec<Heard>> {
+        match m {
+            Inbound::Return(r) => {
+                let waited = self.awaiting.take(r.reply_to)?;
+                self.hold(r);
+                Some(vec![match waited {
+                    Waiting::Caps => caps_in(r),
+                    Waiting::Notify(token) => id_in(r, token),
+                }])
+            }
+            Inbound::ErrorReply(e) => {
+                let waited = self.awaiting.take(e.reply_to)?;
+                let name = e.name.as_str().to_owned();
+                Some(vec![match waited {
+                    Waiting::Caps => Heard::NoServer(name),
+                    Waiting::Notify(token) => Heard::NotNotified(token, name),
+                }])
+            }
+            Inbound::Signal(s) if changed_hands(s) => {
+                self.holder = None;
+                Some(Vec::new())
+            }
+            Inbound::Signal(s) => Some(match fdo_signal(self.holder.as_ref()?.vouch(s)?)? {
+                FromServer::Token(id, token) => {
+                    self.token.keep(id, token);
+                    Vec::new()
+                }
+                FromServer::Heard(Heard::Invoked(id, key, _)) => {
+                    let token = self.token.take_for(id);
+                    vec![Heard::Invoked(id, key, token)]
+                }
+                FromServer::Heard(h @ Heard::NotifyClosed(id)) => {
+                    let _ = self.token.take_for(id);
+                    vec![h]
+                }
+                FromServer::Heard(h) => vec![h],
+            }),
+            Inbound::Called(_) | Inbound::Unknown(_) => None,
+        }
+    }
+
     /// What one message means, if it is one this waits for or a change of
     /// the appearance: a `ReadAll` reply can say three things.
-    fn heard(
-        &mut self,
-        m: &Message<'_>,
-        reply_to: Option<baud_domain::dbus::Serial>,
-    ) -> Vec<Heard> {
+    fn heard(&mut self, m: &Message<'_>) -> Vec<Heard> {
         if m.kind == SIGNAL {
             if let Some(h) = heard_in_signal(m) {
                 return vec![h];
@@ -1637,38 +1739,9 @@ impl Session {
             if let Some(h) = self.heard_response(m) {
                 return vec![h];
             }
-            return match heard_from_server(m) {
-                Some(FromServer::Token(id, token)) => {
-                    self.token.keep(id, token);
-                    Vec::new()
-                }
-                Some(FromServer::Heard(Heard::Invoked(id, key, _))) => {
-                    let token = self.token.take_for(id);
-                    vec![Heard::Invoked(id, key, token)]
-                }
-                Some(FromServer::Heard(h @ Heard::NotifyClosed(id))) => {
-                    let _ = self.token.take_for(id);
-                    vec![h]
-                }
-                Some(FromServer::Heard(h)) => vec![h],
-                None => Vec::new(),
-            };
+            return Vec::new();
         }
         let error = (m.kind == ERROR).then(|| m.error.unwrap_or("an unnamed error").to_owned());
-        // The notification server's replies, found in the slot their
-        // serial names.
-        if let Some(waited) = reply_to.and_then(|r| self.awaiting.take(r)) {
-            return match (waited, m.kind, error) {
-                (Waiting::Caps, METHOD_RETURN, _) => vec![Heard::Caps(caps_in_reply(m))],
-                (Waiting::Caps, _, Some(e)) => vec![Heard::NoServer(e)],
-                (Waiting::Notify(token), METHOD_RETURN, _) => match id_in_reply(m) {
-                    Some(id) => vec![Heard::Notified(token, id)],
-                    None => vec![Heard::NotNotified(token, "a reply with no id".into())],
-                },
-                (Waiting::Notify(token), _, Some(e)) => vec![Heard::NotNotified(token, e)],
-                _ => Vec::new(),
-            };
-        }
         let Some(reply) = m.reply_serial else {
             return Vec::new();
         };
@@ -2790,16 +2863,31 @@ mod tests {
         assert_eq!(s.awaiting.refusals().get(), 1);
     }
 
+    /// A notification of nothing much, for the replies' tests.
+    fn quiet() -> Notification {
+        Notification {
+            app_name: String::new(),
+            replaces: None,
+            app_icon: String::new(),
+            summary: "x".into(),
+            body: String::new(),
+            actions: Vec::new(),
+            hints: Vec::new(),
+            expire: Expire::Never,
+        }
+    }
+
     /// **What the server says back**: its capabilities, a notification's
     /// id or an error, a click with its key, a close. Fixtures are
-    /// dbus-next's bytes. Perturbation: read `ActionInvoked`'s key before
-    /// its id -- the click is unheard.
+    /// the oracle marshaller's bytes, the server's carrying its SENDER, `:1.7`, as the
+    /// bus sets it. Perturbation: read `ActionInvoked`'s key before its id
+    /// -- the click is unheard.
     #[test]
     fn the_servers_answers_are_heard() {
         use baud_domain::ServerCaps;
         let mut s = ready();
         assert_eq!(
-            s.received(&reply_bytes("capabilities_reply")),
+            s.received(&reply_bytes("capabilities_reply_holder")),
             [Heard::Caps(ServerCaps::heard([
                 "actions",
                 "body",
@@ -2809,24 +2897,22 @@ mod tests {
         );
         let mut s = ready();
         assert_eq!(
-            s.received(&reply_bytes("capabilities_bare")),
+            s.received(&reply_bytes("capabilities_bare_holder")),
             [Heard::Caps(ServerCaps::heard(["body"]))]
         );
         let tok = token();
-        let quiet = Notification {
-            app_name: String::new(),
-            replaces: None,
-            app_icon: String::new(),
-            summary: "x".into(),
-            body: String::new(),
-            actions: Vec::new(),
-            hints: Vec::new(),
-            expire: Expire::Never,
-        };
-        s.notify(&quiet, tok).expect("sent");
+        s.notify(&quiet(), tok).expect("sent");
         assert_eq!(
-            s.received(&reply_bytes("notify_reply")),
+            s.received(&reply_bytes("notify_reply_holder")),
             [Heard::Notified(tok, NotifyId(Word(42)))]
+        );
+        assert_eq!(
+            s.received(&reply_bytes("action_invoked_holder")),
+            [Heard::Invoked(NotifyId(Word(42)), "1".into(), None)]
+        );
+        assert_eq!(
+            s.received(&reply_bytes("notification_closed_holder")),
+            [Heard::NotifyClosed(NotifyId(Word(42)))]
         );
         let mut none = ready();
         assert_eq!(
@@ -2836,7 +2922,7 @@ mod tests {
             )]
         );
         let mut s = ready();
-        s.notify(&quiet, tok).expect("sent");
+        s.notify(&quiet(), tok).expect("sent");
         assert_eq!(
             s.received(&reply_bytes("notify_error")),
             [Heard::NotNotified(
@@ -2844,13 +2930,90 @@ mod tests {
                 "org.freedesktop.DBus.Error.ServiceUnknown".into()
             )]
         );
+    }
+
+    /// **The server's signals are acted on only from the connection that
+    /// owns its name** (`[[source: dbus-spec]]`, "Header Fields": SENDER
+    /// "is controlled by the message bus"): the holder is the SENDER of the
+    /// server's first reply. The same click from another connection, or
+    /// with no SENDER at all, says nothing; the holder's is heard.
+    #[test]
+    fn a_signal_from_a_connection_that_does_not_own_the_name_is_not_acted_on() {
+        let mut s = ready();
+        assert!(matches!(
+            s.received(&reply_bytes("capabilities_reply_holder"))
+                .as_slice(),
+            [Heard::Caps(_)]
+        ));
+        assert_eq!(s.received(&reply_bytes("action_invoked_other")), []);
+        assert_eq!(s.received(&reply_bytes("action_invoked")), [], "no SENDER");
+        assert_eq!(s.received(&reply_bytes("notification_closed")), []);
         assert_eq!(
-            s.received(&reply_bytes("action_invoked")),
-            [Heard::Invoked(NotifyId(Word(42)), "1".into(), None)]
+            s.received(&reply_bytes("action_invoked_holder")),
+            [Heard::Invoked(NotifyId(Word(42)), "1".into(), None)],
+            "the control: the holder's click"
+        );
+        // A reply with no SENDER names no holder, so nothing is acted on.
+        let mut bare = ready();
+        assert!(matches!(
+            bare.received(&reply_bytes("capabilities_reply")).as_slice(),
+            [Heard::Caps(_)]
+        ));
+        assert_eq!(bare.received(&reply_bytes("action_invoked_holder")), []);
+    }
+
+    /// **A change of hands drops the holder**: once the bus says
+    /// `org.freedesktop.Notifications` passed from `:1.7` to `:1.9`, the
+    /// old holder's click says nothing, and the new holder is the SENDER of
+    /// the next reply, whose click is heard. The bus is asked for the
+    /// change once the first holder is known, as serial 6.
+    #[test]
+    fn after_the_name_changes_hands_the_old_holders_signal_is_not_acted_on() {
+        let mut s = ready();
+        let _ = s.received(&reply_bytes("capabilities_reply_holder"));
+        assert_eq!(s.received(&reply_bytes("name_changed_hands")), []);
+        assert_eq!(
+            s.received(&reply_bytes("action_invoked_holder")),
+            [],
+            "the old holder"
+        );
+        let watch = s.outgoing().to_vec();
+        assert_eq!(last_serial(&s), Serial(Word(6)));
+        let rule = b"member='NameOwnerChanged',path='/org/freedesktop/DBus',arg0='org.freedesktop.Notifications'";
+        assert!(watch.windows(rule.len()).any(|w| w == rule), "{watch:?}");
+        let n = s.outgoing().len();
+        s.sent(Len(n));
+        let tok = token();
+        s.notify(&quiet(), tok).expect("sent");
+        assert_eq!(last_serial(&s), Serial(Word(7)));
+        let n = s.outgoing().len();
+        s.sent(Len(n));
+        // Serial 7 goes unanswered; the new holder answers 8.
+        s.notify(&quiet(), tok).expect("sent");
+        assert_eq!(last_serial(&s), Serial(Word(8)));
+        assert_eq!(
+            s.received(&reply_bytes("notify_reply_other")),
+            [Heard::Notified(tok, NotifyId(Word(43)))]
         );
         assert_eq!(
-            s.received(&reply_bytes("notification_closed")),
-            [Heard::NotifyClosed(NotifyId(Word(42)))]
+            s.received(&reply_bytes("action_invoked_other")),
+            [Heard::Invoked(NotifyId(Word(42)), "1".into(), None)],
+            "the new holder"
+        );
+        assert_eq!(s.received(&reply_bytes("action_invoked_holder")), []);
+    }
+
+    /// **A reply is read only as its own signature**: `GetCapabilities`
+    /// answered with an `s` rather than its `as` claims nothing, as no
+    /// server does.
+    #[test]
+    fn a_reply_whose_body_is_not_its_methods_signature_is_refused() {
+        let mut s = ready();
+        assert_eq!(
+            s.received(&reply_bytes("capabilities_not_as_holder")),
+            [Heard::NoServer(
+                "GetCapabilities answered `s`: a body is read only as its own signature".into()
+            )]
         );
     }
 
@@ -3102,53 +3265,16 @@ mod tests {
     /// `ActionInvoked`, carries the token; a token for another
     /// notification is not handed to this one's click and stays for its
     /// own; a click takes it and a close drops it, so a later click
-    /// carries none. The signals are marshalled here, by the marshaller
-    /// that reproduces dbus-next's `ActionInvoked` byte for byte (the
-    /// control below).
+    /// carries none. The signals are the oracle marshaller's bytes from the holder of
+    /// the server's name, known from its `GetCapabilities` reply.
     #[test]
     fn an_activation_token_comes_with_its_notifications_click() {
-        let signal = |member: &str, id: u32, s: &str, serial: u32| {
-            let mut b = Writer::default();
-            b.word(Word(id));
-            b.string(s);
-            marshal_signal(
-                &Call {
-                    destination: "",
-                    path: NOTIFICATIONS_PATH,
-                    interface: NOTIFICATIONS,
-                    member,
-                    signature: "us",
-                    body: b.buf,
-                },
-                Serial(Word(serial)),
-            )
-        };
-        assert_eq!(
-            signal("ActionInvoked", 42, "1", 13),
-            reply_bytes("action_invoked"),
-            "the control: dbus-next's bytes"
-        );
-        let closed = |id: u32| {
-            let mut b = Writer::default();
-            b.word(Word(id));
-            b.word(Word(2));
-            marshal_signal(
-                &Call {
-                    destination: "",
-                    path: NOTIFICATIONS_PATH,
-                    interface: NOTIFICATIONS,
-                    member: "NotificationClosed",
-                    signature: "uu",
-                    body: b.buf,
-                },
-                Serial(Word(20)),
-            )
-        };
         let id = |n| NotifyId(Word(n));
         let mut s = ready();
-        assert_eq!(s.received(&signal("ActivationToken", 42, "tok-42", 14)), []);
+        let _ = s.received(&reply_bytes("capabilities_reply_holder"));
+        assert_eq!(s.received(&reply_bytes("token_42_holder")), []);
         assert_eq!(
-            s.received(&signal("ActionInvoked", 42, "default", 15)),
+            s.received(&reply_bytes("invoked_42_default_holder")),
             [Heard::Invoked(
                 id(42),
                 "default".into(),
@@ -3156,18 +3282,18 @@ mod tests {
             )]
         );
         assert_eq!(
-            s.received(&signal("ActionInvoked", 42, "default", 16)),
+            s.received(&reply_bytes("invoked_42_default_holder")),
             [Heard::Invoked(id(42), "default".into(), None)],
             "a click takes the token"
         );
-        assert_eq!(s.received(&signal("ActivationToken", 7, "tok-7", 17)), []);
+        assert_eq!(s.received(&reply_bytes("token_7_holder")), []);
         assert_eq!(
-            s.received(&signal("ActionInvoked", 42, "default", 18)),
+            s.received(&reply_bytes("invoked_42_default_holder")),
             [Heard::Invoked(id(42), "default".into(), None)],
             "another notification's token"
         );
         assert_eq!(
-            s.received(&signal("ActionInvoked", 7, "1", 19)),
+            s.received(&reply_bytes("invoked_7_1_holder")),
             [Heard::Invoked(
                 id(7),
                 "1".into(),
@@ -3175,10 +3301,13 @@ mod tests {
             )],
             "kept for its own"
         );
-        assert_eq!(s.received(&signal("ActivationToken", 7, "tok-7b", 21)), []);
-        assert_eq!(s.received(&closed(7)), [Heard::NotifyClosed(id(7))]);
+        assert_eq!(s.received(&reply_bytes("token_7b_holder")), []);
         assert_eq!(
-            s.received(&signal("ActionInvoked", 7, "default", 22)),
+            s.received(&reply_bytes("closed_7_holder")),
+            [Heard::NotifyClosed(id(7))]
+        );
+        assert_eq!(
+            s.received(&reply_bytes("invoked_7_default_holder")),
             [Heard::Invoked(id(7), "default".into(), None)],
             "a close drops it"
         );
