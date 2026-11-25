@@ -614,6 +614,46 @@ const _: baud_domain::SearchLines = baud_domain::SearchLines {
     top: baud_domain::LineIdx::FIRST,
     end: baud_domain::LineIdx::FIRST,
 };
+// ShellTokenHash
+const _: fn(&baud_domain::ShellTokenHex) -> baud_domain::ShellTokenHash =
+    baud_domain::ShellTokenHash::of;
+const _: fn(&[u8]) -> Option<baud_domain::ShellTokenHash> = baud_domain::ShellTokenHash::in_mark;
+// TokenSeen, CommandRuns, ELSEWHERE, CommandStart, MarkOpen, MarkLen, MarkBack
+const _: [baud_domain::TokenSeen; 3] = [
+    baud_domain::TokenSeen::Absent,
+    baud_domain::TokenSeen::Shells,
+    baud_domain::TokenSeen::Other,
+];
+const _: fn(
+    Option<baud_domain::ShellTokenHash>,
+    Option<baud_domain::ShellTokenHash>,
+) -> baud_domain::TokenSeen = baud_domain::TokenSeen::of;
+const _: [baud_domain::CommandRuns; 4] = [
+    baud_domain::CommandRuns::Nothing,
+    baud_domain::CommandRuns::Here,
+    baud_domain::CommandRuns::Elsewhere,
+    baud_domain::CommandRuns::Replaced,
+];
+const _: fn(&[u8]) -> baud_domain::CommandRuns = baud_domain::CommandRuns::of;
+const _: fn(&[u8]) -> baud_domain::CommandRuns = baud_domain::CommandRuns::of_clipped;
+const _: [&str; 24] = baud_domain::ELSEWHERE;
+const _: fn(baud_domain::CommandStart) -> baud_domain::CommandRuns =
+    baud_domain::CommandStart::runs;
+const _: fn(baud_domain::CommandStart) -> Option<baud_domain::ShellTokenHash> =
+    baud_domain::CommandStart::token;
+const _: fn(
+    baud_domain::MarkOpen,
+    baud_domain::StreamByte,
+    baud_domain::TokenSeen,
+    baud_domain::CommandRuns,
+) -> baud_domain::MarkOpen = baud_domain::MarkOpen::step;
+const _: fn(baud_domain::MarkOpen, baud_domain::TokenSeen) -> bool = baud_domain::MarkOpen::ends;
+const _: fn(baud_domain::BytePos, baud_domain::BytePos) -> baud_domain::MarkLen =
+    baud_domain::MarkLen::between;
+const _: fn(Option<baud_domain::BytePos>, baud_domain::BytePos) -> baud_domain::MarkBack =
+    baud_domain::MarkBack::of;
+const _: fn(baud_domain::MarkLen) -> baud_domain::MarkBack = baud_domain::MarkBack::Within;
+const _: baud_domain::MarkBack = baud_domain::MarkBack::Before;
 // ShellTokenHex
 const _: fn(&[u8]) -> Option<baud_domain::ShellTokenHex> = baud_domain::ShellTokenHex::parse;
 const _: usize = baud_domain::ShellTokenHex::LEN;
@@ -1713,6 +1753,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("ColorWord", "E0423"),
     ("ColorWord", "E0599"),
     ("Cols", "E0603"),
+    ("CommandStart", "E0451"),
     ("Content", "E0603"),
     ("Content", "E0599"),
     ("DirtyRows", "E0423"),
@@ -1738,6 +1779,10 @@ const WITNESSED: &[(&str, &str)] = &[
     ("LinkSet", "E0423"),
     ("LinkSlot", "E0423"),
     ("LinkIntroducerAt", "E0616"),
+    ("MarkBack", "E0599"),
+    ("MarkLen", "E0423"),
+    ("MarkLen", "E0599"),
+    ("MarkOpen", "E0308"),
     ("Modifiers", "E0423"),
     ("OverlapRuns", "E0423"),
     ("OverlayChanges", "E0423"),
@@ -1754,6 +1799,8 @@ const WITNESSED: &[(&str, &str)] = &[
     ("Seal", "E0451"),
     ("SixelAspect", "E0451"),
     ("SixelCanvas", "E0451"),
+    ("ShellTokenHash", "E0308"),
+    ("ShellTokenHash", "E0423"),
     ("ShellTokenHex", "E0423"),
     ("SlotMarks", "E0616"),
     ("SlotSet", "E0599"),

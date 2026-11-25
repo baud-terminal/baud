@@ -8,7 +8,10 @@
 #![cfg(feature = "read-record")]
 mod support;
 use baud_core::*;
-use baud_domain::{BytePos, LineIdx, ReadLen, Rows, WinSize};
+use baud_domain::{
+    BytePos, CommandRuns, LineIdx, MarkBack, MarkLen, ReadLen, Rows, ShellTokenHash, ShellTokenHex,
+    TokenSeen, WinSize,
+};
 
 const WS: WinSize = WinSize {
     ws_col: 20,
@@ -228,14 +231,219 @@ fn a_folder_report_and_a_mark_are_recorded_where_they_end() {
             folder: Folder::Kept,
         }]
     );
-    let marks: Vec<MarkEvent> = r.marks().iter().collect();
+    let marks: Vec<(usize, u8)> = r
+        .marks()
+        .iter()
+        .map(|m| (m.at().index(), m.letter().raw_byte()))
+        .collect();
+    assert_eq!(marks, [(bytes.len() - 1, b'D')]);
+}
+
+/// The window's token in these tests, and its hash.
+const TOKEN: &[u8; 16] = b"0123456789abcdef";
+
+fn token() -> ShellTokenHash {
+    ShellTokenHash::of(&ShellTokenHex::parse(TOKEN).expect("sixteen hex digits"))
+}
+
+/// Each mark of `bytes`, read in one read on a terminal holding the
+/// window's token when `held`: where it ends, how far back it began, its
+/// letter, its token and what it runs.
+fn marks_of(
+    held: Held,
+    before: &[u8],
+    bytes: &[u8],
+) -> Vec<(usize, MarkBack, u8, TokenSeen, CommandRuns)> {
+    support::with_term(&WS, |t| {
+        if held == Held::Token {
+            t.set_shell_token(Some(token()));
+        }
+        if !before.is_empty() {
+            let _ = read(t, before);
+        }
+        read(t, bytes)
+            .marks()
+            .iter()
+            .map(|m| {
+                (
+                    m.at().index(),
+                    m.back(),
+                    m.letter().raw_byte(),
+                    m.token(),
+                    m.runs(),
+                )
+            })
+            .collect()
+    })
+}
+
+/// A mark introduced `n` bytes before its terminator, in the read.
+fn within(n: usize) -> MarkBack {
+    MarkBack::Within(MarkLen::between(BytePos::ZERO, BytePos::from_index(n)))
+}
+
+/// Whether the terminal holds the window's token.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Held {
+    None,
+    Token,
+}
+
+/// **A mark is recorded with how far back its introducer is, what it says
+/// of the window's token and what a `C` names**, read from the mark as the
+/// core dispatched it: the shell's `C` naming `ssh` is `Shells` and
+/// `Elsewhere`, from its `ESC` to its `BEL`; a `D` with the token is
+/// `Shells`, one with another or none `Other`, and with no token held every
+/// mark is `Absent`; a `D` ended by `ESC \` reaches back to its own `ESC`.
+/// Named break: read the token against none held (`mark_recorded` passing
+/// `None` to `TokenSeen::of`) -- the shell's `C` and `D` read `Absent`.
+#[test]
+fn a_mark_is_recorded_with_its_introducer_token_and_command() {
+    let t = core::str::from_utf8(TOKEN).expect("ascii");
+    let c = format!("\x1b]133;C;baud_token={t};cmdline=ssh\\ h\x07");
+    let d = format!("\x1b]133;D;0;baud_token={t}\x1b\\");
+    let other = "\x1b]133;D;0;baud_token=fedcba9876543210\x07";
+    let bare = "\x1b]133;D;0\x07";
+    let bytes = [
+        b"ab".as_slice(),
+        c.as_bytes(),
+        d.as_bytes(),
+        other.as_bytes(),
+        bare.as_bytes(),
+    ]
+    .concat();
+    let ends: Vec<usize> = [c.len(), d.len(), other.len(), bare.len()]
+        .iter()
+        .scan(2, |at, len| {
+            *at += len;
+            Some(*at - 1)
+        })
+        .collect();
+    let want = |seen: [TokenSeen; 4]| {
+        vec![
+            (
+                ends[0],
+                within(c.len() - 1),
+                b'C',
+                seen[0],
+                CommandRuns::Elsewhere,
+            ),
+            (
+                ends[1],
+                within(d.len() - 1),
+                b'D',
+                seen[1],
+                CommandRuns::Nothing,
+            ),
+            (
+                ends[2],
+                within(other.len() - 1),
+                b'D',
+                seen[2],
+                CommandRuns::Nothing,
+            ),
+            (
+                ends[3],
+                within(bare.len() - 1),
+                b'D',
+                seen[3],
+                CommandRuns::Nothing,
+            ),
+        ]
+    };
+    use TokenSeen::{Absent, Other, Shells};
     assert_eq!(
-        marks,
-        [MarkEvent {
-            at: BytePos::from_index(bytes.len() - 1),
-            letter: b'D',
-        }]
+        marks_of(Held::Token, b"", &bytes),
+        want([Shells, Shells, Other, Other])
     );
+    assert_eq!(marks_of(Held::None, b"", &bytes), want([Absent; 4]));
+}
+
+/// **A mark begun in the read before reaches back past the read**
+/// (`MarkBack::Before`), and so does one whose `]` is the read's first
+/// byte; a C1 introducer under ISO 8859-1 is its own first byte. Named
+/// break: keep the introducer's offset across records -- the split mark
+/// reads as begun inside the second read.
+#[test]
+fn a_mark_begun_before_the_read_reaches_back_past_it() {
+    let before = MarkBack::Before;
+    let split = marks_of(Held::None, b"xy\x1b]133;D;", b"0\x07");
+    assert_eq!(
+        split,
+        [(1, before, b'D', TokenSeen::Absent, CommandRuns::Nothing)]
+    );
+    let at_bracket = marks_of(Held::None, b"\x1b", b"]133;A\x07");
+    assert_eq!(
+        at_bracket,
+        [(6, before, b'A', TokenSeen::Absent, CommandRuns::Nothing)]
+    );
+    let c1 = marks_of(Held::None, b"\x1b%@", b"z\x9d133;A\x07");
+    assert_eq!(
+        c1,
+        [(7, within(6), b'A', TokenSeen::Absent, CommandRuns::Nothing)]
+    );
+}
+
+/// **The shell's `C` naming a program `exec` puts in its place takes the
+/// token with it**: the `C` is `Shells` and `Replaced`, and the shell's
+/// `D` after it reads `Absent`, the token gone. Another token's `exec`
+/// takes nothing. Named break: keep the token at a `Replaced` `C` -- the
+/// `D` after it reads `Shells`.
+#[test]
+fn the_shells_exec_takes_its_token() {
+    let t = core::str::from_utf8(TOKEN).expect("ascii");
+    let exec = format!("\x1b]133;C;baud_token={t};cmdline=exec\\ zsh\x07");
+    let d = format!("\x1b]133;D;0;baud_token={t}\x07");
+    let got: Vec<(TokenSeen, CommandRuns)> =
+        marks_of(Held::Token, b"", &[exec.as_bytes(), d.as_bytes()].concat())
+            .into_iter()
+            .map(|(_, _, _, s, r)| (s, r))
+            .collect();
+    assert_eq!(
+        got,
+        [
+            (TokenSeen::Shells, CommandRuns::Replaced),
+            (TokenSeen::Absent, CommandRuns::Nothing)
+        ]
+    );
+    let foreign = "\x1b]133;C;baud_token=fedcba9876543210;cmdline=exec\\ zsh\x07";
+    let got: Vec<TokenSeen> = marks_of(
+        Held::Token,
+        b"",
+        &[foreign.as_bytes(), d.as_bytes()].concat(),
+    )
+    .into_iter()
+    .map(|(_, _, _, s, _)| s)
+    .collect();
+    assert_eq!(got, [TokenSeen::Other, TokenSeen::Shells]);
+}
+
+/// **A command line cut at `OSC_MAX` names its program from the whole
+/// words before the cut**: `ssh` followed by 2,000 words is `Elsewhere`;
+/// a program path that runs past the bound names nothing, and the token
+/// in the cut option is not read. Named break: read a cut mark's command
+/// line as whole (`CommandRuns::of`) -- the cut path reads as a program
+/// here.
+#[test]
+fn a_cut_command_line_names_only_whole_words() {
+    let t = core::str::from_utf8(TOKEN).expect("ascii");
+    let runs = |line: String| {
+        let c = format!("\x1b]133;C;baud_token={t};cmdline={line}\x07");
+        marks_of(Held::Token, b"", c.as_bytes())[0]
+    };
+    let long = runs(format!("ssh{}", "\\ x".repeat(2000)));
+    assert_eq!(
+        (long.3, long.4),
+        (TokenSeen::Shells, CommandRuns::Elsewhere)
+    );
+    let cut = runs(format!("/usr/{}/ssh", "a".repeat(OSC_MAX)));
+    assert_eq!((cut.3, cut.4), (TokenSeen::Shells, CommandRuns::Nothing));
+    let late = format!(
+        "\x1b]133;C;cmdline=ls;pad={};baud_token={t}\x07",
+        "p".repeat(OSC_MAX)
+    );
+    let got = marks_of(Held::Token, b"", late.as_bytes())[0];
+    assert_eq!((got.3, got.4), (TokenSeen::Other, CommandRuns::Here));
 }
 
 /// **A change of columns renumbers the primary's lines, a change of height
@@ -1014,4 +1222,29 @@ fn an_alternate_screen_erasure_is_its_own_and_a_clear_drops_it() {
     let entry = after(&WS, b"abc", b"\x1b[?1049h");
     assert_eq!(erased(&entry, Screen::Alternate), none_whole());
     assert_eq!(erased(&entry, Screen::Normal), none_whole());
+}
+
+/// **A command line is read once a `C` mark, and no byte of text or of
+/// another sequence reads one**: 4,096 bytes with an `SGR` every 17 read
+/// none; three `C`s and a `D` among them read three. Named break: bump the
+/// count at every `OSC 133` -- the `D` reads a fourth.
+#[test]
+fn a_command_line_is_read_once_a_command_mark() {
+    let sgr: Vec<u8> = b"\x1b[1mabcdefghijkl"
+        .iter()
+        .copied()
+        .cycle()
+        .take(4096)
+        .collect();
+    let count = |bytes: &[u8]| {
+        support::with_term(&WS, |t| {
+            let before = t.command_lines_read().get();
+            let _ = read(t, bytes);
+            t.command_lines_read().get() - before
+        })
+    };
+    assert_eq!(count(&sgr), 0, "text and SGRs");
+    let c = b"\x1b]133;C;cmdline=ls\x07";
+    let marks = [&sgr[..100], c, c, b"\x1b]133;D;0\x07", c].concat();
+    assert_eq!(count(&marks), 3, "three Cs");
 }

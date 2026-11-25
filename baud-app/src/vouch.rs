@@ -256,7 +256,7 @@ impl Matched {
         if rec.marks().fill() != baud_core::Fill::Room || ran.overflowed() {
             return Vouch::No(Why::Marks);
         }
-        let core = rec.marks().iter().map(|m| (m.at, m.letter));
+        let core = rec.marks().iter().map(|m| (m.at(), m.letter().raw_byte()));
         match core.eq(ran.marks().map(|m| (m.at(), m.letter().raw_byte()))) {
             true => Vouch::Yes(Matched(())),
             false => Vouch::No(Why::Marks),

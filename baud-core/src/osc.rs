@@ -47,6 +47,12 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// [`ControlStringEnd::Kitty`] this moves it to `Node::KittyApcFirst`,
     /// so an `APC G` ends only at `BEL` or `ESC \`. Read here, once per
     /// introducer, so no table and no byte of the text path asks.
+    ///
+    /// **And where it was introduced in the read**, `b` being at `from`:
+    /// a C1 there, else the byte before it, the `ESC` of a 7-bit
+    /// introducer when the parser executed nothing between the two; none
+    /// at the read's first byte. A mark the string carries is recorded
+    /// that far back (`MarkEvent::back`).
     #[cold]
     #[inline(never)]
     pub(crate) fn str_start(
@@ -54,7 +60,15 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         b: StreamByte,
         enc: InputEncoding,
         node: &mut crate::graph::Node,
+        from: BytePos,
     ) {
+        #[cfg(feature = "read-record")]
+        self.cold.record.string_started(match b.raw_byte() {
+            0x80..=0x9f => Some(from),
+            _ => from.index().checked_sub(1).map(BytePos::from_index),
+        });
+        #[cfg(not(feature = "read-record"))]
+        let _ = from;
         // **A Sixel body that never reached its end lets its claim go
         // here.** `CAN`, an `ESC` that is not `ST` and a C1 place what it
         // received (`Paint::sixel_cut`) and `SUB` is a blank sixel, so none
@@ -689,6 +703,48 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         }
     }
 
+    /// **The `OSC 133` mark ending now, recorded** with what it says of the
+    /// shell's token, read from its whole options -- those whose `;`
+    /// arrived, when `body` was cut -- and what a `C`'s command line names
+    /// (`CommandStart`). A `C` carrying the token that names a program
+    /// `exec` puts in the shell's place ends the shell, and the token is
+    /// forgotten with it. A mark with no letter is not recorded.
+    #[cfg(feature = "read-record")]
+    #[cold]
+    #[inline(never)]
+    fn mark_recorded(&mut self, body: &[u8], mark: Semantic<'_>, cut: crate::logging::Body) {
+        let Some(rest) = body.strip_prefix(b"133;") else {
+            return;
+        };
+        let Some(&letter) = rest.first() else {
+            return;
+        };
+        let fields = rest
+            .iter()
+            .position(|&b| b == b';')
+            .map_or(&rest[rest.len()..], |i| &rest[i + 1..]);
+        let whole = match cut {
+            crate::logging::Body::Cut => {
+                &fields[..fields.iter().rposition(|&b| b == b';').unwrap_or(0)]
+            }
+            crate::logging::Body::Whole => fields,
+        };
+        let token = TokenSeen::of(self.cold.shell_token, ShellTokenHash::in_mark(whole));
+        let runs = match mark {
+            Semantic::OutputStart(c) => {
+                self.cold.command_lines.bump();
+                c.runs()
+            }
+            _ => CommandRuns::Nothing,
+        };
+        if (token, runs) == (TokenSeen::Shells, CommandRuns::Replaced) {
+            self.cold.shell_token = None;
+        }
+        self.cold
+            .record
+            .mark_ran(StreamByte::from_stream(letter), token, runs);
+    }
+
     fn dispatch_osc(&mut self, term: StringTerm, node: &mut crate::graph::Node) {
         let n = self.cold.str_len.index();
         // Split the borrow: `Osc::parse` holds the payload while the setters
@@ -859,9 +915,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             }
             Osc::Semantic(mark) => {
                 #[cfg(feature = "read-record")]
-                if let Some(&letter) = pending[..n].strip_prefix(b"133;").and_then(<[u8]>::first) {
-                    self.cold.record.mark_ran(StreamByte::from_stream(letter));
-                }
+                self.mark_recorded(&pending[..n], mark, cut);
                 self.semantic(mark);
                 self.semantic_marks += 1;
             }

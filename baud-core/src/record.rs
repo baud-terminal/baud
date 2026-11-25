@@ -291,12 +291,80 @@ pub struct FolderEvent {
 }
 
 /// **An `OSC 133` mark the core acted on**: where its terminator is in the
-/// read, and its letter.
+/// read, how far back its introducer is, its letter, what it says of the
+/// window's shell token, and, for a `C`, what its command line names --
+/// read from the mark's own body as the core dispatched it, so an embedder
+/// that folds the marks walks no byte of the read for them. Its fields are
+/// private: a mark is what the core recorded.
+///
+/// ```compile_fail,E0451
+/// fn f(m: baud_core::MarkEvent) -> baud_core::MarkEvent {
+///     baud_core::MarkEvent { ..m }
+/// }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// use baud_core::{BytePos, ReadLen};
+/// use baud_domain::{CommandRuns, MarkBack, MarkLen, TokenSeen, WinSize};
+/// let ws = WinSize { ws_col: 20, ws_row: 4 };
+/// let mut owned = baud_core::Owned::new(&ws);
+/// let mut t = baud_core::Term::new(owned.storage(), &ws);
+/// let bytes = b"\x1b]133;C;cmdline=ssh\\ h\x07";
+/// t.write_at(BytePos::ZERO, bytes);
+/// t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+/// let m = t.take_record().marks().iter().next().expect("the C");
+/// let end = bytes.len() - 1;
+/// let back = MarkBack::Within(MarkLen::between(BytePos::ZERO, m.at()));
+/// assert_eq!((m.at().index(), m.back()), (end, back));
+/// assert_eq!(m.letter().raw_byte(), b'C');
+/// assert_eq!((m.token(), m.runs()), (TokenSeen::Absent, CommandRuns::Elsewhere));
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct MarkEvent {
-    pub at: BytePos,
-    pub letter: u8,
+    at: BytePos,
+    back: baud_domain::MarkBack,
+    letter: baud_domain::StreamByte,
+    token: baud_domain::TokenSeen,
+    runs: baud_domain::CommandRuns,
 }
+
+// A mark is two words: the offset, and the rest in one.
+const _: () = assert!(core::mem::size_of::<MarkEvent>() == 16);
+
+impl MarkEvent {
+    /// Where its terminator is in the read.
+    pub fn at(self) -> BytePos {
+        self.at
+    }
+
+    /// **How far back its introducer is** from [`MarkEvent::at`]: the `ESC`
+    /// of `ESC ]`, or the `9D`; `MarkBack::Before` when it began before the
+    /// read.
+    pub fn back(self) -> baud_domain::MarkBack {
+        self.back
+    }
+
+    /// Its letter, the first byte after `133;`.
+    pub fn letter(self) -> baud_domain::StreamByte {
+        self.letter
+    }
+
+    /// What it says of the shell token the core holds
+    /// (`Term::set_shell_token`).
+    pub fn token(self) -> baud_domain::TokenSeen {
+        self.token
+    }
+
+    /// What a `C`'s command line names; nothing for any other letter.
+    pub fn runs(self) -> baud_domain::CommandRuns {
+        self.runs
+    }
+}
+
+/// **The marks a part recorded**: eight, and whether more came.
+pub type ReadMarks = Events<MarkEvent, 8>;
 
 /// The offset shown as a number.
 impl core::fmt::Debug for FolderEvent {
@@ -313,7 +381,10 @@ impl core::fmt::Debug for MarkEvent {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("MarkEvent")
             .field("at", &self.at.index())
-            .field("letter", &char::from(self.letter))
+            .field("back", &self.back)
+            .field("letter", &char::from(self.letter.raw_byte()))
+            .field("token", &self.token)
+            .field("runs", &self.runs)
             .finish()
     }
 }
@@ -507,7 +578,7 @@ pub struct ReadRecord {
     cleared: Cleared,
     renumbered: Option<Renumbered>,
     folders: Events<FolderEvent, 4>,
-    marks: Events<MarkEvent, 8>,
+    marks: ReadMarks,
     moves: Events<Move, 8>,
     erased: Events<Erasure, 4>,
 }
@@ -566,7 +637,7 @@ impl ReadRecord {
         &self.folders
     }
 
-    pub fn marks(&self) -> &Events<MarkEvent, 8> {
+    pub fn marks(&self) -> &ReadMarks {
         &self.marks
     }
 
@@ -692,14 +763,19 @@ pub(crate) struct Recording {
     /// Where the control string ending now ends in the read: the offset a
     /// folder report or a mark it carries is recorded at.
     str_at: BytePos,
+    /// Where the control string ending now was introduced in the read --
+    /// the `ESC` of `ESC ]`, or the C1 -- none when that was before the
+    /// record began: how far back a mark it carries reaches.
+    str_from: Option<BytePos>,
 }
 
-/// The record so far, the string offset as a number.
+/// The record so far, the string offsets as numbers.
 impl core::fmt::Debug for Recording {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Recording")
             .field("rec", &self.rec)
             .field("str_at", &self.str_at.index())
+            .field("str_from", &self.str_from.map(BytePos::index))
             .finish()
     }
 }
@@ -726,6 +802,7 @@ impl Recording {
                 erased: Events::EMPTY,
             },
             str_at: BytePos::ZERO,
+            str_from: None,
         }
     }
 
@@ -838,11 +915,27 @@ impl Recording {
         });
     }
 
-    /// The `OSC 133` mark ending now, of `letter`, ran.
-    pub(crate) fn mark_ran(&mut self, letter: baud_domain::StreamByte) {
+    /// A control string was introduced at `from` in the read; none when
+    /// its `ESC` was before the record began.
+    pub(crate) fn string_started(&mut self, from: Option<BytePos>) {
+        self.str_from = from;
+    }
+
+    /// The `OSC 133` mark ending now, of `letter`, ran, saying `token` of
+    /// the shell's token and, for a `C`, naming `runs`.
+    pub(crate) fn mark_ran(
+        &mut self,
+        letter: baud_domain::StreamByte,
+        token: baud_domain::TokenSeen,
+        runs: baud_domain::CommandRuns,
+    ) {
+        let back = baud_domain::MarkBack::of(self.str_from, self.str_at);
         self.rec.marks.push(MarkEvent {
             at: self.str_at,
-            letter: letter.raw_byte(),
+            back,
+            letter,
+            token,
+            runs,
         });
     }
 
@@ -994,6 +1087,34 @@ impl<M: crate::bands::BandMode> crate::paint::Paint<'_, '_, M> {
 }
 
 impl crate::term::Term<'_> {
+    /// **The window's shell token**, which each `OSC 133` mark recorded
+    /// from here on is read against ([`MarkEvent::token`]): the hash of the
+    /// token the embedder handed the shell it spawned, or none. Forgotten
+    /// at the shell's own `C` naming a program `exec` puts in its place.
+    /// Built without `read-record`, nothing is recorded and it is not kept.
+    pub fn set_shell_token(&mut self, token: Option<baud_domain::ShellTokenHash>) {
+        #[cfg(feature = "read-record")]
+        {
+            self.cold.shell_token = token;
+        }
+        #[cfg(not(feature = "read-record"))]
+        let _ = token;
+    }
+
+    /// **The `C` marks whose command line was read for the record**, each
+    /// at most one walk of `baud_domain::ELSEWHERE`'s names
+    /// (`CommandRuns::of`); none built without `read-record`.
+    pub fn command_lines_read(&self) -> baud_domain::WalkSteps {
+        #[cfg(feature = "read-record")]
+        {
+            self.cold.command_lines
+        }
+        #[cfg(not(feature = "read-record"))]
+        {
+            baud_domain::WalkSteps::ZERO
+        }
+    }
+
     /// **What the reads fed since the last call did**, and a record begun
     /// again where the cursor stands: one call after each part of a read an
     /// embedder files on its own (`crate::record`). Built without

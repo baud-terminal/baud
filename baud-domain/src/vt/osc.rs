@@ -1544,7 +1544,8 @@ impl<'a> Osc<'a> {
         // **Cut, a list keeps the items whose `;` arrived**: the last may
         // have been cut anywhere, and a pair left without its spec walks to
         // its malformed item. A prompt mark is a list too, its kind and the
-        // options whose `;` arrived. A value that is one setting -- a
+        // options whose `;` arrived, a `C`'s command line read to the cut
+        // (`Semantic::parse_clipped`). A value that is one setting -- a
         // pointer, a font, an allow query -- is not the one sent, and is
         // [`Osc::Cut`]. The rest take the body as it is, and the core
         // tells the cut: text shown to the user -- a title, an `OSC 3`
@@ -1555,7 +1556,7 @@ impl<'a> Osc<'a> {
             OscBody::Whole(_) => rest,
             OscBody::Cut(_) => match ps {
                 b"4" | b"5" | b"6" | b"106" | b"104" | b"105" | b"10" | b"11" | b"12" | b"13"
-                | b"14" | b"15" | b"16" | b"17" | b"18" | b"19" | b"133" => {
+                | b"14" | b"15" | b"16" | b"17" | b"18" | b"19" => {
                     &rest[..rest.iter().rposition(|&b| b == b';').unwrap_or(0)]
                 }
                 b"22" | b"50" | b"60" | b"61" | b"62" => return Osc::Cut,
@@ -1618,7 +1619,10 @@ impl<'a> Osc<'a> {
                     uri,
                 }
             }
-            b"133" => Osc::Semantic(Semantic::parse(rest)),
+            b"133" => Osc::Semantic(match body {
+                OscBody::Whole(_) => Semantic::parse(rest),
+                OscBody::Cut(_) => Semantic::parse_clipped(rest),
+            }),
             b"3" => Osc::SetProperty(XProperty::parse(rest)),
             b"46" => Osc::LogFile(LogFile::parse(rest)),
             b"22" if rest.is_empty() => Osc::Pointer(PointerRequest::Default),

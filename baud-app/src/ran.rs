@@ -1704,7 +1704,7 @@ mod tests {
             .take_record()
             .marks()
             .iter()
-            .map(|m| (m.at.index(), m.letter))
+            .map(|m| (m.at().index(), m.letter().raw_byte()))
             .collect();
         let ours: Vec<(usize, u8)> = got.iter().map(|&(a, l, _)| (a, l)).collect();
         assert_eq!(core, ours, "the core's marks");

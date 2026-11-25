@@ -1400,6 +1400,17 @@ pub struct Cold {
     /// round its ring, and back to the first where its text is cleared.
     #[cfg(feature = "read-record")]
     pub(crate) alt_top: LineIdx,
+    /// **The window's shell token**, as the embedder handed it
+    /// (`Term::set_shell_token`): what each recorded mark's own is read
+    /// against (`MarkEvent::token`). Forgotten at the shell's `C` naming a
+    /// program `exec` puts in its place.
+    #[cfg(feature = "read-record")]
+    pub(crate) shell_token: Option<baud_domain::ShellTokenHash>,
+    /// **The `C` marks whose command line the core read for the record**
+    /// (`CommandStart`), each at most one walk of `baud_domain::ELSEWHERE`:
+    /// counted, so a read that walks it more often shows as a count.
+    #[cfg(feature = "read-record")]
+    pub(crate) command_lines: baud_domain::WalkSteps,
 }
 
 // **The size is gated because the prose drifted.** A doc comment called `Cold`
@@ -1577,12 +1588,21 @@ pub struct Cold {
 // `?2026` and read by the embedder after a read, never by a glyph.
 // DECLL's lights (`lights`), one byte, landed in its padding: written by
 // DECLL and `RIS`, read by the embedder, never by a glyph.
+// A recorded mark's token and command verdicts, how far back its
+// introducer is, the introducer's offset (`str_from`) and the window's
+// shell token (`shell_token`) and the count of command lines read
+// (`command_lines`) took it to 1808 with `read-record` on: a mark is sixteen
+// bytes in its slot where it was twenty-four, the niche of its enums
+// holding the slot's `None`, so the eight slots give back 64 bytes, and the
+// two `Option`s and the count take 40. Written by a control string's
+// introducer, an `OSC 133` mark and the embedder, read once a read, never
+// by a glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it
 // more.
 #[cfg(all(not(feature = "sgr-table"), not(feature = "read-record")))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 1024);
 #[cfg(all(not(feature = "sgr-table"), feature = "read-record"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 1832);
+const _: () = assert!(core::mem::size_of::<Cold>() == 1808);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -2062,6 +2082,10 @@ impl Cold {
             ),
             #[cfg(feature = "read-record")]
             alt_top: crate::record::ALT_BASE,
+            #[cfg(feature = "read-record")]
+            shell_token: None,
+            #[cfg(feature = "read-record")]
+            command_lines: baud_domain::WalkSteps::ZERO,
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::X10,
             mouse_at: None,

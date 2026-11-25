@@ -1200,49 +1200,8 @@ pub fn command(
     answer
 }
 
-/// Programs whose output is another machine's: a path they print names a
-/// file there, so nothing is looked up while one is in front.
-pub const ELSEWHERE: [&str; 24] = [
-    // A shell on another machine.
-    "ssh",
-    "slogin",
-    "autossh",
-    "mosh",
-    "mosh-client",
-    "telnet",
-    "rsh",
-    "rlogin",
-    // Eternal Terminal's client: a shell on another machine.
-    "et",
-    // Teleport's `tsh ssh`: a shell on another machine.
-    "tsh",
-    // kitty's `kitten ssh`; its other subcommands print no path of this
-    // machine's that a shell would not.
-    "kitten",
-    // A container's own file system: `docker run`, `docker exec`.
-    "docker",
-    "podman",
-    // A pod's file system, on another machine.
-    "kubectl",
-    // A Lima virtual machine's shell, whose root is not this machine's.
-    "limactl",
-    "lima",
-    // An OrbStack machine's shell.
-    "orb",
-    "orbctl",
-    // A Multipass virtual machine's shell.
-    "multipass",
-    // `vagrant ssh`: a virtual machine's shell.
-    "vagrant",
-    // `gcloud compute ssh`, `gcloud cloud-shell ssh`: another machine.
-    "gcloud",
-    // A container that shares the home folder and not the rest: its `/usr`
-    // and `/etc` are the image's.
-    "distrobox",
-    "toolbox",
-    // `virsh console`: a virtual machine's console.
-    "virsh",
-];
+/// Programs whose output is another machine's ([`baud_domain::ELSEWHERE`]).
+pub use baud_domain::ELSEWHERE;
 
 /// **Terminal multiplexers**: each runs its panes on ptys of its own and
 /// draws them into this one, so the folder `OSC 7` gave baud is the shell's
@@ -1256,13 +1215,8 @@ pub const MULTIPLEXERS: [&str; 8] = [
     "herdr", "tmux", "tmate", "screen", "zellij", "abduco", "dtach", "byobu",
 ];
 
-/// A program's name as the lists spell it: a wrapper's leading `.` and
-/// `-wrapped` (nix's), and tmux's `: client`, taken off.
-fn spelled(name: &str) -> &str {
-    let n = name.strip_prefix('.').unwrap_or(name);
-    let n = n.strip_suffix("-wrapped").unwrap_or(n);
-    n.split(':').next().unwrap_or(n)
-}
+// A program's name as the lists spell it.
+use baud_domain::spelled_program as spelled;
 
 /// **What the program in front is**, by its names: none read is not known
 /// to be local.
@@ -12133,7 +12087,10 @@ mod tests {
         let _ = t.take_record();
         t.write_at(BytePos::ZERO, bytes);
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
-        t.take_record().marks().iter().any(|m| m.letter == b'C')
+        t.take_record()
+            .marks()
+            .iter()
+            .any(|m| m.letter().raw_byte() == b'C')
     }
 
     /// The core's reading under which a picture's body holds a mark.

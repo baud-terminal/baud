@@ -246,7 +246,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                 };
                 self.prompt_zone();
             }
-            Semantic::OutputStart => self.output_began(),
+            Semantic::OutputStart(_) => self.output_began(),
             // `D` closes the zone as `C` does: Enter on an empty line sends
             // no `C`, and the `P` after `D` is a fresh prompt, not a redraw
             // -- and so is anything a `precmd` prints first.

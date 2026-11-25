@@ -798,7 +798,12 @@ pub(crate) fn act<M: crate::bands::BandMode>(
             // holding the last CSI's parameters; harmless for an OSC, which
             // reads none.
             csi.reset();
-            p.str_start(StreamByte::from_stream(p.arena[from.index()]), *enc, node);
+            p.str_start(
+                StreamByte::from_stream(p.arena[from.index()]),
+                *enc,
+                node,
+                from,
+            );
             ReadLen::ONE
         }
         Act::StrPut => p.str_run(from, left),
