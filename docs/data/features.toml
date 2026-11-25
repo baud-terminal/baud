@@ -2160,11 +2160,10 @@ tests = ["baud-app/tests/macos_floor.rs::the_bundle_the_binary_and_the_shaders_n
 id = "linux"
 area = "platforms"
 name = "Linux"
-does = "The same terminal core on Wayland, drawn on the CPU, with the keyboard, the mouse and its pointer shapes, copy and paste, and window titles."
-status = "partial"
-gap = "it draws on the CPU; a GPU renderer, through Vulkan, is in progress."
+does = "The same terminal core on Wayland, drawn on the GPU through Vulkan and on the CPU when the GPU can't be used or fails, with the keyboard, the mouse and its pointer shapes, copy and paste, and window titles."
+status = "built"
 platform = "linux"
-tests = ["baud-present-wayland/tests/handshake.rs::a_window_opens_shows_a_frame_and_types", "baud-present-wayland/tests/handshake.rs::the_pointer_reports_by_frame_and_takes_its_shape", "baud-present-wayland/tests/handshake.rs::a_pointer_event_carries_the_modifiers_of_its_moment", "baud-app/src/seat.rs::a_tracking_child_gets_the_buttons_and_the_wheel"]
+tests = ["baud-present-wayland/tests/handshake.rs::a_window_opens_shows_a_frame_and_types", "baud-app/src/gpu_arm.rs::baud_gpu_off_is_off_from_the_start", "baud-app/src/gpu_arm.rs::each_reason_the_arm_leaves_for_is_weighed_by_its_kind", "baud-app/src/gpu_fallback.rs::a_lost_device_is_replaced_once_after_its_deadline", "baud-app/src/gpu_fallback.rs::every_other_failure_is_final_and_counted_by_name", "baud-present-wayland/tests/handshake.rs::the_pointer_reports_by_frame_and_takes_its_shape", "baud-present-wayland/tests/handshake.rs::a_pointer_event_carries_the_modifiers_of_its_moment", "baud-app/src/seat.rs::a_tracking_child_gets_the_buttons_and_the_wheel"]
 
 [[feature]]
 id = "shell"

@@ -266,7 +266,7 @@ Image viewers and file-manager previews show real pictures.
 Where baud runs, and the one settings file.
 
 - **macOS app** — Needs macOS 26 or later, draws on the GPU with Metal and falls back to the CPU; on an older Mac it says what it needs and quits instead of crashing. *macOS.* <sub>[proof](../../baud-app/tests/macos_floor.rs)</sub>
-- **Linux** — The same terminal core on Wayland, drawn on the CPU, with the keyboard, the mouse and its pointer shapes, copy and paste, and window titles. *Linux.* **Partly:** it draws on the CPU; a GPU renderer, through Vulkan, is in progress. <sub>[proof](../../baud-present-wayland/tests/handshake.rs)</sub>
+- **Linux** — The same terminal core on Wayland, drawn on the GPU through Vulkan and on the CPU when the GPU can't be used or fails, with the keyboard, the mouse and its pointer shapes, copy and paste, and window titles. *Linux.* <sub>[proof](../../baud-present-wayland/tests/handshake.rs)</sub>
 - **Your shell, set up right** — baud starts your login shell, in your home folder when opened from the Dock and with your language setting, or one command with `BAUD_CMD`. <sub>[proof](../../baud-app/src/pty.rs)</sub>
 - **A clean environment** — Programs see baud with full colour, and nothing of the terminal you started it from. <sub>[proof](../../baud-app/src/pty.rs)</sub>
 - **One optional settings file** — Keep only what you change in one file; baud never reads a stray file from the folder it started in. <sub>[proof](../../baud-app/src/config.rs)</sub>

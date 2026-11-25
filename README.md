@@ -26,9 +26,11 @@ A baud is one symbol a second down a line, named for Émile Baudot, whose
 the job: every character a program sends, on your screen, drawn right and
 in time. baud does it with a look of its own.
 
-**Status:** baud runs as an everyday terminal on macOS 26 and later, and
-on Linux under Wayland. [What works today, and what is in
-progress](docs/guide/status.md).
+**Status:** baud is a terminal emulator for macOS and Linux. It runs as an
+everyday terminal on macOS 26 and later, and on Linux under Wayland, where
+it draws on the GPU through Vulkan and on the CPU when the GPU can't be used
+or fails. [What works today, and what is not
+built](docs/guide/status.md).
 
 **[See all 220 features](docs/guide/features.md)**
 

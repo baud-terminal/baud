@@ -1,6 +1,7 @@
 # Status
 
-Where baud stands today: what you can use, and what is not built.
+baud is a terminal emulator for macOS and Linux. This page says where it
+stands today: what you can use, and what is not built.
 
 ## Ready to use: macOS 26 and later
 
@@ -13,9 +14,15 @@ programs, and pictures.
 ## Ready to use: Linux under Wayland
 
 baud runs as an everyday terminal on Linux under a Wayland compositor, with
-the same terminal core as on the Mac. On a 4K monitor under a tiling
-compositor it draws sharp at scales 1, 1.5 and 2 and follows a change of
-scale live;
+the same terminal core as on the Mac. It draws on the GPU, through Vulkan,
+on the device the compositor names, and draws on the CPU any frame the GPU
+does not. With no Vulkan, or when the compositor refuses the GPU's buffers,
+every frame is drawn on the CPU. A lost device is replaced once, a second
+later, and a second loss keeps the window on the CPU; a window that
+outgrows the device's memory draws on the CPU until it is made smaller; any
+other failure keeps that window on the CPU. `BAUD_GPU=off` keeps every frame
+on the CPU. On a 4K monitor under a tiling compositor it draws sharp at
+scales 1, 1.5 and 2 and follows a change of scale live;
 draws Hebrew, Arabic, Devanagari, Chinese, Japanese, Korean, Thai, emoji
 and ligatures, the cursor trails, the activity lights on the top line, the
 launch logo and the padding around the text; follows the desktop's light
@@ -33,11 +40,6 @@ through the history, pastes with the middle button, passes links on to be
 opened with Ctrl-click and works in programs that use the mouse. With
 animations turned off on the desktop, baud reduces its motion: no default
 cursor trail, a plain blink and still blinking text.
-
-In progress on Linux:
-
-- **Drawing on the GPU.** baud draws on the CPU; a renderer on the GPU,
-  through Vulkan, is being built.
 
 Open on Linux:
 
@@ -79,11 +81,15 @@ Where baud does something other than what a standard says, that is a defect,
 and each one known is listed under
 [open departures](../vt-coverage.md#open-departures) in the coverage table.
 
-## Measured on one machine
+## Measured on two machines
 
-Every speed and latency figure was taken on one Mac, an Apple M5 Max, and no
-discrete graphics card has been measured. [Performance](performance.md) says
-what was measured and how.
+Every speed and latency figure was taken on one Mac, an Apple M5 Max, or on
+one PC, an AMD Ryzen Threadripper 9980X running Linux. On Linux, the
+throughput through a pty is quotable with baud drawing on the CPU and
+indicative with it drawing on the GPU, because the build measured does not
+count, at exit, the frames drawn on the GPU
+([MEASUREMENTS.md](../../MEASUREMENTS.md#six-terminals-through-a-pty-both-drawing-arms-linux-x86_64-2026-11-17)).
+[Performance](performance.md) says what was measured and how.
 
 ## Getting it
 

@@ -22,22 +22,24 @@ printed: code has changed since most of them.
   two sweeps are not comparable with each other. On Linux it was 2.14 to
   8.26 times as fast as ghostty's on four (`f231b87e`, 2026-11-15).
 - **Through a real terminal connection: the fastest of five terminals on
-  the Mac, and behind ghostty, kitty and alacritty on Linux.** On the Mac,
+  the Mac, and not the fastest on Linux.** On the Mac,
   replaying recordings into baud, alacritty, kitty, ghostty and wezterm,
   baud had the highest throughput on every recording, tied
   with alacritty on one, and used the least CPU, or tied for least, on all
   but one (`46f5e1c`, 2026-09-12; before baud kept scrollback). On Linux,
-  baud took in 77-92 MB/s against ghostty's 124-175, slower than ghostty,
-  kitty and alacritty on all four recordings and than foot on three
-  (`2789e0d0` with app changes not yet
-  published, 2026-11-15).
-- **Answering a key: about 3 ms to a new frame on the Mac, and the soonest
-  of six terminals on Linux.** On the Mac, from a key arriving to the new
-  frame being handed to the display took a median of 3.0 ms when the
-  program echoing it was `cat` (`28f2382`, 2026-09-18). On Linux, a key
-  reached the compositor's commit of the frame showing it in a median of
-  0.92 ms, against 1.16 ms for the next terminal, kitty (`2789e0d0`
-  with app changes not yet published, 2026-11-16).
+  drawing on the CPU, baud took in 77.9-98.1 MB/s as each terminal ships,
+  behind the terminal fastest on cat-cjk and less-pager on all four
+  recordings, which took in 1.2 to 2.0 times as much, and ahead of two
+  terminals on less-pager and of one of them on all four; drawing
+  on the GPU, its first choice on Linux, it took in 40.2-63.9 MB/s, an
+  indicative figure (`7c5f994d`, 2026-11-17,
+  [MEASUREMENTS.md](../../MEASUREMENTS.md#six-terminals-through-a-pty-both-drawing-arms-linux-x86_64-2026-11-17)).
+- **Answering a key: about 3 ms to a new frame on the Mac.** From a key
+  arriving to the new frame being handed to the display took a median of
+  3.0 ms when the program echoing it was `cat` (`28f2382`, 2026-09-18). On
+  Linux, a key reached the compositor's commit of the frame showing it in a
+  median of 0.92 ms, an indicative figure: baud was built with app changes
+  not in the repository (`2789e0d0`, 2026-11-16).
 - **Starting up: about 0.1 s to the first frame.** 99 ms with the system's
   shader caches warm and 134 ms with them cleared (`bdc99eb`, 2026-09-19).
 - **Sitting idle: under half a percent of one CPU core.** 0.46% with a
@@ -129,27 +131,40 @@ program that reads and discards. baud did not keep scrollback when this was
 taken. [MEASUREMENTS.md](../../MEASUREMENTS.md#five-terminals-through-a-pty)
 has the CPU time of each run too.
 
-On Linux, measured on 2026-11-15 with baud built from `2789e0d0` and app
-changes not yet published, the result is the reverse.
-Each terminal opened at 200x50 in DejaVu Sans Mono 13 under a headless
-compositor, with about 40 MB of each recording replayed into it through a
-pty. Megabytes per second, not the MiB above:
+On Linux, baud draws on the GPU, through Vulkan, first, and on the CPU
+when the GPU cannot be used or fails; it was measured both ways at
+`7c5f994d` on 2026-11-17. Each terminal opened at 200x50 under a Wayland
+compositor, each recording was replayed into it through a pty in six rounds
+with the first dropped, and the frames each terminal submitted were
+counted. As each terminal ships, each at its own font and size, in
+megabytes per second, not the MiB above, with the lowest and highest frames
+submitted a megabyte across the four recordings:
 
-| recording | baud | foot 1.28.0 | alacritty 0.17.0 | kitty 0.50.0 | ghostty 1.4.0 | wezterm |
-|---|---|---|---|---|---|---|
-| cat-scroll | 77.5 | **131.8** | 103.8 | 113.0 | 123.6 | 29.3 |
-| cat-cjk | 91.7 | 100.8 | 109.3 | 102.4 | **174.8** | 3.7 |
-| less-pager | 82.2 | 46.3 | 101.0 | 128.9 | **136.0** | 21.8 |
-| git-log | 88.4 | 149.8 | 112.6 | 128.3 | **165.2** | 31.0 |
+| terminal | cat-scroll | cat-cjk | git-log | less-pager | frames a MB |
+|---|---|---|---|---|---|
+| baud, on the CPU | 79.2 | 77.9 | 96.1 | 98.1 | 0.50-0.87 |
+| baud, on the GPU (indicative) | 56.2 | 40.2 | 58.5 | 63.9 | 1.05-1.55 |
+| ghostty 1.4.0 | 103.4 | 157.5 | 133.1 | 118.5 | 0.39-0.66 |
+| alacritty 0.17.0 | 100.1 | 131.3 | 120.8 | 109.5 | |
+| foot 1.28.0 | 110.8 | 132.6 | 134.8 | 53.5 | 0.50-1.23 |
+| kitty 0.50.0 | 95.2 | 108.7 | 127.9 | 108.2 | |
+| wezterm | 29.2 | 39.1 | 30.9 | 24.0 | |
 
-baud was slower than ghostty, kitty and alacritty on all four recordings and
-than foot on three, though on cat-cjk the two overlap; it was ahead of foot
-on less-pager and of wezterm on all four. baud is busy, not waiting: about
-90% of its CPU time goes outside the part that interprets output, which on
-the same machine reads these bytes 2-8x faster than any other core
-measured. Where that time goes is not yet profiled.
-[MEASUREMENTS.md](../../MEASUREMENTS.md#six-terminals-through-a-pty-linux-x86_64-2026-11-15)
-has the ranges and each terminal's CPU time.
+Drawing on the CPU, baud was behind the terminal fastest on cat-cjk and
+less-pager on all four recordings, their ranges apart: it took in 1.2
+times as much on less-pager, 1.3 on cat-scroll, 1.4 on git-log and 2.0 on
+cat-cjk. baud was ahead of two terminals on less-pager and of one of them
+on all four. With every terminal set to DejaVu Sans Mono 13 and a cell
+within a pixel of baud's, baud on the CPU was again behind that terminal on
+all four, ranges apart, at 1.2 to 1.8 times its rate.
+
+The figures drawing on the GPU are indicative, not a result: the build
+measured does not count, at exit, the frames drawn on the GPU, so which way
+each frame was drawn is not checked. In this run baud on the GPU was behind
+baud on the CPU on all four recordings and submitted about twice the frames
+a megabyte, both indicative.
+[MEASUREMENTS.md](../../MEASUREMENTS.md#six-terminals-through-a-pty-both-drawing-arms-linux-x86_64-2026-11-17)
+has the ranges, the run with equal fonts and how both were checked.
 
 ## Typing
 
@@ -169,7 +184,9 @@ is no comparison there.
 On Linux, measured on 2026-11-16 with baud built from `2789e0d0` and app
 changes not yet published, on a 3840x2160 240 Hz display
 under Hyprland 0.56.2, each terminal running `cat`, medians of 90 keys from
-a key being sent to the compositor committing the frame that shows it:
+a key being sent to the compositor committing the frame that shows it.
+These figures are indicative, not a result, because baud was built with
+app changes not in the repository:
 
 | terminal | median |
 |---|---|
