@@ -5475,6 +5475,28 @@ mod tests {
         assert!(gpu < shm, "after the GPU arm's line");
     }
 
+    /// **A slide's old screen read back is the screen it was**: a
+    /// premultiplied word taken back to straight alpha and premultiplied
+    /// again, as the slide copies it, is the word it was, at every alpha
+    /// and every channel value the alpha allows, so a slide that only moves
+    /// pixels moves them exactly, translucent ones included.
+    #[test]
+    fn a_word_read_back_to_straight_premultiplies_to_itself() {
+        let mut words = Vec::new();
+        for a in 0..=255u32 {
+            for p in 0..=a {
+                words.push(Argb((a << 24) | (p << 16) | ((a - p) << 8) | p));
+            }
+        }
+        let back: Vec<u32> = words.iter().map(|&w| straight(w).0).collect();
+        let mut row = vec![0u32; back.len()];
+        baud_domain::premultiply_row(&back, &mut row);
+        for ((w, b), r) in words.iter().zip(&back).zip(&row) {
+            assert_eq!(baud_domain::premultiply(*b), w.0, "{:#010x}", w.0);
+            assert_eq!(*r, w.0, "by rows, {:#010x}", w.0);
+        }
+    }
+
     #[test]
     fn the_cpu_arm_presents_what_it_painted() {
         use baud_core::{BytePos, ReadLen};
