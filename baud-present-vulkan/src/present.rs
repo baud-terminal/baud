@@ -33,7 +33,7 @@ use baud_domain::{Codepoint, Col, PackedCell, Row, RowExtent, Rows};
 use baud_font::Px as FontPx;
 use baud_present_wayland::dmabuf::Point;
 use baud_present_wayland::{Changed, Px};
-use baud_render::cell_frame::{CellInputs, CellParts, build};
+use baud_render::cell_frame::{CellInputs, CellParts, build_with};
 use baud_render::screens::{SETS, Screens, SetIx};
 use baud_render::{
     Candidate, Composition, GlyphMap, Highlight, Instance, Kind, Leaving, Lent, Overlay, Redraw,
@@ -314,10 +314,12 @@ impl Presenter {
             leaving: Leaving::None,
             pan: FontPx::of(0),
         };
-        let Some(frame) = build(
+        let damage = renderer.damage(term, inputs.back);
+        let Some(frame) = build_with(
             renderer,
             term,
             seal,
+            &damage,
             &cell_inputs,
             &mut CellParts {
                 map: &mut self.map,

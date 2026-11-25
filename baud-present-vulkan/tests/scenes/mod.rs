@@ -60,7 +60,7 @@ use baud_present_vulkan::lend::{Arm, Elems};
 use baud_present_vulkan::pipeline::Pipelines;
 use baud_present_vulkan::sheets::Sheets;
 use baud_present_wayland::Px;
-use baud_render::cell_frame::{CellFrame, CellInputs, CellParts, build};
+use baud_render::cell_frame::{CellFrame, CellInputs, CellParts, build_with};
 use baud_render::screens::{SETS, Screens, SetIx};
 use baud_render::{
     Blend, Candidate, Composition, Damage, GlyphMap, Highlight, Instance, Kind, Leaving, Lent,
@@ -391,10 +391,12 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
             leaving: Leaving::None,
             pan: FontPx::of(0),
         };
-        let frame = build(
+        let damage = r.damage(t, inputs.back);
+        let frame = build_with(
             r,
             t,
             seal,
+            &damage,
             &inputs,
             &mut CellParts {
                 map: &mut held.map,

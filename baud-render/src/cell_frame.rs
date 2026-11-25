@@ -17,11 +17,11 @@ use crate::{
     Candidate, Composition, GlyphMap, Highlight, Instance, Leaving, Lent, Overlay, Renderer,
     Resolved, Scene, StyleStamp, Tally, WalkKey,
 };
-use baud_domain::TermRead;
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, RowExtent, RowRot,
     Rows, Seal,
 };
+use baud_domain::{FrameDamage, TermRead};
 use baud_font::Px;
 
 /// **What a cell frame is built from**, beyond the terminal and the
@@ -141,15 +141,43 @@ pub struct CellFrame {
 /// window is laid out; none, the layout done, when `building` names none.
 /// `used` is left holding each row's mark as the view read it.
 ///
+/// **The cell path's frame, its damage read here**: [`build_with`] with
+/// [`Renderer::damage`] of `term` against the last frame built, for a
+/// driver that does not hand the damage in.
+#[allow(clippy::too_many_arguments)]
+pub fn build<P>(
+    renderer: &mut Renderer<'_, '_>,
+    term: &impl TermRead,
+    seal: Seal,
+    inputs: &CellInputs<'_, P>,
+    cell: &mut CellParts<'_, '_, '_>,
+    used: &mut Vec<RowExtent>,
+    building: impl FnOnce() -> Option<SetIx>,
+) -> Option<CellFrame>
+where
+    P: Iterator<Item = (Row, Col, Codepoint)> + DoubleEndedIterator + Clone,
+{
+    let damage = renderer.damage(term, inputs.back);
+    build_with(renderer, term, seal, &damage, inputs, cell, used, building)
+}
+
 /// **`seal` is the one the driver closed this frame's writes with**
 /// (`Term::seal_writes`), taken once a frame before the build: the set's
 /// copy and the sized lines' keys are recorded under it. A required
 /// argument, so no driver builds a frame without sealing first; `term` is
 /// shared, and the build itself seals nothing.
-pub fn build<P>(
+///
+/// **`damage` is what the frame draws again of the last one built**
+/// ([`Renderer::damage`]): a [`FrameDamage::Whole`] is built as a screen
+/// of its own, its map walked again. Either way the set takes the rows
+/// written since its own copy, which the damage since the last frame is a
+/// part of.
+#[allow(clippy::too_many_arguments)]
+pub fn build_with<P>(
     renderer: &mut Renderer<'_, '_>,
     term: &impl TermRead,
     seal: Seal,
+    damage: &FrameDamage,
     inputs: &CellInputs<'_, P>,
     cell: &mut CellParts<'_, '_, '_>,
     used: &mut Vec<RowExtent>,
@@ -441,6 +469,14 @@ where
         }
         (_, _, Built::New) => Built::New,
     };
+    // A frame drawn whole is a screen of its own.
+    let built = match (damage, built) {
+        (FrameDamage::Whole(_), Built::Last) => {
+            screens.built(Built::New);
+            Built::New
+        }
+        (_, built) => built,
+    };
     screens.lending = lending;
     // **The leaving row's map ensured**, over the row as copied
     // and lent: before the screen's walk below, which clears the
@@ -713,6 +749,7 @@ where
     cell.grounds.extend_from_slice(renderer.badge());
     renderer.cursor_guide_lowered(if sliding { pan } else { Px::of(0) }, cell.grounds);
     let moving = (moving_from, cell.records.len());
+    renderer.animate(cursor, crate::drawn::Arm::Cell);
     // baud's own overlays, drawn over the images over the text
     // (`CellInput::chrome`): a `BEL`'s tint under the rest; the
     // find field over its cells, masked off the shader as a
@@ -748,6 +785,7 @@ where
         chrome,
     };
     renderer.put_drawn_order(drawn);
+    renderer.drew(term, seal, back, crate::drawn::Arm::Cell);
     Some(frame)
 }
 

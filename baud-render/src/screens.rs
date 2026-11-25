@@ -268,6 +268,19 @@ impl SetKey {
         }
     }
 
+    /// **Whether row `r` of the copy may not be the window's now with none
+    /// of its cells written**, drawn through `orders`: laid out again
+    /// after the key's layout's seal, or a window row in another line
+    /// rendition; every row with no key. Row `rows` is the status line's.
+    pub(crate) fn relaid(&self, orders: &Orders, view: &Viewport<'_>, r: Row) -> bool {
+        let Some(h) = &self.head else {
+            return true;
+        };
+        (r.index() < view.rows().index()
+            && self.renditions.get(r.index()) != Some(&view.rendition(r)))
+            || orders.laid_after(r, &h.laid)
+    }
+
     /// **This key, for a copy brought up to date now**: under `seal`, the
     /// term's `Term::sealed` as the copy was read, and the seal of
     /// `orders`, the maps it was drawn through, holding `screen`.
@@ -480,7 +493,7 @@ impl Screens {
                 (Leaving::None, true) => Keeps::All,
                 (Leaving::None, false) => k.keeps(w.term, &now, w.orders),
             };
-            let mut copied = 0;
+            let (mut copied, mut taken) = (0, 0);
             for y in 0..rows + lined {
                 let kept = match keeps {
                     Keeps::All => true,
@@ -505,8 +518,10 @@ impl Screens {
                 };
                 copy[at..at + src.len()].copy_from_slice(src);
                 copied += src.len();
+                taken += 1;
             }
             add(Counter::CellsCopied, Site::Screens, Tally::of(copied));
+            add(Counter::RowsTaken, Site::Screens, Tally::of(taken));
         }
         if built == Built::New {
             self.now = ScreenGen::fresh();

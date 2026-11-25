@@ -11,7 +11,7 @@ mod support;
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, PackedCell, ReadLen, RowExtent};
 use baud_font::{Face, Px};
-use baud_render::cell_frame::{CellInputs, CellParts, build};
+use baud_render::cell_frame::{CellInputs, CellParts, build_with};
 use baud_render::screens::{SETS, Screens, SetIx};
 use baud_render::{
     Candidate, GlyphMap, Instance, Leaving, Lent, MapEntry, Overlay, Renderer, Resolved, StyleStamp,
@@ -97,10 +97,12 @@ fn frame(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, cell: &mut Cells<'_>, at: S
     let mut styles = cell.styles_mem.each_mut().map(|c| &mut c[..]);
     let mut overlay = cell.overlay_mem.each_mut().map(|c| &mut c[..]);
     let before = r.sized_converted().value();
-    build(
+    let damage = r.damage(t, inputs.back);
+    build_with(
         r,
         t,
         seal,
+        &damage,
         &inputs,
         &mut CellParts {
             map: &mut cell.map,

@@ -81,6 +81,7 @@ mod color;
 mod composite;
 pub mod counters;
 pub mod det;
+mod drawn;
 pub mod effect;
 mod find;
 pub mod fire;

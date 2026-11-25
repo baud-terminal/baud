@@ -11,7 +11,7 @@ use baud_domain::{
     BytePos, CacheGeometry, Cols, Depth, PackedCell, ReadLen, RowExtent, Rows, WinSize,
 };
 use baud_font::{Face, Px};
-use baud_render::cell_frame::{CellInputs, CellParts, build};
+use baud_render::cell_frame::{CellInputs, CellParts, build_with};
 use baud_render::screens::{SETS, Screens, SetIx};
 use baud_render::{
     Blend, Candidate, GlyphMap, Instance, Leaving, Lent, MapEntry, Overlay, PxSize, Renderer,
@@ -143,10 +143,12 @@ fn built(
         let mut copies = cell.copies_mem.each_mut().map(|c| &mut c[..]);
         let mut styles = cell.styles_mem.each_mut().map(|c| &mut c[..]);
         let mut overlay = cell.overlay_mem.each_mut().map(|c| &mut c[..]);
-        build(
+        let damage = r.damage(t, inputs.back);
+        build_with(
             r,
             t,
             seal,
+            &damage,
             &inputs,
             &mut CellParts {
                 map: &mut cell.map,

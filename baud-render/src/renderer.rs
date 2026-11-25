@@ -45,6 +45,7 @@ use baud_domain::{
     ImageRead, ImageScreen, ImageSince, ImageStore, KittyId, KittyRoot, LineRendition, PackedCell,
     Pixel, PlaceSerial, Row, RowAt, RowGens, Rows, Seal, Viewport, ZIndex,
 };
+use baud_domain::{DirtyRows, FrameDamage, OverlayChanges};
 use baud_font::bytes::Count;
 use baud_font::{
     Cluster, Digest as LookupDigest, Direction, Engine, Face, Features, Glyph, Ignorable,
@@ -3071,6 +3072,21 @@ enum Prev {
     Known,
 }
 
+/// **The animations as a frame drew them**: what moves on screen with no
+/// cell of the terminal written -- the cursor, its glow and guide, the
+/// trail and the effect in its slot, the splash, the screen fade and the
+/// blink phases -- and the rows the splash's records met.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Moving {
+    cursor: (Cursor, Chan, CursorLook),
+    glow: Option<(Row, Col, CursorStyle, CursorPhase)>,
+    guide: Option<guide::Placed>,
+    trail: Option<Drawn>,
+    splash: (Option<SplashLook>, DirtyRows),
+    fade: Option<Veil>,
+    blink: BlinkPhases,
+}
+
 /// **What a frame does with a row of this path's copy of the window**
 /// (`Renderer::convert`): leaves it as the last frame left it, compares it
 /// with the last frame's as it stands -- a row veiled or lent, now or last
@@ -3227,6 +3243,13 @@ mod mirror {
             r: Row,
         ) -> bool {
             self.key.dirt(now, orders, view, r) != Dirt::Kept
+        }
+
+        /// Whether row `r` may not be the window's now with none of its
+        /// cells written: laid out again since the key's layout, or drawn
+        /// in another line rendition (`SetKey::relaid`).
+        pub(super) fn relaid(&self, orders: &Orders, view: &Viewport<'_>, r: Row) -> bool {
+            self.key.relaid(orders, view, r)
         }
 
         /// **The convert done**, the copy equal to the frame drawn: keyed
@@ -4611,6 +4634,22 @@ pub struct Renderer<'f, 'a> {
     /// so a frame converted and never drawn -- a draw refused while one is
     /// in flight -- still names its rows to the frame that is.
     redraw: crate::Redraw,
+    /// **What the last frame was built from**, by either path: what
+    /// [`Renderer::damage`] reads the terminal against.
+    drawn: Option<crate::drawn::DrawnKey>,
+    /// The overlays set otherwise since the last frame was built: the
+    /// selection, the find, the link under the pointer, the scrollbar, the
+    /// input method's text and the splash.
+    overlays_set: baud_domain::OverlayChanges,
+    /// The animations as the last frame drew them, none before the first.
+    moving: Option<Moving>,
+    /// **The rows the last frame's animations moved** with no cell
+    /// written ([`Renderer::animated`]), and of them the rows whose
+    /// blinking text flipped.
+    animated: crate::SurfaceRows,
+    blinked: baud_domain::DirtyRows,
+    /// The activity lights' records as the last frame drew them.
+    lights_was: Vec<Instance>,
     storage: Vec<Glyph>,
     /// The shaper's scratch for a varied face's glyph boxes, grown to the
     /// need a refusal names and kept; empty while no face varies.
@@ -5055,6 +5094,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             repaint: Vec::new(),
             threads: std::thread::available_parallelism().unwrap_or(core::num::NonZeroUsize::MIN),
             redraw: crate::Redraw::Whole,
+            drawn: None,
+            overlays_set: baud_domain::OverlayChanges::NONE,
+            moving: None,
+            animated: crate::SurfaceRows::NONE,
+            blinked: baud_domain::DirtyRows::NONE,
+            lights_was: Vec::new(),
             storage: vec![Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256],
             ink_scratch: Vec::new(),
         };
@@ -5427,7 +5472,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// coordinates, or none. One rule on every path: a selected cell's
     /// resolved colours swap, before the block cursor's own swap.
     pub fn set_highlight(&mut self, highlight: Option<Highlight>) {
+        if highlight != self.highlight {
+            self.overlay_set(OverlayChanges::SELECTION);
+        }
         self.highlight = highlight;
+    }
+
+    /// **`overlay` set otherwise since the last frame was built**: named
+    /// in the next frame's damage ([`Renderer::damage`]).
+    fn overlay_set(&mut self, overlay: OverlayChanges) {
+        self.overlays_set = self.overlays_set.union(overlay);
     }
 
     /// The selection the next frame draws ([`Renderer::set_highlight`]).
@@ -5445,7 +5499,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// [`Renderer::scrollbar`] appended to its records.
     pub fn set_scrollbar(&mut self, scroll: Option<Scroll>) {
         let size = self.frame_size();
-        self.bar = scroll.and_then(|s| scrollbar::bar(s, size, self.metrics.cell_h));
+        let bar = scroll.and_then(|s| scrollbar::bar(s, size, self.metrics.cell_h));
+        if bar != self.bar {
+            self.overlay_set(OverlayChanges::SCROLLBAR);
+        }
+        self.bar = bar;
         self.bar_inst.clear();
         if let Some(b) = self.bar {
             self.bar_inst
@@ -5485,6 +5543,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     pub fn set_composition(&mut self, c: Option<Composition>) {
         if c.as_ref().is_some_and(Composition::joins) {
             self.joins_seen = crate::bidi::Joins::Seen;
+        }
+        if c != self.composition {
+            self.overlay_set(OverlayChanges::IME);
         }
         self.composition = c;
     }
@@ -5576,6 +5637,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .theme
             .entry(MARK_SLOT, |ch| term.palette(ch))
             .with_alpha(Chan::from_u8(MARK_ALPHA));
+        if look != self.find {
+            self.overlay_set(OverlayChanges::FIND);
+        }
         self.find = look;
         self.build_find();
     }
@@ -5989,6 +6053,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// the images, and appends [`Renderer::link_solids`] to its records
     /// with the content.
     pub fn set_link(&mut self, look: Option<LinkLook>) {
+        if look != self.link {
+            self.overlay_set(OverlayChanges::HOVER);
+        }
         self.link = look;
         self.build_link();
     }
@@ -6185,6 +6252,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// **The link under the pointer for the next frame**, or none, copied
     /// into the buffer the last one left where it is another.
     pub fn set_link_hover(&mut self, hover: Option<&LinkHover>) {
+        if hover != self.links.hover() {
+            self.overlay_set(OverlayChanges::HOVER);
+        }
         self.links.set_hover(hover);
     }
 
@@ -6960,6 +7030,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // build, and the trail as `set_trail` left it.
         if look.is_none() && self.splash.is_none() {
             return;
+        }
+        if look != self.splash {
+            self.overlay_set(OverlayChanges::SPLASH);
         }
         self.splash = look;
         if look.is_none() {
@@ -9415,6 +9488,122 @@ impl<'f, 'a> Renderer<'f, 'a> {
         .bands(*rows)
     }
 
+    /// **What the next frame must draw again of the last one built**, by
+    /// either path, read off `term`'s window `back` lines up: every pixel
+    /// before the first frame and when the geometry, the screen, a reset,
+    /// an erasure, a colour, a cluster or a rendition moved what an
+    /// unwritten cell draws; else the rows written since, every row of a
+    /// window that shows other rows, the cursor as it changed and the
+    /// overlays set otherwise since. The rows the renderer's own
+    /// animations move are not the terminal's, and are not named here
+    /// ([`Renderer::animated`]).
+    pub fn damage(&self, term: &impl TermRead, back: Rows) -> FrameDamage {
+        crate::drawn::damage(self.drawn.as_ref(), term, back, self.overlays_set)
+    }
+
+    /// **The rows the last frame's animations moved**, with no cell
+    /// written: each animation's rows on that frame and on the one before
+    /// it, where it changed between them -- the cursor's, its glow's and
+    /// guide's, the trail's and the effect's in its slot, the splash's,
+    /// every row under the screen fade, the rows whose blinking text
+    /// flipped -- and the activity lights' line where its records changed.
+    /// What a frame drawn into a kept buffer repaints beside its damage.
+    pub fn animated(&self) -> crate::SurfaceRows {
+        self.animated
+    }
+
+    /// **This frame's animations against the last's**, `cursor` the
+    /// cursor it draws, built by `arm`: the rows each moved, now and where
+    /// it was, kept for [`Renderer::animated`]. The cell path reads text
+    /// blink a screen at a time, so a flip there names every row of the
+    /// main display.
+    pub(crate) fn animate(&mut self, cursor: Cursor, arm: crate::drawn::Arm) {
+        let rows = self.rows.index();
+        let opacity = cursor.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s));
+        let splash_rows = match self.splash_inst.is_empty() {
+            true => DirtyRows::NONE,
+            false => (0..rows)
+                .map(Row::from_index)
+                .filter(|&r| records_meet(&self.splash_inst, self.band(r)))
+                .fold(DirtyRows::NONE, |s, r| s.with(r).unwrap_or(s)),
+        };
+        let now = Moving {
+            cursor: (cursor, opacity, self.cursor_look),
+            glow: self.glow,
+            guide: self.guide_at,
+            trail: self.trail,
+            splash: (self.splash, splash_rows),
+            fade: self.fade,
+            blink: self.blink,
+        };
+        let was = self.moving.replace(now);
+        let mut grid = DirtyRows::NONE;
+        let mut blinked = DirtyRows::NONE;
+        if let Some(was) = was.filter(|w| *w != now) {
+            let add = |set: DirtyRows, r: Option<Row>| match r {
+                Some(r) => set.with(r).unwrap_or(set),
+                None => set,
+            };
+            if now.cursor != was.cursor {
+                grid = add(grid, now.cursor.0.map(|c| c.0));
+                grid = add(grid, was.cursor.0.map(|c| c.0));
+            }
+            if now.glow != was.glow {
+                grid = add(grid, now.glow.map(|g| g.0));
+                grid = add(grid, was.glow.map(|g| g.0));
+            }
+            for r in (0..rows).map(Row::from_index) {
+                let band = self.band(r);
+                let on_guide =
+                    |g: Option<guide::Placed>| g.is_some_and(|g| g.top == band.top.value());
+                let under = |d: Option<Drawn>| d.is_some_and(|d| d.overlaps(band.top, band.bottom));
+                let flips = match arm {
+                    crate::drawn::Arm::Cpu => self
+                        .row_blinks
+                        .get(r.index())
+                        .is_some_and(|b| b.flips(was.blink, now.blink)),
+                    crate::drawn::Arm::Cell => {
+                        r.index() < self.main.index() && self.blink_seen.flips(was.blink, now.blink)
+                    }
+                };
+                let moved = (now.guide != was.guide
+                    && (on_guide(now.guide) || on_guide(was.guide)))
+                    || (now.trail != was.trail && (under(now.trail) || under(was.trail)))
+                    || (now.splash != was.splash
+                        && (now.splash.1.contains(r) || was.splash.1.contains(r)))
+                    || now.fade != was.fade
+                    || flips;
+                if moved {
+                    grid = add(grid, Some(r));
+                }
+                if flips {
+                    blinked = add(blinked, Some(r));
+                }
+            }
+        }
+        let mut chrome = crate::ChromeBands::NONE;
+        if self.lights.inst != self.lights_was {
+            chrome = crate::ChromeBands::LIGHTS;
+            self.lights_was.clone_from(&self.lights.inst);
+        }
+        self.animated = crate::SurfaceRows { grid, chrome };
+        self.blinked = blinked;
+    }
+
+    /// **The frame just built**, from `term`'s window `back` lines up under
+    /// `seal`, by `arm`: the key the next [`Renderer::damage`] reads
+    /// against, with no overlay set since.
+    pub(crate) fn drew(
+        &mut self,
+        term: &impl TermRead,
+        seal: Seal,
+        back: Rows,
+        arm: crate::drawn::Arm,
+    ) {
+        self.drawn = Some(crate::drawn::DrawnKey::of(term, seal, back, arm));
+        self.overlays_set = OverlayChanges::NONE;
+    }
+
     /// Reads the terminal, converts the rows that changed and paints them
     /// into `target`: [`Renderer::convert`] then [`Renderer::paint`].
     ///
@@ -9436,6 +9625,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// rows [`TermRead::view`] shows, and the images on them. What a driver
     /// that scrolls the CPU path back calls, so the text moves with the
     /// thumb, the selection and the link under a click.
+    ///
+    /// The frame is drawn as its damage says: every pixel for
+    /// [`Damage::Full`], else what [`Renderer::damage`] reads off `term`.
     pub fn render_at(
         &mut self,
         term: &impl TermRead,
@@ -9443,6 +9635,27 @@ impl<'f, 'a> Renderer<'f, 'a> {
         back: Rows,
         target: &mut Target<'_>,
         damage: Damage,
+    ) -> Frame {
+        let damage = match damage {
+            Damage::Full => crate::drawn::TOLD,
+            Damage::Incremental => self.damage(term, back),
+        };
+        self.draw(term, seal, back, &damage, target)
+    }
+
+    /// **The CPU path's one build of a frame**, drawn into `target` as
+    /// `damage` says: the rows it names taken from `term` again, every row
+    /// for a [`FrameDamage::Whole`], and beside them the rows the renderer
+    /// draws again itself -- laid out again, veiled, lent, under a moved
+    /// animation ([`Renderer::animated`]) -- each repainted where it
+    /// changed.
+    fn draw(
+        &mut self,
+        term: &impl TermRead,
+        seal: Seal,
+        back: Rows,
+        damage: &FrameDamage,
+        target: &mut Target<'_>,
     ) -> Frame {
         // **An image is part of the rows a frame repaints.** Images drew
         // only on a full frame, and a live terminal renders incrementally
@@ -9466,10 +9679,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // whole: no row's reach counts their records.
         let damage = match self.splash_layers.is_empty() && self.last_splash_layers.is_empty() {
             true => damage,
-            false => Damage::Full,
+            false => &crate::drawn::TOLD,
         };
+        // The lights' records placed before the convert, which finds the
+        // frame's animations against the last's.
+        if self.lights.height().value() > 0 {
+            self.place_lights(term);
+        }
         self.place_images(term, back, Snapshots::Skipped);
         let converted = self.convert_with(term, seal, back, damage, ImageRows::Repainted);
+        let damage = match damage {
+            FrameDamage::Whole(_) => Damage::Full,
+            FrameDamage::Rows { .. } => Damage::Incremental,
+        };
         self.strip_fresh = StripFresh::No;
         self.margin_fresh = StripFresh::No;
         self.lights.fresh = crate::lights::Fresh::No;
@@ -9480,7 +9702,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if line.value() == 0 {
             return self.paint_beside(term, target, converted, damage);
         }
-        self.place_lights(term);
         let (top, h) = (self.grid_top(), self.frame_size().1);
         let frame = match target.rows(top, h) {
             Some(mut rest) => self.paint_beside(term, &mut rest, converted, damage),
@@ -10890,7 +11111,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// and [`Renderer::atlas`] from here; the CPU path calls
     /// [`Renderer::paint`].
     pub fn convert(&mut self, term: &impl TermRead, back: Rows, damage: Damage) -> Converted {
-        self.convert_with(term, term.sealed(), back, damage, ImageRows::Ignored)
+        let damage = match damage {
+            Damage::Full => crate::drawn::TOLD,
+            Damage::Incremental => self.damage(term, back),
+        };
+        self.convert_with(term, term.sealed(), back, &damage, ImageRows::Ignored)
     }
 
     fn convert_with(
@@ -10898,7 +11123,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         term: &impl TermRead,
         seal: Seal,
         back: Rows,
-        damage: Damage,
+        damage: &FrameDamage,
         images: ImageRows,
     ) -> Converted {
         let t0 = Instant::now();
@@ -10989,28 +11214,46 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // **Which rows `cur` takes from the terminal again** (FS-C5): every
         // row when its key does not hold -- none yet, another window, other
         // scalars, another display, a frame that knows nothing of the
-        // last; else the rows written since its seal or laid out again
-        // since its layout's, and the status line's by its own generation
-        // and its own row of the maps. And the rows the last frame veiled,
-        // composed over or noticed, or every row if it lent a frozen window
-        // slots: `cur` holds those as drawn, not as stored. The cells its
-        // struck links were lent are the terminal's again already
-        // (`Mirror::unlend`, above). Every other row is the terminal's
-        // already, and the last frame's: it is neither read nor compared.
+        // last; else the rows the damage names, the status line's after
+        // the main display's, and the rows laid out again since its
+        // layout's seal or drawn in another line rendition. A frame drawn
+        // whole converts every row, and takes the rows its key does not
+        // keep: the rest are the terminal's already. Where the last frame
+        // was the cell path's, the damage is read against that frame, not
+        // this copy's, and the rows taken are those written since its own
+        // seal. And the rows the last
+        // frame veiled, composed over or noticed, or every row if it lent a
+        // frozen window slots: `cur` holds those as drawn, not as stored.
+        // The cells its struck links were lent are the terminal's again
+        // already (`Mirror::unlend`, above). Every other row is the
+        // terminal's already, and the last frame's: it is neither read nor
+        // compared.
         let orders = self.bidi.orders();
         let now = crate::screens::Now::of(term, back, (&vp, status.as_ref()), term.stride());
         let keeps = match self.known {
             Prev::Unknown => crate::screens::Keeps::Nothing,
             Prev::Known => self.cur.keeps(term, &now, orders),
         };
+        let named = match damage {
+            FrameDamage::Rows { rows, .. }
+                if self.drawn.is_some_and(|k| k.arm == crate::drawn::Arm::Cpu) =>
+            {
+                Some(*rows)
+            }
+            _ => None,
+        };
         self.mirror_rows.clear();
         for r in 0..rows.index() {
-            let taken = match keeps {
-                crate::screens::Keeps::Nothing => true,
-                crate::screens::Keeps::All => false,
-                crate::screens::Keeps::Rows => {
+            let row = Row::from_index(r);
+            let taken = match (keeps, named) {
+                (crate::screens::Keeps::Nothing, _) => true,
+                (crate::screens::Keeps::All, _) => false,
+                (crate::screens::Keeps::Rows, Some(named)) => {
                     r < main.index() + lined
-                        && self.cur.dirty(&now, orders, &vp, Row::from_index(r))
+                        && (named.contains(row) || self.cur.relaid(orders, &vp, row))
+                }
+                (crate::screens::Keeps::Rows, None) => {
+                    r < main.index() + lined && self.cur.dirty(&now, orders, &vp, row)
                 }
             };
             self.mirror_rows.push(match taken {
@@ -11041,6 +11284,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
         }
         let mut copied = 0;
+        let mut taken = 0;
         let mut logical = Vec::new();
         let mut pairs = Vec::new();
         let mut greys = Vec::new();
@@ -11075,6 +11319,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             self.cur.converting().1[r] = vp.rendition(row);
             copied += ncols;
+            taken += 1;
         }
         crate::counters::add(Counter::CellsCopied, Site::Convert, Tally::of(copied));
         if let Some(line) = status.as_ref().filter(|_| lined == 1) {
@@ -11088,8 +11333,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 );
                 crate::counters::add(Counter::CellsCopied, Site::Convert, Tally::of(n));
                 self.cur.converting().1[r] = line.rendition;
+                taken += 1;
             }
         }
+        crate::counters::add(Counter::RowsTaken, Site::Convert, Tally::of(taken));
         if let Some(f) = &notice {
             let r = f.row.index();
             let (cells, sizes) = self.cur.converting();
@@ -11132,8 +11379,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         {
             let cur = core::mem::take(&mut self.cur);
             let force = match damage {
-                Damage::Full => Force::Full,
-                Damage::Incremental => Force::No,
+                FrameDamage::Whole(_) => Force::Full,
+                FrameDamage::Rows { .. } => Force::No,
             };
             self.place_links_with(term, &vp, force, |y, v, _| {
                 cur.get(y.index() * ncols + v.index())
@@ -11259,6 +11506,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.place_grounds(live, Self::cursor_line(term, back));
         let cursor: Cursor = live.filter(|&(_, _, style)| self.cursor_drawn(style));
         let opacity = cursor.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s));
+        self.animate(cursor, crate::drawn::Arm::Cpu);
         // Every slot resolved again -- a theme, a video or a palette changed
         // -- repaints every cell whose words did not change, and so does an
         // eviction, which gives a slot some cell names another rendition, and
@@ -11276,7 +11524,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // sweep or a reset freed can hold another cluster now, under the
         // word a cell that named it in the last frame still has.
         let clusters = Some(term.cluster_epoch());
-        let full = damage == Damage::Full
+        let full = matches!(damage, FrameDamage::Whole(_))
             || self.known == Prev::Unknown
             || sync.pass == Pass::Full
             || sync.evicted == Evicted::Yes
@@ -11506,6 +11754,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let relaid = self
                 .laid_drawn
                 .is_none_or(|laid| self.bidi.orders().laid_after(row, &laid));
+            // Blinking text whose rate's phase flipped, and the rows an
+            // animation moved over or left (`Renderer::animate`).
+            let blinked = self.blinked.contains(row);
+            let animated = self.animated.grid.contains(row);
             // An image the CPU path drew on this row last frame is not
             // there now, or one arrived or changed on it, under the text or
             // over it: see `render_at`.
@@ -11525,9 +11777,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || linked
                 || tipped
                 || noticed
-                || relaid;
+                || relaid
+                || blinked;
             beyond_cursor |= beyond;
-            let whole = full || beyond || cursor_moved || glow_moved || guide_moved;
+            let whole = full
+                || beyond
+                || cursor_moved
+                || glow_moved
+                || guide_moved
+                || (animated && !trail_moved && !splashed);
             self.dirty[r] = whole || trail_moved || splashed;
             // A row dirty only for the trail or the splash repaints the
             // columns their records reach on it, now and in the last frame:
@@ -11694,10 +11952,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             && term.bidi_support() == BidiSupport::Explicit
         {
             let dirtied = self.dirty.clone();
+            let moved = self.animated;
             let mut again = self.convert_with(term, seal, back, damage, images);
             for (d, was) in self.dirty.iter_mut().zip(dirtied) {
                 *d |= was;
             }
+            self.animated = self.animated.union(moved);
             // The second pass reads this frame's records as the last's.
             self.repaint.fill(Repaint::Whole);
             // Both passes' rows and time.
@@ -11705,6 +11965,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             again.convert = t0.elapsed();
             return again;
         }
+        self.drew(term, seal, back, crate::drawn::Arm::Cpu);
         Converted {
             rows_dirty,
             rows: Tally::of(rows.index()),

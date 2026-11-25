@@ -76,11 +76,14 @@ pub enum Counter {
     /// each blit's rectangle clipped to the target, its band and its
     /// columns (`crate::composite`), over the text and under it alike.
     ImagePixelsBlitted,
+    /// Rows taken from the terminal into a copy of the window: the CPU
+    /// path's at the convert, and a set's at the cell path's copy.
+    RowsTaken,
 }
 
 impl Counter {
     /// Every counter, in the order a harness prints them.
-    pub const ALL: [Counter; 12] = [
+    pub const ALL: [Counter; 13] = [
         Counter::CellsCompared,
         Counter::CellsCopied,
         Counter::CellsConverted,
@@ -93,6 +96,7 @@ impl Counter {
         Counter::DisplaysLaid,
         Counter::GensRead,
         Counter::ImagePixelsBlitted,
+        Counter::RowsTaken,
     ];
 
     /// The counter's name, as a harness prints it.
@@ -110,6 +114,7 @@ impl Counter {
             Counter::DisplaysLaid => "displays_laid",
             Counter::GensRead => "gens_read",
             Counter::ImagePixelsBlitted => "image_pixels_blitted",
+            Counter::RowsTaken => "rows_taken",
         }
     }
 
@@ -132,6 +137,7 @@ impl Counter {
             Counter::DisplaysLaid => Slot(9),
             Counter::GensRead => Slot(10),
             Counter::ImagePixelsBlitted => Slot(11),
+            Counter::RowsTaken => Slot(12),
         }
     }
 }

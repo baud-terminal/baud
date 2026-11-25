@@ -24,7 +24,7 @@ use baud_domain::{
     WinSize, WindowAt, Wrap,
 };
 use baud_font::{Face, Px};
-use baud_render::cell_frame::{CellInputs, CellParts, build};
+use baud_render::cell_frame::{CellInputs, CellParts, build_with};
 use baud_render::screens::{Built, SETS, Screens, SetIx};
 use baud_render::{
     AppBg, Blend, Candidate, Caret, Composition, Current, Damage, DrawnRows, FaceRole, FaceStyle,
@@ -526,10 +526,12 @@ fn cell_frame_on(
     let mut copies = cell.copies_mem.each_mut().map(|c| &mut c[..]);
     let mut styles = cell.styles_mem.each_mut().map(|c| &mut c[..]);
     let mut overlay = cell.overlay_mem.each_mut().map(|c| &mut c[..]);
-    build(
+    let damage = r.damage(t, inputs.back);
+    build_with(
         r,
         t,
         seal,
+        &damage,
         &inputs,
         &mut CellParts {
             map: &mut cell.map,
