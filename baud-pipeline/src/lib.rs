@@ -9,6 +9,10 @@
 //!   thread takes the slot last published and draws from it. Neither waits
 //!   for the other, and the types say which side holds each slot: a slot reached after
 //!   it was handed on, or from two threads at once, is a compile error.
+//! - [`lease`]: what the frame thread holds of the ingest thread's until
+//!   the GPU is done with it. A lease is owned, and its drop hands the item
+//!   back over a bounded ring that never fills; the ingest thread gets an
+//!   item back only from what a drop handed back.
 //!
 //! **The one `unsafe` is in [`handoff`]**, the slots' deref and the `Sync`
 //! it rests on, and its soundness argument is written beside it.
@@ -18,3 +22,4 @@
 
 pub mod ctx;
 pub mod handoff;
+pub mod lease;

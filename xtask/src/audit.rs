@@ -264,12 +264,14 @@ pub const CRATES: [Crate; 11] = [
     // which `place` takes too, so the two cannot be swapped, and the values
     // a line of `Emit::array` holds are a `PerLine`.
     krate("baud-tablegen", &["baud-tablegen/src"], Sites(4), Sites(25)),
-    // baud-pipeline: 4 raw sites and no signature primitives, every one a
+    // baud-pipeline: 5 raw sites and no signature primitives, every one a
     // struct field: the handoff's two slot indices, `IngestEnd::back` and
-    // `FrameEnd::front`, each the `u8` the shared `AtomicU8` swaps, and the
+    // `FrameEnd::front`, each the `u8` the shared `AtomicU8` swaps; the
     // stress test's `Seq::first` and `Seq::last`, the sequence number a torn
-    // read would show as two.
-    krate("baud-pipeline", &["baud-pipeline/src"], Sites(4), Sites(0)),
+    // read would show as two; and `Lender::out`, the leases out, compared
+    // with the const generic capacity `N`, which the language requires to
+    // be a `usize`.
+    krate("baud-pipeline", &["baud-pipeline/src"], Sites(5), Sites(0)),
     // xtask: 5 raw sites and no signature primitives, and every one is the
     // audit's own text matching itself -- the category names it prints,
     // which the table must spell as it always has (the cast category's

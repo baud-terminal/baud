@@ -13,3 +13,9 @@ ingest thread fills a slot and publishes it, and the frame thread takes the
 slot last published, each by one atomic swap; neither waits for the other.
 The types say which side holds each slot: a slot reached after it was handed on, or from
 two threads at once, is a compile error, not a race.
+
+A lease is what the frame thread holds of the ingest thread's until the GPU
+is done with it: owned rather than borrowed, never cloned and never written
+through. Its drop hands the item back over a bounded ring that never fills,
+because the ring holds every lease that can be out at once, and the ingest
+thread gets an item back only from what a drop handed back.
