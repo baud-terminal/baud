@@ -54,9 +54,19 @@ use baud_domain::{MarkBack, MarkOpen, StreamByte, TokenSeen, WalkSteps};
 /// (`shell::inject`), which takes it out of the environment before the
 /// user's startup files run and sends it on its own `C` and `D` marks, and
 /// to the core as its hash ([`ShellToken::hash`]). No program on the other
-/// end of an ssh can know it. Made only by [`ShellToken::mint`].
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct ShellToken(String);
+/// end of an ssh can know it. Made only by [`ShellToken::mint`], as the
+/// sixteen digits a [`baud_domain::ShellTokenHex`] holds, so its hash is
+/// always there; `Debug` shows none of them.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ShellToken(baud_domain::ShellTokenHex);
+
+/// The digits are not shown: the token sits in the reader thread and in
+/// the spawn's records, and a log of either holds no secret.
+impl core::fmt::Debug for ShellToken {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("ShellToken(..)")
+    }
+}
 
 impl ShellToken {
     /// A new token, none when the random source cannot be read: the window's
@@ -67,25 +77,30 @@ impl ShellToken {
         std::fs::File::open("/dev/urandom")
             .and_then(|mut f| f.read_exact(&mut raw))
             .ok()?;
-        Some(ShellToken(raw.iter().map(|b| format!("{b:02x}")).collect()))
+        let text: String = raw.iter().map(|b| format!("{b:02x}")).collect();
+        baud_domain::ShellTokenHex::parse(text.as_bytes()).map(ShellToken)
     }
 
     /// Its text, as the integration sends it.
-    pub fn as_str(&self) -> &str {
-        &self.0
+    pub fn text(&self) -> String {
+        self.0.digits().iter().map(|&b| char::from(b)).collect()
+    }
+
+    /// Its digits, as the link sniff finds the shell's `D` by them.
+    pub fn hex(&self) -> baud_domain::ShellTokenHex {
+        self.0
     }
 
     /// **What the core reads each mark's token against**
     /// (`Term::set_shell_token`): the hash of its sixteen digits.
-    pub fn hash(&self) -> Option<baud_domain::ShellTokenHash> {
-        baud_domain::ShellTokenHex::parse(self.0.as_bytes())
-            .map(|t| baud_domain::ShellTokenHash::of(&t))
+    pub fn hash(&self) -> baud_domain::ShellTokenHash {
+        baud_domain::ShellTokenHash::of(&self.0)
     }
 
-    /// A token spelled `s`, for a test.
+    /// A token spelled `s`, sixteen hex digits, for a test.
     #[cfg(test)]
     pub fn given(s: &str) -> ShellToken {
-        ShellToken(s.to_string())
+        ShellToken(baud_domain::ShellTokenHex::parse(s.as_bytes()).expect("sixteen hex digits"))
     }
 }
 
@@ -1029,6 +1044,68 @@ mod tests {
             let _ = fish.read(b"\x1b]133;D;0\x07");
             assert_eq!(fish.read(LINK), Ran::Unmarked, "no token ever: a plain D");
         });
+    }
+
+    /// **A token's hash is always there**: a minted token holds sixteen hex
+    /// digits, and its hash is theirs. Named break: keep the token as text
+    /// and hash it only when it parses -- `hash` is an `Option` again.
+    #[test]
+    fn a_minted_tokens_hash_is_its_digits() {
+        let t = ShellToken::mint().expect("the random source");
+        let hex = baud_domain::ShellTokenHex::parse(t.text().as_bytes()).expect("sixteen digits");
+        let hash: baud_domain::ShellTokenHash = t.hash();
+        assert_eq!(hash, baud_domain::ShellTokenHash::of(&hex));
+        assert_eq!(t.hex(), hex);
+    }
+
+    /// **The window's token is not shown**: the format of a token, alone or
+    /// in an `Option`, holds none of its digits. The control: its text is
+    /// them. Named break: derive `Debug` on `ShellToken` -- the digits show.
+    #[test]
+    fn a_shell_token_is_not_shown() {
+        let digits = "0123456789abcdef";
+        let token = ShellToken::given(digits);
+        let shown = format!("{token:?} {:?}", Some(&token));
+        assert!(!shown.contains(digits), "{shown}");
+        assert_eq!(token.text(), digits, "the control");
+    }
+
+    /// **A tokened `D` fed before the core holds the token is not the
+    /// shell's, and cuts nothing**: the core reads it `Absent`, the fold
+    /// carries no shell's `D` and places no cut. The control: the same read
+    /// once the token is handed is the shell's and cut at the `D`. Named
+    /// break: read a mark's token as the shell's while the core holds none
+    /// (`TokenSeen::of` giving `Shells` for no token held) -- the first read
+    /// is cut.
+    #[test]
+    fn a_tokened_d_before_the_token_is_handed_is_not_the_shells() {
+        use baud_core::{Owned, ReadLen, Term};
+        let digits = "0123456789abcdef";
+        let bytes = [b"x".as_slice(), &d(digits), b"% "].concat();
+        let ws = baud_domain::WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let _ = t.take_record();
+        let mut fold = Fold::default();
+        let mut read = |t: &mut Term<'_>| {
+            t.write_at(BytePos::ZERO, &bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let rec = t.take_record();
+            let token = rec.marks().iter().map(|m| m.token()).next();
+            let end = BytePos::from_index(bytes.len());
+            (token, fold.part(&rec, BytePos::ZERO, end))
+        };
+        let (seen, before) = read(&mut t);
+        assert_eq!(seen, Some(TokenSeen::Absent));
+        assert_eq!(before.shells_d, ShellsD::No);
+        assert_eq!(before.after_at(BytePos::from_index(1)), None, "no cut");
+        t.set_shell_token(Some(ShellToken::given(digits).hash()));
+        let (seen, after) = read(&mut t);
+        assert_eq!(seen, Some(TokenSeen::Shells), "the control");
+        assert_eq!(after.after_at(BytePos::from_index(1)), Some(Ran::Shell));
     }
 
     /// **The shell's `D` inside a picture's body ends nothing**: under the

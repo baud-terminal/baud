@@ -263,7 +263,7 @@ mod inject {
         let token = ShellToken::mint()?;
         Some(Injection {
             args: Vec::new(),
-            env: vec![(TOKEN_NAME, OsString::from(token.as_str()))],
+            env: vec![(TOKEN_NAME, OsString::from(token.text()))],
             token: Some(token),
         })
     }
@@ -293,7 +293,7 @@ mod inject {
             SshEnv::On => Some((SSH_ENV_NAME, os("1"))),
             SshEnv::Off => None,
         };
-        let told = token.map(|t| (TOKEN_NAME, os(t.as_str())));
+        let told = token.map(|t| (TOKEN_NAME, os(&t.text())));
         let kept_token = token.cloned();
         match kind {
             Kind::Zsh => {
@@ -326,7 +326,7 @@ mod inject {
                 // Hex digits alone: nothing fish reads as quoting.
                 if let Some(t) = token {
                     source.extend_from_slice(b"set -g __baud_token ");
-                    source.extend_from_slice(t.as_str().as_bytes());
+                    source.extend_from_slice(t.text().as_bytes());
                     source.extend_from_slice(b"; ");
                 }
                 source.extend_from_slice(b"source '");
@@ -670,7 +670,7 @@ mod tests {
         );
         let minted = crate::ran::ShellToken::mint().expect("the random source");
         assert!(
-            minted.as_str().len() == 16 && minted.as_str().bytes().all(|b| b.is_ascii_hexdigit()),
+            minted.text().len() == 16 && minted.text().bytes().all(|b| b.is_ascii_hexdigit()),
             "{minted:?}"
         );
     }
@@ -746,7 +746,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("{shell}: injected"));
             let token = got.token.unwrap_or_else(|| panic!("{shell}: a token"));
             assert!(
-                token.as_str().len() == 16 && token.as_str().bytes().all(|b| b.is_ascii_hexdigit()),
+                token.text().len() == 16 && token.text().bytes().all(|b| b.is_ascii_hexdigit()),
                 "{shell}: {token:?}"
             );
             seen.push(token);
@@ -898,7 +898,7 @@ mod tests {
             got.env,
             vec![(
                 crate::child_env::EnvName::fixed("BAUD_SHELL_TOKEN"),
-                std::ffi::OsString::from(kept.as_str())
+                std::ffi::OsString::from(kept.text())
             )]
         );
         let zsh =

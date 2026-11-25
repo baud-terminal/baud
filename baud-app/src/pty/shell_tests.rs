@@ -1755,7 +1755,7 @@ fn the_command_line_and_a_token_reach_the_marks(sh: Sh) {
         let handed = s.token.as_ref().expect("baud made a token");
         assert_eq!(
             first,
-            handed.as_str().as_bytes(),
+            handed.text().as_bytes(),
             "{}: baud's token",
             sh.name()
         );
@@ -1786,7 +1786,8 @@ fn the_command_line_and_a_token_reach_the_marks(sh: Sh) {
             sh.name(),
             s.tail()
         );
-        let token = s.token.as_ref().map(crate::ran::ShellToken::as_str);
+        let text = s.token.as_ref().map(crate::ran::ShellToken::text);
+        let token = text.as_deref();
         crate::ran::fed::with_shell(token, |scan| {
             // The session in reads of 64 bytes, fewer marks each than a
             // record keeps.

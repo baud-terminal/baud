@@ -827,11 +827,11 @@ impl Sampler {
     /// token (`Term::set_shell_token`) and folded from its record
     /// (`ran::Fold`).
     pub fn for_shell(token: Option<&crate::ran::ShellToken>) -> Sampler {
-        let hex = token.and_then(|t| baud_domain::ShellTokenHex::parse(t.as_str().as_bytes()));
+        let hex = token.map(crate::ran::ShellToken::hex);
         Sampler {
             sniff: baud_domain::LinkSniff::new(hex),
             #[cfg(test)]
-            token: token.and_then(crate::ran::ShellToken::hash),
+            token: token.map(crate::ran::ShellToken::hash),
             ..Sampler::default()
         }
     }
@@ -5561,7 +5561,7 @@ mod tests {
             format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07\x1b]133;A;aid=1\x07").into_bytes();
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_shell_token(crate::ran::ShellToken::given(TOKEN).hash());
+        t.set_shell_token(Some(crate::ran::ShellToken::given(TOKEN).hash()));
         t.write_at(BytePos::ZERO, &bytes);
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
         let rec = t.take_record();

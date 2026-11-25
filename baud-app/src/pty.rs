@@ -647,7 +647,7 @@ impl Pty {
     pub fn shell_token_hash(&self) -> Option<baud_domain::ShellTokenHash> {
         match self {
             #[cfg(target_os = "linux")]
-            Pty::Live(l) => l.shell_token().and_then(crate::ran::ShellToken::hash),
+            Pty::Live(l) => l.shell_token().map(crate::ran::ShellToken::hash),
             #[cfg(target_os = "macos")]
             Pty::Live(l) => l.token_hash,
             Pty::Refused(_) => None,
@@ -2682,7 +2682,7 @@ impl Pty {
         let (held, closing) = Reading::of(master);
         let watched = crate::probe::WatchCell::default();
         let taken = watched.clone();
-        let token_hash = token.as_ref().and_then(crate::ran::ShellToken::hash);
+        let token_hash = token.as_ref().map(crate::ran::ShellToken::hash);
         std::thread::spawn(move || reader(held, tx, flag, &taken, token.as_ref(), wake));
         Pty::Live(Live {
             master,
@@ -7624,7 +7624,7 @@ mod tests {
         // fold of the marks it records.
         let mut owned = baud_core::Owned::new(&size);
         let mut term = baud_core::Term::new(owned.storage(), &size);
-        term.set_shell_token(token.as_ref().and_then(crate::ran::ShellToken::hash));
+        term.set_shell_token(token.as_ref().map(crate::ran::ShellToken::hash));
         let mut fold = crate::ran::Fold::default();
         let mut named = std::collections::HashMap::new();
         let elsewhere = Some(crate::paths::Front::Elsewhere);

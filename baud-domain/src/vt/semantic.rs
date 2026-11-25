@@ -505,6 +505,11 @@ impl ShellTokenHex {
         }
     }
 
+    /// **Its digits**, as baud hands them to the shell.
+    pub fn digits(&self) -> [u8; ShellTokenHex::LEN] {
+        self.0.map(crate::StreamByte::raw_byte)
+    }
+
     /// Whether `b` is this token's digits, byte for byte.
     pub(crate) fn is(&self, b: &[u8]) -> bool {
         b.len() == ShellTokenHex::LEN && self.0.iter().zip(b).all(|(t, &c)| t.raw_byte() == c)
@@ -1524,6 +1529,27 @@ mod tests {
             MarkOpen::Remote(Shells).step(c, Other, Elsewhere),
             MarkOpen::Remote(Shells),
             "a program's ssh keeps the shell's"
+        );
+    }
+
+    /// **Neither the token nor its hash shows in `Debug`**: the format of a
+    /// token holds none of its digits, and that of its hash none of the
+    /// hash's. Named break: derive `Debug` on either -- its digits show.
+    #[test]
+    fn a_token_and_its_hash_are_not_shown() {
+        extern crate std;
+        use std::format;
+        let digits = "0123456789abcdef";
+        let hex = ShellTokenHex::parse(digits.as_bytes()).expect("a token");
+        let hash = ShellTokenHash::of(&hex);
+        let shown = format!("{hex:?} {hash:?} {:?}", Some(hash));
+        assert!(!shown.contains(digits), "{shown}");
+        assert!(!shown.contains(&format!("{:x}", hash.0)), "{shown}");
+        assert!(!shown.contains(&format!("{}", hash.0)), "{shown}");
+        assert_eq!(
+            hex.digits(),
+            *b"0123456789abcdef",
+            "the control: the digits are there"
         );
     }
 }

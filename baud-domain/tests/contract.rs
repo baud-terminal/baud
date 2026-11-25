@@ -657,6 +657,7 @@ const _: baud_domain::MarkBack = baud_domain::MarkBack::Before;
 // ShellTokenHex
 const _: fn(&[u8]) -> Option<baud_domain::ShellTokenHex> = baud_domain::ShellTokenHex::parse;
 const _: usize = baud_domain::ShellTokenHex::LEN;
+const _: fn(&baud_domain::ShellTokenHex) -> [u8; 16] = baud_domain::ShellTokenHex::digits;
 // Sixel
 const _: fn(
     baud_domain::InputEncoding,
