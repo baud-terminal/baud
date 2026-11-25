@@ -266,6 +266,153 @@ impl Vulkan {
     }
 }
 
+/// **One device's row of the vendor matrix** (`tests/vendors.rs`): its driver, what
+/// the GPU path's choice reads of it, each extension the path names, and
+/// whether it blends by a second source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Row {
+    /// The driver, by its `VkDriverId` name ([`driver_name`]).
+    pub driver: String,
+    pub candidate: Candidate,
+    pub extensions: Vec<(&'static str, Has)>,
+    pub dual_source: Has,
+}
+
+/// Whether a device has a thing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Has {
+    Yes,
+    No,
+}
+
+/// **A driver's name as `VkDriverId` spells it**, without its `VK_DRIVER_ID_`
+/// prefix, for the drivers baud is run on or names; any other by its number.
+pub fn driver_name(id: vk::DriverId) -> String {
+    let known = [
+        (vk::DriverId::MESA_RADV, "MESA_RADV"),
+        (vk::DriverId::MESA_LLVMPIPE, "MESA_LLVMPIPE"),
+        (
+            vk::DriverId::INTEL_OPEN_SOURCE_MESA,
+            "INTEL_OPEN_SOURCE_MESA",
+        ),
+        (vk::DriverId::AMD_PROPRIETARY, "AMD_PROPRIETARY"),
+        (vk::DriverId::AMD_OPEN_SOURCE, "AMD_OPEN_SOURCE"),
+        (vk::DriverId::NVIDIA_PROPRIETARY, "NVIDIA_PROPRIETARY"),
+        (vk::DriverId::MESA_NVK, "MESA_NVK"),
+        (vk::DriverId::MESA_TURNIP, "MESA_TURNIP"),
+    ];
+    known.iter().find(|(k, _)| *k == id).map_or_else(
+        || format!("driver {}", id.as_raw()),
+        |(_, n)| (*n).to_string(),
+    )
+}
+
+impl Has {
+    fn word(self) -> &'static str {
+        match self {
+            Has::Yes => "yes",
+            Has::No => "no",
+        }
+    }
+}
+
+impl Row {
+    /// **The lines a driver's committed file holds**: each a fact the path's
+    /// choice reads, and none that moves with the driver's version or the
+    /// machine -- whether any modifier exports and whether LINEAR is among
+    /// them, not how many there are, and not the memory arm, which is the
+    /// machine's.
+    pub fn lines(&self) -> Vec<String> {
+        let c = &self.candidate;
+        let yes = |b: bool| match b {
+            true => "yes",
+            false => "no",
+        };
+        let (kind, render) = match c.kind {
+            Kind::Gpu { render, .. } => ("gpu", render.is_some()),
+            Kind::Cpu => ("cpu", false),
+        };
+        let mut out = vec![
+            format!("driver: {}", self.driver),
+            format!("kind: {kind}"),
+            format!("render node known: {}", yes(render)),
+        ];
+        out.extend(
+            self.extensions
+                .iter()
+                .map(|(name, has)| format!("{name}: {}", has.word())),
+        );
+        out.extend([
+            format!("exportable modifier: {}", yes(!c.modifiers.is_empty())),
+            format!(
+                "LINEAR among them: {}",
+                yes(c
+                    .modifiers
+                    .contains(&baud_present_wayland::dmabuf::Modifier::LINEAR))
+            ),
+            format!(
+                "timeline export: {}",
+                yes(c.timeline == TimelineExport::Yes)
+            ),
+            format!("dual-source blend: {}", self.dual_source.word()),
+        ]);
+        out
+    }
+}
+
+impl Vulkan {
+    /// **Every device's row of the vendor matrix**, in the loader's order.
+    pub fn rows(&self) -> Vec<Row> {
+        self.candidates()
+            .into_iter()
+            .map(|(pd, candidate)| {
+                let mut names: Vec<&CStr> = REQUIRED.to_vec();
+                names.extend([SEMAPHORE_FD, PHYSICAL_DEVICE_DRM]);
+                Row {
+                    driver: driver_name(self.driver(pd)),
+                    candidate,
+                    extensions: names
+                        .into_iter()
+                        .map(|n| {
+                            let has = match self.has(pd, n) {
+                                true => Has::Yes,
+                                false => Has::No,
+                            };
+                            (n.to_str().unwrap_or("an extension"), has)
+                        })
+                        .collect(),
+                    dual_source: self.dual_source(pd),
+                }
+            })
+            .collect()
+    }
+
+    /// The driver behind `pd`, as `VkPhysicalDeviceDriverProperties` names it.
+    #[allow(unsafe_code)]
+    fn driver(&self, pd: vk::PhysicalDevice) -> vk::DriverId {
+        let mut driver = vk::PhysicalDeviceDriverProperties::default();
+        let mut props = vk::PhysicalDeviceProperties2::default().push_next(&mut driver);
+        // SAFETY: a physical device of this instance, and a chain whose
+        // members live through the call.
+        unsafe {
+            self.instance
+                .get_physical_device_properties2(pd, &mut props)
+        };
+        driver.driver_id
+    }
+
+    /// Whether `pd` blends by a second source (`dualSrcBlend`).
+    #[allow(unsafe_code)]
+    fn dual_source(&self, pd: vk::PhysicalDevice) -> Has {
+        // SAFETY: a physical device of this instance.
+        let f = unsafe { self.instance.get_physical_device_features(pd) };
+        match f.dual_src_blend {
+            vk::TRUE => Has::Yes,
+            _ => Has::No,
+        }
+    }
+}
+
 impl Drop for Vulkan {
     #[allow(unsafe_code)]
     fn drop(&mut self) {

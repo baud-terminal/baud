@@ -1,0 +1,13 @@
+driver: MESA_LLVMPIPE
+kind: cpu
+render node known: no
+VK_EXT_image_drm_format_modifier: yes
+VK_KHR_external_memory_fd: yes
+VK_EXT_external_memory_dma_buf: yes
+VK_EXT_queue_family_foreign: yes
+VK_KHR_external_semaphore_fd: yes
+VK_EXT_physical_device_drm: no
+exportable modifier: yes
+LINEAR among them: yes
+timeline export: no
+dual-source blend: yes
