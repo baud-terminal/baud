@@ -86,6 +86,7 @@ mod cluster_data {
 }
 mod colour_name;
 pub mod contrast;
+mod copies;
 mod link_table;
 
 /// One entry of the UAX #29 transition table: bit 7 is the break decision,
@@ -284,6 +285,7 @@ pub use brand::*;
 pub use cache::*;
 pub use caseless::*;
 pub use cell::*;
+pub use copies::*;
 pub use damage::*;
 pub use dec_graphics::*;
 pub use decode::*;

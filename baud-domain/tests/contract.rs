@@ -127,9 +127,42 @@ const _: baud_domain::Content = baud_domain::Content::EMPTY;
 const _: fn(baud_domain::Codepoint) -> baud_domain::Content = baud_domain::Content::codepoint;
 const _: baud_domain::Content = baud_domain::Content::DEFECTIVE;
 const _: baud_domain::Content = baud_domain::Content::WIDE_TAIL;
+// CopiedBytes
+const _: baud_domain::CopiedBytes = baud_domain::CopiedBytes::ZERO;
+const _: for<'a> fn(&'a [u32]) -> baud_domain::CopiedBytes = baud_domain::CopiedBytes::of::<u32>;
+const _: fn(baud_domain::CopiedBytes) -> u64 = baud_domain::CopiedBytes::get;
+// CopiedPerMb
+const _: baud_domain::CopiedPerMb = baud_domain::CopiedPerMb::ZERO;
+const _: fn(baud_domain::CopiedPerMb) -> u64 = baud_domain::CopiedPerMb::get;
+// CopyCounts
+const _: baud_domain::CopyCounts = baud_domain::CopyCounts::NONE;
+const _: fn() -> baud_domain::CopyCounts = <baud_domain::CopyCounts as Default>::default;
+const _: for<'a> fn(
+    &'a mut baud_domain::CopyCounts,
+    baud_domain::CopyHop,
+    baud_domain::CopiedBytes,
+) = baud_domain::CopyCounts::add;
+const _: for<'a> fn(&'a baud_domain::CopyCounts, baud_domain::CopyHop) -> baud_domain::CopiedBytes =
+    baud_domain::CopyCounts::of;
+const _: for<'a> fn(&'a baud_domain::CopyCounts) -> baud_domain::CopiedBytes =
+    baud_domain::CopyCounts::total;
+const _: fn(baud_domain::CopyCounts, baud_domain::CopyCounts) -> baud_domain::CopyCounts =
+    baud_domain::CopyCounts::plus;
+const _: for<'a> fn(&'a baud_domain::CopyCounts, u64) -> Option<baud_domain::CopiedPerMb> =
+    baud_domain::CopyCounts::per_mb;
+const _: for<'a> fn(
+    &'a baud_domain::CopyCounts,
+    baud_domain::CopyHop,
+    u64,
+) -> Option<baud_domain::CopiedPerMb> = baud_domain::CopyCounts::hop_per_mb;
 // CopyDirection
 const _: baud_domain::CopyDirection = baud_domain::CopyDirection::LeftToRight;
 const _: baud_domain::CopyDirection = baud_domain::CopyDirection::RightToLeft;
+// CopyHop
+const _: baud_domain::CopyHop = baud_domain::CopyHop::PtyToGrid;
+const _: baud_domain::CopyHop = baud_domain::CopyHop::GridToFrame;
+const _: baud_domain::CopyHop = baud_domain::CopyHop::FrameToScreen;
+const _: [baud_domain::CopyHop; 3] = baud_domain::CopyHop::ALL;
 // Count
 const _: fn(usize) -> baud_domain::Count = baud_domain::Count::of;
 const _: baud_domain::Count = baud_domain::Count::ONE;
@@ -1757,6 +1790,12 @@ const WITNESSED: &[(&str, &str)] = &[
     ("CommandStart", "E0451"),
     ("Content", "E0603"),
     ("Content", "E0599"),
+    ("CopiedBytes", "E0423"),
+    ("CopiedBytes", "E0616"),
+    ("CopiedBytes", "E0369"),
+    ("CopiedPerMb", "E0369"),
+    ("CopyCounts", "E0451"),
+    ("CopyCounts", "E0616"),
     ("DirtyRows", "E0423"),
     ("DirtyRows", "E0608"),
     ("DirtyRows", "E0616"),
