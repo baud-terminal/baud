@@ -9,6 +9,14 @@
 # data), and `llmw`, LL write misses. Each carries its `value`, `set_in` (a
 # dated note) and `reason`.
 #
+# An ingest entry runs at every heap plant in `plants` (bytes, five digits,
+# `00000` first), which moves where the bench's buffers fall in the heap
+# and nothing else. Its `d1mw` at each geometry is a band, `lo` and `hi`,
+# the fewest and the most D1 write misses over the plants; its other
+# figures are read at `00000`. The gate fails a band whose `lo` is above
+# the baseline's `hi` by more than 2%, and reads bands that overlap as no
+# result.
+#
 # Only `--update` writes a figure. A passing run never moves one. A figure
 # that rose or is new is written with the reason the update was given, and
 # its commit says why and what was measured; a figure that fell is a
@@ -32,6 +40,7 @@
 # crosses the load.
 d1 = "49152,12"
 ll = "33554432,16"
+plants = "00000 00200 00512 00768 01536 02112 03072 04112 08208"
 rustc = "rustc 1.101.0-nightly (249c1e4e3 2026-11-05)"
 
 # Ingest: `ingest2`'s timed loop, `Term::feed` and everything it calls, a
@@ -63,66 +72,66 @@ inputs = ["btop 1 full", "btop 1 incremental", "cat 1 full", "cat 1 incremental"
 
 [ingest.cat.x86_64]
 ir = { value = 7893514, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mw = { value = 64846, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 64873" }
+d1-64.d1mw = { lo = 64919, hi = 65007, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
 d1-64.d1mr = { value = 31554, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 31633" }
 d1-64.llmr = { value = 7243, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-64.llmw = { value = 70, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mw = { value = 30753, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mw = { lo = 30623, hi = 30686, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
 d1-128.d1mr = { value = 26009, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-128.llmr = { value = 3611, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 3616" }
 d1-128.llmw = { value = 35, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 
 [ingest.cat-cjk.x86_64]
 ir = { value = 20991199, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-64.d1mw = { value = 23008, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 23111" }
+d1-64.d1mw = { lo = 23679, hi = 23772, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
 d1-64.d1mr = { value = 18171, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-64.llmr = { value = 5762, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 d1-64.llmw = { value = 70, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mw = { value = 12023, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 12138" }
+d1-128.d1mw = { lo = 12378, hi = 12480, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
 d1-128.d1mr = { value = 15189, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-128.llmr = { value = 2927, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 2928" }
 d1-128.llmw = { value = 35, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 
 [ingest.less.x86_64]
 ir = { value = 777642, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 777659" }
-d1-64.d1mw = { value = 650, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 709" }
+d1-64.d1mw = { lo = 665, hi = 807, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
 d1-64.d1mr = { value = 850, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 877" }
 d1-64.llmr = { value = 971, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-64.llmw = { value = 79, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
-d1-128.d1mw = { value = 577, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 588" }
+d1-128.d1mw = { lo = 593, hi = 722, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
 d1-128.d1mr = { value = 764, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-128.llmr = { value = 556, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 557" }
 d1-128.llmw = { value = 40, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 
 [ingest.git-log.x86_64]
 ir = { value = 7854743, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 7854749" }
-d1-64.d1mw = { value = 67716, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 67760" }
+d1-64.d1mw = { lo = 67891, hi = 68010, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
 d1-64.d1mr = { value = 28040, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-64.llmr = { value = 8138, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 d1-64.llmw = { value = 70, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mw = { value = 32652, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mw = { lo = 32619, hi = 32711, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
 d1-128.d1mr = { value = 22818, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-128.llmr = { value = 4068, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 4072" }
 d1-128.llmw = { value = 35, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 
 [ingest.vim.x86_64]
 ir = { value = 8715618, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 8715619" }
-d1-64.d1mw = { value = 7713, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 7888" }
+d1-64.d1mw = { lo = 7225, hi = 8495, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
 d1-64.d1mr = { value = 7099, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 7225" }
 d1-64.llmr = { value = 3154, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 3160" }
 d1-64.llmw = { value = 87, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mw = { value = 5111, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mw = { lo = 4355, hi = 5001, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
 d1-128.d1mr = { value = 6202, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-128.llmr = { value = 1711, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-128.llmw = { value = 47, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
 
 [ingest.btop.x86_64]
 ir = { value = 18113280, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 18113434" }
-d1-64.d1mw = { value = 10627, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 10644" }
+d1-64.d1mw = { lo = 10150, hi = 10706, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
 d1-64.d1mr = { value = 16303, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 16405" }
 d1-64.llmr = { value = 7710, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-64.llmw = { value = 79, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
-d1-128.d1mw = { value = 4602, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
+d1-128.d1mw = { lo = 4528, hi = 4907, set_in = "2026-11-17, x86_64", reason = "the band over the nine heap plants, measured on tier D's build path at ed493c98 (measure, baud-private/measure/d1mw-layout-spreads.md, sha256 35a0f880)" }
 d1-128.d1mr = { value = 11551, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-128.llmr = { value = 3888, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 3898" }
 d1-128.llmw = { value = 40, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
