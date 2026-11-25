@@ -289,6 +289,27 @@ fn main() {
     let ring_rows = Rows::of_index(rows.index() + depth.lines());
     let span = RowBlock::leading(rows, stride);
     let ring = RowBlock::leading(ring_rows, stride);
+    // `BAUD_BENCH_PLANT` is the counter gate's layout arm: one live
+    // allocation of that many bytes, made before the buffers below, so the
+    // heap places them elsewhere while the code and the stack stay as they
+    // are. It is always five digits, so the environment is one length on
+    // every plant; `00000` allocates nothing. The line it prints is what the
+    // gate reads back, so a plant it never set cannot pass as `00000`.
+    let plant: Vec<u8> = match std::env::var("BAUD_BENCH_PLANT") {
+        Ok(v) => {
+            assert!(
+                v.len() == 5 && v.bytes().all(|b| b.is_ascii_digit()),
+                "BAUD_BENCH_PLANT=<five digits>, as 00200"
+            );
+            eprintln!("heap plant: {v} B");
+            vec![0u8; v.parse::<usize>().expect("five digits")]
+        }
+        Err(_) => {
+            eprintln!("heap plant: unset");
+            Vec::new()
+        }
+    };
+    std::hint::black_box(&plant);
     let mut arena = vec![0u8; ARENA];
     let mut vp = vec![PackedCell::EMPTY; ring.len()];
     // A row's mark and its write generation, one entry a row, as `Owned`
