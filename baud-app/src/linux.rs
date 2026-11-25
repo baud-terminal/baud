@@ -2399,8 +2399,9 @@ impl Driver {
     }
 
     /// **Notifications posted on the session bus**, each with the
-    /// `image-data` it sends, the server's answer awaited; with no bus,
-    /// dropped.
+    /// `image-data` it sends, the server's answer awaited; with no bus, or
+    /// not sent, dropped, as a refusal is: an update not sent leaves the
+    /// one shown as it was.
     fn notify(&mut self, ready: Vec<crate::notify::LinuxPost>) {
         for (p, image) in ready {
             let Some(bus) = self.bus.as_mut() else {
@@ -2412,9 +2413,14 @@ impl Driver {
                 _ => None,
             };
             let n = crate::bus::notification(&p, replaces, self.caps.known(), image);
-            bus.notify(&n, p.token);
+            let sent = bus.notify(&n, p.token);
             let buttons = baud_domain::NoticeButtonSet::of(p.buttons.iter().map(|(n, _)| *n));
             self.notes.slots.posting(p.token, p.expiry, buttons);
+            if let Err(e) = sent {
+                self.notes.slots.refused(p.token);
+                self.term.notice_dropped(p.token);
+                crate::warn!("notification not shown: not sent, as {e}");
+            }
         }
     }
 

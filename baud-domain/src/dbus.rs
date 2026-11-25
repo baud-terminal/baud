@@ -33,6 +33,11 @@
 //! [`Trusted`], vouched for by the [`Peer`] that owns the name it speaks
 //! for. The bus's own signals are [`FromBus`], and its `NameOwnerChanged`
 //! says which connection holds a watched name ([`HolderChange`]).
+//!
+//! The notification server's calls are built here too: [`FdoNotify`], one
+//! `Notify`'s arguments, encodes its own message, and [`NOTIFY`],
+//! [`CLOSE_NOTIFICATION`], [`GET_CAPABILITIES`] and [`ADD_MATCH`] are the
+//! calls it and the session around it send.
 
 mod auth;
 mod awaiting;
@@ -41,6 +46,7 @@ mod bus;
 mod decode;
 mod header;
 mod name;
+mod notify;
 mod sig;
 mod value;
 
@@ -66,6 +72,7 @@ pub use name::{
     BusKind, BusName, ErrorName, InterfaceName, MemberName, NameError, ObjectPath, OwnedBusName,
     Str,
 };
+pub use notify::{ADD_MATCH, CLOSE_NOTIFICATION, FdoNotify, GET_CAPABILITIES, NOTIFY};
 pub use sig::{Depth, Sig, SigCodes, SigError, SigLen};
 pub use value::{
     Align, Args, Array, Basic, Boolean, Byte, Bytes, Dict, Double, FdCount, FdIndex, FlatPairs,

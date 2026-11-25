@@ -1180,6 +1180,26 @@ const _: () = assert!(baud_domain::dbus::SigCodes::eq(
     <baud_domain::dbus::NotifyArgs<'static> as baud_domain::dbus::Args>::SIG,
     baud_domain::dbus::Sig::lit("susssasa{sv}i")
 ));
+// dbus notification calls
+const _: baud_domain::dbus::MethodCall<'static> = baud_domain::dbus::NOTIFY;
+const _: baud_domain::dbus::MethodCall<'static> = baud_domain::dbus::CLOSE_NOTIFICATION;
+const _: baud_domain::dbus::MethodCall<'static> = baud_domain::dbus::GET_CAPABILITIES;
+const _: baud_domain::dbus::MethodCall<'static> = baud_domain::dbus::ADD_MATCH;
+const _: baud_domain::dbus::FdoNotify<'static> = baud_domain::dbus::FdoNotify {
+    app_name: baud_domain::dbus::Str::EMPTY,
+    replaces: 0,
+    app_icon: baud_domain::dbus::Str::EMPTY,
+    summary: baud_domain::dbus::Str::EMPTY,
+    body: baud_domain::dbus::Str::EMPTY,
+    actions: &[],
+    hints: &[],
+    expire: -1,
+};
+const _: fn(
+    &baud_domain::dbus::FdoNotify<'static>,
+    &mut baud_domain::dbus::Serials,
+) -> Result<baud_domain::dbus::Encoded, baud_domain::dbus::EncodeError> =
+    baud_domain::dbus::FdoNotify::encode;
 // dbus body and messages
 const _: fn(&'static baud_domain::dbus::Body) -> baud_domain::dbus::Sig<'static> =
     baud_domain::dbus::Body::sig;
@@ -1996,6 +2016,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("Body", "E0451"),
     ("Body", "E0277"),
     ("MethodCall", "E0560"),
+    ("FdoNotify", "E0308"),
     ("Emit", "E0063"),
     ("Header", "E0451"),
     ("Order", "E0451"),

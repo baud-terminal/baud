@@ -38,7 +38,12 @@
 //!   `ActionInvoked` signal" and "carries an activation token that can be
 //!   used to activate a toplevel" (`[[source:
 //!   freedesktop-notification-spec]]`): kept for the click it comes
-//!   before, and handed over with it.
+//!   before, and handed over with it. The calls are `baud_domain::dbus`'s
+//!   (`FdoNotify::encode`, `CLOSE_NOTIFICATION`, `GET_CAPABILITIES`,
+//!   `ADD_MATCH`), each serial drawn from the session's one counter; a
+//!   reply finds its call in the slot its serial names, and a `Notify`
+//!   whose slot a call still unanswered holds is refused, counted and not
+//!   sent.
 //! * **Progress**: `com.canonical.Unity.LauncherEntry`'s `Update`
 //!   signal, `progress` and `progress-visible`, and `urgent` for an
 //!   attention request, the interface docks read for a launcher
@@ -57,6 +62,11 @@
 use std::io::{self, Read, Write};
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixStream;
+
+use baud_domain::dbus::{
+    ADD_MATCH, Body, Boolean, Byte, Bytes, CLOSE_NOTIFICATION, EncodeError, Encoded, FdoNotify,
+    GET_CAPABILITIES, I32, ImageData, Inbound, Str, U32, Variant,
+};
 
 /// The portal's `color-scheme`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -419,11 +429,6 @@ impl Writer {
         self.buf.push(0);
     }
 
-    /// A `y`.
-    fn octet(&mut self, v: Octet) {
-        self.buf.push(v.0);
-    }
-
     /// A `b`, a word of 0 or 1.
     fn truth(&mut self, t: Truth) {
         self.word(Word(match t {
@@ -448,42 +453,6 @@ impl Writer {
         f(self);
         let len = u32::try_from(self.buf.len() - start).unwrap_or(u32::MAX);
         self.buf[at..at + 4].copy_from_slice(&len.to_le_bytes());
-    }
-
-    /// A dictionary of variants, `a{sv}`.
-    fn hints(&mut self, items: &[(&str, Hint)]) {
-        self.array(Align::EIGHT, |w| {
-            for (k, v) in items {
-                w.align(Align::EIGHT);
-                w.string(k);
-                match v {
-                    Hint::Byte(b) => {
-                        w.signature("y");
-                        w.octet(*b);
-                    }
-                    Hint::Bool(t) => {
-                        w.signature("b");
-                        w.truth(*t);
-                    }
-                    Hint::Str(s) => {
-                        w.signature("s");
-                        w.string(s);
-                    }
-                    Hint::Image(img) => {
-                        w.signature("(iiibiiay)");
-                        w.align(Align::EIGHT);
-                        let (width, height) = (img.size.width, img.size.height);
-                        w.word(Word(width));
-                        w.word(Word(height));
-                        w.word(Word(width.saturating_mul(4)));
-                        w.truth(Truth::True);
-                        w.word(Word(8));
-                        w.word(Word(4));
-                        w.array(Align::ONE, |w| w.buf.extend_from_slice(&img.rgba));
-                    }
-                }
-            }
-        });
     }
 
     /// An array of strings, `as`.
@@ -1013,13 +982,44 @@ enum Files {
     Refused,
 }
 
-/// The calls whose replies this waits for.
+/// The notification server's calls whose replies this waits for, each
+/// kept in the slot its serial names (`baud_domain::dbus::Awaiting`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Waiting {
+    Caps,
+    Notify(baud_core::NoticeToken),
+}
+
+/// Slots for the notification server's replies: 32 calls in flight.
+type Notifying = baud_domain::dbus::Awaiting<Waiting, 32>;
+
+/// **Why a `Notify` was not sent**: its reply's slot held by a call still
+/// unanswered (refused and counted), a text that is not a STRING, or a
+/// message past its bound.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum NotSent {
+    Held,
+    Text(baud_domain::dbus::NameError),
+    Bound(baud_domain::dbus::EncodeError),
+}
+
+impl std::fmt::Display for NotSent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NotSent::Held => {
+                f.write_str("its reply's slot is held by a call the server has not answered")
+            }
+            NotSent::Text(e) => write!(f, "a text that is not a D-Bus string: {e}"),
+            NotSent::Bound(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+/// The other calls whose replies this waits for, by serial.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Asked {
     ReadAll(Serial),
     ShowItems(Serial),
-    Caps(Serial),
-    Notify(Serial, baud_core::NoticeToken),
     /// `Hello`, whose reply is this connection's unique name.
     Hello(Serial),
     /// The print portal's `version`, asked through `Properties.Get`.
@@ -1058,8 +1058,11 @@ pub(crate) struct Session {
     /// `Hello`.
     queued: Vec<(Vec<u8>, Vec<OwnedFd>)>,
     inb: Vec<u8>,
-    serial: Serial,
-    waiting: Vec<Waiting>,
+    /// Every message's serial, drawn as it is encoded.
+    serials: baud_domain::dbus::Serials,
+    /// The notification server's calls waited for.
+    awaiting: Notifying,
+    asked: Vec<Asked>,
     /// The last `ActivationToken` the notification server sent, for the
     /// notification it named: handed over with that notification's next
     /// click, and dropped by a click or a close of it.
@@ -1102,8 +1105,9 @@ impl Session {
             inb: Vec::new(),
             // `Hello` is serial 1, sent at `BEGIN`; the rest queue behind
             // it.
-            serial: Serial(Word(2)),
-            waiting: Vec::new(),
+            serials: baud_domain::dbus::Serials::new(),
+            awaiting: Notifying::new(),
+            asked: Vec::new(),
             token: baud_domain::TokenFor::new(),
             unique: None,
             prepare_after_hello: None,
@@ -1116,9 +1120,7 @@ impl Session {
     }
 
     fn next_serial(&mut self) -> Serial {
-        let n = self.serial;
-        self.serial = Serial(Word(n.0.0.wrapping_add(1).max(1)));
-        n
+        Serial(Word(self.serials.next().get()))
     }
 
     fn call(&mut self, call: &Call<'_>) -> Serial {
@@ -1171,82 +1173,106 @@ impl Session {
             signature: "as",
             body: names.buf,
         });
-        self.waiting.push(Waiting::ReadAll(serial));
+        self.asked.push(Asked::ReadAll(serial));
+    }
+
+    /// An encoded call out, its reply waited for as `w`; refused, counted
+    /// and not sent when a call still unanswered holds its slot.
+    fn send_awaited(&mut self, e: Encoded, w: Waiting) -> Result<(), NotSent> {
+        if self.awaiting.insert(e.serial(), w).is_err() {
+            return Err(NotSent::Held);
+        }
+        self.send(e.into_bytes(), Vec::new());
+        Ok(())
     }
 
     /// `AddMatch` for the notification server's signals (`ActionInvoked`,
     /// `ActivationToken`, `NotificationClosed`), then `GetCapabilities`.
     fn ask_notifications(&mut self) {
-        let mut rule = Writer::default();
-        rule.string(&format!(
-            "type='signal',interface='{NOTIFICATIONS}',path='{NOTIFICATIONS_PATH}'"
-        ));
-        self.call(&Call {
-            destination: "org.freedesktop.DBus",
-            path: "/org/freedesktop/DBus",
-            interface: "org.freedesktop.DBus",
-            member: "AddMatch",
-            signature: "s",
-            body: rule.buf,
-        });
-        let serial = self.call(&Call {
-            destination: NOTIFICATIONS,
-            path: NOTIFICATIONS_PATH,
-            interface: NOTIFICATIONS,
-            member: "GetCapabilities",
-            signature: "",
-            body: Vec::new(),
-        });
-        self.waiting.push(Waiting::Caps(serial));
+        const RULE: Str<'static> = Str::lit(
+            "type='signal',interface='org.freedesktop.Notifications',\
+             path='/org/freedesktop/Notifications'",
+        );
+        if let Ok(e) = Body::of(&(RULE,)).and_then(|b| ADD_MATCH.encode(&b, &mut self.serials)) {
+            self.send(e.into_bytes(), Vec::new());
+        }
+        if let Ok(e) = GET_CAPABILITIES.encode(&Body::EMPTY, &mut self.serials) {
+            // The fifth serial of a new session: its slot is free.
+            let _ = self.send_awaited(e, Waiting::Caps);
+        }
     }
 
     /// **Show a notification**: `Notify`, its reply the server's id for
-    /// `token`.
-    pub(crate) fn notify(&mut self, n: &Notification, token: baud_core::NoticeToken) {
-        let mut b = Writer::default();
-        b.string(&n.app_name);
-        b.word(n.replaces.map_or(Word(0), |r| r.0));
-        b.string(&n.app_icon);
-        b.string(&n.summary);
-        b.string(&n.body);
-        let actions: Vec<&str> = n
+    /// `token`; not sent, and why, where its reply's slot is held or an
+    /// argument breaks a bound.
+    pub(crate) fn notify(
+        &mut self,
+        n: &Notification,
+        token: baud_core::NoticeToken,
+    ) -> Result<(), NotSent> {
+        fn text(s: &str) -> Result<Str<'_>, NotSent> {
+            Str::parse(s).map_err(NotSent::Text)
+        }
+        // A side past `i32` is an image past an array's bound.
+        fn image(img: &Image) -> Result<ImageData<'_>, NotSent> {
+            let too_long = |_| NotSent::Bound(EncodeError::ArrayTooLong);
+            let [width, height, rowstride] = [
+                img.size.width,
+                img.size.height,
+                img.size.width.saturating_mul(4),
+            ]
+            .map(|v| i32::try_from(v).map(I32::new));
+            Ok(ImageData {
+                width: width.map_err(too_long)?,
+                height: height.map_err(too_long)?,
+                rowstride: rowstride.map_err(too_long)?,
+                alpha: Boolean::True,
+                bits_per_sample: I32::new(8),
+                channels: I32::new(4),
+                data: Bytes::new(&img.rgba),
+            })
+        }
+        let actions = n
             .actions
             .iter()
-            .flat_map(|(k, l)| [k.as_str(), l.as_str()])
-            .collect();
-        b.strings(&actions);
-        b.hints(&n.hints);
-        b.word(Word(match n.expire {
-            Expire::Server => u32::MAX,
-            Expire::Never => 0,
-            Expire::After(d) => u32::try_from(d.as_millis())
-                .unwrap_or(i32::MAX.unsigned_abs())
-                .min(i32::MAX.unsigned_abs()),
-        }));
-        let serial = self.call(&Call {
-            destination: NOTIFICATIONS,
-            path: NOTIFICATIONS_PATH,
-            interface: NOTIFICATIONS,
-            member: "Notify",
-            signature: "susssasa{sv}i",
-            body: b.buf,
-        });
-        self.waiting.push(Waiting::Notify(serial, token));
+            .map(|(k, l)| Ok((text(k)?, text(l)?)))
+            .collect::<Result<Vec<_>, NotSent>>()?;
+        let mut hints = Vec::with_capacity(n.hints.len());
+        for (k, v) in &n.hints {
+            let v = match v {
+                Hint::Byte(b) => Variant::Byte(Byte::new(b.0)),
+                Hint::Bool(Truth::False) => Variant::Boolean(Boolean::False),
+                Hint::Bool(Truth::True) => Variant::Boolean(Boolean::True),
+                Hint::Str(s) => Variant::Str(text(s)?),
+                Hint::Image(img) => Variant::Image(image(img)?),
+            };
+            hints.push((text(k)?, v));
+        }
+        let call = FdoNotify {
+            app_name: text(&n.app_name)?,
+            replaces: n.replaces.map_or(0, |r| r.0.0),
+            app_icon: text(&n.app_icon)?,
+            summary: text(&n.summary)?,
+            body: text(&n.body)?,
+            actions: &actions,
+            hints: &hints,
+            expire: match n.expire {
+                Expire::Server => -1,
+                Expire::Never => 0,
+                Expire::After(d) => i32::try_from(d.as_millis()).unwrap_or(i32::MAX),
+            },
+        };
+        let e = call.encode(&mut self.serials).map_err(NotSent::Bound)?;
+        self.send_awaited(e, Waiting::Notify(token))
     }
 
     /// **Close one**: `CloseNotification`, whose `NotificationClosed`
     /// follows.
     pub(crate) fn close_notification(&mut self, id: NotifyId) {
-        let mut b = Writer::default();
-        b.word(id.0);
-        self.call(&Call {
-            destination: NOTIFICATIONS,
-            path: NOTIFICATIONS_PATH,
-            interface: NOTIFICATIONS,
-            member: "CloseNotification",
-            signature: "u",
-            body: b.buf,
-        });
+        let body = Body::of(&(U32::new(id.0.0),));
+        if let Ok(e) = body.and_then(|b| CLOSE_NOTIFICATION.encode(&b, &mut self.serials)) {
+            self.send(e.into_bytes(), Vec::new());
+        }
     }
 
     /// **The launcher's progress and urgency**, as libunity's
@@ -1299,7 +1325,7 @@ impl Session {
             signature: "ass",
             body: body.buf,
         });
-        self.waiting.push(Waiting::ShowItems(serial));
+        self.asked.push(Asked::ShowItems(serial));
     }
 
     /// Whether the session has failed and will say nothing more.
@@ -1372,7 +1398,7 @@ impl Session {
             Serial(Word(1)),
         );
         self.out.extend_from_slice(&hello);
-        self.waiting.push(Waiting::Hello(Serial(Word(1))));
+        self.asked.push(Asked::Hello(Serial(Word(1))));
         for (bytes, fds) in std::mem::take(&mut self.queued) {
             if fds.is_empty() || files == Files::Agreed {
                 self.send(bytes, fds);
@@ -1394,7 +1420,7 @@ impl Session {
             signature: "ss",
             body: b.buf,
         });
-        self.waiting.push(Waiting::PrintVersion(serial));
+        self.asked.push(Asked::PrintVersion(serial));
     }
 
     /// The match for the next Request's `Response`, sent **before** the
@@ -1462,7 +1488,7 @@ impl Session {
             signature: "ssa{sv}a{sv}a{sv}",
             body: b.buf,
         });
-        self.waiting.push(Waiting::PrintCall(serial));
+        self.asked.push(Asked::PrintCall(serial));
     }
 
     /// **The document, printed with the dialog's choices**: `Print` with
@@ -1506,7 +1532,7 @@ impl Session {
         };
         match self.call_with_fds(&call, vec![pdf]) {
             Some(serial) => {
-                self.waiting.push(Waiting::PrintCall(serial));
+                self.asked.push(Asked::PrintCall(serial));
                 true
             }
             None => false,
@@ -1586,14 +1612,24 @@ impl Session {
             let Some(m) = parse(&bytes) else {
                 continue;
             };
-            heard.extend(self.heard(&m));
+            // The serial a reply names, from the message checked whole.
+            let reply_to = match baud_domain::dbus::decode(&bytes) {
+                Ok(Inbound::Return(r)) => Some(r.reply_to),
+                Ok(Inbound::ErrorReply(e)) => Some(e.reply_to),
+                _ => None,
+            };
+            heard.extend(self.heard(&m, reply_to));
         }
         heard
     }
 
     /// What one message means, if it is one this waits for or a change of
     /// the appearance: a `ReadAll` reply can say three things.
-    fn heard(&mut self, m: &Message<'_>) -> Vec<Heard> {
+    fn heard(
+        &mut self,
+        m: &Message<'_>,
+        reply_to: Option<baud_domain::dbus::Serial>,
+    ) -> Vec<Heard> {
         if m.kind == SIGNAL {
             if let Some(h) = heard_in_signal(m) {
                 return vec![h];
@@ -1618,35 +1654,40 @@ impl Session {
                 None => Vec::new(),
             };
         }
+        let error = (m.kind == ERROR).then(|| m.error.unwrap_or("an unnamed error").to_owned());
+        // The notification server's replies, found in the slot their
+        // serial names.
+        if let Some(waited) = reply_to.and_then(|r| self.awaiting.take(r)) {
+            return match (waited, m.kind, error) {
+                (Waiting::Caps, METHOD_RETURN, _) => vec![Heard::Caps(caps_in_reply(m))],
+                (Waiting::Caps, _, Some(e)) => vec![Heard::NoServer(e)],
+                (Waiting::Notify(token), METHOD_RETURN, _) => match id_in_reply(m) {
+                    Some(id) => vec![Heard::Notified(token, id)],
+                    None => vec![Heard::NotNotified(token, "a reply with no id".into())],
+                },
+                (Waiting::Notify(token), _, Some(e)) => vec![Heard::NotNotified(token, e)],
+                _ => Vec::new(),
+            };
+        }
         let Some(reply) = m.reply_serial else {
             return Vec::new();
         };
-        let Some(i) = self.waiting.iter().position(|w| match w {
-            Waiting::ReadAll(s)
-            | Waiting::ShowItems(s)
-            | Waiting::Caps(s)
-            | Waiting::Notify(s, _)
-            | Waiting::Hello(s)
-            | Waiting::PrintVersion(s)
-            | Waiting::PrintCall(s) => *s == reply,
+        let Some(i) = self.asked.iter().position(|w| match w {
+            Asked::ReadAll(s)
+            | Asked::ShowItems(s)
+            | Asked::Hello(s)
+            | Asked::PrintVersion(s)
+            | Asked::PrintCall(s) => *s == reply,
         }) else {
             return Vec::new();
         };
-        let waited = self.waiting.swap_remove(i);
-        let error = (m.kind == ERROR).then(|| m.error.unwrap_or("an unnamed error").to_owned());
+        let waited = self.asked.swap_remove(i);
         match (waited, m.kind, error) {
-            (Waiting::ReadAll(_), METHOD_RETURN, _) => heard_in_read_all(m),
-            (Waiting::ReadAll(_), _, Some(e)) => vec![Heard::NoScheme(e)],
-            (Waiting::ShowItems(_), METHOD_RETURN, _) => vec![Heard::Revealed],
-            (Waiting::ShowItems(_), _, Some(e)) => vec![Heard::NotRevealed(e)],
-            (Waiting::Caps(_), METHOD_RETURN, _) => vec![Heard::Caps(caps_in_reply(m))],
-            (Waiting::Caps(_), _, Some(e)) => vec![Heard::NoServer(e)],
-            (Waiting::Notify(_, token), METHOD_RETURN, _) => match id_in_reply(m) {
-                Some(id) => vec![Heard::Notified(token, id)],
-                None => vec![Heard::NotNotified(token, "a reply with no id".into())],
-            },
-            (Waiting::Notify(_, token), _, Some(e)) => vec![Heard::NotNotified(token, e)],
-            (Waiting::Hello(_), METHOD_RETURN, _) => {
+            (Asked::ReadAll(_), METHOD_RETURN, _) => heard_in_read_all(m),
+            (Asked::ReadAll(_), _, Some(e)) => vec![Heard::NoScheme(e)],
+            (Asked::ShowItems(_), METHOD_RETURN, _) => vec![Heard::Revealed],
+            (Asked::ShowItems(_), _, Some(e)) => vec![Heard::NotRevealed(e)],
+            (Asked::Hello(_), METHOD_RETURN, _) => {
                 self.unique = (m.signature == "s")
                     .then(|| Reader::new(m.body, m.order).string().map(str::to_owned))
                     .flatten();
@@ -1661,7 +1702,7 @@ impl Session {
                     None => Vec::new(),
                 }
             }
-            (Waiting::PrintVersion(_), METHOD_RETURN, _) => {
+            (Asked::PrintVersion(_), METHOD_RETURN, _) => {
                 let mut r = Reader::new(m.body, m.order);
                 let version = (m.signature == "v")
                     .then(|| r.signature().filter(|s| *s == "u").and_then(|_| r.word()))
@@ -1672,8 +1713,8 @@ impl Session {
                         .ok_or_else(|| "a version that is not a u".to_owned()),
                 )]
             }
-            (Waiting::PrintVersion(_), _, Some(e)) => vec![Heard::PrintPortal(Err(e))],
-            (Waiting::PrintCall(_), _, Some(e)) => {
+            (Asked::PrintVersion(_), _, Some(e)) => vec![Heard::PrintPortal(Err(e))],
+            (Asked::PrintCall(_), _, Some(e)) => {
                 if let Some(p) = self.print.take() {
                     self.match_rule("RemoveMatch", &p.rule);
                 }
@@ -1856,10 +1897,15 @@ impl Bus {
         let _ = self.flush();
     }
 
-    /// Show a notification.
-    pub(crate) fn notify(&mut self, n: &Notification, token: baud_core::NoticeToken) {
-        self.session.notify(n, token);
+    /// Show a notification; not sent, and why, where it cannot be.
+    pub(crate) fn notify(
+        &mut self,
+        n: &Notification,
+        token: baud_core::NoticeToken,
+    ) -> Result<(), NotSent> {
+        let sent = self.session.notify(n, token);
         let _ = self.flush();
+        sent
     }
 
     /// Close one.
@@ -2613,7 +2659,8 @@ mod tests {
                 expire: Expire::After(core::time::Duration::from_millis(5000)),
             },
             tok,
-        );
+        )
+        .expect("sent");
         assert_eq!(s.outgoing(), reply_bytes("notify_call").as_slice());
         let n = s.outgoing().len();
         s.sent(Len(n));
@@ -2629,7 +2676,8 @@ mod tests {
                 expire: Expire::Server,
             },
             tok,
-        );
+        )
+        .expect("sent");
         assert_eq!(s.outgoing(), reply_bytes("notify_replace_call").as_slice());
         let n = s.outgoing().len();
         s.sent(Len(n));
@@ -2645,6 +2693,101 @@ mod tests {
             urgent: Truth::False,
         });
         assert_eq!(s.outgoing(), reply_bytes("launcher_update").as_slice());
+    }
+
+    /// **`FdoNotify::encode` is the oracle fixtures' bytes**
+    /// (`fixtures/bus-replies.hex`), the serial drawn from the connection's
+    /// counter: the call with every hint type, then the one that replaces
+    /// 42 with the server's timeout.
+    #[test]
+    fn the_notify_entry_point_is_the_oracles_bytes() {
+        use baud_domain::dbus::{
+            Boolean, Byte, Bytes, FdoNotify, I32, ImageData, Serials, Str, Variant,
+        };
+        let mut serials = Serials::new();
+        for _ in 2..6 {
+            let _ = serials.next();
+        }
+        let actions = [
+            (Str::lit("default"), Str::lit("Open")),
+            (Str::lit("1"), Str::lit("Yes")),
+        ];
+        let pixels = [255, 0, 0, 255, 0, 255, 0, 128];
+        let hints = [
+            (Str::lit("urgency"), Variant::Byte(Byte::new(2))),
+            (Str::lit("suppress-sound"), Variant::Boolean(Boolean::True)),
+            (Str::lit("sound-name"), Variant::Str(Str::lit("bell"))),
+            (
+                Str::lit("image-data"),
+                Variant::Image(ImageData {
+                    width: I32::new(2),
+                    height: I32::new(1),
+                    rowstride: I32::new(8),
+                    alpha: Boolean::True,
+                    bits_per_sample: I32::new(8),
+                    channels: I32::new(4),
+                    data: Bytes::new(&pixels),
+                }),
+            ),
+        ];
+        let first = FdoNotify {
+            app_name: Str::lit("baud"),
+            replaces: 0,
+            app_icon: Str::lit("dialog-error"),
+            summary: Str::lit("Build"),
+            body: Str::lit("make; make install"),
+            actions: &actions,
+            hints: &hints,
+            expire: 5000,
+        };
+        let e = first.encode(&mut serials).expect("within the bound");
+        assert_eq!(e.serial().get(), 6);
+        assert_eq!(e.bytes(), reply_bytes("notify_call").as_slice());
+        let again = FdoNotify {
+            app_name: Str::EMPTY,
+            replaces: 42,
+            app_icon: Str::EMPTY,
+            summary: Str::lit("Again"),
+            body: Str::EMPTY,
+            actions: &[],
+            hints: &[],
+            expire: -1,
+        };
+        let e = again.encode(&mut serials).expect("within the bound");
+        assert_eq!(e.serial().get(), 7);
+        assert_eq!(e.bytes(), reply_bytes("notify_replace_call").as_slice());
+    }
+
+    /// **A `Notify` whose reply slot is held is refused, counted and not
+    /// sent**: `GetCapabilities` (serial 5) unanswered while 31 closes draw
+    /// 6 to 36, so the next call, 37, finds slot 5 held. The one after it
+    /// has a free slot and goes. Perturbation: send it though the slot is
+    /// held -- the first notify is `Ok`.
+    #[test]
+    fn a_notify_whose_reply_slot_is_held_is_refused_and_counted() {
+        let mut s = ready();
+        for _ in 6..37 {
+            s.close_notification(NotifyId(Word(42)));
+        }
+        let n = s.outgoing().len();
+        s.sent(Len(n));
+        let quiet = Notification {
+            app_name: String::new(),
+            replaces: None,
+            app_icon: String::new(),
+            summary: "x".into(),
+            body: String::new(),
+            actions: Vec::new(),
+            hints: Vec::new(),
+            expire: Expire::Never,
+        };
+        let tok = token();
+        assert_eq!(s.notify(&quiet, tok), Err(NotSent::Held));
+        assert_eq!(s.outgoing(), b"", "a refused call is not sent");
+        assert_eq!(s.awaiting.refusals().get(), 1);
+        assert_eq!(s.notify(&quiet, tok), Ok(()));
+        assert_eq!(last_serial(&s), Serial(Word(38)));
+        assert_eq!(s.awaiting.refusals().get(), 1);
     }
 
     /// **What the server says back**: its capabilities, a notification's
@@ -2680,7 +2823,7 @@ mod tests {
             hints: Vec::new(),
             expire: Expire::Never,
         };
-        s.notify(&quiet, tok);
+        s.notify(&quiet, tok).expect("sent");
         assert_eq!(
             s.received(&reply_bytes("notify_reply")),
             [Heard::Notified(tok, NotifyId(Word(42)))]
@@ -2693,7 +2836,7 @@ mod tests {
             )]
         );
         let mut s = ready();
-        s.notify(&quiet, tok);
+        s.notify(&quiet, tok).expect("sent");
         assert_eq!(
             s.received(&reply_bytes("notify_error")),
             [Heard::NotNotified(
@@ -2748,7 +2891,8 @@ mod tests {
                 expire: Expire::Never,
             },
             tok,
-        );
+        )
+        .expect("sent");
         assert!(theirs.read(&mut sink).unwrap() > 0);
     }
 
