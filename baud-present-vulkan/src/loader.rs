@@ -32,9 +32,15 @@ const NAMES: [&CStr; 2] = [c"libvulkan.so.1", c"libvulkan.so"];
 
 /// **The loader's entry**, or `None` where no loader opens or it lacks
 /// `vkGetInstanceProcAddr`.
-#[allow(unsafe_code)]
 pub(crate) fn entry() -> Option<ash::Entry> {
-    let handle = NAMES
+    entry_from(&NAMES)
+}
+
+/// **The entry of the first of `names` that opens**, or `None` where none
+/// does or the one that opens lacks `vkGetInstanceProcAddr`.
+#[allow(unsafe_code)]
+fn entry_from(names: &[&CStr]) -> Option<ash::Entry> {
+    let handle = names
         .iter()
         // SAFETY: a NUL-terminated name; dlopen runs the library's
         // initialisers, which the Vulkan loader's are.
@@ -54,4 +60,23 @@ pub(crate) fn entry() -> Option<ash::Entry> {
             get_instance_proc_addr,
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **A loader that is missing, or a library without the entry point,
+    /// is no loader**, which the arm takes as the CPU's: a name nothing
+    /// answers, and the C library, which opens and lacks
+    /// `vkGetInstanceProcAddr`. The control: the system's loader opens.
+    #[test]
+    fn a_missing_loader_or_one_without_its_entry_is_none() {
+        assert!(entry_from(&[c"libbaud-no-such-loader.so.1"]).is_none());
+        assert!(entry_from(&[c"libc.so.6"]).is_none(), "no entry point");
+        assert!(
+            entry_from(&NAMES).is_some(),
+            "the control: the loader opens"
+        );
+    }
 }
