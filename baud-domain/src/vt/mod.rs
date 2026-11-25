@@ -21,6 +21,8 @@ mod level;
 mod locator;
 mod mode;
 mod mouse;
+#[cfg(feature = "alloc")]
+mod notice_icons;
 mod notice_plan;
 mod notice_slots;
 mod notify;
@@ -71,6 +73,8 @@ pub use level::*;
 pub use locator::*;
 pub use mode::*;
 pub use mouse::*;
+#[cfg(feature = "alloc")]
+pub use notice_icons::*;
 pub use notice_plan::*;
 pub use notice_slots::*;
 pub use notify::*;

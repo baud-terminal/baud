@@ -148,33 +148,10 @@ impl Posted {
 pub const ICONS: usize = 16;
 pub const ICON_BYTES: usize = 4 << 20;
 
-/// **The icons programs sent under `g`**, the most recently used last.
-#[derive(Clone, Debug, Default)]
-pub struct Icons {
-    kept: VecDeque<(Vec<u8>, Vec<u8>)>,
-}
-
-impl Icons {
-    /// Keep `data` under `key`, forgetting the least recently used past
-    /// [`ICONS`] or [`ICON_BYTES`].
-    pub fn keep(&mut self, key: &[u8], data: &[u8]) {
-        self.kept.retain(|(k, _)| k != key);
-        self.kept.push_back((key.to_vec(), data.to_vec()));
-        while self.kept.len() > ICONS
-            || self.kept.iter().map(|(_, d)| d.len()).sum::<usize>() > ICON_BYTES
-        {
-            self.kept.pop_front();
-        }
-    }
-
-    /// The image under `key`, now the most recently used.
-    pub fn get(&mut self, key: &[u8]) -> Option<&[u8]> {
-        let i = self.kept.iter().position(|(k, _)| k == key)?;
-        let e = self.kept.remove(i)?;
-        self.kept.push_back(e);
-        self.kept.back().map(|(_, d)| &d[..])
-    }
-}
+/// **The icons programs sent under `g`** (`baud_domain::IconCache`): at
+/// most [`ICONS`] of them and [`ICON_BYTES`] in all, the least recently
+/// used forgotten first.
+pub type Icons = baud_domain::IconCache<ICONS, ICON_BYTES>;
 
 /// How long after a post the platform's list of what it holds is trusted
 /// to have it.
