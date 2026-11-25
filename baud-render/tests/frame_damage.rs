@@ -394,6 +394,86 @@ fn one_row_written_converts_one_row() {
     );
 }
 
+/// **The pairs a whole walk of the glyph map lists over `t`'s window**,
+/// through a map of its own, in the rendition table the last cell frame
+/// drew with.
+fn whole_walk(r: &mut Renderer<'_, '_>, t: &Term<'_>, cells: &Cells<'_>) -> Vec<Candidate> {
+    let last = (cells.next.0 + SETS - 1) % SETS;
+    let mut backing = GlyphMap::backing();
+    let mut map = GlyphMap::over(&mut backing);
+    let mut found = Vec::new();
+    map.ensure(
+        t,
+        t.view(t.window_back()),
+        &cells.styles_mem[last],
+        r,
+        &mut found,
+    );
+    found
+}
+
+/// **One row written walks one row of the glyph map** on the cell path,
+/// and the pairs the walk keeps are a whole walk's: rows holding pairs
+/// above and below it keep theirs, a pair written in is listed in its
+/// row's place, and a pair written over is gone. A frame with nothing
+/// written walks none.
+#[test]
+fn one_row_written_walks_one_row() {
+    let data = font();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces, SMALL);
+    let mut owned = Owned::new(&SMALL);
+    let mut t = Term::new(owned.storage(), &SMALL);
+    feed(&mut t, HIDE);
+    feed(&mut t, b"a -> b\r\n\r\nc != d\r\n\r\n\r\ne <= f");
+    let mut backing = GlyphMap::backing();
+    let mut cells = Cells::new(&mut backing, &t);
+    for _ in 0..=SETS {
+        cell(&mut r, &mut t, &mut cells);
+    }
+    let walked = |cells: &Cells<'_>| cells.map.stats().rows_walked.value();
+    let rows_of = |c: &[Candidate]| {
+        let mut rows: Vec<usize> = c.iter().map(|c| c.row.index()).collect();
+        rows.dedup();
+        rows
+    };
+    assert_eq!(
+        rows_of(&cells.candidates),
+        [0, 2, 5],
+        "a pair on each written row"
+    );
+    let was = walked(&cells);
+    cell(&mut r, &mut t, &mut cells);
+    assert_eq!(walked(&cells) - was, 0, "nothing written walks no row");
+    for (write, rows) in [
+        (&b"\x1b[4;3H=>"[..], &[0, 2, 3, 5][..]),
+        (b"\x1b[3;3Hab", &[0, 3, 5]),
+        (b"\x1b[2;1Hx -- y", &[0, 1, 3, 5]),
+    ] {
+        feed(&mut t, write);
+        let was = walked(&cells);
+        cell(&mut r, &mut t, &mut cells);
+        assert_eq!(
+            walked(&cells) - was,
+            1,
+            "{}: one row walked",
+            String::from_utf8_lossy(write)
+        );
+        assert_eq!(
+            rows_of(&cells.candidates),
+            rows,
+            "{}: the rows holding pairs",
+            String::from_utf8_lossy(write)
+        );
+        assert_eq!(
+            cells.candidates,
+            whole_walk(&mut r, &t, &cells),
+            "{}: a whole walk's pairs",
+            String::from_utf8_lossy(write)
+        );
+    }
+}
+
 /// The show `age` seconds in, every burst and the hole at `at`.
 fn show(age: f32, at: Pt) -> Show {
     Show {

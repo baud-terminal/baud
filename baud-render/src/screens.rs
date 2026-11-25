@@ -46,8 +46,8 @@ use crate::{LaidSeal, Leaving, Lending, Orders, Rejoin, Tally, WalkKey};
 use baud_core::StatusLine;
 use baud_domain::TermRead;
 use baud_domain::{
-    Cols, LineRendition, PackedCell, Row, RowGens, Rows, Seal, StatusGen, Stride, StyleId,
-    Viewport, WindowAt,
+    Cols, DirtyRows, LineRendition, PackedCell, Row, RowGens, Rows, Seal, StatusGen, Stride,
+    StyleId, Viewport, WindowAt,
 };
 
 use std::rc::Rc;
@@ -330,6 +330,10 @@ pub struct Screens {
     /// Each row of the last frame taken under [`Compare::Rows`]: whether
     /// it may differ from the copy the frame before left.
     changed: Vec<RowChange>,
+    /// **The rows of the last frame that may differ from the frame built
+    /// before it**, the status line's after the window's, under either
+    /// compare ([`Screens::differ`]).
+    differ: Option<DirtyRows>,
     /// **The lending the last frame's copy was drawn under**
     /// (`baud_render::Lent`): a frame whose screen is the last's is built
     /// from it only under the same lending, since a lent id means what it
@@ -354,6 +358,7 @@ impl Screens {
             walked: None,
             compare: Compare::Screen,
             changed: Vec::new(),
+            differ: None,
             lending: Lending::default(),
         }
     }
@@ -428,6 +433,7 @@ impl Screens {
         let lined = usize::from(w.status.is_some());
         // **The last frame's answer, before this frame's copy is touched.**
         self.changed.clear();
+        self.differ = None;
         let mut same = true;
         let last = self
             .last
@@ -437,7 +443,10 @@ impl Screens {
                 same = false;
                 self.changed.resize(rows, RowChange::Changed);
             }
-            Some((_, _, Keeps::All)) => self.changed.resize(rows, RowChange::Same),
+            Some((_, _, Keeps::All)) => {
+                self.changed.resize(rows, RowChange::Same);
+                self.differ = Some(DirtyRows::NONE);
+            }
             Some((k, copy, Keeps::Rows)) => {
                 let scratch = &mut self.scratch;
                 let mut differs = |y: usize| {
@@ -460,9 +469,16 @@ impl Screens {
                     };
                     !row_same(scratch, undo, (kept, drawn), Row::from_index(y))
                 };
+                let mut differ = Some(DirtyRows::NONE);
+                let mut at = |y: usize, d: bool| {
+                    if d {
+                        differ = differ.and_then(|n| n.with(Row::from_index(y)));
+                    }
+                };
                 for y in 0..rows {
                     let d = differs(y);
                     same &= !d;
+                    at(y, d);
                     self.changed.push(match d {
                         true => RowChange::Changed,
                         false => RowChange::Same,
@@ -470,7 +486,9 @@ impl Screens {
                 }
                 if lined == 1 && differs(rows) {
                     same = false;
+                    at(rows, true);
                 }
+                self.differ = differ;
             }
         }
         let built = match (w.leaving, same) {
@@ -531,6 +549,15 @@ impl Screens {
         }
         self.last = Some(set.0);
         built
+    }
+
+    /// **The rows of the last frame that may differ from the frame built
+    /// before it**, the window's and the status line's after them, under
+    /// either compare: none for a frame that is the last frame's screen,
+    /// and `None`, every row, where there was no frame before or the two
+    /// are not compared row by row.
+    pub(crate) fn differ(&self) -> Option<DirtyRows> {
+        self.differ
     }
 
     /// Whether row `r` of the last frame taken under [`Compare::Rows`] may

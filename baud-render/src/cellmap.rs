@@ -28,7 +28,9 @@ use crate::units::Tally;
 use baud_domain::TermRead;
 use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
-use baud_domain::{Chan, Codepoint, Col, Cols, Content, GlyphId, PackedCell, Row, Viewport};
+use baud_domain::{
+    Chan, Codepoint, Col, Cols, Content, DirtyRows, FrameDamage, GlyphId, PackedCell, Row, Viewport,
+};
 
 /// A cell that ends an adjacent pair the face's rules can begin on: the
 /// second of the two, on the screen the map was ensured for.
@@ -439,6 +441,8 @@ pub struct MapStats {
     /// Adjacent cells whose entries could begin and end a pair, so the
     /// face's digest was consulted.
     pub pair_tests: Tally,
+    /// Rows the walks read, every cell of each probed for its entry.
+    pub rows_walked: Tally,
 }
 
 /// The map's entries live where the caller put them -- a shared GPU
@@ -470,6 +474,51 @@ pub struct GlyphMap<'m> {
     /// walk noted none.
     rows: Vec<RowParts>,
     walked: (Cols, baud_domain::Rows),
+    /// **The screen the lists above were last walked over**, which a walk
+    /// of some rows puts its rows into: none before a walk of every row,
+    /// and after one the map was emptied during.
+    kept: Option<Kept>,
+    /// One row's pairs and cells drawn whole, before they are put in their
+    /// place in the lists, kept for their memory.
+    row_pairs: Vec<Candidate>,
+    row_listed: Vec<(Row, Col)>,
+}
+
+/// **What the lists a walk left were walked over**: the screen's width and
+/// height, the map as emptied that many times, and which lists the walk
+/// kept.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Kept {
+    cols: Cols,
+    rows: baud_domain::Rows,
+    cleared: Tally,
+    lists: Lists,
+}
+
+/// **Which lists a walk kept beside the pairs**: the cells drawn whole
+/// ([`GlyphMap::several`]), each row's syllable parts
+/// ([`GlyphMap::row_parts`]), both or neither.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Lists {
+    Pairs,
+    Several,
+    Parts,
+    Both,
+}
+
+impl Lists {
+    /// The lists a walk of `term` over `map` keeps: the cells drawn whole
+    /// once the map holds an entry for one, the syllable parts with BDSM
+    /// reset.
+    fn of(map: &GlyphMap<'_>, term: &impl TermRead) -> Lists {
+        let parts = term.bidi_support() == baud_core::BidiSupport::Explicit;
+        match (map.decomposed.value() > 0, parts) {
+            (false, false) => Lists::Pairs,
+            (true, false) => Lists::Several,
+            (false, true) => Lists::Parts,
+            (true, true) => Lists::Both,
+        }
+    }
 }
 
 /// What one row of a walk holds of a syllable ([`GlyphMap::row_parts`]).
@@ -522,6 +571,9 @@ impl<'m> GlyphMap<'m> {
             reach: Reach::NONE,
             rows: Vec::new(),
             walked: (Cols::of_index(0), baud_domain::Rows::ZERO),
+            kept: None,
+            row_pairs: Vec::new(),
+            row_listed: Vec::new(),
         }
     }
 
@@ -630,6 +682,19 @@ impl<'m> GlyphMap<'m> {
         }
     }
 
+    /// **[`GlyphMap::ensure_with`] over every row of `vp`**, for a caller
+    /// that holds no damage: the walk a whole frame takes.
+    pub fn ensure(
+        &mut self,
+        term: &impl TermRead,
+        vp: Viewport<'_>,
+        styles: &[Resolved],
+        r: &mut Renderer<'_, '_>,
+        candidates: &mut Vec<Candidate>,
+    ) {
+        self.ensure_with(term, vp, &crate::drawn::TOLD, styles, r, candidates);
+    }
+
     /// Makes sure every drawable codepoint on the screen has an entry,
     /// resolving the missing ones through the renderer's shaper and atlas.
     /// Empties the map first when the atlas grew since the last call, and
@@ -640,6 +705,17 @@ impl<'m> GlyphMap<'m> {
     /// digests are consulted only where a cell that can end a pair follows
     /// one that can start one.
     ///
+    /// **`damage` names the rows that may differ from the screen the last
+    /// walk read**, and only those are walked: each one's pairs, its cells
+    /// drawn whole and its syllable parts put in its place in the lists
+    /// that walk left, `candidates` among them. Every row is walked for a
+    /// [`FrameDamage::Whole`], and whenever the lists the last walk left
+    /// are not this screen's: another width or height, the map emptied
+    /// since, the atlas grown, another set of lists kept, or a walk the
+    /// map was emptied during. A row walked lists a cell drawn whole only
+    /// once the map holds an entry for one, so a walk of some rows that
+    /// meets the first walks every row again.
+    ///
     /// `styles` is the resolved rendition table the frame draws with,
     /// synced before this walk: a cell's face style is read from its slot,
     /// as the shader reads it, so the two build and probe the same keys.
@@ -648,7 +724,72 @@ impl<'m> GlyphMap<'m> {
     /// continuations holds its cluster's slot rather than its base, and its
     /// base -- which takes an entry like any other cell's and can begin or
     /// end a pair -- is read back from the store ([`TermRead::base_of`]).
-    pub fn ensure(
+    ///
+    /// The walk over every row is the map's own, run only as above:
+    ///
+    /// ```compile_fail,E0624
+    /// fn f(
+    ///     map: &mut baud_render::GlyphMap<'_>,
+    ///     t: &baud_core::Term<'_>,
+    ///     r: &mut baud_render::Renderer<'_, '_>,
+    ///     c: &mut Vec<baud_render::Candidate>,
+    /// ) {
+    ///     map.ensure_all(t, t.viewport(), &[], r, c);
+    /// }
+    /// ```
+    pub fn ensure_with(
+        &mut self,
+        term: &impl TermRead,
+        vp: Viewport<'_>,
+        damage: &FrameDamage,
+        styles: &[Resolved],
+        r: &mut Renderer<'_, '_>,
+        candidates: &mut Vec<Candidate>,
+    ) {
+        let FrameDamage::Rows { rows, .. } = *damage else {
+            return self.ensure_all(term, vp, styles, r, candidates);
+        };
+        let listed = self.decomposed.value() > 0;
+        let parts = term.bidi_support() == baud_core::BidiSupport::Explicit;
+        let screen = Kept {
+            cols: vp.cols(),
+            rows: vp.rows(),
+            cleared: self.stats.cleared,
+            lists: Lists::of(self, term),
+        };
+        if r.atlas_stats().grown.value() != self.grown.value() || self.kept != Some(screen) {
+            return self.ensure_all(term, vp, styles, r, candidates);
+        }
+        let tallies = (self.stats.dropped_marks, self.stats.pair_tests);
+        let mut changed = self.rings(r);
+        if self.stats.cleared == screen.cleared {
+            changed |= match (listed, parts) {
+                (false, false) => {
+                    self.walk_rows::<false, false>(term, vp, rows, styles, r, candidates)
+                }
+                (false, true) => {
+                    self.walk_rows::<false, true>(term, vp, rows, styles, r, candidates)
+                }
+                (true, false) => {
+                    self.walk_rows::<true, false>(term, vp, rows, styles, r, candidates)
+                }
+                (true, true) => self.walk_rows::<true, true>(term, vp, rows, styles, r, candidates),
+            };
+        }
+        // The map emptied on the way took the other rows' entries with it,
+        // and a first cell drawn whole was not listed on the rows not
+        // walked: every row walked again.
+        if self.stats.cleared != screen.cleared || (!listed && self.decomposed.value() > 0) {
+            (self.stats.dropped_marks, self.stats.pair_tests) = tallies;
+            changed |= self.walk_all(term, vp, styles, r, candidates);
+        }
+        if changed {
+            self.generation = MapGeneration(self.generation.0.wrapping_add(1));
+        }
+    }
+
+    /// **Every row of `vp` walked** ([`GlyphMap::ensure_with`]).
+    fn ensure_all(
         &mut self,
         term: &impl TermRead,
         vp: Viewport<'_>,
@@ -656,11 +797,29 @@ impl<'m> GlyphMap<'m> {
         r: &mut Renderer<'_, '_>,
         candidates: &mut Vec<Candidate>,
     ) {
+        if self.walk_all(term, vp, styles, r, candidates) {
+            self.generation = MapGeneration(self.generation.0.wrapping_add(1));
+        }
+    }
+
+    /// The walk of every row for [`GlyphMap::ensure_all`], the map emptied
+    /// first when the atlas grew, and the lists it leaves kept for a walk
+    /// of some rows unless the map was emptied during it. Whether an entry
+    /// was added.
+    fn walk_all(
+        &mut self,
+        term: &impl TermRead,
+        vp: Viewport<'_>,
+        styles: &[Resolved],
+        r: &mut Renderer<'_, '_>,
+        candidates: &mut Vec<Candidate>,
+    ) -> bool {
         if r.atlas_stats().grown.value() != self.grown.value() {
             self.grown = r.atlas_stats().grown;
             self.clear();
         }
         let mut changed = self.rings(r);
+        let cleared = self.stats.cleared;
         // The cells a decomposed letter or one reaching past its cell is in
         // are listed only while the map holds an entry for one, so a screen
         // that never showed one walks as it did before they were listed.
@@ -686,12 +845,16 @@ impl<'m> GlyphMap<'m> {
         }
         // A clear on the walk took the rings' entries with it.
         changed |= self.rings(r);
-        if changed {
-            self.generation = MapGeneration(self.generation.0.wrapping_add(1));
-        }
+        self.kept = (self.stats.cleared == cleared).then(|| Kept {
+            cols: vp.cols(),
+            rows: vp.rows(),
+            cleared,
+            lists: Lists::of(self, term),
+        });
+        changed
     }
 
-    /// One walk over the screen for [`GlyphMap::ensure`]: every cell's
+    /// One walk over the screen for [`GlyphMap::walk_all`]: every cell's
     /// entry made present, the pair candidates into `candidates`, with
     /// `LIST` the cells the overlay draws whole ([`MapEntry::listed`]) into
     /// [`GlyphMap::several`], and with `PARTS` what each row holds of a
@@ -706,77 +869,144 @@ impl<'m> GlyphMap<'m> {
         candidates: &mut Vec<Candidate>,
     ) -> bool {
         candidates.clear();
-        self.several.clear();
+        let mut several = core::mem::take(&mut self.several);
+        several.clear();
         self.rows.clear();
         self.walked = match PARTS {
             true => (vp.cols(), vp.rows()),
             false => (Cols::of_index(0), baud_domain::Rows::ZERO),
         };
         let mut changed = false;
-        let cols = vp.cols().index();
         for y in 0..vp.rows().index() {
-            let row = vp.row(Row::from_index(y));
-            let mut prev: Option<(GlyphId, Code)> = None;
-            let (mut pads, mut marked) = (0, false);
-            for (x, cell) in row.iter().enumerate().take(cols) {
-                if cell.flags.is_marked() {
-                    self.stats.dropped_marks.bump();
-                    marked |= PARTS;
-                }
-                let Some(cp) = crate::renderer::drawn_base(term, *cell) else {
-                    if cell.content != Content::WIDE_TAIL {
-                        prev = None;
-                    }
-                    continue;
-                };
-                let style = face_of(styles, *cell);
-                let span = CellSpan::at(row, Col::at_index(x));
-                let (glyph, starts, ends, face) = match self.probe(cp, style, span).copied() {
-                    Some(e) => {
-                        if LIST && e.listed() {
-                            self.several.push((Row::from_index(y), Col::at_index(x)));
-                        }
-                        if PARTS {
-                            pads |= e.pad.0;
-                        }
-                        (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
-                    }
-                    None => {
-                        let e = self.miss(r, cp, style, span);
-                        changed = true;
-                        if LIST && e.listed() {
-                            self.several.push((Row::from_index(y), Col::at_index(x)));
-                        }
-                        if PARTS {
-                            pads |= e.pad.0;
-                        }
-                        (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
-                    }
-                };
-                if let Some((pg, pf)) = prev {
-                    if ends && pf == face {
-                        self.stats.pair_tests.bump();
-                        if r.admits(face, pg, glyph) {
-                            candidates.push(Candidate {
-                                row: Row::from_index(y),
-                                col: Col::at_index(x),
-                                face,
-                            });
-                        }
-                    }
-                }
-                prev = starts.then_some((glyph, face));
-            }
+            let (added, parts) = self.walk_row::<LIST, PARTS>(
+                term,
+                (vp, Row::from_index(y)),
+                styles,
+                r,
+                (candidates, &mut several),
+            );
+            changed |= added;
             if PARTS {
-                self.rows
-                    .push(match (pads & MapEntry::SYLLABLES != 0, marked) {
-                        (true, _) => RowParts::Blocks,
-                        (false, true) => RowParts::Clusters,
-                        (false, false) => RowParts::Neither,
-                    });
+                self.rows.push(parts);
             }
         }
+        self.several = several;
         changed
+    }
+
+    /// **The walk of the rows `rows` names**, for
+    /// [`GlyphMap::ensure_with`]: each row's pairs, cells drawn whole and
+    /// syllable parts put in its place in the lists the last walk left, the
+    /// other rows' kept. Whether an entry was added.
+    fn walk_rows<const LIST: bool, const PARTS: bool>(
+        &mut self,
+        term: &impl TermRead,
+        vp: Viewport<'_>,
+        rows: DirtyRows,
+        styles: &[Resolved],
+        r: &mut Renderer<'_, '_>,
+        candidates: &mut Vec<Candidate>,
+    ) -> bool {
+        let (mut found, mut listed) = (
+            core::mem::take(&mut self.row_pairs),
+            core::mem::take(&mut self.row_listed),
+        );
+        let mut changed = false;
+        for y in rows.iter().take_while(|y| y.index() < vp.rows().index()) {
+            found.clear();
+            listed.clear();
+            let (added, parts) =
+                self.walk_row::<LIST, PARTS>(term, (vp, y), styles, r, (&mut found, &mut listed));
+            changed |= added;
+            let lo = candidates.partition_point(|c| c.row < y);
+            let n = candidates[lo..].partition_point(|c| c.row == y);
+            candidates.splice(lo..lo + n, found.drain(..));
+            if LIST {
+                let lo = self.several.partition_point(|&(r, _)| r < y);
+                let n = self.several[lo..].partition_point(|&(r, _)| r == y);
+                self.several.splice(lo..lo + n, listed.drain(..));
+            }
+            if let Some(p) = self.rows.get_mut(y.index()).filter(|_| PARTS) {
+                *p = parts;
+            }
+        }
+        (self.row_pairs, self.row_listed) = (found, listed);
+        changed
+    }
+
+    /// **Row `y` of `vp` walked**: each cell's entry made present, the
+    /// row's pair candidates onto `candidates` and, with `LIST`, its cells
+    /// drawn whole onto `several`. Whether an entry was added, and what the
+    /// row holds of a syllable (read with `PARTS` only).
+    #[inline(always)]
+    fn walk_row<const LIST: bool, const PARTS: bool>(
+        &mut self,
+        term: &impl TermRead,
+        (vp, y): (Viewport<'_>, Row),
+        styles: &[Resolved],
+        r: &mut Renderer<'_, '_>,
+        (candidates, several): (&mut Vec<Candidate>, &mut Vec<(Row, Col)>),
+    ) -> (bool, RowParts) {
+        self.stats.rows_walked.bump();
+        let mut changed = false;
+        let row = vp.row(y);
+        let mut prev: Option<(GlyphId, Code)> = None;
+        let (mut pads, mut marked) = (0, false);
+        for (x, cell) in row.iter().enumerate().take(vp.cols().index()) {
+            if cell.flags.is_marked() {
+                self.stats.dropped_marks.bump();
+                marked |= PARTS;
+            }
+            let Some(cp) = crate::renderer::drawn_base(term, *cell) else {
+                if cell.content != Content::WIDE_TAIL {
+                    prev = None;
+                }
+                continue;
+            };
+            let style = face_of(styles, *cell);
+            let span = CellSpan::at(row, Col::at_index(x));
+            let (glyph, starts, ends, face) = match self.probe(cp, style, span).copied() {
+                Some(e) => {
+                    if LIST && e.listed() {
+                        several.push((y, Col::at_index(x)));
+                    }
+                    if PARTS {
+                        pads |= e.pad.0;
+                    }
+                    (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
+                }
+                None => {
+                    let e = self.miss(r, cp, style, span);
+                    changed = true;
+                    if LIST && e.listed() {
+                        several.push((y, Col::at_index(x)));
+                    }
+                    if PARTS {
+                        pads |= e.pad.0;
+                    }
+                    (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
+                }
+            };
+            if let Some((pg, pf)) = prev {
+                if ends && pf == face {
+                    self.stats.pair_tests.bump();
+                    if r.admits(face, pg, glyph) {
+                        candidates.push(Candidate {
+                            row: y,
+                            col: Col::at_index(x),
+                            face,
+                        });
+                    }
+                }
+            }
+            prev = starts.then_some((glyph, face));
+        }
+        let parts = match (pads & MapEntry::SYLLABLES != 0, marked) {
+            (true, _) => RowParts::Blocks,
+            (false, true) => RowParts::Clusters,
+            (false, false) => RowParts::Neither,
+        };
+        (changed, parts)
     }
 
     /// The entry for a cell the map has none for, made and inserted. Out

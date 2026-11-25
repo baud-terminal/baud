@@ -566,9 +566,32 @@ where
         rows: view.rows(),
     };
     if built == Built::New || screens.walked != Some(key) {
-        cell.map.ensure(
+        // **The rows the walk reads**: the rows that may differ from the
+        // frame built before this one, whose screen is the one the last
+        // walk read, and the rows the damage names; every row for a frame
+        // drawn whole, one that slides, or the first after one that slid,
+        // whose walk read another window.
+        let walk = match (damage, screens.differ(), screens.walked, sliding) {
+            (
+                FrameDamage::Rows {
+                    rows,
+                    cursor,
+                    overlays,
+                },
+                Some(differ),
+                Some(_),
+                false,
+            ) => FrameDamage::Rows {
+                rows: rows.union(differ),
+                cursor: *cursor,
+                overlays: *overlays,
+            },
+            _ => crate::drawn::TOLD,
+        };
+        cell.map.ensure_with(
             term,
             view,
+            &walk,
             &cell.styles_mem[set][..],
             renderer,
             cell.candidates,
