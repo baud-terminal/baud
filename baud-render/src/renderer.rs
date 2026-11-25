@@ -4320,6 +4320,9 @@ pub struct Renderer<'f, 'a> {
     /// **The activity lights' own line** ([`Renderer::set_lights_line`]):
     /// a band of the whole frame outside the grid, above or below it.
     lights: crate::lights::LineState,
+    /// **The surface a lent buffer is**, its size and the whole frame's
+    /// place in it; none while the surface is the whole frame.
+    surface: Option<crate::surface::Surface>,
     /// The cursor trail's ghost on this frame and the last, and its one
     /// solid instance: a row the ghost is over or was over is dirty, the
     /// scrollbar's rule, so the trail's damage stays bounded to the rows it
@@ -4951,6 +4954,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             margin_painted: None,
             margin_fresh: StripFresh::No,
             lights: crate::lights::LineState::new(),
+            surface: None,
             bar_inst: Vec::new(),
             trail: None,
             last_trail: None,
@@ -9375,6 +9379,40 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 bottom: Px::of(b.bottom.value().saturating_add(down.value())),
             })
             .chain(line)
+    }
+
+    /// The surface a lent buffer is: `size`, with the whole frame's top
+    /// left corner at `origin` in it.
+    #[cfg(test)]
+    pub(crate) fn set_surface(&mut self, size: (Px, Px), origin: (Px, Px)) {
+        self.surface = Some(crate::surface::Surface { size, origin });
+    }
+
+    /// **The pixel rows of the surface `rows` names**, top to bottom, at
+    /// its whole width: each run of named rows as one band, no two
+    /// overlapping. What a presenter premultiplies and damages, given what
+    /// a draw painted ([`crate::Painted::rows`]). The surface is the whole
+    /// frame until one is set.
+    pub fn bands(&self, rows: &crate::SurfaceRows) -> impl Iterator<Item = Band> + '_ {
+        let (h, top) = match self.surface {
+            Some(s) => (s.size.1, s.origin.1),
+            None => (self.whole_size().1, Px::of(0)),
+        };
+        let lights = self.lights_top();
+        crate::surface::Layout {
+            height: h,
+            top,
+            whole: self.whole_size().1,
+            grid_top: self.grid_top(),
+            lights: Band {
+                top: lights,
+                bottom: Px::of(lights.value().saturating_add(self.lights.height().value())),
+            },
+            cell_h: self.metrics.cell_h,
+            main: self.main,
+            rows: self.rows,
+        }
+        .bands(*rows)
     }
 
     /// Reads the terminal, converts the rows that changed and paints them

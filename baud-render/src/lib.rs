@@ -116,6 +116,7 @@ mod select;
 pub mod splash;
 mod stack;
 pub mod status;
+mod surface;
 /// The codepoints `SGR 64`'s stress mark skips, compiled by `build.rs`
 /// (`build/stress.rs`) from `[[source: gc-data]]` and
 /// `[[source: unicode-data]]` by `[[source: css-text-decor-3]]`'s rule:
@@ -216,6 +217,7 @@ pub use stack::{
 };
 pub use status::{Leaving, StatusMarks};
 pub use stress_data::{STRESS_SKIP_BLOCKS, STRESS_SKIP_INDEX};
+pub use surface::{Age, ChromeBands, Painted, SurfaceRows};
 pub use tip::{
     MESSAGE_FOR, MessageAt, Opens, TIP_COLS, TipAnchor, TipArea, TipLook, message_look, tip_look,
     tip_look_opening,
