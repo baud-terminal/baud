@@ -26,7 +26,7 @@ use baud_present_vulkan::frame::{Failed, Gpu, Kind};
 use baud_present_vulkan::present::{Cpu, Frame, Inputs, Presenter, Remade};
 use baud_present_vulkan::reported::Reported;
 use baud_present_vulkan::vk::Vulkan;
-use baud_present_wayland::dmabuf::{Dmabuf, Imported, Points, Timeline};
+use baud_present_wayland::dmabuf::{Answer, Dmabuf, Imported, Params, Points, Timeline};
 use baud_present_wayland::{DmabufShown, Holds, Window};
 use baud_render::Renderer;
 use baud_wayland::{ObjectId, Sender};
@@ -46,7 +46,7 @@ pub enum Off {
     Fitting(Failed),
     /// The device failed.
     Failed(Failed),
-    /// The compositor did not import a target.
+    /// The compositor refused a target, or could not be asked for one.
     NotImported,
 }
 
@@ -80,7 +80,7 @@ impl core::fmt::Display for Off {
             Off::Refused(r) => write!(f, "the compositor's device or formats: {r:?}"),
             Off::Fitting(e) => write!(f, "the device failed making the targets: {e:?}"),
             Off::Failed(e) => write!(f, "the device failed: {e:?}"),
-            Off::NotImported => f.write_str("the compositor imported no target"),
+            Off::NotImported => f.write_str("the compositor refused a target"),
         }
     }
 }
@@ -114,7 +114,8 @@ pub enum Why {
     Images,
     /// A trail no stage of the device's path draws.
     Trail,
-    /// The target drawn has no buffer the compositor imported.
+    /// The target drawn has no buffer the compositor imported, or a
+    /// target's buffer is still asked for.
     Unimported,
     /// The compositor did not take the buffer.
     Refused,
@@ -242,10 +243,12 @@ impl core::fmt::Display for Tally {
 }
 
 /// The arm while it runs: the device, the presenter, and each target's
-/// buffer and timeline as the compositor knows them.
+/// buffer and timeline as the compositor knows them, or its buffer still
+/// asked for.
 struct On {
     gpu: Gpu,
     presenter: Presenter,
+    asked: [Option<Params>; TARGETS],
     buffers: [Option<ObjectId>; TARGETS],
     timelines: [Option<Timeline>; TARGETS],
 }
@@ -294,6 +297,8 @@ pub struct GpuArm {
 /// One step of tearing an arm down.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
+    /// A buffer asked for and not yet answered, forgotten.
+    Ask(TargetIx),
     Buffer(TargetIx),
     Timeline(TargetIx),
     /// The presenter's targets, memory, sheets and pipelines.
@@ -301,14 +306,24 @@ enum Step {
     Device,
 }
 
-/// **The order an arm is torn down in**: each `wl_buffer` and timeline the
-/// compositor knows, then the presenter's memory, then the device -- the
-/// objects made from a thing before the thing.
-fn teardown<B, L>(buffers: &[Option<B>; TARGETS], timelines: &[Option<L>; TARGETS]) -> Vec<Step> {
+/// **The order an arm is torn down in**: each buffer still asked for, each
+/// `wl_buffer` and timeline the compositor knows, then the presenter's
+/// memory, then the device -- the objects made from a thing before the
+/// thing.
+fn teardown<A, B, L>(
+    asked: &[Option<A>; TARGETS],
+    buffers: &[Option<B>; TARGETS],
+    timelines: &[Option<L>; TARGETS],
+) -> Vec<Step> {
     let mut steps: Vec<Step> = (0..TARGETS)
-        .filter(|&k| buffers[k].is_some())
-        .map(|k| Step::Buffer(TargetIx(k)))
+        .filter(|&k| asked[k].is_some())
+        .map(|k| Step::Ask(TargetIx(k)))
         .collect();
+    steps.extend(
+        (0..TARGETS)
+            .filter(|&k| buffers[k].is_some())
+            .map(|k| Step::Buffer(TargetIx(k))),
+    );
     steps.extend(
         (0..TARGETS)
             .filter(|&k| timelines[k].is_some())
@@ -375,6 +390,7 @@ impl GpuArm {
                 On {
                     gpu,
                     presenter,
+                    asked: [None; TARGETS],
                     buffers: [None; TARGETS],
                     timelines: [None; TARGETS],
                 },
@@ -566,6 +582,23 @@ impl On {
         if self.presenter.fit(&self.gpu, size).map_err(Off::Fitting)? == Remade::Yes {
             self.import(window, s)?;
         }
+        // The compositor's answers to the buffers asked for: a refusal turns
+        // the arm off, and until both are made the frames are the CPU's.
+        for k in 0..TARGETS {
+            if let Some(p) = self.asked[k] {
+                match window.answer(p) {
+                    Answer::Buffer(b) => {
+                        self.buffers[k] = Some(b);
+                        self.asked[k] = None;
+                    }
+                    Answer::Refused => return Err(Off::NotImported),
+                    Answer::Waiting => {}
+                }
+            }
+        }
+        if self.buffers.iter().any(Option::is_none) {
+            return Ok(Arm::Cpu(Why::Unimported));
+        }
         // The buffers the compositor released since.
         for (k, b) in self.buffers.iter().enumerate() {
             if let Some(b) = b {
@@ -604,10 +637,13 @@ impl On {
         })
     }
 
-    /// **Each new target made a buffer**, and its timeline imported where
-    /// frames carry points; the old targets' buffers and timelines
-    /// destroyed first.
+    /// **A buffer asked for each new target**, and its timeline imported
+    /// where frames carry points; the old targets' buffers, asks and
+    /// timelines given up first.
     fn import(&mut self, window: &mut Window, s: &mut Sender<'_>) -> Result<(), Off> {
+        for p in self.asked.iter_mut().filter_map(Option::take) {
+            window.forget(s, p);
+        }
         for b in self.buffers.iter_mut().filter_map(Option::take) {
             window.drop_buffer(s, b);
         }
@@ -625,8 +661,8 @@ impl On {
                 format: t.format,
                 planes: &planes,
             };
-            self.buffers[k] = match window.import(s, &d) {
-                Imported::Buffer(b) => Some(b),
+            self.asked[k] = match window.import(s, &d) {
+                Imported::Asked(p) => Some(p),
                 _ => return Err(Off::NotImported),
             };
             self.timelines[k] = match tl {
@@ -646,12 +682,18 @@ impl On {
         let On {
             gpu,
             presenter,
+            asked,
             buffers,
             timelines,
         } = self;
         let (mut presenter, mut gpu) = (Some(presenter), Some(gpu));
-        for step in teardown(&buffers, &timelines) {
+        for step in teardown(&asked, &buffers, &timelines) {
             match step {
+                Step::Ask(k) => {
+                    if let Some(p) = asked[k.0] {
+                        window.forget(s, p);
+                    }
+                }
                 Step::Buffer(k) => {
                     if let Some(b) = buffers[k.0] {
                         window.drop_buffer(s, b);
@@ -765,15 +807,17 @@ mod tests {
         assert!(matches!(GpuArm::new(Some("on")).state, State::Waiting));
     }
 
-    /// **An arm is torn down from the outside in**: every buffer and
-    /// timeline the compositor knows, then the presenter's memory, then
+    /// **An arm is torn down from the outside in**: every buffer still asked
+    /// for, every buffer and timeline the compositor knows, then the presenter's memory, then
     /// the device, and nothing named twice.
     #[test]
     fn an_arm_is_torn_down_buffers_and_timelines_before_memory_and_device() {
         let both = [Some(()), Some(())];
         assert_eq!(
-            teardown(&both, &both),
+            teardown(&both, &both, &both),
             [
+                Step::Ask(TargetIx(0)),
+                Step::Ask(TargetIx(1)),
                 Step::Buffer(TargetIx(0)),
                 Step::Buffer(TargetIx(1)),
                 Step::Timeline(TargetIx(0)),
@@ -784,9 +828,34 @@ mod tests {
         );
         let none: [Option<()>; TARGETS] = [None, None];
         assert_eq!(
-            teardown(&[Some(()), None], &none),
+            teardown(&none, &[Some(()), None], &none),
             [Step::Buffer(TargetIx(0)), Step::Presenter, Step::Device],
             "only what the compositor knows"
+        );
+    }
+
+    /// **An arm that failed is torn down after the CPU frame over it is
+    /// committed**: in the driver, the one call to `committed` follows the
+    /// CPU arm's draw into the window's buffer and sits in the arm it takes
+    /// when the frame was presented, so the surface never shows a buffer
+    /// already destroyed.
+    #[test]
+    fn the_driver_tears_an_arm_down_after_the_cpu_frame_is_committed() {
+        let src = include_str!("linux.rs");
+        assert_eq!(
+            src.matches(".committed(&mut self.window").count(),
+            1,
+            "one call"
+        );
+        let present = src
+            .find("self.draw_in_place((seal, back))")
+            .expect("the CPU arm's draw");
+        let committed = src.find(".committed(&mut self.window").expect("the call");
+        assert!(committed > present, "after the present");
+        let between = &src[present..committed];
+        assert!(
+            between.contains("== Presented::Yes") && !between.contains("\n        }\n"),
+            "inside the arm the committed frame takes"
         );
     }
 

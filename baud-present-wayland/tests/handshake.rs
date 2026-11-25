@@ -7265,10 +7265,113 @@ fn frame_done(server: &mut Server, requests: &[(String, Vec<Val>)]) {
     server.send(cb, "wl_callback", "done", &[Arg::Uint(1)]);
 }
 
+/// **The compositor's `created` for `params`**, its buffer made at `id`:
+/// sent, read, and the params' `destroy` the window answers it with
+/// checked. The buffer.
+fn created(
+    server: &mut Server,
+    conn: &mut Connection,
+    w: &mut Window,
+    params: ObjectId,
+    id: ObjectId,
+) -> ObjectId {
+    server
+        .objects
+        .insert(id, Interface::named("wl_buffer").unwrap());
+    server.send(
+        params,
+        "zwp_linux_buffer_params_v1",
+        "created",
+        &[Arg::NewId(id)],
+    );
+    pump(conn, w);
+    let r = server.expect("zwp_linux_buffer_params_v1", "destroy");
+    assert_eq!(r.sender, params);
+    id
+}
+
+/// **`d` asked for and made a buffer at `id`**: the import's requests read
+/// through its `create`, `created` sent, the answer taken.
+fn imported_at(
+    server: &mut Server,
+    conn: &mut Connection,
+    w: &mut Window,
+    d: &dmabuf::Dmabuf<'_>,
+    id: ObjectId,
+) -> ObjectId {
+    let dmabuf::Imported::Asked(asked) = w.import(&mut conn.sender(), d) else {
+        panic!("an offered pair is asked for")
+    };
+    conn.flush().unwrap();
+    server.expect("zwp_linux_dmabuf_v1", "create_params");
+    server.expect("zwp_linux_buffer_params_v1", "add");
+    server.expect("zwp_linux_buffer_params_v1", "create");
+    let b = created(server, conn, w, asked.0, id);
+    assert_eq!(w.answer(asked), dmabuf::Answer::Buffer(b));
+    b
+}
+
+/// **A refused buffer is seen, and one no longer wanted is destroyed when
+/// it comes**: `failed` answers the ask refused, its params destroyed;
+/// an ask forgotten before its `created` destroys the buffer made for it.
+/// Named break: an import that forgets its params, whose refusal then
+/// arrives for an object the client has destroyed.
+#[test]
+fn a_refused_buffer_is_seen_and_a_forgotten_one_destroyed() {
+    let (mut conn, mut server, mut w, _) = session_with(&[("zwp_linux_dmabuf_v1", 6)]);
+    let fb = feedback_object(&server);
+    send_formats(&mut server, fb, true);
+    pump(&mut conn, &mut w);
+    let plane = tempfile();
+    let planes = [dmabuf::Plane {
+        fd: plane.as_fd(),
+        offset: dmabuf::Bytes(0),
+        stride: dmabuf::Bytes(256),
+    }];
+    let size = w.buffer_size().unwrap();
+    let d = dmabuf::Dmabuf {
+        width: size.0,
+        height: size.1,
+        format: ARGB_TILED,
+        planes: &planes,
+    };
+    let ask = |conn: &mut Connection, server: &mut Server, w: &mut Window| {
+        let dmabuf::Imported::Asked(a) = w.import(&mut conn.sender(), &d) else {
+            panic!("asked")
+        };
+        conn.flush().unwrap();
+        server.expect("zwp_linux_dmabuf_v1", "create_params");
+        server.expect("zwp_linux_buffer_params_v1", "add");
+        server.expect("zwp_linux_buffer_params_v1", "create");
+        a
+    };
+    let refused = ask(&mut conn, &mut server, &mut w);
+    server.send(refused.0, "zwp_linux_buffer_params_v1", "failed", &[]);
+    pump(&mut conn, &mut w);
+    let r = server.expect("zwp_linux_buffer_params_v1", "destroy");
+    assert_eq!(r.sender, refused.0);
+    assert_eq!(w.answer(refused), dmabuf::Answer::Refused);
+
+    let forgotten = ask(&mut conn, &mut server, &mut w);
+    w.forget(&mut conn.sender(), forgotten);
+    assert_eq!(w.answer(forgotten), dmabuf::Answer::Waiting);
+    let b = created(
+        &mut server,
+        &mut conn,
+        &mut w,
+        forgotten.0,
+        ObjectId(0xff00_0201),
+    );
+    conn.flush().unwrap();
+    let r = server.expect("wl_buffer", "destroy");
+    assert_eq!(r.sender, b, "the buffer made for a forgotten ask");
+}
+
 /// **A dmabuf is made a buffer of its planes and shown with its points**:
-/// an offered pair is imported through `create_params`, an `add` with the
-/// plane's fd, index, offset, stride and modifier, `create_immed` and the
-/// params' `destroy`; a pair not offered sends nothing. A frame with
+/// an offered pair is asked for through `create_params`, an `add` with the
+/// plane's fd, index, offset, stride and modifier, and `create`, and its
+/// buffer comes with `created`, the params destroyed then and the answer
+/// handed over once; a pair not offered sends nothing. A frame with
 /// points makes the surface's syncobj object once and sets both points,
 /// split high word first, before the attach, the damage and the commit;
 /// conflicting points and a buffer not of the window's size send nothing;
@@ -7298,8 +7401,8 @@ fn a_dmabuf_is_imported_and_shown_with_its_points() {
         format: ARGB_TILED,
         planes: &planes,
     };
-    let dmabuf::Imported::Buffer(buffer) = w.import(&mut conn.sender(), &d) else {
-        panic!("an offered pair is imported")
+    let dmabuf::Imported::Asked(asked) = w.import(&mut conn.sender(), &d) else {
+        panic!("an offered pair is asked for")
     };
     conn.flush().unwrap();
     let r = server.expect("zwp_linux_dmabuf_v1", "create_params");
@@ -7307,6 +7410,7 @@ fn a_dmabuf_is_imported_and_shown_with_its_points() {
     let Val::New(params) = r.args[0] else {
         panic!()
     };
+    assert_eq!(asked.0, params);
     let r = server.expect("zwp_linux_buffer_params_v1", "add");
     assert_eq!(r.sender, params);
     assert!(matches!(
@@ -7320,13 +7424,26 @@ fn a_dmabuf_is_imported_and_shown_with_its_points() {
             Val::Uint(0x1234_5678)
         ]
     ));
-    let r = server.expect("zwp_linux_buffer_params_v1", "create_immed");
+    let r = server.expect("zwp_linux_buffer_params_v1", "create");
     assert!(matches!(
         r.args[..],
-        [Val::New(b), Val::Int(64), Val::Int(32), Val::Uint(f), Val::Uint(0)]
-            if b == buffer && f == dmabuf::Fourcc::ARGB8888.0
+        [Val::Int(64), Val::Int(32), Val::Uint(f), Val::Uint(0)]
+            if f == dmabuf::Fourcc::ARGB8888.0
     ));
-    server.expect("zwp_linux_buffer_params_v1", "destroy");
+    assert_eq!(
+        w.answer(asked),
+        dmabuf::Answer::Waiting,
+        "before the answer"
+    );
+    let buffer = created(
+        &mut server,
+        &mut conn,
+        &mut w,
+        params,
+        ObjectId(0xff00_0101),
+    );
+    assert_eq!(w.answer(asked), dmabuf::Answer::Buffer(buffer));
+    assert_eq!(w.answer(asked), dmabuf::Answer::Refused, "handed over once");
     d.format = dmabuf::Format {
         fourcc: dmabuf::Fourcc::XRGB8888,
         modifier: dmabuf::Modifier::LINEAR,
@@ -7486,9 +7603,7 @@ fn without_the_syncobj_manager_frames_go_without_points() {
         format: ARGB_LINEAR,
         planes: &planes,
     };
-    let dmabuf::Imported::Buffer(buffer) = w.import(&mut conn.sender(), &d) else {
-        panic!()
-    };
+    let buffer = imported_at(&mut server, &mut conn, &mut w, &d, ObjectId(0xff00_0301));
     let t = dmabuf::Timeline(ObjectId(900));
     let points = dmabuf::Points {
         acquire: (t, dmabuf::Point(1)),
@@ -7504,10 +7619,6 @@ fn without_the_syncobj_manager_frames_go_without_points() {
         DmabufShown::Yes
     );
     conn.flush().unwrap();
-    server.expect("zwp_linux_dmabuf_v1", "create_params");
-    for name in ["add", "create_immed", "destroy"] {
-        server.expect("zwp_linux_buffer_params_v1", name);
-    }
     let names: Vec<String> = until_commit(&mut server)
         .into_iter()
         .map(|(n, _)| n)
@@ -7551,11 +7662,8 @@ fn a_dmabuf_buffer_is_free_again_on_release() {
         format: ARGB_TILED,
         planes: &planes,
     };
-    let import = |conn: &mut Connection, w: &mut Window| match w.import(&mut conn.sender(), &d) {
-        dmabuf::Imported::Buffer(b) => b,
-        other => panic!("imported: {other:?}"),
-    };
-    let (a, b) = (import(&mut conn, &mut w), import(&mut conn, &mut w));
+    let a = imported_at(&mut server, &mut conn, &mut w, &d, ObjectId(0xff00_0401));
+    let b = imported_at(&mut server, &mut conn, &mut w, &d, ObjectId(0xff00_0402));
     assert_eq!((w.holds(a), w.holds(b)), (Holds::No, Holds::No), "imported");
     assert_eq!(
         w.present_dmabuf(&mut conn.sender(), a, size, None, Changed::Whole),

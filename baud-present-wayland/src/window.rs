@@ -28,7 +28,7 @@
 use crate::clip::{Board, Clip, Copied, Done, Pasting, Want};
 use crate::cursor::{self, Drawn, Scale};
 use crate::damage::{BufferAge, Changed, RowSet, Strip};
-use crate::dmabuf::{self, Count, Dmabuf, Feedback, Imported, Points, Timeline};
+use crate::dmabuf::{self, Answer, Count, Dmabuf, Feedback, Imported, Params, Points, Timeline};
 use crate::ime::{
     ActionCode, ByteAt, CursorAt, CursorRect, HintCode, Preedit, PreeditCursor, Serial, Step,
     TextInput,
@@ -605,6 +605,9 @@ pub struct Window {
     /// last whole one and how many have come (`dmabuf.rs`).
     formats_object: Option<ObjectId>,
     formats_burst: dmabuf::Gather,
+    /// Each buffer asked of the compositor and what has come of it
+    /// ([`Window::answer`]).
+    asks: Vec<(ObjectId, Ask)>,
     formats: Option<Feedback>,
     formats_sent: Count,
     /// The surface's syncobj object, made at the first frame presented
@@ -733,6 +736,7 @@ impl Window {
             tearing: Tearing::Off,
             formats_object: None,
             formats_burst: dmabuf::Gather::default(),
+            asks: Vec::new(),
             formats: None,
             formats_sent: Count(0),
             sync_surface: None,
@@ -2030,12 +2034,51 @@ impl Window {
         self.formats_sent
     }
 
-    /// **A `wl_buffer` of a dmabuf** the renderer allocated, checked
-    /// against the surface's formats first (`dmabuf::import`).
+    /// **A `wl_buffer` of a dmabuf asked for**, the renderer's, checked against
+    /// the surface's formats first (`dmabuf::import`); its answer comes as an
+    /// event ([`Window::answer`]).
     pub fn import(&mut self, s: &mut Sender<'_>, d: &Dmabuf<'_>) -> Imported {
-        match (self.globals.dmabuf, self.formats.as_ref()) {
+        let asked = match (self.globals.dmabuf, self.formats.as_ref()) {
             (Some(m), Some(f)) => dmabuf::import(s, m, f, d),
             _ => Imported::NoFormats,
+        };
+        if let Imported::Asked(p) = asked {
+            self.asks.push((p.0, Ask::Waiting));
+        }
+        asked
+    }
+
+    /// **The compositor's answer to `p`**, handed over once: the buffer it
+    /// made or its refusal, after which `p` is forgotten. A `p` never asked,
+    /// or already answered, is refused.
+    pub fn answer(&mut self, p: Params) -> Answer {
+        let Some(i) = self.asks.iter().position(|(o, _)| *o == p.0) else {
+            return Answer::Refused;
+        };
+        match self.asks[i].1 {
+            Ask::Done(a) => {
+                self.asks.remove(i);
+                a
+            }
+            Ask::Waiting | Ask::Forgotten => Answer::Waiting,
+        }
+    }
+
+    /// **A buffer asked for and no longer wanted**: a buffer it was made
+    /// is destroyed now, and one made after this when its answer comes.
+    pub fn forget(&mut self, s: &mut Sender<'_>, p: Params) {
+        let Some(i) = self.asks.iter().position(|(o, _)| *o == p.0) else {
+            return;
+        };
+        match self.asks[i].1 {
+            Ask::Done(Answer::Buffer(b)) => {
+                self.asks.remove(i);
+                self.drop_buffer(s, b);
+            }
+            Ask::Done(_) => {
+                self.asks.remove(i);
+            }
+            Ask::Waiting | Ask::Forgotten => self.asks[i].1 = Ask::Forgotten,
         }
     }
 
@@ -3209,6 +3252,40 @@ impl Handler for Window {
                     }
                 }
             }
+            // A buffer asked for answered: its params object destroyed, as
+            // "upon receiving this event, the client should destroy" it, and
+            // the answer kept for `answer`, or a buffer made for an ask
+            // forgotten destroyed.
+            (
+                key @ (protocol::zwp_linux_buffer_params_v1::on::CREATED
+                | protocol::zwp_linux_buffer_params_v1::on::FAILED),
+                args,
+            ) => {
+                let _ = s.request(
+                    ev.object,
+                    Opcode(protocol::zwp_linux_buffer_params_v1::request::DESTROY),
+                    &[],
+                );
+                let made = match (key, args) {
+                    (protocol::zwp_linux_buffer_params_v1::on::CREATED, [Read::NewId(b)]) => {
+                        Some(*b)
+                    }
+                    _ => None,
+                };
+                if let Some(i) = self.asks.iter().position(|(o, _)| *o == ev.object) {
+                    match (self.asks[i].1, made) {
+                        (Ask::Forgotten, Some(b)) => {
+                            self.asks.remove(i);
+                            self.drop_buffer(s, b);
+                        }
+                        (Ask::Forgotten, None) => {
+                            self.asks.remove(i);
+                        }
+                        (_, Some(b)) => self.asks[i].1 = Ask::Done(Answer::Buffer(b)),
+                        (_, None) => self.asks[i].1 = Ask::Done(Answer::Refused),
+                    }
+                }
+            }
             (protocol::wl_buffer::on::RELEASE, _) => {
                 self.holding.retain(|&b| b != ev.object);
                 if let Some(p) = self.pool.as_mut() {
@@ -3370,6 +3447,15 @@ fn premultiply_in_place(row: &mut [u32]) {
     for w in rest {
         *w = premultiply(*w);
     }
+}
+
+/// What has come of a buffer asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ask {
+    Waiting,
+    /// No longer wanted: a buffer made for it is destroyed when it comes.
+    Forgotten,
+    Done(Answer),
 }
 
 #[cfg(test)]

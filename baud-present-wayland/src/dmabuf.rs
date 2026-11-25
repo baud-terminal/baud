@@ -262,11 +262,27 @@ pub struct Dmabuf<'a> {
     pub planes: &'a [Plane<'a>],
 }
 
-/// Whether a dmabuf became a `wl_buffer`, and if not, why: each refusal is
-/// a request that would have been a fatal protocol error.
+/// A buffer asked of the compositor, its answer to come
+/// ([`crate::Window::answer`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Params(pub ObjectId);
+
+/// **The compositor's answer to a buffer asked**: none yet, the
+/// `wl_buffer` it made, or a refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Answer {
+    Waiting,
+    Buffer(ObjectId),
+    /// `failed`: "one of the dmabuf constraints has not been fulfilled".
+    Refused,
+}
+
+/// Whether a dmabuf was asked for as a `wl_buffer`, and if not, why: each
+/// refusal is a request that would have been a fatal protocol error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Imported {
-    Buffer(ObjectId),
+    /// Asked: the compositor answers `created` or `failed`.
+    Asked(Params),
     /// The compositor offers no `zwp_linux_dmabuf_v1` at version 4 or
     /// later, or has sent no feedback yet.
     NoFormats,
@@ -278,11 +294,15 @@ pub enum Imported {
     Empty,
 }
 
-/// **A `wl_buffer` of `d`**, through `create_params`, an `add` for each
-/// plane and `create_immed`, the params object destroyed at once: "In case
-/// of import success, no event is sent", and a failure is either a fatal
-/// error or a buffer the compositor "marks as failed", so nothing is
-/// waited for. Every plane carries the one modifier, "Starting from
+/// **A `wl_buffer` of `d` asked for**, through `create_params`, an `add` for
+/// each plane and `create`, whose answer is an event: "the wl_buffer is not
+/// created immediately but returned via the 'created' event if the dmabuf
+/// sharing succeeds", and "the sharing may fail at runtime for reasons a
+/// client cannot predict, in which case the 'failed' event is triggered".
+/// Not `create_immed`, whose failure is a fatal error or "an invalid
+/// wl_buffer" whose use "is defined by the compositor
+/// implementation" (`[[source: wp-linux-dmabuf-v1]]`): a refusal
+/// here is seen, and the window answers it ([`crate::Window::answer`]). Every plane carries the one modifier, "Starting from
 /// version 5, the invalid_format protocol error is sent if all planes
 /// don't use the same modifier".
 pub fn import(
@@ -322,21 +342,18 @@ pub fn import(
             ],
         );
     }
-    let buffer = s.new_id(&protocol::wl_buffer::INTERFACE);
     let side = |p: Px| Arg::Int(i32::try_from(p.0).unwrap_or(i32::MAX));
     let _ = s.request(
         p,
-        Opcode(params::CREATE_IMMED),
+        Opcode(params::CREATE),
         &[
-            Arg::NewId(buffer),
             side(d.width),
             side(d.height),
             Arg::Uint(d.format.fourcc.0),
             Arg::Uint(0),
         ],
     );
-    let _ = s.request(p, Opcode(params::DESTROY), &[]);
-    Imported::Buffer(buffer)
+    Imported::Asked(Params(p))
 }
 
 /// A DRM syncobj timeline the compositor has imported.
