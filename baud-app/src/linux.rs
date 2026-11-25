@@ -273,8 +273,8 @@ struct Driver {
     pace: crate::reads::Pace<(crate::probe::Writers, crate::probe::ReadLinked)>,
     /// The frame the renderer paints into and the window copies out of:
     /// the window's size, so row damage has a target that still holds the
-    /// last frame, with the cells' margin filled with the default
-    /// background the screen draws.
+    /// last frame. The renderer paints all of it, the gutter and the
+    /// leftover around the whole frame included (`draw_kept`).
     frame: Vec<u32>,
     /// The old screen kept at a screen switch for its slide, drawn with its
     /// cursor hidden, and the frame each slide frame is composed into:
@@ -289,8 +289,7 @@ struct Driver {
     stride: Px,
     /// The default background at the window's opacity, for the margin
     /// past the last whole cell: the theme's, or `OSC 11`'s, or under `?5`
-    /// the foreground. The renderer paints only the grid, so a change here
-    /// refills the frame and repaints it whole.
+    /// the foreground. A change here draws the frame whole.
     margin: Argb,
     pending: Pending,
     /// What the frame owed is drawn for, until a frame is presented.
@@ -2116,9 +2115,8 @@ impl Driver {
 
     /// **Places the frame in the surface** (`origin.rs`): the gutter, then
     /// what the surface leaves beyond the frame split between opposite
-    /// sides. A frame that moved leaves its old pixels behind, so the
-    /// buffer is filled with the margin again and the frame repainted
-    /// whole. The only writer of `origin`.
+    /// sides. A frame that moved is drawn whole, the renderer painting the
+    /// gutter and the leftover around it. The only writer of `origin`.
     fn place(&mut self) {
         let rows = usize::try_from(self.stride.value())
             .ok()
@@ -2128,7 +2126,6 @@ impl Driver {
         let at = crate::origin::origin(surface, self.renderer.whole_size(), self.gutter());
         if at != self.origin {
             self.origin = at;
-            self.frame.fill(self.margin.0);
             self.damage = Damage::Full;
         }
     }
@@ -4489,14 +4486,13 @@ impl Driver {
         let margin = self.renderer.clear_color_of(&self.term);
         if margin != self.margin {
             self.margin = margin;
-            self.frame.fill(margin.0);
             self.damage = Damage::Full;
         }
         // **One write generation closed a frame, before its first ask of
         // the display** (`Term::seal_writes`), and after the link scan,
         // which keeps the seal it read under, as `App::present` seals: the
         // re-cut keeps its layout under the seal, so the frame's later asks
-        // read no row. `render_at` paints under the same seal.
+        // read no row. The draw (`draw_kept`) paints under the same seal.
         let seal = self.term.seal_writes();
         // The marks on the window shown, and the whole frame they are
         // drawn in: the strip at its left, then the grid.
@@ -4560,44 +4556,30 @@ impl Driver {
         if self.gpu.cpu_owes_whole() {
             self.damage = Damage::Full;
         }
-        // A frame the driver repaints whole -- a new size, the margin
-        // refilled, the frame moved -- changed pixels past the grid's rows
-        // too, which no band the renderer paints covers: the whole buffer
-        // is damaged.
+        // A frame the driver draws whole -- a new size, a margin of
+        // another colour, the frame moved -- is the whole buffer's damage.
         let whole = self.damage;
         // The rows the window shows, `window_back` lines up the history
         // while the wheel or the thumb holds it there: the rows the
         // selection, the link under a click and the thumb already read.
         let back = self.term.window_back();
-        let size = self.renderer.whole_size();
         let damage = self.damage;
         let painting = Instant::now();
-        let (renderer, term) = (&mut self.renderer, &self.term);
-        let Some(painted) =
-            crate::origin::in_frame(&mut self.frame, self.stride, self.origin, size, |target| {
-                renderer.render_at(term, seal, back, target, damage)
-            })
-        else {
+        let Some(drawn) = draw_kept(
+            &mut self.renderer,
+            &self.term,
+            (seal, back),
+            (&mut self.frame, self.stride, self.origin),
+            damage,
+            &mut self.strips,
+        ) else {
             return;
         };
-        self.report.drawn(painted);
+        self.report.drawn(drawn);
         // The order each row was drawn in, which the pointer maps back
         // through.
         self.seat.drawn(self.renderer.bidi());
         self.damage = Damage::Incremental;
-        self.strips.clear();
-        // The renderer's bands are the frame's rows: in the surface, below
-        // the origin.
-        let oy = self.origin.y.value();
-        let px = |p: Px| baud_present_wayland::Px(oy + p.value());
-        self.strips.extend(
-            self.renderer
-                .painted()
-                .map(|b| baud_present_wayland::Strip {
-                    top: px(b.top),
-                    bottom: px(b.bottom),
-                }),
-        );
         let pitch = usize::try_from(self.stride.value()).unwrap_or(0);
         // A sliding frame: the grid's rows composed from the live frame and
         // the kept one, the margin below them the live frame's; it and the
@@ -4878,6 +4860,59 @@ impl PresentedLog {
     }
 }
 
+/// **The CPU arm's frame, drawn into the kept `frame`**: the surface
+/// `stride` pixels wide, its rows below one another, the renderer's whole
+/// frame at `at` in it. Drawn through the renderer's lent draw with
+/// nothing stale -- `frame` holds the last frame -- every pixel for
+/// [`Damage::Full`], else the damage the renderer reads off `term`'s
+/// window `back` lines up; the renderer paints the gutter and the
+/// leftover around the whole frame on every band it paints. `strips` are
+/// set to the surface's pixel rows painted, at its whole width: what the
+/// window copies and damages. What the frame cost, or `None` when the
+/// surface does not hold the whole frame.
+fn draw_kept(
+    renderer: &mut Renderer<'_, '_>,
+    term: &Term<'_>,
+    (seal, back): (baud_domain::Seal, Rows),
+    (frame, stride, at): (&mut [u32], Px, crate::origin::Origin),
+    damage: Damage,
+    strips: &mut Vec<baud_present_wayland::Strip>,
+) -> Option<baud_render::Frame> {
+    let (w, h) = renderer.whole_size();
+    let fits =
+        |at: Px, whole: Px, room: Px| at.value().checked_add(whole.value()) <= Some(room.value());
+    crate::origin::surface(frame, stride, |target, (sw, sh)| {
+        if !fits(at.x, w, sw) || !fits(at.y, h, sh) {
+            return None;
+        }
+        renderer.set_surface((sw, sh), (at.x, at.y));
+        let damage = match damage {
+            Damage::Full => baud_domain::FrameDamage::Whole(baud_domain::WholeWhy::Requested),
+            Damage::Incremental => renderer.damage(term, back),
+        };
+        let painted = renderer.draw_lent(
+            term,
+            seal,
+            back,
+            &damage,
+            target,
+            baud_render::Age::Stale(baud_render::SurfaceRows::NONE),
+        );
+        strips.clear();
+        let px = |p: Px| baud_present_wayland::Px(p.value());
+        strips.extend(
+            renderer
+                .bands(&painted.rows())
+                .map(|b| baud_present_wayland::Strip {
+                    top: px(b.top),
+                    bottom: px(b.bottom),
+                }),
+        );
+        Some(renderer.lent_frame())
+    })
+    .flatten()
+}
+
 /// `presented: at=<ns> refresh=<ns> presented=<n> discarded=<n>`: the
 /// latest frame's stamp on the presentation clock and the refresh it
 /// predicts (0 where the compositor predicts none), and the frames the
@@ -5067,5 +5102,113 @@ mod tests {
             !hands(&SRC.replacen(line, "", 1)),
             "the planted control: without the line"
         );
+    }
+
+    /// **The CPU arm presents what it painted**: a 20 x 4 grid at a 7 px
+    /// gutter's corner in a surface whose every pixel is poison. Drawn
+    /// whole, no poison is left, the gutter included, and the strips cover
+    /// the surface. Poisoned again, with one cell written on the third row
+    /// and the cursor hidden, the strips are that row's band at the
+    /// surface's whole width -- the renderer's `bands` of it -- no poison
+    /// is left in that band, the gutter's columns included, and every pixel
+    /// outside it is still poison.
+    #[test]
+    fn the_cpu_arm_presents_what_it_painted() {
+        use baud_core::{BytePos, ReadLen};
+        use baud_domain::{DirtyRows, Row};
+        use baud_present_wayland::Strip;
+        use baud_render::{ChromeBands, Stack, SurfaceRows, Theme};
+        const POISON: u32 = 0xDEAD_BEEF;
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 4,
+        };
+        let faces = [baud_font::Face::parse(crate::embedded::REGULAR.bytes).expect("the face")];
+        let mut store = Owned::new(&ws);
+        let mut t = Term::new(store.storage(), &ws);
+        let feed = |t: &mut Term<'_>, b: &[u8]| {
+            t.write_at(BytePos::ZERO, b);
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        };
+        feed(&mut t, b"\x1b[?25l\x1b[3;5Hab");
+        let (cols, rows) = t.geometry();
+        let mut r = Renderer::new(
+            Stack::new(&faces).expect("a stack"),
+            PxSize::of(14.0).expect("a size"),
+            Theme::dark(),
+            Blend::Native,
+            cols,
+            rows,
+        )
+        .expect("cell metrics");
+        r.fit(&t);
+        let (w, h) = r.whole_size();
+        let g = 7;
+        let stride = Px::of(w.value() + 2 * g);
+        let height = h.value() + 2 * g;
+        let at = crate::origin::Origin {
+            x: Px::of(g),
+            y: Px::of(g),
+        };
+        let pitch = usize::try_from(stride.value()).expect("a pitch");
+        let words = pitch * usize::try_from(height).expect("a height");
+        let mut frame = vec![POISON; words];
+        let mut strips = Vec::new();
+        let seal = t.seal_writes();
+        draw_kept(
+            &mut r,
+            &t,
+            (seal, Rows::ZERO),
+            (&mut frame, stride, at),
+            Damage::Full,
+            &mut strips,
+        )
+        .expect("the frame fits");
+        assert!(!frame.contains(&POISON), "drawn whole, gutter included");
+        let mut covered = vec![false; usize::try_from(height).expect("a height")];
+        for s in &strips {
+            for y in s.top.0..s.bottom.0 {
+                covered[usize::try_from(y).expect("a row")] = true;
+            }
+        }
+        assert!(covered.iter().all(|&c| c), "{strips:?}");
+        frame.fill(POISON);
+        feed(&mut t, b"c");
+        let seal = t.seal_writes();
+        draw_kept(
+            &mut r,
+            &t,
+            (seal, Rows::ZERO),
+            (&mut frame, stride, at),
+            Damage::Incremental,
+            &mut strips,
+        )
+        .expect("the frame fits");
+        let cell = r.metrics().cell_h.value();
+        assert_eq!(h.value(), 4 * cell, "the frame is the grid alone");
+        let top = g + 2 * cell;
+        let band = Strip {
+            top: baud_present_wayland::Px(top),
+            bottom: baud_present_wayland::Px(top + cell),
+        };
+        assert_eq!(strips, vec![band], "one row's band");
+        let third = SurfaceRows {
+            grid: DirtyRows::NONE.with(Row::from_index(2)).expect("a row"),
+            chrome: ChromeBands::NONE,
+        };
+        let bands: Vec<Strip> = r
+            .bands(&third)
+            .map(|b| Strip {
+                top: baud_present_wayland::Px(b.top.value()),
+                bottom: baud_present_wayland::Px(b.bottom.value()),
+            })
+            .collect();
+        assert_eq!(strips, bands, "the renderer's bands of what it painted");
+        for (y, line) in (0u32..).zip(frame.chunks(pitch)) {
+            match (top..top + cell).contains(&y) {
+                true => assert!(!line.contains(&POISON), "row {y} painted whole"),
+                false => assert!(line.iter().all(|&p| p == POISON), "row {y} untouched"),
+            }
+        }
     }
 }

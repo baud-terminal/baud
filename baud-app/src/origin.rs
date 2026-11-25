@@ -82,6 +82,21 @@ pub(crate) fn in_frame<R>(
     Some(f(&mut target))
 }
 
+/// **`f` over the whole surface `frame`**, its rows `stride` pixels
+/// apart, given the surface's size: the target a lent draw paints, the
+/// renderer placing the whole frame at its origin in it
+/// (`Renderer::set_surface`). `None` for a buffer of no whole row.
+pub(crate) fn surface<R>(
+    frame: &mut [u32],
+    stride: Px,
+    f: impl FnOnce(&mut Target<'_>, (Px, Px)) -> R,
+) -> Option<R> {
+    let pitch = usize::try_from(stride.value()).ok().filter(|&p| p > 0)?;
+    let rows = Px::of(u32::try_from(frame.len() / pitch).ok()?);
+    let mut surface = Target::new(frame, stride, stride, rows)?;
+    Some(f(&mut surface, (stride, rows)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,8 +193,8 @@ mod tests {
     /// **The Linux driver maps between the surface and the frame through
     /// the origin alone**: every line of linux.rs that reads the grid's top
     /// or the strip as a position adds the origin on that axis, the frame
-    /// is drawn only through [`in_frame`], and `origin` is written in one
-    /// place. Configure's cell count, the one `strip()` that is a width,
+    /// is drawn only through [`in_frame`] or into the [`surface`] placed at
+    /// the origin, and `origin` is written in one place. Configure's cell count, the one `strip()` that is a width,
     /// is named. The three positions are counted, so a check that matched
     /// nothing would fail. Perturbation: map the pointer by `grid_top()`
     /// alone, or build a `Target` over the buffer's start, and this goes
@@ -208,7 +223,13 @@ mod tests {
         }
         assert_eq!(src.matches("self.renderer.grid_top()").count(), 3);
         assert_eq!(src.matches(width).count(), 1);
-        assert_eq!(src.matches("crate::origin::in_frame(").count(), 2);
+        assert_eq!(src.matches("crate::origin::in_frame(").count(), 1);
+        assert_eq!(src.matches("crate::origin::surface(").count(), 1);
+        assert_eq!(
+            src.matches("renderer.set_surface((sw, sh), (at.x, at.y))")
+                .count(),
+            1
+        );
         assert_eq!(src.matches("self.origin = ").count(), 1);
     }
 }

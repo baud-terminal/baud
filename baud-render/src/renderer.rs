@@ -4405,6 +4405,9 @@ pub struct Renderer<'f, 'a> {
     /// **The surface a lent buffer is**, its size and the whole frame's
     /// place in it; none while the surface is the whole frame.
     surface: Option<crate::surface::Surface>,
+    /// What the last draw into a lent buffer cost and did
+    /// ([`Renderer::lent_frame`]).
+    lent: Frame,
     /// The cursor trail's ghost on this frame and the last, and its one
     /// solid instance: a row the ghost is over or was over is dirty, the
     /// scrollbar's rule, so the trail's damage stays bounded to the rows it
@@ -5053,6 +5056,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             margin_fresh: StripFresh::No,
             lights: crate::lights::LineState::new(),
             surface: None,
+            lent: Frame::default(),
             bar_inst: Vec::new(),
             trail: None,
             last_trail: None,
@@ -9600,7 +9604,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let mut whole = band.columns(x, w)?;
                 Some(self.draw(term, seal, back, damage, &mut whole, Buffer::Lent(age)))
             })
-            .map(|(_, lent)| lent);
+            .map(|(frame, lent)| {
+                self.lent = frame;
+                lent
+            });
         let Some(LentDraw { changed, rows }) = drawn else {
             return crate::Painted::of(crate::SurfaceRows::NONE, crate::SurfaceRows::NONE);
         };
@@ -9642,6 +9649,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
         }
         crate::Painted::of(changed, rows)
+    }
+
+    /// **What the last [`Renderer::draw_lent`] cost and did**: its rows,
+    /// instances, conversion and paint, as [`Renderer::render`] returns
+    /// them for the kept frame.
+    pub fn lent_frame(&self) -> Frame {
+        self.lent
     }
 
     /// **The pixel rows of the surface `rows` names**, top to bottom, at

@@ -403,7 +403,7 @@ mod tests {
     /// off its source, which a macOS build compiles only for the Linux
     /// target: the report's deadline is among the bounds of the loop's one
     /// wait; every turn reaches the report after its present, the loop
-    /// having no `continue`; the frame `render_at` returns is kept and a
+    /// having no `continue`; what the frame's draw cost is kept and a
     /// frame committed to the compositor is counted; and every link
     /// activation is counted as the line it logs says.
     #[test]
@@ -433,11 +433,12 @@ mod tests {
         assert!(present < turn, "after the present");
         assert_eq!(body.matches("d.report.turn(").count(), 1, "once a turn");
         let drawn = src
-            .split_once("renderer.render_at(term, seal, back, target, damage)")
+            .split_once("let Some(drawn) = draw_kept(")
+            .and_then(|(_, rest)| rest.split_once(") else {"))
             .map(|(_, rest)| bare(rest))
             .expect("the paint");
         assert!(
-            drawn.starts_with("})else{return;};self.report.drawn(painted);"),
+            drawn.starts_with("return;};self.report.drawn(drawn);"),
             "kept"
         );
         let taken = src
