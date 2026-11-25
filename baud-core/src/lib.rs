@@ -153,9 +153,9 @@ pub use baud_domain::VersionText;
 /// tells the core.
 pub use baud_domain::{
     Activation, Attention, ButtonSupport, CloseEvents, CloseReport, Expiry, ExpirySupport,
-    IconSupport, Notice, NoticeAction, NoticeAsked, NoticeBudget, NoticeButton, NoticeFrom,
-    NoticeHold, NoticeRefusals, NoticeSupport, NoticeToken, Occasion, Occasions, Percent, Progress,
-    ProgressState, Sounds, Urgencies, Urgency,
+    IconSupport, NonZeroMillis, Notice, NoticeAction, NoticeAsked, NoticeBudget, NoticeButton,
+    NoticeFrom, NoticeHold, NoticeRefusals, NoticeSupport, NoticeToken, Occasion, Occasions,
+    Percent, Progress, ProgressState, Sounds, Urgencies, Urgency,
 };
 /// The status line's vocabulary: what [`Term::status_type`] and
 /// [`Term::active_display`] answer, and the row an embedder lends it

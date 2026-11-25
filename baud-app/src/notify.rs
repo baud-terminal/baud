@@ -554,7 +554,7 @@ impl<P: Clone + PartialEq> Shown<P> {
         held: Held,
     ) {
         let due = match expiry {
-            Expiry::After(d) => Some(now.plus(d)),
+            Expiry::After(d) => Some(now.plus(d.duration())),
             Expiry::System | Expiry::Never => None,
         };
         self.alive.retain(|a| a.token != token);
@@ -1446,7 +1446,7 @@ impl Delivery<String> {
             image,
         }));
         if let Expiry::After(d) = p.expiry {
-            calls.push(MacCall::Expire(id.clone(), d));
+            calls.push(MacCall::Expire(id.clone(), d.duration()));
         }
         let buttons = p.buttons.iter().map(|(n, _)| *n).collect();
         self.shown.pending(p.token, id, p.expiry, now, buttons);
@@ -2095,7 +2095,7 @@ mod tests {
         assert_eq!(d.gone(2), None, "a second close changes nothing");
     }
     use super::*;
-    use baud_core::{NoticeBudget, Owned, Term};
+    use baud_core::{NonZeroMillis, NoticeBudget, Owned, Term};
     use baud_domain::{BytePos, HostTime, ReadLen, WinSize};
 
     const WS: WinSize = WinSize {
@@ -2516,6 +2516,46 @@ mod tests {
         assert_eq!(s.id(p[1].token), None);
     }
 
+    /// **`w=00` never closes on its own**, as `w=0` does not: no deadline
+    /// on Linux, no removal scheduled on macOS, and never on the wire.
+    /// Perturbation: read `00` as zero milliseconds -- due at once, and
+    /// removed at once on macOS.
+    #[test]
+    fn w_00_never_closes_on_its_own() {
+        let p = posted(b"\x1b]99;i=a:w=00;a\x1b\\", &mut Icons::default());
+        let mut s: Shown<u32> = Shown::new();
+        s.shown(p[0].token, 7, p[0].expiry, at(Secs(0)), Vec::new());
+        assert_eq!(s.next_due(), None);
+        assert!(s.due(at(Secs(0))).is_empty());
+        let n = crate::bus::notification(&p[0], None, ServerCaps::NONE, None);
+        assert_eq!(n.expire, crate::bus::Expire::Never);
+
+        let mut owned = Owned::new(&WS).with_notices(BUDGET);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        feed(&mut t, b"\x1b]99;i=a:w=00;a\x1b\\");
+        let posted: Vec<Posted> = t
+            .notices()
+            .map(|n| Posted::of(&n, &mut Icons::default()))
+            .collect();
+        t.clear_notices();
+        let calls = d.mac(
+            &mut t,
+            posted,
+            || (Focus::Focused, Visible::Seen),
+            at(Secs(0)),
+            "baud-1",
+            &mut NoFiles,
+        );
+        assert_eq!(posts(&calls).len(), 1);
+        assert!(
+            !calls.iter().any(|c| matches!(c, MacCall::Expire(..))),
+            "{calls:?}"
+        );
+        assert_eq!(d.shown.next_due(), None);
+    }
+
     /// The labels a click test sends: ordinary, control-only, empty.
     const LABELS: [&str; 3] = ["Go", "\u{85}", ""];
 
@@ -2806,8 +2846,8 @@ mod tests {
         let tok = t.notices().next().expect("one").token;
         let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
         d.waiting
-            .push((tok, Expiry::After(Duration::from_millis(900)), Vec::new()));
-        assert_eq!(d.answered(tok).0, Expiry::After(Duration::from_millis(900)));
+            .push((tok, Expiry::After(NonZeroMillis::of::<900>()), Vec::new()));
+        assert_eq!(d.answered(tok).0, Expiry::After(NonZeroMillis::of::<900>()));
         assert_eq!(d.answered(tok).0, Expiry::System, "taken once");
         assert_eq!(d.rate_line(), None);
         for _ in 0..6 {

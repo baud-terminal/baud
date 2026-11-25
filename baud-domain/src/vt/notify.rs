@@ -384,7 +384,53 @@ pub enum Urgency {
 pub enum Expiry {
     System,
     Never,
-    After(core::time::Duration),
+    After(NonZeroMillis),
+}
+
+/// **A timeout of `w`'s "greater than zero" milliseconds**: zero is
+/// [`Expiry::Never`], so no expiry closes after none. A constant is
+/// written as one:
+///
+/// ```
+/// let w: baud_domain::NonZeroMillis = baud_domain::NonZeroMillis::of::<1500>();
+/// assert_eq!(w.duration(), core::time::Duration::from_millis(1500));
+/// assert_eq!(baud_domain::NonZeroMillis::new(1500), Some(w));
+/// ```
+///
+/// and a zero does not compile:
+///
+/// ```compile_fail,E0080
+/// let w: baud_domain::NonZeroMillis = baud_domain::NonZeroMillis::of::<0>();
+/// assert_eq!(w.duration(), core::time::Duration::from_millis(0));
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct NonZeroMillis(core::num::NonZeroU32);
+
+impl NonZeroMillis {
+    /// `ms` milliseconds; `None` for zero.
+    pub const fn new(ms: u32) -> Option<NonZeroMillis> {
+        match core::num::NonZeroU32::new(ms) {
+            Some(ms) => Some(NonZeroMillis(ms)),
+            None => None,
+        }
+    }
+
+    /// `MS` milliseconds, checked as the program is built.
+    pub const fn of<const MS: u32>() -> NonZeroMillis {
+        NonZeroMillis(
+            const {
+                match core::num::NonZeroU32::new(MS) {
+                    Some(ms) => ms,
+                    None => panic!("a timeout is at least one millisecond"),
+                }
+            },
+        )
+    }
+
+    /// As a span of time.
+    pub fn duration(self) -> core::time::Duration {
+        core::time::Duration::from_millis(u64::from(self.0.get()))
+    }
 }
 
 /// What a click on the notification does (`a`): focus the window, report
@@ -589,11 +635,11 @@ impl<'a> NoticeMeta<'a> {
                 b'w' => {
                     k.expiry = match v {
                         b"-1" => Some(Expiry::System),
-                        b"0" => Some(Expiry::Never),
                         _ => match decimal(v) {
-                            Some(ms) => Some(Expiry::After(core::time::Duration::from_millis(
-                                u64::from(ms),
-                            ))),
+                            Some(ms) => Some(match NonZeroMillis::new(ms) {
+                                Some(ms) => Expiry::After(ms),
+                                None => Expiry::Never,
+                            }),
                             None => k.expiry,
                         },
                     }
@@ -2465,6 +2511,37 @@ mod tests {
         assert_eq!(Osc777::parse(b"notifyx;a"), Osc777::Extension);
     }
 
+    /// **`w=00` is the number 0, "never expire"**, as `w=0` is, and every
+    /// other run of digits is that many milliseconds. Perturbation: read
+    /// `00` as a run of zero milliseconds -- an expiry that closes at once
+    /// while the server is told never.
+    #[test]
+    fn w_00_is_not_an_expiry_of_nothing() {
+        for w in [&b"w=0"[..], b"w=00", b"w=000"] {
+            let NoticeMeta::Keys(k) = NoticeMeta::parse(w) else {
+                panic!("{w:?} is well formed");
+            };
+            assert_eq!(k.expiry, Some(Expiry::Never), "{w:?}");
+        }
+        let NoticeMeta::Keys(k) = NoticeMeta::parse(b"w=0005") else {
+            panic!("w=0005 is well formed");
+        };
+        assert_eq!(k.expiry, Some(Expiry::After(NonZeroMillis::of::<5>())));
+        assert_eq!(NonZeroMillis::new(0), None);
+        assert_eq!(
+            NonZeroMillis::new(5).map(NonZeroMillis::duration),
+            Some(core::time::Duration::from_millis(5))
+        );
+        // Past `u32` milliseconds the count saturates; it is never zero.
+        let NoticeMeta::Keys(k) = NoticeMeta::parse(b"w=99999999999") else {
+            panic!("a long run of digits is well formed");
+        };
+        assert_eq!(
+            k.expiry,
+            Some(Expiry::After(NonZeroMillis::of::<{ u32::MAX }>()))
+        );
+    }
+
     #[test]
     fn metadata_follows_the_texts_grammar() {
         let NoticeMeta::Keys(k) =
@@ -2478,10 +2555,7 @@ mod tests {
         assert_eq!(k.encoding, PayloadEncoding::Base64);
         assert_eq!(k.urgency, Some(Urgency::Critical));
         assert_eq!(k.occasion, Some(Occasion::Unfocused));
-        assert_eq!(
-            k.expiry,
-            Some(Expiry::After(core::time::Duration::from_millis(5000)))
-        );
+        assert_eq!(k.expiry, Some(Expiry::After(NonZeroMillis::of::<5000>())));
         let a = Activation::FOCUS.changed(k.actions.unwrap());
         assert!(!a.focuses() && a.reports());
         assert_eq!(NoticeMeta::parse(b"ii=1"), NoticeMeta::Malformed);

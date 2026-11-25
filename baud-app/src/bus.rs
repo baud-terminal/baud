@@ -2073,7 +2073,7 @@ pub(crate) fn notification(
         expire: match p.expiry {
             baud_core::Expiry::System => Expire::Server,
             baud_core::Expiry::Never => Expire::Never,
-            baud_core::Expiry::After(d) => Expire::After(d),
+            baud_core::Expiry::After(d) => Expire::After(d.duration()),
         },
     }
 }
