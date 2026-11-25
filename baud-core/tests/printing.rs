@@ -615,8 +615,9 @@ fn decrqm_answers_gatm_and_ris_resets_it_and_decstr_keeps_it() {
 /// spaces, an `x` at the stop, and a second line.
 const FORMATTED: &[u8] = b"\x1b[1mB\x1b[0m\tx\r\ny";
 
-/// A job with its DEC line sizes, `ESC # 3`, `4`, `5` and `6`, taken out:
-/// the FETM tests below assert nothing about them.
+/// A job with its DEC line sizes, `ESC # 3`, `4`, `5` and `6`, taken out,
+/// for the FETM tests on formator functions; the line sizes have tests of
+/// their own (`under_fetm_exclude_a_print_keeps_each_lines_size`).
 fn without_line_sizes(job: &str) -> String {
     let mut out = String::new();
     let mut rest = job;
@@ -784,17 +785,69 @@ fn decstr_keeps_fetm() {
     assert_eq!(without_line_sizes(&printed[0]), "z");
 }
 
-/// **Printer controller mode relays its bytes as they come under EXCLUDE**:
-/// a controller run is the host's bytes passed to the printer, not a
-/// transfer of screen contents, and FETM leaves its `SGR`, `CR`, `LF` and
-/// `FF` in it.
+/// A double-width line, the top and bottom halves of a double-height
+/// line, and an empty single-width one.
+const SIZED: &[u8] = b"\x1b#6ab\r\n\x1b#3cd\r\n\x1b#4cd";
+
+/// **Under FETM's EXCLUDE a print keeps each line's size**: `ESC # 6`,
+/// `ESC # 3`, `ESC # 4` and `ESC # 5` are private functions, on neither of
+/// the lists that make a formator function (`[[source: ecma48]]` 4.2.42, a
+/// format effector, 8.2.4, or a presentation control function, 8.2.5), so
+/// EXCLUDE's "No formator functions ... are included" does not reach them.
+/// A print page and a print line carry them with the characters and
+/// nothing else.
 #[test]
-fn under_fetm_exclude_printer_controller_mode_relays_its_bytes() {
+fn under_fetm_exclude_a_print_keeps_each_lines_size() {
     let mut s = owned();
     let mut t = ready(&mut s);
-    support::feed(&mut t, b"\x1b[14h\x1b[5i\x1b[1mhi\r\n\x0c\x1b[4i");
-    assert_eq!(jobs(&mut t), ["\x1b[1mhi\r\n\x0c"]);
-    assert_eq!(t.unsupported_param, 0, "FETM is not counted");
+    support::feed(&mut t, SIZED);
+    support::feed(&mut t, b"\x1b[14h\x1b[i\x1b[?1i");
+    assert_eq!(jobs(&mut t), ["\x1b#6ab\x1b#3cd\x1b#4cd\x1b#5", "\x1b#4cd"]);
+}
+
+/// **Under FETM's INSERT a print keeps each line's size** too, each line
+/// opening with its `ESC # 6`, `3`, `4` or `5` before its characters and
+/// its `CR LF`.
+#[test]
+fn under_fetm_insert_a_print_keeps_each_lines_size() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(&mut t, SIZED);
+    support::feed(&mut t, b"\x1b[14l\x1b[i\x1b[?1i");
+    assert_eq!(
+        jobs(&mut t),
+        [
+            "\x1b[0m\x1b#6ab\r\n\x1b#3cd\r\n\x1b#4cd\r\n\x1b#5\r\n\x1b[0m",
+            "\x1b[0m\x1b#4cd\r\n\x1b[0m"
+        ]
+    );
+}
+
+/// **Printer controller mode relays the host's bytes unchanged under
+/// either FETM state**: MC 5 starts "the relay of the received data
+/// stream", apart from MC's transfers (`[[source: ecma48]]` 8.3.82), and
+/// FETM governs a transmitted data stream and data transferred
+/// (7.2.6); the terminal "sends all characters and control sequences except
+/// NUL, XON, XOFF, and the printer controller mode sequences" (`[[source:
+/// vt510-rm-b]]` MC; `[[source: dec-std-070]]` 070-7 § 7.3.6). Format
+/// effectors, `SGR` and the line sizes reach the job byte for byte, and
+/// the screen is not drawn.
+#[test]
+fn under_either_fetm_state_printer_controller_mode_relays_its_bytes_unchanged() {
+    const RELAYED: &[u8] =
+        b"\x1b#6\x1b#3\x1b#4\x1b#5\x1b[1mh\x08i\tj\r\n\x0bk\x0c\x1bEl\x1b[2;3fm\x1b[0m";
+    for fetm in [&b"\x1b[14l"[..], b"\x1b[14h"] {
+        let mut s = owned();
+        let mut t = ready(&mut s);
+        support::feed(&mut t, fetm);
+        support::feed(&mut t, b"\x1b[5i");
+        support::feed(&mut t, RELAYED);
+        support::feed(&mut t, b"\x1b[4i");
+        let got: Vec<Vec<u8>> = t.print_jobs().map(|j| j.bytes.to_vec()).collect();
+        assert_eq!(got, [RELAYED], "{fetm:?}");
+        assert_eq!(row(&t, 0), "", "the screen is not drawn");
+        assert_eq!(t.unsupported_param, 0, "FETM is not counted");
+    }
 }
 
 /// **A row of another band than the cursor's prints its own rendition,

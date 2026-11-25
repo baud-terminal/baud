@@ -17347,6 +17347,10 @@ group  = "C"
 # with DECUDK and DECCKD), DECCKSR (p. 5-33) and DECRPTUI (p. 5-101).
 # Read 2026-11-01 as vt100.net's transcription of chapter 6 (sha256 71d6ecf4...):
 # SCO Console Emulation's Tables 6-3 to 6-8, the same cells as the VT520's.
+# Re-fetched 2026-11-17 (MA98), the sha256 matching, its LZW text layer read [text]: MC's
+# notes on printer controller mode (pp. 5-177 to 5-178), "The terminal sends all characters and
+# control sequences except NUL, XON, XOFF, and the printer controller mode sequences",
+# and § 10.4.1, "all data received at the host port is passed through to the printer port".
 
 [sources.vt520-rm]
 key    = "vt520-rm"

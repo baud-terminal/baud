@@ -55,8 +55,11 @@
 //! the stream above; under EXCLUDE, no `ESC [ 0 m`, no rendition, no `CR`
 //! and line end, no DECPFF `FF` and no form feed joining it to the last job,
 //! so the lines run together. The DEC line sizes, `ESC # 5`, `6`, `3` and
-//! `4`, stay. A controller run's bytes and a hard copy are not screen text
-//! and FETM leaves them as they are ([`JobKind`]).
+//! `4`, stay: they are private functions, neither a format effector (8.2.4)
+//! nor a presentation control function (8.2.5). A controller run is a
+//! relay of the host's bytes, MC 5's "relay of the received data stream"
+//! (8.3.82), and a hard copy is not screen text: FETM leaves both as they
+//! are ([`JobKind`]).
 //!
 //! **Printer controller mode is a node of the graph** (`Node::Printing`),
 //! every byte `Act::Printer`, whose step takes the rest of the read here: no
