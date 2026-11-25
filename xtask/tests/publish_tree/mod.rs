@@ -107,7 +107,13 @@ impl Tree {
         // The unpublished members, written out rather than read from
         // `UNPUBLISHED`: a name added to or dropped from the list there
         // fails the base tree here until this list says the same.
-        let unpub = ["baud-bench", "baud-difftest", "baud-sfte-difftest", "xtask"];
+        let unpub = [
+            "baud-bench",
+            "baud-difftest",
+            "baud-pipeline",
+            "baud-sfte-difftest",
+            "xtask",
+        ];
         let mut members: Vec<&str> = vec!["baud"];
         members.extend(REACHED);
         members.extend(unpub);

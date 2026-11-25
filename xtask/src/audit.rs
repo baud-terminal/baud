@@ -132,7 +132,7 @@ const fn krate(name: &'static str, root: &'static [&'static str], t: Sites, s: S
 /// it is created**, gated in the same commit that creates the crate, and
 /// each change that adds code sets the limit to the count it ends at, never
 /// above it.
-pub const CRATES: [Crate; 10] = [
+pub const CRATES: [Crate; 11] = [
     // **baud-font: three raw-integer sites and forty signature primitives,
     // every one enumerated, and the limit follows the count downward.** The
     // signature sites are the newtype surface of a parser over a byte
@@ -264,6 +264,12 @@ pub const CRATES: [Crate; 10] = [
     // which `place` takes too, so the two cannot be swapped, and the values
     // a line of `Emit::array` holds are a `PerLine`.
     krate("baud-tablegen", &["baud-tablegen/src"], Sites(4), Sites(25)),
+    // baud-pipeline: 4 raw sites and no signature primitives, every one a
+    // struct field: the handoff's two slot indices, `IngestEnd::back` and
+    // `FrameEnd::front`, each the `u8` the shared `AtomicU8` swaps, and the
+    // stress test's `Seq::first` and `Seq::last`, the sequence number a torn
+    // read would show as two.
+    krate("baud-pipeline", &["baud-pipeline/src"], Sites(4), Sites(0)),
     // xtask: 5 raw sites and no signature primitives, and every one is the
     // audit's own text matching itself -- the category names it prints,
     // which the table must spell as it always has (the cast category's

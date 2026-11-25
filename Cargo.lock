@@ -192,6 +192,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "baud-pipeline"
+version = "1.0.0-unstable"
+
+[[package]]
 name = "baud-present-macos"
 version = "1.0.0-unstable"
 dependencies = [

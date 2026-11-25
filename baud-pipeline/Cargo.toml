@@ -1,0 +1,23 @@
+[package]
+name = "baud-pipeline"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license = "CC-BY-NC-SA-4.0"
+repository.workspace = true
+description = "The frame handoff between baud's ingest thread and its frame thread: three slots, each owned by one side at a time, handed on by one atomic swap."
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["terminal", "pipeline", "triple-buffer"]
+categories = ["concurrency"]
+# Not published: `publish = false`, so `cargo publish` refuses it and
+# release-plz leaves it out (`cargo xtask publish`). A crate is published
+# when `baud` depends on it, and `baud` does not depend on this one.
+publish = false
+# What crates.io would get: the source, the licence and the notice. The
+# tests stay in the repository.
+include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
+
+# **No dependencies, by rule**: the handoff is std's atomics alone, and the
+# crates whose data it carries depend on this one, not the other way round.
+[dependencies]

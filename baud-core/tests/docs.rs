@@ -345,6 +345,8 @@ fn named_paths(repo: &Path) -> (Vec<String>, BTreeSet<String>) {
         "baud-isa-x86-64/",
         // The table compiler the build scripts share, added with the crate.
         "baud-tablegen/",
+        // The frame handoff, added with the crate.
+        "baud-pipeline/",
         "baud-difftest/",
         // The second external oracle, added with the crate: a path under it
         // named in a document is checked, which the root's absence would not.
@@ -521,6 +523,8 @@ fn every_test_named_in_the_docs_exists() {
         // `multiply_s_second_step_is_its_second_rounding`.
         "baud-present-vulkan",
         "baud-tablegen",
+        // Added with the crate: its tests are named as any crate's are.
+        "baud-pipeline",
         "xtask",
         // Outside the workspace; its docs name the C functions its extern
         // blocks declare, which this collects as it collects any `fn`.
