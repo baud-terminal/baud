@@ -486,6 +486,68 @@ fn the_same_id_updates_and_no_id_never_does() {
     );
 }
 
+/// **A token names the live slot its notification holds.** Each of the
+/// first [`NOTICE_LIVE`] posts takes a slot of its own; an update keeps its
+/// token and so its slot; the next new post takes the oldest's slot, and a
+/// post after a drop takes the freed one. A token whose slot went to
+/// another notification reads nothing -- no focus, no place in the alive
+/// list -- while the one that took it does. Breaks: a token minted before
+/// its slot is picked -- the 33rd names a slot it does not hold; a lookup
+/// that reads the slot without comparing the serial -- the dropped token
+/// focuses the notice that replaced it.
+#[test]
+fn a_token_names_its_slot() {
+    use baud_domain::NoticeLiveIdx;
+    let post = |t: &mut Term<'_>, id: &str| {
+        support::feed(t, format!("\x1b]99;i={id};x\x1b\\").as_bytes());
+        let n = t.notices().next().map(|n| (n.token, n.action));
+        t.clear_notices();
+        n.expect("published")
+    };
+    with(Some(all()), b"", Reads(4096), |t| {
+        let toks: Vec<NoticeToken> = (0..NOTICE_LIVE)
+            .map(|k| post(t, &format!("{k:02}")).0)
+            .collect();
+        let slots: Vec<NoticeLiveIdx> = toks.iter().map(|k| k.slot()).collect();
+        let distinct = slots
+            .iter()
+            .enumerate()
+            .filter(|(i, s)| !slots[..*i].contains(s))
+            .count();
+        assert_eq!(distinct, NOTICE_LIVE, "a slot each");
+        assert_eq!(
+            post(t, "05"),
+            (toks[5], NoticeAction::Replace),
+            "an update keeps its token"
+        );
+        let new = post(t, "new").0;
+        assert_eq!(new.slot(), toks[0].slot(), "the oldest's slot");
+        assert_ne!(new, toks[0]);
+        assert!(
+            !t.notice_focuses(toks[0]),
+            "the evicted token reads nothing"
+        );
+        assert!(
+            t.notice_focuses(new) && t.notice_focuses(toks[1]),
+            "the control"
+        );
+        t.notice_dropped(toks[3]);
+        let after = post(t, "after").0;
+        assert_eq!(after.slot(), toks[3].slot(), "the freed slot");
+        assert!(!t.notice_focuses(toks[3]) && t.notice_focuses(after));
+        t.clear_reply();
+        support::feed(t, b"\x1b]99;i=m:p=alive;\x1b\\");
+        let mut ids: Vec<String> = (0..NOTICE_LIVE).map(|k| format!("{k:02}")).collect();
+        ids[0] = "new".into();
+        ids[3] = "after".into();
+        assert_eq!(
+            t.reply(),
+            format!("\x1b]99;i=m:p=alive;{}\x1b\\", ids.join(",")).as_bytes(),
+            "slot order, each id once"
+        );
+    });
+}
+
 /// "To close a previous notification, send ... p=close": a close entry for
 /// the live one; an unknown id or none is a no-op.
 #[test]

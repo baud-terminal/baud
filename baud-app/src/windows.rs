@@ -600,7 +600,7 @@ mod tests {
             .map(|o| set.open(Term::new(o.storage(), &WS)))
             .collect();
         let base = "baud-41";
-        let token = "NoticeToken(0)";
+        let token = "NoticeToken { serial: 1, slot: NoticeLiveIdx(0) }";
         let [a, b, c] =
             [ids[0], ids[1], ids[2]].map(|w| format!("{}-{token}", w.notice_prefix(base)));
         assert_ne!(a, b, "one token, two windows, two identifiers");

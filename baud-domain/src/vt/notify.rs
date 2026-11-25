@@ -735,8 +735,121 @@ pub enum NoticeFrom {
 
 /// A notification's handle, the embedder's to keep beside its own: the
 /// same for every update a kitty id makes of one notification.
+///
+/// **It names the live slot its notification holds** ([`NoticeToken::slot`])
+/// and a serial no other token of its desk carries, so a lookup reads one
+/// slot, and a token whose slot went to another notification reads
+/// nothing. A [`NoticeDesk`] mints it once it has picked the slot:
+///
+/// ```
+/// let mut area = vec![0u8; baud_domain::NoticeBudget::with_icon(0).bytes()];
+/// let mut desk = baud_domain::NoticeDesk::NEW;
+/// # desk.set_support(Some(baud_domain::NoticeSupport {
+/// #     actions: baud_domain::Activation::FOCUS,
+/// #     close_events: baud_domain::CloseEvents::Tracked,
+/// #     occasions: baud_domain::Occasions::Always,
+/// #     urgencies: baud_domain::Urgencies::None,
+/// #     sounds: baud_domain::Sounds::SystemAndSilent,
+/// #     expiry: baud_domain::ExpirySupport::None,
+/// #     icons: baud_domain::IconSupport::NamesOnly,
+/// #     buttons: baud_domain::ButtonSupport::NotShown,
+/// # }));
+/// let end = desk.simple(&mut area, baud_domain::NoticeFrom::Osc9, b"done", b"");
+/// assert_eq!(end, baud_domain::ChunkEnd::Published);
+/// let t: baud_domain::NoticeToken = desk.notices(&area).next().unwrap().token;
+/// let slot: baud_domain::NoticeLiveIdx = t.slot();
+/// assert!(desk.focuses(t));
+/// # let _ = slot;
+/// ```
+///
+/// Outside this crate no token is made from parts, even a real token's:
+///
+/// ```compile_fail,E0451
+/// let mut area = vec![0u8; baud_domain::NoticeBudget::with_icon(0).bytes()];
+/// let mut desk = baud_domain::NoticeDesk::NEW;
+/// # desk.set_support(Some(baud_domain::NoticeSupport {
+/// #     actions: baud_domain::Activation::FOCUS,
+/// #     close_events: baud_domain::CloseEvents::Tracked,
+/// #     occasions: baud_domain::Occasions::Always,
+/// #     urgencies: baud_domain::Urgencies::None,
+/// #     sounds: baud_domain::Sounds::SystemAndSilent,
+/// #     expiry: baud_domain::ExpirySupport::None,
+/// #     icons: baud_domain::IconSupport::NamesOnly,
+/// #     buttons: baud_domain::ButtonSupport::NotShown,
+/// # }));
+/// let end = desk.simple(&mut area, baud_domain::NoticeFrom::Osc9, b"done", b"");
+/// assert_eq!(end, baud_domain::ChunkEnd::Published);
+/// let t: baud_domain::NoticeToken = desk.notices(&area).next().unwrap().token;
+/// let slot: baud_domain::NoticeLiveIdx = t.slot();
+/// let forged = baud_domain::NoticeToken {
+///     serial: core::num::NonZeroU32::MIN,
+///     slot,
+/// };
+/// assert!(desk.focuses(forged));
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct NoticeToken(u32);
+pub struct NoticeToken {
+    serial: core::num::NonZeroU32,
+    slot: NoticeLiveIdx,
+}
+
+impl NoticeToken {
+    /// The live slot its notification holds.
+    pub fn slot(self) -> NoticeLiveIdx {
+        self.slot
+    }
+}
+
+/// **One of the [`NOTICE_LIVE`] slots a [`NoticeDesk`] keeps live
+/// notifications in**, read only from the token minted for the slot
+/// ([`NoticeToken::slot`]):
+///
+/// ```
+/// let mut area = vec![0u8; baud_domain::NoticeBudget::with_icon(0).bytes()];
+/// let mut desk = baud_domain::NoticeDesk::NEW;
+/// # desk.set_support(Some(baud_domain::NoticeSupport {
+/// #     actions: baud_domain::Activation::FOCUS,
+/// #     close_events: baud_domain::CloseEvents::Tracked,
+/// #     occasions: baud_domain::Occasions::Always,
+/// #     urgencies: baud_domain::Urgencies::None,
+/// #     sounds: baud_domain::Sounds::SystemAndSilent,
+/// #     expiry: baud_domain::ExpirySupport::None,
+/// #     icons: baud_domain::IconSupport::NamesOnly,
+/// #     buttons: baud_domain::ButtonSupport::NotShown,
+/// # }));
+/// let end = desk.simple(&mut area, baud_domain::NoticeFrom::Osc9, b"done", b"");
+/// assert_eq!(end, baud_domain::ChunkEnd::Published);
+/// let t = desk.notices(&area).next().unwrap().token;
+/// let slot: baud_domain::NoticeLiveIdx = t.slot();
+/// # let _ = slot;
+/// ```
+///
+/// Outside this crate no slot is named by number:
+///
+/// ```compile_fail,E0423
+/// let slot: baud_domain::NoticeLiveIdx = baud_domain::NoticeLiveIdx(0);
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct NoticeLiveIdx(u8);
+
+impl NoticeLiveIdx {
+    /// Every slot, in order.
+    const ALL: [NoticeLiveIdx; NOTICE_LIVE] = {
+        assert!(NOTICE_LIVE <= 1 << u8::BITS);
+        let mut all = [NoticeLiveIdx(0); NOTICE_LIVE];
+        let mut i = 0;
+        while i < NOTICE_LIVE {
+            all[i] = NoticeLiveIdx(i as u8);
+            i += 1;
+        }
+        all
+    };
+
+    /// Its place in the desk's live table and its ids.
+    fn index(self) -> usize {
+        usize::from(self.0)
+    }
+}
 
 /// What a published entry asks of the embedder.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1225,7 +1338,8 @@ pub struct NoticeDesk {
     queued: usize,
     log_len: usize,
     live: [Slot; NOTICE_LIVE],
-    next: u32,
+    /// The serial the next new notification's token carries.
+    next: core::num::NonZeroU32,
     age: u32,
     owed: Owed,
     hold: NoticeHold,
@@ -1261,7 +1375,7 @@ impl NoticeDesk {
         queued: 0,
         log_len: 0,
         live: [Slot::Free; NOTICE_LIVE],
-        next: 1,
+        next: core::num::NonZeroU32::MIN,
         age: 0,
         owed: Owed::Nothing,
         hold: NoticeHold::Off,
@@ -1747,15 +1861,11 @@ impl NoticeDesk {
         // previous notification simply send a new notification with the
         // same notification id". With no id, "no updating must take place".
         let found = self.live_by_id(area, l, spans.id.of(area));
-        let (token, action) = match found {
-            Some(t) => (t, NoticeAction::Replace),
-            None => {
-                let t = NoticeToken(self.next);
-                self.next = self.next.wrapping_add(1).max(1);
-                (t, NoticeAction::Show)
-            }
+        let action = match found {
+            Some(_) => NoticeAction::Replace,
+            None => NoticeAction::Show,
         };
-        self.remember(area, l, token, spans.id, settings);
+        let token = self.remember(area, l, found, spans.id, settings);
         self.heads[self.queued] = Some(Head {
             token,
             from,
@@ -1782,29 +1892,44 @@ impl NoticeDesk {
         ChunkEnd::Published
     }
 
-    /// Put `token` in the live table, its id beside it; an update keeps its
-    /// slot. **A full table forgets its oldest**, at once: a post is a
+    /// Put a notification in the live table, its id beside it, and give
+    /// back its token: an update (`found`) keeps its token and so its slot;
+    /// a new one takes the first free slot, and its token is minted for
+    /// that slot. **A full table forgets its oldest**, at once: a post is a
     /// program's ordinary output, and waiting on the platform to say which
     /// it still shows would stall the read on every post once the table is
-    /// full, so the oldest -- the likeliest to have been dismissed -- goes.
+    /// full, so the oldest -- the likeliest to have been dismissed -- goes,
+    /// and its token, whose serial the slot no longer holds, reads nothing.
     /// A `p=alive` is where the platform's list is asked for
     /// (`NoticeHold`).
-    fn remember(&mut self, area: &mut [u8], l: Layout, token: NoticeToken, id: Span, s: Settings) {
+    fn remember(
+        &mut self,
+        area: &mut [u8],
+        l: Layout,
+        found: Option<NoticeToken>,
+        id: Span,
+        s: Settings,
+    ) -> NoticeToken {
         self.age = self.age.wrapping_add(1);
         let age = self.age;
-        let slot = self
-            .live
-            .iter()
-            .position(|e| matches!(e, Slot::Held(x) if x.token == token))
-            .or_else(|| self.live.iter().position(|e| *e == Slot::Free))
-            .unwrap_or_else(|| {
-                (0..NOTICE_LIVE)
-                    .max_by_key(|&i| match self.live[i] {
+        let token = found.unwrap_or_else(|| {
+            let free = NoticeLiveIdx::ALL
+                .into_iter()
+                .find(|i| self.live[i.index()] == Slot::Free);
+            let slot = free.unwrap_or_else(|| {
+                NoticeLiveIdx::ALL
+                    .into_iter()
+                    .max_by_key(|i| match self.live[i.index()] {
                         Slot::Held(x) => age.wrapping_sub(x.age),
                         Slot::Free => 0,
                     })
-                    .unwrap_or(0)
+                    .unwrap_or(NoticeLiveIdx(0))
             });
+            let serial = self.next;
+            self.next = serial.checked_add(1).unwrap_or(core::num::NonZeroU32::MIN);
+            NoticeToken { serial, slot }
+        });
+        let slot = token.slot.index();
         let at = l.live + slot * NOTICE_ID_MAX;
         area.copy_within(id.at..id.at + id.len, at);
         self.live[slot] = Slot::Held(Live {
@@ -1814,6 +1939,7 @@ impl NoticeDesk {
             close: s.close,
             age: self.age,
         });
+        token
     }
 
     fn live_by_id(&self, area: &[u8], l: Layout, id: &[u8]) -> Option<NoticeToken> {
@@ -1830,11 +1956,13 @@ impl NoticeDesk {
         })
     }
 
+    /// The slot `token` names, if it still holds that token's notification.
     fn live_slot(&self, token: NoticeToken) -> Option<(usize, Live)> {
-        self.live.iter().enumerate().find_map(|(i, e)| match e {
+        let i = token.slot.index();
+        match self.live.get(i)? {
             Slot::Held(x) if x.token == token => Some((i, *x)),
             _ => None,
-        })
+        }
     }
 
     // ----------------------------------------------------------- replies
