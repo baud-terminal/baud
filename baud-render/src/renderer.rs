@@ -3361,6 +3361,15 @@ enum Buffer {
     Lent(crate::Age),
 }
 
+/// **What a frame drawn into a lent buffer did to it**: the rows that
+/// changed of the frame before, and every row it painted, those and the
+/// rows the buffer was missing. Both none into the kept frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct LentDraw {
+    changed: crate::SurfaceRows,
+    rows: crate::SurfaceRows,
+}
+
 /// **A dirty row's pixels as this frame repaints them**: the target held
 /// to the columns the row repaints ([`Repaint`]), the row, and its band.
 /// **Made by [`Renderer::repainted`] alone, by type**: its fields are this
@@ -9543,10 +9552,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let mut whole = band.columns(x, w)?;
                 Some(self.draw(term, seal, back, damage, &mut whole, Buffer::Lent(age)))
             })
-            .map(|(_, rows)| rows);
-        let Some(rows) = drawn else {
-            return crate::Painted::of(crate::SurfaceRows::NONE);
+            .map(|(_, lent)| lent);
+        let Some(LentDraw { changed, rows }) = drawn else {
+            return crate::Painted::of(crate::SurfaceRows::NONE, crate::SurfaceRows::NONE);
         };
+        debug_assert_eq!(
+            rows.union(changed),
+            rows,
+            "a frame changed rows it did not paint"
+        );
         // Around the whole frame, on every band painted: the band above
         // it, the band below it and the columns beside it.
         let (clear, cell_w) = (self.clear_color(), self.metrics.cell_w);
@@ -9579,7 +9593,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
         }
-        crate::Painted::of(rows)
+        crate::Painted::of(changed, rows)
     }
 
     /// **The pixel rows of the surface `rows` names**, top to bottom, at
@@ -9799,7 +9813,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         damage: &FrameDamage,
         target: &mut Target<'_>,
         buffer: Buffer,
-    ) -> (Frame, crate::SurfaceRows) {
+    ) -> (Frame, LentDraw) {
         // **An image is part of the rows a frame repaints.** Images drew
         // only on a full frame, and a live terminal renders incrementally
         // after its first, so on the Linux driver, which is CPU-only, and
@@ -9831,6 +9845,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         self.place_images(term, back, Snapshots::Skipped);
         let converted = self.convert_with(term, seal, back, damage, ImageRows::Repainted);
+        let whole = matches!(damage, FrameDamage::Whole(_));
+        // What this frame changed of the frame before, any buffer's: the
+        // rows the convert dirtied, before the rows a lent buffer is
+        // missing join them.
+        let converted_rows = match buffer {
+            Buffer::Kept => DirtyRows::NONE,
+            Buffer::Lent(_) => (0..self.rows.index().min(self.dirty.len()))
+                .filter(|&r| self.dirty[r])
+                .map(Row::from_index)
+                .fold(DirtyRows::NONE, |s, r| s.with(r).unwrap_or(s)),
+        };
         // What a lent buffer is missing: all of it under a whole damage.
         let stale = match (buffer, damage) {
             (Buffer::Kept, _) => None,
@@ -9839,9 +9864,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             (Buffer::Lent(crate::Age::Stale(s)), FrameDamage::Rows { .. }) => Some(s),
         };
-        if let Some(stale) = stale {
-            self.mark_stale(stale);
-        }
+        let marks_moved = match stale {
+            Some(stale) => self.mark_stale(stale),
+            None => DirtyRows::NONE,
+        };
         let damage = match damage {
             FrameDamage::Whole(_) => Damage::Full,
             FrameDamage::Rows { .. } => Damage::Incremental,
@@ -9853,6 +9879,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // the rest is painted into the rows beside the line, and the line on
         // its own.
         let line = self.lights.height();
+        // The lights' line, where it moved since it was last painted.
+        let lights_moved = match stale.is_some() && line.value() > 0 {
+            false => crate::ChromeBands::NONE,
+            true => match &self.lights.painted {
+                Some((c, insts)) if *c == self.clear_color() && *insts == self.lights.inst => {
+                    crate::ChromeBands::NONE
+                }
+                _ => crate::ChromeBands::LIGHTS,
+            },
+        };
         let frame = match line.value() {
             0 => self.paint_beside(term, target, converted, damage, buffer),
             _ => {
@@ -9871,11 +9907,32 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 frame
             }
         };
-        let painted = match stale {
-            None => crate::SurfaceRows::NONE,
-            Some(stale) => self.painted_rows(stale),
+        let lent = match stale {
+            None => LentDraw {
+                changed: crate::SurfaceRows::NONE,
+                rows: crate::SurfaceRows::NONE,
+            },
+            Some(stale) => LentDraw {
+                changed: match whole {
+                    true => self.every_row(),
+                    false => self.changed_rows(converted_rows.union(marks_moved), lights_moved),
+                },
+                rows: self.painted_rows(stale),
+            },
         };
-        (frame, painted)
+        (frame, lent)
+    }
+
+    /// **What a frame changed of the frame before**, `grid` the rows whose
+    /// pixels moved and `chrome` the bands that did: those, and the status
+    /// line's rows when every one of them is among the rows.
+    fn changed_rows(&self, grid: DirtyRows, chrome: crate::ChromeBands) -> crate::SurfaceRows {
+        let (rows, main) = (self.rows.index().min(self.dirty.len()), self.main.index());
+        let chrome = match main < rows && (main..rows).all(|r| grid.contains(Row::from_index(r))) {
+            true => chrome.union(crate::ChromeBands::STATUS),
+            false => chrome,
+        };
+        crate::SurfaceRows { grid, chrome }
     }
 
     /// Every row of the whole frame and every band around it.
@@ -9896,8 +9953,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// the status line and the notice for [`crate::ChromeBands::STATUS`],
     /// and the rows a mark of the margins or the strip meets where the
     /// marks or their colour changed since they were last painted. Every
-    /// row painted is painted whole.
-    fn mark_stale(&mut self, stale: crate::SurfaceRows) {
+    /// row painted is painted whole. Returns the rows those marks moved
+    /// on, which changed in every buffer.
+    fn mark_stale(&mut self, stale: crate::SurfaceRows) -> DirtyRows {
         let (rows, main) = (self.rows.index(), self.main.index());
         let clear = self.clear_color();
         let moved =
@@ -9908,17 +9966,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
         let (margins, strip) = (self.margins().value() > 0, self.strip().value() > 0);
         let status = stale.chrome.contains(crate::ChromeBands::STATUS);
+        let mut marks = DirtyRows::NONE;
         for r in 0..rows.min(self.dirty.len()).min(self.repaint.len()) {
             let row = Row::from_index(r);
             let band = self.band(row);
-            self.dirty[r] |= stale.grid.contains(row)
-                || (status && r >= main)
-                || (margins && moved(&self.margin_painted, &self.margin_inst, band))
+            let marked = (margins && moved(&self.margin_painted, &self.margin_inst, band))
                 || (strip && moved(&self.strip_painted, &self.strip_inst, band));
+            if marked {
+                marks = marks.with(row).unwrap_or(marks);
+            }
+            self.dirty[r] |= stale.grid.contains(row) || (status && r >= main) || marked;
             if self.dirty[r] {
                 self.repaint[r] = Repaint::Whole;
             }
         }
+        marks
     }
 
     /// **What a lent draw painted of the whole frame**, `stale` what the

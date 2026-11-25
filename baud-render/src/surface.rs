@@ -102,9 +102,13 @@ pub enum Age {
 }
 
 /// **The rows a draw into a lent buffer painted**, every pixel of each at
-/// the surface's whole width: what a presenter premultiplies, damages and
-/// keeps to age the buffer by. Only the renderer's draw builds one, so a
-/// presenter cannot name rows the draw did not paint.
+/// the surface's whole width, and **the rows of them the frame changed**.
+/// A presenter premultiplies and damages what was painted
+/// ([`Painted::rows`]), and adds what changed ([`Painted::changed`]) to
+/// what every other buffer is missing: the rows painted only because the
+/// buffer drawn was missing them are the same in the others. Only the
+/// renderer's draw builds one, so a presenter cannot name rows the draw
+/// did not paint, and what changed is among what was painted.
 ///
 /// ```compile_fail,E0423
 /// let _ = baud_render::Painted(baud_render::SurfaceRows::NONE);
@@ -123,22 +127,44 @@ pub enum Age {
 /// }
 /// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Painted(SurfaceRows);
+pub struct Painted {
+    changed: SurfaceRows,
+    rows: SurfaceRows,
+}
 
 impl Painted {
-    /// What the draw painted.
-    pub(crate) fn of(rows: SurfaceRows) -> Painted {
-        Painted(rows)
+    /// What the draw changed of the frame before, and what it painted:
+    /// those rows painted whatever `rows` names.
+    pub(crate) fn of(changed: SurfaceRows, rows: SurfaceRows) -> Painted {
+        Painted {
+            changed,
+            rows: rows.union(changed),
+        }
     }
 
-    /// Every row either draw painted.
+    /// Every row either draw painted, and every row either changed.
     pub fn union(self, other: Painted) -> Painted {
-        Painted(self.0.union(other.0))
+        Painted {
+            changed: self.changed.union(other.changed),
+            rows: self.rows.union(other.rows),
+        }
     }
 
     /// The rows painted.
     pub fn rows(self) -> SurfaceRows {
-        self.0
+        self.rows
+    }
+
+    /// **The rows the frame changed** of the frame before, whichever
+    /// buffer that was drawn into: the rows the damage names, the rows an
+    /// animation moved on this frame or left from the last, the rows the
+    /// marks of the margins or the strip moved on, and the lights' line
+    /// where it moved; every row and band after a whole damage, a new
+    /// surface and a margin of another colour among its reasons. Never a
+    /// row painted only because the buffer was missing it. What a
+    /// presenter adds to every other buffer's age.
+    pub fn changed(self) -> SurfaceRows {
+        self.changed
     }
 }
 
@@ -446,14 +472,20 @@ mod tests {
     #[test]
     fn painted_unions_what_each_draw_painted() {
         let row = |y: usize| DirtyRows::NONE.with(Row::from_index(y)).unwrap();
-        let a = Painted::of(SurfaceRows {
-            grid: row(2),
-            chrome: ChromeBands::TOP,
-        });
-        let b = Painted::of(SurfaceRows {
-            grid: row(5),
-            chrome: ChromeBands::STATUS,
-        });
+        let a = Painted::of(
+            SurfaceRows::NONE,
+            SurfaceRows {
+                grid: row(2),
+                chrome: ChromeBands::TOP,
+            },
+        );
+        let b = Painted::of(
+            SurfaceRows::NONE,
+            SurfaceRows {
+                grid: row(5),
+                chrome: ChromeBands::STATUS,
+            },
+        );
         let both = a.union(b).rows();
         assert!(both.grid.contains(Row::from_index(2)) && both.grid.contains(Row::from_index(5)));
         assert!(
@@ -462,5 +494,27 @@ mod tests {
         );
         assert!(!both.chrome.contains(ChromeBands::LIGHTS));
         assert_eq!(a.rows().union(b.rows()), both);
+        assert_eq!(a.union(b).changed(), SurfaceRows::NONE);
+    }
+
+    /// **What a draw changed is among what it painted**, whatever rows it
+    /// is given as painted.
+    #[test]
+    fn what_changed_is_painted() {
+        let row = |y: usize| DirtyRows::NONE.with(Row::from_index(y)).unwrap();
+        let changed = SurfaceRows {
+            grid: row(7),
+            chrome: ChromeBands::LIGHTS,
+        };
+        let p = Painted::of(
+            changed,
+            SurfaceRows {
+                grid: row(2),
+                chrome: ChromeBands::NONE,
+            },
+        );
+        assert_eq!(p.changed(), changed);
+        assert_eq!(p.rows().union(changed), p.rows());
+        assert!(p.rows().grid.contains(Row::from_index(2)));
     }
 }
