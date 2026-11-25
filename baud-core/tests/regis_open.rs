@@ -848,10 +848,12 @@ fn s_d1_after_a_window_move_shows_the_first_corner_and_scrolls() {
 }
 
 /// **`S(E)` under the windowing model erases the whole drawing**, what the
-/// window shows and what it has moved off: "Screen erase, S(E), always
-/// erases the entire display" (070-8 § 8.8.1.4.6 f). Which of the two it
-/// erases is `REGIS_WINDOW_ERASE`'s; under `RegisWindowErase::Window` the
-/// line moved off survives and this assertion reads `BLUE`.
+/// window shows and what it has moved off. The text requires the display,
+/// what the window shows, to be erased ("always erases the entire
+/// display", 070-8 § 8.8.1.4.6 f) and is silent on the paper outside it,
+/// so erasing that too is baud's choice, `REGIS_WINDOW_ERASE`; under
+/// `RegisWindowErase::Window` the line moved off survives and this
+/// assertion reads `BLUE`.
 #[test]
 fn s_e_under_the_window_erases_the_whole_drawing() {
     let bytes = regis(&[BLUE_LINE, b"S(D0)S[+100,+0]S(E)S[-100,+0]"]);

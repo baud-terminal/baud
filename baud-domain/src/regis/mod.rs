@@ -588,8 +588,11 @@ impl RegisZoom {
 /// erase, S(E), always erases the entire display, regardless of the
 /// clipping state" (070-8 § 8.8.1.4.6 f), while data the window has moved
 /// off "are generally recoverable by reversing the direction of the
-/// movement" (§ 8.8.1.1). Under the scrolling model the display is the
-/// plane and `S(E)` erases it whole.
+/// movement" (§ 8.8.1.1). The display is the active area of the screen,
+/// so the text requires what the window shows to be erased and is silent
+/// on the paper outside it: both arms conform, and `REGIS_WINDOW_ERASE`
+/// is baud's choice between them. Under the scrolling model the display
+/// is the plane and `S(E)` erases it whole.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegisWindowErase {
     /// The whole plane, the graph paper, shown or not.
