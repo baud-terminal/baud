@@ -127,6 +127,9 @@ pub struct CellFrame {
     /// The rows the shader draws: the window's, the status line's, the
     /// notice's and, while sliding, the leaving row.
     pub ring: Rows,
+    /// **The slot of the ring draw row 0 is at**: draw row `d` is at
+    /// `(rot + d) % ring` of the set's copy, `stride` cells a row.
+    pub rot: RowRot,
     /// The cursor drawn, if its phase draws one.
     pub cursor: Option<(Row, Col, CursorStyle)>,
     /// How many of the records the overlay's walk wrote.
@@ -235,7 +238,7 @@ where
     // cells after them: no frame in flight reads this set, so
     // its copy is the screen it was copied from again, and a
     // set that holds the screen need not copy it afresh.
-    cell.lent[set].restore(cell.copies_mem[set], term.stride());
+    cell.lent[set].restore_ringed(cell.copies_mem[set], (term.stride(), cell.screens.ring(at)));
     renderer.give_back(
         &mut cell.styles_mem[set][..],
         &mut cell.style_stamps[set],
@@ -331,6 +334,12 @@ where
             .status_kept(term, Row::from_index(vrows), line, &mut drawn.status)
     });
     let lined = usize::from(status.is_some());
+    // **The config's notice row, after the status line's**, which the
+    // set's ring holds too: shown while the copy has room for it.
+    let noticed = match renderer.notice_shown() {
+        Some(_) => usize::from(cell.copies_mem[set].len() >= (vrows + lined) * stride + vcols),
+        None => 0,
+    };
     let screens = &mut cell.screens;
     screens.compare = Compare::for_rejoin(rejoin);
     // **Whether a cell of this frame names a row the core froze**
@@ -358,7 +367,7 @@ where
     // The maps the window was drawn through: which rows they laid out
     // again since each set's copy, the status line's after the window's,
     // and the display they re-broke.
-    let built = screens.take_lent(
+    let built = screens.take_below(
         cell.copies_mem,
         at,
         &Taking {
@@ -372,7 +381,11 @@ where
             leaving,
         },
         undo,
+        Rows::of_count(noticed),
     );
+    // **Where the set's copy holds each drawn row** for every read and
+    // write below and for the shader: draw row `d` at `(rot + d) % ring`.
+    let ring = screens.ring(at);
     // **A frozen row of the window drawn in its own renditions,
     // and a struck link's text in grey** (`crate::Lent`):
     // its copied cells given slots no row of the frame names, the
@@ -419,7 +432,7 @@ where
             let copy = &mut cell.copies_mem[set][..];
             let rows = Rows::of_count(copy.len().div_ceil(stride.max(1)).min(vrows + 2));
             let mut copy =
-                crate::frozen::FlatCopy::new(copy, term.stride(), view.cols(), rows, words);
+                crate::frozen::FlatCopy::new(copy, (term.stride(), ring), view.cols(), rows, words);
             renderer.lend_rows(
                 term,
                 &mut copy,
@@ -445,7 +458,7 @@ where
                 &mut cell.lent[set],
                 &mut cell.styles_mem[set][..],
             ),
-            (at, view.cols()),
+            (at, view.cols(), ring),
             (Rows::of_count(usize::from(sliding)), view.rows()),
         );
         renderer.keep_line_pairs(at, pairs);
@@ -482,7 +495,7 @@ where
     // and lent: before the screen's walk below, which clears the
     // candidates and refills them for the view it walks.
     if sliding {
-        let at = vrows * stride;
+        let at = ring.slot(Row::from_index(vrows)).index() * stride;
         let row = &cell.copies_mem[set][at..at + vcols];
         renderer.leaving_lent(row);
         let used = [baud_domain::RowExtent::of(vcols)];
@@ -514,8 +527,11 @@ where
         (crate::Lend::Nothing, false) => view,
         _ => {
             cell.lent_cells.clear();
-            cell.lent_cells
-                .extend_from_slice(&cell.copies_mem[set][..vrows * stride]);
+            for y in 0..vrows {
+                let at = ring.slot(Row::from_index(y)).index() * stride;
+                cell.lent_cells
+                    .extend_from_slice(&cell.copies_mem[set][at..at + stride]);
+            }
             crate::counters::add(
                 crate::counters::Counter::CellsCopied,
                 crate::counters::Site::Lent,
@@ -620,19 +636,12 @@ where
     // shown (`below_grid`). Filled on every frame, the copy of
     // the screen skipped or not: a set that holds the screen may
     // not hold the notice's row.
-    let noticed = match renderer.notice_shown() {
-        Some(_) => {
-            let at = (vrows + lined) * stride;
-            match cell.copies_mem[set].get_mut(at..at + vcols) {
-                Some(row) => {
-                    row.fill(PackedCell::EMPTY);
-                    1
-                }
-                None => 0,
-            }
+    if noticed == 1 {
+        let at = ring.slot(Row::from_index(vrows + lined)).index() * stride;
+        if let Some(row) = cell.copies_mem[set].get_mut(at..at + vcols) {
+            row.fill(PackedCell::EMPTY);
         }
-        None => 0,
-    };
+    }
     cell.exceptions.ensure_framed(
         &Scene {
             term,
@@ -802,6 +811,7 @@ where
         cols: view.cols(),
         rows: view.rows(),
         ring: Rows::of_index(vrows + lined + noticed + usize::from(sliding)),
+        rot: ring.head(),
         cursor,
         walked: Tally::of(walked),
         moving,
@@ -823,7 +833,7 @@ fn number_joined(
     renderer: &Renderer<'_, '_>,
     term: &impl TermRead,
     (copy, lent, styles): (&mut [PackedCell], &mut Lent, &mut [Resolved]),
-    (set, cols): (SetIx, Cols),
+    (set, cols, ring): (SetIx, Cols, crate::screens::Ring),
     (slide, rows): (Rows, Rows),
 ) -> Vec<Vec<crate::band_window::Pair>> {
     let Some(window) = renderer.cell_window(set) else {
@@ -842,7 +852,8 @@ fn number_joined(
             Some(y) => (y, true),
             None => (rows.index(), false),
         };
-        let Some(row) = copy.get_mut(y * stride..y * stride + cols) else {
+        let at = ring.slot(Row::from_index(y)).index() * stride;
+        let Some(row) = copy.get_mut(at..at + cols) else {
             kept.push(Vec::new());
             continue;
         };

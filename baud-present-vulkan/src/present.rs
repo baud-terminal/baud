@@ -169,7 +169,7 @@ impl Presenter {
             lent,
             map,
             exceptions: Overlay::new(),
-            screens: Screens::new(),
+            screens: Screens::ringed(),
             stamps: [StyleStamp::default(); SETS],
             lending: core::array::from_fn(|_| Lent::default()),
             candidates: Vec::new(),
@@ -344,7 +344,7 @@ impl Presenter {
         let input = CellDraw {
             set: frame.at,
             stride: term.stride(),
-            rotation: baud_domain::RowRot::NONE,
+            rotation: frame.rot,
             ring: frame.ring,
             cursor: frame.cursor,
             cursor_drawn: self.exceptions.cursor_drawn(),

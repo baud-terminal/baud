@@ -46,8 +46,8 @@ use crate::{LaidSeal, Leaving, Lending, Orders, Rejoin, Tally, WalkKey};
 use baud_core::StatusLine;
 use baud_domain::TermRead;
 use baud_domain::{
-    Cols, DirtyRows, LineRendition, PackedCell, Row, RowGens, Rows, Seal, StatusGen, Stride,
-    StyleId, Viewport, WindowAt,
+    Cols, DirtyRows, LineRendition, PackedCell, Row, RowGens, RowRot, Rows, Seal, StatusGen,
+    Stride, StyleId, Viewport, WindowAt,
 };
 
 use std::rc::Rc;
@@ -222,6 +222,120 @@ pub(crate) enum Keeps {
     Nothing,
 }
 
+/// **How far a window moved since a key was taken**, on the same surface
+/// and ring: a row now at `y` was at `y + k` (`Up`, the text scrolled up)
+/// or at `y - k` (`Down`), for `k` short of the window's rows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Shift {
+    None,
+    Up(Rows),
+    Down(Rows),
+}
+
+impl Shift {
+    /// **Where row `y` of a window of `rows` was** before the shift: none
+    /// for a row scrolled in.
+    fn was(self, y: Row, rows: Rows) -> Option<Row> {
+        let was = match self {
+            Shift::None => Some(y.index()),
+            Shift::Up(k) => Some(y.index() + k.index()),
+            Shift::Down(k) => y.index().checked_sub(k.index()),
+        };
+        was.filter(|&w| w < rows.index()).map(Row::from_index)
+    }
+
+    /// The shift that takes window `was` to window `now`: none for the same
+    /// rows, and `None` for another surface, ring or height, or a move of a
+    /// window's height or more, which keeps no row.
+    fn between(was: WindowAt, now: WindowAt) -> Option<Shift> {
+        if was.screen != now.screen || was.ring != now.ring || was.rows != now.rows {
+            return None;
+        }
+        let ring = now.ring.index().max(1);
+        let up = (now.top.index() + ring - was.top.index() % ring) % ring;
+        let rows = now.rows.index();
+        match (up, ring - up) {
+            (0, _) => Some(Shift::None),
+            (k, _) if k < rows => Some(Shift::Up(Rows::of_index(k))),
+            (_, k) if k < rows => Some(Shift::Down(Rows::of_index(k))),
+            _ => None,
+        }
+    }
+}
+
+/// **Where a copy holds each drawn row**: row `d` of the first `rows` at
+/// slot `(head + d) % rows`, and a row past them at its own index. A copy
+/// whose window moved keeps the rows it still shows where they are, and its
+/// head moves by the shift.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Ring {
+    head: RowRot,
+    rows: Rows,
+}
+
+/// A ring of no rows: every row at its own index.
+impl Default for Ring {
+    fn default() -> Ring {
+        Ring::flat(Rows::ZERO)
+    }
+}
+
+impl Ring {
+    /// Row `d` at slot `d`, over `rows`.
+    pub(crate) fn flat(rows: Rows) -> Ring {
+        Ring {
+            head: RowRot::NONE,
+            rows,
+        }
+    }
+
+    /// **The slot row `d` is at**: one conditional subtract, not a
+    /// modulo, since the head and a row of the ring are each short of its
+    /// rows. Asked once a row for every read of the copy.
+    pub(crate) fn slot(self, d: Row) -> Row {
+        let n = self.rows.index();
+        let s = self.head.index() + d.index();
+        match (d.index() < n, s < n) {
+            (false, _) => d,
+            (true, true) => Row::from_index(s),
+            (true, false) => Row::from_index(s - n),
+        }
+    }
+
+    /// **The row slot `s` holds**: [`Ring::slot`] undone.
+    pub(crate) fn row_of(self, s: Row) -> Row {
+        match s.index() < self.rows.index() {
+            true => Row::from_index(
+                RowRot::NONE
+                    .advance(s.index(), self.rows)
+                    .retreat(self.head.index(), self.rows)
+                    .index(),
+            ),
+            false => s,
+        }
+    }
+
+    /// The ring after the window moved by `shift`: the head moved with it.
+    pub(crate) fn moved(self, shift: Shift) -> Ring {
+        let head = match shift {
+            Shift::None => self.head,
+            Shift::Up(k) => self.head.advance(k.index(), self.rows),
+            Shift::Down(k) => self.head.retreat(k.index(), self.rows),
+        };
+        Ring { head, ..self }
+    }
+
+    /// The slot row 0 is at.
+    pub(crate) fn head(self) -> RowRot {
+        self.head
+    }
+
+    /// The rows the ring wraps in.
+    pub(crate) fn rows(self) -> Rows {
+        self.rows
+    }
+}
+
 impl SetKey {
     /// **How much of the copy this key was taken under still holds for
     /// `now`**, drawn through `orders`: nothing for no key, another window,
@@ -244,22 +358,60 @@ impl SetKey {
         }
     }
 
+    /// **[`SetKey::keeps`], for a copy whose rows ride a [`Ring`]**: a
+    /// window that moved on the same surface and ring, at the same height,
+    /// scalars and display, with no row laid out again since the key's
+    /// layout, keeps the rows [`SetKey::dirt`] does not name a shift away.
+    /// Every other answer is [`SetKey::keeps`]'s, unshifted.
+    pub(crate) fn keeps_ringed(
+        &self,
+        term: &impl TermRead,
+        now: &Now<'_>,
+        orders: &Orders,
+    ) -> (Keeps, Shift) {
+        let Some(h) = &self.head else {
+            return (Keeps::Nothing, Shift::None);
+        };
+        let shift = Shift::between(h.at, now.gens.window());
+        match shift {
+            Some(Shift::Up(_) | Shift::Down(_))
+                if h.scalar == now.scalar
+                    && self.shown.is_none()
+                    && orders.display_rc().is_none()
+                    && !orders.moved_since(&h.laid) =>
+            {
+                (Keeps::Rows, shift.unwrap_or(Shift::None))
+            }
+            _ => (self.keeps(term, now, orders), Shift::None),
+        }
+    }
+
     /// **Why row `r` of the copy may not be the window's now**, drawn
     /// through `orders`: written after the key's seal, or in another line
     /// rendition; else laid out again after its layout's seal; else kept.
     /// Row `rows` is the status line's, written when its own generation
     /// says so, and laid out again when the maps' row after the window's
-    /// was.
-    pub(crate) fn dirt(&self, now: &Now<'_>, orders: &Orders, view: &Viewport<'_>, r: Row) -> Dirt {
+    /// was. Across a `shift` ([`SetKey::keeps_ringed`]) a row is compared
+    /// with the row it was, and a row scrolled in is written.
+    pub(crate) fn dirt(
+        &self,
+        now: &Now<'_>,
+        orders: &Orders,
+        view: &Viewport<'_>,
+        (r, shift): (Row, Shift),
+    ) -> Dirt {
         let Some(h) = &self.head else {
             return Dirt::Written;
         };
         let written = match r.index() == view.rows().index() {
             true => now.status.is_none_or(|g| g.after(&h.seal)),
-            false => {
-                now.gens.after(r, &h.seal)
-                    || self.renditions.get(r.index()) != Some(&view.rendition(r))
-            }
+            false => match shift.was(r, view.rows()) {
+                None => true,
+                Some(was) => {
+                    now.gens.after(r, &h.seal)
+                        || self.renditions.get(was.index()) != Some(&view.rendition(r))
+                }
+            },
         };
         match (written, orders.laid_after(r, &h.laid)) {
             (true, _) => Dirt::Written,
@@ -310,12 +462,24 @@ impl SetKey {
     }
 }
 
+/// **Whether a set's copy holds its rows at fixed slots or on a ring**
+/// ([`Screens::ringed`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Rotation {
+    Fixed,
+    Moves,
+}
+
 /// Which screen each set's copy holds, and what the last map walk read.
 pub struct Screens {
     /// The screen the last frame was built from.
     now: ScreenGen,
     /// Each set's key.
     keys: Vec<SetKey>,
+    /// Where each set's copy holds each drawn row.
+    rings: Vec<Ring>,
+    /// Whether a set's ring moves with its window.
+    rotation: Rotation,
     /// The set the last frame was built into, whose key is the last
     /// frame's.
     last: Option<usize>,
@@ -353,6 +517,8 @@ impl Screens {
         Screens {
             now: ScreenGen::default(),
             keys: (0..SETS).map(|_| SetKey::default()).collect(),
+            rings: vec![Ring::default(); SETS],
+            rotation: Rotation::Fixed,
             last: None,
             scratch: Vec::new(),
             walked: None,
@@ -361,6 +527,23 @@ impl Screens {
             differ: None,
             lending: Lending::default(),
         }
+    }
+
+    /// **One key a buffer set, each set's copy a ring**: draw row `d` at
+    /// slot `(rot + d) % ring` of the frame it was built for
+    /// (`crate::cell_frame::CellFrame::rot`), so a window that moved keeps
+    /// every row it still shows where it was and moves the head instead.
+    pub fn ringed() -> Screens {
+        Screens {
+            rotation: Rotation::Moves,
+            ..Screens::new()
+        }
+    }
+
+    /// **Where `set`'s copy holds each drawn row**, as its last take left
+    /// it: what reads and writes of the copy go through.
+    pub(crate) fn ring(&self, set: SetIx) -> Ring {
+        self.rings.get(set.0).copied().unwrap_or_default()
     }
 
     /// The screen the last frame was built from.
@@ -427,6 +610,24 @@ impl Screens {
         w: &Taking<'_, '_, impl TermRead>,
         undo: &[(usize, usize, StyleId)],
     ) -> Built {
+        self.take_below(copies, set, w, undo, Rows::ZERO)
+    }
+
+    /// **[`Screens::take_lent`], `below` rows drawn after the status
+    /// line's** -- the notice's -- which a ringed copy's ring holds too:
+    /// its rows are the window's, the status line's or the leaving row,
+    /// and these. A ringed set whose window moved with no row laid out
+    /// again keeps the rows it still shows at their slots and moves its
+    /// head ([`SetKey::keeps_ringed`]); one whose ring is another size
+    /// takes every row, its head at slot 0.
+    pub(crate) fn take_below(
+        &mut self,
+        copies: &mut [&mut [PackedCell]],
+        set: SetIx,
+        w: &Taking<'_, '_, impl TermRead>,
+        undo: &[(usize, usize, StyleId)],
+        below: Rows,
+    ) -> Built {
         let view = w.view;
         let (cols, rows, stride) = (view.cols().index(), view.rows().index(), w.stride.index());
         let now = Now::of(w.term, w.back, (view, w.status), w.stride);
@@ -437,8 +638,8 @@ impl Screens {
         let mut same = true;
         let last = self
             .last
-            .and_then(|l| Some((self.keys.get(l)?, copies.get(l)?)));
-        match last.map(|(k, c)| (k, c, k.keeps(w.term, &now, w.orders))) {
+            .and_then(|l| Some((self.keys.get(l)?, copies.get(l)?, self.rings.get(l)?)));
+        match last.map(|(k, c, g)| (k, (c, *g), k.keeps(w.term, &now, w.orders))) {
             None | Some((_, _, Keeps::Nothing)) => {
                 same = false;
                 self.changed.resize(rows, RowChange::Changed);
@@ -447,20 +648,18 @@ impl Screens {
                 self.changed.resize(rows, RowChange::Same);
                 self.differ = Some(DirtyRows::NONE);
             }
-            Some((k, copy, Keeps::Rows)) => {
+            Some((k, (copy, ring), Keeps::Rows)) => {
                 let scratch = &mut self.scratch;
                 let mut differs = |y: usize| {
-                    match k.dirt(&now, w.orders, view, Row::from_index(y)) {
+                    match k.dirt(&now, w.orders, view, (Row::from_index(y), Shift::None)) {
                         Dirt::Kept => return false,
                         Dirt::Written => return true,
                         Dirt::Laid => {}
                     }
-                    let (at, n) = match y == rows {
-                        true => (
-                            rows * stride,
-                            w.status.map_or(0, |l| cols.min(l.cells.len())),
-                        ),
-                        false => (y * stride, cols),
+                    let at = ring.slot(Row::from_index(y)).index() * stride;
+                    let n = match y == rows {
+                        true => w.status.map_or(0, |l| cols.min(l.cells.len())),
+                        false => cols,
                     };
                     let kept = copy.get(at..at + n);
                     let drawn = match y == rows {
@@ -505,23 +704,46 @@ impl Screens {
         // drawn in another order among them. A row is copied when it was
         // written or laid out again since that set's seals.
         let holds = built == Built::Last && self.holds(set) == Some(self.now);
+        // **The ring this frame's copy is held on**: the window's rows, the
+        // status line's or the leaving row, and the rows below them.
+        let sliding = usize::from(w.leaving == Leaving::Drawn);
+        let ring_rows = Rows::of_index(rows + lined + below.index() + sliding);
+        let was = self.ring(set);
+        let rotation = self.rotation;
         if let (Some(copy), Some(k)) = (copies.get_mut(set.0), self.keys.get(set.0)) {
-            let keeps = match (w.leaving, holds) {
-                (Leaving::Drawn, _) => Keeps::Nothing,
-                (Leaving::None, true) => Keeps::All,
-                (Leaving::None, false) => k.keeps(w.term, &now, w.orders),
+            let (keeps, shift) = match (w.leaving, holds, rotation) {
+                (Leaving::Drawn, _, _) => (Keeps::Nothing, Shift::None),
+                (Leaving::None, _, Rotation::Moves) if was.rows() != ring_rows => {
+                    (Keeps::Nothing, Shift::None)
+                }
+                (Leaving::None, true, _) => (Keeps::All, Shift::None),
+                (Leaving::None, false, Rotation::Fixed) => {
+                    (k.keeps(w.term, &now, w.orders), Shift::None)
+                }
+                (Leaving::None, false, Rotation::Moves) => k.keeps_ringed(w.term, &now, w.orders),
             };
+            let ring = match (keeps, rotation) {
+                (Keeps::Nothing, _) | (_, Rotation::Fixed) => Ring::flat(ring_rows),
+                (_, Rotation::Moves) => was.moved(shift),
+            };
+            if let Some(g) = self.rings.get_mut(set.0) {
+                *g = ring;
+            }
             let (mut copied, mut taken) = (0, 0);
             for y in 0..rows + lined {
+                let r = Row::from_index(y);
+                // The status line's row is at another slot once the head
+                // moved, so it is taken again.
                 let kept = match keeps {
                     Keeps::All => true,
-                    Keeps::Rows => k.dirt(&now, w.orders, view, Row::from_index(y)) == Dirt::Kept,
+                    Keeps::Rows if y == rows && shift != Shift::None => false,
+                    Keeps::Rows => k.dirt(&now, w.orders, view, (r, shift)) == Dirt::Kept,
                     Keeps::Nothing => false,
                 };
                 if kept {
                     continue;
                 }
-                let at = y * stride;
+                let at = ring.slot(r).index() * stride;
                 // **The status line's row, after the main display's**, at
                 // index `rows`: the shader draws `rows` and the line's row
                 // (`Renderer::grid`), its backgrounds from here and its

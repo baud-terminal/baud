@@ -318,7 +318,7 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
                 map,
             }),
             exceptions: Overlay::new(),
-            screens: Screens::new(),
+            screens: Screens::ringed(),
             stamps: [StyleStamp::default(); SETS],
             lending: core::array::from_fn(|_| Lent::default()),
             candidates: Vec::new(),
@@ -438,7 +438,7 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
         let input = CellDraw {
             set: frame.at,
             stride: t.stride(),
-            rotation: baud_domain::RowRot::NONE,
+            rotation: frame.rot,
             ring: frame.ring,
             cursor: frame.cursor,
             cursor_drawn: self.exceptions.cursor_drawn(),

@@ -410,9 +410,20 @@ impl Lent {
     /// each rewritten cell given the id it held, the last rewrite first,
     /// `stride` cells a row. For a copy no frame in flight reads.
     pub fn restore(&mut self, copy: &mut [PackedCell], stride: Stride) {
+        self.restore_ringed(copy, (stride, crate::screens::Ring::default()));
+    }
+
+    /// [`Lent::restore`], for a copy that holds its rows on `ring`
+    /// (`crate::screens::Screens::ringed`), as it held them when lent.
+    pub(crate) fn restore_ringed(
+        &mut self,
+        copy: &mut [PackedCell],
+        (stride, ring): (Stride, crate::screens::Ring),
+    ) {
         let stride = stride.index();
         for (y, x, was) in self.rewrote.drain(..).rev() {
-            if let Some(c) = copy.get_mut(y * stride + x) {
+            let at = ring.slot(Row::from_index(y)).index() * stride + x;
+            if let Some(c) = copy.get_mut(at) {
                 c.style = was;
             }
         }
@@ -575,6 +586,8 @@ pub(crate) enum CopyWords<'s> {
 pub(crate) struct FlatCopy<'c, 's> {
     cells: &'c mut [PackedCell],
     pitch: Stride,
+    /// Where the copy holds each row.
+    ring: crate::screens::Ring,
     width: Cols,
     rows: Rows,
     words: CopyWords<'s>,
@@ -583,7 +596,7 @@ pub(crate) struct FlatCopy<'c, 's> {
 impl<'c, 's> FlatCopy<'c, 's> {
     pub(crate) fn new(
         cells: &'c mut [PackedCell],
-        pitch: Stride,
+        (pitch, ring): (Stride, crate::screens::Ring),
         width: Cols,
         rows: Rows,
         words: CopyWords<'s>,
@@ -591,6 +604,7 @@ impl<'c, 's> FlatCopy<'c, 's> {
         FlatCopy {
             cells,
             pitch,
+            ring,
             width,
             rows,
             words,
@@ -602,7 +616,7 @@ impl<'c, 's> FlatCopy<'c, 's> {
         if y.index() >= self.rows.index() {
             return None;
         }
-        let at = y.index().checked_mul(self.pitch.index())?;
+        let at = self.ring.slot(y).index().checked_mul(self.pitch.index())?;
         let cells = self.cells.get_mut(at..)?;
         let n = self.width.index().min(cells.len());
         cells.get_mut(..n)
@@ -628,7 +642,7 @@ impl LendRows for FlatCopy<'_, '_> {
         if y.index() >= self.rows.index() {
             return None;
         }
-        let at = y.index().checked_mul(self.pitch.index())?;
+        let at = self.ring.slot(y).index().checked_mul(self.pitch.index())?;
         let cells = self.cells.get_mut(at..)?;
         let n = self.width.index().min(cells.len());
         let cells = cells.get_mut(..n)?;

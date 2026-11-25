@@ -27,6 +27,7 @@ use crate::linked::{
 use crate::metrics::{Metrics, PxSize};
 use crate::overlay::Composition;
 use crate::picture::Pictures;
+use crate::screens::Shift;
 use crate::scrollbar::{self, Bar, Scroll};
 use crate::select::Highlight;
 use crate::splash::{self, SplashLook};
@@ -3132,9 +3133,15 @@ use mirror::Mirror;
 /// which forgets the key first, and a resize forgets it too. **A copy so
 /// written is read as no key at all** (`Keeps::Nothing`): the next
 /// convert takes every row and compares it, as a full frame does.
+///
+/// **The window's rows are a ring** ([`crate::screens::Ring`]): window row
+/// `y` at slot `(head + y) % main`, the status line's and the notice's rows
+/// after them at their own. A window that moved keeps the rows it still
+/// shows where they are and moves the head ([`Mirror::turn`]), so a scroll
+/// takes only the rows scrolled in.
 mod mirror {
     use crate::Orders;
-    use crate::screens::{Dirt, Keeps, Now, ScreenGen, SetKey};
+    use crate::screens::{Dirt, Keeps, Now, Ring, ScreenGen, SetKey, Shift};
     use baud_domain::TermRead;
     use baud_domain::{Cols, LineRendition, PackedCell, Row, Rows, Seal, StyleId, Viewport};
 
@@ -3143,6 +3150,8 @@ mod mirror {
         cells: Vec<PackedCell>,
         sizes: Vec<LineRendition>,
         key: SetKey,
+        /// Where each window row's cells are.
+        ring: Ring,
         /// **Each cell the convert's lending rewrote**, by its place in
         /// `cells`, with the id it held, in the order rewritten: what puts
         /// the copy back as the terminal's before the next convert reads
@@ -3167,7 +3176,23 @@ mod mirror {
             self.cells = vec![PackedCell::EMPTY; cols.index() * rows.index()];
             self.sizes = vec![LineRendition::Single; rows.index()];
             self.key.forget();
+            self.ring = Ring::default();
             self.lent.clear();
+        }
+
+        /// Where each window row's cells are, as the last convert left them.
+        pub(super) fn ring(&self) -> Ring {
+            self.ring
+        }
+
+        /// **The ring for the convert that follows**: the head moved by
+        /// `shift` ([`Mirror::keeps`]), or slot 0 for a window of another
+        /// height, `main` rows.
+        pub(super) fn turn(&mut self, main: Rows, shift: Shift) {
+            self.ring = match self.ring.rows() == main {
+                true => self.ring.moved(shift),
+                false => Ring::flat(main),
+            };
         }
 
         /// **The cells the convert's lending rewrote**, `rewrites` by row of
@@ -3178,11 +3203,13 @@ mod mirror {
         /// room is kept.
         pub(super) fn lend(&mut self, rewrites: &[(usize, usize, StyleId)], cols: Cols) {
             self.lent.clear();
-            self.lent.extend(
-                rewrites
-                    .iter()
-                    .map(|&(y, x, was)| (y * cols.index() + x, was)),
-            );
+            let ring = self.ring;
+            self.lent.extend(rewrites.iter().map(|&(y, x, was)| {
+                (
+                    ring.slot(Row::from_index(y)).index() * cols.index() + x,
+                    was,
+                )
+            }));
         }
 
         /// **The copy put back as the terminal's** where the last convert's
@@ -3198,7 +3225,10 @@ mod mirror {
                 }
                 // A lending rewrites row after row, so a row's cells come
                 // together: the list is asked only where the row changes.
-                let y = i / cols.index().max(1);
+                let y = self
+                    .ring
+                    .row_of(Row::from_index(i / cols.index().max(1)))
+                    .index();
                 if rows.last() != Some(&y) && !rows.contains(&y) {
                     rows.push(y);
                 }
@@ -3228,19 +3258,30 @@ mod mirror {
         }
 
         /// How much of the copy the key keeps for `now`, drawn through
-        /// `orders` (`SetKey::keeps`): nothing once scribbled or resized.
-        pub(super) fn keeps(&self, term: &impl TermRead, now: &Now<'_>, orders: &Orders) -> Keeps {
-            self.key.keeps(term, now, orders)
+        /// `orders`, and how far its window moved (`SetKey::keeps_ringed`):
+        /// nothing once scribbled or resized, or for a window of other than
+        /// the ring's `main` rows.
+        pub(super) fn keeps(
+            &self,
+            term: &impl TermRead,
+            now: &Now<'_>,
+            orders: &Orders,
+            main: Rows,
+        ) -> (Keeps, Shift) {
+            match self.ring.rows() == main {
+                true => self.key.keeps_ringed(term, now, orders),
+                false => (Keeps::Nothing, Shift::None),
+            }
         }
 
         /// Whether row `r` may not be the window's now: written or laid out
-        /// again since the key's seals (`SetKey::dirt`).
+        /// again since the key's seals, across `shift` (`SetKey::dirt`).
         pub(super) fn dirty(
             &self,
             now: &Now<'_>,
             orders: &Orders,
             view: &Viewport<'_>,
-            r: Row,
+            r: (Row, Shift),
         ) -> bool {
             self.key.dirt(now, orders, view, r) != Dirt::Kept
         }
@@ -9407,6 +9448,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         r.index() * cols..(r.index() + 1) * cols
     }
 
+    /// **Row `r`'s cells in this path's copy and the last frame's**,
+    /// `cur` and `prev`, whose window rows ride the copy's ring
+    /// ([`Mirror::ring`]).
+    fn slot_cells(&self, r: Row) -> core::ops::Range<usize> {
+        self.row_cells(self.cur.ring().slot(r))
+    }
+
     /// **The columns the trail's and the splash's records reach on
     /// `band`'s rows**, this frame's and the last's: [`Repaint::Cols`], empty
     /// when none of them meets it. A quad's or a sweep's one record is its
@@ -10765,7 +10813,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Whether `row`'s cell at `col` draws a background that is not the
     /// default one ([`Ground::Set`]).
     fn set_at(&self, row: Row, col: Col) -> bool {
-        let at = self.row_cells(row).start + col.index();
+        let at = self.slot_cells(row).start + col.index();
         self.ground(row, col, self.prev[at]) == Ground::Set
     }
 
@@ -10857,9 +10905,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// what the instance path's second background pass reads.
     pub fn grounds(&self, out: &mut Vec<Ground>) {
         out.clear();
-        let cols = self.cols.index();
-        for (i, &cell) in self.prev.iter().enumerate() {
-            out.push(self.ground(Row::from_index(i / cols), Col::at_index(i % cols), cell));
+        for y in 0..self.rows.index() {
+            let r = Row::from_index(y);
+            let range = self.slot_cells(r);
+            for (x, &cell) in self.prev.get(range).unwrap_or_default().iter().enumerate() {
+                out.push(self.ground(r, Col::at_index(x), cell));
+            }
         }
     }
 
@@ -10946,7 +10997,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         } else {
             self.pictures.clear(cols, rows);
         }
-        let ncols = cols.index();
         if self.sized_rows.len() != rows.index() {
             self.sized_rows = (0..rows.index()).map(|_| None).collect();
         }
@@ -10997,7 +11047,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         gens,
                         y: r,
                     },
-                    None => SizedCells::Drawn(&self.cur[y * ncols..(y + 1) * ncols]),
+                    None => SizedCells::Drawn(&self.cur[self.slot_cells(r)]),
                 };
                 let now = SizedNow {
                     cells,
@@ -11114,11 +11164,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         );
         let mut stamp = self.styles_stamp;
         {
+            let ring = cur.ring();
             let cells = cur.converting().0;
             let rows = Rows::of_count(cells.len().div_ceil(ncols));
             let mut copy = crate::frozen::FlatCopy::new(
                 cells,
-                baud_domain::Stride::of_cells(ncols),
+                (baud_domain::Stride::of_cells(ncols), ring),
                 self.cols,
                 rows,
                 words,
@@ -11214,8 +11265,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// mirror L4 gives the composition's text is in its cell there.
     fn sized_fill(&mut self, view: &Viewport<'_>, r: Row, composition: Option<&Composition>) {
         let (y, ncols) = (r.index(), view.cols().index());
+        let at = self.slot_cells(r).start;
         let (cells, sizes) = self.cur.scribble();
-        cells[y * ncols..(y + 1) * ncols].copy_from_slice(view.row(r));
+        cells[at..at + ncols].copy_from_slice(view.row(r));
         sizes[y] = view.rendition(r);
         crate::counters::add(Counter::CellsCopied, Site::Sized, Tally::of(ncols));
         if let Some(c) = composition.filter(|c| c.row == r) {
@@ -11223,7 +11275,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let orders = self.bidi.orders();
             for x in start..end {
                 let v = orders.visual_col(r, Col::at_index(x)).index();
-                if let Some(cell) = self.cur.scribble().0.get_mut(y * ncols + v) {
+                if let Some(cell) = self.cur.scribble().0.get_mut(at + v) {
                     *cell = PackedCell {
                         content: baud_domain::Content::EMPTY,
                         style: cell.style,
@@ -11275,8 +11327,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         let r0 = Row::ZERO;
         let range = self.row_cells(r0);
+        let slot = self.slot_cells(r0);
         let kept = (
-            self.cur[range.clone()].to_vec(),
+            self.cur[slot.clone()].to_vec(),
             self.cur.sizes()[0],
             self.per_row.take(r0),
             self.bg[range.clone()].to_vec(),
@@ -11290,7 +11343,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut pictures = core::mem::take(&mut self.pictures);
         self.pictures.clear(self.cols, self.rows);
         let (to, sizes) = self.cur.scribble();
-        to[range.start..range.start + n].copy_from_slice(&cells[..n]);
+        to[slot.start..slot.start + n].copy_from_slice(&cells[..n]);
         sizes[0] = size;
         // A line the core froze, drawn in its own renditions
         // (`crate::frozen`): its cells lent slots of this path's table.
@@ -11303,7 +11356,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             );
             let mut stamp = self.styles_stamp;
             let mut rows = [(
-                &mut cur.scribble().0[range.start..range.start + n],
+                &mut cur.scribble().0[slot.start..slot.start + n],
                 source.words(),
             )];
             let _ = self.lend_frozen(term, &mut rows, &mut styles, &mut stamp, &mut lent);
@@ -11321,7 +11374,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         core::mem::swap(&mut self.pictures, &mut pictures);
         let (cur, size, per_row, bg, fg, curve, text, blinks, ends, reach) = kept;
         let (to, sizes) = self.cur.scribble();
-        to[range.clone()].copy_from_slice(&cur);
+        to[slot].copy_from_slice(&cur);
         sizes[0] = size;
         self.per_row.set(r0, per_row);
         self.bg[range.clone()].copy_from_slice(&bg);
@@ -11380,7 +11433,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if r.index() >= self.rows.index() {
             return;
         }
-        let range = self.row_cells(r);
+        let range = self.slot_cells(r);
         let n = range.len().min(line.cells.len());
         self.bidi.orders().permute(
             r,
@@ -11518,12 +11571,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // already (`Mirror::unlend`, above). Every other row is the
         // terminal's already, and the last frame's: it is neither read nor
         // compared.
+        //
+        // **A window that moved** keeps the rows it still shows where they
+        // are in `cur` and `prev`, their ring's head moved by the shift
+        // (`Mirror::turn`): the rows scrolled in are taken, and every row is
+        // converted again, each now drawn at another row.
         let orders = self.bidi.orders();
         let now = crate::screens::Now::of(term, back, (&vp, status.as_ref()), term.stride());
-        let keeps = match self.known {
-            Prev::Unknown => crate::screens::Keeps::Nothing,
-            Prev::Known => self.cur.keeps(term, &now, orders),
+        let (keeps, shift) = match self.known {
+            Prev::Unknown => (crate::screens::Keeps::Nothing, Shift::None),
+            Prev::Known => self.cur.keeps(term, &now, orders, main),
         };
+        let was = self.cur.ring();
+        self.cur.turn(main, shift);
+        let moved = shift != Shift::None;
+        // **A row of the last frame, by its slot**: where a row it veiled,
+        // noticed or lent is in this frame's window, which `cur` holds as
+        // that frame drew it.
+        let ring = self.cur.ring();
+        let carried = move |r: usize| ring.row_of(was.slot(Row::from_index(r))).index();
+        for r in &mut self.lent_rows {
+            *r = carried(*r);
+        }
         let named = match damage {
             FrameDamage::Rows { rows, .. }
                 if self.drawn.is_some_and(|k| k.arm == crate::drawn::Arm::Cpu) =>
@@ -11538,12 +11607,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let taken = match (keeps, named) {
                 (crate::screens::Keeps::Nothing, _) => true,
                 (crate::screens::Keeps::All, _) => false,
-                (crate::screens::Keeps::Rows, Some(named)) => {
+                (crate::screens::Keeps::Rows, Some(named)) if !moved => {
                     r < main.index() + lined
                         && (named.contains(row) || self.cur.relaid(orders, &vp, row))
                 }
-                (crate::screens::Keeps::Rows, None) => {
-                    r < main.index() + lined && self.cur.dirty(&now, orders, &vp, row)
+                (crate::screens::Keeps::Rows, _) => {
+                    r < main.index() + lined && self.cur.dirty(&now, orders, &vp, (row, shift))
                 }
             };
             self.mirror_rows.push(match taken {
@@ -11555,7 +11624,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.mirror_rows.fill(MirrorRow::Filled);
         }
         for &r in &self.veiled_last {
-            if let Some(m) = self.mirror_rows.get_mut(r) {
+            if let Some(m) = self.mirror_rows.get_mut(carried(r)) {
                 *m = MirrorRow::Filled;
             }
         }
@@ -11579,23 +11648,29 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut pairs = Vec::new();
         let mut greys = Vec::new();
         for r in 0..main.index() {
+            let row = Row::from_index(r);
             if self.mirror_rows[r] != MirrorRow::Filled {
+                // A row kept a shift away keeps its line rendition, now at
+                // its new row.
+                if moved {
+                    self.cur.converting().1[r] = vp.rendition(row);
+                }
                 continue;
             }
-            let row = Row::from_index(r);
             match self.window.joined(row) {
                 Some(j) => {
                     logical.clear();
                     logical.extend_from_slice(vp.row(row));
                     // A struck column is a visual one, as `cur` holds it.
                     j.rewrite(&mut logical, |l| orders.visual_col(row, l), &mut pairs);
+                    let at = self.cur.ring().slot(row).index() * ncols;
                     greys.clear();
                     greys.extend(pairs.iter().map(|&(b, id, s)| match s {
                         crate::band_window::Strike::Yes => Some(self.struck_resolved(term, b, id)),
                         crate::band_window::Strike::No => None,
                     }));
                     let (cells, _) = self.cur.converting();
-                    orders.permute(row, &logical, &mut cells[r * ncols..(r + 1) * ncols]);
+                    orders.permute(row, &logical, &mut cells[at..at + ncols]);
                     j.fill(
                         (&pairs, &greys),
                         (&self.window, term.styles().band_slots()),
@@ -11603,8 +11678,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     );
                 }
                 None => {
+                    let at = self.cur.ring().slot(row).index() * ncols;
                     let (cells, _) = self.cur.converting();
-                    orders.permute(row, vp.row(row), &mut cells[r * ncols..(r + 1) * ncols]);
+                    orders.permute(row, vp.row(row), &mut cells[at..at + ncols]);
                 }
             }
             self.cur.converting().1[r] = vp.rendition(row);
@@ -11616,10 +11692,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let r = main.index();
             if self.mirror_rows[r] == MirrorRow::Filled {
                 let n = ncols.min(line.cells.len());
+                let at = self.cur.ring().slot(Row::from_index(r)).index() * ncols;
                 orders.permute(
                     Row::from_index(r),
                     &line.cells[..n],
-                    &mut self.cur.converting().0[r * ncols..r * ncols + n],
+                    &mut self.cur.converting().0[at..at + n],
                 );
                 crate::counters::add(Counter::CellsCopied, Site::Convert, Tally::of(n));
                 self.cur.converting().1[r] = line.rendition;
@@ -11629,8 +11706,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         crate::counters::add(Counter::RowsTaken, Site::Convert, Tally::of(taken));
         if let Some(f) = &notice {
             let r = f.row.index();
+            let at = self.slot_cells(f.row);
             let (cells, sizes) = self.cur.converting();
-            cells[r * ncols..(r + 1) * ncols].fill(PackedCell::EMPTY);
+            cells[at].fill(PackedCell::EMPTY);
             sizes[r] = LineRendition::Single;
         }
         // The rows this frame veils, composes over or notices in `cur`, and
@@ -11672,8 +11750,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 FrameDamage::Whole(_) => Force::Full,
                 FrameDamage::Rows { .. } => Force::No,
             };
+            let ring = cur.ring();
             self.place_links_with(term, &vp, force, |y, v, _| {
-                cur.get(y.index() * ncols + v.index())
+                cur.get(ring.slot(y).index() * ncols + v.index())
                     .copied()
                     .unwrap_or(PackedCell::EMPTY)
             });
@@ -11693,7 +11772,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.taken = crate::overlay::Taken::default();
         if let Some(c) = &composition {
             let (start, end) = c.columns(c.width_on(&vp));
-            let at = c.row.index() * ncols;
+            let at = self.slot_cells(c.row).start;
             self.veiled_now.push(c.row.index());
             if let Some(&cell) = vp.row(c.row).get(start) {
                 under = cell;
@@ -11733,7 +11812,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         veils.hold(&self.veils_now(term, (self.styles_stamp, cols)));
         for (_, row, start, end) in veils.spans().filter(|v| v.0 != VeilKind::Notice) {
             self.veiled_now.push(row.index());
-            let at = row.index() * ncols;
+            let at = self.slot_cells(row).start;
             for cell in &mut self.cur.converting().0[at + start.index()..at + end.index()] {
                 *cell = PackedCell {
                     content: baud_domain::Content::EMPTY,
@@ -11764,7 +11843,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         cols,
                         main,
                         main,
-                        baud_domain::RowRot::NONE,
+                        self.cur.ring().head(),
                         crate::frozen::live_table(term),
                     );
                     self.pictures
@@ -11906,19 +11985,32 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 *m = MirrorRow::Compared;
             }
         }
+        // **Each row against the row the last frame drew at its place**:
+        // `prev` holds that frame at its ring's slots until the copy below,
+        // so a row the window moved past it is compared there too -- the
+        // frame is painted in place, and a row drawn again as it was costs
+        // no paint. A row kept with no shift is the last frame's, unread.
+        // A ring that did not turn holds the last frame's rows at this
+        // frame's slots.
+        let turned = was != self.cur.ring();
         for r in 0..rows.index() {
-            let range = self.row_cells(Row::from_index(r));
-            let changed = match self.mirror_rows[r] {
-                MirrorRow::Kept => false,
-                MirrorRow::Compared | MirrorRow::Filled => {
-                    crate::counters::add(
-                        Counter::CellsCompared,
-                        Site::Convert,
-                        Tally::of(range.len()),
-                    );
-                    self.cur[range.clone()] != self.prev[range]
-                        || self.cur.sizes()[r] != self.prev_size[r]
-                }
+            let row = Row::from_index(r);
+            let range = self.slot_cells(row);
+            let compared = match self.mirror_rows[r] {
+                MirrorRow::Kept => moved && r < main.index(),
+                MirrorRow::Compared | MirrorRow::Filled => true,
+            };
+            let changed = compared && {
+                let drawn = match turned {
+                    true => self.row_cells(was.slot(row)),
+                    false => range.clone(),
+                };
+                crate::counters::add(
+                    Counter::CellsCompared,
+                    Site::Convert,
+                    Tally::of(range.len()),
+                );
+                self.cur[range] != self.prev[drawn] || self.cur.sizes()[r] != self.prev_size[r]
             };
             // A window row's joins found again, with BDSM reset, where its
             // cells changed -- or may have: a composition, the find field
@@ -12189,7 +12281,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if self.mirror_rows[r] == MirrorRow::Kept {
                 continue;
             }
-            let range = self.row_cells(Row::from_index(r));
+            let range = self.slot_cells(Row::from_index(r));
             copied += range.len();
             self.prev[range.clone()].copy_from_slice(&self.cur[range]);
         }
@@ -15282,6 +15374,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         exc: &mut Exceptions,
     ) {
         let range = self.row_cells(r);
+        let at = self.slot_cells(r).start;
         crate::counters::add(
             Counter::CellsConverted,
             Site::Convert,
@@ -15292,7 +15385,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // a row converted costs no buffer of its own.
         let mut scratch = RowScratch::begin(self.row_scratch.take());
         // A copy of the row, so shaping may borrow the renderer mutably.
-        scratch.row.extend_from_slice(&self.cur[range.clone()]);
+        scratch
+            .row
+            .extend_from_slice(&self.cur[at..at + range.len()]);
         let n = scratch.row.len();
         // **A reordered row's map, copied for the same reason**: the logical
         // column each visual cell shows, which the selection and the
@@ -16087,19 +16182,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
             #[cfg(feature = "exceptions")]
-            self.count_differs(term, r, Col::at_index(start), run.clusters(), &shaped, exc);
+            self.count_differs(
+                term,
+                (r, row),
+                Col::at_index(start),
+                run.clusters(),
+                &shaped,
+                exc,
+            );
             // A mirrored cell's run is drawn by the loop that reads its
             // mirror; every other run by the loop that reads none.
             let at = Col::at_index(start);
             match (mirrored(start), lean) {
-                (None, None) => self.emit::<false>(term, face, r, at, (&shaped, None), instances),
+                (None, None) => {
+                    self.emit::<false>(term, face, (r, row), at, (&shaped, None), instances);
+                }
                 (mirrored, lean) => {
                     let drawn = CellDrawn {
                         mirrored,
                         base,
                         lean,
                     };
-                    self.emit::<true>(term, face, r, at, (&shaped, Some(drawn)), instances);
+                    self.emit::<true>(term, face, (r, row), at, (&shaped, Some(drawn)), instances);
                 }
             }
         }
@@ -16412,38 +16516,38 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The `differs` count: for each cluster of the run, whether the
     /// shaped glyphs are what the cell shader's map would draw for its
     /// base codepoint -- one glyph, the same atlas slot, the same offset.
+    /// Row `r`'s cells are `row`, as this path's copy holds them.
     #[cfg(feature = "exceptions")]
     fn count_differs(
         &mut self,
         term: &impl TermRead,
-        r: Row,
+        (r, row): (Row, &[PackedCell]),
         start: Col,
         clusters: Clusters<'_>,
         shaped: &Shaped,
         exc: &mut Exceptions,
     ) {
         match self.window.row_read(r) {
-            None => self.count_differs_in(term, (r, WholeTable), start, clusters, shaped, exc),
-            Some(b) => self.count_differs_in(term, (r, b), start, clusters, shaped, exc),
+            None => self.count_differs_in(term, (row, WholeTable), start, clusters, shaped, exc),
+            Some(b) => self.count_differs_in(term, (row, b), start, clusters, shaped, exc),
         }
     }
 
-    /// [`Renderer::count_differs`] for row `r`, whose cells read the
+    /// [`Renderer::count_differs`] for the cells `row`, which read the
     /// resolved table as `base` says.
     #[cfg(feature = "exceptions")]
     fn count_differs_in<R: RowRead>(
         &mut self,
         term: &impl TermRead,
-        (r, base): (Row, R),
+        (row, base): (&[PackedCell], R),
         start: Col,
         clusters: Clusters<'_>,
         shaped: &Shaped,
         exc: &mut Exceptions,
     ) {
-        let range = self.row_cells(r);
         for (_, at) in clusters.iter() {
             let col = start.index() + usize::from(at.0);
-            let Some(cell) = self.cur.get(range.start + col).copied() else {
+            let Some(cell) = row.get(col).copied() else {
                 continue;
             };
             let Some(cp) = drawn_base(term, cell) else {
@@ -17042,8 +17146,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **The cells of a run fitted to their one cell by rule D**
-    /// (`crate::fit`): of the cells from visual column `start` of row `r`
-    /// whose glyphs `shaped` holds on `face`, each whose base is a letter
+    /// (`crate::fit`): of the cells from visual column `start` of row `r`,
+    /// `row` as this path's copy holds it, whose glyphs `shaped` holds on `face`, each whose base is a letter
     /// that takes a joining form and whose ink is over 1.1 cells wide, where
     /// a cell its ink reaches is not blank or not on the line, with the
     /// scale and move that fit it.
@@ -17051,7 +17155,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &mut self,
         term: &impl TermRead,
         face: FaceIx,
-        r: Row,
+        (r, row): (Row, &[PackedCell]),
         start: Col,
         shaped: &Shaped,
     ) -> Vec<(CellIx, crate::fit::Narrow)> {
@@ -17072,10 +17176,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 continue;
             }
             let col = start.index() + usize::from(p.cell.0);
-            let base = self
-                .cur
-                .get(range.start + col)
-                .and_then(|c| drawn_base(term, *c));
+            let base = row.get(col).and_then(|c| drawn_base(term, *c));
             if !base.is_some_and(crate::fit::takes_forms) {
                 continue;
             }
@@ -17087,7 +17188,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let Some(wide) = crate::fit::Overwide::of(ink, cell) else {
                 continue;
             };
-            let row = &self.cur[range.clone()];
             let blank = |x: Col| {
                 row.get(x.index())
                     .map_or(crate::fit::Blank::No, |c| crate::fit::Blank::of(term, *c))
@@ -17169,8 +17269,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// Instances for a shaped run starting at column `start` of row `r`;
-    /// with `MIRRORED`, drawn as `drawn` says: flipped, for a mirrored cell
+    /// Instances for a shaped run starting at column `start` of row `r`,
+    /// whose cells are `row` as this path's copy holds them; with `MIRRORED`, drawn as `drawn` says: flipped, for a mirrored cell
     /// ([`crate::bidi::Mirrored::Flipped`]), its first glyph's image
     /// reversed and every glyph's place mirrored in the span. A run with
     /// no mirrored cell takes the arm that reads no mirror.
@@ -17178,7 +17278,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &mut self,
         term: &impl TermRead,
         face: FaceIx,
-        r: Row,
+        (r, row): (Row, &[PackedCell]),
         start: Col,
         (shaped, drawn): (&Shaped, Option<CellDrawn>),
         out: &mut Vec<Instance>,
@@ -17192,7 +17292,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // slanted cell.
         let narrows = match shaped.joins() == crate::bidi::Joins::Seen && !flipped && lean.is_none()
         {
-            true => self.narrows(term, face, r, start, shaped),
+            true => self.narrows(term, face, (r, row), start, shaped),
             false => Vec::new(),
         };
         let size = self.size_of(r);
@@ -17224,8 +17324,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .unwrap_or_default();
             // The cluster's place in its span, from the cell its base
             // writes: a mark at that cell moves with it.
-            let span = CellSpan::at(&self.cur[range.clone()], Col::at_index(col));
-            let phase = match self.cur.get(range.start + col).copied() {
+            let span = CellSpan::at(row, Col::at_index(col));
+            let phase = match row.get(col).copied() {
                 Some(_) if MIRRORED && span == CellSpan::Two && drawn.is_some() => {
                     let base = drawn.map_or(Codepoint::from_char(' '), |d| d.base);
                     self.phase_in(face, base, CellSpan::Two)

@@ -9,10 +9,11 @@
 use baud_core::{NCLUSTER, Owned, Term};
 use baud_domain::{
     BytePos, ClusterSlot, ClusterStore, Codepoint, Cols, Content, CursorChange, DirtyRows,
-    FrameDamage, OverlayChanges, PackedCell, ReadLen, Row, RowExtent, Rows, WholeWhy, WinSize,
+    FrameDamage, OverlayChanges, PackedCell, ReadLen, Row, RowExtent, Rows, Seal, WholeWhy,
+    WinSize,
 };
 use baud_font::{Face, Px};
-use baud_render::cell_frame::{CellInputs, CellParts, build_with};
+use baud_render::cell_frame::{CellFrame, CellInputs, CellParts, build_with};
 use baud_render::counters::{self, Counter, Counts, Site};
 use baud_render::fireworks::{BAUD, Form, HOLD, ORIGINS, Show};
 use baud_render::screens::{SETS, Screens, SetIx};
@@ -118,12 +119,26 @@ impl<'m> Cells<'m> {
             next: SetIx(0),
         }
     }
+
+    /// [`Cells::new`], its sets' copies each a ring whose head moves with
+    /// the window ([`Screens::ringed`]).
+    fn ringed(backing: &'m mut [MapEntry], t: &Term<'_>) -> Cells<'m> {
+        Cells {
+            screens: Screens::ringed(),
+            ..Cells::new(backing, t)
+        }
+    }
 }
 
 /// **One cell frame into the next set in turn, as the app's `present`
 /// builds it**: the frame's writes sealed first, its damage read, and the
 /// frame built with no composition, prediction or slide. What it counted.
 fn cell(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, cell: &mut Cells<'_>) -> Counts {
+    framed(r, t, cell).0
+}
+
+/// [`cell`], and the frame built.
+fn framed(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, cell: &mut Cells<'_>) -> (Counts, CellFrame) {
     let seal = t.seal_writes();
     let t = &*t;
     let back = t.window_back();
@@ -152,7 +167,7 @@ fn cell(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, cell: &mut Cells<'_>) -> Cou
     let mut overlay = cell.overlay_mem.each_mut().map(|c| &mut c[..]);
     let damage = r.damage(t, back);
     let _ = counters::take();
-    build_with(
+    let frame = build_with(
         r,
         t,
         seal,
@@ -177,7 +192,7 @@ fn cell(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, cell: &mut Cells<'_>) -> Cou
         || Some(at),
     )
     .expect("the set is free");
-    counters::take()
+    (counters::take(), frame)
 }
 
 /// The rows of `set`, top to bottom.
@@ -633,4 +648,135 @@ fn text_whose_blink_flips_is_drawn_again_where_it_is() {
         "cell: row 2 among {:?}",
         listed(c.animated().grid)
     );
+}
+
+/// The screen [`a_scroll_copies_no_kept_row`] runs at besides [`WIDE`]: a
+/// 3840x2160 surface in the test face's cells.
+fn four_k(faces: &[Face<'_>]) -> (u16, u16) {
+    let m = renderer(faces, WIDE).metrics();
+    (
+        u16::try_from(3840 / m.cell_w.value()).unwrap(),
+        u16::try_from(2160 / m.cell_h.value()).unwrap(),
+    )
+}
+
+/// A screen of `cols` by `rows`.
+fn size((ws_col, ws_row): (u16, u16)) -> WinSize {
+    WinSize { ws_col, ws_row }
+}
+
+/// **The window rows of `t` written since `seal`.**
+fn written_since(t: &Term<'_>, seal: &Seal) -> u64 {
+    let gens = t.row_gens(t.window_back());
+    let rows = t.geometry().1.index();
+    let n = (0..rows)
+        .filter(|&y| gens.after(Row::from_index(y), seal))
+        .count();
+    u64::try_from(n).unwrap()
+}
+
+/// **A scroll copies no row it keeps, on both paths**: `k` lines written
+/// at the bottom of a full screen, or `k` lines scrolled down, take only
+/// the rows the core wrote -- the `k` rows scrolled in, and for SD the new
+/// bottom row, whose mark it rewrites. On the CPU path the copy and the
+/// last frame's take those rows each; every row is compared, where it is,
+/// with the row the last frame drew at its place, since the frame is
+/// painted in place; and the pixels equal the same screen drawn whole by a
+/// renderer of its own; on the cell
+/// path the set takes and copies them, and its copy read under the frame's
+/// rotation is the window, row for row. At 80x24 and at 3840x2160.
+#[test]
+fn a_scroll_copies_no_kept_row() {
+    let data = font();
+    let faces = [Face::parse(&data).unwrap()];
+    let at = |c: &Counts, site, counter| c.at(site, counter).value();
+    for ws in [(WIDE.ws_col, WIDE.ws_row), four_k(&faces)] {
+        let (cols, rows) = (u64::from(ws.0), usize::from(ws.1));
+        let screen: Vec<String> = (0..rows)
+            .map(|i| format!("line {i} of the screen"))
+            .collect();
+        let screen = screen.join("\r\n");
+        for (name, k, scroll) in [
+            ("one line up", 1, "\r\nnew 0".to_string()),
+            (
+                "three lines up",
+                3,
+                (0..3).map(|i| format!("\r\nnew {i}")).collect(),
+            ),
+            ("two lines down", 3, "\x1b[2T".to_string()),
+        ] {
+            let what = format!("{}x{rows}, {name}", ws.0);
+            let k64 = u64::try_from(k).unwrap();
+
+            let mut r = renderer(&faces, size(ws));
+            let mut owned = Owned::new(size(ws));
+            let mut t = Term::new(owned.storage(), &size(ws));
+            feed(&mut t, HIDE);
+            feed(&mut t, screen.as_bytes());
+            let mut px = Vec::new();
+            cpu(&mut r, &mut t, &mut px, Damage::Full);
+            cpu(&mut r, &mut t, &mut px, Damage::Incremental);
+            let seal = t.sealed();
+            feed(&mut t, scroll.as_bytes());
+            assert_eq!(
+                written_since(&t, &seal),
+                k64,
+                "{what}: the rows the core wrote"
+            );
+            let after = cpu(&mut r, &mut t, &mut px, Damage::Incremental);
+            assert_eq!(
+                at(&after, Site::Convert, Counter::RowsTaken),
+                k64,
+                "cpu, {what}: the rows scrolled in taken"
+            );
+            assert_eq!(
+                at(&after, Site::Convert, Counter::CellsCopied),
+                2 * k64 * cols,
+                "cpu, {what}: those rows copied, into the copy and the last frame's"
+            );
+            assert_eq!(
+                at(&after, Site::Convert, Counter::CellsCompared),
+                u64::try_from(rows).unwrap() * cols,
+                "cpu, {what}: every row compared with the row drawn at its place, read in place"
+            );
+            let mut fresh = renderer(&faces, size(ws));
+            let mut whole = Vec::new();
+            cpu(&mut fresh, &mut t, &mut whole, Damage::Full);
+            assert!(px == whole, "cpu, {what}: the pixels a whole frame draws");
+
+            let mut r = renderer(&faces, size(ws));
+            let mut owned = Owned::new(size(ws));
+            let mut t = Term::new(owned.storage(), &size(ws));
+            feed(&mut t, HIDE);
+            feed(&mut t, screen.as_bytes());
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::ringed(&mut backing, &t);
+            for _ in 0..=SETS {
+                cell(&mut r, &mut t, &mut cells);
+            }
+            feed(&mut t, scroll.as_bytes());
+            let (after, frame) = framed(&mut r, &mut t, &mut cells);
+            assert_eq!(
+                at(&after, Site::Screens, Counter::RowsTaken),
+                k64,
+                "cell, {what}: the rows scrolled in taken"
+            );
+            assert_eq!(
+                at(&after, Site::Screens, Counter::CellsCopied),
+                k64 * cols,
+                "cell, {what}: those rows copied"
+            );
+            let (stride, ring) = (t.stride().index(), frame.ring.index());
+            let copy = &cells.copies_mem[frame.at.0];
+            let view = t.view(t.window_back());
+            for y in 0..rows {
+                let slot = (frame.rot.index() + y) % ring;
+                assert_eq!(
+                    &copy[slot * stride..slot * stride + view.cols().index()],
+                    view.row(Row::from_index(y)),
+                    "cell, {what}: row {y} under the rotation"
+                );
+            }
+        }
+    }
 }
