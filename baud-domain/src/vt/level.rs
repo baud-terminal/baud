@@ -503,6 +503,7 @@ impl AnsiMode {
             | AnsiMode::TransferTermination
             | AnsiMode::SelectedAreaTransfer
             | AnsiMode::FormatEffectorTransfer
+            | AnsiMode::GraphicRenditionCombination
             | AnsiMode::Other(_) => return None,
         })
     }

@@ -2890,6 +2890,7 @@ fn ansi_mode_writes_no_cell(mode: AnsiMode) -> bool {
         | AnsiMode::TransferTermination
         | AnsiMode::SelectedAreaTransfer
         | AnsiMode::FormatEffectorTransfer
+        | AnsiMode::GraphicRenditionCombination
         | AnsiMode::Other(..) => true,
     }
 }

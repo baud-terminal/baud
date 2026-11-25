@@ -5630,6 +5630,9 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                     false => FormatorTransfer::Insert,
                 }
             }
+            // TSM and GRCM, which have one state only
+            // (`AnsiMode::one_state`), and every mode baud does not act
+            // on: changed by nothing, counted.
             _ => self.unsupported_param += 1,
         }
     }
@@ -6474,11 +6477,13 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             if !introduced_by(m.function()).admits(self.cold.level) {
                 return ModeState::NotRecognized;
             }
+            if let Some(fixed) = m.one_state() {
+                return fixed;
+            }
             return match m {
                 AnsiMode::LineFeedNewLine => bit_state(self.cold.modes, ModeBit::LineFeedNewLine),
                 AnsiMode::InsertReplace => bit_state(self.cold.modes, ModeBit::InsertReplace),
                 AnsiMode::Erasure => bit_state(self.cold.modes, ModeBit::EraseGuarded),
-                AnsiMode::TabulationStop => ModeState::PermanentlyReset,
                 AnsiMode::KeyboardAction => bit_state(self.cold.modes, ModeBit::KeyboardAction),
                 AnsiMode::SendReceive => bit_state(self.cold.modes, ModeBit::SendReceive),
                 AnsiMode::BiDirectionalSupport => match self.cold.bidi {

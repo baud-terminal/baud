@@ -4970,6 +4970,7 @@ const UNREACHED: &[&str] = &[
     "`CSI 18 $ p`",
     "`CSI 2 ; Pu $ u`",
     "`CSI 2 h` / `CSI 2 l`",
+    "`CSI 21 $ p`",
     "`CSI 22 ; Ps t`, `CSI 23 ; Ps t`",
     "`CSI > 0 q`",
     "`CSI > 2 p`",

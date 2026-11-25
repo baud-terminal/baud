@@ -137,7 +137,43 @@ pub enum AnsiMode {
     SelectedAreaTransfer,
     /// FETM, mode 14, 7.2.6 ([`FormatorTransfer`]).
     FormatEffectorTransfer,
+    /// GRCM, mode 21, `[[source: ecma48]]` 7.2.8: one state only,
+    /// [`RenditionCombination::FIXED`]. `DECRQM` answers it as
+    /// [`AnsiMode::one_state`] gives, and SM and RM are counted.
+    GraphicRenditionCombination,
     Other(Param),
+}
+
+/// **GRCM's two states**, `[[source: ecma48]]` 7.2.8. REPLACING, the reset
+/// state: "Each occurrence of the control function SELECT GRAPHIC
+/// RENDITION (SGR) cancels the effect of any preceding occurrence".
+/// CUMULATIVE, the set state: "Each occurrence of the control function
+/// SELECT GRAPHIC RENDITION (SGR) causes only those graphic rendition
+/// aspects to be changed that are specified by that SGR. All other graphic
+/// rendition aspects remain unchanged."
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RenditionCombination {
+    Replacing,
+    Cumulative,
+}
+
+impl RenditionCombination {
+    /// **baud's one state: CUMULATIVE.** An SGR changes the aspects its
+    /// parameters name and keeps the rest, and SGR 0 resets them all
+    /// "regardless of the setting of" GRCM (8.3.117). 7.1 allows a mode
+    /// one state ("In an implementation, some or all of the modes may have
+    /// one state only"), and Annex D item 11 leaves "the settings of the
+    /// modes" to the implementation.
+    pub const FIXED: RenditionCombination = RenditionCombination::Cumulative;
+
+    /// What `DECRQM` answers for GRCM held at this state: the set state is
+    /// permanently set, the reset state permanently reset.
+    pub const fn report(self) -> ModeState {
+        match self {
+            RenditionCombination::Replacing => ModeState::PermanentlyReset,
+            RenditionCombination::Cumulative => ModeState::PermanentlySet,
+        }
+    }
 }
 
 /// **BDSM's two states**, `[[source: ecma48]]` 7.2.1. EXPLICIT, the reset
@@ -210,7 +246,34 @@ impl AnsiMode {
             16 => AnsiMode::TransferTermination,
             17 => AnsiMode::SelectedAreaTransfer,
             14 => AnsiMode::FormatEffectorTransfer,
+            21 => AnsiMode::GraphicRenditionCombination,
             n => AnsiMode::Other(Param(n)),
+        }
+    }
+
+    /// **The answer `DECRQM` gives a mode with one state only**, which
+    /// `[[source: ecma48]]` 7.1 allows: TSM, permanently reset, and GRCM,
+    /// at [`RenditionCombination::FIXED`]. `None` for a mode SM and RM
+    /// change or one baud does not recognise.
+    pub const fn one_state(self) -> Option<ModeState> {
+        match self {
+            AnsiMode::TabulationStop => Some(ModeState::PermanentlyReset),
+            AnsiMode::GraphicRenditionCombination => Some(RenditionCombination::FIXED.report()),
+            AnsiMode::InsertReplace
+            | AnsiMode::LineFeedNewLine
+            | AnsiMode::Erasure
+            | AnsiMode::KeyboardAction
+            | AnsiMode::SendReceive
+            | AnsiMode::BiDirectionalSupport
+            | AnsiMode::DeviceComponentSelect
+            | AnsiMode::CharacterEditing
+            | AnsiMode::LineEditing
+            | AnsiMode::GuardedAreaTransfer
+            | AnsiMode::MultipleAreaTransfer
+            | AnsiMode::TransferTermination
+            | AnsiMode::SelectedAreaTransfer
+            | AnsiMode::FormatEffectorTransfer
+            | AnsiMode::Other(_) => None,
         }
     }
 }
@@ -2038,6 +2101,38 @@ mod slot_wire {
         for (i, w) in SLOT_WIRE.iter().enumerate() {
             let m = PrivateMode::from_wire(Some(Param(*w)));
             assert_eq!(m.slot(), Some(ModeSlot(i as u8)), "?{w}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod one_state {
+    use super::*;
+
+    /// GRCM is mode 21, held CUMULATIVE, the set state, so `DECRQM`
+    /// answers 3; TSM is mode 18, held at its reset state, 4.
+    #[test]
+    fn grcm_is_permanently_set_and_tsm_permanently_reset() {
+        assert_eq!(
+            RenditionCombination::FIXED,
+            RenditionCombination::Cumulative
+        );
+        let grcm = AnsiMode::from_wire(Some(Param(21)));
+        assert_eq!(grcm, AnsiMode::GraphicRenditionCombination);
+        assert_eq!(grcm.one_state().map(ModeState::wire), Some(3));
+        let tsm = AnsiMode::from_wire(Some(Param(18)));
+        assert_eq!(tsm.one_state().map(ModeState::wire), Some(4));
+        assert_eq!(
+            RenditionCombination::Replacing.report(),
+            ModeState::PermanentlyReset
+        );
+    }
+
+    /// A mode SM and RM change has no fixed answer.
+    #[test]
+    fn a_settable_mode_has_no_fixed_answer() {
+        for n in [1, 2, 4, 6, 8, 9, 10, 12, 14, 15, 16, 17, 20, 22] {
+            assert_eq!(AnsiMode::from_wire(Some(Param(n))).one_state(), None, "{n}");
         }
     }
 }

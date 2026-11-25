@@ -9,6 +9,7 @@
 mod support;
 
 mod blink;
+mod combination;
 mod fonts;
 mod groups;
 mod ideogram;
