@@ -63,6 +63,7 @@ pub mod changelog;
 pub mod citations;
 pub mod cmd;
 pub mod comments;
+pub mod copy_audit;
 pub mod crates;
 pub mod credits;
 pub mod difflib;
