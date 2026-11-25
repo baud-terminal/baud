@@ -703,8 +703,9 @@ fn ansi_c<'a>(s: &'a [u8], w: &mut Vec<u8>) -> &'a [u8] {
     s.get(i + 1..).unwrap_or_default()
 }
 
-/// `v` with each `%XX` decoded: kitty's "cmdline as UTF-8 URL %-escaped
-/// text". A `%` not followed by two hex digits stays as it is.
+/// `v` with each `%XX` decoded, the "cmdline as UTF-8 URL %-escaped text" of
+/// `[[source: kitty-shell-integration]]`. A `%` not followed by two hex digits
+/// stays as it is.
 #[cfg(test)]
 fn url_decoded(v: &[u8]) -> Vec<u8> {
     let hex = |b: u8| {
@@ -1109,10 +1110,10 @@ mod tests {
     }
 
     /// **The shell's `D` inside a picture's body ends nothing**: under the
-    /// shell's `C` naming `ssh`, its `D` with the token inside a kitty
-    /// graphics command left open (`ESC _ G a=d;`, on a terminal that ends
-    /// one only at `BEL` or `ESC \\`), where the core runs no mark, and the
-    /// `ST` that ends it, leave the link after them remote;
+    /// shell's `C` naming `ssh`, its `D` with the token inside a graphics
+    /// command (`[[source: kitty-graphics]]`) left open (`ESC _ G a=d;`, on a
+    /// terminal that ends one only at `BEL` or `ESC \\`), where the core runs
+    /// no mark, and the `ST` that ends it, leave the link after them remote;
     /// the same `D` outside, the control, ends it. Named break: fold marks
     /// read from the bytes rather than from the record -- the payload's `D`
     /// ends the ssh.

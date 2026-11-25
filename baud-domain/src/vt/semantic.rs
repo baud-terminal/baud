@@ -619,8 +619,8 @@ pub const ELSEWHERE: [&str; 24] = [
     "et",
     // Teleport's `tsh ssh`: a shell on another machine.
     "tsh",
-    // kitty's `kitten ssh`; its other subcommands print no path of this
-    // machine's that a shell would not.
+    // `kitten ssh`: a shell on another machine; its other subcommands print
+    // no path of this machine's that a shell would not.
     "kitten",
     // A container's own file system: `docker run`, `docker exec`.
     "docker",
