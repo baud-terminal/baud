@@ -1,6 +1,7 @@
 //! The frame: rows that changed, converted and painted.
 
 use crate::atlas::{Atlas, AtlasStats, Code, Flip, Kind, Rescaled, SizeKey, Stretch, Tex};
+use crate::background::BackgroundDirty;
 use crate::badge::{self, BadgeLook};
 use crate::band_window::{RowBase, RowRead, WholeTable};
 use crate::cache::{
@@ -4336,7 +4337,7 @@ pub struct Renderer<'f, 'a> {
     /// font its stack has faces for, so a copy resolved against the old
     /// stack is resolved again.
     theme_gen: ThemeGen,
-    bg: Vec<Argb>,
+    bg: crate::background::Backgrounds,
     fg: Vec<Argb>,
     /// Per cell, the contrast curve row its glyph takes, beside the colour
     /// it is painted in: the slot's row for the side the swaps leave it on.
@@ -5053,7 +5054,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             words_laid: Tally::default(),
             kept: crate::kept::KeptRows::default(),
             theme_gen: ThemeGen::default(),
-            bg: Vec::new(),
+            bg: crate::background::Backgrounds::new(),
             fg: Vec::new(),
             curve: Vec::new(),
             text: Vec::new(),
@@ -9463,7 +9464,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.prev = vec![PackedCell::EMPTY; cells];
         self.cur.resize(cols, rows);
         self.prev_size = vec![LineRendition::Single; rows.index()];
-        self.bg = vec![Argb(0); cells];
+        self.bg.reset(cols, rows);
         self.fg = vec![Argb(0); cells];
         self.curve = vec![CurveRow::default(); cells];
         self.text = vec![Text::Drawn; cells];
@@ -10932,7 +10933,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         set: impl Fn(usize) -> bool,
     ) {
         let range = self.row_cells(row);
-        let bg = &self.bg[range];
+        let bg = &self.bg.words()[range];
         match page {
             Page::Opaque => target.fill_cells(self.band(row), bg, self.metrics.cell_w, set),
             Page::Glass => {
@@ -11416,7 +11417,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.cur[slot.clone()].to_vec(),
             self.cur.sizes()[0],
             self.per_row.take(r0),
-            self.bg[range.clone()].to_vec(),
+            self.bg.words()[range.clone()].to_vec(),
             self.fg[range.clone()].to_vec(),
             self.curve[range.clone()].to_vec(),
             self.text[range.clone()].to_vec(),
@@ -11461,7 +11462,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         to[slot].copy_from_slice(&cur);
         sizes[0] = size;
         self.per_row.set(r0, per_row);
-        self.bg[range.clone()].copy_from_slice(&bg);
+        self.bg.copy(range.clone(), &bg);
         self.fg[range.clone()].copy_from_slice(&fg);
         self.curve[range.clone()].copy_from_slice(&curve);
         self.text[range].copy_from_slice(&text);
@@ -12823,7 +12824,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let target = &mut target;
             target.fill_band(
                 band,
-                &self.bg[self.row_cells(row)],
+                &self.bg.words()[self.row_cells(row)],
                 self.metrics.cell_w,
                 margin,
             );
@@ -13143,7 +13144,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// The background word of every cell, row-major, `cols` by `rows`.
     pub fn background(&self) -> &[Argb] {
-        &self.bg
+        self.bg.words()
+    }
+
+    /// **The rows of [`Renderer::background`] that changed since the last
+    /// take**, which then reads [`BackgroundDirty::Clean`]: what a
+    /// presenter keeping the words in a texture uploads. A renderer has one
+    /// presenter, so one taker; a presenter that keeps a texture for each
+    /// of its frame sets unions each take into a pending dirty per set, and
+    /// clears a set's when it uploads that set.
+    pub fn take_background_dirty(&mut self) -> BackgroundDirty {
+        self.bg.take_dirty()
     }
 
     /// The text colour every cell was last drawn in, row-major, `cols` by
@@ -15700,9 +15711,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // The background is the screen's, a column at a time: a sized
             // line's character covers two.
             let wide = usize::try_from(st.x()).unwrap_or(1);
-            for x in c * wide..(c * wide + wide).min(row.len()) {
-                self.bg[range.start + x] = d.bg;
-            }
+            let end = (c * wide + wide).min(row.len());
+            let start = (c * wide).min(end);
+            self.bg.fill(range.start + start..range.start + end, d.bg);
             let x = i32::try_from(c).unwrap_or(0) * cell_w;
             // The underline's own colour, or the foreground after the swaps.
             let ul_color = if res.shapes.has(Shapes::UNDERLINE_FOLLOWS_FG) {
@@ -15832,7 +15843,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         .map(|x| crate::word::Under {
                             colours: crate::word::Colours {
                                 fg: self.fg[range.start + x],
-                                bg: self.bg[range.start + x],
+                                bg: self.bg.words()[range.start + x],
                                 curve: self.curve[range.start + x],
                             },
                             light: lights[x],

@@ -92,10 +92,10 @@ use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, RowRot, Rows, Stride}
 use baud_font::Px;
 use baud_render::effect::{self, Effect};
 use baud_render::{
-    Argb, Atlas, CursorLook, Decorations, Dirty, Generation, Ground, Highlight, ImageComposite,
-    ImageLayer, ImagePlacement, ImageTextures, Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry,
-    MapGeneration, Mix, Reach, Redraw, Region, Renderer, Replaced, Resolved, RowSet, Screen, Side,
-    StyleStamp, Tally, Tex, TexRect,
+    Argb, Atlas, BackgroundDirty, CursorLook, Decorations, Dirty, Generation, Ground, Highlight,
+    ImageComposite, ImageLayer, ImagePlacement, ImageTextures, Instance, Kind, MAP_BITS, MAP_SLOTS,
+    MapEntry, MapGeneration, Mix, Reach, Redraw, Region, Renderer, Replaced, Resolved, RowSet,
+    Screen, Side, StyleStamp, Tally, Tex, TexRect,
 };
 use core::ffi::c_void;
 use core::ptr::NonNull;
@@ -732,6 +732,13 @@ struct Background {
     rows: Rows,
 }
 
+/// Whether a texture was just made, holding nothing yet, or kept.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Made {
+    New,
+    Kept,
+}
+
 pub struct Gpu {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
     queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
@@ -780,6 +787,9 @@ pub struct Gpu {
     instances: Vec<Buffer>,
     ring: Ring,
     background: Option<Background>,
+    /// The background rows the instance path has uploaded
+    /// ([`Gpu::background_uploaded`]).
+    background_rows: Tally,
     /// Each cell's [`Ground`], 255 where it is `Set`, for `bg_set_fragment`:
     /// made and written only on a frame with an image below the
     /// backgrounds.
@@ -1530,6 +1540,7 @@ impl Gpu {
             instances,
             ring: Ring(0),
             background: None,
+            background_rows: Tally::ZERO,
             ground: None,
             ground_bytes: Vec::new(),
             grounds: Vec::new(),
@@ -1585,6 +1596,14 @@ impl Gpu {
         enc.setRenderPipelineState(&self.cell_bg_pipe);
         enc.endEncoding();
         let _ = cmd.commit(&self.flight, Then::Discard);
+    }
+
+    /// **The background rows the instance path has uploaded**: a frame
+    /// uploads the rows whose words changed since the frame before
+    /// ([`Renderer::take_background_dirty`]), all of them into a texture
+    /// just made, and none on a frame that changed none.
+    pub fn background_uploaded(&self) -> Tally {
+        self.background_rows
     }
 
     /// What every completion's handler has counted: the frames that
@@ -1810,8 +1829,9 @@ impl Gpu {
         })
     }
 
-    /// Makes sure the background texture matches the grid.
-    fn background_for(&mut self, cols: Cols, rows: Rows) -> Option<&Background> {
+    /// Makes sure the background texture matches the grid, and says
+    /// whether it was just made, holding nothing yet.
+    fn background_for(&mut self, cols: Cols, rows: Rows) -> Option<(&Background, Made)> {
         let stale = self
             .background
             .as_ref()
@@ -1832,7 +1852,11 @@ impl Gpu {
                 rows,
             });
         }
-        self.background.as_ref()
+        let made = match stale {
+            true => Made::New,
+            false => Made::Kept,
+        };
+        self.background.as_ref().map(|b| (b, made))
     }
 
     /// Writes every cell's [`Ground`] into the ground texture, made at the
@@ -2743,19 +2767,41 @@ impl Gpu {
             }
         }
         self.ring = Ring((slot + 1) % RING);
-        let bg = self.background_for(cols, rows)?;
+        // Only the background rows that changed since the last frame
+        // drawn: all of them into a texture just made.
+        let dirty = renderer.take_background_dirty();
+        let (bg, made) = self.background_for(cols, rows)?;
         let (bw, bh) = (
             Px::of(u32::try_from(bg.cols.index()).ok()?),
             Px::of(u32::try_from(bg.rows.index()).ok()?),
         );
-        upload(
-            &bg.texture,
-            bw,
-            bh,
-            argb_bytes(renderer.background()),
-            Texel::Bgra8,
-        );
+        let band = match (made, dirty) {
+            (Made::New, _) | (_, BackgroundDirty::Whole) => Some((Row::ZERO, bg.rows)),
+            (Made::Kept, BackgroundDirty::Clean) => None,
+            (Made::Kept, BackgroundDirty::Rows { first, end }) => {
+                Some((first, Rows::of_index(end.index().min(bg.rows.index()))))
+            }
+        };
+        let mut uploaded = Rows::ZERO;
+        if let Some((first, end)) = band.filter(|(first, end)| first.index() < end.index()) {
+            let cols = bg.cols.index();
+            let rect = TexRect {
+                x: Tex(0),
+                y: Tex(u16::try_from(first.index()).ok()?),
+                w: Tex(u16::try_from(cols).ok()?),
+                h: Tex(u16::try_from(end.index() - first.index()).ok()?),
+            };
+            upload_rect(
+                &bg.texture,
+                rect,
+                argb_bytes(renderer.background()),
+                RowBytes(cols * 4),
+                Texel::Bgra8,
+            );
+            uploaded = Rows::of_index(end.index() - first.index());
+        }
         let bg_texture = bg.texture.clone();
+        self.background_rows.add(Tally::of(uploaded.index()));
         self.sheets_for(renderer.atlas_mut())?;
         let mask = self.mask.as_ref()?.texture.clone();
         let color = self.color.as_ref()?.texture.clone();

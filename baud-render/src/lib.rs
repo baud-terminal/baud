@@ -68,6 +68,7 @@
 #![feature(variant_count)]
 
 mod atlas;
+mod background;
 mod badge;
 mod band_window;
 pub mod bell;
@@ -146,6 +147,7 @@ pub use atlas::{
     Atlas, AtlasStats, Code, Dirty, Generation, Kind, Replaced, Rescaled, SIZES, Side, SizeKey,
     Slot, Stretch, Tex, TexRect, VAR_POINTS_MAX,
 };
+pub use background::BackgroundDirty;
 pub use badge::{BADGE, BOX, BadgeLook, DRAWN_AT, MARGINS, POINTS, STROKE};
 pub use band_window::{BaseStamp, OverlayRows, RowTables, TableLen, cell_styles_len};
 pub use bell::{

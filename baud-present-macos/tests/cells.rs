@@ -2106,6 +2106,49 @@ fn no_surface_keeps_a_slid_frame() {
     }
 }
 
+/// **The instance path uploads the background only where it changed**:
+/// every row into the texture its first frame makes, none on a frame that
+/// changed no background, and one row for one cell whose background
+/// changed -- the count's own control, so a count that reads 0 for every
+/// frame cannot pass. Both arms still draw the same pixels.
+#[test]
+fn the_instance_path_uploads_only_the_background_rows_that_changed() {
+    let files = partial_faces();
+    let faces = files.each_ref().map(|f| Face::parse(f).unwrap());
+    let renderer = partial_renderer(&faces);
+    arms!(renderer => arms, t);
+    feed(
+        &mut t,
+        b"\x1bc\x1b[?25l$ ls\r\nThe quick brown fox jumps over the lazy dog 0123456789\r\n\x1b[44mblue\x1b[0m and plain\r\n",
+    );
+    let rows = Tally::of(usize::from(WS.ws_row));
+    let before = arms.gpu.background_uploaded();
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(differing(&a, &b), 0, "the arms agree");
+    let first = arms.gpu.background_uploaded();
+    assert_eq!(
+        first.value() - before.value(),
+        rows.value(),
+        "the first frame uploads every row into the texture it makes"
+    );
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(differing(&a, &b), 0, "the arms agree");
+    let same = arms.gpu.background_uploaded();
+    assert_eq!(
+        same.value() - first.value(),
+        0,
+        "a frame that changed no background uploads none"
+    );
+    feed(&mut t, b"\x1b[5;9H\x1b[41m \x1b[0m");
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(differing(&a, &b), 0, "the arms agree on the changed cell");
+    assert_eq!(
+        arms.gpu.background_uploaded().value() - same.value(),
+        1,
+        "one cell's background changed uploads its one row"
+    );
+}
+
 /// **Two arms that both failed are not two arms that agree.** A frame the
 /// GPU aborts leaves its target as it was, so two failed arms read back two
 /// untouched targets, which compare alike with nothing drawn. With every
