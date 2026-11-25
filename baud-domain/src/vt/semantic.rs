@@ -615,12 +615,13 @@ pub const ELSEWHERE: [&str; 24] = [
     "telnet",
     "rsh",
     "rlogin",
-    // Eternal Terminal's client: a shell on another machine.
+    // A remote-shell client: a shell on another machine.
     "et",
-    // Teleport's `tsh ssh`: a shell on another machine.
+    // A remote-shell wrapper, run as `tsh ssh`: a shell on another machine.
     "tsh",
-    // `kitten ssh`: a shell on another machine; its other subcommands print
-    // no path of this machine's that a shell would not.
+    // A remote-shell wrapper, run with an `ssh` subcommand: a shell on another
+    // machine; its other subcommands print no path of this machine's that a
+    // shell would not.
     "kitten",
     // A container's own file system: `docker run`, `docker exec`.
     "docker",
