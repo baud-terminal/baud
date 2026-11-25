@@ -48,7 +48,7 @@ use baud_core::{
     Occasion, Occasions, Progress, ReportCount, Sounds, Term, Urgencies, Urgency,
 };
 
-use baud_domain::HostTime;
+use baud_domain::{HostTime, NoticeSlots};
 
 /// `[screen] notifications`.
 pub use crate::config::Notifications as Setting;
@@ -445,34 +445,10 @@ pub fn icon_name(kitty: &str) -> &str {
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 pub const SETTLED: Duration = Duration::from_secs(1);
 
-/// The notifications shown and alive, with the deadlines `w` set: the
-/// driver closes one when its deadline passes, kitty's "guaranteed to be
-/// closed once the expiry time has passed", whatever the platform does.
-#[derive(Clone, Debug)]
-pub struct Shown<P> {
-    alive: Vec<Alive<P>>,
-}
-
-/// **One shown notification.**
-#[derive(Clone, Debug)]
-struct Alive<P> {
-    token: NoticeToken,
-    /// The platform's id for it.
-    id: P,
-    /// When it closes, where its expiry gave a deadline not yet spent.
-    due: Option<HostTime>,
-    /// When it was shown, or, posted pending, when it was scheduled.
-    at: HostTime,
-    /// The buttons it showed, each numbered by its place in the program's
-    /// list.
-    buttons: Vec<NoticeButton>,
-    /// Whether the platform has said it scheduled it.
-    held: Held,
-}
-
-/// **A notification the platform said it scheduled**, made only by
-/// [`Shown::scheduled`]: on macOS the core is told one is shown only
-/// through it ([`Scheduled::tell`]).
+/// **A notification the platform said it scheduled**, made only from
+/// [`NoticeSlots::scheduled`]'s answer (`Delivery::mac_scheduled`): on
+/// macOS the core is told one is shown only through it
+/// ([`Scheduled::tell`]).
 #[derive(Debug)]
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 pub struct Scheduled(NoticeToken);
@@ -486,179 +462,19 @@ impl Scheduled {
     }
 }
 
-/// **Whether the platform holds a notification yet**: on macOS one is
-/// posted pending and held once the system schedules it
-/// ([`Shown::scheduled`]); on Linux the server's answer comes before it is
-/// recorded at all.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Held {
-    Pending,
-    Scheduled,
-}
-
-impl<P: Clone + PartialEq> Shown<P> {
-    pub fn new() -> Shown<P> {
-        Shown { alive: Vec::new() }
-    }
-
-    /// `token` shown as the platform's `id` with `buttons`, closing at
-    /// `now` plus its expiry where it has one.
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-    pub fn shown(
-        &mut self,
-        token: NoticeToken,
-        id: P,
-        expiry: Expiry,
-        now: HostTime,
-        buttons: Vec<NoticeButton>,
-    ) {
-        self.record(token, id, expiry, now, buttons, Held::Scheduled);
-    }
-
-    /// `token` posted as the platform's `id`, as [`Shown::shown`], and not
-    /// yet scheduled: alive, so `p=alive` names it, and not yet looked for
-    /// in the platform's list ([`Shown::absent`]).
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
-    pub fn pending(
-        &mut self,
-        token: NoticeToken,
-        id: P,
-        expiry: Expiry,
-        now: HostTime,
-        buttons: Vec<NoticeButton>,
-    ) {
-        self.record(token, id, expiry, now, buttons, Held::Pending);
-    }
-
-    /// **The pending one the platform's `id` names, scheduled** at `now`;
-    /// `None` for an id none pending has.
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
-    pub fn scheduled(&mut self, id: &P, now: HostTime) -> Option<Scheduled> {
-        let a = self
-            .alive
-            .iter_mut()
-            .find(|a| a.id == *id && a.held == Held::Pending)?;
-        a.held = Held::Scheduled;
-        a.at = now;
-        Some(Scheduled(a.token))
-    }
-
-    /// [`Shown::shown`]'s and [`Shown::pending`]'s body.
-    fn record(
-        &mut self,
-        token: NoticeToken,
-        id: P,
-        expiry: Expiry,
-        now: HostTime,
-        buttons: Vec<NoticeButton>,
-        held: Held,
-    ) {
-        let due = match expiry {
-            Expiry::After(d) => Some(now.plus(d.duration())),
-            Expiry::System | Expiry::Never => None,
-        };
-        self.alive.retain(|a| a.token != token);
-        self.alive.push(Alive {
-            token,
-            id,
-            due,
-            at: now,
-            buttons,
-            held,
-        });
-        // On macOS nothing says one closed, so the oldest are forgotten
-        // past the core's own live table.
-        if self.alive.len() > baud_domain::NOTICE_LIVE {
-            self.alive.remove(0);
-        }
-    }
-
-    /// The platform's id for `token`.
-    pub fn id(&self, token: NoticeToken) -> Option<P> {
-        self.alive
-            .iter()
-            .find(|a| a.token == token)
-            .map(|a| a.id.clone())
-    }
-
-    /// **The button of `token` a click's action names**, by the number the
-    /// presenter put in it: one of the buttons that notification showed,
-    /// or none. A number that parses but names no button it showed is
-    /// dropped, never reported, as is any click on one no longer shown.
-    pub fn read_back(&self, token: NoticeToken, number: &str) -> Option<NoticeButton> {
-        let n: u8 = number.parse().ok()?;
-        let shown = self.alive.iter().find(|a| a.token == token)?;
-        shown.buttons.iter().copied().find(|b| b.number() == n)
-    }
-
-    /// The token the platform's `id` names.
-    pub fn token(&self, id: &P) -> Option<NoticeToken> {
-        self.alive.iter().find(|a| a.id == *id).map(|a| a.token)
-    }
-
-    /// Forget `token`.
-    pub fn gone(&mut self, token: NoticeToken) {
-        self.alive.retain(|a| a.token != token);
-    }
-
-    /// **The ones the platform no longer has**, taken out: each scheduled
-    /// at least [`SETTLED`] before `asked`, the moment the platform's list
-    /// was asked for, and missing from `present`, the list -- a post is
-    /// added to the list asynchronously, so one scheduled just before the
-    /// ask may not be in it yet, and one still pending is in no list.
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
-    pub fn absent(&mut self, present: &[P], asked: HostTime) -> Vec<NoticeToken> {
-        let (gone, kept): (Vec<_>, Vec<_>) = self.alive.drain(..).partition(|a| {
-            a.held == Held::Scheduled && a.at.plus(SETTLED) <= asked && !present.contains(&a.id)
-        });
-        self.alive = kept;
-        gone.into_iter().map(|a| a.token).collect()
-    }
-
-    /// Whether any is shown.
-    #[cfg(test)]
-    pub fn any(&self) -> bool {
-        !self.alive.is_empty()
-    }
-
-    /// The ones whose deadline has passed, their deadlines spent: each is
-    /// still alive until the platform says it closed.
-    pub fn due(&mut self, now: HostTime) -> Vec<(NoticeToken, P)> {
-        let mut due = Vec::new();
-        for a in &mut self.alive {
-            if a.due.is_some_and(|d| d <= now) {
-                a.due = None;
-                due.push((a.token, a.id.clone()));
-            }
-        }
-        due
-    }
-
-    /// The nearest deadline, for the driver's wait.
-    pub fn next_due(&self) -> Option<HostTime> {
-        self.alive.iter().filter_map(|a| a.due).min()
-    }
-}
-
-impl<P: Clone + PartialEq> Default for Shown<P> {
-    fn default() -> Self {
-        Shown::new()
-    }
-}
-
 /// **What a driver keeps for the notifications it delivers**: the
-/// setting, the bound, the icons, what is shown, what waits for the
-/// platform's answer, and the last progress and attention it acted on.
+/// setting, the bound, the icons, the ones sent to the platform or shown
+/// by it, by slot, and the last progress and attention it acted on.
 #[derive(Debug)]
 pub struct Delivery<P> {
     pub setting: Setting,
     pub bucket: Bucket,
     pub icons: Icons,
-    pub shown: Shown<P>,
-    /// Posted and not yet answered, with the expiry each asked and the
-    /// buttons each shows.
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-    pub waiting: Vec<(NoticeToken, Expiry, Vec<NoticeButton>)>,
+    /// The ones sent to the platform or shown by it, with the deadlines
+    /// `w` set: the driver closes one when its deadline passes, "guaranteed
+    /// to be closed once the expiry time has passed", whatever the platform
+    /// does.
+    pub slots: NoticeSlots<P>,
     progress: ReportCount,
     attention: ReportCount,
     /// How many the bound had dropped when it last said so, and in which
@@ -757,8 +573,7 @@ impl<P: Clone + PartialEq> Delivery<P> {
             setting,
             bucket: Bucket::new(),
             icons: Icons::default(),
-            shown: Shown::new(),
-            waiting: Vec::new(),
+            slots: NoticeSlots::new(),
             progress: term.progress_reports(),
             attention: term.attention_requests(),
             said: (Dropped(0), Bursts(0)),
@@ -1002,16 +817,10 @@ impl<P: Clone + PartialEq> Delivery<P> {
         })
     }
 
-    /// The expiry `token` asked and the buttons it shows, taken from the
-    /// waiting list.
-    #[cfg(any(target_os = "linux", test))]
-    pub fn answered(&mut self, token: NoticeToken) -> (Expiry, Vec<NoticeButton>) {
-        match self.waiting.iter().position(|(t, _, _)| *t == token) {
-            Some(i) => {
-                let (_, e, b) = self.waiting.swap_remove(i);
-                (e, b)
-            }
-            None => (Expiry::System, Vec::new()),
+    /// `token` let go of, where its slot still holds it.
+    pub fn forget(&mut self, token: NoticeToken) {
+        if let Some(h) = self.slots.get(token) {
+            h.free();
         }
     }
 }
@@ -1260,8 +1069,8 @@ impl Delivery<String> {
                 // Closed by baud, so the core forgets it at once: on macOS
                 // nothing else would say so (`p=alive`).
                 Plan::Close => {
-                    if let Some(id) = self.shown.id(p.token) {
-                        self.shown.gone(p.token);
+                    if let Some(id) = self.slots.id(p.token).cloned() {
+                        self.forget(p.token);
                         term.notice_dropped(p.token);
                         calls.push(MacCall::Remove(id));
                     }
@@ -1426,8 +1235,9 @@ impl Delivery<String> {
             return;
         }
         let id = self
-            .shown
+            .slots
             .id(p.token)
+            .cloned()
             .unwrap_or_else(|| format!("{prefix}-{:?}", p.token));
         calls.push(MacCall::Post(MacPost {
             id: id.clone(),
@@ -1448,8 +1258,8 @@ impl Delivery<String> {
         if let Expiry::After(d) = p.expiry {
             calls.push(MacCall::Expire(id.clone(), d.duration()));
         }
-        let buttons = p.buttons.iter().map(|(n, _)| *n).collect();
-        self.shown.pending(p.token, id, p.expiry, now, buttons);
+        let buttons = baud_domain::NoticeButtonSet::of(p.buttons.iter().map(|(n, _)| *n));
+        self.slots.pending(p.token, id, p.expiry, now, buttons);
     }
 }
 
@@ -1459,10 +1269,13 @@ impl Delivery<String> {
     /// any was: the removal itself is scheduled when it is posted
     /// (`MacCall::Expire`), and nothing on macOS says it happened.
     pub fn mac_expired(&mut self, term: &mut Term<'_>, now: HostTime) -> Went {
-        let due = self.shown.due(now);
-        for (token, _) in &due {
-            self.shown.gone(*token);
-            term.notice_dropped(*token);
+        let due = self.slots.due(|| now);
+        for i in due {
+            if let Some(h) = self.slots.at(i) {
+                let token = h.token();
+                h.free();
+                term.notice_dropped(token);
+            }
         }
         match due.is_empty() {
             true => Went::Nothing,
@@ -1474,8 +1287,12 @@ impl Delivery<String> {
     /// core, so `p=alive` names only what is still there: `present` is its
     /// list, asked for at `asked`.
     pub fn mac_absent(&mut self, term: &mut Term<'_>, present: &[String], asked: HostTime) {
-        for token in self.shown.absent(present, asked) {
-            term.notice_dropped(token);
+        for i in self.slots.absent(present, asked, SETTLED) {
+            if let Some(h) = self.slots.at(i) {
+                let token = h.token();
+                h.free();
+                term.notice_dropped(token);
+            }
         }
     }
 
@@ -1506,8 +1323,8 @@ impl Delivery<String> {
     /// or failed when added. Nothing is said, as for any notice not shown.
     pub fn mac_refused(&mut self, term: &mut Term<'_>, ids: &[String]) {
         for id in ids {
-            if let Some(token) = self.shown.token(id) {
-                self.shown.gone(token);
+            if let Some(token) = self.slots.token(id) {
+                self.forget(token);
                 term.notice_dropped(token);
             }
         }
@@ -1526,8 +1343,8 @@ impl Delivery<String> {
         mut reply: impl FnMut(&[u8]),
     ) {
         for id in ids {
-            if let Some(s) = self.shown.scheduled(id, now) {
-                s.tell(term, &mut reply);
+            if let Some(token) = self.slots.scheduled(id, now) {
+                Scheduled(token).tell(term, &mut reply);
             }
         }
     }
@@ -1537,7 +1354,7 @@ impl Delivery<String> {
     /// shown.
     pub fn mac_unattached(&mut self, ids: &[String]) {
         for id in ids {
-            if self.shown.token(id).is_some() {
+            if self.slots.token(id).is_some() {
                 self.unshown.0 += 1;
             }
         }
@@ -1681,7 +1498,7 @@ pub fn alive_step(
 
 /// **What a click's action identifier names**: the notification itself,
 /// or the button whose number follows `button-`, read back by `read`
-/// against the buttons that notification showed ([`Shown::read_back`]).
+/// against the buttons that notification showed ([`read_back`]).
 /// `None`, and nothing reported, for an action naming no button it showed.
 #[cfg(any(target_os = "macos", test))]
 pub fn clicked(
@@ -1693,6 +1510,18 @@ pub fn clicked(
         return Some(None);
     }
     read(action.strip_prefix("button-")?).map(Some)
+}
+
+/// **The button of `token` a click's action names**, by the number the
+/// presenter put in it: one of the buttons that notification showed, or
+/// none. A number that parses but names no button it showed is dropped,
+/// never reported, as is any click on one no longer shown.
+pub fn read_back<P>(
+    slots: &NoticeSlots<P>,
+    token: NoticeToken,
+    number: &str,
+) -> Option<NoticeButton> {
+    slots.button(token, number.parse().ok()?)
 }
 
 /// **Whether Linux has no summary to give it**: neither a title nor a
@@ -2096,7 +1925,7 @@ mod tests {
     }
     use super::*;
     use baud_core::{NonZeroMillis, NoticeBudget, Owned, Term};
-    use baud_domain::{BytePos, HostTime, ReadLen, WinSize};
+    use baud_domain::{BytePos, HostTime, NoticeButtonSet, ReadLen, WinSize};
 
     const WS: WinSize = WinSize {
         ws_row: 24,
@@ -2366,9 +2195,9 @@ mod tests {
     fn the_notification_paths_are_timed_on_the_host_clock() {
         let _: fn(&mut Bucket, HostTime) -> Taken = Bucket::take;
         let _: fn(&Posted, Setting, Focus, Visible, &mut Bucket, HostTime) -> Plan = plan;
-        type Due = Vec<(NoticeToken, u32)>;
-        let _: fn(&mut Shown<u32>, HostTime) -> Due = Shown::due;
-        let _: fn(&Shown<u32>) -> Option<HostTime> = Shown::next_due;
+        type Clock = fn() -> HostTime;
+        let _: fn(&mut NoticeSlots<u32>, Clock) -> baud_domain::NoticeSlotSet = NoticeSlots::due;
+        let _: fn(&NoticeSlots<u32>) -> Option<HostTime> = NoticeSlots::next_due;
         let _: fn(&Delivery<u32>) -> Option<HostTime> = Delivery::picture_due;
         let _: fn(&mut Delivery<u32>, HostTime) -> Vec<LinuxPost> = Delivery::linux_reads;
         let _: fn(
@@ -2488,31 +2317,41 @@ mod tests {
         );
     }
 
+    /// The table `p` is sent to and shown in as `ids`, at the start.
+    fn shown_as(p: &[Posted], ids: &[u32]) -> NoticeSlots<u32> {
+        let mut s: NoticeSlots<u32> = NoticeSlots::new();
+        for (p, id) in p.iter().zip(ids) {
+            let buttons = NoticeButtonSet::of(p.buttons.iter().map(|(n, _)| *n));
+            s.posting(p.token, p.expiry, buttons);
+            assert_eq!(s.notified(p.token, *id, at(Secs(0))), Some(p.token));
+        }
+        s
+    }
+
     /// A deadline from `w` closes it; one with no `w` stays.
     #[test]
     fn an_expiry_is_a_deadline() {
-        let mut s: Shown<u32> = Shown::new();
         let p = posted(
             b"\x1b]99;i=a:w=1500;a\x1b\\\x1b]99;i=b;b\x1b\\",
             &mut Icons::default(),
         );
-        s.shown(p[0].token, 7, p[0].expiry, at(Secs(0)), Vec::new());
-        s.shown(p[1].token, 8, p[1].expiry, at(Secs(0)), Vec::new());
+        let mut s = shown_as(&p, &[7, 8]);
         assert_eq!(
             s.next_due(),
             Some(HostTime::ZERO.plus(Duration::from_millis(1500)))
         );
-        assert!(s.due(at(Secs(1))).is_empty());
-        assert_eq!(s.due(at(Secs(2))), vec![(p[0].token, 7)]);
+        assert!(s.due(|| at(Secs(1))).is_empty());
+        let mut due = s.due(|| at(Secs(2)));
+        assert_eq!((due.next(), due.next()), (Some(p[0].token.slot()), None));
         assert_eq!(s.token(&8), Some(p[1].token));
         assert_eq!(
             s.token(&7),
             Some(p[0].token),
             "alive until the platform says"
         );
-        assert_eq!(s.id(p[1].token), Some(8));
+        assert_eq!(s.id(p[1].token), Some(&8));
         assert_eq!(s.next_due(), None);
-        s.gone(p[1].token);
+        s.get(p[1].token).expect("held").free();
         assert_eq!(s.id(p[1].token), None);
     }
 
@@ -2523,10 +2362,9 @@ mod tests {
     #[test]
     fn w_00_never_closes_on_its_own() {
         let p = posted(b"\x1b]99;i=a:w=00;a\x1b\\", &mut Icons::default());
-        let mut s: Shown<u32> = Shown::new();
-        s.shown(p[0].token, 7, p[0].expiry, at(Secs(0)), Vec::new());
+        let mut s = shown_as(&p, &[7]);
         assert_eq!(s.next_due(), None);
-        assert!(s.due(at(Secs(0))).is_empty());
+        assert!(s.due(|| at(Secs(0))).is_empty());
         let n = crate::bus::notification(&p[0], None, ServerCaps::NONE, None);
         assert_eq!(n.expire, crate::bus::Expire::Never);
 
@@ -2553,7 +2391,7 @@ mod tests {
             !calls.iter().any(|c| matches!(c, MacCall::Expire(..))),
             "{calls:?}"
         );
-        assert_eq!(d.shown.next_due(), None);
+        assert_eq!(d.slots.next_due(), None);
     }
 
     /// The labels a click test sends: ordinary, control-only, empty.
@@ -2608,9 +2446,7 @@ mod tests {
             .map(|n| Posted::of(&n, &mut Icons::default()))
             .collect();
         let p = &posted[0];
-        let mut shown: Shown<u32> = Shown::new();
-        let numbers = p.buttons.iter().map(|(n, _)| *n).collect();
-        shown.shown(p.token, 1, p.expiry, at(Secs(0)), numbers);
+        let shown = shown_as(&posted[..1], &[1]);
         let sent: Vec<&String> = named.iter().filter(|l| !l.is_empty()).collect();
         let mut out = Vec::new();
         for (n, label) in &p.buttons {
@@ -2620,7 +2456,7 @@ mod tests {
                 .expect("a shown label was sent");
             // The action a presenter names the button by.
             let action = format!("button-{}", n.number());
-            let read = |n: &str| shown.read_back(p.token, n);
+            let read = |n: &str| read_back(&shown, p.token, n);
             let button = clicked(&action, DEFAULT, read).expect("a button's action");
             t.clear_reply();
             t.notice_activated(p.token, button);
@@ -2668,18 +2504,16 @@ mod tests {
                 .as_bytes(),
             &mut Icons::default(),
         );
+        let shown = shown_as(&p[..1], &[1]);
         let p = &p[0];
         assert_eq!(p.buttons.len(), 3, "the premise: three shown");
-        let mut shown: Shown<u32> = Shown::new();
-        let numbers = p.buttons.iter().map(|(n, _)| *n).collect();
-        shown.shown(p.token, 1, p.expiry, at(Secs(0)), numbers);
         let mac = |action: &str| {
-            clicked(action, DEFAULT, |n| shown.read_back(p.token, n))
+            clicked(action, DEFAULT, |n| read_back(&shown, p.token, n))
                 .map(|b| b.map(NoticeButton::number))
         };
         assert_eq!(mac("button-3"), Some(Some(3)), "the control");
         assert_eq!(mac("button-5"), None, "macOS: a button it did not show");
-        let linux = |key: &str| shown.read_back(p.token, key).map(NoticeButton::number);
+        let linux = |key: &str| read_back(&shown, p.token, key).map(NoticeButton::number);
         assert_eq!(linux("3"), Some(3), "the control");
         assert_eq!(linux("5"), None, "Linux: a button it did not show");
     }
@@ -2747,7 +2581,7 @@ mod tests {
         assert_eq!(replies, b"\x1b]99;i=j:p=close;untracked\x1b\\");
         // A click read back against the buttons it showed.
         let click = |action: &str| {
-            clicked(action, DEFAULT, |n| d.shown.read_back(token, n))
+            clicked(action, DEFAULT, |n| read_back(&d.slots, token, n))
                 .map(|b| b.map(NoticeButton::number))
         };
         assert_eq!(click(DEFAULT), Some(None));
@@ -2845,10 +2679,18 @@ mod tests {
         feed(&mut t, b"\x1b]99;w=900;a\x1b\\");
         let tok = t.notices().next().expect("one").token;
         let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
-        d.waiting
-            .push((tok, Expiry::After(NonZeroMillis::of::<900>()), Vec::new()));
-        assert_eq!(d.answered(tok).0, Expiry::After(NonZeroMillis::of::<900>()));
-        assert_eq!(d.answered(tok).0, Expiry::System, "taken once");
+        d.slots.posting(
+            tok,
+            Expiry::After(NonZeroMillis::of::<900>()),
+            NoticeButtonSet::NONE,
+        );
+        assert_eq!(d.slots.next_due(), None, "no deadline before the answer");
+        assert_eq!(d.slots.notified(tok, 4, at(Secs(1))), Some(tok));
+        assert_eq!(
+            d.slots.next_due(),
+            Some(at(Secs(1)).plus(Duration::from_millis(900))),
+            "the expiry it was sent with, from the answer"
+        );
         assert_eq!(d.rate_line(), None);
         for _ in 0..6 {
             d.bucket.take(at(Secs(0)));
@@ -3109,10 +2951,10 @@ mod tests {
             "\x1b]99;i=q:p=alive;e,f\x1b\\",
             "f is pending, in no list"
         );
-        assert!(d.shown.any());
+        assert!(!d.slots.held().is_empty());
         d.mac_refused(&mut t, &sent);
         assert_eq!(alive(&mut t), "\x1b]99;i=q:p=alive;\x1b\\");
-        assert!(!d.shown.any());
+        assert!(d.slots.held().is_empty());
     }
 
     /// **`bytes` fed to a macOS window and delivered** at `now`, the
@@ -3240,7 +3082,7 @@ mod tests {
             "w2",
         );
         assert!(
-            d.shown.token(&elsewhere[0]).is_none(),
+            d.slots.token(&elsewhere[0]).is_none(),
             "the premise: not this window's"
         );
         let closed = mac_posts(
@@ -3291,8 +3133,8 @@ mod tests {
     }
 
     /// **On macOS the core is told a notification is shown in one place**,
-    /// `Scheduled::tell`, and a `Scheduled` is made only by
-    /// `Shown::scheduled`, from the system's answer. Read from the source:
+    /// `Scheduled::tell`, and a `Scheduled` is made only from
+    /// `NoticeSlots::scheduled`, the system's answer. Read from the source:
     /// `Term::notice_shown` is the core's public method, so no type keeps
     /// another call out. Break: the post told shown when it is made.
     #[test]
@@ -3308,9 +3150,9 @@ mod tests {
             .expect("Scheduled::tell");
         assert!(tell.contains(call), "the call is tell's");
         assert_eq!(
-            code.matches(concat!("Scheduled", "(a.token)")).count(),
+            code.matches(concat!("Scheduled", "(token)")).count(),
             1,
-            "made by Shown::scheduled alone"
+            "made from NoticeSlots::scheduled alone"
         );
     }
 
@@ -3930,7 +3772,7 @@ mod tests {
         assert!(titles.is_empty(), "the one after it waits: {titles:?}");
         assert_eq!(d.checks(), Checks::Waiting);
         let token = checks[0].token;
-        assert_eq!(d.shown.id(token), None, "not shown while it is checked");
+        assert_eq!(d.slots.id(token), None, "not shown while it is checked");
         let back = Checked {
             token,
             bytes: PNG_2X1.to_vec(),
@@ -3942,7 +3784,7 @@ mod tests {
         };
         assert_eq!(p.title, "Build");
         assert_eq!(p.image, Some((PNG_2X1.to_vec(), "png")));
-        assert_eq!(d.shown.id(token).as_deref(), Some(p.id.as_str()));
+        assert_eq!(d.slots.id(token).map(String::as_str), Some(p.id.as_str()));
         assert_eq!((later.title.as_str(), &later.image), ("Later", &None));
         assert_eq!(d.checks(), Checks::Done);
         assert!(
@@ -4054,8 +3896,8 @@ mod tests {
         );
         assert_eq!((out_post.title.as_str(), &out_post.image), ("Out", &None));
         assert_eq!((d.unshown, d.bare), (Unshown(2), Unshown(1)));
-        assert!(d.shown.id(checks[0].token).is_some());
-        assert!(d.shown.id(checks[1].token).is_some());
+        assert!(d.slots.id(checks[0].token).is_some());
+        assert!(d.slots.id(checks[1].token).is_some());
         assert_eq!(d.checks(), Checks::Done, "nothing left waiting");
         assert!(
             d.image_line()
@@ -4707,7 +4549,7 @@ mod tests {
         }
         let titles: Vec<&str> = posts(&got).into_iter().map(|p| p.title.as_str()).collect();
         assert_eq!(titles, ["Build", "Kept"]);
-        assert!(d.shown.id(kept).is_some(), "the closed one is shown");
+        assert!(d.slots.id(kept).is_some(), "the closed one is shown");
     }
 
     /// **Both drivers read pictures off the thread that feeds the

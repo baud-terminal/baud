@@ -844,6 +844,15 @@ impl NoticeToken {
     pub fn slot(self) -> NoticeLiveIdx {
         self.slot
     }
+
+    /// A token from its parts, for this crate's tests.
+    #[cfg(test)]
+    pub(crate) fn of_parts(serial: u32, slot: usize) -> NoticeToken {
+        NoticeToken {
+            serial: core::num::NonZeroU32::new(serial).expect("a serial is never zero"),
+            slot: NoticeLiveIdx::of_index(slot).expect("a slot below NOTICE_LIVE"),
+        }
+    }
 }
 
 /// **One of the [`NOTICE_LIVE`] slots a [`NoticeDesk`] keeps live
@@ -880,7 +889,7 @@ pub struct NoticeLiveIdx(u8);
 
 impl NoticeLiveIdx {
     /// Every slot, in order.
-    const ALL: [NoticeLiveIdx; NOTICE_LIVE] = {
+    pub(crate) const ALL: [NoticeLiveIdx; NOTICE_LIVE] = {
         assert!(NOTICE_LIVE <= 1 << u8::BITS);
         let mut all = [NoticeLiveIdx(0); NOTICE_LIVE];
         let mut i = 0;
@@ -892,8 +901,13 @@ impl NoticeLiveIdx {
     };
 
     /// Its place in the desk's live table and its ids.
-    fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         usize::from(self.0)
+    }
+
+    /// The slot at `index`, `None` past the last.
+    pub(crate) fn of_index(index: usize) -> Option<NoticeLiveIdx> {
+        NoticeLiveIdx::ALL.get(index).copied()
     }
 }
 

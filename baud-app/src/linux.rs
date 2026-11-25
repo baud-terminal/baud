@@ -1154,7 +1154,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         let host = d.timed.clock.host(now);
         let expiry = d
             .notes
-            .shown
+            .slots
             .next_due()
             .map(|t| t.since(host).unwrap_or(Duration::ZERO));
         // A notification's picture read, given up at its deadline
@@ -2376,7 +2376,8 @@ impl Driver {
                     false => self.term.notice_dropped(p.token),
                 },
                 Plan::Close => {
-                    if let (Some(id), Some(bus)) = (self.notes.shown.id(p.token), self.bus.as_mut())
+                    if let (Some(&id), Some(bus)) =
+                        (self.notes.slots.id(p.token), self.bus.as_mut())
                     {
                         bus.close_notification(id);
                     }
@@ -2427,13 +2428,13 @@ impl Driver {
                 continue;
             };
             let replaces = match p.action {
-                baud_core::NoticeAction::Replace => self.notes.shown.id(p.token),
+                baud_core::NoticeAction::Replace => self.notes.slots.id(p.token).copied(),
                 _ => None,
             };
             let n = crate::bus::notification(&p, replaces, self.caps, image);
             bus.notify(&n, p.token);
-            let buttons = p.buttons.iter().map(|(n, _)| *n).collect();
-            self.notes.waiting.push((p.token, p.expiry, buttons));
+            let buttons = baud_domain::NoticeButtonSet::of(p.buttons.iter().map(|(n, _)| *n));
+            self.notes.slots.posting(p.token, p.expiry, buttons);
         }
     }
 
@@ -2460,12 +2461,17 @@ impl Driver {
     }
 
     /// The notifications whose `w` has passed, closed: "guaranteed to be
-    /// closed once the expiry time has passed".
+    /// closed once the expiry time has passed". With no deadline held the
+    /// clock is not read.
     fn expire_notices(&mut self) {
-        let due = self.notes.shown.due(self.timed.clock.host(Instant::now()));
+        let timed = &self.timed;
+        let due = self.notes.slots.due(|| timed.clock.host(Instant::now()));
         if let Some(bus) = self.bus.as_mut() {
-            for (_, id) in due {
-                bus.close_notification(id);
+            let slots = &self.notes.slots;
+            for i in due {
+                if let Some(&id) = slots.token_at(i).and_then(|t| slots.id(t)) {
+                    bus.close_notification(id);
+                }
             }
         }
     }
@@ -2852,17 +2858,20 @@ impl Driver {
                 ));
             }
             Heard::Notified(token, id) => {
-                let (expiry, buttons) = self.notes.answered(token);
+                // An answer for a token whose slot a newer notification
+                // took is not the one shown there: nothing is said.
                 let now = self.timed.clock.host(Instant::now());
-                self.notes.shown.shown(token, id, expiry, now, buttons);
-                crate::reads::input(
-                    &mut self.term,
-                    |t| t.notice_shown(token),
-                    |b| self.outbox.push(b),
-                );
+                if self.notes.slots.notified(token, id, now).is_some() {
+                    crate::reads::input(
+                        &mut self.term,
+                        |t| t.notice_shown(token),
+                        |b| self.outbox.push(b),
+                    );
+                }
             }
             Heard::NotNotified(token, e) => {
-                self.notes.answered(token);
+                // A refused update leaves the one on screen as it was.
+                self.notes.slots.refused(token);
                 self.term.notice_dropped(token);
                 crate::warn!("notification not shown: the notification server answered {e}");
             }
@@ -2870,10 +2879,10 @@ impl Driver {
                 // "default" is a click on the notification itself, a number
                 // its button, read back against the buttons it showed: a
                 // number naming none of them is dropped, not reported.
-                let clicked = self.notes.shown.token(&id).and_then(|token| {
+                let clicked = self.notes.slots.token(&id).and_then(|token| {
                     let button = match key.as_str() {
                         "default" => None,
-                        n => Some(self.notes.shown.read_back(token, n)?),
+                        n => Some(crate::notify::read_back(&self.notes.slots, token, n)?),
                     };
                     Some((token, button))
                 });
@@ -2895,8 +2904,8 @@ impl Driver {
                 }
             }
             Heard::NotifyClosed(id) => {
-                if let Some(token) = self.notes.shown.token(&id) {
-                    self.notes.shown.gone(token);
+                if let Some(token) = self.notes.slots.token(&id) {
+                    self.notes.forget(token);
                     crate::reads::input(
                         &mut self.term,
                         |t| t.notice_closed(token),

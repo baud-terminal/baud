@@ -5461,7 +5461,7 @@ mod notice_no_center_tests {
                 "baud-1",
                 &mut crate::kitty_files::Pictures::new(None),
             );
-            ExpiryWake::new().schedule(d.shown.next_due())
+            ExpiryWake::new().schedule(d.slots.next_due())
         };
         let none = super::notice_support(None, crate::config::Notifications::On);
         assert_eq!(due(none), None, "nothing to wake for");
@@ -17873,11 +17873,11 @@ impl Driver {
             let _ = answered;
         }
         for click in c.clicks(whose) {
-            let Some(token) = self.app.notes.shown.token(&click.id) else {
+            let Some(token) = self.app.notes.slots.token(&click.id) else {
                 continue;
             };
-            let shown = &self.app.notes.shown;
-            let read = |n: &str| shown.read_back(token, n);
+            let slots = &self.app.notes.slots;
+            let read = |n: &str| crate::notify::read_back(slots, token, n);
             let Some(button) = crate::notify::clicked(&click.action, DEFAULT_ACTION, read) else {
                 continue;
             };
@@ -17932,7 +17932,7 @@ impl Driver {
 
     /// **A notice's `w` deadline, its wake scheduled once at a turn's end**
     /// (`ExpiryWake`): at the earliest deadline a shown notice has
-    /// (`Shown::next_due`), again only when a post brings an earlier one,
+    /// (`NoticeSlots::next_due`), again only when a post brings an earlier one,
     /// that one has gone, or its wake ran with it still there (`fired`, in
     /// `notice_turn`), and none with none; a wake not posted is not armed.
     /// The wake marks the window's news owed and itself run in its callback
@@ -17940,7 +17940,7 @@ impl Driver {
     /// (`notice_turn`, `mac_expired`). It changes nothing drawn, so it is the
     /// window's own wake, not a deadline of the display link's.
     fn notice_schedule(&mut self) {
-        let Some(at) = self.notice_wake.schedule(self.app.notes.shown.next_due()) else {
+        let Some(at) = self.notice_wake.schedule(self.app.notes.slots.next_due()) else {
             return;
         };
         let due = NoticeDue {
