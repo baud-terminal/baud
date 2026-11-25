@@ -172,23 +172,23 @@ d1-128.llmr = { value = 2188, set_in = "2026-11-15, x86_64", reason = "first bas
 d1-128.llmw = { value = 51234, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 51241" }
 
 [frame.yes-1-1-incremental.x86_64]
-ir = { value = 107469971, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-64.d1mw = { value = 412077, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-64.d1mr = { value = 777638, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-64.llmr = { value = 2477, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+ir = { value = 108620551, set_in = "2026-11-25, x86_64", reason = "MB1 260cb5ec's background writer adds +0.84%/+1.58% Ir on frame.yes; three fix attempts did not recover it; its Mac gain is btop upload 8.1→6.6 us/frame" }
+d1-64.d1mw = { value = 408742, set_in = "2026-11-25, x86_64", reason = "ratchet: lowered from 412077" }
+d1-64.d1mr = { value = 778244, set_in = "2026-11-25, x86_64", reason = "MB1 260cb5ec's background writer adds +0.84%/+1.58% Ir on frame.yes; three fix attempts did not recover it; its Mac gain is btop upload 8.1→6.6 us/frame" }
+d1-64.llmr = { value = 2505, set_in = "2026-11-25, x86_64", reason = "MB1 260cb5ec's background writer adds +0.84%/+1.58% Ir on frame.yes; three fix attempts did not recover it; its Mac gain is btop upload 8.1→6.6 us/frame" }
 d1-64.llmw = { value = 99984, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-128.d1mw = { value = 209267, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-128.d1mr = { value = 408102, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-128.llmr = { value = 1512, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-128.llmw = { value = 50023, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-128.d1mw = { value = 207161, set_in = "2026-11-25, x86_64", reason = "ratchet: lowered from 209267" }
+d1-128.d1mr = { value = 409438, set_in = "2026-11-25, x86_64", reason = "MB1 260cb5ec's background writer adds +0.84%/+1.58% Ir on frame.yes; three fix attempts did not recover it; its Mac gain is btop upload 8.1→6.6 us/frame" }
+d1-128.llmr = { value = 1533, set_in = "2026-11-25, x86_64", reason = "MB1 260cb5ec's background writer adds +0.84%/+1.58% Ir on frame.yes; three fix attempts did not recover it; its Mac gain is btop upload 8.1→6.6 us/frame" }
+d1-128.llmw = { value = 50022, set_in = "2026-11-25, x86_64", reason = "ratchet: lowered from 50023" }
 
 [frame.yes-3-1-incremental.x86_64]
-ir = { value = 50133329, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-64.d1mw = { value = 269641, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-64.d1mr = { value = 279077, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-64.llmr = { value = 2482, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-64.llmw = { value = 100047, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-128.d1mw = { value = 136024, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-128.d1mr = { value = 147544, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-128.llmr = { value = 1513, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
-d1-128.llmw = { value = 50054, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+ir = { value = 51008023, set_in = "2026-11-25, x86_64", reason = "MB1 260cb5ec's background writer adds +0.84%/+1.58% Ir on frame.yes; three fix attempts did not recover it; its Mac gain is btop upload 8.1→6.6 us/frame" }
+d1-64.d1mw = { value = 267505, set_in = "2026-11-25, x86_64", reason = "ratchet: lowered from 269641" }
+d1-64.d1mr = { value = 280307, set_in = "2026-11-25, x86_64", reason = "MB1 260cb5ec's background writer adds +0.84%/+1.58% Ir on frame.yes; three fix attempts did not recover it; its Mac gain is btop upload 8.1→6.6 us/frame" }
+d1-64.llmr = { value = 2509, set_in = "2026-11-25, x86_64", reason = "MB1 260cb5ec's background writer adds +0.84%/+1.58% Ir on frame.yes; three fix attempts did not recover it; its Mac gain is btop upload 8.1→6.6 us/frame" }
+d1-64.llmw = { value = 100045, set_in = "2026-11-25, x86_64", reason = "ratchet: lowered from 100047" }
+d1-128.d1mw = { value = 134904, set_in = "2026-11-25, x86_64", reason = "ratchet: lowered from 136024" }
+d1-128.d1mr = { value = 148565, set_in = "2026-11-25, x86_64", reason = "MB1 260cb5ec's background writer adds +0.84%/+1.58% Ir on frame.yes; three fix attempts did not recover it; its Mac gain is btop upload 8.1→6.6 us/frame" }
+d1-128.llmr = { value = 1534, set_in = "2026-11-25, x86_64", reason = "MB1 260cb5ec's background writer adds +0.84%/+1.58% Ir on frame.yes; three fix attempts did not recover it; its Mac gain is btop upload 8.1→6.6 us/frame" }
+d1-128.llmw = { value = 50053, set_in = "2026-11-25, x86_64", reason = "ratchet: lowered from 50054" }
