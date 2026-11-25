@@ -87,6 +87,7 @@ pub(crate) fn in_frame<R>(
 /// draw paints, the renderer placing the whole frame at its origin in it
 /// (`Renderer::set_surface`). `None` for a buffer of no whole row, or rows
 /// narrower than `width`.
+#[cfg(target_os = "linux")]
 pub(crate) fn surface<R>(
     frame: &mut [u32],
     stride: Px,
