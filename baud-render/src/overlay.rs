@@ -35,8 +35,8 @@ use crate::units::Tally;
 use baud_domain::TermRead;
 use baud_domain::{
     AmbiguousWidth, Attrs, Chan, Classified, ClusterBreak, ClusterCells, Codepoint, Col, ColorWord,
-    Cols, Content, CursorStyle, GraphemeClass, LineRendition, PackedCell, Row, Rows, StyleWord,
-    UnicodeWidths, Viewport, Vs16Width, Width, WidthPolicy, is_default_ignorable, vs16,
+    Cols, Content, CursorStyle, DirtyRows, GraphemeClass, LineRendition, PackedCell, Row, Rows,
+    StyleWord, UnicodeWidths, Viewport, Vs16Width, Width, WidthPolicy, is_default_ignorable, vs16,
 };
 use baud_font::Px;
 
@@ -67,6 +67,9 @@ pub struct OverlayStats {
     /// pass of a block table, where neither the layout nor the glyph map's
     /// walk of the view answered.
     pub folded: Tally,
+    /// Cells of the mask the last walk cleared: those of the rows that
+    /// held a bit.
+    pub cleared: Tally,
 }
 
 /// The overlay mask's bits, one byte a screen cell. The shader reads the
@@ -310,10 +313,11 @@ enum Walked {
 
 /// Whether a walk finds the pictures drawn in text on its view: the
 /// window's does, and the leaving row's, which the cell path never takes
-/// for one, does not.
+/// for one, does not. The window's reads again only the rows a frame's
+/// build names, where it names any, and keeps the rest as found.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Find {
-    Pictures,
+    Pictures(Option<DirtyRows>),
     None,
 }
 
@@ -535,6 +539,19 @@ struct Paint<'p> {
     block_paint: BlockPaint,
 }
 
+/// **Each row of `mask`, `cols` cells a row, that holds a bit, cleared**,
+/// and how many cells were.
+fn clear_held(mask: &mut [u8], cols: Cols) -> Tally {
+    let mut cleared = Tally::default();
+    for row in mask.chunks_mut(cols.index().max(1)) {
+        if row.iter().any(|&b| b != 0) {
+            row.fill(0);
+            cleared.add(Tally::of(row.len()));
+        }
+    }
+    cleared
+}
+
 /// **How far the cell at visual `(x, y)` leans left, in `style`**: SAPV
 /// 17's slant where the layout found it (`Orders::slants`), and what the
 /// cell is then drawn in, its upright style.
@@ -721,17 +738,19 @@ impl Overlay {
         mask: &mut [u8],
         records: &mut Vec<Instance>,
     ) {
-        self.ensure_with(scene, (None, None), Find::Pictures, r, mask, records);
+        self.ensure_with(scene, (None, None), Find::Pictures(None), r, mask, records);
     }
 
     /// **[`Overlay::ensure`] for the frame a build keyed** (`framed`,
     /// FS-C5): its sized lines are keyed by where their rows are stored and
     /// the build's seal (`Renderer::sized_framed`), where `ensure`, which
     /// may be handed a window of an older copy, compares their cells.
+    /// The pictures are found again on the rows `taken` names where it
+    /// names any, every other row's runs kept from the last find.
     pub(crate) fn ensure_framed(
         &mut self,
         scene: &Scene<'_, impl TermRead>,
-        framed: Framed,
+        (framed, taken): (Framed, Option<DirtyRows>),
         r: &mut Renderer<'_, '_>,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
@@ -739,7 +758,7 @@ impl Overlay {
         self.ensure_with(
             scene,
             (None, Some(framed)),
-            Find::Pictures,
+            Find::Pictures(taken),
             r,
             mask,
             records,
@@ -762,7 +781,11 @@ impl Overlay {
         // a record in one is coloured as the cell under it is.
         let view = &scene.view;
         let (cols, rows) = (view.cols(), view.rows());
-        self.stats.pictured = if find == Find::Pictures && r.theme().finds_pictures() {
+        let taken = match find {
+            Find::Pictures(taken) => Some(taken),
+            Find::None => None,
+        };
+        self.stats.pictured = if let Some(taken) = taken.filter(|_| r.theme().finds_pictures()) {
             // The frame's copy, read through its lent slots' words where it
             // lent any, else each row through its own table.
             let frame = r.frame_held();
@@ -771,7 +794,8 @@ impl Overlay {
                 true => frame.words(),
                 false => Words::Row(view.styles(y)),
             };
-            self.pictures.find_in(scene.term, view, words, r.video())
+            self.pictures
+                .find_taken(scene.term, view, words, r.video(), taken)
         } else {
             self.pictures.clear(cols, rows);
             Tally::default()
@@ -815,19 +839,11 @@ impl Overlay {
         // bit alone.
         if self.stats.pictured.value() > 0 {
             let w = cols.index();
-            crate::counters::add(
-                Counter::PictureCellsScanned,
-                Site::Pictures,
-                Tally::of(w * rows.index()),
-            );
-            for y in 0..rows.index() {
-                for x in 0..w {
-                    if self.pictures.at(Row::from_index(y), Col::at_index(x)) != Pictured::Yes {
-                        continue;
-                    }
-                    if let Some(b) = mask.get_mut(y * w + x) {
-                        *b |= MASK_PICTURE;
-                    }
+            for (y, from, to) in self.pictures.pictured() {
+                let at = y.index() * w;
+                let cells = mask.get_mut(at + from.index()..at + to.index().min(w));
+                for b in cells.into_iter().flatten() {
+                    *b |= MASK_PICTURE;
                 }
             }
         }
@@ -857,15 +873,19 @@ impl Overlay {
         let rows = view.rows().index();
         // The row after the screen's too, where present: the leaving row's
         // ([`Overlay::leaving`]), set again on each frame that slides.
+        // **Only the rows that hold a bit are cleared**: the walk draws
+        // every record again and reads its own bits as drawn this frame,
+        // so no row holding one is kept, and a row holding none is clear.
+        self.stats.cleared = Tally::default();
         if let Some(leaving) =
             mask.get_mut(cols.saturating_mul(rows)..cols.saturating_mul(rows + 1))
         {
-            leaving.fill(0);
+            self.stats.cleared.add(clear_held(leaving, view.cols()));
         }
         let Some(mask) = mask.get_mut(..cols.saturating_mul(rows)) else {
             return;
         };
-        mask.fill(0);
+        self.stats.cleared.add(clear_held(mask, view.cols()));
         let geom = Geom {
             m: r.metrics(),
             cols: view.cols(),

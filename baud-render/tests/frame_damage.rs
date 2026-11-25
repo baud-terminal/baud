@@ -780,3 +780,219 @@ fn a_scroll_copies_no_kept_row() {
         }
     }
 }
+
+/// A renderer over `ws` that finds pictures drawn in text: the window's
+/// backgrounds dimmed and a picture's drawn solid.
+fn finding<'f>(faces: &'f [Face<'f>], ws: WinSize) -> Renderer<'f, 'f> {
+    let theme = Theme {
+        bg_alpha: baud_domain::Chan::from_u8(56),
+        app_bg: baud_render::AppBg::Dimmed,
+        picture_bg: baud_render::PictureBg::Opaque,
+        ..Theme::dark()
+    };
+    Renderer::new(
+        Stack::new(faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        theme,
+        Blend::Native,
+        Cols::of_index(usize::from(ws.ws_col)),
+        Rows::of_index(usize::from(ws.ws_row)),
+    )
+    .unwrap()
+}
+
+/// Row `row` (from 0) written from its first column with one cell a
+/// colour of background each, `colours` the colours' numbers, then the
+/// rendition reset.
+fn painted_row(row: usize, colours: impl Iterator<Item = u8>) -> Vec<u8> {
+    let mut out = format!("\x1b[{};1H", row + 1).into_bytes();
+    for c in colours {
+        let (r, g, b) = (c.wrapping_mul(37), c.wrapping_mul(91), c.wrapping_mul(13));
+        out.extend_from_slice(format!("\x1b[48;2;{r};{g};{b}m ").as_bytes());
+    }
+    out.extend_from_slice(b"\x1b[m");
+    out
+}
+
+/// **A screen of `rows` written, framed on the cell path into every set
+/// and once more, then `change` written**: the frame after the change's
+/// counts, and the cells of a picture its overlay found.
+fn found_after(rows: &[Vec<u8>], change: &[u8]) -> (Counts, u64) {
+    let data = font();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = finding(&faces, SMALL);
+    let mut owned = Owned::new(&SMALL);
+    let mut t = Term::new(owned.storage(), &SMALL);
+    feed(&mut t, HIDE);
+    for row in rows {
+        feed(&mut t, row);
+    }
+    let mut backing = GlyphMap::backing();
+    let mut cells = Cells::new(&mut backing, &t);
+    for _ in 0..=SETS {
+        cell(&mut r, &mut t, &mut cells);
+    }
+    feed(&mut t, change);
+    let counts = cell(&mut r, &mut t, &mut cells);
+    (counts, cells.exceptions.stats().pictured.value())
+}
+
+/// **An unchanged frame clears no cell of the mask and scans no cell
+/// for a picture**: a screen of text whose mask holds no bit, framed into
+/// every set, then once more with nothing written. The control: the first
+/// frame scans every cell for a picture.
+#[test]
+fn an_unchanged_frame_clears_and_scans_nothing() {
+    let data = font();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = finding(&faces, SMALL);
+    let mut owned = Owned::new(&SMALL);
+    let mut t = Term::new(owned.storage(), &SMALL);
+    feed(&mut t, HIDE);
+    feed(&mut t, b"some text\r\nmore text");
+    let mut backing = GlyphMap::backing();
+    let mut cells = Cells::new(&mut backing, &t);
+    let first = cell(&mut r, &mut t, &mut cells);
+    let all = u64::from(SMALL.ws_col) * u64::from(SMALL.ws_row);
+    assert_eq!(
+        first
+            .at(Site::Pictures, Counter::PictureCellsScanned)
+            .value(),
+        all,
+        "the first frame scans every cell"
+    );
+    for _ in 0..SETS {
+        cell(&mut r, &mut t, &mut cells);
+    }
+    let still = cell(&mut r, &mut t, &mut cells);
+    assert_eq!(
+        still
+            .at(Site::Pictures, Counter::PictureCellsScanned)
+            .value(),
+        0,
+        "an unchanged frame scans no cell for a picture"
+    );
+    assert_eq!(
+        cells.exceptions.stats().cleared.value(),
+        0,
+        "an unchanged frame clears no cell of the mask"
+    );
+}
+
+/// **A frame clears only the rows of the mask that hold a bit**: row 3
+/// holds a combining mark, which records draw and the mask marks, and a
+/// letter written on row 6 clears row 3's cells alone -- the walk draws
+/// every record again each frame, so a row holding a bit is cleared
+/// whatever was written, and a row holding none needs no clearing. The
+/// controls: row 3's mask holds the record bit, and the frame takes row 6.
+#[test]
+fn a_frame_clears_only_the_mask_rows_that_hold_a_bit() {
+    let data = font();
+    let faces = [Face::parse(&data).unwrap()];
+    let cols = usize::from(SMALL.ws_col);
+    let mut r = renderer(&faces, SMALL);
+    let mut owned = Owned::new(&SMALL);
+    let mut t = Term::new(owned.storage(), &SMALL);
+    feed(&mut t, HIDE);
+    feed(&mut t, "\x1b[3;1Hcafe\u{301}".as_bytes());
+    let mut backing = GlyphMap::backing();
+    let mut cells = Cells::new(&mut backing, &t);
+    for _ in 0..=SETS {
+        cell(&mut r, &mut t, &mut cells);
+    }
+    feed(&mut t, b"\x1b[6;1HX");
+    let at = cells.next;
+    let after = cell(&mut r, &mut t, &mut cells);
+    let mask = &cells.overlay_mem[at.0];
+    assert!(
+        mask[2 * cols..3 * cols]
+            .iter()
+            .any(|&b| b & baud_render::MASK_RECORD != 0),
+        "row 3's mask holds the record bit"
+    );
+    assert_eq!(
+        after.at(Site::Screens, Counter::RowsTaken).value(),
+        1,
+        "the frame takes row 6"
+    );
+    assert_eq!(
+        cells.exceptions.stats().cleared.value(),
+        u64::try_from(cols).unwrap(),
+        "row 3's cells alone are cleared"
+    );
+}
+
+/// **A picture with one row written again is still found**, that row
+/// alone scanned: three rows of eight colours each, 24 colours in one
+/// block, and the middle row written with eight others. No row alone holds
+/// sixteen, so the rewritten row is a picture only joined to the rows
+/// kept.
+#[test]
+fn a_picture_with_one_row_rewritten_stays_found() {
+    let rows: Vec<Vec<u8>> = (0..3u8)
+        .map(|y| painted_row(usize::from(y), y * 8..y * 8 + 8))
+        .collect();
+    let (counts, found) = found_after(&rows, &painted_row(1, 100..108));
+    assert_eq!(found, 24, "every cell of the block is a picture's");
+    assert_eq!(
+        counts
+            .at(Site::Pictures, Counter::PictureCellsScanned)
+            .value(),
+        u64::from(SMALL.ws_col),
+        "the rewritten row alone is scanned"
+    );
+}
+
+/// **A panel that reaches sixteen colours through one row becomes a
+/// picture**: three rows holding fifteen colours between them, then one
+/// cell of the last row written in a sixteenth.
+#[test]
+fn a_panel_reaching_sixteen_colours_through_one_row_is_found() {
+    let rows = vec![
+        painted_row(0, 0..8),
+        painted_row(1, (8..15).chain(0..1)),
+        painted_row(2, core::iter::repeat_n(0, 8)),
+    ];
+    let (before, found_before) = found_after(&rows, b"");
+    assert_eq!(found_before, 0, "fifteen colours are a panel");
+    assert_eq!(
+        before
+            .at(Site::Pictures, Counter::PictureCellsScanned)
+            .value(),
+        0,
+        "nothing written, nothing scanned"
+    );
+    let (counts, found) = found_after(&rows, &painted_row(2, core::iter::once(15)));
+    assert_eq!(found, 24, "the sixteenth colour makes the block a picture");
+    assert_eq!(
+        counts
+            .at(Site::Pictures, Counter::PictureCellsScanned)
+            .value(),
+        u64::from(SMALL.ws_col),
+        "the written row alone is scanned"
+    );
+}
+
+/// **A picture whose middle row is erased splits in two**, and neither
+/// half is a picture: eight colours above, eight others in the middle, the
+/// first eight again below; the middle row erased in the default
+/// background leaves two blocks of eight.
+#[test]
+fn an_erased_middle_row_splits_a_picture() {
+    let rows = vec![
+        painted_row(0, 0..8),
+        painted_row(1, 8..16),
+        painted_row(2, 0..8),
+    ];
+    let (_, found_before) = found_after(&rows, b"");
+    assert_eq!(found_before, 24, "joined, the block is a picture");
+    let (counts, found) = found_after(&rows, b"\x1b[m\x1b[2;1H\x1b[2K");
+    assert_eq!(found, 0, "neither half is a picture");
+    assert_eq!(
+        counts
+            .at(Site::Pictures, Counter::PictureCellsScanned)
+            .value(),
+        u64::from(SMALL.ws_col),
+        "the erased row alone is scanned"
+    );
+}

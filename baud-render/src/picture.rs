@@ -42,13 +42,15 @@
 //! `cargo bench -p baud-bench --bench pictures` re-derives these numbers,
 //! with the photo captures passed in through `PICTURES_EXTRA`.
 //!
-//! One pass over the screen: each row's runs of set backgrounds, joined to
-//! the runs above them that they touch through a union-find, each block's
-//! colours counted as it grows and capped at the threshold, so a block
-//! stops counting the moment it is known to be a picture.
+//! One pass over the rows a frame names: each row's runs of set
+//! backgrounds and the colours each holds, the other rows' runs kept from
+//! the last find, then every run joined to the runs above it that it
+//! touches through a union-find, each block's colours counted as it grows
+//! and capped at the threshold, so a block stops counting the moment it is
+//! known to be a picture.
 
 use baud_domain::TermRead;
-use baud_domain::{Col, ColorWord, Cols, PackedCell, Row, Rows, Video, Viewport};
+use baud_domain::{Col, ColorWord, Cols, DirtyRows, PackedCell, Row, Rows, Video, Viewport};
 
 use crate::frozen::Words;
 use crate::units::Tally;
@@ -106,12 +108,24 @@ impl Palette {
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct RunId(usize);
 
-/// One row's run of set backgrounds, `[from, to)`.
+/// One row's run of set backgrounds, `[from, to)`, and the colours its
+/// own cells hold.
 #[derive(Clone, Copy)]
 struct Run {
     row: Row,
     from: Col,
     to: Col,
+    own: Palette,
+}
+
+/// **What a find's runs were read from**: the view's shape and the video
+/// its backgrounds were drawn under. A find over the rows a frame names
+/// keeps the other rows' runs only from a find under the same.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Found {
+    cols: Cols,
+    rows: Rows,
+    video: Video,
 }
 
 /// The screen's picture cells, found once a frame.
@@ -120,8 +134,19 @@ pub struct Pictures {
     rows: Rows,
     mask: Vec<Pictured>,
     last: Vec<Pictured>,
-    // Scratch kept across frames, so a warm frame allocates nothing.
+    /// The runs found, row after row, and where each row's start in them.
     runs: Vec<Run>,
+    starts: Vec<usize>,
+    /// The last find's, whose rows a find over the rows a frame names
+    /// keeps where they were not written.
+    runs_last: Vec<Run>,
+    starts_last: Vec<usize>,
+    /// What the last find's runs were read from, where they may be kept:
+    /// none after a find over every row, or none at all.
+    found: Option<Found>,
+    /// The runs of a picture, for the mask's pass over its cells alone.
+    pictured: Vec<Run>,
+    // Scratch kept across frames, so a warm frame allocates nothing.
     parent: Vec<RunId>,
     palettes: Vec<Palette>,
 }
@@ -158,6 +183,11 @@ impl Pictures {
             mask: Vec::new(),
             last: Vec::new(),
             runs: Vec::new(),
+            starts: Vec::new(),
+            runs_last: Vec::new(),
+            starts_last: Vec::new(),
+            found: None,
+            pictured: Vec::new(),
             parent: Vec::new(),
             palettes: Vec::new(),
         }
@@ -193,24 +223,52 @@ impl Pictures {
         words: impl Fn(Row) -> Words<'w>,
         video: Video,
     ) -> Tally {
+        let cells = self.find_taken(term, view, words, video, None);
+        self.found = None;
+        cells
+    }
+
+    /// **[`Pictures::find_in`], reading again only the rows `taken`
+    /// names** where it names any and the last find was one of these over
+    /// a view of the same shape under the same video: every other row's
+    /// runs are the last find's, and the blocks are joined again across
+    /// every row, so a block a written row joins, splits or grows is found
+    /// whole. Every row is read where `taken` is none.
+    pub(crate) fn find_taken<'w>(
+        &mut self,
+        term: &impl TermRead,
+        view: &Viewport<'_>,
+        words: impl Fn(Row) -> Words<'w>,
+        video: Video,
+        taken: Option<DirtyRows>,
+    ) -> Tally {
+        let found = Found {
+            cols: view.cols(),
+            rows: view.rows(),
+            video,
+        };
+        let kept = taken.filter(|_| self.found == Some(found));
         self.begin(view.cols(), view.rows());
         let (cols, rows) = (view.cols().index(), view.rows().index());
-        crate::counters::add(
-            crate::counters::Counter::PictureCellsScanned,
-            crate::counters::Site::Pictures,
-            Tally::of(cols * rows),
-        );
-        let mut above = 0..0;
+        let mut scanned = 0;
         for y in 0..rows {
+            self.starts.push(self.runs.len());
+            if kept.is_some_and(|t| !t.contains(Row::from_index(y))) {
+                let from = self.starts_last.get(y).copied().unwrap_or(0);
+                let to = self
+                    .starts_last
+                    .get(y + 1)
+                    .copied()
+                    .unwrap_or(self.runs_last.len());
+                self.runs
+                    .extend_from_slice(self.runs_last.get(from..to).unwrap_or_default());
+                continue;
+            }
+            scanned += cols;
             let row = view.row(Row::from_index(y));
             let words = words(Row::from_index(y));
             let drawn_bg =
                 |x: usize, cell: PackedCell| drawn_bg(term, (words, Col::at_index(x)), cell, video);
-            let first = self.runs.len();
-            // Where the scan of the row above resumes: the first of its
-            // runs that ends past the current run's start. Runs are sorted
-            // on both rows, so it only moves forward.
-            let mut resume = above.start;
             let mut x = 0;
             while x < cols {
                 let Some(c) = row.get(x).and_then(|&cell| drawn_bg(x, cell)) else {
@@ -234,24 +292,41 @@ impl Pictures {
                     prev = c;
                     x += 1;
                 }
-                let id = RunId(self.runs.len());
                 self.runs.push(Run {
                     row: Row::from_index(y),
                     from: Col::at_index(from),
                     to: Col::at_index(x),
+                    own: palette,
                 });
-                self.parent.push(id);
-                self.palettes.push(palette);
-                while resume < above.end && self.runs[resume].to.index() <= from {
+            }
+        }
+        self.starts.push(self.runs.len());
+        crate::counters::add(
+            crate::counters::Counter::PictureCellsScanned,
+            crate::counters::Site::Pictures,
+            Tally::of(scanned),
+        );
+        self.found = Some(found);
+        self.parent.extend((0..self.runs.len()).map(RunId));
+        self.palettes.extend(self.runs.iter().map(|r| r.own));
+        // Each row's runs joined to the runs above them that they touch.
+        for y in 1..rows {
+            let above = self.starts[y - 1]..self.starts[y];
+            // Where the scan of the row above resumes: the first of its
+            // runs that ends past the current run's start. Runs are sorted
+            // on both rows, so it only moves forward.
+            let mut resume = above.start;
+            for id in self.starts[y]..self.starts[y + 1] {
+                let Run { from, to, .. } = self.runs[id];
+                while resume < above.end && self.runs[resume].to.index() <= from.index() {
                     resume += 1;
                 }
                 let mut q = resume;
-                while q < above.end && self.runs[q].from.index() < x {
-                    self.union(RunId(q), id);
+                while q < above.end && self.runs[q].from.index() < to.index() {
+                    self.union(RunId(q), RunId(id));
                     q += 1;
                 }
             }
-            above = first..self.runs.len();
         }
         let mut cells = Tally::default();
         for id in 0..self.runs.len() {
@@ -260,6 +335,7 @@ impl Pictures {
                 continue;
             }
             let run = self.runs[id];
+            self.pictured.push(run);
             let at = run.row.index() * cols;
             for slot in &mut self.mask[at + run.from.index()..at + run.to.index()] {
                 *slot = Pictured::Yes;
@@ -269,11 +345,18 @@ impl Pictures {
         cells
     }
 
+    /// **Each run of a picture the last find found**: its row and its
+    /// columns, `[from, to)`.
+    pub(crate) fn pictured(&self) -> impl Iterator<Item = (Row, Col, Col)> + '_ {
+        self.pictured.iter().map(|r| (r.row, r.from, r.to))
+    }
+
     /// No pictures this frame: the rule is off. Keeps the frame before,
     /// like [`Pictures::find`], so turning the rule off repaints what it
     /// had drawn solid.
     pub fn clear(&mut self, cols: Cols, rows: Rows) {
         self.begin(cols, rows);
+        self.found = None;
     }
 
     fn begin(&mut self, cols: Cols, rows: Rows) {
@@ -287,7 +370,11 @@ impl Pictures {
         self.rows = rows;
         self.mask.clear();
         self.mask.resize(n, Pictured::No);
+        core::mem::swap(&mut self.runs, &mut self.runs_last);
+        core::mem::swap(&mut self.starts, &mut self.starts_last);
         self.runs.clear();
+        self.starts.clear();
+        self.pictured.clear();
         self.parent.clear();
         self.palettes.clear();
     }

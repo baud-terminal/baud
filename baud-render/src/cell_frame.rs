@@ -581,6 +581,14 @@ where
         cols: view.cols(),
         rows: view.rows(),
     };
+    // **The rows the overlay finds pictures on again**: the rows that may
+    // differ from the frame built before this one and the rows the damage
+    // names, as the map's walk reads them; every row for a frame drawn
+    // whole, one that slides, or the first after one that slid.
+    let taken = match (damage, screens.differ(), screens.walked, sliding) {
+        (FrameDamage::Rows { rows, .. }, Some(differ), Some(_), false) => Some(rows.union(differ)),
+        _ => None,
+    };
     if built == Built::New || screens.walked != Some(key) {
         // **The rows the walk reads**: the rows that may differ from the
         // frame built before this one, whose screen is the one the last
@@ -657,7 +665,7 @@ where
             pan: if sliding { pan } else { Px::of(0) },
             composition: composition.as_ref(),
         },
-        crate::renderer::Framed::of(back, seal),
+        (crate::renderer::Framed::of(back, seal), taken),
         renderer,
         &mut cell.overlay_mem[set][..],
         cell.records,
