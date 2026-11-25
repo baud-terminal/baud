@@ -102,7 +102,7 @@ pub(crate) struct Recorder {
 }
 
 /// Why the GPU path could not be made.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failed {
     NoGraphicsQueue,
     Vulkan(vk::Result),
@@ -111,6 +111,38 @@ pub enum Failed {
     Spirv,
     /// A copy to a sheet that does not fit it, or of another texel.
     Outside,
+}
+
+/// **What a [`Failed`] means to a caller deciding what to do next.**
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// `VK_ERROR_DEVICE_LOST`: the logical device is lost, and "the
+    /// corresponding physical device ... may be otherwise unaffected"
+    /// (`[[source: vulkan-devsandqueues]]`, Lost Device).
+    Lost,
+    /// Device or host memory ran out.
+    OutOfMemory,
+    /// Anything else.
+    Other,
+}
+
+impl Failed {
+    /// `VK_ERROR_DEVICE_LOST`.
+    pub const LOST: Failed = Failed::Vulkan(vk::Result::ERROR_DEVICE_LOST);
+    /// `VK_ERROR_OUT_OF_DEVICE_MEMORY`.
+    pub const OUT_OF_DEVICE_MEMORY: Failed = Failed::Vulkan(vk::Result::ERROR_OUT_OF_DEVICE_MEMORY);
+    /// `VK_ERROR_OUT_OF_HOST_MEMORY`.
+    pub const OUT_OF_HOST_MEMORY: Failed = Failed::Vulkan(vk::Result::ERROR_OUT_OF_HOST_MEMORY);
+
+    pub fn kind(&self) -> Kind {
+        match self {
+            Failed::Vulkan(vk::Result::ERROR_DEVICE_LOST) => Kind::Lost,
+            Failed::Vulkan(
+                vk::Result::ERROR_OUT_OF_DEVICE_MEMORY | vk::Result::ERROR_OUT_OF_HOST_MEMORY,
+            ) => Kind::OutOfMemory,
+            _ => Kind::Other,
+        }
+    }
 }
 
 impl Target {

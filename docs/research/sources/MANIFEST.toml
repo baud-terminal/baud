@@ -4602,6 +4602,22 @@ group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
 
+[sources.vulkan-devsandqueues]
+key    = "vulkan-devsandqueues"
+title  = "Vulkan Specification, chapter: Devices and Queues"
+author = "The Khronos Group"
+year   = 2026
+venue  = "docs.vulkan.org (CC-BY 4.0)"
+url    = "https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html"
+file   = ""
+sha256 = "8904ac3fc8a41aaf1198b2b53f0a0b1e9e9999dc4e4adf20a4234862b5520259"
+bytes  = 512045
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed, as vulkan-memory. Its Lost Device
+# section: the lost state is the logical device's, waits return in finite
+# time, and children are destroyed before their parents.
+
 [sources.vma-usage-patterns]
 key    = "vma-usage-patterns"
 title  = "Vulkan Memory Allocator: Recommended usage patterns"

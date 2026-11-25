@@ -1182,11 +1182,13 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             .map(|t| t.saturating_duration_since(now));
         // With no pidfd, the one more look a hung-up master's child is owed.
         let reap = d.pty.reap_owed().map(|t| t.saturating_duration_since(now));
+        // A new device after one was lost (`gpu_fallback.rs`).
+        let restart = d.gpu.deadline().map(|t| t.saturating_duration_since(now));
         // The deadlines, one list (`own_line::wait_bounds` reads it), and
         // the window's held events over them (`wait_bound`).
         let timeout = [
             sync, repeat, flash, copied, caret, decode, paste, delay, effects, frames, expiry,
-            pictures, settle, report, lights, words, paths, reap,
+            pictures, settle, report, lights, words, paths, reap, restart,
         ];
         let timeout = wait_bound(&timeout, Held::of(&d.window));
         // The clipboard's pipes, each waited on for what it owes, and the
@@ -1588,6 +1590,11 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         // able to report on.
         if let Some(lines) = d.report.turn(Instant::now(), &d.clips, &d.widths) {
             for line in lines {
+                crate::info!("{line}");
+            }
+            // The GPU arm's failures and restarts, once one moved
+            // (`gpu_fallback.rs`).
+            if let Some(line) = d.gpu.counts().line() {
                 crate::info!("{line}");
             }
         }
@@ -4625,6 +4632,10 @@ impl Driver {
             self.caret.commit(caret);
             self.pending = Pending::Clean;
             self.frame_for = FrameFor::Soonest;
+            // An arm that failed is torn down now that the surface shows
+            // this frame and none of its buffers (`gpu_arm.rs`).
+            self.gpu
+                .committed(&mut self.window, &mut self.conn.sender());
         }
     }
 

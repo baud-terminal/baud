@@ -4,20 +4,25 @@
 //! arm does not draw.
 //!
 //! It starts at the first frame the window has a size and the compositor's
-//! formats for, and stays off for the window's life when it cannot:
-//! `BAUD_GPU=off`, no Vulkan loader, no device or format the compositor
-//! takes, or a failure on the device. Each reason is logged once
-//! ([`Off`]); a start names the device as it reports itself
-//! (`baud_present_vulkan::reported`). A frame the arm hands back is the
-//! CPU arm's ([`Arm::Cpu`]); one it owes, with both buffers still the
-//! compositor's, draws nothing and waits for a release ([`Arm::Owed`]).
-//! Each frame is counted by which it was, and the counts are written on
-//! one line as the window ends ([`Tally`]).
+//! formats for. `BAUD_GPU=off` keeps it off. Any failure hands that frame to
+//! the CPU arm, and `gpu_fallback.rs` decides what follows: a lost device is
+//! replaced once a process, a size whose targets ran out of memory waits for
+//! a smaller one, and anything else turns the arm off for the window's life.
+//! Each reason is logged ([`Off`]); a start names the device as it reports
+//! itself (`baud_present_vulkan::reported`). The arm it leaves is torn down
+//! once a CPU frame has been committed over it, each `wl_buffer` and
+//! timeline before the memory and the device ([`teardown`]), and logged with
+//! how long that took. A frame the arm hands back is the CPU arm's
+//! ([`Arm::Cpu`]); one it owes, with both buffers still the compositor's,
+//! draws nothing and waits for a release ([`Arm::Owed`]). Each frame is
+//! counted by which it was, and the counts are written on one line as the
+//! window ends ([`Tally`]).
 
+use crate::gpu_fallback::{Due, Failure, Fallback, Next, Restarts, Size, smaller};
 use baud_core::{Seal, Term};
 use baud_present_vulkan::choose::{Refusal, SyncObj, choose};
 use baud_present_vulkan::damage::{TARGETS, TargetIx};
-use baud_present_vulkan::frame::{Failed, Gpu};
+use baud_present_vulkan::frame::{Failed, Gpu, Kind};
 use baud_present_vulkan::present::{Cpu, Frame, Inputs, Presenter, Remade};
 use baud_present_vulkan::reported::Reported;
 use baud_present_vulkan::vk::Vulkan;
@@ -26,8 +31,9 @@ use baud_present_wayland::{DmabufShown, Holds, Window};
 use baud_render::Renderer;
 use baud_wayland::{ObjectId, Sender};
 use std::os::fd::{AsFd, BorrowedFd};
+use std::time::Instant;
 
-/// Why the GPU arm is off for the window's life.
+/// Why the GPU arm left.
 #[derive(Debug)]
 pub enum Off {
     /// `BAUD_GPU=off`.
@@ -36,10 +42,34 @@ pub enum Off {
     NoVulkan,
     /// No device or format the compositor takes.
     Refused(Refusal),
+    /// The device failed making the targets for a size.
+    Fitting(Failed),
     /// The device failed.
     Failed(Failed),
     /// The compositor did not import a target.
     NotImported,
+}
+
+impl Off {
+    /// **The failure the fallback weighs**, at the window's `size`; none
+    /// for `BAUD_GPU=off`, which is not one.
+    fn failure(&self, size: Option<Size>) -> Option<Failure> {
+        let device = |e: &Failed, oom: Failure| match e.kind() {
+            Kind::Lost => Failure::Lost,
+            Kind::OutOfMemory => oom,
+            Kind::Other => Failure::Other(*e),
+        };
+        Some(match self {
+            Off::Env => return None,
+            Off::NoVulkan => Failure::NoLoader,
+            Off::Refused(_) | Off::NotImported => Failure::Refused(size),
+            Off::Fitting(e) => match size {
+                Some(s) => device(e, Failure::OutOfMemoryFitting(s)),
+                None => device(e, Failure::OutOfMemory),
+            },
+            Off::Failed(e) => device(e, Failure::OutOfMemory),
+        })
+    }
 }
 
 impl core::fmt::Display for Off {
@@ -48,6 +78,7 @@ impl core::fmt::Display for Off {
             Off::Env => f.write_str("BAUD_GPU=off"),
             Off::NoVulkan => f.write_str("no Vulkan loader"),
             Off::Refused(r) => write!(f, "the compositor's device or formats: {r:?}"),
+            Off::Fitting(e) => write!(f, "the device failed making the targets: {e:?}"),
             Off::Failed(e) => write!(f, "the device failed: {e:?}"),
             Off::NotImported => f.write_str("the compositor imported no target"),
         }
@@ -71,7 +102,7 @@ pub enum Why {
     /// The arm waits for the window's first size and formats.
     Waiting,
     /// The arm is off: `BAUD_GPU=off`, it could not start, or the device
-    /// failed ([`Off`]).
+    /// failed and the arm is off or waits to try again ([`Off`]).
     Off,
     /// A slide is composed, which only the CPU arm does.
     Slide,
@@ -219,9 +250,20 @@ struct On {
     timelines: [Option<Timeline>; TARGETS],
 }
 
+/// When a GPU arm that failed tries again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Retry {
+    /// At a size smaller than this one.
+    AtSmaller(Size),
+    /// With a new device, at the fallback's deadline.
+    Restart,
+}
+
 enum State {
     /// Not started: no size or formats yet.
     Waiting,
+    /// Failed, the CPU arm drawing until it tries again.
+    Down(Retry),
     /// Off for the window's life, its reason logged.
     Off,
     On(Box<On>),
@@ -234,10 +276,46 @@ enum Last {
     Cpu,
 }
 
+/// An arm that failed, kept until a CPU frame is committed over it, and
+/// what its log line says.
+struct Leaving {
+    on: Box<On>,
+    said: String,
+}
+
 pub struct GpuArm {
     state: State,
     last: Last,
     tally: Tally,
+    fallback: Fallback,
+    leaving: Option<Leaving>,
+}
+
+/// One step of tearing an arm down.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Step {
+    Buffer(TargetIx),
+    Timeline(TargetIx),
+    /// The presenter's targets, memory, sheets and pipelines.
+    Presenter,
+    Device,
+}
+
+/// **The order an arm is torn down in**: each `wl_buffer` and timeline the
+/// compositor knows, then the presenter's memory, then the device -- the
+/// objects made from a thing before the thing.
+fn teardown<B, L>(buffers: &[Option<B>; TARGETS], timelines: &[Option<L>; TARGETS]) -> Vec<Step> {
+    let mut steps: Vec<Step> = (0..TARGETS)
+        .filter(|&k| buffers[k].is_some())
+        .map(|k| Step::Buffer(TargetIx(k)))
+        .collect();
+    steps.extend(
+        (0..TARGETS)
+            .filter(|&k| timelines[k].is_some())
+            .map(|k| Step::Timeline(TargetIx(k))),
+    );
+    steps.extend([Step::Presenter, Step::Device]);
+    steps
 }
 
 impl GpuArm {
@@ -253,12 +331,27 @@ impl GpuArm {
             },
             last: Last::Cpu,
             tally: Tally::default(),
+            fallback: Fallback::new(Restarts::process()),
+            leaving: None,
         }
     }
 
     /// **Started on the compositor's device**, once the window has a size
-    /// and formats; any failure turns it off, logged.
+    /// and formats, and again after a failure when the fallback says.
     fn start(&mut self, window: &Window, term: &Term<'_>) {
+        if self.leaving.is_none() {
+            let again = match self.state {
+                State::Down(Retry::AtSmaller(failed)) => {
+                    window.buffer_size().is_some_and(|s| smaller(s, failed))
+                }
+                State::Down(Retry::Restart) => self.fallback.due(Instant::now()) == Due::Restart,
+                _ => false,
+            };
+            if again {
+                crate::info!("gpu: trying the GPU arm again");
+                self.state = State::Waiting;
+            }
+        }
         if !matches!(self.state, State::Waiting) {
             return;
         }
@@ -288,16 +381,35 @@ impl GpuArm {
                 reported,
             ))
         })();
-        self.state = match started {
+        match started {
             Ok((on, reported)) => {
                 crate::info!("gpu: frames drawn on the device the compositor names: {reported}");
-                State::On(Box::new(on))
+                self.state = State::On(Box::new(on));
             }
             Err(why) => {
-                crate::info!("gpu: off, frames drawn on the CPU: {why}");
-                State::Off
+                let said = self.down(&why, window.buffer_size());
+                crate::info!("{said}");
             }
+        }
+    }
+
+    /// **The arm down after `why`**: the fallback told, the state it says,
+    /// and the line to log.
+    fn down(&mut self, why: &Off, size: Option<Size>) -> String {
+        let Some(failure) = why.failure(size) else {
+            self.state = State::Off;
+            return format!("gpu: off, frames drawn on the CPU: {why}");
         };
+        let (state, then) = match self.fallback.failed(failure, Instant::now()) {
+            Next::Off => (State::Off, "off for the window's life"),
+            Next::AtSmaller(s) => (
+                State::Down(Retry::AtSmaller(s)),
+                "tried again at a smaller size",
+            ),
+            Next::RestartAt(_) => (State::Down(Retry::Restart), "a new device in a second"),
+        };
+        self.state = state;
+        format!("gpu: frames drawn on the CPU: {why}; {then}")
     }
 
     /// **The frame drawn on the GPU arm and shown**, or owed, or the CPU
@@ -318,9 +430,15 @@ impl GpuArm {
                 match on.frame((window, s), renderer, term, seal, inputs) {
                     Ok(arm) => arm,
                     Err(why) => {
-                        crate::warn!("gpu: off, frames drawn on the CPU: {why}");
-                        if let State::On(on) = core::mem::replace(&mut self.state, State::Off) {
-                            on.presenter.destroy(&on.gpu);
+                        // The arm taken out before `down` sets what follows,
+                        // and kept until a CPU frame is committed over it.
+                        let on = match core::mem::replace(&mut self.state, State::Off) {
+                            State::On(on) => Some(on),
+                            _ => None,
+                        };
+                        let said = self.down(&why, window.buffer_size());
+                        if let Some(on) = on {
+                            self.leaving = Some(Leaving { on, said });
                         }
                         Arm::Cpu(Why::Off)
                     }
@@ -342,11 +460,12 @@ impl GpuArm {
     }
 
     /// Why a frame the arm does not draw itself is the CPU arm's: it waits
-    /// to start, it is off, or a slide is composed.
+    /// to start, it is off or down until it tries again, or a slide is
+    /// composed.
     fn cpu_why(&self, slide: crate::effects::Composed) -> Why {
         match (&self.state, slide) {
             (State::Waiting, _) => Why::Waiting,
-            (State::Off, _) => Why::Off,
+            (State::Off | State::Down(_), _) => Why::Off,
             (State::On(_), _) => Why::Slide,
         }
     }
@@ -355,6 +474,28 @@ impl GpuArm {
     /// by what became of it ([`Tally`]), at the level the start line is.
     pub fn exit(&self) {
         crate::info!("{}", self.tally);
+    }
+
+    /// **A CPU frame committed**: an arm that failed is torn down now that
+    /// the surface no longer shows its buffers, and logged with how long it
+    /// took.
+    pub fn committed(&mut self, window: &mut Window, s: &mut Sender<'_>) {
+        let Some(Leaving { on, said }) = self.leaving.take() else {
+            return;
+        };
+        let started = Instant::now();
+        on.leave(window, s);
+        crate::warn!("{said}; torn down in {:?}", started.elapsed());
+    }
+
+    /// **When the loop must wake for a new device**, while one waits.
+    pub fn deadline(&self) -> Option<Instant> {
+        self.fallback.deadline()
+    }
+
+    /// Each failure counted, and each restart.
+    pub fn counts(&self) -> crate::gpu_fallback::Counts {
+        self.fallback.counts()
     }
 
     /// **Whether the CPU arm's own buffer is stale**: the frame before was
@@ -422,7 +563,7 @@ impl On {
         let Some(size) = window.buffer_size() else {
             return Ok(Arm::Cpu(Why::Sizeless));
         };
-        if self.presenter.fit(&self.gpu, size).map_err(Off::Failed)? == Remade::Yes {
+        if self.presenter.fit(&self.gpu, size).map_err(Off::Fitting)? == Remade::Yes {
             self.import(window, s)?;
         }
         // The buffers the compositor released since.
@@ -498,6 +639,37 @@ impl On {
             };
         }
         Ok(())
+    }
+
+    /// **The arm torn down** in [`teardown`]'s order.
+    fn leave(self, window: &mut Window, s: &mut Sender<'_>) {
+        let On {
+            gpu,
+            presenter,
+            buffers,
+            timelines,
+        } = self;
+        let (mut presenter, mut gpu) = (Some(presenter), Some(gpu));
+        for step in teardown(&buffers, &timelines) {
+            match step {
+                Step::Buffer(k) => {
+                    if let Some(b) = buffers[k.0] {
+                        window.drop_buffer(s, b);
+                    }
+                }
+                Step::Timeline(k) => {
+                    if let Some(tl) = timelines[k.0] {
+                        baud_present_wayland::dmabuf::destroy_timeline(s, tl);
+                    }
+                }
+                Step::Presenter => {
+                    if let (Some(p), Some(g)) = (presenter.take(), gpu.as_ref()) {
+                        p.destroy(g);
+                    }
+                }
+                Step::Device => drop(gpu.take()),
+            }
+        }
     }
 }
 
@@ -591,5 +763,62 @@ mod tests {
         assert!(matches!(GpuArm::new(Some("off")).state, State::Off));
         assert!(matches!(GpuArm::new(None).state, State::Waiting));
         assert!(matches!(GpuArm::new(Some("on")).state, State::Waiting));
+    }
+
+    /// **An arm is torn down from the outside in**: every buffer and
+    /// timeline the compositor knows, then the presenter's memory, then
+    /// the device, and nothing named twice.
+    #[test]
+    fn an_arm_is_torn_down_buffers_and_timelines_before_memory_and_device() {
+        let both = [Some(()), Some(())];
+        assert_eq!(
+            teardown(&both, &both),
+            [
+                Step::Buffer(TargetIx(0)),
+                Step::Buffer(TargetIx(1)),
+                Step::Timeline(TargetIx(0)),
+                Step::Timeline(TargetIx(1)),
+                Step::Presenter,
+                Step::Device,
+            ]
+        );
+        let none: [Option<()>; TARGETS] = [None, None];
+        assert_eq!(
+            teardown(&[Some(()), None], &none),
+            [Step::Buffer(TargetIx(0)), Step::Presenter, Step::Device],
+            "only what the compositor knows"
+        );
+    }
+
+    /// **A lost device turns into a restart, memory running out for the
+    /// targets into a wait for a smaller size, and `BAUD_GPU=off` into no
+    /// failure at all**: what each reason the arm leaves for is weighed as.
+    #[test]
+    fn each_reason_the_arm_leaves_for_is_weighed_by_its_kind() {
+        let px = (baud_present_wayland::Px(800), baud_present_wayland::Px(600));
+        let size = Some(px);
+        let lost = Failed::LOST;
+        let oom = Failed::OUT_OF_DEVICE_MEMORY;
+        let host = Failed::OUT_OF_HOST_MEMORY;
+        let init = Failed::NoMemoryType;
+        assert_eq!(Off::Env.failure(size), None);
+        assert_eq!(Off::NoVulkan.failure(size), Some(Failure::NoLoader));
+        assert_eq!(Off::NotImported.failure(size), Some(Failure::Refused(size)));
+        assert_eq!(Off::Failed(lost).failure(size), Some(Failure::Lost));
+        assert_eq!(Off::Fitting(lost).failure(size), Some(Failure::Lost));
+        assert_eq!(
+            Off::Fitting(oom).failure(size),
+            Some(Failure::OutOfMemoryFitting(px))
+        );
+        assert_eq!(
+            Off::Fitting(host).failure(size),
+            Some(Failure::OutOfMemoryFitting(px))
+        );
+        assert_eq!(Off::Failed(oom).failure(size), Some(Failure::OutOfMemory));
+        assert_eq!(Off::Failed(init).failure(size), Some(Failure::Other(init)));
+        assert_eq!(
+            Off::Failed(Failed::Spirv).failure(size),
+            Some(Failure::Other(Failed::Spirv))
+        );
     }
 }

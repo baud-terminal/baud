@@ -189,6 +189,8 @@ mod marked;
 // drivers open a link through it.
 #[cfg(target_os = "linux")]
 mod gpu_arm;
+#[cfg(target_os = "linux")]
+mod gpu_fallback;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod lined;
 mod link;
