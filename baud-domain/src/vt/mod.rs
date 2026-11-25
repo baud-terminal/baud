@@ -3,6 +3,8 @@ mod clipboard;
 mod csi;
 mod dcs;
 mod esc;
+#[cfg(feature = "alloc")]
+mod fdo_notify;
 mod file_uri;
 mod font_ops;
 mod hebrew_keys;
@@ -50,6 +52,8 @@ pub use clipboard::*;
 pub use csi::*;
 pub use dcs::*;
 pub use esc::*;
+#[cfg(feature = "alloc")]
+pub use fdo_notify::*;
 pub use file_uri::*;
 pub use font_ops::*;
 pub use hebrew_keys::*;

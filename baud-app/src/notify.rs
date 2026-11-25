@@ -15,9 +15,10 @@
 //!   (`baud_domain::NoticeBucket`), so a loop printing notifications
 //!   posts four and then one a second, the rest dropped, counted and
 //!   logged once a burst ([`Delivery::rate_line`]).
-//! * **What text**: lossy UTF-8 with every control taken out ([`text`]):
-//!   kitty's "Escape code safe UTF-8" binds the sender, and a desktop
-//!   notification has no use for a control either way.
+//! * **What text**: lossy UTF-8 with every control taken out
+//!   (`baud_domain::SafeText`): the protocol's "Escape code safe UTF-8" binds the
+//!   sender, and a desktop notification has no use for a control either
+//!   way.
 //! * **Icons**: the images programs send under `g` are kept, a bounded
 //!   cache that forgets the least recently used ([`Icons`]), as kitty's
 //!   text allows: "implementations can impose a reasonable max size on
@@ -43,12 +44,13 @@ use std::collections::VecDeque;
 use std::time::Duration;
 
 use baud_core::{
-    Activation, Attention, CloseReport, Expiry, Notice, NoticeAction, NoticeButton, NoticeFrom,
-    NoticeToken, Occasion, Progress, ReportCount, Term, Urgency,
+    Activation, Attention, CloseReport, Expiry, Notice, NoticeAction, NoticeFrom, NoticeToken,
+    Occasion, Progress, ReportCount, Term, Urgency,
 };
 
 use baud_domain::{
     HostTime, NoticeBucket, NoticeEffect, NoticeLine, NoticeSaidOnce, NoticeSetting, NoticeSlots,
+    NoticeSound, SafeText,
 };
 
 /// A notification taken from the core, owned, its text made safe.
@@ -57,10 +59,10 @@ pub struct Posted {
     pub token: NoticeToken,
     pub from: NoticeFrom,
     pub action: NoticeAction,
-    pub title: String,
-    pub body: String,
+    pub title: SafeText,
+    pub body: SafeText,
     /// iTerm2's `subtitle`.
-    pub subtitle: String,
+    pub subtitle: SafeText,
     /// The path of the local file iTerm2's `image` names, read only when
     /// the notification is shown, off the thread that feeds the terminal
     /// ([`PictureReader`]).
@@ -68,40 +70,19 @@ pub struct Posted {
     /// The buttons it shows, each with the number the core gave it: a
     /// label of controls alone shows nothing and is left out, and the
     /// rest keep their numbers, which a click reports.
-    pub buttons: Vec<(baud_core::NoticeButton, String)>,
+    pub buttons: Vec<(baud_core::NoticeButton, SafeText)>,
     /// `f` and the first `t`.
-    pub app: String,
-    pub kind: String,
-    pub icon_names: Vec<String>,
+    pub app: SafeText,
+    pub kind: SafeText,
+    pub icon_names: Vec<SafeText>,
     /// The image to show: sent with it, or cached under its `g`.
     pub icon: Option<Vec<u8>>,
-    pub sound: Sound,
+    pub sound: NoticeSound,
     pub occasion: Occasion,
     pub urgency: Urgency,
     pub expiry: Expiry,
     pub activation: Activation,
     pub close: CloseReport,
-}
-
-/// `s`: the two every terminal plays, and the rest by name.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Sound {
-    /// "The default system sound for a notification".
-    System,
-    /// "No sound must accompany the notification".
-    Silent,
-    /// "error", "warn", "info", "question" or a platform's own name.
-    Named(String),
-}
-
-impl Sound {
-    fn of(name: &str) -> Sound {
-        match name {
-            "" | "system" => Sound::System,
-            "silent" => Sound::Silent,
-            other => Sound::Named(other.to_string()),
-        }
-    }
 }
 
 impl Posted {
@@ -122,20 +103,20 @@ impl Posted {
             token: n.token,
             from: n.from,
             action: n.action,
-            title: text(n.title),
-            body: text(n.body),
-            subtitle: text(n.subtitle),
+            title: SafeText::clean(n.title),
+            body: SafeText::clean(n.body),
+            subtitle: SafeText::clean(n.subtitle),
             picture: (!n.picture.is_empty()).then(|| n.picture.to_vec()),
             buttons: n
                 .buttons()
-                .map(|(k, b)| (k, text(b)))
+                .map(|(k, b)| (k, SafeText::clean(b)))
                 .filter(|(_, b)| !b.is_empty())
                 .collect(),
-            app: text(n.app),
-            kind: text(n.kind),
-            icon_names: n.icon_names().map(text).collect(),
+            app: SafeText::clean(n.app),
+            kind: SafeText::clean(n.kind),
+            icon_names: n.icon_names().map(SafeText::clean).collect(),
             icon,
-            sound: Sound::of(&text(n.sound)),
+            sound: NoticeSound::of(SafeText::clean(n.sound)),
             occasion: n.occasion,
             urgency: n.urgency,
             expiry: n.expiry,
@@ -143,15 +124,24 @@ impl Posted {
             close: n.close,
         }
     }
-}
 
-/// Bytes a program sent as text: lossy UTF-8, every C0 and C1 control and
-/// `DEL` taken out.
-pub fn text(b: &[u8]) -> String {
-    String::from_utf8_lossy(b)
-        .chars()
-        .filter(|c| !c.is_control())
-        .collect()
+    /// **What `Notify` carries of it** (`baud_domain::FdoNotify::of`).
+    #[cfg(any(target_os = "linux", test))]
+    pub fn fdo(&self) -> baud_domain::FdoPost<'_> {
+        baud_domain::FdoPost {
+            app: &self.app,
+            title: &self.title,
+            subtitle: &self.subtitle,
+            body: &self.body,
+            kind: &self.kind,
+            icon_names: &self.icon_names,
+            buttons: &self.buttons,
+            sound: &self.sound,
+            urgency: self.urgency,
+            expiry: self.expiry,
+            activation: self.activation,
+        }
+    }
 }
 
 /// How many icons the cache keeps, and how many bytes in all.
@@ -183,32 +173,6 @@ impl Icons {
         let e = self.kept.remove(i)?;
         self.kept.push_back(e);
         self.kept.back().map(|(_, d)| &d[..])
-    }
-}
-
-/// The icon name a platform's theme has for one of kitty's "Universally
-/// available icon names", from the freedesktop Icon Naming Specification
-/// (`[[source: freedesktop-icon-naming-spec]]`) where it names one; any
-/// other name -- an application's id, or `system-monitor`, which the
-/// specification has no name for -- is passed as sent, for the theme to
-/// resolve.
-#[cfg(any(target_os = "linux", test))]
-pub fn icon_name(kitty: &str) -> &str {
-    // A name, never a path or a URI: `app_icon` takes "a file:// URI" too,
-    // and a program must not make the server open a file it names. kitty's
-    // names are application ids and symbol names.
-    if kitty.contains(['/', ':']) {
-        return "";
-    }
-    match kitty {
-        "error" => "dialog-error",
-        "warn" | "warning" => "dialog-warning",
-        "info" => "dialog-information",
-        "question" => "dialog-question",
-        "help" => "help-browser",
-        "file-manager" => "system-file-manager",
-        "text-editor" => "accessories-text-editor",
-        other => other,
     }
 }
 
@@ -1018,26 +982,30 @@ impl Delivery<String> {
             .id(p.token)
             .cloned()
             .unwrap_or_else(|| format!("{prefix}-{:?}", p.token));
+        let buttons = baud_domain::NoticeButtonSet::of(p.buttons.iter().map(|(n, _)| *n));
         turn.calls.push(MacCall::Post(MacPost {
             id: id.clone(),
-            title: p.title,
-            subtitle: p.subtitle,
-            body: p.body,
+            title: p.title.into_string(),
+            subtitle: p.subtitle.into_string(),
+            body: p.body.into_string(),
             silent: match p.sound {
-                Sound::Silent => Silence::Silent,
+                NoticeSound::Silent => Silence::Silent,
                 _ => Silence::Sound,
             },
             passive: match p.urgency {
                 Urgency::Low => Passive::Passive,
                 _ => Passive::Active,
             },
-            buttons: p.buttons.clone(),
+            buttons: p
+                .buttons
+                .into_iter()
+                .map(|(n, label)| (n, label.into_string()))
+                .collect(),
             image,
         }));
         if let Expiry::After(d) = p.expiry {
             turn.calls.push(MacCall::Expire(id.clone(), d.duration()));
         }
-        let buttons = baud_domain::NoticeButtonSet::of(p.buttons.iter().map(|(n, _)| *n));
         self.slots.pending(p.token, id, p.expiry, now, buttons);
     }
 }
@@ -1283,8 +1251,8 @@ pub fn alive_step(
 pub fn clicked(
     action: &str,
     default: &str,
-    read: impl FnOnce(&str) -> Option<NoticeButton>,
-) -> Option<Option<NoticeButton>> {
+    read: impl FnOnce(&str) -> Option<baud_core::NoticeButton>,
+) -> Option<Option<baud_core::NoticeButton>> {
     if action == default {
         return Some(None);
     }
@@ -1292,15 +1260,20 @@ pub fn clicked(
 }
 
 /// **The button of `token` a click's action names**, by the number the
-/// presenter put in it: one of the buttons that notification showed, or
-/// none. A number that parses but names no button it showed is dropped,
-/// never reported, as is any click on one no longer shown.
+/// presenter put in it, read only as it was written
+/// (`baud_domain::FdoActionKey::read`): one of the buttons that
+/// notification showed, or none. A number naming no button it showed is
+/// dropped, never reported, as is any click on one no longer shown.
+#[cfg(any(target_os = "macos", test))]
 pub fn read_back<P>(
     slots: &NoticeSlots<P>,
     token: NoticeToken,
     number: &str,
-) -> Option<NoticeButton> {
-    slots.button(token, number.parse().ok()?)
+) -> Option<baud_core::NoticeButton> {
+    match slots.action(token, number)? {
+        baud_domain::FdoActionKey::Button(b) => Some(b),
+        baud_domain::FdoActionKey::Default => None,
+    }
 }
 
 /// **Whether Linux has no summary to give it**: neither a title nor a
@@ -1627,15 +1600,6 @@ impl Checker {
     }
 }
 
-/// Text for a server that reads markup: "Body text may contain markup",
-/// and what a program sent is text, so `&`, `<` and `>` are escaped.
-#[cfg(any(target_os = "linux", test))]
-pub fn escape_markup(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
 #[cfg(test)]
 mod tests {
     use super::{DockBar, DockBars, DockTone};
@@ -1703,7 +1667,7 @@ mod tests {
         assert_eq!(d.gone(2), None, "a second close changes nothing");
     }
     use super::*;
-    use baud_core::{NonZeroMillis, NoticeBudget, Owned, Term};
+    use baud_core::{NonZeroMillis, NoticeBudget, NoticeButton, Owned, Term};
     use baud_domain::{
         ButtonSupport, BytePos, CloseEvents, HostTime, MacSight, NoticeButtonSet, NoticePlan,
         NoticePlatform, NoticeSetting, NoticeSupport, NoticeTaken, Occasions, ReadLen, ServerCaps,
@@ -1940,13 +1904,6 @@ mod tests {
         );
     }
 
-    /// Controls come out of the text a program sent, and broken UTF-8 is
-    /// replaced.
-    #[test]
-    fn text_has_no_controls() {
-        assert_eq!(text(b"a\x1b[31mb\xc2\x9bc\xff"), "a[31mbc\u{fffd}");
-    }
-
     /// An image sent under `g` is used by a later notification that names
     /// only `g`; the cache forgets the least recently used.
     #[test]
@@ -2177,7 +2134,7 @@ mod tests {
         for (n, label) in &p.buttons {
             let place = 1 + sent
                 .iter()
-                .position(|l| text(l.as_bytes()) == *label)
+                .position(|l| SafeText::clean(l.as_bytes()) == *label)
                 .expect("a shown label was sent");
             // The action a presenter names the button by.
             let action = format!("button-{}", n.number());
@@ -2241,6 +2198,74 @@ mod tests {
         let linux = |key: &str| read_back(&shown, p.token, key).map(NoticeButton::number);
         assert_eq!(linux("3"), Some(3), "the control");
         assert_eq!(linux("5"), None, "Linux: a button it did not show");
+    }
+
+    /// **An action key is read only as it was sent**: the decimal number
+    /// with no sign and no leading zero, on Linux's key and macOS's action
+    /// alike, so `+3` and `03` name no button. The controls: `3` names the
+    /// third, and ` 3` is refused.
+    #[test]
+    fn an_action_key_is_read_only_as_it_was_sent() {
+        let p = posted(
+            "\x1b]99;i=n:a=report:d=0;T\x1b\\\x1b]99;i=n:p=buttons;A\u{2028}B\u{2028}C\x1b\\"
+                .as_bytes(),
+            &mut Icons::default(),
+        );
+        let shown = shown_as(&p[..1], &[1]);
+        let p = &p[0];
+        let linux = |key: &str| read_back(&shown, p.token, key).map(NoticeButton::number);
+        let mac = |action: &str| {
+            clicked(action, DEFAULT, |n| read_back(&shown, p.token, n))
+                .map(|b| b.map(NoticeButton::number))
+        };
+        assert_eq!(linux("3"), Some(3), "the control");
+        assert_eq!(mac("button-3"), Some(Some(3)), "the control");
+        assert_eq!(linux(" 3"), None, "the control: a space is refused");
+        assert_eq!(linux("+3"), None, "Linux: a sign was not sent");
+        assert_eq!(linux("03"), None, "Linux: a leading zero was not sent");
+        assert_eq!(mac("button-+3"), None, "macOS: a sign was not sent");
+        assert_eq!(mac("button-03"), None, "macOS: a leading zero was not sent");
+    }
+
+    /// **The actions the macOS presenter writes are the ones read back**:
+    /// it names each button `button-` and its number, and the default
+    /// action by the framework's identifier, so a click on each button of
+    /// `Go`, a label of controls alone and `Go` -- `button-1` and
+    /// `button-3`, as the presenter's own test reads them -- reads back as
+    /// that button, and `button-2`, which was not shown, as none.
+    #[test]
+    fn the_presenters_actions_read_back_as_its_buttons() {
+        let presenter = include_str!("../../baud-present-macos/src/notify.rs");
+        let writes = concat!(
+            "actionWithIdentifier: &*NSString::from_str(&format!(\"button-{}\", ",
+            "n.number())),"
+        );
+        assert!(presenter.contains(writes), "the presenter's spelling");
+        assert!(
+            presenter.contains(&format!("pub const DEFAULT_ACTION: &str = {DEFAULT:?};")),
+            "the framework's default identifier"
+        );
+        let p = posted(
+            "\x1b]99;i=n:a=report:d=0;T\x1b\\\x1b]99;i=n:p=buttons;Go\u{2028}\u{85}\u{2028}Go\x1b\\"
+                .as_bytes(),
+            &mut Icons::default(),
+        );
+        let shown = shown_as(&p[..1], &[1]);
+        let p = &p[0];
+        let written: Vec<String> = p
+            .buttons
+            .iter()
+            .map(|(n, _)| format!("button-{}", n.number()))
+            .collect();
+        assert_eq!(written, ["button-1", "button-3"]);
+        let mac = |action: &str| {
+            clicked(action, DEFAULT, |n| read_back(&shown, p.token, n))
+                .map(|b| b.map(NoticeButton::number))
+        };
+        assert_eq!(mac(&written[0]), Some(Some(1)));
+        assert_eq!(mac(&written[1]), Some(Some(3)));
+        assert_eq!(mac("button-2"), None, "not shown");
+        assert_eq!(mac(DEFAULT), Some(None), "the notification itself");
     }
 
     /// **The macOS driver's calls, recorded**: a notification posted with
@@ -2533,7 +2558,6 @@ mod tests {
         assert_eq!(d.image_data(&with(b"GIF87a")), None);
         assert_eq!(d.unshown.count().get(), 4);
         assert_eq!(d.image_line().map(line_text), None, "said once");
-        assert_eq!(escape_markup("a <b> & c"), "a &lt;b&gt; &amp; c");
     }
 
     /// **A JPEG and a GIF are decoded for Linux too**, by baud's own
@@ -3166,15 +3190,6 @@ mod tests {
 
     /// The default action's identifier, as the framework names it.
     const DEFAULT: &str = "com.apple.UNNotificationDefaultActionIdentifier";
-
-    #[test]
-    fn kittys_names_map_to_the_naming_specification() {
-        assert_eq!(icon_name("warn"), "dialog-warning");
-        assert_eq!(icon_name("system-monitor"), "system-monitor");
-        assert_eq!(icon_name("org.example.App"), "org.example.App");
-        assert_eq!(icon_name("file:///etc/passwd"), "", "a URI is not a name");
-        assert_eq!(icon_name("/tmp/x.png"), "", "nor a path");
-    }
 
     /// `d` in base64, padded.
     fn b64(d: &[u8]) -> String {
@@ -4005,9 +4020,9 @@ mod tests {
         assert_eq!(files.asked.len(), 1, "an icon sent is used, nothing read");
         assert_eq!(d.checks(), Checks::Done);
         let mut bare = p.clone();
-        bare.title.clear();
+        bare.title = SafeText::clean(b"");
         assert!(untitled(&bare), "no summary for Notify");
-        bare.subtitle = "main".into();
+        bare.subtitle = SafeText::clean(b"main");
         assert!(!untitled(&bare), "the subtitle stands as the summary");
     }
 

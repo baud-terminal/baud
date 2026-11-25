@@ -1,8 +1,10 @@
 //! **The notifications a window has handed to its platform**, one slot per
 //! [`NoticeLiveIdx`]: the slot a [`NoticeToken`] names in the desk is the
 //! slot it holds here, so the desk and the platform's table forget the same
-//! notification when a new one takes its slot.
+//! notification when a new one takes its slot. A click is read back
+//! against the buttons its slot showed ([`FdoActionKey`]).
 
+use core::fmt;
 use core::time::Duration;
 
 use crate::{
@@ -46,6 +48,65 @@ impl NoticeButtonSet {
     pub fn numbered(self, number: u8) -> Option<NoticeButton> {
         let b = NoticeButton::of_index(usize::from(number.checked_sub(1)?))?;
         (self.0 & 1 << (b.number() - 1) != 0).then_some(b)
+    }
+}
+
+/// **The key an action is sent under and read back by**: `default`, the
+/// notification itself -- "The default action (usually invoked by
+/// clicking the notification) should have a key named \"default\"" -- or
+/// a button, by its number in decimal
+/// (`[[source: freedesktop-notification-spec]]`, "Each even element in the list
+/// (starting at index 0) represents the identifier for the action").
+/// A key is read back exactly as it is written ([`FdoActionKey::read`]):
+/// no sign, no leading zero, no space, and only a number one of the
+/// notification's buttons has.
+///
+/// ```
+/// let shown = baud_domain::NoticeButtonSet::NONE;
+/// let key = baud_domain::FdoActionKey::read("default", shown);
+/// assert_eq!(key, Some(baud_domain::FdoActionKey::Default));
+/// assert_eq!(key.map(|k| k.to_string()).as_deref(), Some("default"));
+/// assert_eq!(baud_domain::FdoActionKey::read("3", shown), None, "no third button");
+/// ```
+///
+/// A key is never parsed from text alone, without the buttons it is read
+/// against:
+///
+/// ```compile_fail,E0277
+/// let key: baud_domain::FdoActionKey = "3".parse().unwrap();
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FdoActionKey {
+    /// The notification itself.
+    Default,
+    /// One of its buttons.
+    Button(NoticeButton),
+}
+
+impl FdoActionKey {
+    /// **`key` read back against the buttons `shown`**: `default`, or the
+    /// decimal number of one of them written as [`fmt::Display`] writes
+    /// it. Anything else -- a sign, a leading zero, a space, a number no
+    /// button shown has -- is `None`.
+    pub fn read(key: &str, shown: NoticeButtonSet) -> Option<FdoActionKey> {
+        if key == "default" {
+            return Some(FdoActionKey::Default);
+        }
+        let digits = key.as_bytes();
+        match digits {
+            [b'1'..=b'9', rest @ ..] if rest.iter().all(u8::is_ascii_digit) => {}
+            _ => return None,
+        }
+        shown.numbered(key.parse().ok()?).map(FdoActionKey::Button)
+    }
+}
+
+impl fmt::Display for FdoActionKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FdoActionKey::Default => f.write_str("default"),
+            FdoActionKey::Button(b) => write!(f, "{}", b.number()),
+        }
     }
 }
 
@@ -461,13 +522,16 @@ impl<P> NoticeSlots<P> {
         }
     }
 
-    /// **The button numbered `number` that `token` showed**: `None` for a
-    /// number naming none of its buttons, and for one not on the platform.
-    pub fn button(&self, token: NoticeToken, number: u8) -> Option<NoticeButton> {
-        match self.slots[token.slot().index()].shown() {
-            Some((t, _, buttons)) if t == token => buttons.numbered(number),
-            _ => None,
-        }
+    /// **What a click's action `key` names of `token`**, read back
+    /// against the buttons it showed ([`FdoActionKey::read`]): a number
+    /// naming none of them is `None`, and so is every button of one not
+    /// on the platform.
+    pub fn action(&self, token: NoticeToken, key: &str) -> Option<FdoActionKey> {
+        let shown = match self.slots[token.slot().index()].shown() {
+            Some((t, _, buttons)) if t == token => buttons,
+            _ => NoticeButtonSet::NONE,
+        };
+        FdoActionKey::read(key, shown)
     }
 
     /// **The nearest deadline**, for the driver's wait: kept as slots are
@@ -744,8 +808,13 @@ mod tests {
         assert_eq!(s.next_due(), Some(at(3000)), "the next one is nearest");
         assert_eq!(s.id(a), Some(&7), "alive until the platform says");
         assert_eq!(s.token(&7), Some(a));
-        assert_eq!(s.button(a, 2).map(NoticeButton::number), Some(2));
-        assert_eq!(s.button(a, 1), None, "a button it did not show");
+        assert_eq!(
+            s.action(a, "2"),
+            Some(FdoActionKey::Button(
+                NoticeButton::of_index(1).expect("a second button")
+            ))
+        );
+        assert_eq!(s.action(a, "1"), None, "a button it did not show");
         assert!(s.due(|| at(2500)).is_empty(), "due once");
         s.get(b).expect("held").free();
         assert_eq!(s.next_due(), None, "c never closes on its own");
@@ -772,7 +841,56 @@ mod tests {
         assert_eq!(s.notified(t, 11, at(100)), Some(t));
         assert_eq!((s.id(t), s.token(&10)), (Some(&11), None));
         assert_eq!(s.next_due(), Some(at(5000)));
-        assert_eq!(s.button(t, 1).map(NoticeButton::number), Some(1));
+        assert_eq!(
+            s.action(t, "1"),
+            Some(FdoActionKey::Button(
+                NoticeButton::of_index(0).expect("a first button")
+            ))
+        );
+    }
+
+    /// **An action key is read only as it was sent**: `default`, or the
+    /// number of a button it showed, in decimal with no sign, no leading
+    /// zero and no space, so `+3` and `03` name nothing. Every button's
+    /// key reads back as itself, and not against a set without it.
+    #[test]
+    fn an_action_key_is_read_only_as_it_was_sent() {
+        struct Written([u8; 8], usize);
+        impl fmt::Write for Written {
+            fn write_str(&mut self, s: &str) -> fmt::Result {
+                let end = self.1 + s.len();
+                let to = self.0.get_mut(self.1..end).ok_or(fmt::Error)?;
+                to.copy_from_slice(s.as_bytes());
+                self.1 = end;
+                Ok(())
+            }
+        }
+        let buttons = || (0..NOTICE_BUTTONS).filter_map(NoticeButton::of_index);
+        let all = NoticeButtonSet::of(buttons());
+        let third = NoticeButton::of_index(2).expect("a third button");
+        assert_eq!(
+            FdoActionKey::read("3", all),
+            Some(FdoActionKey::Button(third)),
+            "the control"
+        );
+        for refused in [
+            "+3", "03", " 3", "3 ", "-3", "0", "9", "", "3.0", "\u{663}", "256", "259", "Default",
+            "default ",
+        ] {
+            assert_eq!(FdoActionKey::read(refused, all), None, "{refused:?}");
+        }
+        for b in buttons() {
+            let k = FdoActionKey::Button(b);
+            let mut w = Written([0; 8], 0);
+            fmt::write(&mut w, format_args!("{k}")).expect("a key fits");
+            let text = core::str::from_utf8(&w.0[..w.1]).expect("ASCII");
+            assert_eq!(FdoActionKey::read(text, all), Some(k), "{text}");
+            assert_eq!(FdoActionKey::read(text, NoticeButtonSet::NONE), None);
+        }
+        assert_eq!(
+            FdoActionKey::read("default", NoticeButtonSet::NONE),
+            Some(FdoActionKey::Default)
+        );
     }
 
     /// **An update keeps the one shown until the platform answers it**: its
@@ -790,7 +908,12 @@ mod tests {
         s.posting(t, after(5000), NoticeButtonSet::NONE);
         assert_eq!(s.id(t), Some(&7), "the one shown, while the update is sent");
         assert_eq!(s.token(&7), Some(t), "a click or a close on it is heard");
-        assert_eq!(s.button(t, 2).map(NoticeButton::number), Some(2));
+        assert_eq!(
+            s.action(t, "2"),
+            Some(FdoActionKey::Button(
+                NoticeButton::of_index(1).expect("a second button")
+            ))
+        );
         assert_eq!(s.next_due(), Some(at(1000)), "its deadline kept");
         let fired: [Option<NoticeLiveIdx>; 2] = {
             let mut f = s.due(|| at(1500));
@@ -800,7 +923,7 @@ mod tests {
         assert_eq!(s.notified(t, 8, at(2000)), Some(t));
         assert_eq!((s.id(t), s.token(&7)), (Some(&8), None));
         assert_eq!(s.next_due(), Some(at(7000)), "the update's deadline");
-        assert_eq!(s.button(t, 2), None, "the update's buttons");
+        assert_eq!(s.action(t, "2"), None, "the update's buttons");
     }
 
     /// **A refused update leaves the one shown as it was**: its id, its
@@ -818,7 +941,12 @@ mod tests {
         s.refused(t);
         assert_eq!(s.id(t), Some(&7), "still on screen");
         assert_eq!(s.token(&7), Some(t));
-        assert_eq!(s.button(t, 2).map(NoticeButton::number), Some(2));
+        assert_eq!(
+            s.action(t, "2"),
+            Some(FdoActionKey::Button(
+                NoticeButton::of_index(1).expect("a second button")
+            ))
+        );
         assert_eq!(s.next_due(), Some(at(1000)), "its deadline kept");
         s.posting(t, after(3000), NoticeButtonSet::NONE);
         assert_eq!(s.notified(t, 8, at(100)), Some(t), "a later update");

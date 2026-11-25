@@ -2872,12 +2872,12 @@ impl Driver {
             }
             Heard::Invoked(id, key, activation) => {
                 // "default" is a click on the notification itself, a number
-                // its button, read back against the buttons it showed: a
-                // number naming none of them is dropped, not reported.
+                // its button, read back exactly as it was sent against the
+                // buttons it showed: any other key is dropped, not reported.
                 let clicked = self.notes.slots.token(&id).and_then(|token| {
-                    let button = match key.as_str() {
-                        "default" => None,
-                        n => Some(crate::notify::read_back(&self.notes.slots, token, n)?),
+                    let button = match self.notes.slots.action(token, &key)? {
+                        baud_domain::FdoActionKey::Default => None,
+                        baud_domain::FdoActionKey::Button(b) => Some(b),
                     };
                     Some((token, button))
                 });

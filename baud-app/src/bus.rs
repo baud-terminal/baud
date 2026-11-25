@@ -1986,85 +1986,50 @@ fn uid() -> Option<Uid> {
     std::fs::metadata("/proc/self").ok().map(|m| Uid(m.uid()))
 }
 
-/// **One notification as `Notify` takes it** (`[[source:
-/// freedesktop-notification-spec]]`): the program's application name or
-/// baud's; its first icon name as the theme names it; the text, escaped
-/// where the server reads markup; a `default` action where a click is
-/// reported or asked to focus the window, and its buttons numbered from 1; the urgency, the sound, the
-/// type as `category` and the image, decoded (`Delivery::image_data`), as
-/// `image-data`; and its expiry.
-///
-/// **iTerm2's subtitle**, which `Notify` has no argument for, opens the
-/// body as its own paragraph, a blank line before the message -- "Each
-/// line is a paragraph" -- as Chromium's Linux notification bridge sets a
-/// notification's context line above its message (`[[source:
-/// chromium-fc2ff62-notification-bridge-linux]]`); with no title it is
-/// the summary, which is the one text argument the text does not call
-/// optional.
+/// **One notification as `Notify` takes it**: the arguments
+/// `baud_domain::FdoNotify::of` decides, each hint under the name the
+/// specification gives it (`[[source: freedesktop-notification-spec]]`),
+/// the picture decoded (`Delivery::image_data`) as `image-data`, the id it
+/// replaces, and baud's desktop entry.
 pub(crate) fn notification(
     p: &crate::notify::Posted,
     replaces: Option<NotifyId>,
     caps: baud_domain::ServerCaps,
     image: Option<(baud_domain::png::Size, Vec<u8>)>,
 ) -> Notification {
-    use crate::notify::Sound;
+    use baud_domain::{FdoExpire, FdoNotify, NoticeSound};
     use {Expire, Hint, Image, Octet, Truth};
-    let text = |s: &str| match caps.markup() {
-        Some(_) => crate::notify::escape_markup(s),
-        None => s.to_string(),
-    };
-    let mut actions = Vec::new();
-    if p.activation.reports() || p.activation.focuses() {
-        actions.push(("default".to_string(), "Open".to_string()));
+    let n = FdoNotify::of(&p.fdo(), caps);
+    let mut hints: Vec<(&'static str, Hint)> =
+        vec![("urgency", Hint::Byte(Octet(n.urgency_level())))];
+    match n.sound() {
+        NoticeSound::System => {}
+        NoticeSound::Silent => hints.push(("suppress-sound", Hint::Bool(Truth::True))),
+        NoticeSound::Named(name) => hints.push(("sound-name", Hint::Str(name.to_string()))),
     }
-    for (n, b) in &p.buttons {
-        actions.push((n.number().to_string(), b.clone()));
-    }
-    let mut hints: Vec<(&'static str, Hint)> = vec![(
-        "urgency",
-        Hint::Byte(Octet(match p.urgency {
-            baud_core::Urgency::Low => 0,
-            baud_core::Urgency::Normal => 1,
-            baud_core::Urgency::Critical => 2,
-        })),
-    )];
-    match &p.sound {
-        Sound::System => {}
-        Sound::Silent => hints.push(("suppress-sound", Hint::Bool(Truth::True))),
-        Sound::Named(n) => hints.push(("sound-name", Hint::Str(n.clone()))),
-    }
-    if !p.kind.is_empty() {
-        hints.push(("category", Hint::Str(p.kind.clone())));
+    if let Some(kind) = n.category() {
+        hints.push(("category", Hint::Str(kind.to_string())));
     }
     if let Some((size, rgba)) = image {
         hints.push(("image-data", Hint::Image(Image { size, rgba })));
     }
     hints.push(("desktop-entry", Hint::Str(DESKTOP_ENTRY.to_string())));
-    let (summary, body) = match (p.title.is_empty(), p.subtitle.is_empty(), p.body.is_empty()) {
-        (_, true, _) => (p.title.clone(), p.body.clone()),
-        (true, false, _) => (p.subtitle.clone(), p.body.clone()),
-        (false, false, true) => (p.title.clone(), p.subtitle.clone()),
-        (false, false, false) => (p.title.clone(), format!("{}\n\n{}", p.subtitle, p.body)),
-    };
     Notification {
-        app_name: match p.app.is_empty() {
-            true => "baud".to_string(),
-            false => p.app.clone(),
-        },
+        app_name: n.app_name().to_string(),
         replaces,
-        app_icon: p
-            .icon_names
-            .first()
-            .map(|n| crate::notify::icon_name(n).to_string())
-            .unwrap_or_default(),
-        summary,
-        body: text(&body),
-        actions,
+        app_icon: n.icon().map(|i| i.as_str().to_string()).unwrap_or_default(),
+        summary: n.summary().to_string(),
+        body: n.body().collect(),
+        actions: n
+            .actions()
+            .iter()
+            .map(|(key, label)| (key.to_string(), label.to_string()))
+            .collect(),
         hints,
-        expire: match p.expiry {
-            baud_core::Expiry::System => Expire::Server,
-            baud_core::Expiry::Never => Expire::Never,
-            baud_core::Expiry::After(d) => Expire::After(d.duration()),
+        expire: match n.expire() {
+            FdoExpire::Server => Expire::Server,
+            FdoExpire::Never => Expire::Never,
+            FdoExpire::After(d) => Expire::After(d.duration()),
         },
     }
 }
