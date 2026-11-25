@@ -271,23 +271,13 @@ struct Driver {
     /// deadline, which bounds the wait (`reads::paced`), each with what its
     /// read was taken with, so it is filed under its own verdict when fed.
     pace: crate::reads::Pace<(crate::probe::Writers, crate::probe::ReadLinked)>,
-    /// The frame a slide's live frames are painted into and the window
-    /// copies out of: the window's size, so row damage has a target that
-    /// still holds the last frame. Every other CPU frame is drawn in place
-    /// into the window's buffer (`draw_in_place`). The renderer paints all
-    /// of it, the gutter and the leftover around the whole frame included
-    /// (`draw_kept`).
-    frame: Vec<u32>,
-    /// The old screen kept at a screen switch for its slide, drawn with its
-    /// cursor hidden, and the frame each slide frame is composed into:
-    /// `frame` stays the live frame, which the renderer paints by rows.
-    ///
-    /// The window copies each slide frame whole, and draws the frame after
-    /// whole (`Window::draw_cpu`).
-    kept: Vec<u32>,
-    composed: Vec<u32>,
-    /// Whether `frame` holds the last frame drawn, or frames drawn in
-    /// place since left it behind.
+    /// The frames a screen switch's slide draws through, held only while
+    /// it runs, and the surface's size (`SlideFrames`). The window copies
+    /// each slide frame whole, and draws the frame after whole
+    /// (`Window::draw_cpu`).
+    slides: SlideFrames,
+    /// Whether the slide's live frame holds the last frame drawn, or
+    /// frames drawn in place since left it behind.
     frame_holds: FrameHolds,
     /// What the last lent draws changed, for the rows each buffer the
     /// window lends misses.
@@ -954,9 +944,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
         widths,
         pace,
-        frame: Vec::new(),
-        kept: Vec::new(),
-        composed: Vec::new(),
+        slides: SlideFrames::new(),
         frame_holds: FrameHolds::Stale,
         since: Since::NONE,
         stride: Px::of(0),
@@ -1814,17 +1802,21 @@ impl Driver {
             // goes to the window whole. Nothing is kept for no slide.
             let form = self.timed.switched(Instant::now(), self.term.screen());
             if let Some(crate::effects::SwitchForm::Slide(_)) = form {
+                // The slide's first frame is drawn whole: its live frame
+                // may be new.
+                let _ = self.slides.start(self.margin);
+                self.frame_holds = FrameHolds::Stale;
                 self.frame_from_window();
                 let whole = self.renderer.whole_size();
                 let (renderer, term) = (&mut self.renderer, &self.term);
                 let _ = crate::origin::in_frame(
-                    &mut self.frame,
+                    &mut self.slides.frame,
                     self.stride,
                     self.origin,
                     whole,
                     |target| renderer.render_hidden(term, target),
                 );
-                self.kept.clone_from(&self.frame);
+                self.slides.kept.clone_from(&self.slides.frame);
             }
         }
         if after.thumb == crate::seat::Thumb::Reveal {
@@ -2149,11 +2141,7 @@ impl Driver {
     /// sides. A frame that moved is drawn whole, the renderer painting the
     /// gutter and the leftover around it. The only writer of `origin`.
     fn place(&mut self) {
-        let rows = usize::try_from(self.stride.value())
-            .ok()
-            .filter(|&p| p > 0)
-            .map_or(0, |p| self.frame.len() / p);
-        let surface = (self.stride, Px::of(u32::try_from(rows).unwrap_or(0)));
+        let surface = self.slides.surface();
         let at = crate::origin::origin(surface, self.renderer.whole_size(), self.gutter());
         if at != self.origin {
             self.origin = at;
@@ -4236,8 +4224,7 @@ impl Driver {
         // A resize or a font change moves every cell's pixels under the
         // trail, which names them: the next sighting starts afresh.
         self.timed.snap();
-        let words = usize::try_from(u64::from(width.0) * u64::from(height.0)).unwrap_or(0);
-        self.frame = vec![self.margin.0; words];
+        self.slides.resized((Px::of(width.0), Px::of(height.0)));
         self.stride = Px::of(width.0);
         self.place();
         // **The screen made ready to draw, before the first frame is asked
@@ -4602,13 +4589,12 @@ impl Driver {
         self.cpu_cold = baud_render::Cold::No;
         let painting = Instant::now();
         let shown = match plan.slide {
-            Some(s) if self.kept.len() == self.frame.len() => self.draw_slide(s, (seal, back)),
+            Some(s) if self.slides.ready() => self.draw_slide(s, (seal, back)),
             _ => {
-                // Settled: the two frames go, so an idle window holds
+                // Settled: the slide's frames go, so an idle window holds
                 // nothing for the slide.
                 if plan.slide.is_none() {
-                    self.kept = Vec::new();
-                    self.composed = Vec::new();
+                    self.slides.settle();
                 }
                 self.draw_in_place((seal, back))
             }
@@ -4639,19 +4625,21 @@ impl Driver {
         }
     }
 
-    /// **The frame last drawn in place, read back into `frame`** for a
-    /// slide's old screen, straight again: the window's buffer that holds
-    /// it, while one does and is the surface's size. `frame` then holds the
-    /// last frame, and the slide's first live frame is still drawn whole.
+    /// **The frame last drawn in place, read back into the slide's live
+    /// frame** for its old screen, straight again: the window's buffer
+    /// that holds it, while one does and is the surface's size. The live
+    /// frame then holds the last frame, and the slide's first live frame
+    /// is still drawn whole.
     fn frame_from_window(&mut self) {
         let pitch = usize::try_from(self.stride.value()).unwrap_or(0);
         let Some((pixels, stride)) = self.window.last_drawn() else {
             return;
         };
-        if pitch == 0 || self.frame.len() / pitch * stride > pixels.len() {
+        let frame = &mut self.slides.frame;
+        if pitch == 0 || frame.len() / pitch * stride > pixels.len() {
             return;
         }
-        for (to, from) in self.frame.chunks_mut(pitch).zip(pixels.chunks(stride)) {
+        for (to, from) in frame.chunks_mut(pitch).zip(pixels.chunks(stride)) {
             for (t, &f) in to.iter_mut().zip(from) {
                 *t = straight(Argb(f)).0;
             }
@@ -4679,11 +4667,8 @@ impl Driver {
         let (renderer, term, since) = (&mut self.renderer, &self.term, &mut self.since);
         let (painted, changed) = (&mut self.strips, &mut self.changed);
         let (damage, at) = (self.damage, self.origin);
-        let rows = usize::try_from(self.stride.value())
-            .ok()
-            .filter(|&p| p > 0)
-            .map_or(0, |p| self.frame.len() / p);
-        let surface = (self.stride.value(), u32::try_from(rows).unwrap_or(u32::MAX));
+        let (width, rows) = self.slides.surface();
+        let surface = (width.value(), rows.value());
         let mut cost = None;
         let drew = &mut cost;
         let shown = self.window.draw_cpu(&mut self.conn.sender(), move |lent| {
@@ -4718,11 +4703,10 @@ impl Driver {
         shown
     }
 
-    /// **A slide's frame**: the live frame drawn into the kept `frame` --
-    /// whole when the frames before were drawn in place -- the grid's rows
-    /// composed from it and the kept old screen, the margin below them the
-    /// live frame's, and copied into the window whole, as is the frame
-    /// after the slide.
+    /// **A slide's frame**: the slide's live frame drawn -- whole when the
+    /// frames before were drawn in place -- the grid's rows composed from
+    /// it and the kept old screen, the margin below them the live frame's,
+    /// and copied into the window whole, as is the frame after the slide.
     fn draw_slide(
         &mut self,
         s: baud_render::ScreenSlide,
@@ -4735,7 +4719,7 @@ impl Driver {
             &mut self.renderer,
             &self.term,
             (seal, back),
-            (&mut self.frame, self.stride, self.origin),
+            (&mut self.slides.frame, self.stride, self.origin),
             self.damage,
             &mut self.strips,
         ) else {
@@ -4744,7 +4728,13 @@ impl Driver {
         self.frame_holds = FrameHolds::Last;
         self.cpu_drawn(drawn);
         let pitch = usize::try_from(self.stride.value()).unwrap_or(0);
-        self.composed.clone_from(&self.frame);
+        let SlideFrames {
+            frame,
+            kept,
+            composed,
+            ..
+        } = &mut self.slides;
+        composed.clone_from(frame);
         // The frame's own rows, not the activity lights' line, which
         // holds still as the margin does.
         let rows = self.renderer.frame_size().1;
@@ -4752,19 +4742,19 @@ impl Driver {
             Px::of(self.origin.y.value() + self.renderer.grid_top().value()),
             rows,
             self.stride,
-            &self.frame,
+            frame,
         );
         let o = baud_render::slide_offsets(s, rows);
         let shown = match baud_render::compose_slide(
-            &self.frame[span.clone()],
-            &self.kept[span.clone()],
-            &mut self.composed[span],
+            &frame[span.clone()],
+            &kept[span.clone()],
+            &mut composed[span],
             self.stride,
             rows,
             o,
         ) {
-            true => &self.composed,
-            false => &self.frame,
+            true => &*composed,
+            false => &*frame,
         };
         self.window
             .present(&mut self.conn.sender(), shown, pitch, Changed::Whole)
@@ -4971,7 +4961,7 @@ impl PresentedLog {
     }
 }
 
-/// **The CPU arm's frame, drawn into the kept `frame`**: the surface
+/// **The CPU arm's frame, drawn into the slide's live frame**: the surface
 /// `stride` pixels wide, its rows below one another, the renderer's whole
 /// frame at `at` in it, drawn by [`draw_at`] with nothing stale -- `frame`
 /// holds the last frame. `strips` are set to the surface's pixel rows
@@ -5051,6 +5041,96 @@ fn draw_at(
 enum FrameHolds {
     Last,
     Stale,
+}
+
+/// **The frames a screen switch's slide draws through**, held only while a
+/// slide runs: every other CPU frame is drawn in place into the window's
+/// buffer (`draw_in_place`), so a window that never slides holds none of
+/// them, and a resize makes none.
+///
+/// `frame` is the live frame the slide's frames are painted into and the
+/// window copies out of, the surface's size, so row damage has a target
+/// that still holds the last frame; the renderer paints all of it, the
+/// gutter and the leftover around the whole frame included (`draw_kept`).
+/// `kept` is the old screen kept at the switch, drawn with its cursor
+/// hidden, and `composed` the frame each slide frame is composed into.
+#[derive(Debug)]
+struct SlideFrames {
+    frame: Vec<u32>,
+    kept: Vec<u32>,
+    composed: Vec<u32>,
+    /// The surface's size in pixels, the size `frame` is made at.
+    size: (Px, Px),
+    /// How many times `frame` was made, counted for the tests.
+    #[cfg(test)]
+    made: Made,
+}
+
+/// How many times a slide's live frame was made at the surface's size.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Made(u64);
+
+impl SlideFrames {
+    /// None held, for a surface not yet sized.
+    fn new() -> Self {
+        Self {
+            frame: Vec::new(),
+            kept: Vec::new(),
+            composed: Vec::new(),
+            size: (Px::of(0), Px::of(0)),
+            #[cfg(test)]
+            made: Made(0),
+        }
+    }
+
+    /// The surface's pixels: its width and its rows.
+    fn surface(&self) -> (Px, Px) {
+        self.size
+    }
+
+    /// **The surface resized**: the frames go, a slide drawn through them
+    /// ends, and the next slide makes its frame at the new size.
+    fn resized(&mut self, size: (Px, Px)) {
+        self.size = size;
+        self.settle();
+    }
+
+    /// **A slide starts**: the live frame, made at the surface's size in
+    /// `margin` unless it is held at that size already.
+    fn start(&mut self, margin: Argb) -> &mut Vec<u32> {
+        let (w, h) = self.size;
+        let words = usize::try_from(u64::from(w.value()) * u64::from(h.value())).unwrap_or(0);
+        if self.frame.len() != words {
+            self.frame = vec![margin.0; words];
+            #[cfg(test)]
+            {
+                self.made = Made(self.made.0 + 1);
+            }
+        }
+        &mut self.frame
+    }
+
+    /// **The slide settled**: the three frames go.
+    fn settle(&mut self) {
+        self.frame = Vec::new();
+        self.kept = Vec::new();
+        self.composed = Vec::new();
+    }
+
+    /// Whether a slide frame can be drawn: the old screen is kept at the
+    /// live frame's size.
+    fn ready(&self) -> bool {
+        !self.kept.is_empty() && self.kept.len() == self.frame.len()
+    }
+
+    /// Whether the three frames hold no byte.
+    #[cfg(test)]
+    fn holds_none(&self) -> bool {
+        [&self.frame, &self.kept, &self.composed]
+            .iter()
+            .all(|f| f.capacity() == 0)
+    }
 }
 
 /// How many lent draws [`Since`] keeps what they changed of: a buffer
@@ -5156,6 +5236,37 @@ fn presented_line(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A resize makes no slide frame; a slide makes one**: resized from
+    /// 3840x2160 to 1600x900, the slide's frames are not made and hold no
+    /// byte; the slide's start makes its live frame once, at the surface's
+    /// size in the margin, a second start in the same slide makes none,
+    /// and the settle and a resize after it leave nothing held.
+    #[test]
+    fn a_resize_makes_no_slide_frame_and_a_slide_makes_one() {
+        let mut s = SlideFrames::new();
+        for (w, h) in [(3840, 2160), (1600, 900)] {
+            s.resized((Px::of(w), Px::of(h)));
+        }
+        assert_eq!(s.surface(), (Px::of(1600), Px::of(900)));
+        assert_eq!(s.made, Made(0), "a resize makes no frame");
+        assert!(s.holds_none(), "a window that never slides holds none");
+        assert!(!s.ready(), "no slide frame is drawn with nothing kept");
+        let margin = Argb(0xff20_3040);
+        let frame = s.start(margin);
+        assert_eq!(frame.len(), 1600 * 900);
+        assert!(frame.iter().all(|&w| w == margin.0));
+        assert_eq!(s.made, Made(1), "a slide's start makes its frame");
+        let _ = s.start(margin);
+        assert_eq!(s.made, Made(1), "the frame held is used again");
+        s.kept.clone_from(&s.frame);
+        assert!(s.ready());
+        s.settle();
+        assert!(s.holds_none(), "a settled slide holds nothing");
+        s.resized((Px::of(3840), Px::of(2160)));
+        assert_eq!(s.made, Made(1));
+        assert!(s.holds_none());
+    }
 
     /// **A presented line gives the latest stamp, the refresh and the counts**,
     /// so a reader can tell frames presented within one turn; before any
