@@ -34,8 +34,10 @@ baud-core = { workspace = true }
 
 [features]
 # For the crate's tests: a pipeline build held at a gate (`Pipelines::hold_builds`),
-# a target cleared and waited for (`Gpu::clear`), and the CPU's fence waits
-# counted (`Gpu::waits`). baud's own build leaves it off (`xtask/tests/test_hooks.rs`).
+# a target cleared and waited for (`Gpu::clear`), the CPU's fence waits
+# counted (`Gpu::waits`), a device call forced to fail (`Gpu::fail_at`) and the
+# targets alive counted (`Gpu::targets_live`). baud's own build leaves it off
+# (`xtask/tests/test_hooks.rs`).
 test-hooks = []
 
 [dev-dependencies]

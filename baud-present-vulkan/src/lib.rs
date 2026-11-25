@@ -17,6 +17,8 @@ pub mod damage;
 pub mod draw;
 pub mod effect;
 pub mod frame;
+#[cfg(any(test, feature = "test-hooks"))]
+pub mod hooks;
 pub mod lend;
 mod loader;
 pub mod pipeline;

@@ -201,10 +201,28 @@ impl Presenter {
             return Ok(Remade::No);
         }
         self.drop_slots(gpu);
+        // Both targets or none: a failure part way drops what was made.
+        if let Err(e) = self.make_slots(gpu, size) {
+            self.drop_slots(gpu);
+            return Err(e);
+        }
+        self.next = TargetIx(0);
+        Ok(Remade::Yes)
+    }
+
+    /// Both targets made, each with its timeline where frames carry points;
+    /// a failure part way leaves the ones made in `slots`.
+    fn make_slots(&mut self, gpu: &Gpu, size: (Px, Px)) -> Result<(), Failed> {
         for _ in 0..TARGETS {
             let target = gpu.target(size.0, size.1)?;
             let timeline = match gpu.choice.sync {
-                crate::choose::Sync::Explicit => Some(gpu.timeline()?),
+                crate::choose::Sync::Explicit => match gpu.timeline() {
+                    Ok(tl) => Some(tl),
+                    Err(e) => {
+                        gpu.drop_target(target);
+                        return Err(e);
+                    }
+                },
                 crate::choose::Sync::Implicit => None,
             };
             self.slots.push(Slot {
@@ -214,8 +232,7 @@ impl Presenter {
                 point: Point(0),
             });
         }
-        self.next = TargetIx(0);
-        Ok(Remade::Yes)
+        Ok(())
     }
 
     /// Target `k`, for the driver to import, and its timeline's fd.

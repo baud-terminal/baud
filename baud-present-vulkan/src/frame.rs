@@ -43,6 +43,9 @@ pub struct Gpu {
     /// The CPU's waits on a fence, for a test to count ([`Gpu::waits`]).
     #[cfg(any(test, feature = "test-hooks"))]
     waits: std::cell::Cell<Waits>,
+    /// The failures the crate's tests force, and the targets alive.
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub(crate) hooks: crate::hooks::Hooks,
 }
 
 /// **How many times the CPU waited on a fence** ([`Gpu::waits`]).
@@ -228,6 +231,8 @@ impl Gpu {
             multiply,
             #[cfg(any(test, feature = "test-hooks"))]
             waits: std::cell::Cell::new(Waits(0)),
+            #[cfg(any(test, feature = "test-hooks"))]
+            hooks: crate::hooks::Hooks::default(),
         })
     }
 
@@ -310,17 +315,40 @@ impl Gpu {
             .push_next(&mut export)
             .push_next(&mut dedicated);
         // SAFETY: an allocate-info for this image's requirements.
-        let memory = unsafe { d.allocate_memory(&alloc, None) }?;
-        // SAFETY: fresh memory of the image's size, bound once at zero.
-        unsafe { d.bind_image_memory(image, memory, 0) }?;
+        let memory = match self
+            .call()
+            .and_then(|()| unsafe { d.allocate_memory(&alloc, None) }.map_err(Failed::from))
+        {
+            Ok(m) => m,
+            Err(e) => {
+                // SAFETY: the image is unbound and unused.
+                unsafe { d.destroy_image(image, None) };
+                return Err(e);
+            }
+        };
         let fd_ext = ash::khr::external_memory_fd::Device::new(&self.vulkan.instance, d);
         let get = vk::MemoryGetFdInfoKHR::default()
             .memory(memory)
             .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
-        // SAFETY: memory allocated exportable as a dmabuf.
-        let raw = unsafe { fd_ext.get_memory_fd(&get) }?;
+        // SAFETY: fresh memory of the image's size, bound once at zero, then
+        // exported as a dmabuf.
+        let raw = match unsafe {
+            d.bind_image_memory(image, memory, 0)
+                .and_then(|()| fd_ext.get_memory_fd(&get))
+        } {
+            Ok(raw) => raw,
+            Err(e) => {
+                // SAFETY: neither is in use; the image goes first.
+                unsafe {
+                    d.destroy_image(image, None);
+                    d.free_memory(memory, None);
+                }
+                return Err(e.into());
+            }
+        };
         // SAFETY: `vkGetMemoryFdKHR` hands over a new descriptor the caller owns.
         let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        self.made();
         let sub =
             vk::ImageSubresource::default().aspect_mask(vk::ImageAspectFlags::MEMORY_PLANE_0_EXT);
         // SAFETY: a modifier image's memory plane 0, which it has.
@@ -520,19 +548,22 @@ impl Gpu {
             one = one.push_next(&mut timeline);
         }
         let submit = [one];
-        // SAFETY: the buffer is recorded, the fence unsignalled; both are
-        // freed only after the wait.
-        let done = unsafe {
-            d.queue_submit(self.queue, &submit, fence)
-                .and_then(|()| d.wait_for_fences(&[fence], true, u64::MAX))
-        };
+        let done = self.call().and_then(|()| {
+            // SAFETY: the buffer is recorded, the fence unsignalled; both are
+            // freed only after the wait.
+            unsafe {
+                d.queue_submit(self.queue, &submit, fence)
+                    .and_then(|()| d.wait_for_fences(&[fence], true, u64::MAX))
+            }
+            .map_err(Failed::from)
+        });
         self.waited();
         // SAFETY: the queue has finished with both, or never took them.
         unsafe {
             d.destroy_fence(fence, None);
             d.free_command_buffers(self.pool, &cbs);
         }
-        done.map_err(Failed::from)
+        done
     }
 
     /// **Every pixel of `t`, read back by the GPU**: the image taken back
@@ -698,6 +729,7 @@ impl Gpu {
         record(r.cb);
         let cbs = [r.cb];
         let submit = [vk::SubmitInfo::default().command_buffers(&cbs)];
+        self.call()?;
         // SAFETY: the buffer is recorded and the fence unsignalled.
         unsafe {
             d.end_command_buffer(r.cb)?;
@@ -744,19 +776,22 @@ impl Gpu {
         let fence = unsafe { d.create_fence(&vk::FenceCreateInfo::default(), None) }?;
         let cbs = [cb];
         let submit = [vk::SubmitInfo::default().command_buffers(&cbs)];
-        // SAFETY: the buffer is recorded and the fence unsignalled; both are
-        // freed only after the wait.
-        let done = unsafe {
-            d.queue_submit(self.queue, &submit, fence)
-                .and_then(|()| d.wait_for_fences(&[fence], true, u64::MAX))
-        };
+        let done = self.call().and_then(|()| {
+            // SAFETY: the buffer is recorded and the fence unsignalled; both are
+            // freed only after the wait.
+            unsafe {
+                d.queue_submit(self.queue, &submit, fence)
+                    .and_then(|()| d.wait_for_fences(&[fence], true, u64::MAX))
+            }
+            .map_err(Failed::from)
+        });
         self.waited();
         // SAFETY: the queue has finished with both, or never took them.
         unsafe {
             d.destroy_fence(fence, None);
             d.free_command_buffers(self.pool, &cbs);
         }
-        done.map_err(Failed::from)
+        done
     }
 
     /// Destroy `t`: its image and memory. Its fd is closed when dropped.
@@ -768,6 +803,42 @@ impl Gpu {
             self.device.destroy_image(t.image, None);
             self.device.free_memory(t.memory, None);
         }
+        self.dropped();
+    }
+
+    /// **A fallible device call's turn** at the failure the crate's tests
+    /// force (`hooks.rs`); always through without `test-hooks`.
+    pub(crate) fn call(&self) -> Result<(), Failed> {
+        #[cfg(any(test, feature = "test-hooks"))]
+        return self.hooks.call();
+        #[cfg(not(any(test, feature = "test-hooks")))]
+        Ok(())
+    }
+
+    /// A target made, counted for the crate's tests.
+    fn made(&self) {
+        #[cfg(any(test, feature = "test-hooks"))]
+        self.hooks.made();
+    }
+
+    /// A target dropped, counted for the crate's tests.
+    fn dropped(&self) {
+        #[cfg(any(test, feature = "test-hooks"))]
+        self.hooks.dropped();
+    }
+
+    /// **The `n`-th fallible device call from now fails with `code`**: a
+    /// target's allocation or a submission, as a lost device or memory
+    /// running out would.
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn fail_at(&self, n: crate::hooks::Calls, code: Failed) {
+        self.hooks.fail_at(n, code);
+    }
+
+    /// **The targets made and not yet dropped.**
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn targets_live(&self) -> crate::hooks::Live {
+        self.hooks.live()
     }
 }
 

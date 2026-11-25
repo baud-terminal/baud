@@ -719,3 +719,134 @@ fn a_band_scrolled_into_view_draws_what_one_table_draws_on_radv() {
     let differ = want.iter().zip(&got).filter(|(a, b)| a != b).count();
     assert_eq!(differ, 0, "pixels that differ from the single mode's");
 }
+
+/// **The first frame a new presenter draws**, its pipelines built first:
+/// the frames asked while they build are the CPU arm's.
+fn first_drawn(gpu: &Gpu, r: &mut Renderer<'_, '_>, t: &mut Term<'_>) -> (Presenter, Vec<u32>) {
+    let mut p = Presenter::new(gpu, t).expect("the arm");
+    assert_eq!(p.fit(gpu, size(r)).expect("targets"), Remade::Yes);
+    let until = Instant::now() + Duration::from_secs(60);
+    loop {
+        match frame(gpu, &mut p, r, t) {
+            Frame::Cpu(Cpu::Building) => {
+                assert!(Instant::now() < until, "the cell pipelines never built");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Frame::Drew(k) => {
+                p.shown(k, DmabufShown::No);
+                let (tg, _) = p.target(k).expect("a target");
+                let pixels = gpu.read(tg).expect("read back");
+                return (p, pixels);
+            }
+            other => panic!("the first frame: {other:?}"),
+        }
+    }
+}
+
+/// **A lost device fails the frame, the arm comes down whole, and a new
+/// one draws what the lost one drew**: a loss forced at a frame's
+/// submission returns it, the presenter is destroyed with no target left,
+/// and the first frame on a new device, through the renderer that drew
+/// before, is pixel for pixel the frame the lost device drew of the same
+/// screen. The oracle is that frame, not a second presenter in the same
+/// process, so state carried from one presenter to the next cannot agree
+/// with itself. Named break: a new presenter that keeps the old one's
+/// style stamps, so the renderer takes its zeroed tables as resolved.
+#[test]
+fn a_lost_device_comes_down_whole_and_a_new_one_draws_what_it_drew() {
+    use baud_present_vulkan::frame::Failed;
+    use baud_present_vulkan::hooks::{Calls, Live};
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(
+        &mut t,
+        b"\x1b[1;31mred\x1b[0m before\r\n\x1b[44mblue ground\r\n\x1b[0mafter \x1b[32mgreen",
+    );
+    let lost = lavapipe();
+    let mut p = warm(&lost, &mut r, &mut t);
+    let Frame::Drew(k) = frame(&lost, &mut p, &mut r, &mut t) else {
+        panic!("drawn")
+    };
+    p.shown(k, DmabufShown::No);
+    let (tg, _) = p.target(k).expect("a target");
+    let want = lost.read(tg).expect("read back");
+    lost.fail_at(Calls(0), Failed::LOST);
+    let seal = t.seal_writes();
+    assert_eq!(p.frame(&lost, &mut r, &t, seal, &NONE), Err(Failed::LOST));
+    p.destroy(&lost);
+    assert_eq!(lost.targets_live(), Live(0), "no target left");
+    drop(lost);
+    let gpu = lavapipe();
+    let (p, again) = first_drawn(&gpu, &mut r, &mut t);
+    p.destroy(&gpu);
+    assert!(
+        want.iter().any(|&px| px != want[0]),
+        "the control: a frame with something on it"
+    );
+    let differ = want.iter().zip(&again).filter(|(a, b)| a != b).count();
+    assert_eq!(differ, 0, "pixels apart from the lost device's frame");
+}
+
+/// **Memory running out while the targets are made leaves none**: the
+/// second target's allocation forced to fail fails the fit, the first is
+/// dropped with it, and a fit after it makes both. Named break: the first
+/// target kept, half a pair.
+#[test]
+fn memory_running_out_while_fitting_leaves_no_target() {
+    use baud_present_vulkan::frame::Failed;
+    use baud_present_vulkan::hooks::{Calls, Live};
+    let gpu = lavapipe();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = Presenter::new(&gpu, &t).expect("the arm");
+    let (w, h) = size(&r);
+    gpu.fail_at(Calls(1), Failed::OUT_OF_DEVICE_MEMORY);
+    assert_eq!(p.fit(&gpu, (w, h)), Err(Failed::OUT_OF_DEVICE_MEMORY));
+    assert_eq!(gpu.targets_live(), Live(0), "no target left");
+    assert!(p.target(TargetIx(0)).is_none(), "the presenter holds none");
+    assert_eq!(p.fit(&gpu, (w, h)).expect("targets"), Remade::Yes);
+    assert_eq!(gpu.targets_live(), Live(2));
+    let _ = frame(&gpu, &mut p, &mut r, &mut t);
+    p.destroy(&gpu);
+    assert_eq!(gpu.targets_live(), Live(0));
+}
+
+/// **A resize storm holds two targets**: two hundred sizes among four,
+/// a frame drawn after every third, never leave more than the pair alive
+/// or fail, and destroying the presenter leaves none.
+#[test]
+fn a_resize_storm_holds_two_targets_and_fails_nothing() {
+    use baud_present_vulkan::hooks::Live;
+    let gpu = lavapipe();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"storm");
+    let mut p = warm(&gpu, &mut r, &mut t);
+    let (w, h) = size(&r);
+    let sizes = [
+        (w, h),
+        (Px(w.0 + 3), h),
+        (w, Px(h.0 + 5)),
+        (Px(w.0 + 8), Px(h.0 + 2)),
+    ];
+    for i in 0..200 {
+        p.fit(&gpu, sizes[i % sizes.len()]).expect("targets");
+        assert_eq!(gpu.targets_live(), Live(2), "after fit {i}");
+        if i % 3 == 0 {
+            if let Frame::Drew(k) = frame(&gpu, &mut p, &mut r, &mut t) {
+                p.shown(k, DmabufShown::No);
+            }
+        }
+    }
+    p.destroy(&gpu);
+    assert_eq!(gpu.targets_live(), Live(0));
+}

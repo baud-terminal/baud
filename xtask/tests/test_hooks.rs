@@ -1,9 +1,10 @@
 //! **baud's own build cannot reach the Vulkan crate's test hooks**: in the
 //! graph of `baud`'s normal dependencies on every target, as `Cargo.lock`
 //! resolves it, `baud-present-vulkan` is built without `test-hooks`, the
-//! feature that turns on `Gpu::clear`, a wait on the CPU, and the held
-//! pipeline builds. The crate's own tests take it through a dev-dependency,
-//! which this graph leaves out.
+//! feature that turns on `Gpu::clear`, a wait on the CPU, the held
+//! pipeline builds, and the device failures the crate's tests force. The
+//! crate's own tests take it through a dev-dependency, which this graph
+//! leaves out.
 
 use std::path::Path;
 use std::process::Command;
