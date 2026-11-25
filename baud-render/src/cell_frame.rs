@@ -14,7 +14,7 @@
 
 use crate::screens::{Built, Compare, Screens, SetIx, Taking};
 use crate::{
-    Candidate, Composition, GlyphMap, Highlight, Instance, Leaving, Lent, Overlay, Renderer,
+    Candidate, Cold, Composition, GlyphMap, Highlight, Instance, Leaving, Lent, Overlay, Renderer,
     Resolved, Scene, StyleStamp, Tally, WalkKey,
 };
 use baud_domain::{
@@ -138,6 +138,8 @@ pub struct CellFrame {
     pub moving: (usize, usize),
     /// How many records at the end are baud's own overlays.
     pub chrome: Tally,
+    /// Whether the build drew into the atlas.
+    pub cold: Cold,
 }
 
 /// **Builds the cell frame** into the set `building` names, once the
@@ -162,6 +164,27 @@ where
 {
     let damage = renderer.damage(term, inputs.back);
     build_with(renderer, term, seal, &damage, inputs, cell, used, building)
+}
+
+/// **The screen as it stands, made ready for the cell path** off
+/// `term`'s window `back` lines up under `seal`: the CPU path's
+/// [`Renderer::prepare`], which puts the glyphs the screen shows in the
+/// atlas and its runs in the shaper's caches, then the map walked over
+/// the window, so its entries hold them. No set is written, so a frame in
+/// flight reads what it read; the next build draws every pixel. On a
+/// terminal of more bands than one the map is left to the build, which
+/// gives each band its own slots.
+pub fn prepare(
+    renderer: &mut Renderer<'_, '_>,
+    term: &impl TermRead,
+    seal: Seal,
+    back: Rows,
+    cell: &mut CellParts<'_, '_, '_>,
+) {
+    renderer.prepare(term, seal, back);
+    if term.styles().bands().len() == 1 {
+        renderer.walk_map(term, back, cell.map, cell.candidates);
+    }
 }
 
 /// **`seal` is the one the driver closed this frame's writes with**
@@ -189,6 +212,7 @@ pub fn build_with<P>(
 where
     P: Iterator<Item = (Row, Col, Codepoint)> + DoubleEndedIterator + Clone,
 {
+    let work = crate::renderer::atlas_work(&renderer.atlas_stats());
     let (leaving, pan, highlight) = (inputs.leaving, inputs.pan, inputs.highlight);
     let sliding = leaving == Leaving::Drawn;
     let composition = inputs.composition;
@@ -824,6 +848,7 @@ where
         walked: Tally::of(walked),
         moving,
         chrome,
+        cold: Cold::of(work, crate::renderer::atlas_work(&renderer.atlas_stats())),
     };
     renderer.put_drawn_order(drawn);
     renderer.drew(term, seal, back, crate::drawn::Arm::Cell);

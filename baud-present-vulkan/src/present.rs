@@ -141,6 +141,8 @@ pub struct Presenter {
     /// What the last frame drawn cost, from its target in hand to its
     /// fence, the wait included: what effect pacing weighs.
     cost: std::time::Duration,
+    /// Whether the last frame drawn's build drew into the atlas.
+    cold: baud_render::Cold,
 }
 
 impl Presenter {
@@ -182,6 +184,7 @@ impl Presenter {
             next: TargetIx(0),
             counts: Counts::default(),
             cost: std::time::Duration::ZERO,
+            cold: baud_render::Cold::No,
         })
     }
 
@@ -373,9 +376,44 @@ impl Presenter {
         )?;
         slot.holder = Holder::Drawn;
         self.cost = started.elapsed();
+        self.cold = frame.cold;
         self.next = TargetIx((k.0 + 1) % TARGETS);
         self.counts.drew.0 += 1;
         Ok(Frame::Drew(k))
+    }
+
+    /// **The screen as it stands made ready to draw**, off `term`'s window
+    /// `back` lines up under `seal` (`cell_frame::prepare`): the atlas, the
+    /// shaper's caches and the map warmed, no set written. What the driver
+    /// calls on a map and a resize, before the first frame is asked for.
+    pub fn prepare(
+        &mut self,
+        renderer: &mut Renderer<'_, '_>,
+        term: &Term<'_>,
+        seal: Seal,
+        back: Rows,
+    ) {
+        baud_render::cell_frame::prepare(
+            renderer,
+            term,
+            seal,
+            back,
+            &mut CellParts {
+                map: &mut self.map,
+                exceptions: &mut self.exceptions,
+                screens: &mut self.screens,
+                copies_mem: &mut self.lent.copies,
+                styles_mem: &mut self.lent.styles,
+                overlay_mem: &mut self.lent.overlay,
+                style_stamps: &mut self.stamps,
+                lent: &mut self.lending,
+                candidates: &mut self.candidates,
+                records: &mut self.records,
+                grounds: &mut self.grounds,
+                lent_cells: &mut self.lent_cells,
+                lent_used: &mut self.lent_used,
+            },
+        );
     }
 
     /// **A free target**, the one after the last drawn first: one the
@@ -468,6 +506,12 @@ impl Presenter {
     /// fence, the wait on it included.
     pub fn cost(&self) -> std::time::Duration {
         self.cost
+    }
+
+    /// **Whether the last frame drawn's build drew into the atlas**: a cold
+    /// build, whose cost is the atlas's.
+    pub fn cold(&self) -> baud_render::Cold {
+        self.cold
     }
 
     pub fn counts(&self) -> Counts {

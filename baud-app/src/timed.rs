@@ -377,15 +377,17 @@ impl Timed {
     }
 
     /// **An effect frame drawn**: its key -- the arm, what it drew, its
-    /// frame's size and scale --, what it cost and whether the frame before
-    /// it was shown late, fed to the pacer; the divisor when it changed.
+    /// frame's size and scale --, what it cost, whether the frame before
+    /// it was shown late and whether its build drew into the atlas, fed to
+    /// the pacer; the divisor when it changed.
     pub(crate) fn effect_frame(
         &mut self,
         key: crate::pacer::Key,
         cost: Duration,
         missed: crate::pacer::Missed,
+        cold: crate::pacer::Cold,
     ) -> Option<crate::pacer::Divisor> {
-        self.pacer.frame(key, cost, missed, self.period)
+        self.pacer.frame(key, cost, missed, cold, self.period)
     }
 
     /// **What a turn of the loop at `now` owes**: a whole frame when a
@@ -2213,7 +2215,12 @@ mod tests {
         );
         let slow = PERIOD.mul_f64(1.5);
         assert_eq!(
-            fx.effect_frame(paced_key(), slow, crate::pacer::Missed::No),
+            fx.effect_frame(
+                paced_key(),
+                slow,
+                crate::pacer::Missed::No,
+                crate::pacer::Cold::No
+            ),
             Some(crate::pacer::Divisor::Half)
         );
         let (mut fx, dwell) = (fx, dwell);
@@ -2246,7 +2253,12 @@ mod tests {
         let (mut fx, dwell) = in_flight(t0, &mut t);
         fx.drawn(Blinking::SLOW, RegisBlink::Off);
         fx.set_period(Some(PERIOD));
-        fx.effect_frame(paced_key(), PERIOD * 2, crate::pacer::Missed::No);
+        fx.effect_frame(
+            paced_key(),
+            PERIOD * 2,
+            crate::pacer::Missed::No,
+            crate::pacer::Cold::No,
+        );
         let flip = fx.deadline(dwell).expect("the blink flips");
         let turns: Vec<Owes> = (0..3).map(|k| fx.turn(flip + PERIOD * k, &mut t)).collect();
         assert_eq!(turns[0], Owes::Full, "the flip, drawn at once: {turns:?}");
@@ -2263,6 +2275,7 @@ mod tests {
             paced_key(),
             Duration::from_millis(50),
             crate::pacer::Missed::Yes,
+            crate::pacer::Cold::No,
         );
         for k in 1..=6u32 {
             assert_eq!(fx.turn(dwell + PERIOD * k, &mut t), Owes::Frame, "turn {k}");

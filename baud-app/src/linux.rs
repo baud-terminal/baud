@@ -393,6 +393,9 @@ struct Driver {
     gpu: crate::gpu_arm::GpuArm,
     /// When effect pacing last logged a change of divisor.
     paced_said: Option<Instant>,
+    /// Whether the CPU arm's last build drew into the atlas, which effect
+    /// pacing leaves out of its average.
+    cpu_cold: baud_render::Cold,
     /// The session bus, for the portal's appearance and the file
     /// manager's reveal; `None` once it is gone or was never there.
     bus: Option<crate::bus::Bus>,
@@ -1003,6 +1006,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         // `BAUD_GPU=off` keeps every frame on the CPU arm, read once.
         gpu: crate::gpu_arm::GpuArm::new(std::env::var("BAUD_GPU").ok().as_deref()),
         paced_said: None,
+        cpu_cold: baud_render::Cold::No,
         timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition)
             .with_trail_scroll(cfg.trail_scroll)
             // Every window's, a new window's process as much as the
@@ -4229,6 +4233,11 @@ impl Driver {
         self.frame = vec![self.margin.0; words];
         self.stride = Px::of(width.0);
         self.place();
+        // **The screen made ready to draw, before the first frame is asked
+        // for**: the glyphs it shows drawn into the atlas and its runs
+        // shaped now, so the frame's build is warm.
+        let (seal, back) = (self.term.sealed(), self.term.window_back());
+        self.gpu.prepare(&mut self.renderer, &self.term, seal, back);
         self.damage = Damage::Full;
         self.pending = Pending::Dirty;
         // The grid the terminal *has*, not the one asked for -- `resize`
@@ -4553,8 +4562,8 @@ impl Driver {
             slide,
         ) {
             crate::gpu_arm::Arm::Shown => {
-                if let (Some(drawn), Some(cost)) = (effect, self.gpu.cost()) {
-                    self.pace(crate::pacer::PacedArm::Gpu, drawn, cost, late);
+                if let (Some(drawn), Some((cost, cold))) = (effect, self.gpu.cost()) {
+                    self.pace(crate::pacer::PacedArm::Gpu, drawn, (cost, cold), late);
                 }
                 self.seat.drawn(self.renderer.bidi());
                 self.timed
@@ -4583,6 +4592,7 @@ impl Driver {
         if self.frame_for == FrameFor::Moment {
             self.window.draw_for(seen_at);
         }
+        self.cpu_cold = baud_render::Cold::No;
         let painting = Instant::now();
         let shown = match plan.slide {
             Some(s) if self.kept.len() == self.frame.len() => self.draw_slide(s, (seal, back)),
@@ -4602,7 +4612,12 @@ impl Driver {
             let cost = painting.elapsed();
             startup_first("first present", &FIRST_PRESENT);
             if let Some(drawn) = effect {
-                self.pace(crate::pacer::PacedArm::Cpu, drawn, cost, late);
+                self.pace(
+                    crate::pacer::PacedArm::Cpu,
+                    drawn,
+                    (cost, self.cpu_cold),
+                    late,
+                );
             }
             self.report.presented();
             self.latency.shown_cpu(crate::pty::host_now);
@@ -4637,6 +4652,7 @@ impl Driver {
     /// and the blink rates on screen, which bound the next wait.
     fn cpu_drawn(&mut self, frame: baud_render::Frame) {
         self.report.drawn(frame);
+        self.cpu_cold = frame.cold;
         self.seat.drawn(self.renderer.bidi());
         self.damage = Damage::Incremental;
         self.timed
@@ -4744,15 +4760,16 @@ impl Driver {
     }
 
     /// **An effect frame shown, fed to effect pacing** (`pacer.rs`): the arm
-    /// that drew it, what it drew, what it cost and whether the frame before
-    /// was shown late -- which counts only on feedback synchronised to the
-    /// vertical blank (`timing::late`). A change of divisor is logged, at
-    /// most once a second.
+    /// that drew it, what it drew, what it cost and whether its build drew
+    /// into the atlas, and whether the frame before was shown late -- which
+    /// counts only on feedback synchronised to the vertical blank
+    /// (`timing::late`). A change of divisor is logged, at most once a
+    /// second.
     fn pace(
         &mut self,
         arm: crate::pacer::PacedArm,
         drawn: crate::pacer::Paced,
-        cost: Duration,
+        (cost, cold): (Duration, crate::pacer::Cold),
         late: Option<baud_present_wayland::Late>,
     ) {
         let (w, h) = self.renderer.whole_size();
@@ -4769,7 +4786,7 @@ impl Driver {
             Some(baud_present_wayland::Late::Yes) => crate::pacer::Missed::Yes,
             _ => crate::pacer::Missed::No,
         };
-        let Some(divisor) = self.timed.effect_frame(key, cost, missed) else {
+        let Some(divisor) = self.timed.effect_frame(key, cost, missed, cold) else {
             return;
         };
         let now = Instant::now();

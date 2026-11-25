@@ -13,13 +13,13 @@ use baud_domain::{
     WinSize,
 };
 use baud_font::{Face, Px};
-use baud_render::cell_frame::{CellFrame, CellInputs, CellParts, build_with};
+use baud_render::cell_frame::{self, CellFrame, CellInputs, CellParts, build_with};
 use baud_render::counters::{self, Counter, Counts, Site};
 use baud_render::fireworks::{BAUD, Form, HOLD, ORIGINS, Show};
 use baud_render::screens::{SETS, Screens, SetIx};
 use baud_render::{
-    Blend, Blink, BlinkPhases, Candidate, Damage, GlyphMap, Instance, Leaving, Lent, MapEntry,
-    Overlay, Pt, PxSize, Renderer, Resolved, Stack, StyleStamp, Target, Theme,
+    Blend, Blink, BlinkPhases, Candidate, Cold, Damage, GlyphMap, Instance, Leaving, Lent,
+    MapEntry, Overlay, Pt, PxSize, Renderer, Resolved, Stack, StyleStamp, Target, Theme,
 };
 
 /// A screen whose rendition table is its smallest, 1024 slots.
@@ -995,4 +995,122 @@ fn an_erased_middle_row_splits_a_picture() {
         u64::from(SMALL.ws_col),
         "the erased row alone is scanned"
     );
+}
+
+/// What the cold builds below draw: Latin, bold, box drawing and two
+/// letters the face lacks, so the atlas rasterises and synthesises.
+const COLD: &[u8] = "\x1b[?25lhello, world\r\n\u{2500}\u{2502}\u{2514} \u{4e2d}\u{6587} \u{2211}\r\n\x1b[1mbold\x1b[m"
+    .as_bytes();
+
+/// The atlas's work so far: every glyph drawn into it and every time it
+/// grew.
+fn work(r: &Renderer<'_, '_>) -> [u64; 5] {
+    let a = r.atlas_stats();
+    [
+        a.rasterised.value(),
+        a.synthesised.value(),
+        a.coloured.value(),
+        a.grown.value(),
+        a.enlarged.value(),
+    ]
+}
+
+/// **A screen made ready draws its first frame warm, on the CPU path**
+/// (`Renderer::prepare`): the build after it grows the atlas by nothing
+/// and reports `Cold::No`, and paints what a cold first build paints. The
+/// control: with no `prepare`, the first build draws into the atlas and
+/// reports `Cold::Yes`.
+#[test]
+fn a_prepared_screen_builds_its_first_frame_warm() {
+    let data = font();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut s = Owned::new(&SMALL);
+    let mut t = Term::new(s.storage(), &SMALL);
+    feed(&mut t, COLD);
+    let draw = |r: &mut Renderer<'_, '_>, t: &mut Term<'_>| {
+        r.fit(t);
+        let (w, h) = r.pixel_size();
+        let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
+        let mut target = Target::new(&mut px[..], w, w, h).unwrap();
+        let seal = t.seal_writes();
+        let frame = r.render(t, seal, &mut target, Damage::Incremental);
+        (frame, px)
+    };
+    let mut cold = renderer(&faces, SMALL);
+    let before = work(&cold);
+    let (frame, cold_px) = draw(&mut cold, &mut t);
+    assert_ne!(work(&cold), before, "the control draws into the atlas");
+    assert_eq!(frame.cold, Cold::Yes, "the control is cold");
+
+    let mut r = renderer(&faces, SMALL);
+    let seal = t.seal_writes();
+    r.prepare(&t, seal, Rows::ZERO);
+    let ready = work(&r);
+    let (frame, px) = draw(&mut r, &mut t);
+    assert_eq!(
+        work(&r),
+        ready,
+        "the first build grows the atlas by nothing"
+    );
+    assert_eq!(frame.cold, Cold::No);
+    assert!(px == cold_px, "and paints what the cold build paints");
+}
+
+/// **The same on the cell path** (`cell_frame::prepare`): the first cell
+/// frame after it grows the atlas by nothing and reports `Cold::No`; with
+/// no `prepare` it reports `Cold::Yes`.
+#[test]
+fn a_prepared_screen_builds_its_first_cell_frame_warm() {
+    let data = font();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut s = Owned::new(&SMALL);
+    let mut t = Term::new(s.storage(), &SMALL);
+    feed(&mut t, COLD);
+
+    let mut cold = renderer(&faces, SMALL);
+    let mut backing = GlyphMap::backing();
+    let mut cells = Cells::ringed(&mut backing, &t);
+    let before = work(&cold);
+    let (_, frame) = framed(&mut cold, &mut t, &mut cells);
+    assert_ne!(work(&cold), before, "the control draws into the atlas");
+    assert_eq!(frame.cold, Cold::Yes, "the control is cold");
+
+    let mut r = renderer(&faces, SMALL);
+    let mut backing = GlyphMap::backing();
+    let mut cells = Cells::ringed(&mut backing, &t);
+    let seal = t.seal_writes();
+    {
+        let mut copies = cells.copies_mem.each_mut().map(|c| &mut c[..]);
+        let mut styles = cells.styles_mem.each_mut().map(|c| &mut c[..]);
+        let mut overlay = cells.overlay_mem.each_mut().map(|c| &mut c[..]);
+        cell_frame::prepare(
+            &mut r,
+            &t,
+            seal,
+            Rows::ZERO,
+            &mut CellParts {
+                map: &mut cells.map,
+                exceptions: &mut cells.exceptions,
+                screens: &mut cells.screens,
+                copies_mem: &mut copies,
+                styles_mem: &mut styles,
+                overlay_mem: &mut overlay,
+                style_stamps: &mut cells.style_stamps,
+                lent: &mut cells.lent,
+                candidates: &mut cells.candidates,
+                records: &mut cells.records,
+                grounds: &mut cells.grounds,
+                lent_cells: &mut cells.lent_cells,
+                lent_used: &mut cells.lent_used,
+            },
+        );
+    }
+    let ready = work(&r);
+    let (_, frame) = framed(&mut r, &mut t, &mut cells);
+    assert_eq!(
+        work(&r),
+        ready,
+        "the first build grows the atlas by nothing"
+    );
+    assert_eq!(frame.cold, Cold::No);
 }

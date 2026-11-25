@@ -565,6 +565,40 @@ pub struct Frame {
     pub convert: Duration,
     pub composite: Duration,
     pub exceptions: Exceptions,
+    /// Whether the build drew a glyph into the atlas or grew it.
+    pub cold: Cold,
+}
+
+/// **Whether a build drew into the atlas**: a glyph rasterised,
+/// synthesised or coloured, or the texture grown or enlarged. A cold
+/// build's cost is the atlas's, not the frame's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Cold {
+    #[default]
+    No,
+    Yes,
+}
+
+/// **The atlas's work so far**: every glyph it drew and every time it
+/// grew, so a build that moves it drew into the atlas.
+pub(crate) fn atlas_work(a: &AtlasStats) -> [u64; 5] {
+    [
+        a.rasterised.value(),
+        a.synthesised.value(),
+        a.coloured.value(),
+        a.grown.value(),
+        a.enlarged.value(),
+    ]
+}
+
+impl Cold {
+    /// Cold when the atlas's work moved from `before` to `after`.
+    pub(crate) fn of(before: [u64; 5], after: [u64; 5]) -> Cold {
+        match before == after {
+            true => Cold::No,
+            false => Cold::Yes,
+        }
+    }
 }
 
 /// The video a frame draws in: the one the screen's `?5` asks for, or under
@@ -9858,6 +9892,40 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.draw(term, seal, back, &damage, target, Buffer::Kept).0
     }
 
+    /// **The screen as it stands, made ready to draw** off `term`'s window
+    /// `back` lines up under `seal`: every row converted, so the glyphs it
+    /// shows are in the atlas and its runs in the shaper's caches, and
+    /// nothing painted. The next build draws every pixel, from those
+    /// caches. What a driver calls when the window is mapped or resized,
+    /// before it asks for the first frame, so the cold build is not the
+    /// frame's.
+    pub fn prepare(&mut self, term: &impl TermRead, seal: Seal, back: Rows) {
+        let _ = self.convert_with(term, seal, back, &crate::drawn::TOLD, ImageRows::Ignored);
+        self.drawn = None;
+    }
+
+    /// **The map walked over `term`'s window `back` lines up** through
+    /// the rendition table the CPU path last synced, which the map's
+    /// entries take their faces from.
+    pub(crate) fn walk_map(
+        &mut self,
+        term: &impl TermRead,
+        back: Rows,
+        map: &mut crate::GlyphMap<'_>,
+        candidates: &mut Vec<crate::Candidate>,
+    ) {
+        let styles = core::mem::take(&mut self.styles);
+        map.ensure_with(
+            term,
+            term.view(back),
+            &crate::drawn::TOLD,
+            &styles,
+            self,
+            candidates,
+        );
+        self.styles = styles;
+    }
+
     /// **The CPU path's one build of a frame**, drawn into `target` as
     /// `damage` says: the rows it names taken from `term` again, every row
     /// for a [`FrameDamage::Whole`], and beside them the rows the renderer
@@ -9893,6 +9961,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // (`ImageAlpha::Partial`) would blend twice -- nor over an overlay
         // drawn on an earlier frame, and a frame that repaints no row an
         // image covers blits none of it.
+        let work = atlas_work(&self.atlas.stats());
         self.fit(term);
         // A frame with the splash's layers, or the one after it, repaints
         // whole: no row's reach counts their records.
@@ -9982,7 +10051,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 rows: self.painted_rows(stale),
             },
         };
-        (frame, lent)
+        let cold = Cold::of(work, atlas_work(&self.atlas.stats()));
+        (Frame { cold, ..frame }, lent)
     }
 
     /// **What a frame changed of the frame before**, `grid` the rows whose

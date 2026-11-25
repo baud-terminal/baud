@@ -365,11 +365,30 @@ impl GpuArm {
         was
     }
 
+    /// **The screen as it stands made ready to draw** off `term`'s window
+    /// `back` lines up under `seal`, so the first frame's build is not
+    /// cold: through the cell path while the arm is on
+    /// (`Presenter::prepare`), which warms the CPU path's caches too, else
+    /// through the CPU path's (`Renderer::prepare`).
+    pub fn prepare(
+        &mut self,
+        renderer: &mut baud_render::Renderer<'_, '_>,
+        term: &baud_core::Term<'_>,
+        seal: baud_domain::Seal,
+        back: baud_domain::Rows,
+    ) {
+        match &mut self.state {
+            State::On(on) => on.presenter.prepare(renderer, term, seal, back),
+            _ => renderer.prepare(term, seal, back),
+        }
+    }
+
     /// **What the last frame the GPU arm drew cost**, from its target in hand
-    /// to its fence; `None` while the arm is not on.
-    pub fn cost(&self) -> Option<std::time::Duration> {
+    /// to its fence, and whether its build drew into the atlas; `None` while
+    /// the arm is not on.
+    pub fn cost(&self) -> Option<(std::time::Duration, baud_render::Cold)> {
         match &self.state {
-            State::On(on) => Some(on.presenter.cost()),
+            State::On(on) => Some((on.presenter.cost(), on.presenter.cold())),
             _ => None,
         }
     }

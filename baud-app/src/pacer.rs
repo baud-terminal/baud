@@ -13,6 +13,8 @@
 
 use core::time::Duration;
 
+pub use baud_render::Cold;
+
 /// Which arm drew a frame: each keeps its own decision, so a stretch on one
 /// does not teach the other.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,20 +136,27 @@ impl EffectPacer {
         self.divisor
     }
 
-    /// **One effect frame**: its key, what it cost, whether it missed, and
-    /// the refresh period if one is known. Returns the divisor when this
-    /// frame changed it. A new key starts at its kept divisor, or every
-    /// refresh, with no history carried over from the key before.
+    /// **One effect frame**: its key, what it cost, whether it missed,
+    /// whether its build drew into the atlas, and the refresh period if one
+    /// is known. Returns the divisor when this frame changed it. A new key
+    /// starts at its kept divisor, or every refresh, with no history
+    /// carried over from the key before. A cold build's cost is the
+    /// atlas's, not the effect's: it takes up its key and is left out of
+    /// the average, the misses and the hold.
     pub fn frame(
         &mut self,
         key: Key,
         cost: Duration,
         missed: Missed,
+        cold: Cold,
         period: Option<Duration>,
     ) -> Option<Divisor> {
         let before = self.divisor;
         if self.key != Some(key) {
             self.switch(key);
+        }
+        if cold == Cold::Yes {
+            return (before != self.divisor).then_some(self.divisor);
         }
         let Some(period) = period else {
             self.divisor = Divisor::Full;
@@ -233,7 +242,7 @@ mod tests {
     fn run(e: &mut EffectPacer, n: Frames, f: Share, period: Duration) -> Vec<Divisor> {
         (0..n.0)
             .map(|_| {
-                e.frame(K, times(period, f), Missed::No, Some(period));
+                e.frame(K, times(period, f), Missed::No, Cold::No, Some(period));
                 e.divisor()
             })
             .collect()
@@ -272,7 +281,7 @@ mod tests {
         for i in 0..1000 {
             let f = Share(if i % 2 == 0 { 0.6 } else { 0.9 });
             switches += usize::from(
-                e.frame(K, times(HZ240, f), Missed::No, Some(HZ240))
+                e.frame(K, times(HZ240, f), Missed::No, Cold::No, Some(HZ240))
                     .is_some(),
             );
         }
@@ -304,12 +313,12 @@ mod tests {
     fn misses_alone_halve() {
         let mut e = EffectPacer::new();
         let cheap = times(HZ240, Share(0.3));
-        e.frame(K, cheap, Missed::Yes, Some(HZ240));
+        e.frame(K, cheap, Missed::Yes, Cold::No, Some(HZ240));
         for _ in 0..3 {
-            e.frame(K, cheap, Missed::No, Some(HZ240));
+            e.frame(K, cheap, Missed::No, Cold::No, Some(HZ240));
         }
         assert_eq!(e.divisor(), Divisor::Full, "one miss");
-        e.frame(K, cheap, Missed::Yes, Some(HZ240));
+        e.frame(K, cheap, Missed::Yes, Cold::No, Some(HZ240));
         assert_eq!(e.divisor(), Divisor::Half, "two in eight");
     }
 
@@ -321,11 +330,11 @@ mod tests {
         let mut e = EffectPacer::new();
         let cost = Duration::from_millis(5);
         for _ in 0..20 {
-            e.frame(K, cost, Missed::No, Some(HZ240));
+            e.frame(K, cost, Missed::No, Cold::No, Some(HZ240));
         }
         assert_eq!(e.divisor(), Divisor::Half);
         for _ in 0..40 {
-            e.frame(K, cost, Missed::No, Some(HZ60));
+            e.frame(K, cost, Missed::No, Cold::No, Some(HZ60));
         }
         assert_eq!(e.divisor(), Divisor::Full);
     }
@@ -336,7 +345,7 @@ mod tests {
         let mut e = EffectPacer::new();
         for _ in 0..100 {
             assert_eq!(
-                e.frame(K, Duration::from_millis(50), Missed::Yes, None),
+                e.frame(K, Duration::from_millis(50), Missed::Yes, Cold::No, None),
                 None
             );
         }
@@ -377,6 +386,7 @@ mod tests {
                 key(PacedArm::Cpu, (Pixels(w + 1), Pixels(100))),
                 slow,
                 Missed::No,
+                Cold::No,
                 Some(HZ240),
             );
         }
@@ -385,6 +395,7 @@ mod tests {
             key(PacedArm::Cpu, (Pixels(999), Pixels(100))),
             times(HZ240, Share(0.2)),
             Missed::No,
+            Cold::No,
             Some(HZ240),
         );
         assert_eq!(e.divisor(), Divisor::Half, "a recent one kept");
@@ -392,6 +403,7 @@ mod tests {
             key(PacedArm::Cpu, (Pixels(1), Pixels(100))),
             times(HZ240, Share(0.2)),
             Missed::No,
+            Cold::No,
             Some(HZ240),
         );
         assert_eq!(e.divisor(), Divisor::Full, "the first let go");
@@ -411,27 +423,73 @@ mod tests {
         );
         let slow = times(HZ240, Share(1.2));
         for _ in 0..10 {
-            e.frame(cpu, slow, Missed::No, Some(HZ240));
+            e.frame(cpu, slow, Missed::No, Cold::No, Some(HZ240));
         }
         assert_eq!(e.divisor(), Divisor::Half);
-        e.frame(gpu, times(HZ240, Share(0.2)), Missed::No, Some(HZ240));
+        e.frame(
+            gpu,
+            times(HZ240, Share(0.2)),
+            Missed::No,
+            Cold::No,
+            Some(HZ240),
+        );
         assert_eq!(e.divisor(), Divisor::Full, "the GPU arm learns its own");
-        e.frame(cpu, times(HZ240, Share(0.2)), Missed::No, Some(HZ240));
+        e.frame(
+            cpu,
+            times(HZ240, Share(0.2)),
+            Missed::No,
+            Cold::No,
+            Some(HZ240),
+        );
         assert_eq!(e.divisor(), Divisor::Half, "the CPU arm's kept");
         let fireworks = Key {
             drawn: Paced::Fireworks,
             ..cpu
         };
-        e.frame(fireworks, times(HZ240, Share(0.2)), Missed::No, Some(HZ240));
+        e.frame(
+            fireworks,
+            times(HZ240, Share(0.2)),
+            Missed::No,
+            Cold::No,
+            Some(HZ240),
+        );
         assert_eq!(e.divisor(), Divisor::Full, "the fireworks learn their own");
-        e.frame(cpu, times(HZ240, Share(0.2)), Missed::No, Some(HZ240));
+        e.frame(
+            cpu,
+            times(HZ240, Share(0.2)),
+            Missed::No,
+            Cold::No,
+            Some(HZ240),
+        );
         assert_eq!(e.divisor(), Divisor::Half, "the trail's kept");
         e.frame(
             key(PacedArm::Cpu, (Pixels(1920), Pixels(1080))),
             times(HZ240, Share(0.2)),
             Missed::No,
+            Cold::No,
             Some(HZ240),
         );
         assert_eq!(e.divisor(), Divisor::Full, "a new size afresh");
+    }
+
+    /// **One cold build keeps every refresh, and a warm one as slow does
+    /// not**: a 48 ms frame against a 60 Hz period that drew into the atlas
+    /// leaves the divisor at every refresh and the average unmoved, so a
+    /// warm frame at 0.8 of the period after it keeps it there too. The
+    /// control: the same frame built warm halves at once.
+    #[test]
+    fn a_cold_frame_is_left_out_of_the_average() {
+        let slow = Duration::from_millis(48);
+        let mut e = EffectPacer::new();
+        assert_eq!(e.frame(K, slow, Missed::No, Cold::Yes, Some(HZ60)), None);
+        assert_eq!(e.divisor(), Divisor::Full, "the cold frame");
+        e.frame(K, times(HZ60, Share(0.8)), Missed::No, Cold::No, Some(HZ60));
+        assert_eq!(e.divisor(), Divisor::Full, "the warm frame after it");
+        let mut e = EffectPacer::new();
+        assert_eq!(
+            e.frame(K, slow, Missed::No, Cold::No, Some(HZ60)),
+            Some(Divisor::Half),
+            "the control"
+        );
     }
 }

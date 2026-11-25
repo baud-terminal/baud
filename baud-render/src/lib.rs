@@ -196,10 +196,10 @@ pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use rebreak::{Display, WordWrap};
 pub use redraw::{REDRAW_ROWS, Redraw, RowSet};
 pub use renderer::{
-    Blink, BlinkPhases, Blinking, ClusterGlyph, Converted, CopyOrder, Damage, Decorations, Evicted,
-    Exceptions, Frame, GlyphSource, Glyphs, ImageComposite, ImageLayer, ImagePlacement, ImageScale,
-    ImageTextures, ImageUpload, PairRole, Pairs, Pass, Renderer, Single, StruckCells, StruckGen,
-    StyleStamp, StyleSync, VideoFlash,
+    Blink, BlinkPhases, Blinking, ClusterGlyph, Cold, Converted, CopyOrder, Damage, Decorations,
+    Evicted, Exceptions, Frame, GlyphSource, Glyphs, ImageComposite, ImageLayer, ImagePlacement,
+    ImageScale, ImageTextures, ImageUpload, PairRole, Pairs, Pass, Renderer, Single, StruckCells,
+    StruckGen, StyleStamp, StyleSync, VideoFlash,
 };
 pub use scroll::{SLIDE_SECS_PER_ROW, Slide};
 pub use scrollbar::{
