@@ -1725,7 +1725,7 @@ ConEmu, ANSI X3.64 and Xterm-256 Support -- ConEmu specific OSC (ESC &#93; 9 ; 1
 - **URL:** <https://raw.githubusercontent.com/ConEmu/ConEmu.github.io/64d7db1668b95924835c33ecc41e88a03da4861e/_includes/AnsiEscapeCodes.md>
 - **sha256:** `c4cd13b215f696648f3f90ee4749bca11e480c0a8eb308ddb4835972e6677555` (33936 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-domain/src/vt/notify.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-domain/src/vt/dock_bars.rs`, `baud-domain/src/vt/notify.rs`, `docs/vt-coverage.md`
 
 <a id="contour-palette-notifications"></a>
 ### contour-palette-notifications
@@ -1931,7 +1931,7 @@ D-Bus Specification 0.43 (dbus 1.16.2, doc/dbus-specification.xml) -- marshallin
 - **sha256:** `ea56234bc02a4a8080c8a07908d3af8f443ccb22b63fd575062ac3ec9bc2e7dc` (348639 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/bus.rs`, `baud-domain/src/dbus.rs`, `baud-domain/src/dbus/auth.rs`, `baud-domain/src/dbus/awaiting.rs`, `baud-domain/src/dbus/body.rs`, `baud-domain/src/dbus/bus.rs`, `baud-domain/src/dbus/decode.rs`, `baud-domain/src/dbus/header.rs`, `baud-domain/src/dbus/name.rs`, `baud-domain/src/dbus/sig.rs`, `baud-domain/src/dbus/value.rs`, `baud-domain/tests/dbus_auth.rs`, `baud-domain/tests/dbus_awaiting.rs`, `baud-domain/tests/dbus_decode.rs`, `baud-domain/tests/dbus_encode.rs`, `baud-domain/tests/dbus_name.rs`, `baud-domain/tests/dbus_oracle.rs`, `baud-domain/tests/dbus_owner.rs`, `baud-domain/tests/dbus_sig.rs`
+- **Cited in:** `baud-app/src/bus.rs`, `baud-domain/src/dbus.rs`, `baud-domain/src/dbus/auth.rs`, `baud-domain/src/dbus/awaiting.rs`, `baud-domain/src/dbus/body.rs`, `baud-domain/src/dbus/bus.rs`, `baud-domain/src/dbus/decode.rs`, `baud-domain/src/dbus/header.rs`, `baud-domain/src/dbus/name.rs`, `baud-domain/src/dbus/notify.rs`, `baud-domain/src/dbus/sig.rs`, `baud-domain/src/dbus/value.rs`, `baud-domain/tests/dbus_auth.rs`, `baud-domain/tests/dbus_awaiting.rs`, `baud-domain/tests/dbus_decode.rs`, `baud-domain/tests/dbus_encode.rs`, `baud-domain/tests/dbus_name.rs`, `baud-domain/tests/dbus_oracle.rs`, `baud-domain/tests/dbus_owner.rs`, `baud-domain/tests/dbus_sig.rs`
 
 <a id="dcp-data"></a>
 ### dcp-data
@@ -3035,7 +3035,7 @@ Icon Naming Specification 0.8 -- dialog-error, dialog-warning, dialog-informatio
 - **URL:** <https://specifications.freedesktop.org/icon-naming/0.8/>
 - **sha256:** `a109a28636cdc137e8279d44918cbd1862df19647ec72adf69201806c389b369` (58083 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/notify.rs`
+- **Cited in:** `baud-domain/src/vt/fdo_notify.rs`
 
 <a id="freedesktop-notification-spec"></a>
 ### freedesktop-notification-spec
@@ -3045,7 +3045,7 @@ Desktop Notifications Specification -- Notify, CloseNotification, GetCapabilitie
 - **URL:** <https://gitlab.freedesktop.org/xdg/xdg-specs/-/raw/f1ff18caaf8a047e3fa690a9454af304c4e714f1/notification/notification-spec.xml>
 - **sha256:** `16ae4115530a777d919fcc5346695abe1a5e4f7f2a65b1d02c658752a6920187` (46707 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/bus.rs`, `baud-app/src/notify.rs`, `baud-domain/src/dbus/value.rs`, `baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-app/src/bus.rs`, `baud-domain/src/dbus/notify.rs`, `baud-domain/src/dbus/value.rs`, `baud-domain/src/vt/activation_token.rs`, `baud-domain/src/vt/fdo_notify.rs`, `baud-domain/src/vt/notice_plan.rs`, `baud-domain/src/vt/notice_slots.rs`, `baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
 
 <a id="freetype-cffobjs-2-13-3"></a>
 ### freetype-cffobjs-2-13-3
@@ -4759,7 +4759,7 @@ iTerm2 964a75d, PTYSession.m -- screenReportVariableNamed, screenSetCursorType, 
 - **URL:** <https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/PTYSession/PTYSession.m>
 - **sha256:** `3c83bf3b7ccb37ac4e76a156f38c84f690199e554830aa9529c15b5bf3898e00` (1178556 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/effects.rs`, `baud-app/src/sys.rs`, `baud-core/src/iterm.rs`, `baud-domain/src/expression.rs`, `baud-domain/src/variables.rs`, `baud-domain/src/vt/iterm.rs`, `baud-domain/tests/interpolate.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-app/src/effects.rs`, `baud-app/src/sys.rs`, `baud-core/src/iterm.rs`, `baud-domain/src/expression.rs`, `baud-domain/src/variables.rs`, `baud-domain/src/vt/fdo_notify.rs`, `baud-domain/src/vt/iterm.rs`, `baud-domain/tests/interpolate.rs`, `docs/vt-coverage.md`
 
 <a id="iterm2-964a75d-ptysession-isprocessing"></a>
 ### iterm2-964a75d-ptysession-isprocessing
@@ -5432,7 +5432,7 @@ Desktop notifications -- the OSC 99 protocol: chunks, ids, the query, actions, c
 - **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/docs/desktop-notifications.rst>
 - **sha256:** `57188360fc9466f4e2324457ca38f7d25de5383eeedd6b982bbea8af9fc60b51` (26196 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/notifications.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-core/src/term.rs`, `baud-core/tests/notifications.rs`, `baud-domain/src/vt/fdo_notify.rs`, `baud-domain/src/vt/notice_icons.rs`, `baud-domain/src/vt/notice_plan.rs`, `docs/vt-coverage.md`
 
 <a id="kitty-escape-code-parser"></a>
 ### kitty-escape-code-parser
@@ -6030,7 +6030,7 @@ libunity, src/unity-launcher.vala -- com.canonical.Unity.LauncherEntry: Update(a
 - **URL:** <https://git.launchpad.net/ubuntu/+source/libunity/plain/src/unity-launcher.vala?id=d45a5f5e66a1acc2eb02541f9a09b064ca3fb1bc>
 - **sha256:** `cb6437626b890c5b3a32e9d5b4ee201a1be629f27505f202f085906d58356631` (16135 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/bus.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-app/src/bus.rs`, `baud-domain/src/vt/launcher_entry.rs`, `docs/vt-coverage.md`
 
 <a id="libx11-cmscolnm-b8d5a70"></a>
 ### libx11-cmscolnm-b8d5a70
@@ -7308,6 +7308,17 @@ Developing OpenType Fonts for Devanagari Script. Microsoft Typography, 2026, lea
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-02
 - **Cited in:** `baud-font/build/indic.rs`, `baud-font/src/gsub.rs`, `baud-font/src/indic.rs`, `baud-font/src/layout.rs`, `baud-font/src/shape.rs`, `baud-font/src/syllabic.rs`, `baud-font/tests/devanagari.rs`
+
+<a id="ms-itaskbarlist3-setprogressstate"></a>
+### ms-itaskbarlist3-setprogressstate
+
+ITaskbarList3::SetProgressState -- 'How the Taskbar Button Chooses the Progress Indicator for a Group': error, paused, normal, indeterminate; 'the window with the least progress is used'. Microsoft, 2026, Microsoft Learn, Win32 API, shobjidl\_core.h.
+
+- **URL:** <https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-itaskbarlist3-setprogressstate>
+- **sha256:** `45eee3f01dd48bda55e3e3ed041c14315554778f89b09d479f0cd0c7c0ed1a8c` (57974 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Read:** 2026-10-31
+- **Cited in:** `baud-domain/src/vt/dock_bars.rs`
 
 <a id="ms-opentype-avar"></a>
 ### ms-opentype-avar
@@ -11099,6 +11110,16 @@ vttest 2.7 (20251205), main.c -- tst\_doublesize, tst\_insdel, bug\_b, bug\_e an
 - **Read:** 2026-10-18
 - **Cited in:** `docs/vt-coverage.md`
 
+<a id="vulkan-devsandqueues"></a>
+### vulkan-devsandqueues
+
+Vulkan Specification, chapter: Devices and Queues. The Khronos Group, 2026, docs.vulkan.org (CC-BY 4.0).
+
+- **URL:** <https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html>
+- **sha256:** `8904ac3fc8a41aaf1198b2b53f0a0b1e9e9999dc4e4adf20a4234862b5520259` (512045 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-app/src/gpu_fallback.rs`, `baud-present-vulkan/src/frame.rs`
+
 <a id="vulkan-vk-ext-external-memory-dma-buf"></a>
 ### vulkan-vk-ext-external-memory-dma-buf
 
@@ -11902,16 +11923,6 @@ Windows Terminal, SixelParser.cpp -- a P2 0 fill goes on as the image scrolls pa
 - **Read:** 2026-10-22
 - **Cited in:** `baud-core/tests/sixel_fill.rs`, `baud-domain/src/sixel.rs`, `baud-present-macos/tests/cells.rs`, `docs/vt-coverage.md`
 
-<a id="wt-terminalpage"></a>
-### wt-terminalpage
-
-Windows Terminal 6676c6f, src/cascadia/TerminalApp/TerminalPage.cpp -- the info bar's dismissal into DismissedMessages (5002, 5060-5071); 'Don't ask me again' writes settings (980-983). Microsoft, 2026, microsoft/terminal.
-
-- **URL:** <https://raw.githubusercontent.com/microsoft/terminal/6676c6f938f7e98ad680f0cecedd3bafb6529734/src/cascadia/TerminalApp/TerminalPage.cpp>
-- **sha256:** `9ff276aa6b4bb212b482ac888cddcf7b7779e863d260de737907e53396316fe5` (259286 bytes)
-- **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-app/src/notify.rs`
-
 <a id="x11rb-rust-connection-mod"></a>
 ### x11rb-rust-connection-mod
 
@@ -11975,7 +11986,7 @@ xdg-activation-v1 -- a token asked for a surface, and activate: the compositor d
 - **sha256:** `d8418be2d5738d50aff788bef1c7574f33f26659aa045447ff2ef9b78c58fe01` (9016 bytes)
 - **Copy:** [docs/research/sources/xdg-activation-v1.xml](research/sources/xdg-activation-v1.xml)
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/bell.rs`, `baud-app/src/linux.rs`, `baud-app/src/notify.rs`, `baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-app/src/bell.rs`, `baud-app/src/linux.rs`, `baud-domain/src/vt/activation_token.rs`, `baud-domain/src/vt/notice_plan.rs`, `baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
 
 <a id="xdg-basedir-0-8"></a>
 ### xdg-basedir-0-8

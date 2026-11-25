@@ -5338,15 +5338,15 @@ mod notice_support_tests {
         let on = super::notice_support(None, NoticeSetting::On);
         assert_eq!(on, None, "no center, none");
         let c = Center::unshared().expect("a center under the probe");
-        let claimed = super::notice_support(Some(&c), Notifications::On);
+        let claimed = super::notice_support(Some(&c), NoticeSetting::On);
         assert!(claimed.is_some(), "the control: before an answer, support");
-        assert_eq!(super::notice_support(Some(&c), Notifications::Off), None);
+        assert_eq!(super::notice_support(Some(&c), NoticeSetting::Off), None);
         c.answered_off_turn(Permission::Granted);
-        assert_eq!(super::notice_support(Some(&c), Notifications::On), claimed);
+        assert_eq!(super::notice_support(Some(&c), NoticeSetting::On), claimed);
         let refused = Center::unshared().expect("a second, refused");
         refused.answered_off_turn(Permission::Denied);
         assert_eq!(
-            super::notice_support(Some(&refused), Notifications::On),
+            super::notice_support(Some(&refused), NoticeSetting::On),
             None,
             "after a refusal, none"
         );
