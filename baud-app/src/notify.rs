@@ -48,7 +48,7 @@ use baud_core::{
     Occasion, Occasions, Progress, ReportCount, Sounds, Term, Urgencies, Urgency,
 };
 
-use crate::bell::Moment;
+use baud_domain::HostTime;
 
 /// `[screen] notifications`.
 pub use crate::config::Notifications as Setting;
@@ -199,13 +199,13 @@ pub enum Why {
 /// carried out. `o=invisible` on a platform that cannot tell what is
 /// visible is read as `unfocused`, the text's "best guess" for a value the
 /// terminal did not claim.
-pub fn plan<T: Moment>(
+pub fn plan(
     p: &Posted,
     setting: Setting,
     focus: Focus,
     visible: Visible,
-    bucket: &mut Bucket<T>,
-    now: T,
+    bucket: &mut Bucket,
+    now: HostTime,
 ) -> Plan {
     if p.action == NoticeAction::Close {
         return Plan::Close;
@@ -243,9 +243,9 @@ pub const EACH: Duration = Duration::from_secs(1);
 /// **The flood bound**: credit in time, at most [`BURST`], each
 /// notification spending [`EACH`], credit coming back as the clock runs.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Bucket<T> {
+pub struct Bucket {
     credit: Duration,
-    at: Option<T>,
+    at: Option<HostTime>,
     /// How many it dropped, for the log.
     pub dropped: Dropped,
     /// How many bursts it has seen, for the log: one begins at a take
@@ -261,8 +261,8 @@ pub struct Dropped(pub u64);
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Bursts(pub u64);
 
-impl<T: Moment> Bucket<T> {
-    pub fn new() -> Bucket<T> {
+impl Bucket {
+    pub fn new() -> Bucket {
         Bucket {
             credit: BURST,
             at: None,
@@ -271,9 +271,9 @@ impl<T: Moment> Bucket<T> {
         }
     }
 
-    pub fn take(&mut self, now: T) -> Taken {
+    pub fn take(&mut self, now: HostTime) -> Taken {
         if let Some(at) = self.at {
-            self.credit = (self.credit + now.elapsed_since(at)).min(BURST);
+            self.credit = (self.credit + now.since(at).unwrap_or(Duration::ZERO)).min(BURST);
         }
         self.at = Some(now);
         if self.credit == BURST {
@@ -292,7 +292,7 @@ impl<T: Moment> Bucket<T> {
     }
 }
 
-impl<T: Moment> Default for Bucket<T> {
+impl Default for Bucket {
     fn default() -> Self {
         Bucket::new()
     }
@@ -449,20 +449,20 @@ pub const SETTLED: Duration = Duration::from_secs(1);
 /// driver closes one when its deadline passes, kitty's "guaranteed to be
 /// closed once the expiry time has passed", whatever the platform does.
 #[derive(Clone, Debug)]
-pub struct Shown<T, P> {
-    alive: Vec<Alive<T, P>>,
+pub struct Shown<P> {
+    alive: Vec<Alive<P>>,
 }
 
 /// **One shown notification.**
 #[derive(Clone, Debug)]
-struct Alive<T, P> {
+struct Alive<P> {
     token: NoticeToken,
     /// The platform's id for it.
     id: P,
     /// When it closes, where its expiry gave a deadline not yet spent.
-    due: Option<T>,
+    due: Option<HostTime>,
     /// When it was shown, or, posted pending, when it was scheduled.
-    at: T,
+    at: HostTime,
     /// The buttons it showed, each numbered by its place in the program's
     /// list.
     buttons: Vec<NoticeButton>,
@@ -496,8 +496,8 @@ enum Held {
     Scheduled,
 }
 
-impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
-    pub fn new() -> Shown<T, P> {
+impl<P: Clone + PartialEq> Shown<P> {
+    pub fn new() -> Shown<P> {
         Shown { alive: Vec::new() }
     }
 
@@ -509,7 +509,7 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
         token: NoticeToken,
         id: P,
         expiry: Expiry,
-        now: T,
+        now: HostTime,
         buttons: Vec<NoticeButton>,
     ) {
         self.record(token, id, expiry, now, buttons, Held::Scheduled);
@@ -524,7 +524,7 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
         token: NoticeToken,
         id: P,
         expiry: Expiry,
-        now: T,
+        now: HostTime,
         buttons: Vec<NoticeButton>,
     ) {
         self.record(token, id, expiry, now, buttons, Held::Pending);
@@ -533,7 +533,7 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     /// **The pending one the platform's `id` names, scheduled** at `now`;
     /// `None` for an id none pending has.
     #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
-    pub fn scheduled(&mut self, id: &P, now: T) -> Option<Scheduled> {
+    pub fn scheduled(&mut self, id: &P, now: HostTime) -> Option<Scheduled> {
         let a = self
             .alive
             .iter_mut()
@@ -549,12 +549,12 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
         token: NoticeToken,
         id: P,
         expiry: Expiry,
-        now: T,
+        now: HostTime,
         buttons: Vec<NoticeButton>,
         held: Held,
     ) {
         let due = match expiry {
-            Expiry::After(d) => Some(now.after(d)),
+            Expiry::After(d) => Some(now.plus(d)),
             Expiry::System | Expiry::Never => None,
         };
         self.alive.retain(|a| a.token != token);
@@ -607,9 +607,9 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     /// added to the list asynchronously, so one scheduled just before the
     /// ask may not be in it yet, and one still pending is in no list.
     #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
-    pub fn absent(&mut self, present: &[P], asked: T) -> Vec<NoticeToken> {
+    pub fn absent(&mut self, present: &[P], asked: HostTime) -> Vec<NoticeToken> {
         let (gone, kept): (Vec<_>, Vec<_>) = self.alive.drain(..).partition(|a| {
-            a.held == Held::Scheduled && a.at.after(SETTLED) <= asked && !present.contains(&a.id)
+            a.held == Held::Scheduled && a.at.plus(SETTLED) <= asked && !present.contains(&a.id)
         });
         self.alive = kept;
         gone.into_iter().map(|a| a.token).collect()
@@ -623,7 +623,7 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
 
     /// The ones whose deadline has passed, their deadlines spent: each is
     /// still alive until the platform says it closed.
-    pub fn due(&mut self, now: T) -> Vec<(NoticeToken, P)> {
+    pub fn due(&mut self, now: HostTime) -> Vec<(NoticeToken, P)> {
         let mut due = Vec::new();
         for a in &mut self.alive {
             if a.due.is_some_and(|d| d <= now) {
@@ -635,12 +635,12 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     }
 
     /// The nearest deadline, for the driver's wait.
-    pub fn next_due(&self) -> Option<T> {
+    pub fn next_due(&self) -> Option<HostTime> {
         self.alive.iter().filter_map(|a| a.due).min()
     }
 }
 
-impl<T: Moment, P: Clone + PartialEq> Default for Shown<T, P> {
+impl<P: Clone + PartialEq> Default for Shown<P> {
     fn default() -> Self {
         Shown::new()
     }
@@ -650,11 +650,11 @@ impl<T: Moment, P: Clone + PartialEq> Default for Shown<T, P> {
 /// setting, the bound, the icons, what is shown, what waits for the
 /// platform's answer, and the last progress and attention it acted on.
 #[derive(Debug)]
-pub struct Delivery<T, P> {
+pub struct Delivery<P> {
     pub setting: Setting,
-    pub bucket: Bucket<T>,
+    pub bucket: Bucket,
     pub icons: Icons,
-    pub shown: Shown<T, P>,
+    pub shown: Shown<P>,
     /// Posted and not yet answered, with the expiry each asked and the
     /// buttons each shows.
     #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
@@ -683,24 +683,24 @@ pub struct Delivery<T, P> {
     /// check ([`Delivery::mac_checked`]), and each after it for the ones
     /// ahead of it; posted from the front as each is ready, or when its
     /// window closes ([`Delivery::mac_closing`]).
-    parked: VecDeque<Parked<T>>,
+    parked: VecDeque<Parked>,
 }
 
 /// **A notification shown and not yet posted** ([`Delivery`]'s `parked`),
 /// and what it waits for.
 #[derive(Debug)]
-struct Parked<T> {
+struct Parked {
     p: Posted,
-    at: Stage<T>,
+    at: Stage,
 }
 
 /// What a parked notification waits for.
 #[derive(Debug)]
-enum Stage<T> {
+enum Stage {
     /// Its picture, read off this thread into `bytes`, given up at `by`.
     Reading {
         reading: crate::kitty_files::Reading,
-        by: T,
+        by: HostTime,
         bytes: Vec<u8>,
     },
     /// Its picture's check, off the main thread (macOS).
@@ -747,12 +747,12 @@ pub enum Said {
     Once,
 }
 
-impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
+impl<P: Clone + PartialEq> Delivery<P> {
     pub fn new(
         setting: Setting,
         term: &Term<'_>,
         pictures: baud_domain::ImageBudget,
-    ) -> Delivery<T, P> {
+    ) -> Delivery<P> {
         Delivery {
             setting,
             bucket: Bucket::new(),
@@ -807,12 +807,12 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
     /// and no icon sent, its picture's read started through `files` --
     /// only now, when it is shown -- and given up at [`PICTURE_WAIT`] from
     /// `now`; else ready, to post once every one ahead of it has.
-    fn park(&mut self, p: Posted, files: &mut dyn PictureReader, now: T) {
+    fn park(&mut self, p: Posted, files: &mut dyn PictureReader, now: HostTime) {
         let at = match (&p.icon, &p.picture) {
             (Some(_), _) => Stage::Ready(Image::Icon),
             (None, Some(path)) => Stage::Reading {
                 reading: files.start(path),
-                by: now.after(PICTURE_WAIT),
+                by: now.plus(PICTURE_WAIT),
                 bytes: Vec::new(),
             },
             (None, None) => Stage::Ready(Image::Text),
@@ -826,7 +826,7 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
     /// its text alone; one still reading at its deadline is let go, its
     /// thread stopping at its next piece, ready with its text alone, its
     /// picture counted as not shown.
-    fn take_reads(&mut self, now: T) {
+    fn take_reads(&mut self, now: HostTime) {
         for k in self.parked.iter_mut() {
             let Stage::Reading { reading, by, bytes } = &mut k.at else {
                 continue;
@@ -883,7 +883,7 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
     /// **The earliest a parked picture's read is given up**, for the
     /// driver's wait: a wake scheduled for it on macOS, the poll's timeout
     /// on Linux.
-    pub fn picture_due(&self) -> Option<T> {
+    pub fn picture_due(&self) -> Option<HostTime> {
         self.parked
             .iter()
             .filter_map(|k| match k.at {
@@ -928,7 +928,12 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
     /// (`Delivery::park`), and what is ready to post now, in order
     /// ([`Delivery::linux_reads`]).
     #[cfg(any(target_os = "linux", test))]
-    pub fn linux(&mut self, p: Posted, files: &mut dyn PictureReader, now: T) -> Vec<LinuxPost> {
+    pub fn linux(
+        &mut self,
+        p: Posted,
+        files: &mut dyn PictureReader,
+        now: HostTime,
+    ) -> Vec<LinuxPost> {
         self.park(p, files, now);
         self.linux_reads(now)
     }
@@ -938,7 +943,7 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
     /// the front that is ready, each with its image decoded, an icon sent
     /// or a picture read (`Delivery::decoded`).
     #[cfg(any(target_os = "linux", test))]
-    pub fn linux_reads(&mut self, now: T) -> Vec<LinuxPost> {
+    pub fn linux_reads(&mut self, now: HostTime) -> Vec<LinuxPost> {
         self.take_reads(now);
         self.linux_ready()
     }
@@ -1212,7 +1217,7 @@ pub fn image_kind(b: &[u8]) -> Option<&'static str> {
 }
 
 #[cfg(any(target_os = "macos", test))]
-impl<T: Moment> Delivery<T, String> {
+impl Delivery<String> {
     /// **What the macOS driver does with a read's notices**, and the
     /// core told what became of each: dropped or closed; one posted is
     /// told shown only once the system schedules it
@@ -1238,7 +1243,7 @@ impl<T: Moment> Delivery<T, String> {
         term: &mut Term<'_>,
         posted: Vec<Posted>,
         mut window: impl FnMut() -> (Focus, Visible),
-        now: T,
+        now: HostTime,
         prefix: &str,
         files: &mut dyn PictureReader,
     ) -> Vec<MacCall> {
@@ -1282,7 +1287,13 @@ impl<T: Moment> Delivery<T, String> {
     /// [`Checker`] (`MacCall::Check`) and stays parked; one whose bytes do
     /// not is left out, counted; then every notification at the front that
     /// is ready posts, in order (`Delivery::mac_ready`).
-    fn mac_reads(&mut self, term: &mut Term<'_>, now: T, prefix: &str, calls: &mut Vec<MacCall>) {
+    fn mac_reads(
+        &mut self,
+        term: &mut Term<'_>,
+        now: HostTime,
+        prefix: &str,
+        calls: &mut Vec<MacCall>,
+    ) {
         self.take_reads(now);
         for k in self.parked.iter_mut() {
             let Stage::Ready(Image::Read(b)) = &mut k.at else {
@@ -1310,7 +1321,13 @@ impl<T: Moment> Delivery<T, String> {
     /// **Every notification at the front that is ready, posted in order**:
     /// a kitty icon attached by its signature, iTerm2's picture as its
     /// check left it, and the text alone where nothing was read.
-    fn mac_ready(&mut self, term: &mut Term<'_>, now: T, prefix: &str, calls: &mut Vec<MacCall>) {
+    fn mac_ready(
+        &mut self,
+        term: &mut Term<'_>,
+        now: HostTime,
+        prefix: &str,
+        calls: &mut Vec<MacCall>,
+    ) {
         for (p, image) in self.ready() {
             let image = match image {
                 Image::Icon => p
@@ -1339,7 +1356,7 @@ impl<T: Moment> Delivery<T, String> {
         &mut self,
         term: &mut Term<'_>,
         checked: Checked,
-        now: T,
+        now: HostTime,
         prefix: &str,
     ) -> Vec<MacCall> {
         let mut calls = Vec::new();
@@ -1373,7 +1390,7 @@ impl<T: Moment> Delivery<T, String> {
         &mut self,
         term: &mut Term<'_>,
         finished: Vec<Checked>,
-        now: T,
+        now: HostTime,
         prefix: &str,
     ) -> Vec<MacCall> {
         let mut calls = Vec::new();
@@ -1398,7 +1415,7 @@ impl<T: Moment> Delivery<T, String> {
         term: &mut Term<'_>,
         p: Posted,
         image: Option<(Vec<u8>, &'static str)>,
-        now: T,
+        now: HostTime,
         prefix: &str,
         calls: &mut Vec<MacCall>,
     ) {
@@ -1437,11 +1454,11 @@ impl<T: Moment> Delivery<T, String> {
 }
 
 #[cfg(any(target_os = "macos", test))]
-impl<T: Moment> Delivery<T, String> {
+impl Delivery<String> {
     /// **The ones whose `w` has passed, forgotten by the core**, and whether
     /// any was: the removal itself is scheduled when it is posted
     /// (`MacCall::Expire`), and nothing on macOS says it happened.
-    pub fn mac_expired(&mut self, term: &mut Term<'_>, now: T) -> Went {
+    pub fn mac_expired(&mut self, term: &mut Term<'_>, now: HostTime) -> Went {
         let due = self.shown.due(now);
         for (token, _) in &due {
             self.shown.gone(*token);
@@ -1456,7 +1473,7 @@ impl<T: Moment> Delivery<T, String> {
     /// **The ones Notification Center no longer holds**, forgotten by the
     /// core, so `p=alive` names only what is still there: `present` is its
     /// list, asked for at `asked`.
-    pub fn mac_absent(&mut self, term: &mut Term<'_>, present: &[String], asked: T) {
+    pub fn mac_absent(&mut self, term: &mut Term<'_>, present: &[String], asked: HostTime) {
         for token in self.shown.absent(present, asked) {
             term.notice_dropped(token);
         }
@@ -1471,7 +1488,7 @@ impl<T: Moment> Delivery<T, String> {
         &mut self,
         term: &mut Term<'_>,
         present: &[String],
-        asked: Option<T>,
+        asked: Option<HostTime>,
     ) -> Answered {
         if let Some(asked) = asked {
             self.mac_absent(term, present, asked);
@@ -1505,7 +1522,7 @@ impl<T: Moment> Delivery<T, String> {
         &mut self,
         term: &mut Term<'_>,
         ids: &[String],
-        now: T,
+        now: HostTime,
         mut reply: impl FnMut(&[u8]),
     ) {
         for id in ids {
@@ -1551,8 +1568,8 @@ pub enum Answered {
 /// once it ran -- however early -- with the deadline still there.
 #[cfg(any(target_os = "macos", test))]
 #[derive(Debug)]
-pub struct ExpiryWake<T> {
-    armed: Option<(T, std::sync::Arc<std::sync::atomic::AtomicBool>)>,
+pub struct ExpiryWake {
+    armed: Option<(HostTime, std::sync::Arc<std::sync::atomic::AtomicBool>)>,
 }
 
 /// **An expiry wake's run**, marked when it is let go: in the wake's
@@ -1570,8 +1587,8 @@ impl Drop for Ran {
 }
 
 #[cfg(any(target_os = "macos", test))]
-impl<T: Copy + PartialEq> ExpiryWake<T> {
-    pub fn new() -> ExpiryWake<T> {
+impl ExpiryWake {
+    pub fn new() -> ExpiryWake {
         ExpiryWake { armed: None }
     }
 
@@ -1580,7 +1597,7 @@ impl<T: Copy + PartialEq> ExpiryWake<T> {
     /// else `next` -- an earlier one a post brought, the next once the one
     /// armed has gone, or the same one again once its wake ran and it did
     /// not go. Nothing is armed until [`ExpiryWake::arm`].
-    pub fn schedule(&self, next: Option<T>) -> Option<T> {
+    pub fn schedule(&self, next: Option<HostTime>) -> Option<HostTime> {
         let at = next?;
         match &self.armed {
             Some((armed, _)) if *armed == at => None,
@@ -1591,7 +1608,7 @@ impl<T: Copy + PartialEq> ExpiryWake<T> {
     /// **Armed for `at`**, and what marks its wake run, for the wake to
     /// carry ([`Ran`]); a wake armed before it, still to come, marks only
     /// its own.
-    pub fn arm(&mut self, at: T) -> Ran {
+    pub fn arm(&mut self, at: HostTime) -> Ran {
         let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.armed = Some((at, std::sync::Arc::clone(&ran)));
         Ran(ran)
@@ -1645,18 +1662,18 @@ pub enum AliveStep {
 /// was asked for less than `wait` before `now`, which the question waits
 /// for -- and it is answered at that wait whatever comes (`reads::NOTICE_WAIT`).
 #[cfg(any(target_os = "macos", test))]
-pub fn alive_step<T: Moment>(
+pub fn alive_step(
     asked: baud_core::NoticeAsked,
     allowed: Allowed,
-    listed: Option<T>,
-    now: T,
+    listed: Option<HostTime>,
+    now: HostTime,
     wait: Duration,
 ) -> AliveStep {
     match (asked, allowed) {
         (baud_core::NoticeAsked::No, _) => AliveStep::Nothing,
         (baud_core::NoticeAsked::Owed, Allowed::No) => AliveStep::Answer,
         (baud_core::NoticeAsked::Owed, Allowed::Yes) => match listed {
-            Some(t) if now.elapsed_since(t) < wait => AliveStep::Wait,
+            Some(t) if now.since(t).unwrap_or(Duration::ZERO) < wait => AliveStep::Wait,
             _ => AliveStep::Ask,
         },
     }
@@ -2219,7 +2236,7 @@ mod tests {
     /// A macOS turn's calls, an unfocused window's, the pictures checked as
     /// the window's checker checks them.
     fn mac_turn(
-        d: &mut Delivery<HostTime, String>,
+        d: &mut Delivery<String>,
         t: &mut Term<'_>,
         posted: Vec<Posted>,
         files: &mut dyn PictureReader,
@@ -2257,7 +2274,7 @@ mod tests {
     /// `calls` with each picture checked here, as the window's [`Checker`]
     /// checks it, and its notification's calls in the check's place.
     fn checked_now(
-        d: &mut Delivery<HostTime, String>,
+        d: &mut Delivery<String>,
         t: &mut Term<'_>,
         calls: Vec<MacCall>,
         now: HostTime,
@@ -2323,7 +2340,7 @@ mod tests {
     /// than four.
     #[test]
     fn the_bound_lets_four_through_then_one_a_second() {
-        let mut b: Bucket<HostTime> = Bucket::new();
+        let mut b: Bucket = Bucket::new();
         for _ in 0..4 {
             assert_eq!(b.take(at(Secs(0))), Taken::Yes);
         }
@@ -2338,6 +2355,34 @@ mod tests {
         }
         assert_eq!(ok, 4);
         assert_eq!(b.dropped, Dropped(8));
+    }
+
+    /// **The notification paths are timed on the host clock**: the bound,
+    /// the shown notices' deadlines, a parked picture's wait and a held
+    /// `p=alive`'s ask each take a [`HostTime`], the moment both drivers
+    /// read their clock as, so none is generic over a clock and the module
+    /// takes no clock trait.
+    #[test]
+    fn the_notification_paths_are_timed_on_the_host_clock() {
+        let _: fn(&mut Bucket, HostTime) -> Taken = Bucket::take;
+        let _: fn(&Posted, Setting, Focus, Visible, &mut Bucket, HostTime) -> Plan = plan;
+        type Due = Vec<(NoticeToken, u32)>;
+        let _: fn(&mut Shown<u32>, HostTime) -> Due = Shown::due;
+        let _: fn(&Shown<u32>) -> Option<HostTime> = Shown::next_due;
+        let _: fn(&Delivery<u32>) -> Option<HostTime> = Delivery::picture_due;
+        let _: fn(&mut Delivery<u32>, HostTime) -> Vec<LinuxPost> = Delivery::linux_reads;
+        let _: fn(
+            baud_core::NoticeAsked,
+            Allowed,
+            Option<HostTime>,
+            HostTime,
+            Duration,
+        ) -> AliveStep = alive_step;
+        let src = include_str!("notify.rs");
+        assert!(
+            !src.contains(concat!("bell::", "Mo", "ment")),
+            "no clock trait in the notification paths"
+        );
     }
 
     /// Controls come out of the text a program sent, and broken UTF-8 is
@@ -2446,7 +2491,7 @@ mod tests {
     /// A deadline from `w` closes it; one with no `w` stays.
     #[test]
     fn an_expiry_is_a_deadline() {
-        let mut s: Shown<HostTime, u32> = Shown::new();
+        let mut s: Shown<u32> = Shown::new();
         let p = posted(
             b"\x1b]99;i=a:w=1500;a\x1b\\\x1b]99;i=b;b\x1b\\",
             &mut Icons::default(),
@@ -2523,7 +2568,7 @@ mod tests {
             .map(|n| Posted::of(&n, &mut Icons::default()))
             .collect();
         let p = &posted[0];
-        let mut shown: Shown<HostTime, u32> = Shown::new();
+        let mut shown: Shown<u32> = Shown::new();
         let numbers = p.buttons.iter().map(|(n, _)| *n).collect();
         shown.shown(p.token, 1, p.expiry, at(Secs(0)), numbers);
         let sent: Vec<&String> = named.iter().filter(|l| !l.is_empty()).collect();
@@ -2585,7 +2630,7 @@ mod tests {
         );
         let p = &p[0];
         assert_eq!(p.buttons.len(), 3, "the premise: three shown");
-        let mut shown: Shown<HostTime, u32> = Shown::new();
+        let mut shown: Shown<u32> = Shown::new();
         let numbers = p.buttons.iter().map(|(n, _)| *n).collect();
         shown.shown(p.token, 1, p.expiry, at(Secs(0)), numbers);
         let mac = |action: &str| {
@@ -2613,7 +2658,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let png = [0x89, b'P', b'N', b'G', 1, 2];
         let seq = "\x1b]99;i=j:d=0:c=1:u=0:w=3000:s=c2lsZW50;Build\x1b\\\x1b]99;i=j:d=0:p=buttons;Open\u{2028}Skip\x1b\\\x1b]99;i=j:p=icon:e=1;iVBORwEC\x1b\\\x1b]9;4;1;40\x07\x1b]1337;RequestAttention=once\x07";
         feed(&mut t, seq.as_bytes());
@@ -2706,14 +2751,14 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let reads = core::cell::Cell::new(0_u32);
         let window = || {
             reads.set(reads.get() + 1);
             (Focus::Unfocused, Visible::Covered)
         };
         let mut icons = Icons::default();
-        let mut deliver = |t: &mut Term<'_>, d: &mut Delivery<HostTime, String>, seq: &str| {
+        let mut deliver = |t: &mut Term<'_>, d: &mut Delivery<String>, seq: &str| {
             feed(t, seq.as_bytes());
             let posted: Vec<Posted> = t.notices().map(|n| Posted::of(&n, &mut icons)).collect();
             t.clear_notices();
@@ -2759,7 +2804,7 @@ mod tests {
         t.set_notice_support(support(Setting::On, Platform::Linux(ServerCaps::NONE)));
         feed(&mut t, b"\x1b]99;w=900;a\x1b\\");
         let tok = t.notices().next().expect("one").token;
-        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
         d.waiting
             .push((tok, Expiry::After(Duration::from_millis(900)), Vec::new()));
         assert_eq!(d.answered(tok).0, Expiry::After(Duration::from_millis(900)));
@@ -2785,10 +2830,10 @@ mod tests {
     fn the_bound_logs_once_a_burst() {
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let t = Term::new(owned.storage(), &WS);
-        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
         // `n` notifications in one read at second `s`, the line asked for
         // after each drop and after the read.
-        let flood = |d: &mut Delivery<HostTime, u32>, n, s| {
+        let flood = |d: &mut Delivery<u32>, n, s| {
             let mut lines = Vec::new();
             for _ in 0..n {
                 if d.bucket.take(at(Secs(s))) == Taken::No {
@@ -2837,7 +2882,7 @@ mod tests {
         // log says so once.
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let t = Term::new(owned.storage(), &WS);
-        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
         let mut wide = PNG;
         wide[16..20].copy_from_slice(&1025u32.to_be_bytes());
         wide[29..33].copy_from_slice(&[0xaf, 0xcc, 0xb7, 0x0b]);
@@ -2931,7 +2976,7 @@ mod tests {
             );
             let mut owned = Owned::new(&WS).with_notices(BUDGET);
             let t = Term::new(owned.storage(), &WS);
-            let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
+            let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
             let posts = posted(seq.as_bytes(), &mut Icons::default());
             assert_eq!(posts.len(), 2, "{name}");
             assert_eq!(
@@ -2967,8 +3012,8 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
-        let post = |t: &mut Term<'_>, d: &mut Delivery<HostTime, String>, b: &[u8], s: u64| {
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        let post = |t: &mut Term<'_>, d: &mut Delivery<String>, b: &[u8], s: u64| {
             feed(t, b);
             let posted: Vec<Posted> = t
                 .notices()
@@ -3034,7 +3079,7 @@ mod tests {
     /// window's identifiers starting `prefix`, the ones posted returned.
     fn mac_posts(
         t: &mut Term<'_>,
-        d: &mut Delivery<HostTime, String>,
+        d: &mut Delivery<String>,
         bytes: &[u8],
         now: HostTime,
         prefix: &str,
@@ -3081,7 +3126,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let ids = mac_posts(&mut t, &mut d, b"\x1b]99;i=a:c=1;A\x1b\\", at(Secs(0)), "p");
         assert_eq!(ids.len(), 1, "the premise: posted");
         assert!(t.reply().is_empty(), "pending: nothing said");
@@ -3110,7 +3155,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let ids = mac_posts(&mut t, &mut d, b"\x1b]99;i=a:c=1;A\x1b\\", at(Secs(0)), "p");
         assert_eq!(
             alive_now(&mut t),
@@ -3135,11 +3180,11 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let mut other = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t2 = Term::new(other.storage(), &WS);
         t2.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d2: Delivery<HostTime, String> = Delivery::new(Setting::On, &t2, PIXELS);
+        let mut d2: Delivery<String> = Delivery::new(Setting::On, &t2, PIXELS);
         let ids = mac_posts(
             &mut t,
             &mut d,
@@ -3193,7 +3238,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let ids = mac_posts(&mut t, &mut d, b"\x1b]99;i=a:c=1;A\x1b\\", at(Secs(0)), "p");
         let before = d.unshown.0;
         d.mac_unattached(&[String::from("p-elsewhere")]);
@@ -3241,7 +3286,7 @@ mod tests {
             let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
             let mut t = Term::new(owned.storage(), &WS);
             t.set_notice_support(support(Setting::On, Platform::MacOs));
-            let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+            let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
             feed(&mut t, b"\x1b]99;i=a;1\x1b\\\x1b]99;i=b;2\x1b\\");
             let posted: Vec<Posted> = t
                 .notices()
@@ -3395,7 +3440,7 @@ mod tests {
     fn a_notices_expiry_wake_is_armed_once_at_the_earliest() {
         let s = |n| at(Secs(n));
         let mut w = ExpiryWake::new();
-        let arm = |w: &mut ExpiryWake<_>, next| {
+        let arm = |w: &mut ExpiryWake, next| {
             let at = w.schedule(next);
             at.map(|a| (a, w.arm(a)))
         };
@@ -3458,7 +3503,7 @@ mod tests {
     #[test]
     fn a_held_alive_asks_for_the_list_once_a_wait() {
         let wait = Duration::from_millis(250);
-        let ms = |n| at(Secs(10)).after(Duration::from_millis(n));
+        let ms = |n| at(Secs(10)).plus(Duration::from_millis(n));
         let now = ms(1000);
         let cases = [
             (
@@ -3563,7 +3608,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         static RUNNING: crate::kitty_files::Running = crate::kitty_files::Running::new();
         let mut real = reader(&RUNNING, Hold::Free);
         let woke = core::mem::replace(&mut real.woke, std::sync::mpsc::channel().1);
@@ -3571,7 +3616,7 @@ mod tests {
         // Each post two seconds after the last, under the bound's rate.
         let clock = core::cell::Cell::new(0);
         let post = |t: &mut Term<'_>,
-                    d: &mut Delivery<HostTime, String>,
+                    d: &mut Delivery<String>,
                     files: &mut dyn PictureReader,
                     focus: Focus,
                     bytes: &[u8]| {
@@ -3701,40 +3746,39 @@ mod tests {
         // `PNG_2X1`'s two pixels fit the one and not the other.
         let two = baud_domain::ImageBudget::of(2);
         let one = baud_domain::ImageBudget::of(1);
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, two);
-        let mut tight: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, one);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, two);
+        let mut tight: Delivery<String> = Delivery::new(Setting::On, &t, one);
         let clock = core::cell::Cell::new(0);
-        let post =
-            |t: &mut Term<'_>, d: &mut Delivery<HostTime, String>, bytes: &[u8], msg: &[u8]| {
-                let mut files = Files {
-                    asked: Vec::new(),
-                    bytes: Ok(bytes.to_vec()),
-                };
-                feed(t, msg);
-                let posted: Vec<Posted> = t
-                    .notices()
-                    .map(|n| Posted::of(&n, &mut Icons::default()))
-                    .collect();
-                t.clear_notices();
-                let now = at(Secs(clock.replace(clock.get() + 2)));
-                let calls = d.mac(
-                    t,
-                    posted,
-                    || (Focus::Unfocused, Visible::Covered),
-                    now,
-                    "baud-1",
-                    &mut files,
-                );
-                let p = checked_now(d, t, calls, now)
-                    .into_iter()
-                    .filter_map(|c| match c {
-                        MacCall::Post(p) => Some(p),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>();
-                assert_eq!(files.asked.len(), 1, "read once");
-                p
+        let post = |t: &mut Term<'_>, d: &mut Delivery<String>, bytes: &[u8], msg: &[u8]| {
+            let mut files = Files {
+                asked: Vec::new(),
+                bytes: Ok(bytes.to_vec()),
             };
+            feed(t, msg);
+            let posted: Vec<Posted> = t
+                .notices()
+                .map(|n| Posted::of(&n, &mut Icons::default()))
+                .collect();
+            t.clear_notices();
+            let now = at(Secs(clock.replace(clock.get() + 2)));
+            let calls = d.mac(
+                t,
+                posted,
+                || (Focus::Unfocused, Visible::Covered),
+                now,
+                "baud-1",
+                &mut files,
+            );
+            let p = checked_now(d, t, calls, now)
+                .into_iter()
+                .filter_map(|c| match c {
+                    MacCall::Post(p) => Some(p),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(files.asked.len(), 1, "read once");
+            p
+        };
         let msg = iterm(&[("title", b"Build"), ("image", b"/tmp/p.png")]);
         let mut garbage = PNG_2X1[..16].to_vec();
         garbage.extend([0x5a; 40]);
@@ -3755,7 +3799,7 @@ mod tests {
             baud_domain::jpeg::Jpeg::parse(&table).is_ok(),
             "its headers read"
         );
-        let mut roomy: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut roomy: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let jmsg = iterm(&[("title", b"Photo"), ("image", b"/tmp/p.jpg")]);
         let p = post(&mut t, &mut roomy, &table, &jmsg);
         assert_eq!(
@@ -3801,7 +3845,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let mut files = Files {
             asked: Vec::new(),
             bytes: Ok(PNG_2X1.to_vec()),
@@ -3912,7 +3956,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let mut files = Files {
             asked: Vec::new(),
             bytes: Ok(PNG_2X1.to_vec()),
@@ -4318,7 +4362,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
         let mut files = Files {
             asked: Vec::new(),
             bytes: Ok(PNG_2X1.to_vec()),
@@ -4367,7 +4411,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let mut r = reader(&RUNNING, Hold::Stalled);
         let posted = taken(&mut t, &iterm(&[("title", b"Build"), ("image", &path)]));
         let calls = mac_turn(&mut d, &mut t, posted, &mut r.files, at(Secs(0)));
@@ -4409,7 +4453,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let mut r = reader(&RUNNING, Hold::Stalled);
         let posted = taken(&mut t, &iterm(&[("title", b"Build"), ("image", &path)]));
         let t0 = HostTime::ZERO;
@@ -4453,7 +4497,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let mut r = reader(&RUNNING, Hold::Stalled);
         let held: Vec<_> = (0..crate::kitty_files::READERS)
             .map(|_| r.files.start(&path))
@@ -4487,7 +4531,7 @@ mod tests {
         let picture = iterm(&[("title", b"Build"), ("image", &path)]);
         let later = iterm(&[("title", b"Later")]);
         // macOS: the second post a turn after the first.
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let mut r = reader(&MAC, Hold::Stalled);
         let posted = taken(&mut t, &picture);
         assert!(mac_turn(&mut d, &mut t, posted, &mut r.files, at(Secs(0))).is_empty());
@@ -4509,7 +4553,7 @@ mod tests {
         let titles: Vec<&str> = posts(&got).into_iter().map(|p| p.title.as_str()).collect();
         assert_eq!(titles, ["Build", "Later"], "in the order they came");
         // Linux: the same.
-        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
         let mut r = reader(&LINUX, Hold::Stalled);
         for p in taken(&mut t, &picture) {
             assert!(d.linux(p, &mut r.files, at(Secs(0))).is_empty());
@@ -4547,7 +4591,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
         let mut r = reader(&RUNNING, Hold::Stalled);
         let t0 = HostTime::ZERO;
         for p in taken(&mut t, &iterm(&[("title", b"Build"), ("image", &path)])) {
@@ -4597,7 +4641,7 @@ mod tests {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
         let mut r = reader(&RUNNING, Hold::Stalled);
         let mut bytes = iterm(&[("title", b"Build"), ("image", &path)]);
         bytes.extend_from_slice(b"\x1b]99;i=j;Kept\x1b\\\x1b]99;i=j:p=close;\x1b\\");

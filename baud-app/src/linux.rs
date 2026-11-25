@@ -466,7 +466,7 @@ struct Driver {
     host: String,
     /// The notifications programs post, delivered over the session bus
     /// (`notify.rs`), and what the notification server said it supports.
-    notes: crate::notify::Delivery<Instant, crate::bus::NotifyId>,
+    notes: crate::notify::Delivery<crate::bus::NotifyId>,
     /// The reader of the file iTerm2's `image` names, with every check
     /// kitty's file medium makes, off this thread: each piece and the end
     /// wake the loop's wait through `woken`, and the turn after the paths'
@@ -1149,18 +1149,20 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             .frame_deadline(now, &d.term)
             .map(|t| t.saturating_duration_since(now));
         // A notification's `w`, closed at its deadline whatever the server
-        // does with `expire_timeout`.
+        // does with `expire_timeout`, on the clock the notifications are
+        // timed on.
+        let host = d.timed.clock.host(now);
         let expiry = d
             .notes
             .shown
             .next_due()
-            .map(|t| t.saturating_duration_since(now));
+            .map(|t| t.since(host).unwrap_or(Duration::ZERO));
         // A notification's picture read, given up at its deadline
         // (`Delivery::picture_due`).
         let pictures = d
             .notes
             .picture_due()
-            .map(|t| t.saturating_duration_since(now));
+            .map(|t| t.since(host).unwrap_or(Duration::ZERO));
         // The config's settle, ended on the timeout (`reload.rs`).
         let settle = d
             .reload
@@ -2342,7 +2344,7 @@ impl Driver {
     /// a change of progress or attention.
     fn deliver(&mut self, posted: Vec<crate::notify::Posted>) {
         use crate::notify::{Focus as F, Plan, Visible};
-        let now = Instant::now();
+        let now = self.timed.clock.host(Instant::now());
         let focus = match self.focus {
             Focus::Gained => F::Focused,
             Focus::Lost => F::Unfocused,
@@ -2441,7 +2443,9 @@ impl Driver {
     /// deadline with its text alone, and the ones that waited behind it
     /// (`Delivery::linux_reads`).
     fn pictures_turn(&mut self) {
-        let ready = self.notes.linux_reads(Instant::now());
+        let ready = self
+            .notes
+            .linux_reads(self.timed.clock.host(Instant::now()));
         self.notify(ready);
         if let Some(line) = self.notes.image_line() {
             crate::warn!("{line}");
@@ -2458,7 +2462,7 @@ impl Driver {
     /// The notifications whose `w` has passed, closed: "guaranteed to be
     /// closed once the expiry time has passed".
     fn expire_notices(&mut self) {
-        let due = self.notes.shown.due(Instant::now());
+        let due = self.notes.shown.due(self.timed.clock.host(Instant::now()));
         if let Some(bus) = self.bus.as_mut() {
             for (_, id) in due {
                 bus.close_notification(id);
@@ -2849,9 +2853,8 @@ impl Driver {
             }
             Heard::Notified(token, id) => {
                 let (expiry, buttons) = self.notes.answered(token);
-                self.notes
-                    .shown
-                    .shown(token, id, expiry, Instant::now(), buttons);
+                let now = self.timed.clock.host(Instant::now());
+                self.notes.shown.shown(token, id, expiry, now, buttons);
                 crate::reads::input(
                     &mut self.term,
                     |t| t.notice_shown(token),

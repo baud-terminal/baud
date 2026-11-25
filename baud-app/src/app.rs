@@ -944,7 +944,7 @@ struct App {
     /// The notifications programs post (`notify.rs`), the center that
     /// shows them -- `None` outside the app's bundle -- and the Dock's
     /// attention request a program's `RequestAttention=yes` or `once` made.
-    notes: crate::notify::Delivery<Instant, String>,
+    notes: crate::notify::Delivery<String>,
     /// The reader of the file iTerm2's `image` names, with every check
     /// kitty's file medium makes, off this thread: each piece and the end
     /// wake the window, whose turn takes them (`Delivery::mac`).
@@ -969,7 +969,7 @@ struct App {
     fireworks: crate::fireworks::Fireworks,
     /// When Notification Center's list was asked for a held `p=alive`
     /// (`notices_alive_check`), while its answer is owed.
-    delivered_asked: Option<Instant>,
+    delivered_asked: Option<HostTime>,
     /// When the printer list is read again, and the thread that reads it
     /// (`print.rs`, `PrinterList`).
     watch: crate::print::Watch,
@@ -5198,10 +5198,10 @@ struct Driver {
     /// The wake scheduled for the printed paths' worker (`paths_turn`).
     paths_wake: PathsWake,
     /// The wake scheduled for the notices' next timed step (`notice_schedule`).
-    notice_wake: crate::notify::ExpiryWake<Instant>,
+    notice_wake: crate::notify::ExpiryWake,
     /// The wake scheduled for the earliest deadline of a notification's
     /// picture read (`picture_schedule`).
-    picture_wake: crate::notify::ExpiryWake<Instant>,
+    picture_wake: crate::notify::ExpiryWake,
     home: Option<Vec<u8>>,
     /// Whether a key hid the pointer, and what the core said when it was
     /// last asked (`hide.rs`).
@@ -5418,8 +5418,7 @@ mod window_hold_tests {
 mod notice_no_center_tests {
     use crate::notify::{Delivery, ExpiryWake, Focus, Platform, Visible, support};
     use baud_core::{NoticeBudget, Owned, Term};
-    use baud_domain::{BytePos, ReadLen, WinSize};
-    use std::time::Instant;
+    use baud_domain::{BytePos, HostTime, ReadLen, WinSize};
 
     /// **A window with no Notification Center shows no notice, so it arms
     /// no expiry wake** (`notice_turn`'s `ExpiryWake::fired`, which runs
@@ -5449,7 +5448,7 @@ mod notice_no_center_tests {
                 .map(|n| crate::notify::Posted::of(&n, &mut icons))
                 .collect();
             t.clear_notices();
-            let mut d: Delivery<Instant, String> = Delivery::new(
+            let mut d: Delivery<String> = Delivery::new(
                 crate::config::Notifications::On,
                 &t,
                 baud_domain::ImageBudget { pixels: 1 << 10 },
@@ -5458,7 +5457,7 @@ mod notice_no_center_tests {
                 &mut t,
                 posted,
                 || (Focus::Unfocused, Visible::Covered),
-                Instant::now(),
+                HostTime::ZERO,
                 "baud-1",
                 &mut crate::kitty_files::Pictures::new(None),
             );
@@ -17682,7 +17681,7 @@ impl Driver {
             calls.extend(self.app.notes.mac_checked(
                 &mut self.app.term,
                 checked,
-                Instant::now(),
+                host_now(),
                 prefix,
             ));
         }
@@ -17690,7 +17689,7 @@ impl Driver {
             &mut self.app.term,
             posted,
             state,
-            Instant::now(),
+            host_now(),
             prefix,
             &mut self.app.pictures,
         ));
@@ -17711,7 +17710,7 @@ impl Driver {
         let calls = self.app.notes.mac_closing(
             &mut self.app.term,
             self.app.checker.finished(),
-            Instant::now(),
+            host_now(),
             prefix,
         );
         self.notice_calls(calls);
@@ -17843,14 +17842,14 @@ impl Driver {
         let outbox = &mut self.app.outbox;
         self.app
             .notes
-            .mac_scheduled(&mut self.app.term, &news.scheduled, Instant::now(), |b| {
+            .mac_scheduled(&mut self.app.term, &news.scheduled, host_now(), |b| {
                 outbox.push(b)
             });
         // A `w` that has passed; and the list Notification Center holds,
         // asked for a held `p=alive` (`notices_alive_check`): nothing on
         // macOS says one closed, so the ones it no longer holds are
         // forgotten before the question is answered.
-        let now = Instant::now();
+        let now = host_now();
         let expired = self.app.notes.mac_expired(&mut self.app.term, now);
         #[cfg(feature = "effect-probe")]
         if expired == crate::notify::Went::Some {
@@ -17907,7 +17906,7 @@ impl Driver {
     fn notices_alive_check(&mut self) {
         use crate::notify::{AliveStep, Allowed};
         use baud_present_macos::notify::Permission;
-        let now = Instant::now();
+        let now = host_now();
         let allowed = match self.app.center.as_ref().map(|c| c.allowed()) {
             Some(Permission::Granted) => Allowed::Yes,
             _ => Allowed::No,
@@ -17948,7 +17947,8 @@ impl Driver {
             owe: self.app.notice_listening.as_ref().map(|l| l.owe()),
             ran: self.notice_wake.arm(at),
         };
-        if self.wake_holding(at, due) == Scheduled::No {
+        let wait = at.since(host_now()).unwrap_or(Duration::ZERO);
+        if self.wake_holding(Instant::now() + wait, due) == Scheduled::No {
             self.notice_wake.disarm();
         }
     }
@@ -17966,7 +17966,8 @@ impl Driver {
             return;
         };
         let ran = self.picture_wake.arm(at);
-        if self.wake_holding(at, ran) == Scheduled::No {
+        let wait = at.since(host_now()).unwrap_or(Duration::ZERO);
+        if self.wake_holding(Instant::now() + wait, ran) == Scheduled::No {
             self.picture_wake.disarm();
         }
     }
