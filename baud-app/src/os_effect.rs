@@ -104,9 +104,9 @@ pub(crate) enum OsEffect {
     /// still holds, answered later (`Center::delivered`).
     AskDelivered,
     /// **This window's bar on the Dock tile**, which shows the most urgent
-    /// window's (`notify::DockBars`). A closed window's bar is taken off,
+    /// window's (`baud_domain::DockBars`). A closed window's bar is taken off,
     /// whatever it asked, so none outlives its window.
-    DockBar(Option<crate::notify::DockBar>),
+    DockBar(Option<baud_domain::DockBar>),
     /// The application activated: a click on a notification.
     Activate,
     /// The asking window raised and made key: a click on its notification.

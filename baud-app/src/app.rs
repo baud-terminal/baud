@@ -5305,9 +5305,9 @@ thread_local! {
     /// **A New Window the File menu asked of one window**, until that
     /// window's driver takes it (`new_window_from_menu`).
     static ASKED: crate::windows::Asked = const { crate::windows::Asked::new() };
-    /// **Every window's progress, for the one Dock tile** (`notify::DockBars`).
-    static DOCK: std::cell::RefCell<crate::notify::DockBars<crate::windows::WindowId>> =
-        const { std::cell::RefCell::new(crate::notify::DockBars::new()) };
+    /// **Every window's progress, for the one Dock tile** (`baud_domain::DockBars`).
+    static DOCK: std::cell::RefCell<baud_domain::DockBars<crate::windows::WindowId>> =
+        const { std::cell::RefCell::new(baud_domain::DockBars::new()) };
 }
 
 /// **Whether a window's core says notifications are delivered**: the
@@ -5478,7 +5478,7 @@ mod notice_no_center_tests {
 /// The Dock tile's bar drawn again, when the windows' progress changed it.
 fn show_dock(
     t: &baud_present_macos::turn::Turn<'_>,
-    changed: Option<Option<crate::notify::DockBar>>,
+    changed: Option<Option<baud_domain::DockBar>>,
 ) {
     if let Some(bar) = changed {
         baud_present_macos::notify::show_bar(t, bar.map(dock_bar));
@@ -5490,7 +5490,7 @@ fn show_dock(
 pub(crate) fn dock(
     t: &baud_present_macos::turn::Turn<'_>,
     id: crate::windows::WindowId,
-    bar: Option<crate::notify::DockBar>,
+    bar: Option<baud_domain::DockBar>,
 ) {
     show_dock(t, DOCK.with_borrow_mut(|d| d.set(id, bar)));
 }
@@ -17739,7 +17739,7 @@ impl Driver {
                     }
                 }
                 // The Dock tile is the app's: it shows the most urgent
-                // window's bar (`notify::DockBars`).
+                // window's bar (`baud_domain::DockBars`).
                 MacCall::Bar(bar) => {
                     let _ = self.app.os.ask(OsEffect::DockBar(bar));
                 }
@@ -17893,26 +17893,26 @@ impl Driver {
     /// list asked for within [`crate::reads::NOTICE_WAIT`] is not asked for
     /// again: the question is answered at that wait whatever comes.
     fn notices_alive_check(&mut self) {
-        use crate::notify::{AliveStep, Allowed};
+        use baud_domain::{NoticeAliveStep, NoticeAllowed};
         use baud_present_macos::notify::Permission;
         let now = host_now();
         let allowed = match self.app.center.as_ref().map(|c| c.allowed()) {
-            Some(Permission::Granted) => Allowed::Yes,
-            _ => Allowed::No,
+            Some(Permission::Granted) => NoticeAllowed::Yes,
+            _ => NoticeAllowed::No,
         };
-        match crate::notify::alive_step(
+        match baud_domain::notice_alive_step(
             self.app.term.notices_alive_asked(),
             allowed,
             self.app.delivered_asked,
             now,
             crate::reads::NOTICE_WAIT,
         ) {
-            AliveStep::Nothing | AliveStep::Wait => {}
-            AliveStep::Answer => {
+            NoticeAliveStep::Nothing | NoticeAliveStep::Wait => {}
+            NoticeAliveStep::Answer => {
                 self.app.term.answer_notices_alive();
                 self.app.os.owe_turn();
             }
-            AliveStep::Ask => {
+            NoticeAliveStep::Ask => {
                 self.app.delivered_asked = Some(now);
                 let _ = self.app.os.ask(crate::os_effect::OsEffect::AskDelivered);
             }
@@ -21195,14 +21195,14 @@ fn mac_post(p: crate::notify::MacPost) -> baud_present_macos::notify::Post {
 }
 
 /// The Dock tile's bar as the tile draws it.
-fn dock_bar(b: crate::notify::DockBar) -> baud_present_macos::notify::Bar {
+fn dock_bar(b: baud_domain::DockBar) -> baud_present_macos::notify::Bar {
     use baud_present_macos::notify::{Bar, Tone};
     Bar {
-        fraction: b.fraction,
+        fraction: b.fraction.map(baud_domain::UnitInterval::get),
         tone: match b.tone {
-            crate::notify::DockTone::Normal => Tone::Normal,
-            crate::notify::DockTone::Error => Tone::Error,
-            crate::notify::DockTone::Paused => Tone::Paused,
+            baud_domain::DockTone::Normal => Tone::Normal,
+            baud_domain::DockTone::Error => Tone::Error,
+            baud_domain::DockTone::Paused => Tone::Paused,
         },
     }
 }

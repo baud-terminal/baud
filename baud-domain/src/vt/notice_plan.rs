@@ -12,7 +12,7 @@ use core::time::Duration;
 
 use crate::{
     Activation, ButtonSupport, CloseEvents, ExpirySupport, HostTime, IconSupport, NoticeAction,
-    NoticeSupport, NoticeToken, Occasion, Occasions, Sounds, Urgencies,
+    NoticeAsked, NoticeSupport, NoticeToken, Occasion, Occasions, Sounds, Urgencies,
 };
 
 /// `[screen] notifications`: whether a program's notifications are
@@ -542,6 +542,61 @@ pub fn notice_support(setting: NoticeSetting, platform: NoticePlatform) -> Optio
     })
 }
 
+/// Whether the platform lets the program's notifications be shown.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NoticeAllowed {
+    Yes,
+    No,
+}
+
+/// **What a `p=alive` the core holds asks of a driver that reads its
+/// platform's list of delivered notifications** ([`notice_alive_step`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NoticeAliveStep {
+    /// None is held.
+    Nothing,
+    /// Answered now from the live table: with notifications not allowed
+    /// there is no list to ask for.
+    Answer,
+    /// The platform's list asked for, its answer the question's.
+    Ask,
+    /// A list asked for less than `wait` ago is still to come.
+    Wait,
+}
+
+/// **What a held `p=alive` asks for at `now`**: nothing with none held; an
+/// answer now with notifications not allowed; else the list, unless one
+/// was asked for less than `wait` before `now`, or after it, which the
+/// question waits for. The driver answers it at that wait whatever comes.
+///
+/// ```
+/// use baud_domain::{HostTime, NoticeAliveStep, NoticeAllowed, NoticeAsked};
+/// use core::time::Duration;
+/// let wait = Duration::from_millis(250);
+/// let now = HostTime::ZERO.plus(Duration::from_secs(1));
+/// let step = |listed| {
+///     baud_domain::notice_alive_step(NoticeAsked::Owed, NoticeAllowed::Yes, listed, now, wait)
+/// };
+/// assert_eq!(step(None), NoticeAliveStep::Ask);
+/// assert_eq!(step(Some(now)), NoticeAliveStep::Wait);
+/// ```
+pub fn notice_alive_step(
+    asked: NoticeAsked,
+    allowed: NoticeAllowed,
+    listed: Option<HostTime>,
+    now: HostTime,
+    wait: Duration,
+) -> NoticeAliveStep {
+    match (asked, allowed) {
+        (NoticeAsked::No, _) => NoticeAliveStep::Nothing,
+        (NoticeAsked::Owed, NoticeAllowed::No) => NoticeAliveStep::Answer,
+        (NoticeAsked::Owed, NoticeAllowed::Yes) => match listed {
+            Some(t) if now.since(t).unwrap_or(Duration::ZERO) < wait => NoticeAliveStep::Wait,
+            _ => NoticeAliveStep::Ask,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate std;
@@ -756,5 +811,63 @@ mod tests {
         assert_ne!(FdoCaps::Answered(empty), FdoCaps::Unasked);
         assert_eq!(FdoCaps::Unasked.known(), empty, "nothing before it answers");
         assert_eq!(FdoCaps::Answered(all).known(), all);
+    }
+
+    /// **What a held `p=alive` asks of the macOS driver**: nothing with
+    /// none held; an answer now with notifications not allowed; the list
+    /// with none asked for, or one asked for at least the wait ago; a wait
+    /// for one asked for less. Break: the not-allowed arm asking for the
+    /// list -- the second case fails.
+    #[test]
+    fn a_held_alive_asks_for_the_list_once_a_wait() {
+        use crate::{NoticeAliveStep, NoticeAllowed, NoticeAsked, notice_alive_step};
+        let wait = Duration::from_millis(250);
+        let ms = |n| at(10).plus(Duration::from_millis(n));
+        let now = ms(1000);
+        let cases = [
+            (
+                NoticeAsked::No,
+                NoticeAllowed::Yes,
+                None,
+                NoticeAliveStep::Nothing,
+            ),
+            (
+                NoticeAsked::Owed,
+                NoticeAllowed::No,
+                None,
+                NoticeAliveStep::Answer,
+            ),
+            (
+                NoticeAsked::Owed,
+                NoticeAllowed::Yes,
+                None,
+                NoticeAliveStep::Ask,
+            ),
+            (
+                NoticeAsked::Owed,
+                NoticeAllowed::Yes,
+                Some(ms(900)),
+                NoticeAliveStep::Wait,
+            ),
+            (
+                NoticeAsked::Owed,
+                NoticeAllowed::Yes,
+                Some(ms(750)),
+                NoticeAliveStep::Ask,
+            ),
+            (
+                NoticeAsked::Owed,
+                NoticeAllowed::Yes,
+                Some(ms(1100)),
+                NoticeAliveStep::Wait,
+            ),
+        ];
+        for (asked, allowed, listed, want) in cases {
+            assert_eq!(
+                notice_alive_step(asked, allowed, listed, now, wait),
+                want,
+                "{asked:?} {allowed:?} {listed:?}"
+            );
+        }
     }
 }

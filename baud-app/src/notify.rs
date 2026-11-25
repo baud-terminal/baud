@@ -552,7 +552,7 @@ pub enum MacCall {
     Remove(String),
     /// Remove it when `Duration` has passed, scheduled on the main queue.
     Expire(String, Duration),
-    Bar(Option<DockBar>),
+    Bar(Option<baud_domain::DockBar>),
     Attention(AttentionCall),
 }
 
@@ -610,22 +610,6 @@ pub enum Passive {
     Active,
 }
 
-/// The Dock tile's bar.
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[cfg(any(target_os = "macos", test))]
-pub struct DockBar {
-    pub fraction: Option<f64>,
-    pub tone: DockTone,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg(any(target_os = "macos", test))]
-pub enum DockTone {
-    Normal,
-    Error,
-    Paused,
-}
-
 /// `RequestAttention`'s three, as `NSApplication` takes them: "yes ... the
 /// dock icon indefinitely" is a critical request, "once ... a single
 /// time" an informational one, "no" a cancel.
@@ -635,118 +619,6 @@ pub enum AttentionCall {
     Critical,
     Informational,
     Cancel,
-}
-
-/// The Dock tile's bar for a program's progress: none while it is hidden.
-#[cfg(any(target_os = "macos", test))]
-pub fn dock_bar(p: Progress) -> Option<DockBar> {
-    use baud_core::ProgressState as S;
-    let tone = match p.state {
-        S::Hidden => return None,
-        S::Normal | S::Indeterminate => DockTone::Normal,
-        S::Error => DockTone::Error,
-        S::Paused => DockTone::Paused,
-    };
-    Some(DockBar {
-        fraction: p.percent.map(baud_core::Percent::fraction),
-        tone,
-    })
-}
-
-/// How urgent a window's bar is on the one Dock tile, most urgent first:
-/// the Windows taskbar's order for a group, `TBPF_ERROR`, `TBPF_PAUSED`,
-/// `TBPF_NORMAL`, `TBPF_INDETERMINATE` (see [`DockBars`]). A bar with no
-/// fraction draws as running with none, which is indeterminate's.
-#[cfg(any(target_os = "macos", test))]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-enum Urgent {
-    Error,
-    Paused,
-    Determinate,
-    Indeterminate,
-}
-
-#[cfg(any(target_os = "macos", test))]
-impl Urgent {
-    fn of(b: &DockBar) -> Urgent {
-        match (b.tone, b.fraction) {
-            (DockTone::Error, _) => Urgent::Error,
-            (DockTone::Paused, _) => Urgent::Paused,
-            (DockTone::Normal, Some(_)) => Urgent::Determinate,
-            (DockTone::Normal, None) => Urgent::Indeterminate,
-        }
-    }
-}
-
-/// **The one Dock tile's bar, over every window's progress**, keyed by
-/// window. The app has one tile and each window its own progress, so the
-/// tile shows the rule the Windows taskbar applies when one button stands
-/// for several windows -- the system `OSC 9;4` was made for ("set error
-/// state in progress on Windows 7 taskbar", `[[source:
-/// conemu-ansi-escape-codes]]`): "The taskbar button can show a progress
-/// indicator for only one window at a time ... the taskbar button chooses
-/// its progress display based on state priority", error, paused, normal,
-/// indeterminate, and "In the case of a priority collision between two
-/// windows that are broadcasting determinate progress, the window with the
-/// least progress is used" (`[[source:
-/// ms-itaskbarlist3-setprogressstate]]`). Windows Terminal orders its
-/// tabs by the same state priority, keeping the first tab on a tie
-/// (`TerminalPage::TaskbarState`, `[[source: wt-terminalpage]]`
-/// 4244-4262; the order is `TaskbarState::Priority`, `[[source:
-/// wt-6676c6f-taskbarstate]]`).
-/// The least-progress tie-break is the taskbar's own. A window's close
-/// takes its bar with it.
-#[cfg(any(target_os = "macos", test))]
-#[derive(Clone, Debug)]
-pub struct DockBars<K> {
-    each: Vec<(K, DockBar)>,
-    shown: Option<DockBar>,
-}
-
-#[cfg(any(target_os = "macos", test))]
-impl<K: PartialEq> DockBars<K> {
-    pub const fn new() -> DockBars<K> {
-        DockBars {
-            each: Vec::new(),
-            shown: None,
-        }
-    }
-
-    /// Window `k`'s bar is now `bar`, `None` when it shows no progress;
-    /// the tile's bar when that changes it.
-    pub fn set(&mut self, k: K, bar: Option<DockBar>) -> Option<Option<DockBar>> {
-        self.each.retain(|(w, _)| *w != k);
-        if let Some(b) = bar {
-            self.each.push((k, b));
-        }
-        self.chosen()
-    }
-
-    /// Window `k` has closed; the tile's bar when that changes it.
-    pub fn gone(&mut self, k: K) -> Option<Option<DockBar>> {
-        self.set(k, None)
-    }
-
-    /// The tile's bar, and whether it changed since the last shown.
-    fn chosen(&mut self) -> Option<Option<DockBar>> {
-        let top = self.each.iter().map(|(_, b)| Urgent::of(b)).min();
-        let pick = top.and_then(|u| {
-            self.each
-                .iter()
-                .map(|(_, b)| *b)
-                .filter(|b| Urgent::of(b) == u)
-                .min_by(|x, y| match (x.fraction, y.fraction) {
-                    (Some(a), Some(b)) => a.total_cmp(&b),
-                    (Some(_), None) => core::cmp::Ordering::Less,
-                    (None, Some(_)) => core::cmp::Ordering::Greater,
-                    (None, None) => core::cmp::Ordering::Equal,
-                })
-        });
-        (pick != self.shown).then(|| {
-            self.shown = pick;
-            pick
-        })
-    }
 }
 
 /// The extension an image's first bytes name: kitty's three formats.
@@ -822,7 +694,7 @@ impl Delivery<String> {
             }
         }
         if let Some(pr) = self.progress(term) {
-            turn.calls.push(MacCall::Bar(dock_bar(pr)));
+            turn.calls.push(MacCall::Bar(baud_domain::DockBar::of(pr)));
         }
         if let Some(a) = self.attention(term) {
             turn.calls.push(MacCall::Attention(match a {
@@ -1174,52 +1046,6 @@ impl ExpiryWake {
     }
 }
 
-/// Whether the platform lets the program's notifications be shown.
-#[cfg(any(target_os = "macos", test))]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Allowed {
-    Yes,
-    No,
-}
-
-/// **What a `p=alive` the core holds asks of the macOS driver**
-/// ([`alive_step`]).
-#[cfg(any(target_os = "macos", test))]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum AliveStep {
-    /// None is held.
-    Nothing,
-    /// Answered now from the live table: with notifications not allowed
-    /// there is no list to ask for.
-    Answer,
-    /// Notification Center's list asked for, its answer the question's.
-    Ask,
-    /// A list asked for less than `wait` ago is still to come.
-    Wait,
-}
-
-/// **What a held `p=alive` asks for at `now`**: nothing with none held; an
-/// answer now with notifications not allowed; else the list, unless one
-/// was asked for less than `wait` before `now`, which the question waits
-/// for -- and it is answered at that wait whatever comes (`reads::NOTICE_WAIT`).
-#[cfg(any(target_os = "macos", test))]
-pub fn alive_step(
-    asked: baud_core::NoticeAsked,
-    allowed: Allowed,
-    listed: Option<HostTime>,
-    now: HostTime,
-    wait: Duration,
-) -> AliveStep {
-    match (asked, allowed) {
-        (baud_core::NoticeAsked::No, _) => AliveStep::Nothing,
-        (baud_core::NoticeAsked::Owed, Allowed::No) => AliveStep::Answer,
-        (baud_core::NoticeAsked::Owed, Allowed::Yes) => match listed {
-            Some(t) if now.since(t).unwrap_or(Duration::ZERO) < wait => AliveStep::Wait,
-            _ => AliveStep::Ask,
-        },
-    }
-}
-
 /// **What a click's action identifier names**: the notification itself,
 /// or the button whose number follows `button-`, read back by `read`
 /// against the buttons that notification showed ([`read_back`]).
@@ -1567,70 +1393,6 @@ impl Checker {
 
 #[cfg(test)]
 mod tests {
-    use super::{DockBar, DockBars, DockTone};
-
-    fn bar(tone: DockTone, fraction: Option<f64>) -> Option<DockBar> {
-        Some(DockBar { fraction, tone })
-    }
-
-    /// **The one Dock tile shows the most urgent window's bar, the Windows
-    /// taskbar's group rule**: error over paused over determinate over
-    /// indeterminate; among determinate, the least progress; indeterminate
-    /// only while every window with progress is; a window that clears its
-    /// progress or closes takes its bar away and the next one shows. The
-    /// control: one window's bar alone is the tile's.
-    #[test]
-    fn the_dock_shows_the_most_urgent_windows_progress() {
-        use DockTone::{Error, Normal, Paused};
-        let mut d = DockBars::new();
-        assert_eq!(
-            d.set(1, bar(Normal, Some(0.7))),
-            Some(bar(Normal, Some(0.7))),
-            "the control"
-        );
-        assert_eq!(
-            d.set(2, bar(Normal, None)),
-            None,
-            "a determinate bar over an indeterminate one"
-        );
-        assert_eq!(
-            d.set(3, bar(Normal, Some(0.2))),
-            Some(bar(Normal, Some(0.2))),
-            "the least"
-        );
-        assert_eq!(
-            d.set(4, bar(Paused, Some(0.9))),
-            Some(bar(Paused, Some(0.9)))
-        );
-        assert_eq!(
-            d.set(5, bar(Error, None)),
-            Some(bar(Error, None)),
-            "an error over all"
-        );
-        assert_eq!(
-            d.set(3, bar(Normal, Some(0.25))),
-            None,
-            "a change under the error shows nothing new"
-        );
-        assert_eq!(
-            d.gone(5),
-            Some(bar(Paused, Some(0.9))),
-            "the error's window closed"
-        );
-        assert_eq!(
-            d.set(4, None),
-            Some(bar(Normal, Some(0.25))),
-            "paused cleared: the least again"
-        );
-        assert_eq!(d.gone(3), Some(bar(Normal, Some(0.7))));
-        assert_eq!(
-            d.gone(1),
-            Some(bar(Normal, None)),
-            "indeterminate once it is all there is"
-        );
-        assert_eq!(d.gone(2), Some(None), "the last window's bar gone: no bar");
-        assert_eq!(d.gone(2), None, "a second close changes nothing");
-    }
     use super::*;
     use baud_core::{NonZeroMillis, NoticeBudget, NoticeButton, Owned, Term};
     use baud_domain::{
@@ -1857,11 +1619,11 @@ mod tests {
         let _: fn(&mut Delivery<u32>, HostTime) -> Vec<LinuxPost> = Delivery::linux_reads;
         let _: fn(
             baud_core::NoticeAsked,
-            Allowed,
+            baud_domain::NoticeAllowed,
             Option<HostTime>,
             HostTime,
             Duration,
-        ) -> AliveStep = alive_step;
+        ) -> baud_domain::NoticeAliveStep = baud_domain::notice_alive_step;
         let src = include_str!("notify.rs");
         assert!(
             !src.contains(concat!("bell::", "Mo", "ment")),
@@ -2284,9 +2046,11 @@ mod tests {
         );
         assert_eq!(
             calls[2],
-            MacCall::Bar(Some(DockBar {
-                fraction: Some(0.4),
-                tone: DockTone::Normal
+            MacCall::Bar(Some(baud_domain::DockBar {
+                fraction: Some(baud_domain::UnitInterval::of(baud_core::Percent::clamped(
+                    40
+                ))),
+                tone: baud_domain::DockTone::Normal
             }))
         );
         assert_eq!(calls[3], MacCall::Attention(AttentionCall::Informational));
@@ -2361,9 +2125,11 @@ mod tests {
         let calls = deliver(&mut t, &mut d, "\x1b]9;4;1;40\x07");
         assert_eq!(
             calls,
-            [MacCall::Bar(Some(DockBar {
-                fraction: Some(0.4),
-                tone: DockTone::Normal
+            [MacCall::Bar(Some(baud_domain::DockBar {
+                fraction: Some(baud_domain::UnitInterval::of(baud_core::Percent::clamped(
+                    40
+                ))),
+                tone: baud_domain::DockTone::Normal
             }))],
             "the progress told"
         );
@@ -3113,57 +2879,6 @@ mod tests {
         let _unposted = w.arm(s(3));
         w.disarm();
         assert_eq!(w.schedule(Some(s(3))), Some(s(3)), "a wake not posted");
-    }
-
-    /// **What a held `p=alive` asks of the macOS driver** (`alive_step`):
-    /// nothing with none held; an answer now with notifications not
-    /// allowed; the list with none asked for, or one asked for at least
-    /// the wait ago; a wait for one asked for less. Break: the not-allowed
-    /// arm asking for the list -- the second case fails.
-    #[test]
-    fn a_held_alive_asks_for_the_list_once_a_wait() {
-        let wait = Duration::from_millis(250);
-        let ms = |n| at(Secs(10)).plus(Duration::from_millis(n));
-        let now = ms(1000);
-        let cases = [
-            (
-                baud_core::NoticeAsked::No,
-                Allowed::Yes,
-                None,
-                AliveStep::Nothing,
-            ),
-            (
-                baud_core::NoticeAsked::Owed,
-                Allowed::No,
-                None,
-                AliveStep::Answer,
-            ),
-            (
-                baud_core::NoticeAsked::Owed,
-                Allowed::Yes,
-                None,
-                AliveStep::Ask,
-            ),
-            (
-                baud_core::NoticeAsked::Owed,
-                Allowed::Yes,
-                Some(ms(900)),
-                AliveStep::Wait,
-            ),
-            (
-                baud_core::NoticeAsked::Owed,
-                Allowed::Yes,
-                Some(ms(750)),
-                AliveStep::Ask,
-            ),
-        ];
-        for (asked, allowed, listed, want) in cases {
-            assert_eq!(
-                alive_step(asked, allowed, listed, now, wait),
-                want,
-                "{asked:?} {allowed:?} {listed:?}"
-            );
-        }
     }
 
     /// The default action's identifier, as the framework names it.

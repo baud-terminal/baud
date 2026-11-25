@@ -4,6 +4,7 @@ mod charset;
 mod clipboard;
 mod csi;
 mod dcs;
+mod dock_bars;
 mod esc;
 #[cfg(feature = "alloc")]
 mod fdo_notify;
@@ -58,6 +59,7 @@ pub use charset::*;
 pub use clipboard::*;
 pub use csi::*;
 pub use dcs::*;
+pub use dock_bars::*;
 pub use esc::*;
 #[cfg(feature = "alloc")]
 pub use fdo_notify::*;

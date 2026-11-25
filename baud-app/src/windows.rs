@@ -48,7 +48,7 @@
 //! posts do not replace each other, and a click goes to the window that
 //! posted it, or nowhere once it has closed ([`clicked`]). **The Dock
 //! tile is the app's**, one for every window, and shows the most urgent
-//! window's progress (`notify::DockBars`).
+//! window's progress (`baud_domain::DockBars`).
 //!
 //! **A new window starts in the directory of the window it was opened
 //! from**: the one its shell's `OSC 7` names on this machine, else the one
