@@ -472,7 +472,7 @@ struct Driver {
     /// wake the loop's wait through `woken`, and the turn after the paths'
     /// takes them (`pictures_turn`).
     pictures: crate::kitty_files::Pictures,
-    caps: crate::notify::ServerCaps,
+    caps: baud_domain::FdoCaps,
     /// What the launcher was last told: a program's progress and its
     /// request for attention.
     launcher: crate::bus::Launcher,
@@ -1056,7 +1056,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         host: crate::opener::host_name(),
         notes,
         pictures: crate::kitty_files::Pictures::new(picture_wake),
-        caps: crate::notify::ServerCaps::NONE,
+        caps: baud_domain::FdoCaps::Unasked,
         launcher: crate::bus::Launcher::IDLE,
         reload,
         notice,
@@ -2340,60 +2340,55 @@ impl Driver {
     }
 
     /// **A program's notifications, delivered** (`notify.rs`): each shown,
-    /// closed or dropped as `notify::plan` says, and the launcher told of
-    /// a change of progress or attention.
+    /// closed or dropped as `baud_domain::notice_plan` says, and the
+    /// launcher told of a change of progress or attention.
     fn deliver(&mut self, posted: Vec<crate::notify::Posted>) {
-        use crate::notify::{Focus as F, Plan, Visible};
+        use baud_domain::{LinuxSight, NoticePlan};
         let now = self.timed.clock.host(Instant::now());
-        let focus = match self.focus {
-            Focus::Gained => F::Focused,
-            Focus::Lost => F::Unfocused,
+        let sight = match self.focus {
+            Focus::Gained => LinuxSight::Focused,
+            Focus::Lost => LinuxSight::Unfocused,
         };
         for p in posted {
-            match crate::notify::plan(
-                &p,
+            let plan = baud_domain::notice_plan(
+                p.action,
+                p.occasion,
                 self.notes.setting,
-                focus,
-                Visible::Unknown,
+                sight,
                 &mut self.notes.bucket,
                 now,
-            ) {
+            );
+            match plan {
                 // iTerm2's picture alone: `Notify` has no summary to give
                 // it, the one text argument the text does not call
                 // optional.
-                Plan::Show if crate::notify::untitled(&p) => {
-                    self.notes.bare.0 += 1;
+                NoticePlan::Show if crate::notify::untitled(&p) => {
+                    self.notes.bare.add();
                     self.term.notice_dropped(p.token);
                 }
                 // Parked in the order it came while a picture is read off
                 // this thread, its own or one ahead of it's
                 // (`Delivery::linux`).
-                Plan::Show => match self.bus.is_some() {
+                NoticePlan::Show => match self.bus.is_some() {
                     true => {
                         let ready = self.notes.linux(p, &mut self.pictures, now);
                         self.notify(ready);
                     }
                     false => self.term.notice_dropped(p.token),
                 },
-                Plan::Close => {
+                NoticePlan::Close => {
                     if let (Some(&id), Some(bus)) =
                         (self.notes.slots.id(p.token), self.bus.as_mut())
                     {
                         bus.close_notification(id);
                     }
                 }
-                Plan::Drop(_) => self.term.notice_dropped(p.token),
+                NoticePlan::Drop(_) => self.term.notice_dropped(p.token),
             }
         }
         // Once a read at most, as on macOS, and once a burst.
-        if let Some(line) = self.notes.rate_line() {
-            crate::warn!("{line}");
-        }
-        if let Some(line) = self.notes.bare_line() {
-            crate::warn!("{line}");
-        }
-        if let Some(line) = self.notes.image_line() {
-            crate::warn!("{line}");
+        for e in self.notes.lines() {
+            crate::notify::apply(&mut self.term, e);
         }
         let progress = self.notes.progress(&self.term);
         let attention = self.notes.attention(&self.term);
@@ -2431,7 +2426,7 @@ impl Driver {
                 baud_core::NoticeAction::Replace => self.notes.slots.id(p.token).copied(),
                 _ => None,
             };
-            let n = crate::bus::notification(&p, replaces, self.caps, image);
+            let n = crate::bus::notification(&p, replaces, self.caps.known(), image);
             bus.notify(&n, p.token);
             let buttons = baud_domain::NoticeButtonSet::of(p.buttons.iter().map(|(n, _)| *n));
             self.notes.slots.posting(p.token, p.expiry, buttons);
@@ -2449,7 +2444,7 @@ impl Driver {
             .linux_reads(self.timed.clock.host(Instant::now()));
         self.notify(ready);
         if let Some(line) = self.notes.image_line() {
-            crate::warn!("{line}");
+            crate::warn!("{}", crate::notify::line_text(line));
         }
     }
 
@@ -2851,10 +2846,10 @@ impl Driver {
                 self.term.set_notice_support(None);
             }
             Heard::Caps(caps) => {
-                self.caps = caps;
-                self.term.set_notice_support(crate::notify::support(
+                self.caps = baud_domain::FdoCaps::Answered(caps);
+                self.term.set_notice_support(baud_domain::notice_support(
                     self.notes.setting,
-                    crate::notify::Platform::Linux(caps),
+                    baud_domain::NoticePlatform::Linux(caps),
                 ));
             }
             Heard::Notified(token, id) => {
@@ -3044,10 +3039,12 @@ impl Driver {
                 }
                 Part::Notifications => {
                     self.notes.setting = c.notifications;
-                    if self.caps != crate::notify::ServerCaps::NONE {
-                        self.term.set_notice_support(crate::notify::support(
+                    // Before the server answers, the core is told nothing:
+                    // its answer tells it.
+                    if let baud_domain::FdoCaps::Answered(caps) = self.caps {
+                        self.term.set_notice_support(baud_domain::notice_support(
                             c.notifications,
-                            crate::notify::Platform::Linux(self.caps),
+                            baud_domain::NoticePlatform::Linux(caps),
                         ));
                     }
                 }

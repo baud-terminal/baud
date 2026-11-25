@@ -1071,7 +1071,7 @@ struct Boot {
     printing: crate::config::Printing,
     /// Whether a program's notification is delivered, from `[screen]
     /// notifications`.
-    notifications: crate::config::Notifications,
+    notifications: baud_domain::NoticeSetting,
     /// How a printed picture is sent, from `[screen] print_colour`,
     /// `print_rgb`, `print_background` and `print_rotated`.
     graphics_print: baud_domain::GraphicsPrint,
@@ -5316,11 +5316,11 @@ thread_local! {
 /// every open window is told on its next news.
 fn notice_support(
     center: Option<&baud_present_macos::notify::Center>,
-    setting: crate::config::Notifications,
+    setting: baud_domain::NoticeSetting,
 ) -> Option<baud_core::NoticeSupport> {
     match center.map(baud_present_macos::notify::Center::allowed) {
         Some(baud_present_macos::notify::Permission::Denied) | None => None,
-        Some(_) => crate::notify::support(setting, crate::notify::Platform::MacOs),
+        Some(_) => baud_domain::notice_support(setting, baud_domain::NoticePlatform::MacOs),
     }
 }
 
@@ -5334,8 +5334,8 @@ mod notice_support_tests {
     /// that opens after. Named break: support whenever there is a center.
     #[test]
     fn a_window_opened_after_a_refusal_claims_none() {
-        use crate::config::Notifications;
-        let on = super::notice_support(None, Notifications::On);
+        use baud_domain::NoticeSetting;
+        let on = super::notice_support(None, NoticeSetting::On);
         assert_eq!(on, None, "no center, none");
         let c = Center::unshared().expect("a center under the probe");
         let claimed = super::notice_support(Some(&c), Notifications::On);
@@ -5416,7 +5416,7 @@ mod window_hold_tests {
 
 #[cfg(test)]
 mod notice_no_center_tests {
-    use crate::notify::{Delivery, ExpiryWake, Focus, Platform, Visible, support};
+    use crate::notify::{Delivery, ExpiryWake};
     use baud_core::{NoticeBudget, Owned, Term};
     use baud_domain::{BytePos, HostTime, ReadLen, WinSize};
 
@@ -5449,23 +5449,28 @@ mod notice_no_center_tests {
                 .collect();
             t.clear_notices();
             let mut d: Delivery<String> = Delivery::new(
-                crate::config::Notifications::On,
+                baud_domain::NoticeSetting::On,
                 &t,
                 baud_domain::ImageBudget { pixels: 1 << 10 },
             );
-            let _ = d.mac(
-                &mut t,
-                posted,
-                || (Focus::Unfocused, Visible::Covered),
-                HostTime::ZERO,
-                "baud-1",
-                &mut crate::kitty_files::Pictures::new(None),
-            );
+            let _ = d
+                .mac(
+                    &t,
+                    posted,
+                    || baud_domain::MacSight::Covered,
+                    HostTime::ZERO,
+                    "baud-1",
+                    &mut crate::kitty_files::Pictures::new(None),
+                )
+                .told(&mut t);
             ExpiryWake::new().schedule(d.slots.next_due())
         };
-        let none = super::notice_support(None, crate::config::Notifications::On);
+        let none = super::notice_support(None, baud_domain::NoticeSetting::On);
         assert_eq!(due(none), None, "nothing to wake for");
-        let center = support(crate::config::Notifications::On, Platform::MacOs);
+        let center = baud_domain::notice_support(
+            baud_domain::NoticeSetting::On,
+            baud_domain::NoticePlatform::MacOs,
+        );
         assert!(due(center).is_some(), "the control: a wake to arm");
     }
 }
@@ -9081,7 +9086,7 @@ mod drag_tests {
             ".window()",
             "probe::shown",
             "splash_check",
-            "Visible::",
+            "MacSight::",
         ];
         for needle in needles {
             assert!(
@@ -14465,8 +14470,8 @@ impl Driver {
             self.app.activity.seen(Led::Aa, host_now());
         }
         // A program's notifications, progress and attention request, shown
-        // or not as `notify::plan` says (`notify.rs`), after the bell, as
-        // a bell is, for a minimized window draws nothing.
+        // or not as `baud_domain::notice_plan` says (`notify.rs`), after the
+        // bell, as a bell is, for a minimized window draws nothing.
         self.deliver_notices(posted);
         // The status line's frame first, so a program's resize in the same
         // read is measured on the window it leaves (`mac_status_frame`).
@@ -17652,25 +17657,15 @@ impl Driver {
     /// the identifiers' prefix is the window's, built when it was given
     /// its key (`Driver::notice_prefix`).
     fn deliver_notices(&mut self, posted: Vec<crate::notify::Posted>) {
-        use crate::notify::{Focus as F, Visible};
+        use baud_domain::MacSight;
         let view = &self.view;
         let state = || {
             #[cfg(feature = "effect-probe")]
             baud_present_macos::probe::notice_state_read();
             match baud_present_macos::sends::window_of(view) {
-                Some(w) => (
-                    if baud_present_macos::sends::is_key(&w) {
-                        F::Focused
-                    } else {
-                        F::Unfocused
-                    },
-                    if baud_present_macos::sends::is_seen(&w) {
-                        Visible::Seen
-                    } else {
-                        Visible::Covered
-                    },
-                ),
-                None => (F::Unfocused, Visible::Covered),
+                Some(w) if baud_present_macos::sends::is_key(&w) => MacSight::Focused,
+                Some(w) if baud_present_macos::sends::is_seen(&w) => MacSight::Seen,
+                Some(_) | None => MacSight::Covered,
             }
         };
         let prefix = self.notice_prefix.as_str();
@@ -17678,21 +17673,22 @@ impl Driver {
         // notifications posted first: they came before this read's.
         let mut calls = Vec::new();
         for checked in self.app.checker.finished() {
-            calls.extend(self.app.notes.mac_checked(
-                &mut self.app.term,
-                checked,
-                host_now(),
-                prefix,
-            ));
+            calls.extend(
+                self.app
+                    .notes
+                    .mac_checked(checked, host_now(), prefix)
+                    .told(&mut self.app.term),
+            );
         }
-        calls.extend(self.app.notes.mac(
-            &mut self.app.term,
+        let turn = self.app.notes.mac(
+            &self.app.term,
             posted,
             state,
             host_now(),
             prefix,
             &mut self.app.pictures,
-        ));
+        );
+        calls.extend(turn.told(&mut self.app.term));
         self.notice_calls(calls);
     }
 
@@ -17707,12 +17703,11 @@ impl Driver {
     /// touches the view.
     fn notices_at_close(&mut self) {
         let prefix = self.notice_prefix.as_str();
-        let calls = self.app.notes.mac_closing(
-            &mut self.app.term,
-            self.app.checker.finished(),
-            host_now(),
-            prefix,
-        );
+        let calls = self
+            .app
+            .notes
+            .mac_closing(self.app.checker.finished(), host_now(), prefix)
+            .told(&mut self.app.term);
         self.notice_calls(calls);
     }
 
@@ -17757,14 +17752,8 @@ impl Driver {
                 }
             }
         }
-        if let Some(line) = self.app.notes.rate_line() {
-            crate::warn!("{line}");
-        }
-        if let Some(line) = self.app.notes.bare_line() {
-            crate::warn!("{line}");
-        }
-        if let Some(line) = self.app.notes.image_line() {
-            crate::warn!("{line}");
+        for e in self.app.notes.lines() {
+            crate::notify::apply(&mut self.app.term, e);
         }
     }
 

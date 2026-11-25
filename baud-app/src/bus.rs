@@ -164,7 +164,7 @@ pub(crate) enum Heard {
     /// It did not: the error's name.
     NotRevealed(String),
     /// The notification server's capabilities: there is one.
-    Caps(crate::notify::ServerCaps),
+    Caps(baud_domain::ServerCaps),
     /// `GetCapabilities` failed: no notification server, the error's name.
     NoServer(String),
     /// A notification shown, as the server's id.
@@ -924,30 +924,21 @@ fn heard_in_signal(m: &Message<'_>) -> Option<Heard> {
     }
 }
 
-/// `GetCapabilities`' `as`, as the two this reads.
-fn caps_in_reply(m: &Message<'_>) -> crate::notify::ServerCaps {
-    use crate::notify::{Caps, ServerCaps};
-    let mut caps = ServerCaps {
-        actions: Caps::Absent,
-        markup: Caps::Absent,
-    };
+/// `GetCapabilities`' `as`: the capabilities it lists.
+fn caps_in_reply(m: &Message<'_>) -> baud_domain::ServerCaps {
+    use baud_domain::ServerCaps;
     if m.signature != "as" {
-        return caps;
+        return ServerCaps::heard([]);
     }
     let mut r = Reader::new(m.body, m.order);
     let Some(n) = r.len() else {
-        return caps;
+        return ServerCaps::heard([]);
     };
     let end = Len(r.at.0.saturating_add(n.0));
-    while r.at < end {
-        match r.string() {
-            Some("actions") => caps.actions = Caps::Listed,
-            Some("body-markup") => caps.markup = Caps::Listed,
-            Some(_) => {}
-            None => break,
-        }
-    }
-    caps
+    ServerCaps::heard(core::iter::from_fn(|| match r.at < end {
+        true => r.string(),
+        false => None,
+    }))
 }
 
 /// `Notify`'s `u`.
@@ -2013,14 +2004,14 @@ fn uid() -> Option<Uid> {
 pub(crate) fn notification(
     p: &crate::notify::Posted,
     replaces: Option<NotifyId>,
-    caps: crate::notify::ServerCaps,
+    caps: baud_domain::ServerCaps,
     image: Option<(baud_domain::png::Size, Vec<u8>)>,
 ) -> Notification {
-    use crate::notify::{Caps, Sound};
+    use crate::notify::Sound;
     use {Expire, Hint, Image, Octet, Truth};
-    let text = |s: &str| match caps.markup {
-        Caps::Listed => crate::notify::escape_markup(s),
-        Caps::Absent => s.to_string(),
+    let text = |s: &str| match caps.markup() {
+        Some(_) => crate::notify::escape_markup(s),
+        None => s.to_string(),
     };
     let mut actions = Vec::new();
     if p.activation.reports() || p.activation.focuses() {
@@ -2606,9 +2597,9 @@ mod tests {
         let mut owned =
             baud_core::Owned::new(&ws).with_notices(baud_core::NoticeBudget::with_icon(1024));
         let mut t = baud_core::Term::new(owned.storage(), &ws);
-        t.set_notice_support(crate::notify::support(
-            crate::notify::Setting::On,
-            crate::notify::Platform::MacOs,
+        t.set_notice_support(baud_domain::notice_support(
+            baud_domain::NoticeSetting::On,
+            baud_domain::NoticePlatform::MacOs,
         ));
         let b = b"\x1b]99;i=a;x\x1b\\";
         t.write_at(BytePos::ZERO, b);
@@ -2697,22 +2688,21 @@ mod tests {
     /// its id -- the click is unheard.
     #[test]
     fn the_servers_answers_are_heard() {
-        use crate::notify::{Caps, ServerCaps};
+        use baud_domain::ServerCaps;
         let mut s = ready();
         assert_eq!(
             s.received(&reply_bytes("capabilities_reply")),
-            [Heard::Caps(ServerCaps {
-                actions: Caps::Listed,
-                markup: Caps::Listed,
-            })]
+            [Heard::Caps(ServerCaps::heard([
+                "actions",
+                "body",
+                "body-markup",
+                "persistence",
+            ]))]
         );
         let mut s = ready();
         assert_eq!(
             s.received(&reply_bytes("capabilities_bare")),
-            [Heard::Caps(ServerCaps {
-                actions: Caps::Absent,
-                markup: Caps::Absent,
-            })]
+            [Heard::Caps(ServerCaps::heard(["body"]))]
         );
         let tok = token();
         let quiet = Notification {
@@ -2805,7 +2795,8 @@ mod tests {
     /// escape for every server -- the plain body differs.
     #[test]
     fn a_posted_notification_is_notifys_arguments() {
-        use crate::notify::{Caps, Icons, Posted, ServerCaps};
+        use crate::notify::{Icons, Posted};
+        use baud_domain::ServerCaps;
         use baud_domain::{BytePos, ReadLen, WinSize};
         let ws = WinSize {
             ws_row: 4,
@@ -2814,13 +2805,10 @@ mod tests {
         let mut owned =
             baud_core::Owned::new(&ws).with_notices(baud_core::NoticeBudget::with_icon(1024));
         let mut t = baud_core::Term::new(owned.storage(), &ws);
-        let caps = ServerCaps {
-            actions: Caps::Listed,
-            markup: Caps::Listed,
-        };
-        t.set_notice_support(crate::notify::support(
-            crate::notify::Setting::On,
-            crate::notify::Platform::Linux(caps),
+        let caps = ServerCaps::heard(["actions", "body-markup"]);
+        t.set_notice_support(baud_domain::notice_support(
+            baud_domain::NoticeSetting::On,
+            baud_domain::NoticePlatform::Linux(caps),
         ));
         let b = "\x1b]99;i=n:d=0:a=report:u=2:s=c2lsZW50:n=d2Fybg==:t=YnVpbGQ=:w=2500;Done\x1b\\\x1b]99;i=n:d=0:p=body;a < b & c\x1b\\\x1b]99;i=n:p=buttons;Retry\u{2028}Log\x1b\\".as_bytes();
         t.write_at(BytePos::ZERO, b);
@@ -2856,7 +2844,7 @@ mod tests {
             n.expire,
             Expire::After(core::time::Duration::from_millis(2500))
         );
-        let plain = notification(&p, Some(NotifyId(Word(9))), ServerCaps::NONE, None);
+        let plain = notification(&p, Some(NotifyId(Word(9))), ServerCaps::heard([]), None);
         assert_eq!(plain.body, "a < b & c");
         assert_eq!(plain.replaces, Some(NotifyId(Word(9))));
     }
@@ -2868,7 +2856,8 @@ mod tests {
     /// leave the hint out -- no hint names the entry.
     #[test]
     fn a_notification_names_baud_s_desktop_entry() {
-        use crate::notify::{Icons, Posted, ServerCaps};
+        use crate::notify::{Icons, Posted};
+        use baud_domain::ServerCaps;
         use baud_domain::{BytePos, ReadLen, WinSize};
         let ws = WinSize {
             ws_row: 4,
@@ -2877,9 +2866,9 @@ mod tests {
         let mut owned =
             baud_core::Owned::new(&ws).with_notices(baud_core::NoticeBudget::with_icon(1024));
         let mut t = baud_core::Term::new(owned.storage(), &ws);
-        t.set_notice_support(crate::notify::support(
-            crate::notify::Setting::On,
-            crate::notify::Platform::Linux(ServerCaps::NONE),
+        t.set_notice_support(baud_domain::notice_support(
+            baud_domain::NoticeSetting::On,
+            baud_domain::NoticePlatform::Linux(ServerCaps::heard([])),
         ));
         let b = "\x1b]99;;Done\x1b\\".as_bytes();
         t.write_at(BytePos::ZERO, b);
@@ -2889,7 +2878,7 @@ mod tests {
             .map(|n| Posted::of(&n, &mut Icons::default()))
             .next()
             .expect("posted");
-        let n = notification(&p, None, ServerCaps::NONE, None);
+        let n = notification(&p, None, ServerCaps::heard([]), None);
         assert!(
             n.hints
                 .contains(&("desktop-entry", Hint::Str(DESKTOP_ENTRY.into()))),
@@ -2913,23 +2902,21 @@ mod tests {
     /// the body.
     #[test]
     fn an_iterm2_subtitle_opens_the_body_or_stands_as_the_summary() {
-        use crate::notify::{Caps, Icons, Posted, ServerCaps};
+        use crate::notify::{Icons, Posted};
+        use baud_domain::ServerCaps;
         use baud_domain::{BytePos, ReadLen, WinSize};
         let ws = WinSize {
             ws_row: 4,
             ws_col: 20,
         };
-        let caps = ServerCaps {
-            actions: Caps::Listed,
-            markup: Caps::Listed,
-        };
+        let caps = ServerCaps::heard(["actions", "body-markup"]);
         let sent = |b64s: &str| {
             let mut owned =
                 baud_core::Owned::new(&ws).with_notices(baud_core::NoticeBudget::with_icon(1024));
             let mut t = baud_core::Term::new(owned.storage(), &ws);
-            t.set_notice_support(crate::notify::support(
-                crate::notify::Setting::On,
-                crate::notify::Platform::Linux(caps),
+            t.set_notice_support(baud_domain::notice_support(
+                baud_domain::NoticeSetting::On,
+                baud_domain::NoticePlatform::Linux(caps),
             ));
             let b = format!("\x1b]1337;Notification={b64s}\x07");
             t.write_at(BytePos::ZERO, b.as_bytes());
@@ -2966,23 +2953,21 @@ mod tests {
     /// notification asking neither carries no `default` action.
     #[test]
     fn the_default_action_is_offered_for_focus_or_report() {
-        use crate::notify::{Caps, Icons, Posted, ServerCaps};
+        use crate::notify::{Icons, Posted};
+        use baud_domain::ServerCaps;
         use baud_domain::{BytePos, ReadLen, WinSize};
         let ws = WinSize {
             ws_row: 4,
             ws_col: 20,
         };
-        let caps = ServerCaps {
-            actions: Caps::Listed,
-            markup: Caps::Absent,
-        };
+        let caps = ServerCaps::heard(["actions"]);
         let offered = |a: &str| {
             let mut owned =
                 baud_core::Owned::new(&ws).with_notices(baud_core::NoticeBudget::with_icon(1024));
             let mut t = baud_core::Term::new(owned.storage(), &ws);
-            t.set_notice_support(crate::notify::support(
-                crate::notify::Setting::On,
-                crate::notify::Platform::Linux(caps),
+            t.set_notice_support(baud_domain::notice_support(
+                baud_domain::NoticeSetting::On,
+                baud_domain::NoticePlatform::Linux(caps),
             ));
             let b = format!("\x1b]99;i=n{a};Done\x1b\\");
             t.write_at(BytePos::ZERO, b.as_bytes());

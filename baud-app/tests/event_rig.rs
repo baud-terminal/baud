@@ -304,7 +304,7 @@ const PAUSED: Shape = Shape {
 };
 
 /// **Four iterations of a row that posts a notification each**: the
-/// flood bound lets four through at once (`notify::BURST`), and the rows'
+/// flood bound lets four through at once (`baud_domain::NOTICE_BURST`), and the rows'
 /// iterations come faster than its one a second.
 const FOUR_POSTS: Shape = Shape {
     polled: Polled::Read,

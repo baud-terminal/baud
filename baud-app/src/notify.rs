@@ -5,16 +5,16 @@
 //! `UNUserNotificationCenter` on macOS (`baud-present-macos`'s `notify`).
 //!
 //! * **The setting**, `[screen] notifications = "on" | "off"`: off tells
-//!   the core nothing is delivered ([`support`]), so it refuses every
+//!   the core nothing is delivered (`baud_domain::notice_support`), so it refuses every
 //!   notification and leaves kitty's query unanswered, as a terminal
 //!   without them.
 //! * **When**: kitty's `o` says ("always is the default and always honors
 //!   the request"); `OSC 9` and `OSC 777`, whose texts say nothing, show
-//!   while the window is not focused. [`plan`].
+//!   while the window is not focused (`baud_domain::notice_plan`).
 //! * **How often**: a bucket of four, refilled one a second
-//!   ([`Bucket`]), so a loop printing notifications posts four and then
-//!   one a second, the rest dropped, counted and logged once a burst
-//!   ([`Delivery::rate_line`]).
+//!   (`baud_domain::NoticeBucket`), so a loop printing notifications
+//!   posts four and then one a second, the rest dropped, counted and
+//!   logged once a burst ([`Delivery::rate_line`]).
 //! * **What text**: lossy UTF-8 with every control taken out ([`text`]):
 //!   kitty's "Escape code safe UTF-8" binds the sender, and a desktop
 //!   notification has no use for a control either way.
@@ -43,15 +43,13 @@ use std::collections::VecDeque;
 use std::time::Duration;
 
 use baud_core::{
-    Activation, Attention, ButtonSupport, CloseEvents, CloseReport, Expiry, ExpirySupport,
-    IconSupport, Notice, NoticeAction, NoticeButton, NoticeFrom, NoticeSupport, NoticeToken,
-    Occasion, Occasions, Progress, ReportCount, Sounds, Term, Urgencies, Urgency,
+    Activation, Attention, CloseReport, Expiry, Notice, NoticeAction, NoticeButton, NoticeFrom,
+    NoticeToken, Occasion, Progress, ReportCount, Term, Urgency,
 };
 
-use baud_domain::{HostTime, NoticeSlots};
-
-/// `[screen] notifications`.
-pub use crate::config::Notifications as Setting;
+use baud_domain::{
+    HostTime, NoticeBucket, NoticeEffect, NoticeLine, NoticeSaidOnce, NoticeSetting, NoticeSlots,
+};
 
 /// A notification taken from the core, owned, its text made safe.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -156,148 +154,6 @@ pub fn text(b: &[u8]) -> String {
         .collect()
 }
 
-/// The window, as a notification's occasion reads it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Focus {
-    Focused,
-    Unfocused,
-}
-
-/// Whether the window can be seen: on screen and not covered, as macOS's
-/// occlusion state says; `Unknown` where the platform does not say.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Visible {
-    /// Seen, at least in part: only macOS can say so.
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
-    Seen,
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
-    Covered,
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-    Unknown,
-}
-
-/// What to do with one notice.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Plan {
-    Show,
-    Close,
-    Drop(Why),
-}
-
-/// Why one was not shown.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Why {
-    /// Its occasion: the window is focused, or visible.
-    Occasion,
-    /// The flood bound.
-    Rate,
-    /// The setting is off.
-    Off,
-}
-
-/// **Whether to show it**: its occasion, then the bound. A close is always
-/// carried out. `o=invisible` on a platform that cannot tell what is
-/// visible is read as `unfocused`, the text's "best guess" for a value the
-/// terminal did not claim.
-pub fn plan(
-    p: &Posted,
-    setting: Setting,
-    focus: Focus,
-    visible: Visible,
-    bucket: &mut Bucket,
-    now: HostTime,
-) -> Plan {
-    if p.action == NoticeAction::Close {
-        return Plan::Close;
-    }
-    if setting == Setting::Off {
-        return Plan::Drop(Why::Off);
-    }
-    let shown = match (p.occasion, focus, visible) {
-        (Occasion::Always, _, _) => true,
-        (_, Focus::Focused, _) => false,
-        (Occasion::Unfocused, Focus::Unfocused, _) => true,
-        (Occasion::Invisible, Focus::Unfocused, Visible::Seen) => false,
-        (Occasion::Invisible, Focus::Unfocused, Visible::Covered | Visible::Unknown) => true,
-    };
-    if !shown {
-        return Plan::Drop(Why::Occasion);
-    }
-    match bucket.take(now) {
-        Taken::Yes => Plan::Show,
-        Taken::No => Plan::Drop(Why::Rate),
-    }
-}
-
-/// Whether the bound let one through.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Taken {
-    Yes,
-    No,
-}
-
-/// The burst the bound allows, and how fast it refills.
-pub const BURST: Duration = Duration::from_secs(4);
-pub const EACH: Duration = Duration::from_secs(1);
-
-/// **The flood bound**: credit in time, at most [`BURST`], each
-/// notification spending [`EACH`], credit coming back as the clock runs.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Bucket {
-    credit: Duration,
-    at: Option<HostTime>,
-    /// How many it dropped, for the log.
-    pub dropped: Dropped,
-    /// How many bursts it has seen, for the log: one begins at a take
-    /// that finds the bucket full.
-    pub bursts: Bursts,
-}
-
-/// A count of notifications the bound dropped.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct Dropped(pub u64);
-
-/// A count of bursts: a flood that never lets the bucket fill is one.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct Bursts(pub u64);
-
-impl Bucket {
-    pub fn new() -> Bucket {
-        Bucket {
-            credit: BURST,
-            at: None,
-            dropped: Dropped(0),
-            bursts: Bursts(0),
-        }
-    }
-
-    pub fn take(&mut self, now: HostTime) -> Taken {
-        if let Some(at) = self.at {
-            self.credit = (self.credit + now.since(at).unwrap_or(Duration::ZERO)).min(BURST);
-        }
-        self.at = Some(now);
-        if self.credit == BURST {
-            self.bursts.0 += 1;
-        }
-        match self.credit >= EACH {
-            true => {
-                self.credit -= EACH;
-                Taken::Yes
-            }
-            false => {
-                self.dropped.0 += 1;
-                Taken::No
-            }
-        }
-    }
-}
-
-impl Default for Bucket {
-    fn default() -> Self {
-        Bucket::new()
-    }
-}
-
 /// How many icons the cache keeps, and how many bytes in all.
 pub const ICONS: usize = 16;
 pub const ICON_BYTES: usize = 4 << 20;
@@ -328,90 +184,6 @@ impl Icons {
         self.kept.push_back(e);
         self.kept.back().map(|(_, d)| &d[..])
     }
-}
-
-/// What a platform delivers, as the core answers kitty's query.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Platform {
-    /// macOS: a click focuses the window and can be reported; closes are
-    /// not told; the occlusion state says what is visible; two urgencies
-    /// (`critical` would need an entitlement baud does not have); the
-    /// default sound or none; images as attachments.
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
-    MacOs,
-    /// Linux, with what the notification server said it supports:
-    /// actions, and named sounds.
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-    Linux(ServerCaps),
-}
-
-/// The capabilities a freedesktop notification server listed.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct ServerCaps {
-    pub actions: Caps,
-    pub markup: Caps,
-}
-
-impl ServerCaps {
-    /// What a server is taken to have before it answers: nothing.
-    #[cfg(any(target_os = "linux", test))]
-    pub const NONE: ServerCaps = ServerCaps {
-        actions: Caps::Absent,
-        markup: Caps::Absent,
-    };
-}
-
-/// Whether a server listed a capability.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-pub enum Caps {
-    Listed,
-    Absent,
-}
-
-/// **What the core is told**: `None` while the setting is off, else what
-/// the platform delivers. On Linux a click on a notification that asked
-/// `focus` activates the window with the token the server's
-/// `ActivationToken` gives (`bus.rs`), where it sends one -- "Clients
-/// should not assume the server will generate this signal"
-/// (`[[source: freedesktop-notification-spec]]`) -- and the compositor
-/// decides what that does (`[[source: xdg-activation-v1]]`). Neither can
-/// be known when a program asks, so only `report` is claimed, and it and
-/// the buttons only where the server lists actions.
-pub fn support(setting: Setting, platform: Platform) -> Option<NoticeSupport> {
-    if setting == Setting::Off {
-        return None;
-    }
-    Some(match platform {
-        Platform::MacOs => NoticeSupport {
-            actions: Activation::FOCUS_AND_REPORT,
-            close_events: CloseEvents::Untracked,
-            occasions: Occasions::UnfocusedAndInvisible,
-            urgencies: Urgencies::LowAndNormal,
-            sounds: Sounds::SystemAndSilent,
-            expiry: ExpirySupport::Expires,
-            icons: IconSupport::NamesAndImages,
-            buttons: ButtonSupport::Shown,
-        },
-        Platform::Linux(caps) => NoticeSupport {
-            actions: match caps.actions {
-                Caps::Listed => Activation::REPORT,
-                Caps::Absent => Activation::NONE,
-            },
-            close_events: CloseEvents::Tracked,
-            occasions: Occasions::Unfocused,
-            urgencies: Urgencies::All,
-            sounds: Sounds::SystemAndSilent,
-            expiry: ExpirySupport::Expires,
-            icons: IconSupport::NamesAndImages,
-            // Buttons are `Notify`'s actions too, shown only by a server
-            // that lists `actions`.
-            buttons: match caps.actions {
-                Caps::Listed => ButtonSupport::Shown,
-                Caps::Absent => ButtonSupport::NotShown,
-            },
-        },
-    })
 }
 
 /// The icon name a platform's theme has for one of kitty's "Universally
@@ -467,8 +239,8 @@ impl Scheduled {
 /// by it, by slot, and the last progress and attention it acted on.
 #[derive(Debug)]
 pub struct Delivery<P> {
-    pub setting: Setting,
-    pub bucket: Bucket,
+    pub setting: NoticeSetting,
+    pub bucket: NoticeBucket,
     pub icons: Icons,
     /// The ones sent to the platform or shown by it, with the deadlines
     /// `w` set: the driver closes one when its deadline passes, "guaranteed
@@ -477,19 +249,14 @@ pub struct Delivery<P> {
     pub slots: NoticeSlots<P>,
     progress: ReportCount,
     attention: ReportCount,
-    /// How many the bound had dropped when it last said so, and in which
-    /// burst.
-    said: (Dropped, Bursts),
     /// The images not shown -- on Linux ([`Delivery::image_data`]), and
     /// iTerm2's pictures on macOS ([`Delivery::mac_checked`]) and on both
-    /// past [`PICTURE_WAIT`] -- and whether the log has said so.
-    pub unshown: Unshown,
-    unshown_said: Said,
+    /// past [`PICTURE_WAIT`] -- said once.
+    pub unshown: NoticeSaidOnce,
     /// The notifications not posted for want of anything the platform
     /// shows ([`untitled`] on Linux; on macOS no text and no picture it
-    /// attaches), and whether the log has said so.
-    pub bare: Unshown,
-    bare_said: Said,
+    /// attaches), said once.
+    pub bare: NoticeSaidOnce,
     /// The most pixels iTerm2's picture may decode to on macOS, the user's
     /// `[images] pixels_mb` ([`attaches`]).
     #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
@@ -552,35 +319,21 @@ enum Image {
     Attached(Option<(Vec<u8>, &'static str)>),
 }
 
-/// A count of the images a notification carried that were not shown.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct Unshown(pub u64);
-
-/// Whether a line that is said once has been.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Said {
-    Not,
-    Once,
-}
-
 impl<P: Clone + PartialEq> Delivery<P> {
     pub fn new(
-        setting: Setting,
+        setting: NoticeSetting,
         term: &Term<'_>,
         pictures: baud_domain::ImageBudget,
     ) -> Delivery<P> {
         Delivery {
             setting,
-            bucket: Bucket::new(),
+            bucket: NoticeBucket::new(),
             icons: Icons::default(),
             slots: NoticeSlots::new(),
             progress: term.progress_reports(),
             attention: term.attention_requests(),
-            said: (Dropped(0), Bursts(0)),
-            unshown: Unshown(0),
-            unshown_said: Said::Not,
-            bare: Unshown(0),
-            bare_said: Said::Not,
+            unshown: NoticeSaidOnce::NEW,
+            bare: NoticeSaidOnce::NEW,
             pictures,
             parked: VecDeque::new(),
         }
@@ -608,14 +361,19 @@ impl<P: Clone + PartialEq> Delivery<P> {
     /// A line for the log when the bound has dropped more since it last
     /// said, in a burst it has not spoken in: once a burst, not once a
     /// notification nor once a read, and counting every drop since the
-    /// last line.
-    pub fn rate_line(&mut self) -> Option<String> {
-        let (d, b) = (self.bucket.dropped, self.bucket.bursts);
-        (d != self.said.0 && b != self.said.1).then(|| {
-            let n = d.0 - self.said.0.0;
-            self.said = (d, b);
-            format!("notifications: {n} dropped, more than four at once or one a second")
-        })
+    /// last line (`NoticeBucket::newly_dropped`).
+    pub fn rate_line(&mut self) -> Option<NoticeLine> {
+        self.bucket.newly_dropped().map(NoticeLine::Rate)
+    }
+
+    /// **The lines for the log a turn has to say**, in order: the bound's,
+    /// the notifications not posted and the images not shown, each as
+    /// its latch allows.
+    pub fn lines(&mut self) -> impl Iterator<Item = NoticeEffect> {
+        [self.rate_line(), self.bare_line(), self.image_line()]
+            .into_iter()
+            .flatten()
+            .map(NoticeEffect::Line)
     }
 
     /// **`p`, shown, parked in the order it came**: with iTerm2's picture
@@ -665,7 +423,7 @@ impl<P: Clone + PartialEq> Delivery<P> {
                         "notifications: the picture {:?} was not read within {PICTURE_WAIT:?}; its text posted alone",
                         String::from_utf8_lossy(k.p.picture.as_deref().unwrap_or_default())
                     );
-                    self.unshown.0 += 1;
+                    self.unshown.add();
                     Stage::Ready(Image::Text)
                 }
                 (crate::kitty_files::Took::Running, _) => continue,
@@ -734,7 +492,7 @@ impl<P: Clone + PartialEq> Delivery<P> {
     fn decoded(&mut self, b: &[u8]) -> Option<(baud_domain::png::Size, Vec<u8>)> {
         let shown = rgba(b);
         if shown.is_none() {
-            self.unshown.0 += 1;
+            self.unshown.add();
         }
         shown
     }
@@ -770,7 +528,7 @@ impl<P: Clone + PartialEq> Delivery<P> {
     pub fn linux_closing(&mut self) -> Vec<LinuxPost> {
         for k in self.parked.iter_mut() {
             if !matches!(k.at, Stage::Ready(_)) {
-                self.unshown.0 += 1;
+                self.unshown.add();
                 k.at = Stage::Ready(Image::Text);
             }
         }
@@ -795,26 +553,14 @@ impl<P: Clone + PartialEq> Delivery<P> {
 
     /// A line for the log the first time an image was not shown, and
     /// never again.
-    pub fn image_line(&mut self) -> Option<String> {
-        (self.unshown.0 > 0 && self.unshown_said == Said::Not).then(|| {
-            self.unshown_said = Said::Once;
-            format!(
-                "notifications: images not shown, {} so far: a PNG, JPEG or GIF is shown when it decodes, on Linux at most 1024 pixels a side, and an iTerm2 picture on macOS within [images] pixels_mb; said once",
-                self.unshown.0
-            )
-        })
+    pub fn image_line(&mut self) -> Option<NoticeLine> {
+        self.unshown.say().map(NoticeLine::ImagesUnshown)
     }
 
     /// A line for the log the first time a notification was not posted for
     /// want of anything to show, and never again.
-    pub fn bare_line(&mut self) -> Option<String> {
-        (self.bare.0 > 0 && self.bare_said == Said::Not).then(|| {
-            self.bare_said = Said::Once;
-            format!(
-                "notifications: {} not posted, nothing in them to show: a picture alone needs a title or a subtitle on Linux, and on macOS a PNG, JPEG or GIF that was read and decodes; said once",
-                self.bare.0
-            )
-        })
+    pub fn bare_line(&mut self) -> Option<NoticeLine> {
+        self.bare.say().map(NoticeLine::Bare)
     }
 
     /// `token` let go of, where its slot still holds it.
@@ -822,6 +568,32 @@ impl<P: Clone + PartialEq> Delivery<P> {
         if let Some(h) = self.slots.get(token) {
             h.free();
         }
+    }
+}
+
+/// **A line's wording in the log.**
+pub fn line_text(l: NoticeLine) -> String {
+    match l {
+        NoticeLine::Rate(n) => format!(
+            "notifications: {} dropped, more than four at once or one a second",
+            n.get()
+        ),
+        NoticeLine::ImagesUnshown(n) => format!(
+            "notifications: images not shown, {} so far: a PNG, JPEG or GIF is shown when it decodes, on Linux at most 1024 pixels a side, and an iTerm2 picture on macOS within [images] pixels_mb; said once",
+            n.get()
+        ),
+        NoticeLine::Bare(n) => format!(
+            "notifications: {} not posted, nothing in them to show: a picture alone needs a title or a subtitle on Linux, and on macOS a PNG, JPEG or GIF that was read and decodes; said once",
+            n.get()
+        ),
+    }
+}
+
+/// **An effect carried out**: the core told, or the line logged.
+pub fn apply(term: &mut Term<'_>, e: NoticeEffect) {
+    match e {
+        NoticeEffect::Dropped(token) => term.notice_dropped(token),
+        NoticeEffect::Line(l) => crate::warn!("{}", line_text(l)),
     }
 }
 
@@ -841,6 +613,28 @@ pub enum MacCall {
     Expire(String, Duration),
     Bar(Option<DockBar>),
     Attention(AttentionCall),
+}
+
+/// **What a macOS turn does**: the calls the driver makes, and what the
+/// core is told, carried out first ([`MacTurn::told`]).
+#[must_use]
+#[derive(Debug, Default)]
+#[cfg(any(target_os = "macos", test))]
+pub struct MacTurn {
+    pub calls: Vec<MacCall>,
+    pub effects: Vec<NoticeEffect>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl MacTurn {
+    /// **The core told** what became of each notice, in order, and the
+    /// calls left for the driver to make.
+    pub fn told(self, term: &mut Term<'_>) -> Vec<MacCall> {
+        for e in self.effects {
+            apply(term, e);
+        }
+        self.calls
+    }
 }
 
 /// A notification as the macOS center posts it.
@@ -1027,8 +821,8 @@ pub fn image_kind(b: &[u8]) -> Option<&'static str> {
 
 #[cfg(any(target_os = "macos", test))]
 impl Delivery<String> {
-    /// **What the macOS driver does with a read's notices**, and the
-    /// core told what became of each: dropped or closed; one posted is
+    /// **What the macOS driver does with a read's notices**, and what the
+    /// core is to be told became of each: dropped or closed; one posted is
     /// told shown only once the system schedules it
     /// ([`Delivery::mac_scheduled`]), never here. A new one's
     /// identifier is `prefix` and its token, so a later update by the same
@@ -1042,53 +836,61 @@ impl Delivery<String> {
     /// it (`Delivery::park`); each call takes what the reads parked have
     /// brought first, so the driver calls this on every turn.
     ///
-    /// `window` reads the window's focus and visibility, which only a
-    /// post's [`plan`] needs: it is called once, at the first post, and
-    /// not at all for a read that posted nothing, whose progress and
-    /// attention request are still told.
-    #[allow(clippy::too_many_arguments)]
+    /// `window` reads what macOS sees of the window, which only a post's
+    /// plan (`baud_domain::notice_plan`) needs: it is called once, at the
+    /// first post, and not at all for a read that posted nothing, whose
+    /// progress and attention request are still read from `term`.
     pub fn mac(
         &mut self,
-        term: &mut Term<'_>,
+        term: &Term<'_>,
         posted: Vec<Posted>,
-        mut window: impl FnMut() -> (Focus, Visible),
+        mut window: impl FnMut() -> baud_domain::MacSight,
         now: HostTime,
         prefix: &str,
         files: &mut dyn PictureReader,
-    ) -> Vec<MacCall> {
-        let mut calls = Vec::new();
-        self.mac_reads(term, now, prefix, &mut calls);
+    ) -> MacTurn {
+        use baud_domain::NoticePlan;
+        let mut turn = MacTurn::default();
+        self.mac_reads(now, prefix, &mut turn);
         let mut state = None;
         for p in posted {
-            let (focus, visible) = *state.get_or_insert_with(&mut window);
-            match plan(&p, self.setting, focus, visible, &mut self.bucket, now) {
-                Plan::Show => {
+            let sight = *state.get_or_insert_with(&mut window);
+            let plan = baud_domain::notice_plan(
+                p.action,
+                p.occasion,
+                self.setting,
+                sight,
+                &mut self.bucket,
+                now,
+            );
+            match plan {
+                NoticePlan::Show => {
                     self.park(p, files, now);
-                    self.mac_reads(term, now, prefix, &mut calls);
+                    self.mac_reads(now, prefix, &mut turn);
                 }
                 // Closed by baud, so the core forgets it at once: on macOS
                 // nothing else would say so (`p=alive`).
-                Plan::Close => {
+                NoticePlan::Close => {
                     if let Some(id) = self.slots.id(p.token).cloned() {
                         self.forget(p.token);
-                        term.notice_dropped(p.token);
-                        calls.push(MacCall::Remove(id));
+                        turn.effects.push(NoticeEffect::Dropped(p.token));
+                        turn.calls.push(MacCall::Remove(id));
                     }
                 }
-                Plan::Drop(_) => term.notice_dropped(p.token),
+                NoticePlan::Drop(_) => turn.effects.push(NoticeEffect::Dropped(p.token)),
             }
         }
         if let Some(pr) = self.progress(term) {
-            calls.push(MacCall::Bar(dock_bar(pr)));
+            turn.calls.push(MacCall::Bar(dock_bar(pr)));
         }
         if let Some(a) = self.attention(term) {
-            calls.push(MacCall::Attention(match a {
+            turn.calls.push(MacCall::Attention(match a {
                 Attention::Yes => AttentionCall::Critical,
                 Attention::Once => AttentionCall::Informational,
                 Attention::No => AttentionCall::Cancel,
             }));
         }
-        calls
+        turn
     }
 
     /// **What the reads parked have brought, and what is ready, posted**:
@@ -1096,13 +898,7 @@ impl Delivery<String> {
     /// [`Checker`] (`MacCall::Check`) and stays parked; one whose bytes do
     /// not is left out, counted; then every notification at the front that
     /// is ready posts, in order (`Delivery::mac_ready`).
-    fn mac_reads(
-        &mut self,
-        term: &mut Term<'_>,
-        now: HostTime,
-        prefix: &str,
-        calls: &mut Vec<MacCall>,
-    ) {
+    fn mac_reads(&mut self, now: HostTime, prefix: &str, turn: &mut MacTurn) {
         self.take_reads(now);
         for k in self.parked.iter_mut() {
             let Stage::Ready(Image::Read(b)) = &mut k.at else {
@@ -1111,7 +907,7 @@ impl Delivery<String> {
             let bytes = core::mem::take(b);
             k.at = match image_kind(&bytes) {
                 Some(_) => {
-                    calls.push(MacCall::Check(Check {
+                    turn.calls.push(MacCall::Check(Check {
                         token: k.p.token,
                         bytes,
                         pixels: self.pictures,
@@ -1119,24 +915,18 @@ impl Delivery<String> {
                     Stage::Checking
                 }
                 None => {
-                    self.unshown.0 += 1;
+                    self.unshown.add();
                     Stage::Ready(Image::Attached(None))
                 }
             };
         }
-        self.mac_ready(term, now, prefix, calls);
+        self.mac_ready(now, prefix, turn);
     }
 
     /// **Every notification at the front that is ready, posted in order**:
     /// a kitty icon attached by its signature, iTerm2's picture as its
     /// check left it, and the text alone where nothing was read.
-    fn mac_ready(
-        &mut self,
-        term: &mut Term<'_>,
-        now: HostTime,
-        prefix: &str,
-        calls: &mut Vec<MacCall>,
-    ) {
+    fn mac_ready(&mut self, now: HostTime, prefix: &str, turn: &mut MacTurn) {
         for (p, image) in self.ready() {
             let image = match image {
                 Image::Icon => p
@@ -1146,7 +936,7 @@ impl Delivery<String> {
                 Image::Attached(a) => a,
                 Image::Text | Image::Read(_) => None,
             };
-            self.post_mac(term, p, image, now, prefix, calls);
+            self.post_mac(p, image, now, prefix, turn);
         }
     }
 
@@ -1161,28 +951,22 @@ impl Delivery<String> {
     /// (`[[source: macos-sdk-unusernotificationcenter-h]]`), so text first
     /// and the picture after would show and sound twice. A notification
     /// after it waits for it, so they post in the order they came.
-    pub fn mac_checked(
-        &mut self,
-        term: &mut Term<'_>,
-        checked: Checked,
-        now: HostTime,
-        prefix: &str,
-    ) -> Vec<MacCall> {
-        let mut calls = Vec::new();
+    pub fn mac_checked(&mut self, checked: Checked, now: HostTime, prefix: &str) -> MacTurn {
+        let mut turn = MacTurn::default();
         let Some(k) = self
             .parked
             .iter_mut()
             .find(|k| matches!(k.at, Stage::Checking) && k.p.token == checked.token)
         else {
-            return calls;
+            return turn;
         };
         let image = checked.kind.map(|kind| (checked.bytes, kind));
         if image.is_none() {
-            self.unshown.0 += 1;
+            self.unshown.add();
         }
         k.at = Stage::Ready(Image::Attached(image));
-        self.mac_ready(term, now, prefix, &mut calls);
-        calls
+        self.mac_ready(now, prefix, &mut turn);
+        turn
     }
 
     /// **The notifications a closing window still holds for their
@@ -1195,43 +979,38 @@ impl Delivery<String> {
     /// for a read or a check. The close a shell's exit asks for waits until
     /// none is out ([`Delivery::checks`]), so the ones that come here still
     /// out are a close the person made.
-    pub fn mac_closing(
-        &mut self,
-        term: &mut Term<'_>,
-        finished: Vec<Checked>,
-        now: HostTime,
-        prefix: &str,
-    ) -> Vec<MacCall> {
-        let mut calls = Vec::new();
+    pub fn mac_closing(&mut self, finished: Vec<Checked>, now: HostTime, prefix: &str) -> MacTurn {
+        let mut turn = MacTurn::default();
         for checked in finished {
-            calls.extend(self.mac_checked(term, checked, now, prefix));
+            let MacTurn { calls, effects } = self.mac_checked(checked, now, prefix);
+            turn.calls.extend(calls);
+            turn.effects.extend(effects);
         }
         for k in self.parked.iter_mut() {
             if !matches!(k.at, Stage::Ready(_)) {
-                self.unshown.0 += 1;
+                self.unshown.add();
                 k.at = Stage::Ready(Image::Attached(None));
             }
         }
-        self.mac_ready(term, now, prefix, &mut calls);
-        calls
+        self.mac_ready(now, prefix, &mut turn);
+        turn
     }
 
-    /// **`p` posted with `image`**, the core told it shown; or, a picture
-    /// alone with nothing to show, dropped and counted.
-    #[allow(clippy::too_many_arguments)]
+    /// **`p` posted with `image`**, held in its slot until the system
+    /// says it scheduled it; or, a picture alone with nothing to show,
+    /// dropped and counted.
     fn post_mac(
         &mut self,
-        term: &mut Term<'_>,
         p: Posted,
         image: Option<(Vec<u8>, &'static str)>,
         now: HostTime,
         prefix: &str,
-        calls: &mut Vec<MacCall>,
+        turn: &mut MacTurn,
     ) {
         // iTerm2's picture alone, unread or not decoded: nothing to show.
         if untitled(&p) && p.body.is_empty() && image.is_none() {
-            self.bare.0 += 1;
-            term.notice_dropped(p.token);
+            self.bare.add();
+            turn.effects.push(NoticeEffect::Dropped(p.token));
             return;
         }
         let id = self
@@ -1239,7 +1018,7 @@ impl Delivery<String> {
             .id(p.token)
             .cloned()
             .unwrap_or_else(|| format!("{prefix}-{:?}", p.token));
-        calls.push(MacCall::Post(MacPost {
+        turn.calls.push(MacCall::Post(MacPost {
             id: id.clone(),
             title: p.title,
             subtitle: p.subtitle,
@@ -1256,7 +1035,7 @@ impl Delivery<String> {
             image,
         }));
         if let Expiry::After(d) = p.expiry {
-            calls.push(MacCall::Expire(id.clone(), d.duration()));
+            turn.calls.push(MacCall::Expire(id.clone(), d.duration()));
         }
         let buttons = baud_domain::NoticeButtonSet::of(p.buttons.iter().map(|(n, _)| *n));
         self.slots.pending(p.token, id, p.expiry, now, buttons);
@@ -1355,7 +1134,7 @@ impl Delivery<String> {
     pub fn mac_unattached(&mut self, ids: &[String]) {
         for id in ids {
             if self.slots.token(id).is_some() {
-                self.unshown.0 += 1;
+                self.unshown.add();
             }
         }
     }
@@ -1925,7 +1704,11 @@ mod tests {
     }
     use super::*;
     use baud_core::{NonZeroMillis, NoticeBudget, Owned, Term};
-    use baud_domain::{BytePos, HostTime, NoticeButtonSet, ReadLen, WinSize};
+    use baud_domain::{
+        ButtonSupport, BytePos, CloseEvents, HostTime, MacSight, NoticeButtonSet, NoticePlan,
+        NoticePlatform, NoticeSetting, NoticeSupport, NoticeTaken, Occasions, ReadLen, ServerCaps,
+        WinSize, notice_plan, notice_support,
+    };
 
     const WS: WinSize = WinSize {
         ws_row: 24,
@@ -1953,7 +1736,7 @@ mod tests {
     fn posted(bytes: &[u8], icons: &mut Icons) -> Vec<Posted> {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
         feed(&mut t, bytes);
         t.notices().map(|n| Posted::of(&n, icons)).collect()
     }
@@ -2071,14 +1854,9 @@ mod tests {
         files: &mut dyn PictureReader,
         now: HostTime,
     ) -> Vec<MacCall> {
-        let calls = d.mac(
-            t,
-            posted,
-            || (Focus::Unfocused, Visible::Covered),
-            now,
-            "baud-1",
-            files,
-        );
+        let calls = d
+            .mac(t, posted, || MacSight::Covered, now, "baud-1", files)
+            .told(t);
         checked_now(d, t, calls, now)
     }
 
@@ -2118,72 +1896,12 @@ mod tests {
                         bytes: c.bytes,
                         kind,
                     };
-                    out.extend(d.mac_checked(t, back, now, "baud-1"));
+                    out.extend(d.mac_checked(back, now, "baud-1").told(t));
                 }
                 c => out.push(c),
             }
         }
         out
-    }
-
-    /// `OSC 9` waits for the window to lose focus; kitty's default
-    /// `always` does not; `unfocused` and `invisible` do as they say.
-    #[test]
-    fn the_occasion_decides_against_the_focus() {
-        let mut icons = Icons::default();
-        let p = posted(
-            b"\x1b]9;nine\x07\x1b]99;;always\x1b\\\x1b]99;o=unfocused;u\x1b\\\x1b]99;o=invisible;i\x1b\\",
-            &mut icons,
-        );
-        let go = |p: &Posted, f, v| {
-            let mut b = Bucket::new();
-            plan(p, Setting::On, f, v, &mut b, at(Secs(0)))
-        };
-        let skip = Plan::Drop(Why::Occasion);
-        assert_eq!(go(&p[0], Focus::Focused, Visible::Seen), skip);
-        assert_eq!(go(&p[0], Focus::Unfocused, Visible::Seen), Plan::Show);
-        assert_eq!(go(&p[1], Focus::Focused, Visible::Seen), Plan::Show);
-        assert_eq!(go(&p[2], Focus::Focused, Visible::Seen), skip);
-        assert_eq!(go(&p[2], Focus::Unfocused, Visible::Seen), Plan::Show);
-        assert_eq!(go(&p[3], Focus::Unfocused, Visible::Seen), skip);
-        assert_eq!(go(&p[3], Focus::Unfocused, Visible::Covered), Plan::Show);
-        assert_eq!(
-            go(&p[3], Focus::Unfocused, Visible::Unknown),
-            Plan::Show,
-            "the best guess"
-        );
-        assert_eq!(
-            plan(
-                &p[1],
-                Setting::Off,
-                Focus::Unfocused,
-                Visible::Covered,
-                &mut Bucket::new(),
-                at(Secs(0))
-            ),
-            Plan::Drop(Why::Off)
-        );
-    }
-
-    /// Four at once, then one a second; a quiet spell refills it, no further
-    /// than four.
-    #[test]
-    fn the_bound_lets_four_through_then_one_a_second() {
-        let mut b: Bucket = Bucket::new();
-        for _ in 0..4 {
-            assert_eq!(b.take(at(Secs(0))), Taken::Yes);
-        }
-        assert_eq!(b.take(at(Secs(0))), Taken::No);
-        assert_eq!(b.take(at(Secs(1))), Taken::Yes);
-        assert_eq!(b.take(at(Secs(1))), Taken::No);
-        let mut ok = 0;
-        for _ in 0..10 {
-            if b.take(at(Secs(100))) == Taken::Yes {
-                ok += 1;
-            }
-        }
-        assert_eq!(ok, 4);
-        assert_eq!(b.dropped, Dropped(8));
     }
 
     /// **The notification paths are timed on the host clock**: the bound,
@@ -2193,8 +1911,16 @@ mod tests {
     /// takes no clock trait.
     #[test]
     fn the_notification_paths_are_timed_on_the_host_clock() {
-        let _: fn(&mut Bucket, HostTime) -> Taken = Bucket::take;
-        let _: fn(&Posted, Setting, Focus, Visible, &mut Bucket, HostTime) -> Plan = plan;
+        let _: fn(&mut NoticeBucket, HostTime) -> NoticeTaken = NoticeBucket::take;
+        type Plan = fn(
+            NoticeAction,
+            Occasion,
+            NoticeSetting,
+            MacSight,
+            &mut NoticeBucket,
+            HostTime,
+        ) -> NoticePlan;
+        let _: Plan = notice_plan::<MacSight>;
         type Clock = fn() -> HostTime;
         let _: fn(&mut NoticeSlots<u32>, Clock) -> baud_domain::NoticeSlotSet = NoticeSlots::due;
         let _: fn(&NoticeSlots<u32>) -> Option<HostTime> = NoticeSlots::next_due;
@@ -2275,23 +2001,20 @@ mod tests {
     /// The query's claims follow the platform and the setting.
     #[test]
     fn support_claims_what_the_platform_delivers() {
-        assert_eq!(support(Setting::Off, Platform::MacOs), None);
-        let mac = support(Setting::On, Platform::MacOs).expect("on");
+        assert_eq!(
+            notice_support(NoticeSetting::Off, NoticePlatform::MacOs),
+            None
+        );
+        let mac = notice_support(NoticeSetting::On, NoticePlatform::MacOs).expect("on");
         assert!(mac.actions.focuses() && mac.actions.reports());
         assert_eq!(mac.close_events, CloseEvents::Untracked);
-        let none = ServerCaps {
-            actions: Caps::Absent,
-            markup: Caps::Absent,
-        };
-        let linux = support(Setting::On, Platform::Linux(none)).expect("on");
+        let none = ServerCaps::heard([]);
+        let linux = notice_support(NoticeSetting::On, NoticePlatform::Linux(none)).expect("on");
         assert!(!linux.actions.focuses() && !linux.actions.reports());
         assert_eq!(linux.occasions, Occasions::Unfocused);
         assert_eq!(linux.buttons, ButtonSupport::NotShown);
-        let listed = ServerCaps {
-            actions: Caps::Listed,
-            markup: Caps::Absent,
-        };
-        let clicks = support(Setting::On, Platform::Linux(listed)).expect("on");
+        let listed = ServerCaps::heard(["actions"]);
+        let clicks = notice_support(NoticeSetting::On, NoticePlatform::Linux(listed)).expect("on");
         assert!(
             clicks.actions.reports() && !clicks.actions.focuses(),
             "focus is not claimed on Linux: no token is promised"
@@ -2365,27 +2088,29 @@ mod tests {
         let mut s = shown_as(&p, &[7]);
         assert_eq!(s.next_due(), None);
         assert!(s.due(|| at(Secs(0))).is_empty());
-        let n = crate::bus::notification(&p[0], None, ServerCaps::NONE, None);
+        let n = crate::bus::notification(&p[0], None, ServerCaps::heard([]), None);
         assert_eq!(n.expire, crate::bus::Expire::Never);
 
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         feed(&mut t, b"\x1b]99;i=a:w=00;a\x1b\\");
         let posted: Vec<Posted> = t
             .notices()
             .map(|n| Posted::of(&n, &mut Icons::default()))
             .collect();
         t.clear_notices();
-        let calls = d.mac(
-            &mut t,
-            posted,
-            || (Focus::Focused, Visible::Seen),
-            at(Secs(0)),
-            "baud-1",
-            &mut NoFiles,
-        );
+        let calls = d
+            .mac(
+                &t,
+                posted,
+                || MacSight::Focused,
+                at(Secs(0)),
+                "baud-1",
+                &mut NoFiles,
+            )
+            .told(&mut t);
         assert_eq!(posts(&calls).len(), 1);
         assert!(
             !calls.iter().any(|c| matches!(c, MacCall::Expire(..))),
@@ -2423,7 +2148,7 @@ mod tests {
     fn click_each(labels: &[&str]) -> Vec<(Vec<u8>, usize)> {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        let mut s = support(Setting::On, Platform::MacOs).expect("supported");
+        let mut s = notice_support(NoticeSetting::On, NoticePlatform::MacOs).expect("supported");
         s.actions = baud_core::Activation::FOCUS_AND_REPORT;
         t.set_notice_support(Some(s));
         // Each ordinary label numbered so it can be found, `Go0`, `Go3`;
@@ -2531,8 +2256,8 @@ mod tests {
     fn the_macos_driver_makes_the_calls_the_plan_says() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let png = [0x89, b'P', b'N', b'G', 1, 2];
         let seq = "\x1b]99;i=j:d=0:c=1:u=0:w=3000:s=c2lsZW50;Build\x1b\\\x1b]99;i=j:d=0:p=buttons;Open\u{2028}Skip\x1b\\\x1b]99;i=j:p=icon:e=1;iVBORwEC\x1b\\\x1b]9;4;1;40\x07\x1b]1337;RequestAttention=once\x07";
         feed(&mut t, seq.as_bytes());
@@ -2541,14 +2266,16 @@ mod tests {
         let token = posted[0].token;
         t.clear_notices();
         t.clear_reply();
-        let calls = d.mac(
-            &mut t,
-            posted,
-            || (Focus::Focused, Visible::Seen),
-            at(Secs(0)),
-            "baud-1",
-            &mut NoFiles,
-        );
+        let calls = d
+            .mac(
+                &t,
+                posted,
+                || MacSight::Focused,
+                at(Secs(0)),
+                "baud-1",
+                &mut NoFiles,
+            )
+            .told(&mut t);
         let id = match &calls[0] {
             MacCall::Post(p) => {
                 assert_eq!(p.title, "Build");
@@ -2597,14 +2324,16 @@ mod tests {
         );
         let posted: Vec<Posted> = t.notices().map(|n| Posted::of(&n, &mut icons)).collect();
         t.clear_notices();
-        let calls = d.mac(
-            &mut t,
-            posted,
-            || (Focus::Focused, Visible::Seen),
-            at(Secs(1)),
-            "baud-1",
-            &mut NoFiles,
-        );
+        let calls = d
+            .mac(
+                &t,
+                posted,
+                || MacSight::Focused,
+                at(Secs(1)),
+                "baud-1",
+                &mut NoFiles,
+            )
+            .told(&mut t);
         assert!(
             matches!(&calls[0], MacCall::Post(p) if p.id == id && p.title == "Again"),
             "{calls:?}"
@@ -2624,12 +2353,12 @@ mod tests {
     fn the_window_is_read_once_for_a_reads_posts_and_never_without_one() {
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let reads = core::cell::Cell::new(0_u32);
         let window = || {
             reads.set(reads.get() + 1);
-            (Focus::Unfocused, Visible::Covered)
+            MacSight::Covered
         };
         let mut icons = Icons::default();
         let mut deliver = |t: &mut Term<'_>, d: &mut Delivery<String>, seq: &str| {
@@ -2637,6 +2366,7 @@ mod tests {
             let posted: Vec<Posted> = t.notices().map(|n| Posted::of(&n, &mut icons)).collect();
             t.clear_notices();
             d.mac(t, posted, window, at(Secs(0)), "p", &mut NoFiles)
+                .told(t)
         };
         let calls = deliver(&mut t, &mut d, "\x1b]9;4;1;40\x07");
         assert_eq!(
@@ -2675,10 +2405,13 @@ mod tests {
         assert_eq!(launcher_progress(p(S::Indeterminate, None)), Some(0.0));
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::Linux(ServerCaps::NONE)));
+        t.set_notice_support(notice_support(
+            NoticeSetting::On,
+            NoticePlatform::Linux(ServerCaps::heard([])),
+        ));
         feed(&mut t, b"\x1b]99;w=900;a\x1b\\");
         let tok = t.notices().next().expect("one").token;
-        let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<u32> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         d.slots.posting(
             tok,
             Expiry::After(NonZeroMillis::of::<900>()),
@@ -2691,16 +2424,17 @@ mod tests {
             Some(at(Secs(1)).plus(Duration::from_millis(900))),
             "the expiry it was sent with, from the answer"
         );
-        assert_eq!(d.rate_line(), None);
+        assert_eq!(d.rate_line().map(line_text), None);
         for _ in 0..6 {
             d.bucket.take(at(Secs(0)));
         }
         assert!(
             d.rate_line()
+                .map(line_text)
                 .expect("said")
                 .starts_with("notifications: 2 dropped")
         );
-        assert_eq!(d.rate_line(), None, "once a burst");
+        assert_eq!(d.rate_line().map(line_text), None, "once a burst");
         assert!(d.icons.get(b"none").is_none());
         assert_eq!(crate::bus::Launcher::IDLE.progress, None);
     }
@@ -2712,17 +2446,17 @@ mod tests {
     fn the_bound_logs_once_a_burst() {
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let t = Term::new(owned.storage(), &WS);
-        let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<u32> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         // `n` notifications in one read at second `s`, the line asked for
         // after each drop and after the read.
         let flood = |d: &mut Delivery<u32>, n, s| {
             let mut lines = Vec::new();
             for _ in 0..n {
-                if d.bucket.take(at(Secs(s))) == Taken::No {
-                    lines.extend(d.rate_line());
+                if d.bucket.take(at(Secs(s))) == NoticeTaken::No {
+                    lines.extend(d.rate_line().map(line_text));
                 }
             }
-            lines.extend(d.rate_line());
+            lines.extend(d.rate_line().map(line_text));
             lines
         };
         // Six at once: two dropped, one line, said at the first drop.
@@ -2764,7 +2498,7 @@ mod tests {
         // log says so once.
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let t = Term::new(owned.storage(), &WS);
-        let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<u32> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let mut wide = PNG;
         wide[16..20].copy_from_slice(&1025u32.to_be_bytes());
         wide[29..33].copy_from_slice(&[0xaf, 0xcc, 0xb7, 0x0b]);
@@ -2779,21 +2513,26 @@ mod tests {
         };
         let none = posted(b"\x1b]99;;x\x1b\\", &mut Icons::default()).remove(0);
         assert_eq!(d.image_data(&none), None);
-        assert_eq!(d.image_line(), None, "no image, nothing to say");
+        assert_eq!(
+            d.image_line().map(line_text),
+            None,
+            "no image, nothing to say"
+        );
         assert_eq!(d.image_data(&with(&PNG)), Some((size, px)));
-        assert_eq!(d.image_line(), None);
+        assert_eq!(d.image_line().map(line_text), None);
         assert_eq!(d.image_data(&with(b"GIF89a\x01\x00")), None);
         assert_eq!(d.image_data(&with(&[0xff, 0xd8, 0xff, 0xe0])), None);
         assert_eq!(d.image_data(&with(&wide)), None);
-        assert_eq!(d.unshown, Unshown(3));
+        assert_eq!(d.unshown.count().get(), 3);
         assert!(
             d.image_line()
+                .map(line_text)
                 .expect("said")
                 .starts_with("notifications: images not shown, 3 so far")
         );
         assert_eq!(d.image_data(&with(b"GIF87a")), None);
-        assert_eq!(d.unshown, Unshown(4));
-        assert_eq!(d.image_line(), None, "said once");
+        assert_eq!(d.unshown.count().get(), 4);
+        assert_eq!(d.image_line().map(line_text), None, "said once");
         assert_eq!(escape_markup("a <b> & c"), "a &lt;b&gt; &amp; c");
     }
 
@@ -2858,7 +2597,7 @@ mod tests {
             );
             let mut owned = Owned::new(&WS).with_notices(BUDGET);
             let t = Term::new(owned.storage(), &WS);
-            let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
+            let mut d: Delivery<u32> = Delivery::new(NoticeSetting::On, &t, PIXELS);
             let posts = posted(seq.as_bytes(), &mut Icons::default());
             assert_eq!(posts.len(), 2, "{name}");
             assert_eq!(
@@ -2868,7 +2607,7 @@ mod tests {
             );
             for p in &posts {
                 let image = d.image_data(p);
-                let n = crate::bus::notification(p, None, ServerCaps::NONE, image);
+                let n = crate::bus::notification(p, None, ServerCaps::heard([]), image);
                 assert_eq!(
                     image_data(&n),
                     match shown {
@@ -2893,8 +2632,8 @@ mod tests {
     fn the_macos_driver_keeps_alive_true() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let post = |t: &mut Term<'_>, d: &mut Delivery<String>, b: &[u8], s: u64| {
             feed(t, b);
             let posted: Vec<Posted> = t
@@ -2905,11 +2644,12 @@ mod tests {
             d.mac(
                 t,
                 posted,
-                || (Focus::Unfocused, Visible::Covered),
+                || MacSight::Covered,
                 at(Secs(s)),
                 "p",
                 &mut NoFiles,
             )
+            .told(t)
         };
         let alive = |t: &mut Term<'_>| {
             t.clear_reply();
@@ -2972,20 +2712,14 @@ mod tests {
             .map(|n| Posted::of(&n, &mut Icons::default()))
             .collect();
         t.clear_notices();
-        d.mac(
-            t,
-            posted,
-            || (Focus::Unfocused, Visible::Covered),
-            now,
-            prefix,
-            &mut NoFiles,
-        )
-        .into_iter()
-        .filter_map(|c| match c {
-            MacCall::Post(p) => Some(p.id),
-            _ => None,
-        })
-        .collect()
+        d.mac(t, posted, || MacSight::Covered, now, prefix, &mut NoFiles)
+            .told(t)
+            .into_iter()
+            .filter_map(|c| match c {
+                MacCall::Post(p) => Some(p.id),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The answer to a `p=alive` asked now, the reply buffer left empty.
@@ -3007,8 +2741,8 @@ mod tests {
     fn a_pending_post_is_not_reported_closed() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let ids = mac_posts(&mut t, &mut d, b"\x1b]99;i=a:c=1;A\x1b\\", at(Secs(0)), "p");
         assert_eq!(ids.len(), 1, "the premise: posted");
         assert!(t.reply().is_empty(), "pending: nothing said");
@@ -3036,8 +2770,8 @@ mod tests {
     fn a_refused_post_gets_no_reply() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let ids = mac_posts(&mut t, &mut d, b"\x1b]99;i=a:c=1;A\x1b\\", at(Secs(0)), "p");
         assert_eq!(
             alive_now(&mut t),
@@ -3061,12 +2795,12 @@ mod tests {
     fn an_answer_for_a_post_not_held_says_nothing() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let mut other = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t2 = Term::new(other.storage(), &WS);
-        t2.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d2: Delivery<String> = Delivery::new(Setting::On, &t2, PIXELS);
+        t2.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d2: Delivery<String> = Delivery::new(NoticeSetting::On, &t2, PIXELS);
         let ids = mac_posts(
             &mut t,
             &mut d,
@@ -3119,14 +2853,14 @@ mod tests {
     fn a_post_sent_again_without_its_picture_counts_it() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let ids = mac_posts(&mut t, &mut d, b"\x1b]99;i=a:c=1;A\x1b\\", at(Secs(0)), "p");
-        let before = d.unshown.0;
+        let before = d.unshown.count().get();
         d.mac_unattached(&[String::from("p-elsewhere")]);
-        assert_eq!(d.unshown.0, before, "not this window's");
+        assert_eq!(d.unshown.count().get(), before, "not this window's");
         d.mac_unattached(&ids);
-        assert_eq!(d.unshown.0, before + 1);
+        assert_eq!(d.unshown.count().get(), before + 1);
         let mut said = Vec::new();
         d.mac_scheduled(&mut t, &ids, at(Secs(1)), |b| said.extend_from_slice(b));
         assert_eq!(said, b"\x1b]99;i=a:p=close;untracked\x1b\\");
@@ -3167,22 +2901,24 @@ mod tests {
         for hold in [baud_core::NoticeHold::On, baud_core::NoticeHold::Off] {
             let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
             let mut t = Term::new(owned.storage(), &WS);
-            t.set_notice_support(support(Setting::On, Platform::MacOs));
-            let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+            t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+            let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
             feed(&mut t, b"\x1b]99;i=a;1\x1b\\\x1b]99;i=b;2\x1b\\");
             let posted: Vec<Posted> = t
                 .notices()
                 .map(|n| Posted::of(&n, &mut Icons::default()))
                 .collect();
             t.clear_notices();
-            let calls = d.mac(
-                &mut t,
-                posted,
-                || (Focus::Unfocused, Visible::Covered),
-                at(Secs(0)),
-                "p",
-                &mut NoFiles,
-            );
+            let calls = d
+                .mac(
+                    &t,
+                    posted,
+                    || MacSight::Covered,
+                    at(Secs(0)),
+                    "p",
+                    &mut NoFiles,
+                )
+                .told(&mut t);
             let ids: Vec<String> = calls
                 .iter()
                 .filter_map(|c| match c {
@@ -3489,8 +3225,8 @@ mod tests {
         let path = path.to_str().expect("UTF-8").as_bytes().to_vec();
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         static RUNNING: crate::kitty_files::Running = crate::kitty_files::Running::new();
         let mut real = reader(&RUNNING, Hold::Free);
         let woke = core::mem::replace(&mut real.woke, std::sync::mpsc::channel().1);
@@ -3500,7 +3236,7 @@ mod tests {
         let post = |t: &mut Term<'_>,
                     d: &mut Delivery<String>,
                     files: &mut dyn PictureReader,
-                    focus: Focus,
+                    sight: MacSight,
                     bytes: &[u8]| {
             feed(t, bytes);
             let posted: Vec<Posted> = t
@@ -3509,28 +3245,14 @@ mod tests {
                 .collect();
             t.clear_notices();
             let now = at(Secs(clock.replace(clock.get() + 2)));
-            let calls = d.mac(
-                t,
-                posted,
-                || (focus, Visible::Covered),
-                now,
-                "baud-1",
-                files,
-            );
+            let calls = d.mac(t, posted, || sight, now, "baud-1", files).told(t);
             let mut calls = checked_now(d, t, calls, now);
             // The read runs off this thread; each turn its wake brings
             // takes what it read.
             while d.checks() == Checks::Waiting {
                 woke.recv_timeout(Duration::from_secs(10))
                     .expect("a read wakes the window");
-                let more = d.mac(
-                    t,
-                    Vec::new(),
-                    || (focus, Visible::Covered),
-                    now,
-                    "baud-1",
-                    files,
-                );
+                let more = d.mac(t, Vec::new(), || sight, now, "baud-1", files).told(t);
                 calls.extend(checked_now(d, t, more, now));
             }
             calls
@@ -3547,7 +3269,7 @@ mod tests {
             ("message", b"finished in 3 s"),
             ("image", &path),
         ]);
-        let p = post(&mut t, &mut d, &mut files, Focus::Unfocused, &full);
+        let p = post(&mut t, &mut d, &mut files, MacSight::Covered, &full);
         assert_eq!(p.len(), 1);
         assert_eq!(
             (
@@ -3567,13 +3289,13 @@ mod tests {
             txt.to_str().expect("UTF-8").as_bytes().to_vec(),
         ] {
             let msg = iterm(&[("title", b"Build"), ("image", &bad)]);
-            let p = post(&mut t, &mut d, &mut files, Focus::Unfocused, &msg);
+            let p = post(&mut t, &mut d, &mut files, MacSight::Covered, &msg);
             assert_eq!(p.len(), 1, "{:?}", String::from_utf8_lossy(&bad));
             assert_eq!((p[0].title.as_str(), &p[0].image), ("Build", &None));
         }
         // A subtitle with no title: no title made up.
         let sub = iterm(&[("subtitle", b"main"), ("message", b"done")]);
-        let p = post(&mut t, &mut d, &mut files, Focus::Unfocused, &sub);
+        let p = post(&mut t, &mut d, &mut files, MacSight::Covered, &sub);
         assert_eq!(
             (
                 p[0].title.as_str(),
@@ -3585,27 +3307,28 @@ mod tests {
         // A picture alone posts when it shows, and is dropped, counted,
         // when it does not.
         let alone = iterm(&[("image", &path)]);
-        let p = post(&mut t, &mut d, &mut files, Focus::Unfocused, &alone);
+        let p = post(&mut t, &mut d, &mut files, MacSight::Covered, &alone);
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].image, Some((PNG_2X1.to_vec(), "png")));
         assert_eq!((p[0].title.as_str(), p[0].body.as_str()), ("", ""));
         let gone = iterm(&[("image", b"/dev/zero")]);
-        assert!(post(&mut t, &mut d, &mut files, Focus::Unfocused, &gone).is_empty());
-        assert_eq!(d.bare, Unshown(1));
+        assert!(post(&mut t, &mut d, &mut files, MacSight::Covered, &gone).is_empty());
+        assert_eq!(d.bare.count().get(), 1);
         assert!(
             d.bare_line()
+                .map(line_text)
                 .expect("said")
                 .starts_with("notifications: 1 not posted")
         );
-        assert_eq!(d.bare_line(), None, "said once");
+        assert_eq!(d.bare_line().map(line_text), None, "said once");
         // A focused window drops it, as an `OSC 9`: nothing is read.
         let mut counting = Files {
             asked: Vec::new(),
             bytes: Ok(PNG_2X1.to_vec()),
         };
-        assert!(post(&mut t, &mut d, &mut counting, Focus::Focused, &full).is_empty());
+        assert!(post(&mut t, &mut d, &mut counting, MacSight::Focused, &full).is_empty());
         assert!(counting.asked.is_empty(), "read only when shown");
-        let p = post(&mut t, &mut d, &mut counting, Focus::Unfocused, &full);
+        let p = post(&mut t, &mut d, &mut counting, MacSight::Covered, &full);
         assert_eq!(counting.asked, core::slice::from_ref(&path));
         assert_eq!(p[0].image, Some((PNG_2X1.to_vec(), "png")));
         let _ = std::fs::remove_dir_all(&dir);
@@ -3624,12 +3347,12 @@ mod tests {
     fn an_iterm2_picture_that_does_not_decode_is_left_out_on_macos() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
         // `PNG_2X1`'s two pixels fit the one and not the other.
         let two = baud_domain::ImageBudget::of(2);
         let one = baud_domain::ImageBudget::of(1);
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, two);
-        let mut tight: Delivery<String> = Delivery::new(Setting::On, &t, one);
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, two);
+        let mut tight: Delivery<String> = Delivery::new(NoticeSetting::On, &t, one);
         let clock = core::cell::Cell::new(0);
         let post = |t: &mut Term<'_>, d: &mut Delivery<String>, bytes: &[u8], msg: &[u8]| {
             let mut files = Files {
@@ -3643,14 +3366,9 @@ mod tests {
                 .collect();
             t.clear_notices();
             let now = at(Secs(clock.replace(clock.get() + 2)));
-            let calls = d.mac(
-                t,
-                posted,
-                || (Focus::Unfocused, Visible::Covered),
-                now,
-                "baud-1",
-                &mut files,
-            );
+            let calls = d
+                .mac(t, posted, || MacSight::Covered, now, "baud-1", &mut files)
+                .told(t);
             let p = checked_now(d, t, calls, now)
                 .into_iter()
                 .filter_map(|c| match c {
@@ -3668,7 +3386,7 @@ mod tests {
         let p = post(&mut t, &mut d, &garbage, &msg);
         assert_eq!(p.len(), 1);
         assert_eq!((p[0].title.as_str(), &p[0].image), ("Build", &None));
-        assert_eq!((d.unshown, d.bare), (Unshown(1), Unshown(0)));
+        assert_eq!((d.unshown.count().get(), d.bare.count().get()), (1, 0));
         // `small.jpg`'s first `DHT` (at 177) as table 4: T.81 numbers
         // them 0 to 3 (B.2.4.2), and the headers up to the first scan
         // never read it.
@@ -3681,14 +3399,17 @@ mod tests {
             baud_domain::jpeg::Jpeg::parse(&table).is_ok(),
             "its headers read"
         );
-        let mut roomy: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut roomy: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let jmsg = iterm(&[("title", b"Photo"), ("image", b"/tmp/p.jpg")]);
         let p = post(&mut t, &mut roomy, &table, &jmsg);
         assert_eq!(
             (p.len(), p[0].title.as_str(), &p[0].image),
             (1, "Photo", &None)
         );
-        assert_eq!((roomy.unshown, roomy.bare), (Unshown(1), Unshown(0)));
+        assert_eq!(
+            (roomy.unshown.count().get(), roomy.bare.count().get()),
+            (1, 0)
+        );
         let p = post(&mut t, &mut roomy, jpg, &jmsg);
         assert_eq!(
             p[0].image,
@@ -3697,20 +3418,24 @@ mod tests {
         );
         let p = post(&mut t, &mut d, &PNG_2X1, &msg);
         assert_eq!(p[0].image, Some((PNG_2X1.to_vec(), "png")), "within");
-        assert_eq!(d.unshown, Unshown(1));
+        assert_eq!(d.unshown.count().get(), 1);
         let p = post(&mut t, &mut tight, &PNG_2X1, &msg);
         assert_eq!((p.len(), &p[0].image), (1, &None), "past the pixels");
-        assert_eq!((tight.unshown, tight.bare), (Unshown(1), Unshown(0)));
+        assert_eq!(
+            (tight.unshown.count().get(), tight.bare.count().get()),
+            (1, 0)
+        );
         // A picture alone that does not decode has nothing left to show.
         let alone = iterm(&[("image", b"/tmp/p.png")]);
         assert!(post(&mut t, &mut d, &garbage, &alone).is_empty());
-        assert_eq!((d.unshown, d.bare), (Unshown(2), Unshown(1)));
+        assert_eq!((d.unshown.count().get(), d.bare.count().get()), (2, 1));
         assert!(
             d.image_line()
+                .map(line_text)
                 .expect("said")
                 .starts_with("notifications: images not shown, 2 so far")
         );
-        assert_eq!(d.image_line(), None, "said once");
+        assert_eq!(d.image_line().map(line_text), None, "said once");
     }
 
     /// **On macOS a picture is checked before its notification posts, and
@@ -3726,8 +3451,8 @@ mod tests {
     fn a_picture_is_checked_before_its_notification_posts() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let mut files = Files {
             asked: Vec::new(),
             bytes: Ok(PNG_2X1.to_vec()),
@@ -3742,14 +3467,16 @@ mod tests {
             .map(|n| Posted::of(&n, &mut Icons::default()))
             .collect();
         t.clear_notices();
-        let calls = d.mac(
-            &mut t,
-            posted,
-            || (Focus::Unfocused, Visible::Covered),
-            at(Secs(0)),
-            "baud-1",
-            &mut files,
-        );
+        let calls = d
+            .mac(
+                &t,
+                posted,
+                || MacSight::Covered,
+                at(Secs(0)),
+                "baud-1",
+                &mut files,
+            )
+            .told(&mut t);
         let checks: Vec<Check> = calls
             .iter()
             .filter_map(|c| match c {
@@ -3778,7 +3505,9 @@ mod tests {
             bytes: PNG_2X1.to_vec(),
             kind: attaches(&PNG_2X1, PIXELS),
         };
-        let calls = d.mac_checked(&mut t, back.clone(), at(Secs(1)), "baud-1");
+        let calls = d
+            .mac_checked(back.clone(), at(Secs(1)), "baud-1")
+            .told(&mut t);
         let [MacCall::Post(p), MacCall::Post(later)] = &calls[..] else {
             panic!("two posts: {calls:?}");
         };
@@ -3788,7 +3517,8 @@ mod tests {
         assert_eq!((later.title.as_str(), &later.image), ("Later", &None));
         assert_eq!(d.checks(), Checks::Done);
         assert!(
-            d.mac_checked(&mut t, back, at(Secs(1)), "baud-1")
+            d.mac_checked(back, at(Secs(1)), "baud-1")
+                .told(&mut t)
                 .is_empty(),
             "posted once"
         );
@@ -3802,14 +3532,16 @@ mod tests {
             .map(|n| Posted::of(&n, &mut Icons::default()))
             .collect();
         t.clear_notices();
-        let calls = d.mac(
-            &mut t,
-            posted,
-            || (Focus::Unfocused, Visible::Covered),
-            at(Secs(2)),
-            "baud-1",
-            &mut files,
-        );
+        let calls = d
+            .mac(
+                &t,
+                posted,
+                || MacSight::Covered,
+                at(Secs(2)),
+                "baud-1",
+                &mut files,
+            )
+            .told(&mut t);
         let [MacCall::Check(c)] = &calls[..] else {
             panic!("one check: {calls:?}");
         };
@@ -3818,12 +3550,12 @@ mod tests {
             bytes: c.bytes.clone(),
             kind: None,
         };
-        let calls = d.mac_checked(&mut t, back, at(Secs(3)), "baud-1");
+        let calls = d.mac_checked(back, at(Secs(3)), "baud-1").told(&mut t);
         let [MacCall::Post(p)] = &calls[..] else {
             panic!("one post: {calls:?}");
         };
         assert_eq!((p.title.as_str(), &p.image), ("Again", &None));
-        assert_eq!(d.unshown, Unshown(1));
+        assert_eq!(d.unshown.count().get(), 1);
     }
 
     /// **A window that closes while a picture is checked still posts its
@@ -3837,8 +3569,8 @@ mod tests {
     fn a_closing_window_posts_what_it_was_checking() {
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let mut files = Files {
             asked: Vec::new(),
             bytes: Ok(PNG_2X1.to_vec()),
@@ -3856,14 +3588,16 @@ mod tests {
             .map(|n| Posted::of(&n, &mut Icons::default()))
             .collect();
         t.clear_notices();
-        let calls = d.mac(
-            &mut t,
-            posted,
-            || (Focus::Unfocused, Visible::Covered),
-            at(Secs(0)),
-            "baud-1",
-            &mut files,
-        );
+        let calls = d
+            .mac(
+                &t,
+                posted,
+                || MacSight::Covered,
+                at(Secs(0)),
+                "baud-1",
+                &mut files,
+            )
+            .told(&mut t);
         let checks: Vec<Check> = calls
             .iter()
             .filter_map(|c| match c {
@@ -3879,7 +3613,9 @@ mod tests {
             kind: attaches(&c.bytes, c.pixels),
         };
         // The first answer came back; its wake had not.
-        let calls = d.mac_closing(&mut t, vec![back(&checks[0])], at(Secs(1)), "baud-1");
+        let calls = d
+            .mac_closing(vec![back(&checks[0])], at(Secs(1)), "baud-1")
+            .told(&mut t);
         let posts: Vec<&MacPost> = calls
             .iter()
             .filter_map(|c| match c {
@@ -3895,23 +3631,26 @@ mod tests {
             ("Back", &Some((PNG_2X1.to_vec(), "png")))
         );
         assert_eq!((out_post.title.as_str(), &out_post.image), ("Out", &None));
-        assert_eq!((d.unshown, d.bare), (Unshown(2), Unshown(1)));
+        assert_eq!((d.unshown.count().get(), d.bare.count().get()), (2, 1));
         assert!(d.slots.id(checks[0].token).is_some());
         assert!(d.slots.id(checks[1].token).is_some());
         assert_eq!(d.checks(), Checks::Done, "nothing left waiting");
         assert!(
             d.image_line()
+                .map(line_text)
                 .expect("said")
                 .starts_with("notifications: images not shown, 2 so far")
         );
-        assert!(d.bare_line().is_some());
+        assert!(d.bare_line().map(line_text).is_some());
         assert!(
-            d.mac_closing(&mut t, Vec::new(), at(Secs(2)), "baud-1")
+            d.mac_closing(Vec::new(), at(Secs(2)), "baud-1")
+                .told(&mut t)
                 .is_empty(),
             "a second close"
         );
         assert!(
-            d.mac_checked(&mut t, back(&checks[1]), at(Secs(2)), "baud-1")
+            d.mac_checked(back(&checks[1]), at(Secs(2)), "baud-1")
+                .told(&mut t)
                 .is_empty(),
             "posted once"
         );
@@ -3950,9 +3689,8 @@ mod tests {
         );
         let at_close = between("fnnotices_at_close(&mutself){", "fnnotice_calls(");
         assert!(
-            at_close.contains(
-                "letcalls=self.app.notes.mac_closing(&mutself.app.term,self.app.checker.finished(),"
-            ) && at_close.contains("self.notice_calls(calls);"),
+            at_close.contains("letcalls=self.app.notes.mac_closing(self.app.checker.finished(),")
+                && at_close.contains("self.notice_calls(calls);"),
             "what came back and what is out, posted: {at_close}"
         );
         let deliver = between("fndeliver_notices(", "fnnotices_at_close(");
@@ -4138,24 +3876,20 @@ mod tests {
         let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
         let linux = bare(include_str!("linux.rs"));
         const DROP: &str = r#"
-            Plan::Show if crate::notify::untitled(&p) => {
-                self.notes.bare.0 += 1;
+            NoticePlan::Show if crate::notify::untitled(&p) => {
+                self.notes.bare.add();
                 self.term.notice_dropped(p.token);
             }
         "#;
         let dropped = linux.find(&bare(DROP)).expect("the drop arm, as written");
         let posts = linux
-            .find("Plan::Show=>matchself.bus.is_some()")
+            .find("NoticePlan::Show=>matchself.bus.is_some()")
             .expect("the arm that posts");
         assert!(dropped < posts, "the drop arm is tried first");
-        for line in ["bare_line()", "image_line()"] {
-            assert!(
-                linux.contains(&format!(
-                    "ifletSome(line)=self.notes.{line}{{crate::warn!(\"{{line}}\");}}"
-                )),
-                "Linux logs {line}"
-            );
-        }
+        assert!(
+            linux.contains("foreinself.notes.lines(){crate::notify::apply(&mutself.term,e);}"),
+            "Linux logs the lines"
+        );
         let mac = bare(crate::app_source::app_source());
         const DELIVER: &str = "fndeliver_notices(";
         let delivery = crate::app_source::holding_read(bare, DELIVER);
@@ -4164,14 +3898,12 @@ mod tests {
             .and_then(|(_, rest)| rest.split_once("fnnotice_turn("))
             .map(|(b, _)| b)
             .expect("the macOS delivery");
-        for line in ["bare_line()", "image_line()"] {
-            assert!(
-                deliver.contains(&format!(
-                    "ifletSome(line)=self.app.notes.{line}{{crate::warn!(\"{{line}}\");}}"
-                )),
-                "macOS logs {line}"
-            );
-        }
+        assert!(
+            deliver.contains(
+                "foreinself.app.notes.lines(){crate::notify::apply(&mutself.app.term,e);}"
+            ),
+            "macOS logs the lines"
+        );
         // iTerm2's picture goes to the checker and comes back from it, and
         // nothing on the main thread decodes one.
         assert!(
@@ -4243,8 +3975,8 @@ mod tests {
     fn an_iterm2_picture_is_read_for_linux_and_a_bare_one_is_not_posted() {
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<u32> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let mut files = Files {
             asked: Vec::new(),
             bytes: Ok(PNG_2X1.to_vec()),
@@ -4292,8 +4024,8 @@ mod tests {
         let path = picture_file("stalled", &PNG_2X1);
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let mut r = reader(&RUNNING, Hold::Stalled);
         let posted = taken(&mut t, &iterm(&[("title", b"Build"), ("image", &path)]));
         let calls = mac_turn(&mut d, &mut t, posted, &mut r.files, at(Secs(0)));
@@ -4319,7 +4051,7 @@ mod tests {
         assert_eq!(p.title, "Build");
         assert_eq!(p.image, Some((PNG_2X1.to_vec(), "png")), "the file read");
         assert_eq!(d.picture_due(), None);
-        assert_eq!(d.unshown, Unshown(0));
+        assert_eq!(d.unshown.count().get(), 0);
     }
 
     /// **A picture not read by its deadline posts its text alone**: a turn
@@ -4334,8 +4066,8 @@ mod tests {
         let path = picture_file("deadline", &PNG_2X1);
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let mut r = reader(&RUNNING, Hold::Stalled);
         let posted = taken(&mut t, &iterm(&[("title", b"Build"), ("image", &path)]));
         let t0 = HostTime::ZERO;
@@ -4357,11 +4089,12 @@ mod tests {
             panic!("one post: {calls:?}");
         };
         assert_eq!((p.title.as_str(), &p.image), ("Build", &None));
-        assert_eq!(d.unshown, Unshown(1));
+        assert_eq!(d.unshown.count().get(), 1);
         assert_eq!(d.checks(), Checks::Done);
         assert_eq!(d.picture_due(), None);
         assert!(
             d.image_line()
+                .map(line_text)
                 .expect("said")
                 .starts_with("notifications: images not shown, 1 so far")
         );
@@ -4378,8 +4111,8 @@ mod tests {
         let path = picture_file("readers", &PNG_2X1);
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let mut r = reader(&RUNNING, Hold::Stalled);
         let held: Vec<_> = (0..crate::kitty_files::READERS)
             .map(|_| r.files.start(&path))
@@ -4409,11 +4142,11 @@ mod tests {
         let path = picture_file("order", &PNG_2X1);
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
         let picture = iterm(&[("title", b"Build"), ("image", &path)]);
         let later = iterm(&[("title", b"Later")]);
         // macOS: the second post a turn after the first.
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let mut r = reader(&MAC, Hold::Stalled);
         let posted = taken(&mut t, &picture);
         assert!(mac_turn(&mut d, &mut t, posted, &mut r.files, at(Secs(0))).is_empty());
@@ -4435,7 +4168,7 @@ mod tests {
         let titles: Vec<&str> = posts(&got).into_iter().map(|p| p.title.as_str()).collect();
         assert_eq!(titles, ["Build", "Later"], "in the order they came");
         // Linux: the same.
-        let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
+        let mut d: Delivery<u32> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let mut r = reader(&LINUX, Hold::Stalled);
         for p in taken(&mut t, &picture) {
             assert!(d.linux(p, &mut r.files, at(Secs(0))).is_empty());
@@ -4472,8 +4205,8 @@ mod tests {
         let path = picture_file("linux", &PNG_2X1);
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<u32> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<u32> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let mut r = reader(&RUNNING, Hold::Stalled);
         let t0 = HostTime::ZERO;
         for p in taken(&mut t, &iterm(&[("title", b"Build"), ("image", &path)])) {
@@ -4490,7 +4223,7 @@ mod tests {
             panic!("the text alone: {got:?}");
         };
         assert_eq!(p.title, "Build");
-        assert_eq!((d.unshown, d.checks()), (Unshown(1), Checks::Done));
+        assert_eq!((d.unshown.count().get(), d.checks()), (1, Checks::Done));
         // The close: what is parked posts in order, the text alone.
         for msg in [
             iterm(&[("title", b"Out"), ("image", &path)]),
@@ -4506,7 +4239,7 @@ mod tests {
             .map(|(p, image)| (p.title.as_str(), image.is_some()))
             .collect();
         assert_eq!(titles, [("Out", false), ("After", false)]);
-        assert_eq!((d.unshown, d.checks()), (Unshown(2), Checks::Done));
+        assert_eq!((d.unshown.count().get(), d.checks()), (2, Checks::Done));
         assert!(d.linux_closing().is_empty(), "a second close");
         r.release();
     }
@@ -4522,8 +4255,8 @@ mod tests {
         let path = picture_file("close", &PNG_2X1);
         let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
         let mut t = Term::new(owned.storage(), &WS);
-        t.set_notice_support(support(Setting::On, Platform::MacOs));
-        let mut d: Delivery<String> = Delivery::new(Setting::On, &t, PIXELS);
+        t.set_notice_support(notice_support(NoticeSetting::On, NoticePlatform::MacOs));
+        let mut d: Delivery<String> = Delivery::new(NoticeSetting::On, &t, PIXELS);
         let mut r = reader(&RUNNING, Hold::Stalled);
         let mut bytes = iterm(&[("title", b"Build"), ("image", &path)]);
         bytes.extend_from_slice(b"\x1b]99;i=j;Kept\x1b\\\x1b]99;i=j:p=close;\x1b\\");
