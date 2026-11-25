@@ -36,8 +36,8 @@ members = ["baud-domain", "baud-core", "baud-bench",
   # The table compiler the crates' build scripts share: std alone, no
   # dependencies, so a build-dependency adds nothing to a build's graph.
   "baud-tablegen",
-  # The frame handoff between the ingest thread and the frame thread: a
-  # library, so its compile_fail witnesses run.
+  # The stages between the pty and the screen, and what crosses between
+  # them: a library, so its compile_fail witnesses run.
   "baud-pipeline",
   # The repository's gates, run as `cargo xtask <command>` through the alias
   # in `.cargo/config.toml`. Unpublished, and not a default member, so a
