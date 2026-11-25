@@ -112,6 +112,10 @@ pub struct Pace<T = ()> {
     wake: Option<crate::kitty_files::Wake>,
     /// Delays ended early by [`HELD_MAX`].
     pub cut: DelaysCut,
+    /// **What the shell's marks have left open**, stepped over each
+    /// part's record as it is taken ([`Taken::ran`]), in the order the
+    /// parts ran.
+    pub marks: crate::ran::Fold,
     /// **What each re-cut of the primary a call's parts asked for moved**
     /// (`paths::Recuts`): one buffer, cleared as each call starts and
     /// reused, each part's share named on its [`Taken`]. A window resize
@@ -233,6 +237,7 @@ impl<T: Copy> Pace<T> {
             reading: None,
             wake: None,
             cut: DelaysCut::NONE,
+            marks: crate::ran::Fold::default(),
             recuts: crate::paths::Recuts::default(),
             #[cfg(all(feature = "effect-probe", target_os = "macos"))]
             notices_bound: NoticesBound::No,
@@ -319,6 +324,9 @@ pub struct Taken {
     /// The re-cuts `after` made for the part ([`Pace::recuts`]), told
     /// line by line: none where it made none.
     pub recut: Option<crate::paths::RecutAt>,
+    /// **What the shell's marks the core recorded of the part say**
+    /// (`ran::Fold::part`), folded as the record is taken.
+    pub ran: crate::ran::Folded,
 }
 
 /// **A read's tag, cut to a part of its bytes**: what a read carries of
@@ -355,11 +363,16 @@ pub trait Part: Copy + PartialEq {
     fn uncut(self) -> Self {
         self
     }
-    /// **Whether the shell's marks this tag read in its part are the
-    /// core's** (`vouch::Matched`): a tag that read none matches only a
-    /// record of none.
-    fn matched(&self, rec: &baud_core::ReadRecord) -> crate::vouch::Vouch<crate::vouch::Matched> {
-        crate::vouch::Matched::of(rec, &crate::ran::Timeline::default())
+    /// **The core placed the shell's `D` where the cut was taken**: the
+    /// tag from the cut on is what the bytes from the `D` say, `after`,
+    /// and, uncut, what the whole part says, `whole`.
+    fn cut_taken(self, _after: crate::ran::Ran, _whole: crate::ran::Ran) -> Self {
+        self
+    }
+    /// **The core did not place the shell's `D` where the cut was taken**:
+    /// no cut, the tag as it would have been without one.
+    fn cut_refused(self) -> Self {
+        self
     }
     /// **The tag of a part fed, carrying what the core did as it ran the
     /// part's bytes** ([`Taken`]), or none: each part fed has its own.
@@ -429,8 +442,11 @@ impl<A: Part, B: Copy + PartialEq> Part for (A, B) {
     fn recorded(self, taken: Option<Taken>) -> (A, B) {
         (self.0.recorded(taken), self.1)
     }
-    fn matched(&self, rec: &baud_core::ReadRecord) -> crate::vouch::Vouch<crate::vouch::Matched> {
-        self.0.matched(rec)
+    fn cut_taken(self, after: crate::ran::Ran, whole: crate::ran::Ran) -> (A, B) {
+        (self.0.cut_taken(after, whole), self.1)
+    }
+    fn cut_refused(self) -> (A, B) {
+        (self.0.cut_refused(), self.1)
     }
 }
 
@@ -666,7 +682,7 @@ fn kitty_wait<T: Part>(
     };
     match pace.reading.take() {
         Some((_, tag)) => {
-            file_end(term, read, tag, took);
+            file_end(term, &mut pace.marks, read, tag, took);
         }
         None => term.kitty_file_end(read),
     }
@@ -690,6 +706,7 @@ enum Moved {
 /// record that placed nothing is not pushed. What it pushed, if anything.
 fn file_end<T: Part>(
     term: &mut Term<'_>,
+    marks: &mut crate::ran::Fold,
     read: Result<(), KittyFileFailed>,
     tag: T,
     took: &mut Vec<T>,
@@ -701,12 +718,14 @@ fn file_end<T: Part>(
     if quiet(&record) && drew == crate::vouch::Drew::Nothing {
         return None;
     }
+    let at = BytePos::ZERO;
     let taken = Taken {
         record,
         top: term.history_mark().line(),
         end_row: crate::vouch::EndRow::of(term),
         drew,
         recut: None,
+        ran: marks.part(&record, at, at),
     };
     took.push(tag.recorded(Some(taken)));
     Some(taken)
@@ -776,6 +795,9 @@ fn paced_one<T: Part>(
     let mut last_end = None;
     // The read's tag, the shell's from the cut on (`cut.rs`).
     let mut tag = tag;
+    // Where the cut was taken at the shell's `D`, until the part from it
+    // is recorded: its record must place that `D` there too.
+    let mut at_cut = None;
     let mut next = Some(Rest {
         at: BytePos::ZERO,
         len: ReadLen::from_index(bytes.len()),
@@ -799,7 +821,10 @@ fn paced_one<T: Part>(
                     crate::vouch::Matched::of(&here, &crate::ran::Timeline::default()),
                 );
                 tag = match plan.before().map_or(here, |b| b.and(here)) {
-                    crate::vouch::Vouch::Yes(_) => tag.after_cut(crate::cut::Spot::of(term)),
+                    crate::vouch::Vouch::Yes(_) => {
+                        at_cut = Some(plan.d());
+                        tag.after_cut(crate::cut::Spot::of(term))
+                    }
                     crate::vouch::Vouch::No(_) => tag.uncut(),
                 };
             }
@@ -838,6 +863,25 @@ fn paced_one<T: Part>(
             (None, false) => None,
         };
         let pens = crate::paths::Pens::of(pen, crate::paths::Pen::of(term));
+        if logging == baud_core::LogMode::Started {
+            log.take(&bytes[r.at.index()..fed_to]);
+        }
+        log.follow(term);
+        // The part's record, taken before `after`, so the lines its bytes
+        // wrote are named on the numbers they were written at, and the
+        // window's top with it: once per part, never per byte. What its
+        // marks say is folded from it, in the order the parts ran.
+        let rec = term.take_record();
+        let folded = pace.marks.part(&rec, r.at, BytePos::from_index(fed_to));
+        // **The part from the cut is the shell's only where the core placed
+        // its `D` where the sniff did**, the shell's with its token: any
+        // other record of it, and there is no cut.
+        if let Some(d) = at_cut.take() {
+            tag = match folded.after_at(d) {
+                Some(after) => tag.cut_taken(after, folded.ran),
+                None => tag.cut_refused(),
+            };
+        }
         // A part before the cut is pushed with no plan; the line it ended
         // on is judged by its own record (`vouch::Below`).
         let piece = match tag.plan() {
@@ -848,14 +892,6 @@ fn paced_one<T: Part>(
             .part(r.at, BytePos::from_index(fed_to))
             .under(pens)
             .recorded(None);
-        if logging == baud_core::LogMode::Started {
-            log.take(&bytes[r.at.index()..fed_to]);
-        }
-        log.follow(term);
-        // The part's record, taken before `after`, so the lines its bytes
-        // wrote are named on the numbers they were written at, and the
-        // window's top with it: once per part, never per byte.
-        let rec = term.take_record();
         let top = term.history_mark().line();
         let end_row = crate::vouch::EndRow::of(term);
         let drew = crate::vouch::Drew::of(images, term);
@@ -879,6 +915,7 @@ fn paced_one<T: Part>(
                 drew: crate::vouch::Drew::Nothing,
                 recut: (made == crate::paths::Sealed::Yes)
                     .then_some(crate::paths::RecutAt::before(top)),
+                ran: pace.marks.part(&rec, end, end),
             };
             (resize, taken)
         });
@@ -889,7 +926,10 @@ fn paced_one<T: Part>(
         // among is refused where the parts are filed
         // (`Probes::drain_segment`).
         if tag.plan().is_some() {
-            tag = tag.pre_cut(crate::vouch::CutAt::of(&rec, fed.matched(&rec)));
+            tag = tag.pre_cut(crate::vouch::CutAt::of(
+                &rec,
+                crate::vouch::Matched::of(&rec, &folded.marks),
+            ));
         }
         // A quiet part that left text on a row the part before left empty,
         // took the cursor to the status line or placed an image is not
@@ -904,6 +944,7 @@ fn paced_one<T: Part>(
                 end_row,
                 drew,
                 recut: None,
+                ran: folded,
             })));
             last = Some(fed);
             last_end = Some(end_row);
@@ -960,7 +1001,7 @@ fn paced_one<T: Part>(
                 // Ended at once: its answer goes out ahead of the rest,
                 // and in this call when no rest follows.
                 FileRead::Ended(read) => {
-                    if let Some(taken) = file_end(term, read, ending, took) {
+                    if let Some(taken) = file_end(term, &mut pace.marks, read, ending, took) {
                         last = Some(ending);
                         last_end = Some(taken.end_row);
                     }

@@ -78,6 +78,11 @@ pub struct Live {
     /// process.
     #[cfg(target_os = "macos")]
     closing: Option<std::io::PipeWriter>,
+    /// The hash of the token baud handed the shell, which the core reads
+    /// each mark against (`Term::set_shell_token`); the token itself went
+    /// to the reader thread's sniff.
+    #[cfg(target_os = "macos")]
+    token_hash: Option<baud_domain::ShellTokenHash>,
     /// **How the window's child ends** (`held.rs`): the program a link's
     /// window runs, its start, and where its end goes once it is known.
     ending: ChildEnd,
@@ -94,8 +99,8 @@ pub struct Live {
     /// more ([`Pty::reap_owed`]).
     #[cfg(target_os = "linux")]
     again: Option<std::time::Instant>,
-    /// The token baud handed the shell, for the loop's scan of its marks
-    /// (`probe::Sampler::for_shell`).
+    /// The token baud handed the shell, for the loop's link sniff
+    /// (`probe::Sampler::for_shell`) and the core (`Pty::shell_token_hash`).
     #[cfg(target_os = "linux")]
     token: Option<crate::ran::ShellToken>,
 }
@@ -632,6 +637,19 @@ impl Pty {
     pub fn shell_token(&self) -> Option<&crate::ran::ShellToken> {
         match self {
             Pty::Live(l) => l.shell_token(),
+            Pty::Refused(_) => None,
+        }
+    }
+
+    /// **The hash of the token baud handed the shell**, which the core
+    /// reads each mark against (`Term::set_shell_token`); none for a
+    /// refused terminal, or a shell baud marks with none.
+    pub fn shell_token_hash(&self) -> Option<baud_domain::ShellTokenHash> {
+        match self {
+            #[cfg(target_os = "linux")]
+            Pty::Live(l) => l.shell_token().and_then(crate::ran::ShellToken::hash),
+            #[cfg(target_os = "macos")]
+            Pty::Live(l) => l.token_hash,
             Pty::Refused(_) => None,
         }
     }
@@ -1491,7 +1509,7 @@ fn shell_locale() -> Option<String> {
 
 /// **A child forked onto a pty**: its pid, the master, and the token baud
 /// handed its shell, which the window's marks are read against
-/// (`ran::Commands::new`); none for a shell the integration does not mark.
+/// (`ran::ShellToken::hash`); none for a shell the integration does not mark.
 type Forked = (
     crate::sys::Pid,
     std::os::fd::OwnedFd,
@@ -2664,6 +2682,7 @@ impl Pty {
         let (held, closing) = Reading::of(master);
         let watched = crate::probe::WatchCell::default();
         let taken = watched.clone();
+        let token_hash = token.as_ref().and_then(crate::ran::ShellToken::hash);
         std::thread::spawn(move || reader(held, tx, flag, &taken, token.as_ref(), wake));
         Pty::Live(Live {
             master,
@@ -2674,6 +2693,7 @@ impl Pty {
             signalled,
             watched,
             closing,
+            token_hash,
             ending: ChildEnd::of(program),
         })
     }
@@ -5542,6 +5562,7 @@ mod tests {
             signalled,
             watched: crate::probe::WatchCell::default(),
             closing,
+            token_hash: None,
             ending: ChildEnd::of(None),
         };
         // The control: the reader's copy alone keeps the line up, so the
@@ -7599,6 +7620,12 @@ mod tests {
         let master = master.into_raw_fd();
         let w = Polled::over(master, pid, told, None);
         let mut sampler = Sampler::for_shell(token.as_ref());
+        // The core the reads are fed to, holding the shell's token, and the
+        // fold of the marks it records.
+        let mut owned = baud_core::Owned::new(&size);
+        let mut term = baud_core::Term::new(owned.storage(), &size);
+        term.set_shell_token(token.as_ref().and_then(crate::ran::ShellToken::hash));
+        let mut fold = crate::ran::Fold::default();
         let mut named = std::collections::HashMap::new();
         let elsewhere = Some(crate::paths::Front::Elsewhere);
         let (mut links, mut by_samples, mut left) = (0u32, 0u32, 0u32);
@@ -7638,6 +7665,14 @@ mod tests {
                     GroupAsk::No => sampler.unasked(),
                 };
                 all.extend_from_slice(&bytes);
+                term.write_at(baud_core::BytePos::ZERO, &bytes);
+                term.feed(
+                    baud_core::BytePos::ZERO,
+                    baud_core::ReadLen::from_index(bytes.len()),
+                );
+                let rec = term.take_record();
+                let end = baud_core::BytePos::from_index(bytes.len());
+                let marked = fold.part(&rec, baud_core::BytePos::ZERO, end).ran;
                 if asks != GroupAsk::Yes(ReadLinked::Yes) {
                     continue;
                 }
@@ -7658,7 +7693,7 @@ mod tests {
                 links += here;
                 if local {
                     by_samples += here;
-                    if writers.marked != crate::ran::Ran::Elsewhere {
+                    if marked != crate::ran::Ran::Elsewhere {
                         left += here;
                     }
                 }

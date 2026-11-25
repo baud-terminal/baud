@@ -5,15 +5,19 @@
 //! filed over them, so a read holding `ssh`'s last line, the shell's `D`
 //! and the shell's next prompt left that prompt dark for good.
 //!
-//! The bytes before the `D` keep the read's verdict; the `D` and what
-//! follows are the shell's (`ran::Commands`, which reads them on their
-//! own). The cut is taken only where the core's record of every part of
+//! The bytes before the `D` keep their own verdict; the `D` and what
+//! follows are the shell's, as the core's record of them says
+//! (`ran::Fold`, which reads them as a part of their own). The sniff
+//! places the `D` before the read is fed, and the cut is taken only where
+//! the core's record of the part from the cut places that same `D` there,
+//! the shell's with its token; anywhere else, or nowhere, there is no cut.
+//! It is taken only where the core's record of every part of
 //! the read before it, and of the cut's own point, vouches that those
 //! bytes wrote only on the rows the cursor passed as it went
 //! (`vouch::CutAt`): at ANSI ground from the read's start to the `D`,
 //! under UTF-8, every line feed moved, nothing written off the forward
 //! path, no text moved, no screen cleared, no line renumbered. Where it
-//! does not, there is no cut, and the read is filed whole, as before. The
+//! does not, there is no cut, and the read is filed whole. The
 //! `D` must be the shell's, with its token, and begin in this read; one
 //! begun in an earlier read makes no cut.
 //!
@@ -102,13 +106,11 @@ fn eol(bytes: &[u8]) -> Option<ReadLen> {
 }
 
 /// **Where a read is to be cut**, as its tag carries it (`reads::Part`):
-/// the shell's `D`, what the bytes after it are, zsh's run before it, if
-/// any, and what the records of the parts fed before the cut so far vouch
+/// the shell's `D`, zsh's run before it, if any, and what the records of the parts fed before the cut so far vouch
 /// for (`vouch::CutAt`), none before the first.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Plan {
     d: BytePos,
-    after: Ran,
     eol: Option<Eol>,
     before: Option<Vouch<CutAt>>,
 }
@@ -118,7 +120,6 @@ impl core::fmt::Debug for Plan {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Plan")
             .field("d", &self.d.index())
-            .field("after", &self.after)
             .field("eol", &self.eol)
             .field("before", &self.before)
             .finish()
@@ -127,11 +128,12 @@ impl core::fmt::Debug for Plan {
 
 impl Plan {
     /// **The plan for a read of `bytes`**, `d` where its shell's `D`
-    /// begins and `after` what the bytes from there are, with zsh's run if
-    /// the bytes after the last `LF` before the `D` are exactly it; none
-    /// for a `D` past the read. Whether the cut is taken is the records'
-    /// to vouch for as the read is fed (`reads::paced`).
-    pub fn of(bytes: &[u8], d: BytePos, after: Ran) -> Option<Plan> {
+    /// begins, with zsh's run if the bytes after the last `LF` before the
+    /// `D` are exactly it; none for a `D` past the read. Whether the cut is
+    /// taken is the records' to vouch for as the read is fed, and what the
+    /// bytes from the `D` say is the core's record of them, which must
+    /// place that `D` at `d` too (`reads::paced`).
+    pub fn of(bytes: &[u8], d: BytePos) -> Option<Plan> {
         let before = bytes.get(..d.index())?;
         let line = before
             .iter()
@@ -139,7 +141,6 @@ impl Plan {
             .map_or(0, |i| i + 1);
         Some(Plan {
             d,
-            after,
             eol: eol(&before[line..]).map(|blanks| Eol {
                 at: BytePos::from_index(line),
                 blanks,
@@ -165,11 +166,6 @@ impl Plan {
     /// Where the shell's `D` begins in the read.
     pub fn d(&self) -> BytePos {
         self.d
-    }
-
-    /// What the bytes from the `D` are.
-    pub fn after(&self) -> Ran {
-        self.after
     }
 
     /// zsh's run before the `D`, if the bytes after the last `LF` are it.
@@ -297,7 +293,7 @@ mod tests {
         };
         let eol_of = |bytes: &[u8]| {
             let d = [bytes, b"\x1b]133;D\x07"].concat();
-            Plan::of(&d, BytePos::from_index(bytes.len()), Ran::Shell).and_then(|p| p.eol)
+            Plan::of(&d, BytePos::from_index(bytes.len())).and_then(|p| p.eol)
         };
         let seen = eol_of(format!("logout\r\n{}", run("%", 79, " \r")).as_bytes());
         assert_eq!(

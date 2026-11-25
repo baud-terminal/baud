@@ -237,12 +237,12 @@ impl Vouch<CutAt> {
     }
 }
 
-/// **The shell's marks the app read in a part are the core's**: under
+/// **The shell's marks the app folded in a part are the core's**: under
 /// UTF-8, neither side past what it keeps, and the same marks at the same
 /// offsets with the same letters, in order (`ran::Timeline`,
-/// `ReadRecord::marks`). Where they are not, what the app read of the
-/// shell's commands is not what the core ran -- a `D` the core read as
-/// part of a picture's body, one on the status line -- and the part
+/// `ReadRecord::marks`). Where they are not -- more marks than the record
+/// keeps, so the fold missed some -- what the app read of the shell's
+/// commands is not what the core ran, and the part
 /// vouches nothing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Matched(());
@@ -266,9 +266,9 @@ impl Matched {
 
 /// **A part re-syncs the window's marks**: they match the core's
 /// ([`Matched`]); among them is the shell's `D` with the window's token,
-/// which ends whatever was open whatever the scan believed before it; and
+/// which ends whatever was open whatever the fold held before it; and
 /// after the last such `D` no mark opens a command and nothing is open as
-/// the part ends. What the scan reads from there on depends on nothing it
+/// the part ends. What the fold reads from there on depends on nothing it
 /// read before, so a window whose marks drifted is trusted again from the
 /// next part -- or from this one, when it begins at that `D`, the shell's
 /// part of a read cut there ([`Resync::trusts_itself`]).
@@ -322,10 +322,9 @@ impl Resync {
 
 /// **Whether a window's marks are the core's**: synced until a part's are
 /// not ([`Matched`]), and then drifted until a part re-syncs them
-/// ([`Resync`]). While drifted, no part's marks are trusted: what the scan
-/// believes is open may be wrong in either direction, since its state
-/// carries from read to read on the reader's thread, which never learns
-/// the core disagreed.
+/// ([`Resync`]). While drifted, no part's marks are trusted: what the fold
+/// holds open may be wrong in either direction, as it missed the marks
+/// the record could not keep and its state carries from part to part.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Latch {
     #[default]
@@ -348,7 +347,7 @@ pub struct Ended(());
 impl Latch {
     /// **The latch after a part**, whether that part's marks are trusted,
     /// and whether the window's shell ended its command in it ([`Ended`]):
-    /// `rec` its record, `ran` the marks the scan read in it. A part that
+    /// `rec` its record, `ran` the marks folded from it. A part that
     /// re-syncs is trusted itself only if it begins at the shell's `D`
     /// ([`Resync::trusts_itself`]); a drifted window re-synced by a later
     /// mark of the part is trusted from the next part, and the part ends
@@ -415,13 +414,25 @@ mod tests {
         (t.take_record(), end, drew)
     }
 
-    /// The marks the shell's scan, with the window's token `t`, read in
-    /// `bytes` after `before`.
+    /// The marks the core recorded of `bytes` after `before`, on a window
+    /// whose shell holds the token `t`, folded.
     fn scanned(before: &[u8], bytes: &[u8]) -> crate::ran::Timeline {
-        let mut scan = crate::ran::Commands::new(Some(&crate::ran::ShellToken::given("t")));
-        let _ = scan.read(before);
-        let _ = scan.read(bytes);
-        scan.marks()
+        scanned_under(baud_domain::ControlStringEnd::default(), before, bytes)
+    }
+
+    /// [`scanned`] on a terminal whose control strings end as `end` says,
+    /// the same terminal [`taken_under`] records.
+    fn scanned_under(
+        end: baud_domain::ControlStringEnd,
+        before: &[u8],
+        bytes: &[u8],
+    ) -> crate::ran::Timeline {
+        let cuts = crate::ran::fed::Cuts::Unchecked;
+        crate::ran::fed::with_shell_under(end, Some("t"), cuts, |s| {
+            let _ = s.read(before);
+            let _ = s.read(bytes);
+            s.marks()
+        })
     }
 
     fn below(before: &[u8], bytes: &[u8]) -> Result<(), Why> {
@@ -496,28 +507,27 @@ mod tests {
         );
     }
 
-    /// **A part re-syncs only where the core ran each mark the scan read,
-    /// before the token is read at all** (`Resync::of`): the shell's `D`
-    /// with its token and an `A`, re-syncing; the same bytes inside a
-    /// kitty graphics command's body (`ESC _ G a=d;`, left open, on a
-    /// terminal that ends one only at `BEL` or `ESC \\`), where the core
-    /// runs no mark and the scan still reads the `D` and its token, not. The token comes from the scan alone, and is the shell's
-    /// only where the core ran a mark of that letter at that offset, so
-    /// the bytes were a control string and not a picture's payload. Named
-    /// break: `Resync::of` without its match -- the payload's `D`
-    /// re-syncs.
+    /// **A part re-syncs only at a mark the core ran** (`Resync::of`): the
+    /// shell's `D` with its token and an `A`, re-syncing; the same bytes
+    /// inside a kitty graphics command's body (`ESC _ G a=d;`, left open,
+    /// on a terminal that ends one only at `BEL` or `ESC \\`), where the
+    /// core runs no mark, carry no mark the fold reads, and do not. The
+    /// token is the core's to read, in a mark it ran, so the bytes were a
+    /// control string and not a picture's payload. Named break: fold marks
+    /// read from the bytes rather than from the record -- the payload's
+    /// `D` re-syncs.
     #[test]
     fn a_tokened_d_in_a_pictures_body_does_not_re_sync() {
         let d = b"\x1b]133;D;0;baud_token=t\x07\x1b]133;A\x07";
         let resync = |bytes: &[u8]| {
             let (rec, _, _) = taken_under(baud_domain::ControlStringEnd::Kitty, b"", bytes);
-            let ran = scanned(b"", bytes);
-            assert!(
-                ran.marks()
-                    .any(|m| m.shells_d() == crate::ran::ShellsD::Yes),
-                "the scan reads the shell's D"
-            );
-            Resync::of(&rec, &ran).is_some()
+            let ran = scanned_under(baud_domain::ControlStringEnd::Kitty, b"", bytes);
+            let read = ran
+                .marks()
+                .any(|m| m.shells_d() == crate::ran::ShellsD::Yes);
+            let resyncs = Resync::of(&rec, &ran).is_some();
+            assert_eq!(read, resyncs, "the shell's D read, and only then a re-sync");
+            resyncs
         };
         assert!(resync(d), "the control");
         assert!(!resync(&[b"\x1b_Ga=d;".as_slice(), d].concat()));
@@ -537,7 +547,13 @@ mod tests {
     fn a_part_that_re_syncs_after_its_first_mark_ends_nothing() {
         let ends = |latch: Latch, bytes: &[u8]| {
             let (rec, _, _) = taken_under(baud_domain::ControlStringEnd::Kitty, b"", bytes);
-            latch.step(&rec, &scanned(b"", bytes)).2.is_some()
+            latch
+                .step(
+                    &rec,
+                    &scanned_under(baud_domain::ControlStringEnd::Kitty, b"", bytes),
+                )
+                .2
+                .is_some()
         };
         let d = b"\x1b]133;D;0;baud_token=t\x07\x1b]133;A\x07";
         let later = [b"\x1b]133;C;baud_token=t\x07x\r\n".as_slice(), d].concat();
@@ -553,8 +569,8 @@ mod tests {
     /// colour, a title and a saved cursor do; a climb, an erase of other
     /// rows, a line inserted, a switch of screens, the rows under a region
     /// moved, a feed stuck below a region, a part ending mid-sequence, one
-    /// under ISO 8859-1, a cleared alternate screen and a mark the scan
-    /// read where the core ran none do not. Named breaks, one per
+    /// under ISO 8859-1, a cleared alternate screen and a part with more
+    /// marks than its record keeps do not. Named breaks, one per
     /// condition: drop it from `CutAt::of` -- its part vouches.
     #[test]
     fn a_cut_is_vouched_only_where_the_record_says_forward() {
@@ -581,9 +597,14 @@ mod tests {
         );
         assert_eq!(cut(b"\x1b[?1049h", b"\x1b[?1049h"), Err(Why::Cleared));
         assert_eq!(
-            cut(b"\x1b[2$~\x1b[1$}", b"\x1b]133;A\x07"),
+            cut(b"", &b"\x1b]133;A\x07".repeat(9)),
             Err(Why::Marks),
-            "a mark the core does not run, on the status line"
+            "more marks than the record keeps"
+        );
+        assert_eq!(
+            cut(b"\x1b[2$~\x1b[1$}", b"\x1b]133;A\x07"),
+            Ok(()),
+            "a mark the core does not run, on the status line, read by neither"
         );
     }
 }

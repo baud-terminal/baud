@@ -396,21 +396,18 @@ pub struct Sampler {
     /// ([`Sampler::writers`]).
     previous: Option<Pid>,
     previous_watched: Watched,
-    /// The shell's command marks, scanned at every read
-    /// ([`crate::ran::Commands`]), and what the last read was taken as.
-    commands: crate::ran::Commands,
-    marked: crate::ran::Ran,
-    /// The marks the last read carried, where each ended
-    /// ([`crate::ran::Timeline`]).
-    marks: crate::ran::Timeline,
     /// Where the last read is cut ([`crate::cut::Plan`]).
     cut: crate::cut::Cut,
-    /// Whether the last read carried the shell's own `D`, which ends the
+    /// Whether the last read began the shell's own `D`, which ends the
     /// command the group before was taken under once that read's writers
     /// are built ([`Sampler::writers`], [`Sampler::unasked`]).
     ended: Ended,
     /// The bytes the last read's sniff walked: its own and the carried ones.
     scanned: baud_domain::WalkSteps,
+    /// The token the window's shell was handed, as the core holds it, for
+    /// a test's terminal.
+    #[cfg(test)]
+    token: Option<baud_domain::ShellTokenHash>,
 }
 
 /// **Whether the last read ended a command at the shell's `D`**, to be
@@ -589,15 +586,16 @@ pub struct Writers {
     pub before: Option<Pid>,
     pub at: Option<Pid>,
     pub watched: Watched,
-    /// What the shell's marks say of the read ([`crate::ran::Ran`]): a
-    /// command named not local, one named here, or the shell's own.
+    /// What the shell's marks say of the part ([`crate::ran::Ran`]), folded
+    /// from its record (`reads::Taken`): a command named not local, one
+    /// named here, or the shell's own. Unmarked before.
     pub marked: crate::ran::Ran,
     /// Whether the part fed a folder report the core acted on
     /// ([`crate::ran::Folder`]), judged once its record is taken by what
     /// was open as the last of them came: none before.
     pub folder: crate::ran::Folder,
-    /// The shell's marks the read carried, where each ended
-    /// ([`crate::ran::Timeline`]), cut to the part fed (`reads::Part`).
+    /// The shell's marks the core recorded of the part, where each ended
+    /// ([`crate::ran::Timeline`]): none before its record.
     pub marks: crate::ran::Timeline,
     /// Whether the part's marks are the core's (`vouch::Matched`), read
     /// with its record, and then whether the window's are
@@ -656,14 +654,12 @@ fn folder_of(rec: &baud_core::ReadRecord, marks: &crate::ran::Timeline) -> crate
     }
 }
 
-/// **A read's writers, cut to a part of its bytes**: the marks the part
-/// fed, and those of a part held.
+/// **A read's writers, cut to a part of its bytes**: the marks and the
+/// verdict of each part folded from its own record, and the cut of a part
+/// held counted from where it is held.
 impl crate::reads::Part for Writers {
-    fn part(self, from: baud_core::BytePos, to: baud_core::BytePos) -> Writers {
-        Writers {
-            marks: self.marks.part(from, to),
-            ..self
-        }
+    fn part(self, _from: baud_core::BytePos, _to: baud_core::BytePos) -> Writers {
+        self
     }
     fn rest(self, from: baud_core::BytePos) -> Writers {
         let cut = match self.cut {
@@ -672,31 +668,44 @@ impl crate::reads::Part for Writers {
                 .map_or(crate::cut::Cut::None, crate::cut::Cut::Plan),
             c => c,
         };
-        Writers {
-            marks: self.marks.rest(from),
-            cut,
-            ..self
-        }
+        Writers { cut, ..self }
     }
     fn under(self, pens: crate::paths::Pens) -> Writers {
         Writers { pens, ..self }
     }
+    /// The part's marks and verdict, folded from its record
+    /// (`reads::Taken::ran`); a part from the cut on keeps the verdict the
+    /// cut took ([`crate::reads::Part::cut_taken`]).
     fn recorded(self, taken: Option<crate::reads::Taken>) -> Writers {
+        let Some(t) = taken else {
+            return Writers {
+                folder: crate::ran::Folder::Unreported,
+                matched: None,
+                record: None,
+                top: None,
+                end_row: None,
+                drew: None,
+                recut: None,
+                ..self
+            };
+        };
+        let marks = t.ran.marks;
+        let marked = match self.cut {
+            crate::cut::Cut::After(_) => self.marked,
+            crate::cut::Cut::None | crate::cut::Cut::Plan(_) => t.ran.ran,
+        };
         Writers {
-            folder: taken.map_or(crate::ran::Folder::Unreported, |t| {
-                folder_of(&t.record, &self.marks)
-            }),
-            matched: taken.map(|t| crate::vouch::Matched::of(&t.record, &self.marks)),
-            record: taken.map(|t| t.record),
-            top: taken.map(|t| t.top),
-            end_row: taken.map(|t| t.end_row),
-            drew: taken.map(|t| t.drew),
-            recut: taken.and_then(|t| t.recut),
+            marked,
+            marks,
+            folder: folder_of(&t.record, &marks),
+            matched: Some(crate::vouch::Matched::of(&t.record, &marks)),
+            record: Some(t.record),
+            top: Some(t.top),
+            end_row: Some(t.end_row),
+            drew: Some(t.drew),
+            recut: t.recut,
             ..self
         }
-    }
-    fn matched(&self, rec: &baud_core::ReadRecord) -> crate::vouch::Vouch<crate::vouch::Matched> {
-        crate::vouch::Matched::of(rec, &self.marks)
     }
     fn plan(&self) -> Option<crate::cut::Plan> {
         match self.cut {
@@ -725,17 +734,17 @@ impl crate::reads::Part for Writers {
             ..self
         }
     }
-    /// The shell's from the cut on: what the bytes after the `D` say, no
-    /// group sampled before the read and no watch's verdict, the uncut
-    /// writers kept for a cut whose line cannot be numbered.
+    /// The shell's from the cut on: no group sampled before the read and no
+    /// watch's verdict, the uncut writers kept for a cut whose line cannot
+    /// be numbered. What the bytes after the `D` say is the core's, taken
+    /// once the part from the cut is recorded ([`crate::reads::Part::cut_taken`]).
     fn after_cut(self, spot: crate::cut::Spot) -> Writers {
-        let Some(plan) = self.plan() else {
+        if self.plan().is_none() {
             return self;
-        };
+        }
         Writers {
             before: None,
             watched: Watched::Nothing,
-            marked: plan.after(),
             cut: crate::cut::Cut::After(crate::cut::Mark {
                 spot,
                 uncut: crate::cut::Uncut {
@@ -745,6 +754,38 @@ impl crate::reads::Part for Writers {
                 },
             }),
             ..self
+        }
+    }
+    /// The core placed the shell's `D` where the sniff did: the parts from
+    /// the cut on are what the bytes from the `D` say, `after`, and uncut
+    /// what the whole part says, `whole`.
+    fn cut_taken(self, after: crate::ran::Ran, whole: crate::ran::Ran) -> Writers {
+        match self.cut {
+            crate::cut::Cut::After(m) => Writers {
+                marked: after,
+                cut: crate::cut::Cut::After(crate::cut::Mark {
+                    uncut: crate::cut::Uncut {
+                        marked: whole,
+                        ..m.uncut
+                    },
+                    ..m
+                }),
+                ..self
+            },
+            crate::cut::Cut::None | crate::cut::Cut::Plan(_) => self,
+        }
+    }
+    /// The core did not place the shell's `D` where the sniff did: no cut,
+    /// the group before and the watch's verdict back.
+    fn cut_refused(self) -> Writers {
+        match self.cut {
+            crate::cut::Cut::After(m) => Writers {
+                before: m.uncut.before,
+                watched: m.uncut.watched,
+                cut: crate::cut::Cut::None,
+                ..self
+            },
+            crate::cut::Cut::None | crate::cut::Cut::Plan(_) => self,
         }
     }
 }
@@ -780,15 +821,17 @@ pub use baud_domain::{GroupAsk, ReadLinked};
 
 impl Sampler {
     /// **The sampler for a window whose shell baud handed `token`**: the
-    /// marks are read against that token alone ([`crate::ran::Commands::new`]),
-    /// and the sniff finds the shell's `D` by it, as the sixteen hex digits
-    /// baud makes ([`baud_domain::ShellTokenHex`]); with no such token, no
-    /// read is cut.
+    /// sniff finds the shell's `D` by it, as the sixteen hex digits baud
+    /// makes ([`baud_domain::ShellTokenHex`]); with no such token, no read
+    /// is cut. The marks themselves are the core's, read against the same
+    /// token (`Term::set_shell_token`) and folded from its record
+    /// (`ran::Fold`).
     pub fn for_shell(token: Option<&crate::ran::ShellToken>) -> Sampler {
         let hex = token.and_then(|t| baud_domain::ShellTokenHex::parse(t.as_str().as_bytes()));
         Sampler {
-            commands: crate::ran::Commands::new(token),
             sniff: baud_domain::LinkSniff::new(hex),
+            #[cfg(test)]
+            token: token.and_then(crate::ran::ShellToken::hash),
             ..Sampler::default()
         }
     }
@@ -804,9 +847,9 @@ impl Sampler {
             before: self.previous,
             at,
             watched: watched.or(self.previous_watched),
-            marked: self.marked,
+            marked: crate::ran::Ran::Unmarked,
             folder: crate::ran::Folder::Unreported,
-            marks: self.marks,
+            marks: crate::ran::Timeline::default(),
             matched: None,
             pens: crate::paths::Pens::default(),
             cut: self.cut,
@@ -831,12 +874,11 @@ impl Sampler {
     /// group after it and no watch's verdict, which wait for a read that
     /// asks; and what the shell's marks say of it, what it did to its
     /// cursor's line and whether it reported a folder, which are this
-    /// read's alone. So every read's rows are filed under some writer.
+    /// read's alone, from its record. So every read's rows are filed under
+    /// some writer.
     pub fn unasked(&mut self) -> Writers {
         let w = Writers {
             before: self.previous,
-            marked: self.marked,
-            marks: self.marks,
             cut: self.cut,
             ..Writers::default()
         };
@@ -853,6 +895,13 @@ impl Sampler {
             self.previous_watched = Watched::Nothing;
             self.ended = Ended::No;
         }
+    }
+
+    /// **The token the core of a test's window holds** (`Term::set_shell_token`),
+    /// as the driver hands it.
+    #[cfg(test)]
+    pub fn shell_token(&self) -> Option<baud_domain::ShellTokenHash> {
+        self.token
     }
 
     /// **What the last read's sniff walked**: its own bytes and the ones
@@ -879,29 +928,25 @@ impl Sampler {
     /// or a `file://` URI ([`baud_domain::LinkSniff`]); or when no group is
     /// held for it.
     pub fn read(&mut self, now: std::time::Instant, bytes: &[u8]) -> GroupAsk {
-        self.marked = self.commands.read(bytes);
-        // Where each mark ended: a part's are checked against the core's
-        // record of it, and a folder report it fed is judged by what was
-        // open as it came (`Writers::recorded`).
-        self.marks = self.commands.marks();
         self.scanned = baud_domain::WalkSteps::ZERO;
         let sniffed = self.sniff.read(bytes, &mut self.scanned);
         // Where the read is cut at the shell's `D`: placed by the sniff
-        // before the read is fed, where the scan of the marks cuts it too,
-        // which says what the bytes from it ran under; taken as it is fed,
-        // where the core's records vouch for it (`reads::paced`).
+        // before the read is fed, and taken as it is fed where the core's
+        // record places that `D` there too, which says what the bytes from
+        // it ran under, and where the records vouch for the bytes before it
+        // (`reads::paced`).
         self.cut = sniffed
             .token_at
-            .zip(self.commands.cut())
-            .and_then(|(d, (_, after))| crate::cut::Plan::of(bytes, d, after))
+            .and_then(|d| crate::cut::Plan::of(bytes, d))
             .map_or(crate::cut::Cut::None, crate::cut::Cut::Plan);
         // The shell's own `D` ends the command the group sampled before was
         // taken under: what the reads after it wrote is not that program's,
         // though what this read wrote before it may be, so it is forgotten
-        // once this read's writers are built.
-        self.ended = match self.commands.shells_d() {
-            crate::ran::ShellsD::Yes => Ended::AtD,
-            crate::ran::ShellsD::No => Ended::No,
+        // once this read's writers are built. A `D` begun in the read
+        // before ends it a read later.
+        self.ended = match sniffed.token_at {
+            Some(_) => Ended::AtD,
+            None => Ended::No,
         };
         // A read with no group to be taken under -- the shell's `D` forgot
         // the one sampled before, and the pace has not asked since -- asks
@@ -5516,12 +5561,14 @@ mod tests {
             format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07\x1b]133;A;aid=1\x07").into_bytes();
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
+        t.set_shell_token(crate::ran::ShellToken::given(TOKEN).hash());
         t.write_at(BytePos::ZERO, &bytes);
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
         let rec = t.take_record();
-        let mut scan = crate::ran::Commands::new(Some(&crate::ran::ShellToken::given(TOKEN)));
-        let _ = scan.read(&bytes);
-        let (_, _, ended) = crate::vouch::Latch::Synced.step(&rec, &scan.marks());
+        let marks = crate::ran::Fold::default()
+            .part(&rec, BytePos::ZERO, BytePos::from_index(bytes.len()))
+            .marks;
+        let (_, _, ended) = crate::vouch::Latch::Synced.step(&rec, &marks);
         ended.expect("the shell's D ends its command")
     }
 
@@ -7581,7 +7628,10 @@ mod tests {
         let s = Scrolled::START;
         let t0 = Instant::now();
         let mut sampler = Sampler::default();
+        let mut fold = crate::ran::Fold::default();
+        let _ = t.take_record();
         for (k, bytes) in reads.iter().enumerate() {
+            use crate::reads::Part;
             let began = s.line(Rows::ZERO, t.cursor().0);
             t.write_at(BytePos::ZERO, bytes);
             t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
@@ -7591,6 +7641,12 @@ mod tests {
                 GroupAsk::Yes(l) => (sampler.writers(Some(1), Watched::Nothing), l),
                 GroupAsk::No => (sampler.unasked(), ReadLinked::No),
             };
+            // The read's verdict, folded from its record (`Writers::recorded`).
+            let writers = writers.recorded(Some(taken_of(
+                &mut t,
+                &mut fold,
+                BytePos::from_index(bytes.len()),
+            )));
             pr.read_taken(&mut paths, writers, LineSpan::of(began, ended), linked);
         }
         let line = s.line(Rows::ZERO, baud_domain::Row::ZERO);
@@ -8448,6 +8504,7 @@ mod tests {
             true => shells_sampler(),
             false => Sampler::default(),
         };
+        t.set_shell_token(sampler.shell_token());
         let t0 = Instant::now();
         let mut shift = Duration::ZERO;
         // Fed as the macOS pump feeds a drain, ReGIS delays held
@@ -10095,6 +10152,24 @@ mod tests {
         Sampler::for_shell(Some(&crate::ran::ShellToken::given(TOKEN)))
     }
 
+    /// **The record of the read just fed to `t`, ending at `end`**, as the
+    /// driver takes it (`reads::Taken`), its marks folded by `fold`.
+    fn taken_of(
+        t: &mut Term<'_>,
+        fold: &mut crate::ran::Fold,
+        end: BytePos,
+    ) -> crate::reads::Taken {
+        let record = t.take_record();
+        crate::reads::Taken {
+            record,
+            top: t.history_mark().line(),
+            end_row: crate::vouch::EndRow::of(t),
+            drew: crate::vouch::Drew::Nothing,
+            recut: None,
+            ran: fold.part(&record, BytePos::ZERO, end),
+        }
+    }
+
     /// The shell's prompt with `line` typed and run, and its `C` with
     /// `fields` after the token.
     fn ran(line: &str, fields: &str) -> Vec<u8> {
@@ -10495,7 +10570,9 @@ mod tests {
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
         paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
+        let mut fold = crate::ran::Fold::default();
         let mut sampler = shells_sampler();
+        t.set_shell_token(sampler.shell_token());
         let s = Scrolled::START;
         let t0 = Instant::now();
         let mut feed = |bytes: &[u8], k: u32| {
@@ -10509,13 +10586,11 @@ mod tests {
             let w = sampler
                 .unasked()
                 .part(BytePos::ZERO, BytePos::from_index(bytes.len()))
-                .recorded(Some(crate::reads::Taken {
-                    record: t.take_record(),
-                    top: t.history_mark().line(),
-                    end_row: crate::vouch::EndRow::of(&t),
-                    drew: crate::vouch::Drew::Nothing,
-                    recut: None,
-                }));
+                .recorded(Some(taken_of(
+                    &mut t,
+                    &mut fold,
+                    BytePos::from_index(bytes.len()),
+                )));
             let ended = s.line(Rows::ZERO, t.cursor().0);
             pr.read_taken(&mut paths, w, LineSpan::of(began, ended), ReadLinked::No);
             let _ = paths.observe(&t, s);
@@ -10608,6 +10683,7 @@ mod tests {
         paths.set(Turned::On);
         paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
+        t.set_shell_token(sampler.shell_token());
         let s = Scrolled::START;
         let mut counts = crate::keep::Counts::new(&t);
         let t0 = Instant::now();
@@ -10682,6 +10758,7 @@ mod tests {
         paths.set(Turned::On);
         paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
+        t.set_shell_token(sampler.shell_token());
         let s = Scrolled::START;
         let mut counts = crate::keep::Counts::new(&t);
         let t0 = Instant::now();
@@ -10753,6 +10830,7 @@ mod tests {
         paths.set(Turned::On);
         paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
+        t.set_shell_token(sampler.shell_token());
         let s = Scrolled::START;
         let mut counts = crate::keep::Counts::new(&t);
         let t0 = Instant::now();
@@ -10822,6 +10900,7 @@ mod tests {
         paths.set(Turned::On);
         paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
+        t.set_shell_token(sampler.shell_token());
         let s = Scrolled::START;
         let mut counts = crate::keep::Counts::new(&t);
         let t0 = Instant::now();
@@ -10998,6 +11077,7 @@ mod tests {
         paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
         let mut sampler = shells_sampler();
+        t.set_shell_token(sampler.shell_token());
         let mut pace = crate::reads::Pace::new();
         let s = Scrolled::START;
         let mut counts = crate::keep::Counts::new(&t);
@@ -11067,6 +11147,29 @@ mod tests {
         let mut rows: Vec<usize> = lines.lines().iter().map(|l| l.row.index()).collect();
         rows.dedup();
         rows
+    }
+
+    /// **A read is cut only where the core placed the shell's `D` where the
+    /// sniff did**: after the shell's `C` for `exec zsh`, which takes the
+    /// token from the core, a read of ssh's last line, a `D` with the old
+    /// token and a prompt is found by the sniff, which keeps the token, and
+    /// not by the core: no cut, and the prompt's typed path stays dark under
+    /// the ssh sampled before. The control, a wrapper named here: cut, lit.
+    /// Named break: take the cut on the sniff's placing alone
+    /// (`Part::cut_refused` never called) -- the typed path lights.
+    #[test]
+    fn a_cut_the_core_does_not_place_is_no_cut() {
+        let tail = [b"/etc/passwd\r\n".as_slice(), &prompt_after("/etc/hosts")].concat();
+        let lit = |wrapper: &[u8]| {
+            lit_reads(
+                named_groups(),
+                &[read(wrapper, 1), read(b"out\r\n", 9), read(&tail, 1)],
+            )
+        };
+        let here = ran("make deploy", ";cmdline=make\\ deploy");
+        assert_eq!(lit(&here), [3], "the control: cut at the D");
+        let exec = ran("exec zsh", ";cmdline=exec\\ zsh");
+        assert_eq!(lit(&exec), Vec::<usize>::new(), "the core holds no token");
     }
 
     /// **The read that carries the shell's `D` keeps the group before and
@@ -12190,42 +12293,6 @@ mod tests {
         assert_eq!(control, [2], "the control: no drift");
         let drift = [b"\x1b_Ga=d;".as_slice(), &cat_here(b"\x07"), b"\x1b\\"].concat();
         assert_eq!(lit(&drift), control);
-    }
-
-    /// **The shell's `D` inside a picture's body does not re-sync the
-    /// window** (`vouch::Resync`, its match first), on a terminal set to
-    /// end an `APC G` only at `BEL` or `ESC \\`: after the drift above,
-    /// the shell's `D` with its token and its prompt inside a kitty
-    /// graphics command left open, where the core runs no mark and the
-    /// scan reads the `D` and the token, and a `ST`; then its `C` naming
-    /// `cat y` with the token, and a writer gone before it was named
-    /// printing `/etc/hosts`: dark, the window still drifted. The control:
-    /// no graphics command around the `D`, lit. Named breaks, together:
-    /// `Resync::of` without its match and `Latch::step` without its own
-    /// arm for a part that does not match -- the payload's `D` re-syncs;
-    /// either alone is held by the other. Each layer is pinned alone
-    /// elsewhere: the match by `vouch`'s
-    /// `a_tokened_d_in_a_pictures_body_does_not_re_sync`, and the latch's
-    /// arm by `a_mark_the_core_did_not_read_leaves_the_window_untrusted`.
-    #[test]
-    fn the_shells_d_in_a_pictures_body_does_not_re_sync() {
-        let drift = [b"\x1b_Ga=d;".as_slice(), &cat_here(b"\x07"), b"\x1b\\\r\n"].concat();
-        let lit = |d: &[u8]| {
-            !lit_reads(
-                named_groups().kitty_ending(),
-                &[
-                    read(&drift, 6),
-                    read(d, 1),
-                    read(&cat_here(b"\x07"), 1),
-                    read(b"/etc/hosts", 6),
-                ],
-            )
-            .is_empty()
-        };
-        let d = prompt_after("x\r\n");
-        assert!(lit(&d), "the control");
-        let inside = [b"\x1b_Ga=d;".as_slice(), &d, b"\x1b\\"].concat();
-        assert!(!core_reads_c(KITTY, &inside) && !lit(&inside));
     }
 
     /// **A row written below and climbed back from is off the read's
@@ -13406,13 +13473,11 @@ mod tests {
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
         let w = Writers::default()
             .part(BytePos::ZERO, BytePos::from_index(bytes.len()))
-            .recorded(Some(crate::reads::Taken {
-                record: t.take_record(),
-                top: t.history_mark().line(),
-                end_row: crate::vouch::EndRow::of(&t),
-                drew: crate::vouch::Drew::Nothing,
-                recut: None,
-            }));
+            .recorded(Some(taken_of(
+                &mut t,
+                &mut crate::ran::Fold::default(),
+                BytePos::from_index(bytes.len()),
+            )));
         assert_eq!(w.before.or(w.at), None, "the control: no group");
         let rec = w.record;
         let _ = counts.numbered(&t, rec.as_ref());
@@ -13450,7 +13515,9 @@ mod tests {
         paths.set(Turned::On);
         paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
+        t.set_shell_token(sampler.shell_token());
         let s = Scrolled::START;
+        let mut fold = crate::ran::Fold::default();
         let t0 = Instant::now();
         let mut out = Vec::new();
         for (k, bytes) in (1..).zip(reads) {
@@ -13462,13 +13529,11 @@ mod tests {
             let w = sampler
                 .unasked()
                 .part(BytePos::ZERO, BytePos::from_index(bytes.len()))
-                .recorded(Some(crate::reads::Taken {
-                    record: t.take_record(),
-                    top: t.history_mark().line(),
-                    end_row: crate::vouch::EndRow::of(&t),
-                    drew: crate::vouch::Drew::Nothing,
-                    recut: None,
-                }));
+                .recorded(Some(taken_of(
+                    &mut t,
+                    &mut fold,
+                    BytePos::from_index(bytes.len()),
+                )));
             let ended = s.line(Rows::ZERO, t.cursor().0);
             pr.read_taken(&mut paths, w, LineSpan::of(began, ended), ReadLinked::No);
             let _ = paths.observe(&t, s);
@@ -14733,6 +14798,7 @@ mod tests {
         let mut owned = Owned::new(&ROOMY);
         let mut t = Term::new(owned.storage(), &ROOMY);
         t.set_control_string_end(string_end);
+        t.set_shell_token(sampler.shell_token());
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
         let (mut lines, mut uris) = (Lines::default(), Uris::default());

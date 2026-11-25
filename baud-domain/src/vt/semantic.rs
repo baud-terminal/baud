@@ -1308,41 +1308,116 @@ mod tests {
         n
     }
 
+    /// The options of a `C` mark naming `line` as `cmdline=`, quoted as
+    /// `printf %q` quotes it: a tab as `$'\t'`, a letter, a digit or one of
+    /// `/-.=_` as it is, and any other byte after a `\`.
+    fn q_of(line: &str, into: &mut [u8; 256]) -> usize {
+        let mut n = 0;
+        let mut put = |s: &[u8]| {
+            for &b in s {
+                into[n] = b;
+                n += 1;
+            }
+        };
+        put(b"cmdline=");
+        for b in line.bytes() {
+            match b {
+                b'\t' => put(b"$'\\t'"),
+                b if b.is_ascii_alphanumeric() || b"/-.=_".contains(&b) => put(&[b]),
+                b => put(&[b'\\', b]),
+            }
+        }
+        n
+    }
+
+    /// `parts` one after another in `into`, as text.
+    fn joined<'b>(parts: &[&str], into: &'b mut [u8; 64]) -> &'b str {
+        let mut n = 0;
+        for b in parts.iter().flat_map(|p| p.bytes()) {
+            into[n] = b;
+            n += 1;
+        }
+        core::str::from_utf8(&into[..n]).unwrap_or_default()
+    }
+
+    /// **`line` names `want` in both of a `C` mark's encodings**:
+    /// `cmdline_url=`, and `cmdline=` with `printf %q`'s quoting, whose one
+    /// shell word reads back as `line` itself.
+    fn names_each_way(line: &str, want: CommandRuns) {
+        let mut buf = [0u8; 256];
+        let n = url_of(line, &mut buf);
+        assert_eq!(CommandRuns::of(&buf[..n]), want, "{line:?} as cmdline_url=");
+        let n = q_of(line, &mut buf);
+        let q = &buf[..n];
+        let mut word = Buf::new();
+        let _ = word_at(&q[b"cmdline=".len()..], &mut word);
+        assert_eq!(
+            word.get(),
+            line.as_bytes(),
+            "%q of {line:?}: {}",
+            q.escape_ascii()
+        );
+        assert_eq!(CommandRuns::of(q), want, "{line:?} as cmdline=");
+    }
+
     /// **The program is the first word past assignments, the prefixes and
     /// their options, unquoted as the shell would**, its last path
     /// component checked against [`ELSEWHERE`]: every shape of `ssh` and
-    /// `mosh` is `Elsewhere`, the same shapes of `ls` are not, read as
-    /// `cmdline_url=`; `exec` of a local program is `Replaced`; nothing
-    /// named is `Nothing`. Named break: take the line's first word as it is
-    /// -- the prefixed and quoted shapes read as `sudo`, `'ssh'` and the
-    /// like.
+    /// `mosh` is `Elsewhere`, the same shapes of `ls` are `Here`, and
+    /// `exec` of `ls` is `Replaced`, each read as `cmdline_url=` and as
+    /// `cmdline=`, whose `printf %q` quoting, `$'\t'` among it, reads back
+    /// as the line itself; a name that is not a variable's before `=` is
+    /// the program, not an assignment; `$'...'` decodes its hex and octal
+    /// escapes to the bytes they name; nothing named is `Nothing`. Named
+    /// break: take the line's first word as it is -- the prefixed and
+    /// quoted shapes read as `sudo`, `'ssh'` and the like.
     #[test]
     fn the_program_is_the_first_word_past_prefixes_and_quotes() {
         let shapes = [
-            ("ssh host", "ls host"),
-            ("  ssh\thost", "  ls\thost"),
-            ("/usr/bin/ssh -p 22 host", "/usr/bin/ls -p 22 host"),
-            ("'ssh' host", "'ls' host"),
-            ("\"mosh\" host", "\"ls\" host"),
-            ("\\ssh host", "\\ls host"),
-            ("X=1 Y='a b' ssh host", "X=1 Y='a b' ls host"),
-            ("command ssh host", "command ls host"),
-            ("env -i ssh host", "env -i ls host"),
-            ("nice -10 ssh host", "nice -10 ls host"),
-            ("time ssh host", "time ls host"),
-            ("sudo -E ssh host", "sudo -E ls host"),
-            ("ssh; ls", "ls; ssh"),
-            ("ssh|cat", "ls|ssh"),
-            ("$'ss\\x68' h", "$'l\\163' h"),
-            (".ssh-wrapped h", ".ls-wrapped h"),
+            ("", " host"),
+            ("  ", "\thost"),
+            ("/usr/bin/", " -p 22 host"),
+            ("'", "' host"),
+            ("\"", "\" host"),
+            ("\\", " host"),
+            ("X=1 Y='a b' ", " host"),
+            ("command ", " host"),
+            ("exec ", " host"),
+            ("env -i ", " host"),
+            ("nice -10 ", " host"),
+            ("time ", " host"),
+            ("sudo -E ", " host"),
+            ("", "; ls"),
+            ("", "|cat"),
+            (".", "-wrapped h"),
         ];
-        let mut buf = [0u8; 256];
-        for (remote, here) in shapes {
-            for (line, want) in [(remote, CommandRuns::Elsewhere), (here, CommandRuns::Here)] {
-                let n = url_of(line, &mut buf);
-                assert_eq!(CommandRuns::of(&buf[..n]), want, "{line:?}");
+        for (before, after) in shapes {
+            for (p, want) in [
+                ("ssh", CommandRuns::Elsewhere),
+                ("mosh", CommandRuns::Elsewhere),
+                ("ls", CommandRuns::Here),
+            ] {
+                let want = match (before, want) {
+                    ("exec ", CommandRuns::Here) => CommandRuns::Replaced,
+                    _ => want,
+                };
+                let mut text = [0u8; 64];
+                names_each_way(joined(&[before, p, after], &mut text), want);
             }
         }
+        for (line, want) in [
+            ("ls; ssh", CommandRuns::Here),
+            ("ls|ssh", CommandRuns::Here),
+            ("$'ss\\x68' h", CommandRuns::Elsewhere),
+            ("$'l\\163' h", CommandRuns::Here),
+        ] {
+            names_each_way(line, want);
+        }
+        // Not a variable's name: the program itself.
+        names_each_way("caf\u{e9}=1 ssh h", CommandRuns::Here);
+        let mut word = Buf::new();
+        let _ = word_at(b"$'ssh\\x20h\\101'", &mut word);
+        assert_eq!(word.get(), b"ssh hA", "$'...'");
         assert_eq!(
             CommandRuns::of(b"cmdline=exec\\ zsh"),
             CommandRuns::Replaced

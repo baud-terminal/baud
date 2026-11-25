@@ -190,7 +190,7 @@ mod inject {
         pub args: Vec<CString>,
         pub env: Vec<(EnvName, OsString)>,
         /// The token handed to the shell, which the window's marks are read
-        /// against (`ran::Commands::new`).
+        /// against (`ran::ShellToken::hash`).
         pub token: Option<ShellToken>,
     }
 

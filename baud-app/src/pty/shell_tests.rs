@@ -1680,13 +1680,13 @@ fn mark_fields(seen: &[u8], letter: &[u8]) -> Vec<Vec<u8>> {
 /// quotes, a doubled blank and a `$` included; every `C` and `D` after the
 /// first prompt carries the token baud handed the shell, sixteen hex
 /// digits, found nowhere but in the marks, so neither the user's startup
-/// file, which prints `BAUD_SHELL_TOKEN`, nor `env` shows it; and the scan
-/// of the marks, built with that token (`ran::Commands::new`), takes `ssh
-/// -V`'s output as remote and is closed again by its `D`. `ssh` is a
-/// function of the startup file's, so no ssh runs. fish 4 marks its own
-/// commands, with no token, and only the lines are held there. Named
-/// breaks: send `C` with no command line -- none reads back; leave the
-/// token off the `D` -- the scan stays open; unset `BAUD_SHELL_TOKEN` after
+/// file, which prints `BAUD_SHELL_TOKEN`, nor `env` shows it; and the
+/// core, holding that token (`ran::ShellToken::hash`), records marks whose
+/// fold takes `ssh -V`'s output as remote and is closed again by its `D`.
+/// `ssh` is a function of the startup file's, so no ssh runs. fish 4 marks
+/// its own commands, with no token, and only the lines are held there.
+/// Named breaks: send `C` with no command line -- none reads back; leave
+/// the token off the `D` -- the fold stays open; unset `BAUD_SHELL_TOKEN` after
 /// the user's startup files -- the startup file prints it.
 fn the_command_line_and_a_token_reach_the_marks(sh: Sh) {
     let shell = match sh.find() {
@@ -1786,13 +1786,22 @@ fn the_command_line_and_a_token_reach_the_marks(sh: Sh) {
             sh.name(),
             s.tail()
         );
-        let mut scan = crate::ran::Commands::new(s.token.as_ref());
-        assert_eq!(scan.read(&s.seen), crate::ran::Ran::Elsewhere, "ssh -V");
-        assert_eq!(
-            scan.read(b"x"),
-            crate::ran::Ran::Unmarked,
-            "closed by its D: the samples', not ssh's"
-        );
+        let token = s.token.as_ref().map(crate::ran::ShellToken::as_str);
+        crate::ran::fed::with_shell(token, |scan| {
+            // The session in reads of 64 bytes, fewer marks each than a
+            // record keeps.
+            let ran = s
+                .seen
+                .chunks(64)
+                .map(|r| scan.read(r))
+                .fold(crate::ran::Ran::Shell, crate::ran::Ran::or);
+            assert_eq!(ran, crate::ran::Ran::Elsewhere, "ssh -V");
+            assert_eq!(
+                scan.read(b"x"),
+                crate::ran::Ran::Unmarked,
+                "closed by its D: the samples', not ssh's"
+            );
+        });
     }
     s.finish();
 }

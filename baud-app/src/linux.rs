@@ -830,11 +830,14 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         },
     )
     .expect("pty");
-    // A window the system gave no terminal says why (`pty::Refused`).
     let mut term = term;
+    // The token baud handed the shell is the one each mark is read against
+    // (`ran::ShellToken::hash`), before any of its bytes is fed.
+    term.set_shell_token(pty.shell_token_hash());
+    // A window the system gave no terminal says why (`pty::Refused`).
     crate::pty::say_refused(&mut term, &pty);
     startup_mark("pty");
-    // The scan of the shell's marks, against the token baud handed it.
+    // The link sniff, which finds the shell's `D` by the token baud handed it.
     let groups = crate::probe::Sampler::for_shell(pty.shell_token());
     // Dead keys and `Multi_key` sequences, from the table the session's
     // locale names, found where libxkbcommon finds it.

@@ -1656,6 +1656,9 @@ impl App {
         if center.is_some() {
             term.set_notice_hold(baud_core::NoticeHold::On);
         }
+        // The token baud handed the shell is the one each mark is read against
+        // (`ran::ShellToken::hash`), before any of its bytes is fed.
+        term.set_shell_token(pty.shell_token_hash());
         // A window the system gave no terminal says why (`pty::Refused`).
         crate::pty::say_refused(&mut term, &pty);
         let notes = crate::notify::Delivery::new(notifications, &term, images);
