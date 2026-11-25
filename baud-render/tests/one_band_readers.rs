@@ -10,9 +10,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Each non-test source that reads one band, and how many times.
-const READERS: [(&str, usize); 7] = [
+const READERS: [(&str, usize); 6] = [
     ("baud-present-macos/src/metal.rs", 1),
-    ("baud-present-vulkan/src/present.rs", 1),
     ("baud-render/src/bidi.rs", 2),
     ("baud-render/src/cell_frame.rs", 1),
     ("baud-render/src/frozen.rs", 7),

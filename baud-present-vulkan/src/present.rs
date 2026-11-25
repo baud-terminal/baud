@@ -155,7 +155,7 @@ impl Presenter {
             cols,
             rows,
             stride: term.stride(),
-            styles: Elems(term.styles().one().len()),
+            styles: Elems(baud_render::cell_styles_len(term, cols, rows).0),
         };
         // The copies, the larger part of what the sets hold.
         let need =

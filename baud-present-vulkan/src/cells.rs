@@ -32,9 +32,9 @@ use baud_present_wayland::{Changed, Px, Strip as Damaged};
 use baud_render::cell_frame::{CU_NAMES, CU_WORDS};
 use baud_render::screens::{SETS, ScreenGen, SetIx};
 use baud_render::{
-    Argb, CursorDrawn, CursorLook, CursorSide, Decorations, Generation, Highlight, Instance, Kind,
-    MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, Reach, Redraw, Region, Renderer, Resolved,
-    RowSet, StyleStamp, Tally,
+    Argb, BaseStamp, CursorDrawn, CursorLook, CursorSide, Decorations, Generation, Highlight,
+    Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, Reach, Redraw, Region, Renderer,
+    Resolved, RowSet, StyleStamp, Tally,
 };
 
 /// The shape pass's slots a cell, `SHAPE_SLOTS` in `cells.glsl`.
@@ -160,6 +160,9 @@ struct CellSet {
     cu: Lent<u32>,
     cu_mem: &'static mut [u32],
     seg_base: Lent<u32>,
+    /// `seg_base` as the host writes it: each draw row's base into the
+    /// set's table (`Renderer::cell_bases`).
+    seg_mem: &'static mut [u32],
     seg_len: Elems,
     /// Set 0 of the cell layout.
     set: vk::DescriptorSet,
@@ -174,20 +177,13 @@ struct CellSet {
     map_bound: Option<MapSide>,
     last: Cu,
     /// Under staging, what the device's copies hold: the screen its grid
-    /// was last given, the table its renditions were, whether its band
-    /// bases have been, and the overlay as it was last given (empty before
-    /// the first frame).
+    /// was last given, the table its renditions were, and the overlay as
+    /// it was last given (empty before the first frame). On either arm, the
+    /// bases `seg_mem` was last written at.
     holds: Option<ScreenGen>,
     styled: Option<StyleStamp>,
-    based: Given,
+    based: Option<BaseStamp>,
     overlay_given: Vec<u8>,
-}
-
-/// Whether a staged buffer that never changes has been given its bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Given {
-    No,
-    Yes,
 }
 
 /// **The cell path's memory**: every set's, the two glyph maps, and the
@@ -571,7 +567,8 @@ impl CellMemory {
             let (cu, cu_mem) =
                 gpu.lend::<u32>(arm, Elems(CU_WORDS), vk::BufferUsageFlags::UNIFORM_BUFFER)?;
             let seg_len = Elems(rows1);
-            let (seg_base, _zero) = gpu.lend::<u32>(arm, seg_len, storage)?;
+            let (seg_base, seg_mem) = gpu.lend::<u32>(arm, seg_len, storage)?;
+            seg_mem.fill(0);
             let layouts = [
                 pipes.cell_set,
                 pipes.sets[0],
@@ -601,6 +598,7 @@ impl CellMemory {
                 cu,
                 cu_mem,
                 seg_base,
+                seg_mem,
                 seg_len,
                 set: made[0],
                 inst: [made[1], made[2], made[3], made[4]],
@@ -612,7 +610,7 @@ impl CellMemory {
                 last: Cu([Word(0); CU_WORDS]),
                 holds: None,
                 styled: None,
-                based: Given::No,
+                based: None,
                 overlay_given: Vec::new(),
             };
             set.write_own(d);
@@ -1291,9 +1289,23 @@ impl Gpu {
             *w = word.0;
         }
         s.last = cu;
+        // Each draw row's base into the set's table, written when the bases
+        // move (`Renderer::cell_bases`): every base 0 on a terminal of one
+        // band. More bases than the set has draw rows is refused rather
+        // than cut short.
+        let (bases, stamp) = renderer.cell_bases(input.set);
+        if s.based != Some(stamp) {
+            let Some(head) = s.seg_mem.get_mut(..bases.len()) else {
+                return Err(Failed::Outside);
+            };
+            head.copy_from_slice(bases);
+            s.seg_mem[bases.len()..].fill(0);
+            s.seg_base.owe(0..s.seg_len.0);
+            s.based = Some(stamp);
+        }
         // Under staging, what the device's copies lack: the grid when they
         // hold another screen, the renditions another table, the band
-        // bases once, and each overlay row that differs from the last
+        // each overlay row that differs from the last
         // given; `CU` always, its 152 bytes. In place, owing is nothing.
         if s.grid.arm() == Arm::Staging {
             if s.holds != Some(input.screen) {
@@ -1303,10 +1315,6 @@ impl Gpu {
             if s.styled != Some(input.table) {
                 s.styles.owe(0..s.styles_len.0);
                 s.styled = Some(input.table);
-            }
-            if s.based == Given::No {
-                s.seg_base.owe(0..s.seg_len.0);
-                s.based = Given::Yes;
             }
             let span = ncols
                 .saturating_mul(draw_rows + 1)

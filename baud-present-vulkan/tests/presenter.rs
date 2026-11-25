@@ -16,7 +16,7 @@ use baud_present_vulkan::pipeline::Built;
 use baud_present_vulkan::present::{Cpu, Frame, Inputs, Presenter, Remade};
 use baud_present_wayland::{Changed, DmabufShown, Px};
 use baud_render::{Renderer, Stack, Theme};
-use common::lavapipe;
+use common::{lavapipe, radv};
 use scenes::{feed, jetbrains_mono};
 use std::io::Read;
 use std::os::unix::net::UnixStream;
@@ -610,4 +610,112 @@ fn an_effect_trail_is_drawn_on_the_gpu_arm_once_built() {
     }
     assert_eq!(p.counts().trail.0, 0, "no trail frame for the CPU arm");
     p.destroy(&gpu);
+}
+
+/// A screen of 32 rows, each in two renditions of its own.
+const BANDED: WinSize = WinSize {
+    ws_col: 40,
+    ws_row: 32,
+};
+
+/// Every row in a foreground and a background of its own, 64 renditions,
+/// the screen filled top to bottom.
+fn renditions_by_row() -> Vec<u8> {
+    let mut out = b"\x1b[H".to_vec();
+    for r in 0..usize::from(BANDED.ws_row) {
+        out.extend(
+            format!(
+                "\x1b[{};1H\x1b[0;38;2;{};{};200mrow {r:02} \x1b[48;2;30;{};{}mon its own band",
+                r + 1,
+                r * 7,
+                255 - r * 7,
+                r * 5,
+                100 + r
+            )
+            .as_bytes(),
+        );
+    }
+    out
+}
+
+/// The provision of eight bands of four rows.
+fn banded_provision() -> baud_core::Provision {
+    baud_core::Provision::banded_in(
+        &BANDED,
+        baud_core::BandRows::of(Rows::of_index(4)),
+        baud_core::BandSlots(1_024),
+    )
+    .expect("40x32 is admitted banded")
+}
+
+/// **What the GPU arm draws of `owned`** after [`renditions_by_row`]: a
+/// frame drawn, then `then` fed and the frame after it read back.
+fn banded_frame(gpu: &Gpu, faces: &[Face<'_>], owned: &mut Owned, then: &[u8]) -> Vec<u32> {
+    let mut r = scenes::renderer(Stack::new(faces).expect("a stack"), Theme::dark(), BANDED);
+    let mut t = Term::new(owned.storage(), &BANDED);
+    feed(&mut t, &renditions_by_row());
+    let mut p = warm(gpu, &mut r, &mut t);
+    feed(&mut t, then);
+    let Frame::Drew(k) = frame(gpu, &mut p, &mut r, &mut t) else {
+        panic!("drawn")
+    };
+    p.shown(k, DmabufShown::No);
+    let (tg, _) = p.target(k).expect("a target");
+    let pixels = gpu.read(tg).expect("read back");
+    p.destroy(gpu);
+    pixels
+}
+
+/// **A banded screen draws on the GPU arm what one table draws**: eight
+/// bands of four rows, each row resolving through its own band's table at
+/// its draw row's `seg_base`, paint pixel for pixel what the same feed
+/// paints through the single mode's one table. Named break: every base 0,
+/// so the rows of bands 1-7 draw band 0's renditions.
+#[test]
+fn a_banded_screen_draws_on_the_gpu_arm_what_one_table_draws() {
+    let gpu = lavapipe();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let want = banded_frame(&gpu, &faces, &mut Owned::new(&BANDED), b"");
+    let mut banded = Owned::new(banded_provision());
+    assert_eq!(banded.band_rows().rows().index(), 4, "bands of 4 rows");
+    let got = banded_frame(&gpu, &faces, &mut banded, b"");
+    assert!(
+        want.iter().any(|&p| p != want[0]),
+        "the control: a frame with something on it"
+    );
+    let differ = want.iter().zip(&got).filter(|(a, b)| a != b).count();
+    assert_eq!(differ, 0, "pixels that differ from the single mode's");
+}
+
+/// **Bases that move are uploaded again**: after the first frames, five
+/// lines scrolled in at the bottom bring a band into view and move every
+/// base, and the frame after them still paints what one table paints.
+/// Named break: the bases written once, at the set's first frame.
+#[test]
+fn a_band_scrolled_into_view_draws_on_the_gpu_arm_what_one_table_draws() {
+    let gpu = lavapipe();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let scroll = b"\x1b[32;1H\r\n\x1b[38;2;250;20;20mone\r\ntwo\r\nthree\r\nfour\r\nfive";
+    let want = banded_frame(&gpu, &faces, &mut Owned::new(&BANDED), scroll);
+    let got = banded_frame(&gpu, &faces, &mut Owned::new(banded_provision()), scroll);
+    let differ = want.iter().zip(&got).filter(|(a, b)| a != b).count();
+    assert_eq!(differ, 0, "pixels that differ from the single mode's");
+}
+
+/// **[`a_band_scrolled_into_view_draws_on_the_gpu_arm_what_one_table_draws`]
+/// on RADV**, whose sets may stage their memory: the bases that move are
+/// owed to the device copy and given it.
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn a_band_scrolled_into_view_draws_what_one_table_draws_on_radv() {
+    let gpu = radv();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let scroll = b"\x1b[32;1H\r\n\x1b[38;2;250;20;20mone\r\ntwo\r\nthree\r\nfour\r\nfive";
+    let want = banded_frame(&gpu, &faces, &mut Owned::new(&BANDED), scroll);
+    let got = banded_frame(&gpu, &faces, &mut Owned::new(banded_provision()), scroll);
+    let differ = want.iter().zip(&got).filter(|(a, b)| a != b).count();
+    assert_eq!(differ, 0, "pixels that differ from the single mode's");
 }

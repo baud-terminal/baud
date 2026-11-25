@@ -33,6 +33,7 @@ out=$(cargo test -p baud-present-vulkan --test radv --test instance_path --test 
 }
 echo "$out" | grep -E '^test |test result'
 expect=(
+  a_band_scrolled_into_view_draws_what_one_table_draws_on_radv
   a_light_change_on_its_line_draws_the_frame_whole_on_both_paths_on_radv
   an_exit_status_draws_the_frame_whole_on_both_paths_on_radv
   a_wrap_mark_draws_the_frame_whole_on_both_paths_on_radv
