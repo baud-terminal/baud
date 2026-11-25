@@ -72,7 +72,14 @@ pub enum Mix {
 /// a frame repaints part of a row ([`Target::within`]): a row's fill and
 /// every record drawn over it are clipped alike, so the pixels inside are
 /// what the whole row's repaint gives and the pixels outside are the
-/// frame before's.
+/// frame before's. Only the renderer narrows a target so: a buffer lent
+/// to it is drawn at its whole width, and offers no such narrowing.
+///
+/// ```compile_fail,E0624
+/// fn narrow(t: &mut baud_render::Target<'_>) {
+///     let _ = t.within(baud_font::Px::of(0), baud_font::Px::of(8));
+/// }
+/// ```
 pub struct Target<'p> {
     pixels: &'p mut [u32],
     stride: Px,
@@ -183,7 +190,7 @@ impl<'p> Target<'p> {
     /// same pixels: what a row repaints when only the records over part of
     /// it changed. Each draw through it writes those columns and no other,
     /// in the same coordinates.
-    pub fn within(&mut self, left: Px, right: Px) -> Target<'_> {
+    pub(crate) fn within(&mut self, left: Px, right: Px) -> Target<'_> {
         let start = self.cols.start.max(slots(left));
         let end = self.cols.end.min(slots(right)).max(start);
         Target {

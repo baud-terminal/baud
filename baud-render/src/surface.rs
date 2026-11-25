@@ -127,7 +127,6 @@ pub struct Painted(SurfaceRows);
 
 impl Painted {
     /// What the draw painted.
-    #[cfg(test)]
     pub(crate) fn of(rows: SurfaceRows) -> Painted {
         Painted(rows)
     }

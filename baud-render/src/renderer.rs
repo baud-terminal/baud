@@ -3352,6 +3352,15 @@ enum Repaint {
     Cols { left: Px, right: Px },
 }
 
+/// **The buffer a CPU frame is drawn into**: the frame the last was drawn
+/// into, which keeps every pixel this one does not repaint, or a buffer
+/// lent for this frame, missing what its age names.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Buffer {
+    Kept,
+    Lent(crate::Age),
+}
+
 /// **A dirty row's pixels as this frame repaints them**: the target held
 /// to the columns the row repaints ([`Repaint`]), the row, and its band.
 /// **Made by [`Renderer::repainted`] alone, by type**: its fields are this
@@ -9236,63 +9245,102 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// Paints the margins into `target`, the whole frame's width over the
-    /// grid's rows: the clear colour in each margin, then the marks, when
-    /// either changed since the last paint or the frame is new.
-    fn paint_margins(&mut self, target: &mut Target<'_>, damage: Damage) {
-        let band = self.margins();
-        if band.value() == 0 {
+    /// grid's rows: the clear colour in each margin, then the marks. Into
+    /// the kept frame, every row when either changed since the last paint
+    /// or the frame is new; into a lent buffer, each row the frame paints.
+    fn paint_margins(&mut self, target: &mut Target<'_>, damage: Damage, buffer: Buffer) {
+        if self.margins().value() == 0 {
             return;
         }
         let clear = self.clear_color();
-        let fresh = match &self.margin_painted {
-            Some((c, insts)) => damage == Damage::Full || *c != clear || *insts != self.margin_inst,
-            None => true,
-        };
-        if !fresh {
-            return;
+        match buffer {
+            Buffer::Kept => {
+                let fresh = match &self.margin_painted {
+                    Some((c, insts)) => {
+                        damage == Damage::Full || *c != clear || *insts != self.margin_inst
+                    }
+                    None => true,
+                };
+                if !fresh {
+                    return;
+                }
+                self.margin_fresh = StripFresh::Yes;
+                let all = Band {
+                    top: Px::of(0),
+                    bottom: self.frame_size().1,
+                };
+                self.margins_over(target, all, clear);
+            }
+            Buffer::Lent(_) => {
+                for r in (0..self.rows.index().min(self.dirty.len())).filter(|&r| self.dirty[r]) {
+                    self.margins_over(target, self.band(Row::from_index(r)), clear);
+                }
+            }
         }
-        self.margin_fresh = StripFresh::Yes;
+        match &self.margin_painted {
+            Some((c, insts)) if *c == clear && *insts == self.margin_inst => {}
+            _ => self.margin_painted = Some((clear, self.margin_inst.clone())),
+        }
+    }
+
+    /// The margins' clear colour and marks over the pixel rows `rows`.
+    fn margins_over(&self, target: &mut Target<'_>, rows: Band, clear: Argb) {
+        let band = self.margins();
         let w = self.whole_size().0;
-        let all = Band {
-            top: Px::of(0),
-            bottom: self.frame_size().1,
-        };
         for left in [Px::of(0), Px::of(w.value().saturating_sub(band.value()))] {
             if let Some(mut own) = target.columns(left, band) {
-                own.fill_band(all, &[], self.metrics.cell_w, clear);
+                own.fill_band(rows, &[], self.metrics.cell_w, clear);
             }
         }
         let page = self.page();
         for inst in &self.margin_inst {
-            target.over(inst, &self.atlas, self.blend, page, all);
+            target.over(inst, &self.atlas, self.blend, page, rows);
         }
-        self.margin_painted = Some((clear, self.margin_inst.clone()));
     }
 
     /// Paints the strip into `target`, the strip's own columns: the clear
-    /// colour the GPU passes clear to, then the marks, when either changed
-    /// since the last paint or the frame is new.
-    fn paint_strip(&mut self, target: &mut Target<'_>, damage: Damage) {
+    /// colour the GPU passes clear to, then the marks. Into the kept frame,
+    /// every row when either changed since the last paint or the frame is
+    /// new; into a lent buffer, each row the frame paints.
+    fn paint_strip(&mut self, target: &mut Target<'_>, damage: Damage, buffer: Buffer) {
         let clear = self.clear_color();
-        let fresh = match &self.strip_painted {
-            Some((c, insts)) => damage == Damage::Full || *c != clear || *insts != self.strip_inst,
-            None => true,
-        };
-        if !fresh {
-            return;
+        match buffer {
+            Buffer::Kept => {
+                let fresh = match &self.strip_painted {
+                    Some((c, insts)) => {
+                        damage == Damage::Full || *c != clear || *insts != self.strip_inst
+                    }
+                    None => true,
+                };
+                if !fresh {
+                    return;
+                }
+                self.strip_fresh = StripFresh::Yes;
+                let all = Band {
+                    top: Px::of(0),
+                    bottom: self.frame_size().1,
+                };
+                self.strip_over(target, all, clear);
+            }
+            Buffer::Lent(_) => {
+                for r in (0..self.rows.index().min(self.dirty.len())).filter(|&r| self.dirty[r]) {
+                    self.strip_over(target, self.band(Row::from_index(r)), clear);
+                }
+            }
         }
-        self.strip_fresh = StripFresh::Yes;
-        let (_, h) = self.frame_size();
-        let all = Band {
-            top: Px::of(0),
-            bottom: h,
-        };
-        target.fill_band(all, &[], self.metrics.cell_w, clear);
+        match &self.strip_painted {
+            Some((c, insts)) if *c == clear && *insts == self.strip_inst => {}
+            _ => self.strip_painted = Some((clear, self.strip_inst.clone())),
+        }
+    }
+
+    /// The strip's clear colour and marks over the pixel rows `rows`.
+    fn strip_over(&self, target: &mut Target<'_>, rows: Band, clear: Argb) {
+        target.fill_band(rows, &[], self.metrics.cell_w, clear);
         let page = self.page();
         for inst in &self.strip_inst {
-            target.over(inst, &self.atlas, self.blend, page, all);
+            target.over(inst, &self.atlas, self.blend, page, rows);
         }
-        self.strip_painted = Some((clear, self.strip_inst.clone()));
     }
 
     /// The pixel size of the frame: the grid, and the scroller's gutter
@@ -9454,11 +9502,84 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .chain(line)
     }
 
-    /// The surface a lent buffer is: `size`, with the whole frame's top
-    /// left corner at `origin` in it.
-    #[cfg(test)]
-    pub(crate) fn set_surface(&mut self, size: (Px, Px), origin: (Px, Px)) {
+    /// **The surface a lent buffer is**: `size`, with the whole frame's
+    /// top left corner at `origin` in it. A lent draw
+    /// ([`Renderer::draw_lent`]) paints the band above the whole frame,
+    /// the band below it and the columns beside it in the colour of the
+    /// margin, [`Renderer::clear_color_of`]. One that differs from the
+    /// surface the last frame was drawn for makes the next damage whole
+    /// ([`baud_domain::WholeWhy::Surface`]), as a change of that colour
+    /// does.
+    pub fn set_surface(&mut self, size: (Px, Px), origin: (Px, Px)) {
         self.surface = Some(crate::surface::Surface { size, origin });
+    }
+
+    /// **Draws the frame into a lent buffer**, `target` the surface
+    /// [`Renderer::set_surface`] set (the whole frame until one is set):
+    /// the rows `damage` names and the rows the buffer is missing, `age`,
+    /// each at the surface's whole width, the margins, the strip, the
+    /// gutter and the columns beside the whole frame included, and the
+    /// rows the renderer's own animations moved. Every pixel when either
+    /// is whole. Returns what it painted, every pixel of each band
+    /// [`Renderer::bands`] makes of it written this frame.
+    pub fn draw_lent(
+        &mut self,
+        term: &impl TermRead,
+        seal: Seal,
+        back: Rows,
+        damage: &FrameDamage,
+        target: &mut Target<'_>,
+        age: crate::Age,
+    ) -> crate::Painted {
+        self.fit(term);
+        let (w, h) = self.whole_size();
+        let ((x, y), size) = match self.surface {
+            Some(s) => (s.origin, s.size),
+            None => ((Px::of(0), Px::of(0)), (w, h)),
+        };
+        let drawn = target
+            .rows(y, h)
+            .and_then(|mut band| {
+                let mut whole = band.columns(x, w)?;
+                Some(self.draw(term, seal, back, damage, &mut whole, Buffer::Lent(age)))
+            })
+            .map(|(_, rows)| rows);
+        let Some(rows) = drawn else {
+            return crate::Painted::of(crate::SurfaceRows::NONE);
+        };
+        // Around the whole frame, on every band painted: the band above
+        // it, the band below it and the columns beside it.
+        let (clear, cell_w) = (self.clear_color(), self.metrics.cell_w);
+        let (top, bottom) = (y.value(), y.value().saturating_add(h.value()));
+        let right = x.value().saturating_add(w.value());
+        let side = Px::of(size.0.value().saturating_sub(right));
+        for band in self.bands(&rows) {
+            let (from, to) = (band.top.value(), band.bottom.value());
+            let part = |a: u32, b: u32| {
+                (a < b).then_some(Band {
+                    top: Px::of(a),
+                    bottom: Px::of(b),
+                })
+            };
+            for outside in [part(from, to.min(top)), part(from.max(bottom), to)]
+                .into_iter()
+                .flatten()
+            {
+                target.fill_band(outside, &[], cell_w, clear);
+            }
+            let Some(beside) = part(from.max(top), to.min(bottom)) else {
+                continue;
+            };
+            for (left, width) in [(Px::of(0), x), (Px::of(right), side)] {
+                if width.value() == 0 {
+                    continue;
+                }
+                if let Some(mut own) = target.columns(left, width) {
+                    own.fill_band(beside, &[], cell_w, clear);
+                }
+            }
+        }
+        crate::Painted::of(rows)
     }
 
     /// **The pixel rows of the surface `rows` names**, top to bottom, at
@@ -9490,15 +9611,32 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// **What the next frame must draw again of the last one built**, by
     /// either path, read off `term`'s window `back` lines up: every pixel
-    /// before the first frame and when the geometry, the screen, a reset,
-    /// an erasure, a colour, a cluster or a rendition moved what an
-    /// unwritten cell draws; else the rows written since, every row of a
+    /// before the first frame, when the geometry, the screen, a reset, an
+    /// erasure, a colour, a cluster or a rendition moved what an unwritten
+    /// cell draws, and when the surface set ([`Renderer::set_surface`]) or
+    /// the margin's colour ([`Renderer::clear_color_of`]) is not the one
+    /// the last frame was drawn with; else the rows written since, every row of a
     /// window that shows other rows, the cursor as it changed and the
     /// overlays set otherwise since. The rows the renderer's own
     /// animations move are not the terminal's, and are not named here
     /// ([`Renderer::animated`]).
     pub fn damage(&self, term: &impl TermRead, back: Rows) -> FrameDamage {
-        crate::drawn::damage(self.drawn.as_ref(), term, back, self.overlays_set)
+        crate::drawn::damage(
+            self.drawn.as_ref(),
+            term,
+            back,
+            self.overlays_set,
+            self.around(term),
+        )
+    }
+
+    /// What a buffer drawn for `term` now holds around the rows: the
+    /// surface set, and the margin's colour.
+    fn around(&self, term: &impl TermRead) -> crate::drawn::Around {
+        crate::drawn::Around {
+            surface: self.surface.map(|s| (s.size, s.origin)),
+            margin: self.clear_color_of(term),
+        }
     }
 
     /// **The rows the last frame's animations moved**, with no cell
@@ -9600,7 +9738,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         back: Rows,
         arm: crate::drawn::Arm,
     ) {
-        self.drawn = Some(crate::drawn::DrawnKey::of(term, seal, back, arm));
+        let around = self.around(term);
+        self.drawn = Some(crate::drawn::DrawnKey::of(term, seal, back, arm, around));
         self.overlays_set = OverlayChanges::NONE;
     }
 
@@ -9640,7 +9779,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             Damage::Full => crate::drawn::TOLD,
             Damage::Incremental => self.damage(term, back),
         };
-        self.draw(term, seal, back, &damage, target)
+        self.draw(term, seal, back, &damage, target, Buffer::Kept).0
     }
 
     /// **The CPU path's one build of a frame**, drawn into `target` as
@@ -9648,7 +9787,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// for a [`FrameDamage::Whole`], and beside them the rows the renderer
     /// draws again itself -- laid out again, veiled, lent, under a moved
     /// animation ([`Renderer::animated`]) -- each repainted where it
-    /// changed.
+    /// changed. Into a lent buffer (`buffer`), every row it is missing is
+    /// painted too, each row painted is painted whole, the strip and the
+    /// margins beside it included, and what it painted of the whole frame
+    /// is returned; into the kept frame, none.
     fn draw(
         &mut self,
         term: &impl TermRead,
@@ -9656,7 +9798,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         back: Rows,
         damage: &FrameDamage,
         target: &mut Target<'_>,
-    ) -> Frame {
+        buffer: Buffer,
+    ) -> (Frame, crate::SurfaceRows) {
         // **An image is part of the rows a frame repaints.** Images drew
         // only on a full frame, and a live terminal renders incrementally
         // after its first, so on the Linux driver, which is CPU-only, and
@@ -9688,6 +9831,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         self.place_images(term, back, Snapshots::Skipped);
         let converted = self.convert_with(term, seal, back, damage, ImageRows::Repainted);
+        // What a lent buffer is missing: all of it under a whole damage.
+        let stale = match (buffer, damage) {
+            (Buffer::Kept, _) => None,
+            (Buffer::Lent(crate::Age::Whole), _) | (_, FrameDamage::Whole(_)) => {
+                Some(self.every_row())
+            }
+            (Buffer::Lent(crate::Age::Stale(s)), FrameDamage::Rows { .. }) => Some(s),
+        };
+        if let Some(stale) = stale {
+            self.mark_stale(stale);
+        }
         let damage = match damage {
             FrameDamage::Whole(_) => Damage::Full,
             FrameDamage::Rows { .. } => Damage::Incremental,
@@ -9699,18 +9853,91 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // the rest is painted into the rows beside the line, and the line on
         // its own.
         let line = self.lights.height();
-        if line.value() == 0 {
-            return self.paint_beside(term, target, converted, damage);
-        }
-        let (top, h) = (self.grid_top(), self.frame_size().1);
-        let frame = match target.rows(top, h) {
-            Some(mut rest) => self.paint_beside(term, &mut rest, converted, damage),
-            None => Frame::default(),
+        let frame = match line.value() {
+            0 => self.paint_beside(term, target, converted, damage, buffer),
+            _ => {
+                let (top, h) = (self.grid_top(), self.frame_size().1);
+                let frame = match target.rows(top, h) {
+                    Some(mut rest) => self.paint_beside(term, &mut rest, converted, damage, buffer),
+                    None => Frame::default(),
+                };
+                let lights = match stale {
+                    Some(s) if s.chrome.contains(crate::ChromeBands::LIGHTS) => Damage::Full,
+                    _ => damage,
+                };
+                if let Some(mut own) = target.rows(self.lights_top(), line) {
+                    self.paint_lights(&mut own, lights);
+                }
+                frame
+            }
         };
-        if let Some(mut own) = target.rows(self.lights_top(), line) {
-            self.paint_lights(&mut own, damage);
+        let painted = match stale {
+            None => crate::SurfaceRows::NONE,
+            Some(stale) => self.painted_rows(stale),
+        };
+        (frame, painted)
+    }
+
+    /// Every row of the whole frame and every band around it.
+    fn every_row(&self) -> crate::SurfaceRows {
+        crate::SurfaceRows {
+            grid: DirtyRows::NONE
+                .span(Row::ZERO, Row::from_index(self.rows.index()))
+                .unwrap_or(DirtyRows::NONE),
+            chrome: crate::ChromeBands::TOP
+                .union(crate::ChromeBands::LIGHTS)
+                .union(crate::ChromeBands::STATUS)
+                .union(crate::ChromeBands::BOTTOM),
         }
-        frame
+    }
+
+    /// **The rows a lent buffer has painted again** beside the frame's
+    /// own, `stale` what it is missing: each row it names, the rows of
+    /// the status line and the notice for [`crate::ChromeBands::STATUS`],
+    /// and the rows a mark of the margins or the strip meets where the
+    /// marks or their colour changed since they were last painted. Every
+    /// row painted is painted whole.
+    fn mark_stale(&mut self, stale: crate::SurfaceRows) {
+        let (rows, main) = (self.rows.index(), self.main.index());
+        let clear = self.clear_color();
+        let moved =
+            |painted: &Option<(Argb, Vec<Instance>)>, now: &[Instance], band: Band| match painted {
+                Some((c, was)) if *c == clear && was.as_slice() == now => false,
+                Some((c, was)) if *c == clear => records_meet(was, band) || records_meet(now, band),
+                _ => true,
+            };
+        let (margins, strip) = (self.margins().value() > 0, self.strip().value() > 0);
+        let status = stale.chrome.contains(crate::ChromeBands::STATUS);
+        for r in 0..rows.min(self.dirty.len()).min(self.repaint.len()) {
+            let row = Row::from_index(r);
+            let band = self.band(row);
+            self.dirty[r] |= stale.grid.contains(row)
+                || (status && r >= main)
+                || (margins && moved(&self.margin_painted, &self.margin_inst, band))
+                || (strip && moved(&self.strip_painted, &self.strip_inst, band));
+            if self.dirty[r] {
+                self.repaint[r] = Repaint::Whole;
+            }
+        }
+    }
+
+    /// **What a lent draw painted of the whole frame**, `stale` what the
+    /// buffer was missing: the rows dirty, each whole; every band `stale`
+    /// names; the status line's rows when every one of them was painted;
+    /// and the lights' line when it was painted.
+    fn painted_rows(&self, stale: crate::SurfaceRows) -> crate::SurfaceRows {
+        let rows = self.rows.index().min(self.dirty.len());
+        let dirty = (0..rows).filter(|&r| self.dirty[r]).map(Row::from_index);
+        let grid = dirty.fold(DirtyRows::NONE, |s, r| s.with(r).unwrap_or(s));
+        let mut chrome = stale.chrome;
+        let main = self.main.index();
+        if main < rows && (main..rows).all(|r| self.dirty[r]) {
+            chrome = chrome.union(crate::ChromeBands::STATUS);
+        }
+        if self.lights.fresh == crate::lights::Fresh::Yes {
+            chrome = chrome.union(crate::ChromeBands::LIGHTS);
+        }
+        crate::SurfaceRows { grid, chrome }
     }
 
     /// [`Renderer::render_at`]'s paint of the rows beside the lights' line:
@@ -9721,6 +9948,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         target: &mut Target<'_>,
         converted: Converted,
         damage: Damage,
+        buffer: Buffer,
     ) -> Frame {
         let under = self.image_places.iter().any(|p| p.layer.under_text());
         let imgs = term.images();
@@ -9745,10 +9973,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         };
         if strip.value() > 0 {
             if let Some(mut own) = target.columns(band, strip) {
-                self.paint_strip(&mut own, damage);
+                self.paint_strip(&mut own, damage, buffer);
             }
         }
-        self.paint_margins(target, damage);
+        self.paint_margins(target, damage, buffer);
         frame
     }
 

@@ -9,6 +9,9 @@ use baud_domain::{
     HistoryErasures, HistoryWipes, OverlayChanges, Reclaims, Resets, Row, Rows, ScreenEpoch, Seal,
     TermRead, WholeWhy, WindowAt,
 };
+use baud_font::Px;
+
+use crate::Argb;
 
 /// Which path built a frame: the CPU path's convert, or the cell path's
 /// build (`crate::cell_frame::build`).
@@ -21,6 +24,15 @@ pub(crate) enum Arm {
 /// The cursor as the terminal places it: its cell and style while it is
 /// shown, none while it is hidden.
 type TermCursor = Option<(Row, Col, CursorStyle)>;
+
+/// **What a buffer holds around the rows**: the surface lent, its size
+/// and the whole frame's top left corner in it (none while the surface is
+/// the whole frame), and the colour the margin around the rows is painted.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Around {
+    pub(crate) surface: Option<((Px, Px), (Px, Px))>,
+    pub(crate) margin: Argb,
+}
 
 /// **The terminal as the last frame was built from it**: the seal its
 /// writes were closed under, the window, the geometry, every epoch that
@@ -40,6 +52,7 @@ pub(crate) struct DrawnKey {
     clusters: ClusterEpoch,
     reclaims: Reclaims,
     cursor: TermCursor,
+    around: Around,
     pub(crate) arm: Arm,
 }
 
@@ -53,8 +66,14 @@ fn cursor_of(term: &impl TermRead) -> TermCursor {
 
 impl DrawnKey {
     /// **The key of a frame built now** from `term`'s window `back` lines
-    /// up, under `seal`, by `arm`.
-    pub(crate) fn of(term: &impl TermRead, seal: Seal, back: Rows, arm: Arm) -> DrawnKey {
+    /// up, under `seal`, by `arm`, into a buffer holding `around`.
+    pub(crate) fn of(
+        term: &impl TermRead,
+        seal: Seal,
+        back: Rows,
+        arm: Arm,
+        around: Around,
+    ) -> DrawnKey {
         DrawnKey {
             seal,
             at: term.row_gens(term.looking_back(back)).window(),
@@ -68,16 +87,19 @@ impl DrawnKey {
             clusters: term.cluster_epoch(),
             reclaims: term.style_reclaims(),
             cursor: cursor_of(term),
+            around,
             arm,
         }
     }
 }
 
 /// **What a frame of `term`'s window `back` lines up must draw again of
-/// the frame `key` was built from**, `overlays` set otherwise since:
-/// every pixel when there is no such frame, or when the geometry, the
-/// screen, a reset, an erasure of the history or the saved lines, a
-/// colour, a cluster or a rendition moved what an unwritten cell draws;
+/// the frame `key` was built from**, `overlays` set otherwise since, into
+/// a buffer holding `around`: every pixel when there is no such frame,
+/// when the geometry, the screen, a reset, an erasure of the history or
+/// the saved lines, a colour, a cluster or a rendition moved what an
+/// unwritten cell draws, or when the surface or the margin's colour is
+/// another;
 /// every row of the window when the window shows other rows; else the
 /// rows written after its seal, the status line's row after the main
 /// display's when its own generation says so.
@@ -86,6 +108,7 @@ pub(crate) fn damage(
     term: &impl TermRead,
     back: Rows,
     overlays: OverlayChanges,
+    around: Around,
 ) -> FrameDamage {
     let Some(k) = key else {
         return FrameDamage::Whole(WholeWhy::Requested);
@@ -105,6 +128,7 @@ pub(crate) fn damage(
             term.style_reclaims().recolours_since(k.reclaims),
             WholeWhy::Renditions,
         ),
+        (around != k.around, WholeWhy::Surface),
     ];
     if let Some(&(_, why)) = why.iter().find(|(moved, _)| *moved) {
         return FrameDamage::Whole(why);
