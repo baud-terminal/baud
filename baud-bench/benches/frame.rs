@@ -16,6 +16,13 @@
 //!
 //! Usage: `frame <recording> [reps] [full|incremental]`.
 //!
+//! `yes-<k>` in place of a recording replays no file: the bench writes
+//! `YES_LINES` lines of what `yes` prints through a tty, `y` and `CR LF`,
+//! and reads `k` lines at a time (`FRAME_READ` still sets another read),
+//! so once the screen is full each frame scrolls the window by `k` lines
+//! and writes only the `k` rows scrolled in. Every row shows the same
+//! `y`, so a frame paints almost no row.
+//!
 //! Under the row each replay prints the best rep's frame times, `frame p50
 //! p95 p99 max`, each frame's scan and render together. With `--features
 //! count-allocs` it also prints the allocations a frame makes, all of them
@@ -419,6 +426,11 @@ fn timed_frame(
     r.render(t, seal, target, damage)
 }
 
+/// The bytes of one line `yes-<k>` writes: `y`, `CR LF`.
+const YES_LINE: &[u8] = b"y\r\n";
+/// The lines `yes-<k>` writes: a 50-row screen filled, then 150 more.
+const YES_LINES: usize = 200;
+
 fn main() {
     baud_bench::warm::refuse_while_warm();
     // Every renderer map keyed by one fixed seed, so a run repeats its probes
@@ -447,11 +459,20 @@ fn main() {
         "cava" => "utf8/cava.raw".to_string(),
         other => other.to_string(),
     };
-    let data = std::fs::read(format!(
-        "{}/../tests/recordings/{name}",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .expect("recording");
+    let yes: Option<usize> = which.strip_prefix("yes-").map(|k| {
+        k.parse()
+            .ok()
+            .filter(|&k| k > 0)
+            .unwrap_or_else(|| panic!("yes-<k> scrolls by a count of lines, not {k}"))
+    });
+    let data = match yes {
+        Some(_) => YES_LINE.repeat(YES_LINES),
+        None => std::fs::read(format!(
+            "{}/../tests/recordings/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect("recording"),
+    };
     // `FRAME_FACES=path[#index],...` stacks other faces -- on macOS,
     // `/System/Library/Fonts/Menlo.ttc,/System/Library/Fonts/Apple Color
     // Emoji.ttc` is the terminal's real stack and prices the colour path.
@@ -527,13 +548,15 @@ fn main() {
         Ok("off") => baud_render::WordWrap::Off,
         _ => baud_render::WordWrap::On,
     };
-    // `FRAME_READ`: the bytes a frame reads, 4096 unless set.
-    let read: usize = std::env::var("FRAME_READ").map_or(4096, |v| {
-        v.parse()
-            .ok()
-            .filter(|&n| n > 0)
-            .unwrap_or_else(|| panic!("FRAME_READ is a count of bytes, not {v}"))
-    });
+    // `FRAME_READ`: the bytes a frame reads, 4096 unless set, or `k` lines
+    // for `yes-<k>`.
+    let read: usize =
+        std::env::var("FRAME_READ").map_or(yes.map_or(4096, |k| k * YES_LINE.len()), |v| {
+            v.parse()
+                .ok()
+                .filter(|&n| n > 0)
+                .unwrap_or_else(|| panic!("FRAME_READ is a count of bytes, not {v}"))
+        });
     // `FRAME_STILL`: frames painted after the recording with nothing read.
     let still: usize = std::env::var("FRAME_STILL").map_or(0, |v| {
         v.parse()

@@ -49,13 +49,17 @@ inputs = "cat cat-cjk less git-log vim btop"
 # whose first frames fill the atlas: a run takes about 19 s under callgrind,
 # and two reps about 37. `Renderer::render` and `convert_with` are inlined
 # into it in a release build, so the frame is the function a toggle can
-# name.
+# name. `yes-1` and `yes-3` are the bench's own text, `yes` through a tty
+# read one and three lines at a time: past the first screen each frame
+# scrolls the window by fewer lines than it has and takes only the rows
+# scrolled in; every row shows `y`, so a frame paints almost no row and a
+# frame that took every row again reads as a rise.
 [gate.frame]
 fn = "frame::timed_frame"
 kind = "other"
 bench = "frame"
 args = "{input}"
-inputs = ["btop 1 full", "btop 1 incremental", "cat 1 full", "cat 1 incremental"]
+inputs = ["btop 1 full", "btop 1 incremental", "cat 1 full", "cat 1 incremental", "yes-1 1 incremental", "yes-3 1 incremental"]
 
 [ingest.cat.x86_64]
 ir = { value = 7893514, set_in = "2026-11-15, x86_64", reason = "first baseline, master 27ca2d5d" }
@@ -166,3 +170,25 @@ d1-128.d1mw = { value = 5488157, set_in = "2026-11-15, x86_64", reason = "ratche
 d1-128.d1mr = { value = 3089032, set_in = "2026-11-15, x86_64", reason = "rebuilt at the gate's fixed build path: the benches compile in their recordings' path, so a tree at another path laid the binary out differently" }
 d1-128.llmr = { value = 2188, set_in = "2026-11-15, x86_64", reason = "first baseline" }
 d1-128.llmw = { value = 51234, set_in = "2026-11-15, x86_64", reason = "ratchet: lowered from 51241" }
+
+[frame.yes-1-1-incremental.x86_64]
+ir = { value = 107469971, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-64.d1mw = { value = 412077, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-64.d1mr = { value = 777638, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-64.llmr = { value = 2477, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-64.llmw = { value = 99984, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-128.d1mw = { value = 209267, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-128.d1mr = { value = 408102, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-128.llmr = { value = 1512, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-128.llmw = { value = 50023, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+
+[frame.yes-3-1-incremental.x86_64]
+ir = { value = 50133329, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-64.d1mw = { value = 269641, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-64.d1mr = { value = 279077, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-64.llmr = { value = 2482, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-64.llmw = { value = 100047, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-128.d1mw = { value = 136024, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-128.d1mr = { value = 147544, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-128.llmr = { value = 1513, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
+d1-128.llmw = { value = 50054, set_in = "2026-11-17, x86_64", reason = "first baseline: yes through a tty, a frame a read, the window scrolled by fewer lines than it has" }
