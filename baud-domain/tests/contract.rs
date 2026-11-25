@@ -1731,8 +1731,257 @@ const _: for<'a> fn(
 const _: fn() -> baud_domain::dbus::Awaiting<u8, 32> =
     <baud_domain::dbus::Awaiting<u8, 32> as Default>::default;
 const _: fn(baud_domain::dbus::Refusals) -> u32 = baud_domain::dbus::Refusals::get;
+// NoticeToken, NoticeLiveIdx
+const _: fn(baud_domain::NoticeToken) -> baud_domain::NoticeLiveIdx =
+    baud_domain::NoticeToken::slot;
+// NonZeroMillis
+const _: fn(u32) -> Option<baud_domain::NonZeroMillis> = baud_domain::NonZeroMillis::new;
+const _: fn() -> baud_domain::NonZeroMillis = baud_domain::NonZeroMillis::of::<1>;
+const _: fn(baud_domain::NonZeroMillis) -> core::time::Duration =
+    baud_domain::NonZeroMillis::duration;
+const _: fn(baud_domain::NonZeroMillis) -> baud_domain::Expiry = baud_domain::Expiry::After;
+// NoticeSlots
+const _: fn() -> baud_domain::NoticeSlots<u32> = baud_domain::NoticeSlots::new;
+const _: fn(
+    &mut baud_domain::NoticeSlots<u32>,
+    baud_domain::NoticeToken,
+    baud_domain::Expiry,
+    baud_domain::NoticeButtonSet,
+) = baud_domain::NoticeSlots::posting;
+const _: fn(&mut baud_domain::NoticeSlots<u32>, baud_domain::NoticeToken) =
+    baud_domain::NoticeSlots::refused;
+const _: fn(
+    &mut baud_domain::NoticeSlots<u32>,
+    baud_domain::NoticeToken,
+    u32,
+    baud_domain::HostTime,
+) -> Option<baud_domain::NoticeToken> = baud_domain::NoticeSlots::notified;
+const _: fn(
+    &mut baud_domain::NoticeSlots<u32>,
+    baud_domain::NoticeToken,
+    u32,
+    baud_domain::Expiry,
+    baud_domain::HostTime,
+    baud_domain::NoticeButtonSet,
+) = baud_domain::NoticeSlots::pending;
+const _: fn(&baud_domain::NoticeSlots<u32>) -> baud_domain::NoticeSlotSet =
+    baud_domain::NoticeSlots::held;
+const _: fn(
+    &baud_domain::NoticeSlots<u32>,
+    baud_domain::NoticeLiveIdx,
+) -> Option<baud_domain::NoticeToken> = baud_domain::NoticeSlots::token_at;
+const _: for<'a> fn(
+    &'a mut baud_domain::NoticeSlots<u32>,
+    baud_domain::NoticeToken,
+) -> Option<baud_domain::NoticeHeld<'a, u32>> = baud_domain::NoticeSlots::get;
+const _: for<'a> fn(
+    &'a mut baud_domain::NoticeSlots<u32>,
+    baud_domain::NoticeLiveIdx,
+) -> Option<baud_domain::NoticeHeld<'a, u32>> = baud_domain::NoticeSlots::at;
+const _: for<'a> fn(
+    &'a baud_domain::NoticeSlots<u32>,
+    baud_domain::NoticeToken,
+) -> Option<&'a u32> = baud_domain::NoticeSlots::id;
+const _: fn(
+    &baud_domain::NoticeSlots<u32>,
+    baud_domain::NoticeToken,
+    &str,
+) -> Option<baud_domain::FdoActionKey> = baud_domain::NoticeSlots::action;
+const _: fn(&baud_domain::NoticeSlots<u32>) -> Option<baud_domain::HostTime> =
+    baud_domain::NoticeSlots::next_due;
+const _: fn(
+    &mut baud_domain::NoticeSlots<u32>,
+    fn() -> baud_domain::HostTime,
+) -> baud_domain::NoticeSlotSet = baud_domain::NoticeSlots::due;
+const _: fn(&baud_domain::NoticeSlots<u32>, &u32) -> Option<baud_domain::NoticeToken> =
+    baud_domain::NoticeSlots::token;
+const _: fn(
+    &mut baud_domain::NoticeSlots<u32>,
+    &u32,
+    baud_domain::HostTime,
+) -> Option<baud_domain::NoticeToken> = baud_domain::NoticeSlots::scheduled;
+const _: fn(
+    &baud_domain::NoticeSlots<u32>,
+    &[u32],
+    baud_domain::HostTime,
+    core::time::Duration,
+) -> baud_domain::NoticeSlotSet = baud_domain::NoticeSlots::absent;
+// NoticeHeld: the impl's lifetime is the type's, so these are pinned at 'static.
+const _: fn(&baud_domain::NoticeHeld<'static, u32>) -> baud_domain::NoticeToken =
+    baud_domain::NoticeHeld::<'static, u32>::token;
+const _: for<'b> fn(&'b baud_domain::NoticeHeld<'static, u32>) -> Option<&'b u32> =
+    baud_domain::NoticeHeld::<'static, u32>::id;
+const _: fn(baud_domain::NoticeHeld<'static, u32>) = baud_domain::NoticeHeld::<'static, u32>::free;
+// NoticeButtonSet, NoticeSlotSet
+const _: fn(Option<baud_domain::NoticeButton>) -> baud_domain::NoticeButtonSet =
+    baud_domain::NoticeButtonSet::of;
+const _: fn(baud_domain::NoticeButtonSet, u8) -> Option<baud_domain::NoticeButton> =
+    baud_domain::NoticeButtonSet::numbered;
+const _: fn(baud_domain::NoticeSlotSet) -> bool = baud_domain::NoticeSlotSet::is_empty;
+// notice_plan, NoticeSight, NoticeBucket, NoticeSaidOnce, notice_support
+const _: fn(
+    baud_domain::NoticeAction,
+    baud_domain::Occasion,
+    baud_domain::NoticeSetting,
+    baud_domain::LinuxSight,
+    &mut baud_domain::NoticeBucket,
+    baud_domain::HostTime,
+) -> baud_domain::NoticePlan = baud_domain::notice_plan::<baud_domain::LinuxSight>;
+const _: fn(
+    baud_domain::NoticeAction,
+    baud_domain::Occasion,
+    baud_domain::NoticeSetting,
+    baud_domain::MacSight,
+    &mut baud_domain::NoticeBucket,
+    baud_domain::HostTime,
+) -> baud_domain::NoticePlan = baud_domain::notice_plan::<baud_domain::MacSight>;
+const _: fn(baud_domain::LinuxSight, baud_domain::Occasion) -> bool =
+    <baud_domain::LinuxSight as baud_domain::NoticeSight>::shows;
+const _: fn(baud_domain::MacSight, baud_domain::Occasion) -> bool =
+    <baud_domain::MacSight as baud_domain::NoticeSight>::shows;
+const _: fn() -> baud_domain::NoticeBucket = baud_domain::NoticeBucket::new;
+const _: fn(&mut baud_domain::NoticeBucket, baud_domain::HostTime) -> baud_domain::NoticeTaken =
+    baud_domain::NoticeBucket::take;
+const _: fn(&baud_domain::NoticeBucket) -> baud_domain::NoticeCount =
+    baud_domain::NoticeBucket::dropped;
+const _: fn(&baud_domain::NoticeBucket) -> baud_domain::NoticeBursts =
+    baud_domain::NoticeBucket::bursts;
+const _: fn(&mut baud_domain::NoticeBucket) -> Option<baud_domain::NoticeCount> =
+    baud_domain::NoticeBucket::newly_dropped;
+const _: fn(baud_domain::NoticeCount) -> u64 = baud_domain::NoticeCount::get;
+const _: fn(baud_domain::NoticeBursts) -> u64 = baud_domain::NoticeBursts::get;
+const _: fn(&mut baud_domain::NoticeSaidOnce) = baud_domain::NoticeSaidOnce::add;
+const _: fn(&baud_domain::NoticeSaidOnce) -> baud_domain::NoticeCount =
+    baud_domain::NoticeSaidOnce::count;
+const _: fn(&mut baud_domain::NoticeSaidOnce) -> Option<baud_domain::NoticeCount> =
+    baud_domain::NoticeSaidOnce::say;
+const _: baud_domain::NoticeSaidOnce = baud_domain::NoticeSaidOnce::NEW;
+const _: core::time::Duration = baud_domain::NOTICE_BURST;
+const _: core::time::Duration = baud_domain::NOTICE_EACH;
+const _: fn(
+    baud_domain::NoticeSetting,
+    baud_domain::NoticePlatform,
+) -> Option<baud_domain::NoticeSupport> = baud_domain::notice_support;
+// NoticeEffect
+const _: fn(baud_domain::NoticeToken) -> baud_domain::NoticeEffect =
+    baud_domain::NoticeEffect::Dropped;
+const _: fn(baud_domain::NoticeLine) -> baud_domain::NoticeEffect = baud_domain::NoticeEffect::Line;
+// ServerCaps, FdoCaps, FdoCap
+const _: fn([&'static str; 1]) -> baud_domain::ServerCaps = baud_domain::ServerCaps::heard;
+const _: fn(baud_domain::ServerCaps, baud_domain::FdoCap) -> bool = baud_domain::ServerCaps::lists;
+const _: fn(baud_domain::ServerCaps) -> Option<baud_domain::MarkupListed> =
+    baud_domain::ServerCaps::markup;
+const _: fn(baud_domain::FdoCaps) -> baud_domain::ServerCaps = baud_domain::FdoCaps::known;
+const _: fn(baud_domain::FdoCap) -> &'static str = baud_domain::FdoCap::name;
+const _: [baud_domain::FdoCap; 10] = baud_domain::FdoCap::ALL;
+// SafeText, Escaped, FdoIconName, FdoActionKey, NoticeSound, FdoExpire
+const _: fn(&[u8]) -> baud_domain::SafeText = baud_domain::SafeText::clean;
+const _: fn(&baud_domain::SafeText) -> &str = baud_domain::SafeText::as_str;
+const _: fn(baud_domain::SafeText) -> String = baud_domain::SafeText::into_string;
+// The impl's lifetime is the type's, so this is pinned at 'static.
+const _: fn(
+    &'static baud_domain::SafeText,
+    baud_domain::MarkupListed,
+) -> baud_domain::Escaped<'static> = baud_domain::Escaped::of;
+const _: fn(&baud_domain::SafeText) -> Option<baud_domain::FdoIconName> =
+    baud_domain::FdoIconName::of;
+const _: fn(&baud_domain::FdoIconName) -> &str = baud_domain::FdoIconName::as_str;
+const _: fn(&str, baud_domain::NoticeButtonSet) -> Option<baud_domain::FdoActionKey> =
+    baud_domain::FdoActionKey::read;
+const _: fn(baud_domain::NoticeButton) -> baud_domain::FdoActionKey =
+    baud_domain::FdoActionKey::Button;
+const _: baud_domain::FdoActionKey = baud_domain::FdoActionKey::Default;
+const _: fn(baud_domain::SafeText) -> baud_domain::NoticeSound = baud_domain::NoticeSound::of;
+const _: fn(baud_domain::Expiry) -> baud_domain::FdoExpire = baud_domain::FdoExpire::of;
+// FdoNotify
+const _: fn(&baud_domain::FdoPost<'_>, baud_domain::ServerCaps) -> baud_domain::FdoNotify =
+    baud_domain::FdoNotify::of;
+const _: fn(&baud_domain::FdoNotify) -> &baud_domain::SafeText = baud_domain::FdoNotify::app_name;
+const _: fn(&baud_domain::FdoNotify) -> Option<&baud_domain::FdoIconName> =
+    baud_domain::FdoNotify::icon;
+const _: fn(&baud_domain::FdoNotify) -> &baud_domain::SafeText = baud_domain::FdoNotify::summary;
+const _: fn(&baud_domain::FdoNotify) -> baud_domain::FdoBodyParts<'_> =
+    baud_domain::FdoNotify::body;
+const _: fn(&baud_domain::FdoNotify) -> &[(baud_domain::FdoActionKey, baud_domain::SafeText)] =
+    baud_domain::FdoNotify::actions;
+const _: fn(&baud_domain::FdoNotify) -> u8 = baud_domain::FdoNotify::urgency_level;
+const _: fn(&baud_domain::FdoNotify) -> &baud_domain::NoticeSound = baud_domain::FdoNotify::sound;
+const _: fn(&baud_domain::FdoNotify) -> Option<&baud_domain::SafeText> =
+    baud_domain::FdoNotify::category;
+const _: fn(&baud_domain::FdoNotify) -> baud_domain::FdoExpire = baud_domain::FdoNotify::expire;
+// XdgToken, TokenFor
+const _: fn(&str) -> baud_domain::XdgToken = baud_domain::XdgToken::heard;
+const _: for<'a> fn(&'a baud_domain::XdgToken) -> &'a str = baud_domain::XdgToken::as_str;
+const _: fn() -> baud_domain::TokenFor<u32> = baud_domain::TokenFor::<u32>::new;
+const _: fn(&mut baud_domain::TokenFor<u32>, u32, baud_domain::XdgToken) =
+    baud_domain::TokenFor::<u32>::keep;
+const _: fn(&mut baud_domain::TokenFor<u32>, u32) -> Option<baud_domain::XdgToken> =
+    baud_domain::TokenFor::<u32>::take_for;
+// UnitInterval, LauncherBar, LauncherUrgent, LauncherEntry
+const _: fn(baud_domain::Percent) -> baud_domain::UnitInterval = baud_domain::UnitInterval::of;
+const _: fn(baud_domain::UnitInterval) -> f64 = baud_domain::UnitInterval::get;
+const _: fn(baud_domain::Progress) -> baud_domain::LauncherBar = baud_domain::LauncherBar::of;
+const _: fn(baud_domain::LauncherBar) -> Option<f64> = baud_domain::LauncherBar::fraction;
+const _: fn(baud_domain::Attention) -> baud_domain::LauncherUrgent =
+    baud_domain::LauncherUrgent::of;
+const _: fn(
+    &mut baud_domain::LauncherEntry,
+    Option<baud_domain::Progress>,
+    Option<baud_domain::Attention>,
+) -> Option<baud_domain::LauncherEntry> = baud_domain::LauncherEntry::heard;
+const _: baud_domain::LauncherEntry = baud_domain::LauncherEntry::IDLE;
+// IconCache
+const _: fn() -> baud_domain::IconCache<16, 4194304> = baud_domain::IconCache::<16, 4194304>::new;
+const _: fn(&mut baud_domain::IconCache<16, 4194304>, &[u8], &[u8]) =
+    baud_domain::IconCache::<16, 4194304>::keep;
+const _: for<'a> fn(&'a mut baud_domain::IconCache<16, 4194304>, &[u8]) -> Option<&'a [u8]> =
+    baud_domain::IconCache::<16, 4194304>::get;
+const _: fn(&baud_domain::IconCache<16, 4194304>) -> usize =
+    baud_domain::IconCache::<16, 4194304>::total;
+const _: fn(&baud_domain::IconCache<16, 4194304>) -> usize =
+    baud_domain::IconCache::<16, 4194304>::len;
+const _: fn(&baud_domain::IconCache<16, 4194304>) -> bool =
+    baud_domain::IconCache::<16, 4194304>::is_empty;
+const _: fn() -> baud_domain::IconCache<16, 4194304> =
+    <baud_domain::IconCache<16, 4194304> as Default>::default;
+// DockBar, DockBars, notice_alive_step
+const _: fn(baud_domain::Progress) -> Option<baud_domain::DockBar> = baud_domain::DockBar::of;
+const _: fn() -> baud_domain::DockBars<u32> = baud_domain::DockBars::<u32>::new;
+const _: fn(
+    &mut baud_domain::DockBars<u32>,
+    u32,
+    Option<baud_domain::DockBar>,
+) -> Option<Option<baud_domain::DockBar>> = baud_domain::DockBars::<u32>::set;
+const _: fn(&mut baud_domain::DockBars<u32>, u32) -> Option<Option<baud_domain::DockBar>> =
+    baud_domain::DockBars::<u32>::gone;
+const _: fn() -> baud_domain::DockBars<u32> = <baud_domain::DockBars<u32> as Default>::default;
+const _: fn(
+    baud_domain::NoticeAsked,
+    baud_domain::NoticeAllowed,
+    Option<baud_domain::HostTime>,
+    baud_domain::HostTime,
+    core::time::Duration,
+) -> baud_domain::NoticeAliveStep = baud_domain::notice_alive_step;
 /// Each type that holds a rule, and the error code its witness expects.
 const WITNESSED: &[(&str, &str)] = &[
+    ("NoticeToken", "E0451"),
+    ("NoticeLiveIdx", "E0423"),
+    ("NonZeroMillis", "E0080"),
+    ("NoticeSlots", "E0382"),
+    ("NoticeHeld", "E0382"),
+    ("NoticeButtonSet", "E0423"),
+    ("LinuxSight", "E0599"),
+    ("NoticeBucket", "E0451"),
+    ("ServerCaps", "E0423"),
+    ("MarkupListed", "E0423"),
+    ("SafeText", "E0308"),
+    ("Escaped", "E0423"),
+    ("FdoIconName", "E0277"),
+    ("FdoActionKey", "E0277"),
+    ("XdgToken", "E0599"),
+    ("UnitInterval", "E0423"),
+    ("IconCache", "E0080"),
+    ("DockBars", "E0451"),
     ("Handshake", "E0599"),
     ("Connection", "E0599"),
     ("NoFds", "E0599"),
