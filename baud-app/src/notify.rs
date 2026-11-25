@@ -1308,18 +1308,6 @@ pub const PICTURE_MAX: usize = 10_000_000;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub const BUDGET: baud_core::NoticeBudget = baud_core::NoticeBudget::with_icon(256 << 10);
 
-/// A launcher's progress for a program's: its fraction while it has one,
-/// an empty bar while it runs with none, nothing while hidden. The
-/// launcher has no states, so an error and a pause show as their fraction.
-#[cfg(any(target_os = "linux", test))]
-pub fn launcher_progress(p: Progress) -> Option<f64> {
-    match (p.state, p.percent) {
-        (baud_core::ProgressState::Hidden, _) => None,
-        (_, Some(pct)) => Some(pct.fraction()),
-        (_, None) => Some(0.0),
-    }
-}
-
 /// **A notification's image as RGBA**, if it is a PNG, a JPEG or a GIF of
 /// at most 1024 pixels a side -- the three kitty's `p=icon` names, which
 /// baud's own decoders read, a GIF its first frame, a JPEG turned as its
@@ -1942,7 +1930,7 @@ mod tests {
             if let (None, true, Some(t)) =
                 (button, self.term.notice_focuses(token), activation)
             {
-                let _ = self.window.activate_with(&mut self.conn.sender(), &t);
+                let _ = self.window.activate_with(&mut self.conn.sender(), t);
             }
         "#;
         let at = arm
@@ -2425,9 +2413,16 @@ mod tests {
             state,
             percent: pct.map(Percent::clamped),
         };
-        assert_eq!(launcher_progress(p(S::Hidden, Some(5))), None);
-        assert_eq!(launcher_progress(p(S::Normal, Some(25))), Some(0.25));
-        assert_eq!(launcher_progress(p(S::Indeterminate, None)), Some(0.0));
+        let sent = |state, pct| {
+            crate::bus::Launcher::of(baud_domain::LauncherEntry {
+                bar: baud_domain::LauncherBar::of(p(state, pct)),
+                urgent: baud_domain::LauncherUrgent::No,
+            })
+            .progress
+        };
+        assert_eq!(sent(S::Hidden, Some(5)), None);
+        assert_eq!(sent(S::Normal, Some(25)), Some(0.25));
+        assert_eq!(sent(S::Indeterminate, None), Some(0.0));
         let mut owned = Owned::new(&WS).with_notices(BUDGET);
         let mut t = Term::new(owned.storage(), &WS);
         t.set_notice_support(notice_support(
@@ -2461,7 +2456,13 @@ mod tests {
         );
         assert_eq!(d.rate_line().map(line_text), None, "once a burst");
         assert!(d.icons.get(b"none").is_none());
-        assert_eq!(crate::bus::Launcher::IDLE.progress, None);
+        assert_eq!(
+            crate::bus::Launcher::of(baud_domain::LauncherEntry::IDLE),
+            crate::bus::Launcher {
+                progress: None,
+                urgent: crate::bus::Truth::False,
+            }
+        );
     }
 
     /// **The bound's log line comes once a burst**, however often it is

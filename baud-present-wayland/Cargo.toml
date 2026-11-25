@@ -16,6 +16,6 @@ categories = ["gui", "os::linux-apis"]
 include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
 
 [dependencies]
-baud-domain = { workspace = true }
+baud-domain = { workspace = true, features = ["alloc"] }
 baud-wayland = { workspace = true }
 baud-xkb = { workspace = true }

@@ -1,3 +1,5 @@
+#[cfg(feature = "alloc")]
+mod activation_token;
 mod charset;
 mod clipboard;
 mod csi;
@@ -14,6 +16,7 @@ mod iterm_file;
 mod iterm_keys;
 mod key;
 mod kitty_color;
+mod launcher_entry;
 mod level;
 mod locator;
 mod mode;
@@ -47,6 +50,8 @@ mod x_colour_names {
 mod xcms;
 mod xres;
 
+#[cfg(feature = "alloc")]
+pub use activation_token::*;
 pub use charset::*;
 pub use clipboard::*;
 pub use csi::*;
@@ -61,6 +66,7 @@ pub use iterm::*;
 pub use iterm_file::*;
 pub use key::*;
 pub use kitty_color::*;
+pub use launcher_entry::*;
 pub use level::*;
 pub use locator::*;
 pub use mode::*;

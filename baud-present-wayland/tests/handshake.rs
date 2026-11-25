@@ -2269,7 +2269,10 @@ fn the_window_is_activated_with_a_token_it_asks_for_or_is_given() {
     assert_ne!(second, token, "a fresh token object");
     // A token another client gave goes straight to `activate`.
     assert_eq!(
-        w.activate_with(&mut conn.sender(), "from-the-server"),
+        w.activate_with(
+            &mut conn.sender(),
+            baud_domain::XdgToken::heard("from-the-server")
+        ),
         Activated::Sent
     );
     conn.flush().unwrap();
@@ -2283,7 +2286,10 @@ fn the_window_is_activated_with_a_token_it_asks_for_or_is_given() {
     let (mut conn, mut server, mut w, _) = session_with(&[]);
     assert_eq!(w.activate(&mut conn.sender()), Activated::Unavailable);
     assert_eq!(
-        w.activate_with(&mut conn.sender(), "from-the-server"),
+        w.activate_with(
+            &mut conn.sender(),
+            baud_domain::XdgToken::heard("from-the-server")
+        ),
         Activated::Unavailable
     );
     // The control: the next request is the title, not a token.

@@ -475,7 +475,7 @@ struct Driver {
     caps: baud_domain::FdoCaps,
     /// What the launcher was last told: a program's progress and its
     /// request for attention.
-    launcher: crate::bus::Launcher,
+    launcher: baud_domain::LauncherEntry,
     /// The config's files watched and the config as last read, while
     /// `config_reload` is on (`reload.rs`): the inotify descriptor in the
     /// loop's `poll`, the settle's end in its timeout.
@@ -1057,7 +1057,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         notes,
         pictures: crate::kitty_files::Pictures::new(picture_wake),
         caps: baud_domain::FdoCaps::Unasked,
-        launcher: crate::bus::Launcher::IDLE,
+        launcher: baud_domain::LauncherEntry::IDLE,
         reload,
         notice,
         scheme: None,
@@ -2392,24 +2392,9 @@ impl Driver {
         }
         let progress = self.notes.progress(&self.term);
         let attention = self.notes.attention(&self.term);
-        if progress.is_none() && attention.is_none() {
-            return;
-        }
-        let mut l = self.launcher;
-        if let Some(p) = progress {
-            l.progress = crate::notify::launcher_progress(p);
-        }
-        if let Some(a) = attention {
-            l.urgent = match a {
-                baud_core::Attention::Yes | baud_core::Attention::Once => crate::bus::Truth::True,
-                baud_core::Attention::No => crate::bus::Truth::False,
-            };
-        }
-        if l != self.launcher {
-            self.launcher = l;
-            if let Some(bus) = self.bus.as_mut() {
-                bus.launcher(l);
-            }
+        if let (Some(l), Some(bus)) = (self.launcher.heard(progress, attention), self.bus.as_mut())
+        {
+            bus.launcher(crate::bus::Launcher::of(l));
         }
     }
 
@@ -2889,7 +2874,7 @@ impl Driver {
                     if let (None, true, Some(t)) =
                         (button, self.term.notice_focuses(token), activation)
                     {
-                        let _ = self.window.activate_with(&mut self.conn.sender(), &t);
+                        let _ = self.window.activate_with(&mut self.conn.sender(), t);
                     }
                     crate::reads::input(
                         &mut self.term,

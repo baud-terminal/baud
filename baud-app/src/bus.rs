@@ -141,7 +141,7 @@ pub(crate) enum Origin {
 }
 
 /// What the bus said, for the driver.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub(crate) enum Heard {
     /// The desktop's colour scheme, read or changed.
     Scheme(Scheme, Origin),
@@ -173,7 +173,7 @@ pub(crate) enum Heard {
     NotNotified(baud_core::NoticeToken, String),
     /// A click on a notification, or on one of its actions: the key, and
     /// the activation token the server sent for it just before, if any.
-    Invoked(NotifyId, String, Option<String>),
+    Invoked(NotifyId, String, Option<baud_domain::XdgToken>),
     /// A notification closed, for any reason.
     NotifyClosed(NotifyId),
     /// Whether the print portal is there: its `version`, or the error's
@@ -289,11 +289,16 @@ pub(crate) struct Launcher {
 }
 
 impl Launcher {
-    /// No bar, no request: what a launcher shows before a program says.
-    pub(crate) const IDLE: Launcher = Launcher {
-        progress: None,
-        urgent: Truth::False,
-    };
+    /// What a launcher entry is sent as.
+    pub(crate) fn of(e: baud_domain::LauncherEntry) -> Launcher {
+        Launcher {
+            progress: e.bar.fraction(),
+            urgent: match e.urgent {
+                baud_domain::LauncherUrgent::Yes => Truth::True,
+                baud_domain::LauncherUrgent::No => Truth::False,
+            },
+        }
+    }
 }
 
 /// A message's type, the header's second byte.
@@ -953,7 +958,7 @@ fn id_in_reply(m: &Message<'_>) -> Option<NotifyId> {
 enum FromServer {
     Heard(Heard),
     /// `ActivationToken(u, s)`: kept for the click on that notification.
-    Token(NotifyId, String),
+    Token(NotifyId, baud_domain::XdgToken),
 }
 
 /// `ActionInvoked(u, s)`, `ActivationToken(u, s)` and
@@ -974,7 +979,10 @@ fn heard_from_server(m: &Message<'_>) -> Option<FromServer> {
         }
         (Some("ActivationToken"), "us") => {
             let id = NotifyId(r.word()?);
-            Some(FromServer::Token(id, r.string()?.to_string()))
+            Some(FromServer::Token(
+                id,
+                baud_domain::XdgToken::heard(r.string()?),
+            ))
         }
         (Some("NotificationClosed"), "uu") => {
             Some(FromServer::Heard(Heard::NotifyClosed(NotifyId(r.word()?))))
@@ -1055,7 +1063,7 @@ pub(crate) struct Session {
     /// The last `ActivationToken` the notification server sent, for the
     /// notification it named: handed over with that notification's next
     /// click, and dropped by a click or a close of it.
-    token: Option<(NotifyId, String)>,
+    token: baud_domain::TokenFor<NotifyId>,
     /// This connection's unique name, from `Hello`'s reply: the Request
     /// paths the portal makes are under it.
     unique: Option<String>,
@@ -1096,7 +1104,7 @@ impl Session {
             // it.
             serial: Serial(Word(2)),
             waiting: Vec::new(),
-            token: None,
+            token: baud_domain::TokenFor::new(),
             unique: None,
             prepare_after_hello: None,
             print: None,
@@ -1583,18 +1591,6 @@ impl Session {
         heard
     }
 
-    /// The token kept for notification `id`, taken; a token kept for
-    /// another stays.
-    fn token_for(&mut self, id: NotifyId) -> Option<String> {
-        match self.token.take() {
-            Some((kept, token)) if kept == id => Some(token),
-            other => {
-                self.token = other;
-                None
-            }
-        }
-    }
-
     /// What one message means, if it is one this waits for or a change of
     /// the appearance: a `ReadAll` reply can say three things.
     fn heard(&mut self, m: &Message<'_>) -> Vec<Heard> {
@@ -1607,15 +1603,15 @@ impl Session {
             }
             return match heard_from_server(m) {
                 Some(FromServer::Token(id, token)) => {
-                    self.token = Some((id, token));
+                    self.token.keep(id, token);
                     Vec::new()
                 }
                 Some(FromServer::Heard(Heard::Invoked(id, key, _))) => {
-                    let token = self.token_for(id);
+                    let token = self.token.take_for(id);
                     vec![Heard::Invoked(id, key, token)]
                 }
                 Some(FromServer::Heard(h @ Heard::NotifyClosed(id))) => {
-                    let _ = self.token_for(id);
+                    let _ = self.token.take_for(id);
                     vec![h]
                 }
                 Some(FromServer::Heard(h)) => vec![h],
@@ -2389,15 +2385,17 @@ mod tests {
     #[test]
     fn the_desktops_animations_setting_is_read_and_followed() {
         let read = |fixture: &str| ready().received(&reply_bytes(fixture));
-        let appearance = [
-            Heard::Scheme(Scheme::Dark, Origin::Read),
-            Heard::Contrast(Contrast::NoPreference),
-        ];
+        let appearance = || {
+            vec![
+                Heard::Scheme(Scheme::Dark, Origin::Read),
+                Heard::Contrast(Contrast::NoPreference),
+            ]
+        };
         for (fixture, on) in [
             ("read_all_animations_off", Animations::Off),
             ("read_all_animations_on", Animations::On),
         ] {
-            let mut want = appearance.to_vec();
+            let mut want = appearance();
             want.push(Heard::Animations(on));
             assert_eq!(read(fixture), want, "{fixture}");
         }
@@ -2421,15 +2419,17 @@ mod tests {
     #[test]
     fn the_portals_text_scale_is_read_and_followed() {
         let read = |fixture: &str| ready().received(&reply_bytes(fixture));
-        let appearance = [
-            Heard::Scheme(Scheme::Dark, Origin::Read),
-            Heard::Contrast(Contrast::Higher),
-            Heard::Motion(Motion::Reduced),
-        ];
-        let mut with = appearance.to_vec();
+        let appearance = || {
+            vec![
+                Heard::Scheme(Scheme::Dark, Origin::Read),
+                Heard::Contrast(Contrast::Higher),
+                Heard::Motion(Motion::Reduced),
+            ]
+        };
+        let mut with = appearance();
         with.push(Heard::TextScale(TextScale::of(1.25).unwrap()));
         assert_eq!(read("read_all_text_scale"), with);
-        assert_eq!(read("read_all_text_scale_zero"), appearance);
+        assert_eq!(read("read_all_text_scale_zero"), appearance());
         let mut s = ready();
         assert_eq!(
             s.received(&reply_bytes("changed_text_scale")),
@@ -3008,7 +3008,7 @@ mod tests {
             [Heard::Invoked(
                 id(42),
                 "default".into(),
-                Some("tok-42".into())
+                Some(baud_domain::XdgToken::heard("tok-42"))
             )]
         );
         assert_eq!(
@@ -3024,7 +3024,11 @@ mod tests {
         );
         assert_eq!(
             s.received(&signal("ActionInvoked", 7, "1", 19)),
-            [Heard::Invoked(id(7), "1".into(), Some("tok-7".into()))],
+            [Heard::Invoked(
+                id(7),
+                "1".into(),
+                Some(baud_domain::XdgToken::heard("tok-7"))
+            )],
             "kept for its own"
         );
         assert_eq!(s.received(&signal("ActivationToken", 7, "tok-7b", 21)), []);

@@ -42,8 +42,8 @@ use crate::shm::{Bytes, Pool, Px};
 use crate::timing::{ClockId, Presentation, Stamp, Unseen};
 use baud_domain::{
     AskServerSide, DecorationMode, EventMillis, Focus, HebrewLayout, KeyEvent, KeyEventKind,
-    LocatorDevice, ManagerVersion, Modifiers, Negotiation, ROW_LANES, Toplevel, premultiply,
-    premultiply_row,
+    LocatorDevice, ManagerVersion, Modifiers, Negotiation, ROW_LANES, Toplevel, XdgToken,
+    premultiply, premultiply_row,
 };
 use baud_wayland::{
     Arg, Connection, Event as Wire, Fixed, Handler, Interface, ObjectId, Opcode, Read, Sender,
@@ -2380,14 +2380,15 @@ impl Window {
     /// activation token that can be used to activate a toplevel"
     /// (`[[source: freedesktop-notification-spec]]`), passed to
     /// `activate` on the window's surface (`[[source: xdg-activation-v1]]`).
-    pub fn activate_with(&mut self, s: &mut Sender<'_>, token: &str) -> Activated {
+    /// The token is spent here, whether it reaches the compositor or not.
+    pub fn activate_with(&mut self, s: &mut Sender<'_>, token: XdgToken) -> Activated {
         let (Some(activation), Some(surface)) = (self.globals.activation, self.surface) else {
             return Activated::Unavailable;
         };
         let _ = s.request(
             activation,
             Opcode(protocol::xdg_activation_v1::request::ACTIVATE),
-            &[Arg::Str(Some(token)), Arg::Object(surface)],
+            &[Arg::Str(Some(token.as_str())), Arg::Object(surface)],
         );
         Activated::Sent
     }
