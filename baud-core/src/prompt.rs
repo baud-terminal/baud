@@ -238,9 +238,9 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                 if self.strs.shell.zone == baud_domain::Zone::Prompt {
                     self.pin_prompt_block();
                 }
-                let (rot, ring) = (self.view.rotation(), self.view.ring());
+                let row = self.view.slot(self.cy);
                 self.strs.shell.input = Input::At {
-                    row: rot.advance(self.cy.index(), ring),
+                    row,
                     col: self.cx.col(),
                     end,
                 };
@@ -304,9 +304,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let Input::At { row, .. } = self.strs.shell.input else {
             return false;
         };
-        let y = row
-            .retreat(self.view.rotation().index(), self.view.ring())
-            .index();
+        let y = self.view.row_of(row);
         let cy = self.cy.index();
         if y >= self.rows.index() {
             return (0..cy).any(|r| !self.view.extent(Row::from_index(r)).wrapped());
@@ -356,10 +354,10 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// A later line of the block: `k=s`, `k=c` or `k=r`.
     fn later_prompt(&mut self, kind: PromptKind) {
         self.prompt_zone();
-        let (rot, ring) = (self.view.rotation(), self.view.ring());
+        let at = self.view.slot(self.cy);
         let shell = &mut self.strs.shell;
         if matches!(kind, PromptKind::Secondary | PromptKind::Continuation) {
-            shell.secondary = Later::At(rot.advance(self.cy.index(), ring));
+            shell.secondary = Later::At(at);
         }
     }
 
@@ -401,9 +399,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         else {
             return false;
         };
-        let y = row
-            .retreat(self.view.rotation().index(), self.view.ring())
-            .index();
+        let y = self.view.row_of(row);
         let cy = self.cy.index();
         y > cy || (y..cy).any(|r| !self.view.extent(Row::from_index(r)).wrapped())
     }
@@ -477,11 +473,11 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             .cells
             .plus((bot.index() + 1 - from.index()) * self.cols.index());
         // The marks' rows in the band go down with it.
-        let (rot, ring) = (self.view.rotation(), self.view.ring());
+        let view = &self.view;
         let moved = |r: RowRot| {
-            let y = r.retreat(rot.index(), ring).index();
+            let y = view.row_of(r);
             match (from.index()..=cy).contains(&y) {
-                true => r.advance(k, ring),
+                true => view.slot(Row::from_index(y + k)),
                 false => r,
             }
         };
@@ -524,12 +520,16 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         mv: BandMove,
         retired: Rows,
     ) {
-        let (after, ring, rows) = (self.view.rotation(), self.view.ring(), self.rows.index());
+        let (view, ring, rows) = (&self.view, self.view.ring(), self.rows.index());
         let (t, b) = (top.index(), bot.index());
         let h = b + 1 - t;
         let k = k.index() % h.max(1);
         let moved = |r: RowRot| {
-            let y = r.retreat(before.index(), ring).index();
+            // The index is the one the move left; the rotation the one before.
+            let y = RowRot::NONE
+                .advance(view.order().position(r.index()), ring)
+                .retreat(before.index(), ring)
+                .index();
             if y >= rows || (y >= t && y < t + retired.index()) {
                 return r;
             }
@@ -540,7 +540,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                 },
                 false => y,
             };
-            after.advance(to, ring)
+            view.slot(Row::from_index(to))
         };
         let shell = &mut self.strs.shell;
         shell.block = PromptBlock::at(moved(shell.block.start()));
@@ -564,9 +564,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// history, at every redraw again. A block whose first row is not on
     /// the screen is left where it is.
     pub(crate) fn pin_prompt_block(&mut self) {
-        let start = self.strs.shell.block.start();
-        let (rot, ring) = (self.view.rotation(), self.view.ring());
-        let y = start.retreat(rot.index(), ring).index();
+        let y = self.view.row_of(self.strs.shell.block.start());
         if y <= self.cy.index() {
             self.pin_prompt(Row::from_index(y));
         }
@@ -574,9 +572,8 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
 
     /// The block begins on the cursor's row: an initial mark.
     pub(crate) fn open_prompt_block(&mut self) {
-        let (rot, ring) = (self.view.rotation(), self.view.ring());
         self.strs.shell.block = PromptBlock {
-            start: rot.advance(self.cy.index(), ring),
+            start: self.view.slot(self.cy),
         };
     }
 
@@ -589,11 +586,11 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// when the rows it gives up below show nothing (the shell's `ED`
     /// has just cleared them); otherwise they are erased where they lie.
     pub(crate) fn replace_prompt_block(&mut self) {
-        let (rot, ring) = (self.view.rotation(), self.view.ring());
+        let ring = self.view.ring();
         let (cy, r, rows) = (self.cy.index(), ring.index(), self.rows.index());
         let start = self.strs.shell.block.start();
         // Rows from the block's first row to the cursor, in ring order.
-        let d = (rot.advance(cy, ring).index() + r - start.index()) % r;
+        let d = (cy + r - self.view.row_of(start)) % r;
         let above = d.saturating_sub(cy);
         let retained =
             self.cold.screen == baud_domain::Screen::Normal && above <= self.book.hist.index();

@@ -114,7 +114,7 @@ pub(crate) struct Paint<'a, 'b, M: crate::bands::BandMode = crate::bands::OneBan
     pub(crate) tmpl: M::Table<'a>,
     /// Tab stops.
     pub(crate) tabs: &'a mut [bool],
-    pub(crate) view: View<'a>,
+    pub(crate) view: View<'a, M::Slots>,
     pub(crate) cy: Row,
     /// The cursor's column: the pending-wrap sentinel, and a move's tag
     /// one past the right margin ([`CursorCol`]).
@@ -224,13 +224,13 @@ pub(crate) struct Paint<'a, 'b, M: crate::bands::BandMode = crate::bands::OneBan
     /// through this struct, which is inlined into the per-byte loop. The
     /// swap is what buys it back -- two live surfaces mean no park and no
     /// restore, so entering the alternate screen copies nothing.
-    pub(crate) other: Surface<'a>,
+    pub(crate) other: Surface<'a, M::Slots>,
     /// **The surface not live of the main display's and the status line's**:
     /// the line's row while the main display is written, and the main
     /// display's while the line is (`status.rs`, `Paint::swap_display`).
     /// Written only through the indicator's key, which every write forgets
     /// ([`crate::status::StatusSurface`]).
-    pub(crate) status: crate::status::StatusSurface<'a>,
+    pub(crate) status: crate::status::StatusSurface<'a, M::Slots>,
     /// The primary ring's bookkeeping: how many rows behind the window are
     /// lines, how many after it were cut by a shorter window. One word.
     pub(crate) book: &'a mut crate::storage::Book<'b>,
@@ -488,17 +488,26 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
             baud_domain::Screen::Normal => Which::Primary,
             baud_domain::Screen::Alternate => Which::Alternate,
         };
-        let (live, away, line) = surfaces.split(up);
-        let status =
-            crate::status::StatusSurface::new(Surface::new(line, Rows::of_count(1), RowRot::NONE));
+        // The alternate screen's window-slot index goes with its surface:
+        // held by a read that starts on it, dropped by one that starts on
+        // the primary, which reads every surface through the identity
+        // (`crate::bands::OnAlt`). The primary and the status line keep none.
+        let (live, away, line, slots) = surfaces.split_slots(up);
+        let none = baud_domain::SlotIndex::none;
+        let status = crate::status::StatusSurface::new(Surface::lent(
+            line,
+            Rows::of_count(1),
+            RowRot::NONE,
+            none(),
+        ));
         let (view, other) = match cold.screen {
             baud_domain::Screen::Normal => (
-                View::new(live, cols, rows, ring, rot),
-                Surface::new(away, cap, arot),
+                View::lent(live, cols, rows, ring, rot, none()),
+                Surface::lent(away, cap, arot, slots),
             ),
             baud_domain::Screen::Alternate => (
-                View::new(live, cols, rows, cap, arot),
-                Surface::new(away, ring, rot),
+                View::lent(live, cols, rows, cap, arot, slots),
+                Surface::lent(away, ring, rot, none()),
             ),
         };
         // The three-byte cell table is read only by `put_one` under
@@ -2015,7 +2024,7 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
         // narrower edge goes first (`Paint::clear_erased_past_edge`).
         let blank = self.blank();
         if e != EraseExtent::ToStart && self.past_edge() {
-            let at = self.view.rotation().advance(cy.index(), self.view.ring());
+            let at = self.view.slot(cy);
             self.clear_erased_past_edge(at, blank);
         }
         self.erase_span(cy, a, b, blank);

@@ -11204,7 +11204,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let reuse = {
                 let cells = match at {
                     Some((gens, seal)) => SizedCells::Stored {
-                        at: gens.window().at(r),
+                        at: gens.at(r),
                         seal: *seal,
                         gens,
                         y: r,

@@ -1543,16 +1543,15 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             return;
         }
         let blank = self.blank();
-        let (reach, rot, ring) = (self.book.reach, self.view.rotation(), self.view.ring());
+        let reach = self.book.reach;
         let mut past = PastRows {
             flags: &mut *self.book.past,
             held: &mut self.book.held,
         };
         let mut n = 0;
         for y in from.index()..to.index() {
-            n += self
-                .view
-                .clear_past_edge_of(rot.advance(y, ring), reach, &mut past, blank);
+            let at = self.view.slot(Row::from_index(y));
+            n += self.view.clear_past_edge_of(at, reach, &mut past, blank);
         }
         self.cells = self.cells.plus(n);
         self.settle_reach();
@@ -2391,7 +2390,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             // first, as `EL 0` and `EL 2` clear it
             // (`Paint::clear_erased_past_edge`).
             if b == end(self, r) && self.past_edge() {
-                let at = self.view.rotation().advance(r, self.view.ring());
+                let at = self.view.slot(Row::from_index(r));
                 self.clear_erased_past_edge(at, blank);
             }
             let (row, a, b) = (Row::from_index(r), Col::at_index(a), Col::at_index(b));
@@ -2442,7 +2441,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         // A field that reaches the line's end clears the line past a
         // narrower edge first, as `EA` does a row it erases to its end.
         if b == end && self.past_edge() {
-            let at = self.view.rotation().advance(r.index(), self.view.ring());
+            let at = self.view.slot(r);
             self.clear_erased_past_edge(at, blank);
         }
         let (a, b) = (Col::at_index(a), Col::at_index(b));
@@ -2614,7 +2613,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
     /// Run `f` on the primary's surface whichever screen is up: the view
     /// itself on the primary, and on the alternate screen the parked primary
     /// swapped into the view for the call and back out after it.
-    fn on_primary<R>(&mut self, f: impl FnOnce(&mut View<'_>) -> R) -> R {
+    fn on_primary<R>(&mut self, f: impl FnOnce(&mut View<'_, M::Slots>) -> R) -> R {
         let parked = self.cold.screen == Screen::Alternate;
         if parked {
             self.view.swap_surface(&mut self.other);

@@ -2196,6 +2196,88 @@ const _: for<'a> fn(
 ) -> std::vec::Drain<'a, baud_domain::WindowEffect> = baud_domain::Effects::drain;
 const _: fn() -> baud_domain::Effects = <baud_domain::Effects as Default>::default;
 
+// WindowSlot
+const _: baud_domain::WindowSlot = baud_domain::WindowSlot::UNSET;
+const _: fn(baud_domain::WindowSlot) -> usize = baud_domain::WindowSlot::index;
+// SlotIndex
+fn _slot_index<'a>(store: &'a mut [baud_domain::WindowSlot], rows: baud_domain::Rows) {
+    let _: baud_domain::SlotIndex<'a> = baud_domain::SlotIndex::none();
+    let mut ix: baud_domain::SlotIndex<'a> = baud_domain::SlotIndex::identity(store, rows);
+    let _: baud_domain::Rows = ix.len();
+    let _: bool = ix.is_empty();
+    let _: baud_domain::SlotOrder<'_> = ix.order();
+    ix.rotate(
+        baud_domain::RowRot::NONE,
+        baud_domain::Row::ZERO..=baud_domain::Row::ZERO,
+        rows,
+    );
+    ix.normalise(|_: baud_domain::WindowSlot, _: baud_domain::WindowSlot| {});
+}
+fn _slot_lend(store: &mut [baud_domain::WindowSlot]) -> baud_domain::SlotIndex<'_> {
+    baud_domain::SlotIndex::lend(store)
+}
+// SlotOrder
+fn _slot_order(store: &[baud_domain::WindowSlot]) {
+    let o: baud_domain::SlotOrder<'_> = baud_domain::SlotOrder::of(store);
+    let _: baud_domain::SlotOrder<'static> = baud_domain::SlotOrder::NONE;
+    let _: usize = o.slot(o.position(0));
+    let _: baud_domain::Rows = o.len();
+    let _: bool = o.is_empty() && o.is_identity() && o.is_permutation();
+}
+// SlotMode, Identity, Indexed
+fn _slot_modes<'a>(
+    s: &baud_domain::Surface<'a>,
+    si: baud_domain::Surface<'a, baud_domain::Indexed>,
+    v: &baud_domain::View<'a>,
+    vi: baud_domain::View<'a, baud_domain::Indexed>,
+    store: &mut baud_domain::SurfaceStore<'a>,
+) {
+    fn mode<S: baud_domain::SlotMode>() {}
+    mode::<baud_domain::Identity>();
+    mode::<baud_domain::Indexed>();
+    let _: baud_domain::Identity = s.identity();
+    let _: baud_domain::Identity = v.identity();
+    let i = s.identity();
+    let _: baud_domain::RowRot = i.slot(i.place(baud_domain::RowRot::NONE));
+    let _: Option<baud_domain::Identity> = si.unindexed();
+    let _: baud_domain::RowRot = si.slot(baud_domain::Row::ZERO);
+    let _: Option<baud_domain::Identity> = vi.unindexed();
+    let at: baud_domain::RowRot = vi.slot(baud_domain::Row::ZERO);
+    let _: usize = vi.row_of(at);
+    let _: baud_domain::SlotOrder<'_> = vi.order();
+    let _: baud_domain::SlotOrder<'_> = store.slots();
+    let _: baud_domain::Identity = store.primary_identity();
+    let (live, _, _, slots) = store.split_slots(baud_domain::Which::Alternate);
+    let _: baud_domain::Surface<'_, baud_domain::Indexed> = baud_domain::Surface::lent(
+        live,
+        baud_domain::Rows::ZERO,
+        baud_domain::RowRot::NONE,
+        slots,
+    );
+}
+fn _slot_views<'a>(
+    r: baud_domain::ViewRef<'a>,
+    p: baud_domain::Viewport<'a>,
+    g: &baud_domain::RowGens<'a>,
+    o: baud_domain::SlotOrder<'a>,
+    store: &mut baud_domain::SurfaceStore<'a>,
+    slots: &'a mut [baud_domain::WindowSlot],
+) {
+    let _: baud_domain::ViewRef<'a> = r.through(o);
+    let _: baud_domain::Viewport<'a> = p.through(o);
+    let _: baud_domain::RowAt = g.at(baud_domain::Row::ZERO);
+    store.lend_slots(slots);
+}
+fn _view_lent<'a>(
+    s: baud_domain::Stamped<'a>,
+    ix: baud_domain::SlotIndex<'a>,
+) -> baud_domain::View<'a, baud_domain::Indexed> {
+    let (c, r) = (
+        baud_domain::Cols::of_index(1),
+        baud_domain::Rows::of_index(1),
+    );
+    baud_domain::View::lent(s, c, r, r, baud_domain::RowRot::NONE, ix)
+}
 /// Each type that holds a rule, and the error code its witness expects.
 const WITNESSED: &[(&str, &str)] = &[
     ("ClusterWrites", "E0369"),
@@ -2203,6 +2285,10 @@ const WITNESSED: &[(&str, &str)] = &[
     ("ClusterSlots", "E0624"),
     ("ExportToplevel", "E0451"),
     ("SurfaceHandle", "E0451"),
+    ("WindowSlot", "E0603"),
+    ("SlotIndex", "E0608"),
+    ("Identity", "E0603"),
+    ("Identity", "E0599"),
     ("NoticeToken", "E0451"),
     ("NoticeLiveIdx", "E0423"),
     ("NonZeroMillis", "E0080"),

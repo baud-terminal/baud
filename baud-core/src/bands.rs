@@ -107,6 +107,12 @@ pub(crate) trait BandMode: Copy + 'static {
     /// What a View operation that copies rows is handed: nothing in the
     /// single mode; the copies, to translate after it, banded.
     type Cross: baud_domain::CrossBand + Default + Recorded;
+
+    /// How the screen up at the read's start reads its rows' places: the
+    /// primary, which keeps no index, and an alternate screen whose index is
+    /// the identity, through the identity; any other alternate screen
+    /// through its index ([`OnAlt`], [`SlotsUp`]).
+    type Slots: baud_domain::SlotMode;
 }
 
 /// One table every row resolves through.
@@ -132,6 +138,8 @@ impl BandMode for OneBand {
     }
 
     type Cross = baud_domain::OneTable;
+
+    type Slots = baud_domain::Identity;
 }
 
 /// **The slots the write path interns into**: read through
@@ -267,6 +275,53 @@ impl BandMode for ManyBands {
     }
 
     type Cross = Moves;
+
+    type Slots = baud_domain::Identity;
+}
+
+/// **How a read reads the screen it starts on**, chosen once at its start
+/// from that screen's window-slot index, never per cell: through the
+/// identity for the primary, which keeps no index, and for an alternate
+/// screen whose index is the identity; through the index ([`OnAlt`])
+/// otherwise. A read through the identity holds no index, so nothing it
+/// does can take the index away from the identity.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SlotsUp {
+    Identity,
+    Indexed,
+}
+
+/// **A read that starts on an alternate screen whose window-slot index is
+/// not the identity**: `B`'s tables, and its surfaces read through their
+/// index ([`baud_domain::Indexed`]). The primary and the status line keep
+/// none, so either swapped into the view mid-read reads through the
+/// identity.
+#[derive(Clone, Copy)]
+pub(crate) struct OnAlt<B>(core::marker::PhantomData<B>);
+
+impl<B: BandMode> BandMode for OnAlt<B> {
+    const BANDED: bool = B::BANDED;
+
+    type Table<'a> = B::Table<'a>;
+
+    #[inline(always)]
+    fn lend(all: Table<'_>, band_slots: BandSlots) -> B::Table<'_> {
+        B::lend(all, band_slots)
+    }
+
+    #[inline(always)]
+    fn at(table: &mut B::Table<'_>, band: Band) {
+        B::at(table, band);
+    }
+
+    #[inline(always)]
+    fn band<'s>(table: &'s B::Table<'_>, band: Band) -> &'s [StyleSlot] {
+        B::band(table, band)
+    }
+
+    type Cross = B::Cross;
+
+    type Slots = baud_domain::Indexed;
 }
 
 /// **Every band's slots, and which band the write path is in**: the

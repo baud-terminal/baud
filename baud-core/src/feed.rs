@@ -78,16 +78,44 @@ impl Term<'_> {
     pub fn feed(&mut self, base: BytePos, n: ReadLen) {
         // **A banded terminal takes its own copy of the feed**
         // ([`crate::bands::ManyBands`]): one compare a read.
-        if self.store.bands.is_banded() {
-            return self.feed_banded(base, n);
+        // **So does a read that starts on an alternate screen whose
+        // window-slot index is not the identity**, reading the screen
+        // through it ([`crate::bands::OnAlt`]): the two tests are one
+        // branch, so the copy that reads through the identity is laid out
+        // as the only one inline.
+        let slots = self.slots_up();
+        if self.store.bands.is_banded() | (slots == crate::bands::SlotsUp::Indexed) {
+            return self.feed_other(base, n, slots);
         }
         self.feed_in::<crate::bands::OneBand>(base, n);
     }
 
+    /// **How a read that starts now reads the screen up**
+    /// ([`crate::bands::SlotsUp`]): through the alternate screen's index
+    /// only when that screen is up and its index is not the identity.
+    #[inline(always)]
+    pub(crate) fn slots_up(&self) -> crate::bands::SlotsUp {
+        use crate::bands::SlotsUp;
+        match self.cold.screen {
+            Screen::Normal => SlotsUp::Identity,
+            Screen::Alternate => match self.store.surfaces.slots().is_identity() {
+                true => SlotsUp::Identity,
+                false => SlotsUp::Indexed,
+            },
+        }
+    }
+
     #[cold]
     #[inline(never)]
-    fn feed_banded(&mut self, base: BytePos, n: ReadLen) {
-        self.feed_in::<crate::bands::ManyBands>(base, n);
+    fn feed_other(&mut self, base: BytePos, n: ReadLen, slots: crate::bands::SlotsUp) {
+        use crate::bands::{ManyBands, OnAlt, OneBand, SlotsUp};
+        match (self.store.bands.is_banded(), slots) {
+            (true, SlotsUp::Identity) => self.feed_in::<ManyBands>(base, n),
+            (true, SlotsUp::Indexed) => self.feed_in::<OnAlt<ManyBands>>(base, n),
+            // Reached indexed alone; an index at the identity reads rightly
+            // through this copy too.
+            (false, _) => self.feed_in::<OnAlt<OneBand>>(base, n),
+        }
     }
 
     #[inline(always)]
@@ -172,9 +200,13 @@ impl Term<'_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn feed_playing_on(&mut self, at: BytePos) {
-        match self.store.bands.is_banded() {
-            true => self.feed_read::<AfterStop, crate::bands::ManyBands>(at, ReadLen::ZERO),
-            false => self.feed_read::<AfterStop, crate::bands::OneBand>(at, ReadLen::ZERO),
+        use crate::bands::{ManyBands, OnAlt, OneBand, SlotsUp};
+        let z = ReadLen::ZERO;
+        match (self.store.bands.is_banded(), self.slots_up()) {
+            (true, SlotsUp::Identity) => self.feed_read::<AfterStop, ManyBands>(at, z),
+            (true, SlotsUp::Indexed) => self.feed_read::<AfterStop, OnAlt<ManyBands>>(at, z),
+            (false, SlotsUp::Identity) => self.feed_read::<AfterStop, OneBand>(at, z),
+            (false, SlotsUp::Indexed) => self.feed_read::<AfterStop, OnAlt<OneBand>>(at, z),
         }
     }
 

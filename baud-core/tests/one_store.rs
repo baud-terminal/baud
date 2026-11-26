@@ -47,7 +47,7 @@
 //!   `RowWrite`, which checks a column against the surface's cells, not the
 //!   pitch: sound while a view is never wider than the pitch, so `RowWrite`
 //!   is built only where it is minted, and in the view's module the width is
-//!   written only in `set_geometry` and `View::new`, each after its assert.
+//!   written only in `set_geometry` and `View::lent`, each after its assert.
 //!
 //! Comments are not code: a doc that names a slice type is not a store, so
 //! each line is read up to its `//`. Every failure is printed with its file,
@@ -754,7 +754,7 @@ fn calls_stamp(code: &str) -> bool {
 ///   `RowMut`.
 /// * In the `View`'s module, a `cols` field is written only in
 ///   `set_geometry`, after an `assert!` in it, and a `View {` literal is
-///   built only in a fn `new`, after an `assert!` in that fn: a column at
+///   built only in a fn `lent`, after an `assert!` in that fn: a column at
 ///   or past the pitch would store into the next row, which the token does
 ///   not check.
 /// * The control: the field `row_gen`, the fns `stamp`, `row_at` and
@@ -848,7 +848,7 @@ fn rule_d(lines: &[Line]) -> Vec<String> {
                 }
             }
             if builds(t, "View") {
-                if !in_fn("new") {
+                if !in_fn("lent") {
                     bad.push(format!("Rule D (View built in {f:?}): {}", at()));
                 } else if !checked {
                     bad.push(format!("Rule D (View built before the assert): {}", at()));
@@ -1128,7 +1128,7 @@ fn rule_d_fires_on_what_it_names() {
         "baud-domain/src/grid.rs",
         &[
             "impl<'a> View<'a> {",
-            "    pub fn new(store: Stamped<'a>) -> View<'a> {",
+            "    pub fn lent(store: Stamped<'a>) -> View<'a> {",
             "        assert!(",
             "            cols.index() <= store.stride().index(),",
             "        );",
@@ -1144,7 +1144,7 @@ fn rule_d_fires_on_what_it_names() {
             "    }",
             "}",
             "impl<'a> Grid<'a> {",
-            "    pub fn new(cells: &'a [T]) -> Grid<'a> {",
+            "    pub fn lent(cells: &'a [T]) -> Grid<'a> {",
             "        View {",
             "        }",
             "    }",

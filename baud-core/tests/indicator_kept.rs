@@ -321,7 +321,7 @@ fn enclosing_fn(code: &str, at: usize) -> String {
 /// **Every call that can reach the status line's plane** in `code` (the
 /// file `file`), each as `file fn: call`: `stamped` with any argument but
 /// the two screens' literals, the loop it is called in when its argument
-/// is a variable, and the call after it; and `surfaces.split(`. The
+/// is a variable, and the call after it; and `surfaces.split`, its index or not. The
 /// literal calls are counted beside.
 fn plane_calls(file: &str, code: &str) -> (Vec<String>, usize) {
     let (mut sites, mut literal) = (Vec::new(), 0);
@@ -361,7 +361,7 @@ fn plane_calls(file: &str, code: &str) -> (Vec<String>, usize) {
         sites.push(site);
     }
     let mut from = 0;
-    while let Some(k) = code[from..].find("surfaces.split(") {
+    while let Some(k) = code[from..].find("surfaces.split") {
         let at = from + k;
         from = at + 1;
         sites.push(format!(

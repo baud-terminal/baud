@@ -3,7 +3,10 @@ use crate::*;
 mod cross;
 mod reflow;
 mod store;
-pub use cross::{Band, CrossBand, OneTable, PhysRow};
+pub use cross::{
+    Band, CrossBand, Identity, Indexed, OneTable, PhysRow, SlotIndex, SlotMode, SlotOrder,
+    WindowSlot,
+};
 pub use reflow::{Follow, Recut, Reflowed};
 pub use store::*;
 
@@ -123,13 +126,22 @@ pub struct ViewRef<'a> {
     rows: Rows,
     ring: Rows,
     rot: RowRot,
+    /// The order its ring is read in: [`SlotOrder::NONE`] for a surface that
+    /// keeps no index.
+    slots: SlotOrder<'a>,
 }
 
 impl<'a> ViewRef<'a> {
+    /// The same view, its ring read in `slots`' order: the surface's own
+    /// index, where it keeps one.
+    pub fn through(self, slots: SlotOrder<'a>) -> ViewRef<'a> {
+        ViewRef { slots, ..self }
+    }
+
     fn phys(&self, r: Row) -> usize {
         let ring = self.ring.index();
         let y = r.index() + self.rot.index();
-        if y >= ring { y - ring } else { y }
+        self.slots.slot(if y >= ring { y - ring } else { y })
     }
     pub fn row_slice(&self, r: Row) -> &'a [PackedCell] {
         let a = self.phys(r) * self.stride.index();
@@ -184,7 +196,7 @@ impl<'a> ViewRef<'a> {
 /// ```
 /// fn f(v: &mut baud_domain::View<'_>) { let _ = v.ring_cells(); }
 /// ```
-pub struct View<'a> {
+pub struct View<'a, S: SlotMode = Identity> {
     /// The surface's cells, its marks -- how far glyphs have reached in
     /// each **physical** row, see [`RowExtent`] -- and its rows'
     /// generations, as one [`Stamped`]: every store this view makes goes
@@ -206,6 +218,11 @@ pub struct View<'a> {
     /// comes in at the bottom.
     ring: Rows,
     rot: RowRot,
+    /// **The order its ring is read in**: nothing through the identity, the
+    /// surface's [`SlotIndex`] through an index ([`SlotMode`]). Place
+    /// `(y + rot) % ring` shows window row `y`, and the index says which
+    /// physical row holds it.
+    slots: S::Lent<'a>,
 }
 
 // A `View` is its [`Stamped`] (48 bytes) and four words: 80 bytes, at most
@@ -381,7 +398,10 @@ pub struct Viewport<'a> {
     /// The rotation and the ring the frozen rows are looked up by, when
     /// they are not this view's own: a copy of another view's rows, each in
     /// its place ([`Viewport::styled_from`]).
-    looked_up: Option<(RowRot, Rows)>,
+    looked_up: Option<(RowRot, Rows, SlotOrder<'a>)>,
+    /// The order this view's ring is read in: [`SlotOrder::NONE`] for a
+    /// copy and for a surface that keeps no index.
+    slots: SlotOrder<'a>,
 }
 
 /// **Where a [`Viewport`]'s marks are read from**: a reader's own copy, one
@@ -512,6 +532,7 @@ impl<'a> Viewport<'a> {
             live,
             frozen: None,
             looked_up: None,
+            slots: SlotOrder::NONE,
         }
     }
 
@@ -522,7 +543,7 @@ impl<'a> Viewport<'a> {
         Viewport {
             live: src.live,
             frozen: src.frozen,
-            looked_up: src.frozen.map(|_| (src.rot, src.ring)),
+            looked_up: src.frozen.map(|_| (src.rot, src.ring, src.slots)),
             ..self
         }
     }
@@ -544,7 +565,7 @@ impl<'a> Viewport<'a> {
     /// once a row, never the live table alone.
     pub fn styles(&self, y: Row) -> crate::RowStyles<'a> {
         let p = match self.looked_up {
-            Some((rot, ring)) => rot.advance(y.index(), ring),
+            Some((rot, ring, slots)) => RowRot(slots.slot(rot.advance(y.index(), ring).index())),
             None => RowRot(self.phys(y.index())),
         };
         match self.frozen {
@@ -561,10 +582,16 @@ impl<'a> Viewport<'a> {
         self.frozen.is_some()
     }
 
+    /// The same view, its ring read in `slots`' order: the surface's own
+    /// index, where it keeps one.
+    pub fn through(self, slots: SlotOrder<'a>) -> Viewport<'a> {
+        Viewport { slots, ..self }
+    }
+
     fn phys(&self, y: usize) -> usize {
         let ring = self.ring.index();
         let p = y + self.rot.index();
-        if p >= ring { p - ring } else { p }
+        self.slots.slot(if p >= ring { p - ring } else { p })
     }
 
     /// **The flags, the count and the reach against every cell of the
@@ -627,7 +654,9 @@ impl<'a> Viewport<'a> {
     pub fn back(&self, n: usize) -> Viewport<'a> {
         Viewport {
             rot: self.rot.retreat(n, self.ring),
-            looked_up: self.looked_up.map(|(r, ring)| (r.retreat(n, ring), ring)),
+            looked_up: self
+                .looked_up
+                .map(|(r, ring, slots)| (r.retreat(n, ring), ring, slots)),
             frozen: self.frozen.map(|(f, l)| {
                 (
                     f,
@@ -742,7 +771,7 @@ impl<'a> Viewport<'a> {
     /// every `ring` positions.
     pub fn contiguous(&self) -> Option<&'a [PackedCell]> {
         let (a, n, s) = (self.rot.index(), self.rows.index(), self.stride.index());
-        match a + n <= self.ring.index() {
+        match a + n <= self.ring.index() && self.slots.is_identity() {
             true => Some(&self.cells[a * s..(a + n) * s]),
             false => None,
         }
@@ -751,7 +780,15 @@ impl<'a> Viewport<'a> {
     /// The screen as two slices at the pitch, the rows before the ring's end
     /// and the rows after it, the second empty when the window does not
     /// wrap. Together they are the screen in order, and neither is a copy.
+    ///
+    /// # Panics
+    /// If the ring is read through an index that is not the identity: its
+    /// rows in order are no run of the ring's.
     pub fn parts(&self) -> (&'a [PackedCell], &'a [PackedCell]) {
+        assert!(
+            self.slots.is_identity(),
+            "a ring read out of order has no parts"
+        );
         let (a, n, s, ring) = (
             self.rot.index(),
             self.rows.index(),
@@ -820,20 +857,59 @@ impl core::ops::Index<core::ops::RangeFrom<usize>> for Viewport<'_> {
 /// The surface a [`View`] is not addressing: the other screen's cells, marks,
 /// depth and rotation, held so the two can be swapped without a copy when
 /// `?1049` switches screens.
-pub struct Surface<'a> {
+pub struct Surface<'a, S: SlotMode = Identity> {
     store: Stamped<'a>,
     ring: Rows,
     rot: RowRot,
+    /// The order its ring is read in, as a [`View`]'s.
+    slots: S::Lent<'a>,
 }
 
 /// ```compile_fail,E0616
 /// fn f(s: &baud_domain::Surface<'_>) -> baud_domain::RowRot { s.rot }
 /// ```
-impl<'a> Surface<'a> {
-    /// A surface over `store`: a ring of `ring` rows under rotation `rot`.
+impl<'a> Surface<'a, Identity> {
+    /// A surface over `store`: a ring of `ring` rows under rotation `rot`,
+    /// read in ring order.
     pub fn new(store: Stamped<'a>, ring: Rows, rot: RowRot) -> Surface<'a> {
-        Surface { store, ring, rot }
+        Surface::lent(store, ring, rot, SlotIndex::none())
     }
+
+    /// **Proof it keeps no index**: what a reader that assumes ring order
+    /// is handed.
+    pub fn identity(&self) -> Identity {
+        self.slots
+    }
+}
+
+impl<'a, S: SlotMode> Surface<'a, S> {
+    /// A surface over `store`: a ring of `ring` rows under rotation `rot`,
+    /// read in the order `slots` gives.
+    pub fn lent(
+        store: Stamped<'a>,
+        ring: Rows,
+        rot: RowRot,
+        slots: SlotIndex<'a>,
+    ) -> Surface<'a, S> {
+        Surface {
+            store,
+            ring,
+            rot,
+            slots: S::lend(slots),
+        }
+    }
+
+    /// Proof it keeps no index, when it keeps none.
+    pub fn unindexed(&self) -> Option<Identity> {
+        S::unindexed(&self.slots)
+    }
+
+    /// **The physical row window row `y` is stored in**, through its index.
+    pub fn slot(&self, y: Row) -> RowRot {
+        let p = RowRot::NONE.advance(self.rot.index() + y.index(), self.ring);
+        RowRot(S::slot(&self.slots, p.index()))
+    }
+
     /// Its rotation.
     pub fn rot(&self) -> RowRot {
         self.rot
@@ -869,15 +945,39 @@ impl<'a> View<'a> {
             rows,
             ring,
             rot,
+            slots: SlotOrder::NONE,
         }
     }
     /// A view of `rows` x `cols` over `store`, a ring of `ring` rows under
-    /// rotation `rot`, each row at the store's pitch.
+    /// rotation `rot`, each row at the store's pitch, read in ring order.
     ///
     /// # Panics
     /// If `cols` exceeds the pitch: a column past it would land in the next
     /// row, which a one-character writer's [`RowWrite`] does not check.
     pub fn new(store: Stamped<'a>, cols: Cols, rows: Rows, ring: Rows, rot: RowRot) -> View<'a> {
+        View::lent(store, cols, rows, ring, rot, SlotIndex::none())
+    }
+
+    /// **Proof it keeps no index**: what a reader that assumes ring order
+    /// is handed.
+    pub fn identity(&self) -> Identity {
+        self.slots
+    }
+}
+
+impl<'a, S: SlotMode> View<'a, S> {
+    /// [`View::new`], its ring read in the order `slots` gives.
+    ///
+    /// # Panics
+    /// As [`View::new`].
+    pub fn lent(
+        store: Stamped<'a>,
+        cols: Cols,
+        rows: Rows,
+        ring: Rows,
+        rot: RowRot,
+        slots: SlotIndex<'a>,
+    ) -> View<'a, S> {
         assert!(
             cols.index() <= store.stride().index(),
             "a view wider than its pitch"
@@ -888,7 +988,34 @@ impl<'a> View<'a> {
             rows,
             ring,
             rot,
+            slots: S::lend(slots),
         }
+    }
+
+    /// Proof it keeps no index, when it keeps none.
+    pub fn unindexed(&self) -> Option<Identity> {
+        S::unindexed(&self.slots)
+    }
+
+    /// **The physical row window row `y` is stored in**, through its index:
+    /// what a mark kept by slot is kept at.
+    #[inline(always)]
+    pub fn slot(&self, y: Row) -> RowRot {
+        RowRot(self.phys(y))
+    }
+
+    /// **The window offset physical row `s` shows at**, through the
+    /// index's inverse, from 0 at the window's top: `rows` or more for a
+    /// slot behind the window or past it.
+    pub fn row_of(&self, s: RowRot) -> usize {
+        let ring = self.ring.index();
+        let p = S::position(&self.slots, s.index());
+        (p + ring - self.rot.index()) % ring
+    }
+
+    /// The order its ring is read in.
+    pub fn order(&self) -> SlotOrder<'_> {
+        S::order(&self.slots)
     }
 
     /// The rotation this view holds.
@@ -979,13 +1106,14 @@ impl<'a> View<'a> {
     }
 
     /// Exchange this view's surface with `other`: the cells, marks, depth
-    /// and rotation, leaving the geometry. What `?1049` does now -- the
+    /// rotation and index, leaving the geometry. What `?1049` does now -- the
     /// alternate screen is a second surface rather than a place to park the
     /// primary, so entering and leaving it copies nothing.
-    pub fn swap_surface(&mut self, other: &mut Surface<'a>) {
+    pub fn swap_surface(&mut self, other: &mut Surface<'a, S>) {
         core::mem::swap(&mut self.store, &mut other.store);
         core::mem::swap(&mut self.ring, &mut other.ring);
         core::mem::swap(&mut self.rot, &mut other.rot);
+        core::mem::swap(&mut self.slots, &mut other.slots);
     }
 
     /// The rotation this view is under: screen row `y` is physical row
@@ -1001,10 +1129,11 @@ impl<'a> View<'a> {
     /// The screen's rows as one slice in screen order, when the window does
     /// not wrap around the ring's end; a caller copies through
     /// [`View::window_into`] otherwise. Most of the time it does not: the
-    /// window wraps for `rows` of every `ring` positions.
+    /// window wraps for `rows` of every `ring` positions. A ring read through an
+    /// index that is not the identity is copied too.
     pub fn window(&self) -> Option<&[PackedCell]> {
         let (a, n, s) = (self.rot.index(), self.rows.index(), self.stride().index());
-        match a + n <= self.ring.index() {
+        match a + n <= self.ring.index() && self.order().is_identity() {
             true => Some(&self.store.cells()[a * s..(a + n) * s]),
             false => None,
         }
@@ -1848,7 +1977,7 @@ impl<'a> View<'a> {
         // that `put_ascii_run` reaches once per run and `put` once per cell.
         let ring = self.ring.index();
         let y = r.index() + self.rot.index();
-        if y >= ring { y - ring } else { y }
+        S::slot(&self.slots, if y >= ring { y - ring } else { y })
     }
 
     #[inline(always)]

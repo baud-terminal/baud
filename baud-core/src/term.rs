@@ -2608,7 +2608,7 @@ impl<'b> Term<'b> {
         let (_, used, ring, rot) = self.surface();
         let ring = ring.index();
         let p = y.index() + rot.index();
-        used[if p >= ring { p - ring } else { p }]
+        used[self.slot_order().slot(if p >= ring { p - ring } else { p })]
     }
 
     /// The fence of the cursor's line, as `Paint::line_fence` reads it: the
@@ -2639,6 +2639,25 @@ impl<'b> Term<'b> {
     /// `None` past the last row, as [`Term::row`] answers.
     pub fn line_rendition(&self, y: Row) -> Option<LineRendition> {
         (y.index() < self.rows.index()).then(|| self.row_extent(y).rendition())
+    }
+
+    /// **The order the live surface's ring is read in**: the alternate
+    /// screen's window-slot index, or none on the primary, which keeps none.
+    pub(crate) fn slot_order(&self) -> baud_domain::SlotOrder<'_> {
+        match self.cold.screen {
+            Screen::Normal => baud_domain::SlotOrder::NONE,
+            Screen::Alternate => self.store.surfaces.slots(),
+        }
+    }
+
+    /// **Where slot `s` of the live surface shows**, as an offset from the
+    /// window's top through the index's inverse: the screen's rows or more
+    /// for a slot behind the window or past it.
+    pub(crate) fn window_offset(&self, s: RowRot) -> RowRot {
+        let ring = self.ring();
+        RowRot::NONE
+            .advance(self.slot_order().position(s.index()), ring)
+            .retreat(self.rotation().index(), ring)
     }
 
     /// The live surface: its cells, its marks, its ring and its rotation, by
@@ -4075,7 +4094,8 @@ impl<'b> Term<'b> {
             ring,
             rot,
             live,
-        );
+        )
+        .through(self.slot_order());
         // **A view of the primary reads its rows through the generations**
         // (`crate::freeze`): a row behind the window that was frozen names
         // ids in its generation's words, which `Viewport::styles` gives a
@@ -4130,7 +4150,11 @@ impl<'b> Term<'b> {
             ring,
             rot,
             live,
-        );
+        )
+        .through(match screen {
+            Screen::Normal => baud_domain::SlotOrder::NONE,
+            Screen::Alternate => self.store.surfaces.slots(),
+        });
         (v, top, hist)
     }
 
@@ -4318,7 +4342,7 @@ impl<'b> Term<'b> {
         else {
             return false;
         };
-        let y = row.retreat(self.rotation().index(), self.ring()).index();
+        let y = self.window_offset(row).index();
         let cy = self.cy.index();
         let v = self.viewport();
         y > cy || (y..cy).any(|r| v.wrapped(Row::from_index(r)) == Wrap::Ended)
@@ -4340,14 +4364,8 @@ impl<'b> Term<'b> {
         if self.store.strs.shell.zone != Zone::Prompt {
             return None;
         }
-        let y = self
-            .store
-            .strs
-            .shell
-            .block
-            .start()
-            .retreat(self.rotation().index(), self.ring())
-            .index();
+        let y = self.store.strs.shell.block.start();
+        let y = self.window_offset(y).index();
         (y < self.rows.index()).then(|| Row::from_index(y))
     }
 
@@ -4444,7 +4462,7 @@ impl<'b> Term<'b> {
             (None, None) => return None,
         };
         let on_screen = |r: RowRot| {
-            let y = r.retreat(self.rotation().index(), self.ring()).index();
+            let y = self.window_offset(r).index();
             (y < self.rows.index()).then(|| Row::from_index(y))
         };
         let later = match shell.secondary {
@@ -4567,6 +4585,7 @@ impl<'b> Term<'b> {
             hidden: self.store.book.hidden,
             rot: self.rot,
             ring: self.store.ring_rows(),
+            order: self.store.surfaces.primary_identity(),
         }
     }
 
@@ -6374,7 +6393,8 @@ impl<'b> Term<'b> {
     /// [`Term::marks_dropped`].
     pub fn marks(&self, r: Row, c: Col) -> impl Iterator<Item = u32> + '_ {
         let (cells, _, ring, rot) = self.surface();
-        let v = View::new_ref(cells, self.stride, self.cols, self.rows, ring, rot);
+        let v = View::new_ref(cells, self.stride, self.cols, self.rows, ring, rot)
+            .through(self.slot_order());
         // **Either half of a wide character answers, and the lead is what
         // holds them.** A renderer draws the glyph at the lead and a selection
         // hands back whichever column the pointer landed on -- so a caller
@@ -7949,9 +7969,12 @@ impl Term<'_> {
     /// band mode, and the pen carried back as a read carries it: a banded
     /// write path may have interned it into another band.
     pub(crate) fn outside_read<J: PaintJob>(&mut self, job: J) -> J::Out {
-        match self.store.bands.is_banded() {
-            true => self.outside_read_in::<crate::bands::ManyBands, J>(job),
-            false => self.outside_read_in::<crate::bands::OneBand, J>(job),
+        use crate::bands::{ManyBands, OnAlt, OneBand, SlotsUp};
+        match (self.store.bands.is_banded(), self.slots_up()) {
+            (true, SlotsUp::Identity) => self.outside_read_in::<ManyBands, J>(job),
+            (true, SlotsUp::Indexed) => self.outside_read_in::<OnAlt<ManyBands>, J>(job),
+            (false, SlotsUp::Identity) => self.outside_read_in::<OneBand, J>(job),
+            (false, SlotsUp::Indexed) => self.outside_read_in::<OnAlt<OneBand>, J>(job),
         }
     }
 

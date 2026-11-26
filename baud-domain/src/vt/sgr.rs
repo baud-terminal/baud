@@ -481,7 +481,10 @@ impl<'a> Params<'a> {
     /// one parameter, and btop read 849 MB/s against 859 with the ranges
     /// apart; this shape retires what the loop it replaced did, to within
     /// 0.15% on btop, cava and vim.
-    #[inline]
+    ///
+    /// **Inlined at every call**: each copy of the write path a read runs
+    /// (`baud-core`'s band and slot modes) folds it into its own loop.
+    #[inline(always)]
     pub fn sgr(&self, mut each: impl FnMut(Param, SgrAttr)) {
         let mut at = ParamIdx::FIRST;
         while at.raw_index() < self.len() {

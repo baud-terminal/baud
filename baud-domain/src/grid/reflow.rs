@@ -149,7 +149,7 @@ struct Line {
     shape: Shape,
 }
 
-impl<'a> View<'a> {
+impl<'a, S: crate::SlotMode> View<'a, S> {
     fn lin(&self, c: Cut, i: usize) -> usize {
         (c.base + i) % self.ring.index()
     }

@@ -258,7 +258,8 @@ pub struct WindowAt {
 }
 
 impl WindowAt {
-    /// Window row `y`'s physical row.
+    /// Window row `y`'s place in its ring's order: its physical row when
+    /// the surface keeps no index ([`RowGens::at`] reads through one).
     pub fn at(&self, y: Row) -> RowAt {
         RowAt {
             screen: self.screen,
@@ -281,6 +282,9 @@ pub struct RowGens<'t> {
     at: WindowAt,
     epoch: SealEpoch,
     meta: RowMetas<'t>,
+    /// The order the window's ring is read in: its surface's index, or
+    /// none.
+    slots: crate::SlotOrder<'t>,
 }
 
 /// **Where a [`RowGens`]' generations are read from**: the store's plane,
@@ -301,7 +305,8 @@ impl RowGens<'_> {
     /// **These generations, read from a reader's own copy**: `meta` laid
     /// out in the copy's own ring of `ring` rows, window row 0 at `top`.
     /// The window and the epoch stay the store's, so a reader comparing
-    /// windows to find a scroll compares the store's.
+    /// windows to find a scroll compares the store's. The copy is laid out
+    /// in window order, so it is read with no index.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "built by the render view's fill")
@@ -311,6 +316,17 @@ impl RowGens<'_> {
             at: self.at,
             epoch: self.epoch,
             meta: RowMetas::Lent { meta, top, ring },
+            slots: crate::SlotOrder::NONE,
+        }
+    }
+
+    /// **Window row `y`'s physical row**, through its surface's index:
+    /// what a reader keys a row it keeps on.
+    pub fn at(&self, y: Row) -> RowAt {
+        let at = self.at.at(y);
+        RowAt {
+            p: RowRot(self.slots.slot(at.p.index())),
+            ..at
         }
     }
 
@@ -327,7 +343,7 @@ impl RowGens<'_> {
             return true;
         }
         let (meta, p) = match self.meta {
-            RowMetas::Stored(m) => (m, self.at.at(y).p.index()),
+            RowMetas::Stored(m) => (m, self.at(y).p.index()),
             RowMetas::Lent { meta, top, ring } => (meta, top.advance(y.index(), ring).index()),
         };
         meta.get(p).is_none_or(|m| m.row_gen.0 > kept.closed.0)
@@ -384,6 +400,11 @@ struct Plane<'b> {
     last: WriteGen,
 }
 
+/// The empty index a surface keeps when it keeps none.
+fn no_slots<'b>() -> &'b mut [crate::WindowSlot] {
+    &mut []
+}
+
 /// **Every surface's cells, marks and generations, and the core's clock.**
 /// Held by `baud-core`'s `Storage`, built once, fields private: the way in
 /// to write is [`SurfaceStore::split`] or [`SurfaceStore::stamped`], each a
@@ -396,6 +417,10 @@ pub struct SurfaceStore<'b> {
     prim: Plane<'b>,
     alt: Plane<'b>,
     status: Plane<'b>,
+    /// **The alternate screen's window-slot index and its inverse**
+    /// ([`crate::SlotIndex`]): the one surface that keeps one. Empty until
+    /// [`SurfaceStore::lend_slots`], which reads it as the identity.
+    alt_slots: &'b mut [crate::WindowSlot],
     now: WriteGen,
     epoch: SealEpoch,
     /// The pitch every surface's rows are laid out at, narrow so a
@@ -433,6 +458,7 @@ impl<'b> SurfaceStore<'b> {
                 meta: &mut [],
                 last: WriteGen(0),
             },
+            alt_slots: no_slots(),
             now: WriteGen::FIRST,
             epoch: SealEpoch::fresh(),
             pitch: u32::try_from(stride.index()).expect("a pitch past u32"),
@@ -449,6 +475,57 @@ impl<'b> SurfaceStore<'b> {
             meta: &mut meta[..n],
             last: WriteGen(0),
         };
+    }
+
+    /// **The alternate screen's window-slot index, lent**: the index an
+    /// earlier [`crate::SlotIndex::identity`] laid on `slots`, two entries a
+    /// row of the alternate screen's ring, or none.
+    ///
+    /// # Panics
+    /// If `slots` is neither empty nor two entries a row of the alternate
+    /// screen's marks.
+    pub fn lend_slots(&mut self, slots: &'b mut [crate::WindowSlot]) {
+        assert!(
+            slots.is_empty() || slots.len() == 2 * self.alt.meta.len(),
+            "an index and its inverse, an entry each a row of the alternate screen"
+        );
+        self.alt_slots = slots;
+    }
+
+    /// **The alternate screen's index, to read**: empty, the identity,
+    /// until one is lent.
+    pub fn slots(&self) -> crate::SlotOrder<'_> {
+        crate::SlotOrder::of(self.alt_slots)
+    }
+
+    /// **Proof the primary keeps no index**: the store holds one for the
+    /// alternate screen alone.
+    pub fn primary_identity(&self) -> crate::Identity {
+        crate::grid::cross::identity_of_store()
+    }
+
+    /// [`SurfaceStore::split`], and the alternate screen's index lent with
+    /// them.
+    ///
+    /// # Panics
+    /// As [`SurfaceStore::split`].
+    pub fn split_slots(
+        &mut self,
+        up: Which,
+    ) -> (Stamped<'_>, Stamped<'_>, Stamped<'_>, crate::SlotIndex<'_>) {
+        let (now, pitch) = (self.now, self.pitch);
+        let prim = Stamped::of(&mut self.prim, now, pitch);
+        let alt = Stamped::of(&mut self.alt, now, pitch);
+        let status = Stamped::of(&mut self.status, now, pitch);
+        let slots = match self.alt_slots.is_empty() {
+            true => crate::SlotIndex::none(),
+            false => crate::SlotIndex::lend(self.alt_slots),
+        };
+        match up {
+            Which::Primary => (prim, alt, status, slots),
+            Which::Alternate => (alt, prim, status, slots),
+            Which::Status => panic!("the status line is never the screen up"),
+        }
     }
 
     /// **The three surfaces at once**: the one `up` names, the other screen,
@@ -585,6 +662,10 @@ impl<'b> SurfaceStore<'b> {
             at,
             epoch: self.epoch,
             meta: RowMetas::Stored(self.plane(at.screen).meta),
+            slots: match at.screen {
+                Which::Alternate => self.slots(),
+                Which::Primary | Which::Status => crate::SlotOrder::NONE,
+            },
         }
     }
 
@@ -1344,6 +1425,7 @@ mod lent {
             at,
             epoch,
             meta: RowMetas::Stored(&plane),
+            slots: crate::SlotOrder::NONE,
         };
         let copy = [meta(1), meta(9)];
         let lent = held.lent(&copy, RowRot::NONE, Rows::of_count(2));

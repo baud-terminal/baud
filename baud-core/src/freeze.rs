@@ -81,13 +81,16 @@ pub(crate) struct Main {
     pub(crate) hidden: Rows,
     pub(crate) rot: RowRot,
     pub(crate) ring: Rows,
+    /// **Proof the primary keeps no index**: a line's slot is its place in
+    /// ring order, which [`Main::phys`] and [`Main::line_of`] compute.
+    pub(crate) order: baud_domain::Identity,
 }
 
 impl Main {
     /// The line physical row `p` of the primary holds, when it is retained.
     pub(crate) fn line_of(&self, p: RowRot) -> Option<LineIdx> {
         let ring = self.ring.index();
-        let off = (p.index() + ring - self.rot.index()) % ring;
+        let off = (self.order.place(p).index() + ring - self.rot.index()) % ring;
         if off < self.rows.index() + self.hidden.index() {
             return Some(self.top.plus(Rows::of_count(off)));
         }
@@ -100,12 +103,12 @@ impl Main {
 
     /// The physical row line `l` is at.
     pub(crate) fn phys(&self, l: LineIdx) -> RowRot {
-        match l.since(self.top) {
+        self.order.slot(match l.since(self.top) {
             Some(n) => self.rot.advance(n.index(), self.ring),
             None => self
                 .rot
                 .retreat(self.top.since(l).map_or(0, |n| n.index()), self.ring),
-        }
+        })
     }
 
     pub(crate) fn at(&self, l: LineIdx) -> FrozenAt {
@@ -214,10 +217,18 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
             Screen::Normal => Up::Primary,
             Screen::Alternate => Up::Alternate,
         };
-        let (rot, ring) = match (on_status, up) {
-            (false, Up::Primary) => (self.view.rotation(), self.view.ring()),
-            (true, Up::Primary) => (self.status.rot(), self.status.ring()),
-            (_, Up::Alternate) => (self.other.rot(), self.other.ring()),
+        let (rot, ring, unindexed) = match (on_status, up) {
+            (false, Up::Primary) => (
+                self.view.rotation(),
+                self.view.ring(),
+                self.view.unindexed(),
+            ),
+            (true, Up::Primary) => (
+                self.status.rot(),
+                self.status.ring(),
+                self.status.unindexed(),
+            ),
+            (_, Up::Alternate) => (self.other.rot(), self.other.ring(), self.other.unindexed()),
         };
         Main {
             up,
@@ -227,6 +238,8 @@ impl<'a, 'b, M: crate::bands::BandMode> Paint<'a, 'b, M> {
             hidden: self.book.hidden,
             rot,
             ring,
+            // The primary is lent no index in either mode (`Paint::new`).
+            order: unindexed.expect("the primary keeps no index"),
         }
     }
 

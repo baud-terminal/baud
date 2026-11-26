@@ -748,6 +748,9 @@ pub struct Owned {
     reply: alloc::vec::Vec<u8>,
     alt: alloc::vec::Vec<PackedCell>,
     alt_used: alloc::vec::Vec<RowMeta>,
+    /// The alternate screen's window-slot index and its inverse, two
+    /// entries a row of its ring ([`baud_domain::SlotIndex`]).
+    alt_slots: alloc::vec::Vec<baud_domain::WindowSlot>,
     status: alloc::vec::Vec<PackedCell>,
     status_used: alloc::vec::Vec<RowMeta>,
     clusters: alloc::vec::Vec<ClusterSlot>,
@@ -914,6 +917,11 @@ impl Owned {
             reply: vec![0u8; REPLY],
             alt: vec![PackedCell::EMPTY; span.len()],
             alt_used: vec![RowMeta::ZERO; rows.index()],
+            alt_slots: {
+                let mut s = vec![baud_domain::WindowSlot::UNSET; 2 * rows.index()];
+                baud_domain::SlotIndex::identity(&mut s, rows);
+                s
+            },
             // The status line's row, at the pitch: the widest the main
             // display can be.
             status: vec![PackedCell::EMPTY; stride.index()],
@@ -1067,6 +1075,7 @@ impl Owned {
                     + size_of_val(&self.status[..])
                     + size_of_val(&self.used[..])
                     + size_of_val(&self.alt_used[..])
+                    + size_of_val(&self.alt_slots[..])
                     + size_of_val(&self.status_used[..])
                     + size_of_val(&self.past[..]),
             ),
@@ -1207,6 +1216,7 @@ impl Owned {
             &mut self.status,
             &mut self.status_used,
         ))
+        .with_window_slots(&mut self.alt_slots)
         .with_frozen(FrozenBuf {
             words: &mut self.frozen_words,
             gens: &mut self.frozen_gens,
@@ -1315,6 +1325,7 @@ impl Owned {
             &mut self.status,
             &mut self.status_used,
         ))
+        .with_window_slots(&mut self.alt_slots)
         .with_frozen(FrozenBuf {
             words: &mut self.frozen_words,
             gens: &mut self.frozen_gens,
@@ -2050,6 +2061,21 @@ impl<'b> Storage<'b> {
         );
         self.bands = layout;
         self.style_log.layout = layout;
+        self
+    }
+
+    /// **The alternate screen's window-slot index**, lent: two entries a
+    /// row of its ring, laid by [`baud_domain::SlotIndex::identity`]. A
+    /// store lent none reads the alternate screen in ring order.
+    ///
+    /// # Panics
+    /// If `slots` is not two entries a row of the alternate screen.
+    #[cfg(feature = "alloc")]
+    pub(crate) fn with_window_slots(
+        mut self,
+        slots: &'b mut [baud_domain::WindowSlot],
+    ) -> Storage<'b> {
+        self.surfaces.lend_slots(slots);
         self
     }
 

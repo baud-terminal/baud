@@ -395,11 +395,13 @@ impl Shown {
 /// forget it first, so a writer of the line cannot leave a compose
 /// skipped over its cells. While the line is swapped in, this holds the
 /// main display, and the forgetting is the safe direction.
-pub(crate) struct StatusSurface<'a>(Surface<'a>);
+pub(crate) struct StatusSurface<'a, S: baud_domain::SlotMode = baud_domain::Identity>(
+    Surface<'a, S>,
+);
 
-impl<'a> StatusSurface<'a> {
+impl<'a, S: baud_domain::SlotMode> StatusSurface<'a, S> {
     /// `s`, behind the key.
-    pub(crate) fn new(s: Surface<'a>) -> StatusSurface<'a> {
+    pub(crate) fn new(s: Surface<'a, S>) -> StatusSurface<'a, S> {
         StatusSurface(s)
     }
 
@@ -413,6 +415,11 @@ impl<'a> StatusSurface<'a> {
         self.0.rot()
     }
 
+    /// Proof the surface it holds keeps no index, when it keeps none.
+    pub(crate) fn unindexed(&self) -> Option<baud_domain::Identity> {
+        self.0.unindexed()
+    }
+
     /// Its ring's depth.
     pub(crate) fn ring(&self) -> Rows {
         self.0.ring()
@@ -424,11 +431,11 @@ impl<'a> StatusSurface<'a> {
     }
 
     /// The surface whole, to swap into the view, the key forgotten.
-    pub(crate) fn surface_mut(&mut self, key: &mut Shown) -> &mut Surface<'a> {
+    pub(crate) fn surface_mut(&mut self, key: &mut Shown) -> &mut Surface<'a, S> {
         self.forgetting(key)
     }
 
-    fn forgetting(&mut self, key: &mut Shown) -> &mut Surface<'a> {
+    fn forgetting(&mut self, key: &mut Shown) -> &mut Surface<'a, S> {
         key.forget();
         &mut self.0
     }
@@ -777,8 +784,8 @@ pub(crate) fn compose(mut row: RowMut<'_>, cols: Cols, style: StyleId, ind: Indi
 /// already**: then nothing is stored and the row's generation stays.
 /// Otherwise the row is taken through the forgetting accessor, composed,
 /// and `ind` kept as what it shows.
-fn compose_indicator(
-    line: &mut StatusSurface<'_>,
+fn compose_indicator<S: baud_domain::SlotMode>(
+    line: &mut StatusSurface<'_, S>,
     key: &mut Shown,
     cols: Cols,
     style: StyleId,
