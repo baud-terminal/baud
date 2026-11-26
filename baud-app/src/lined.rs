@@ -59,8 +59,8 @@ use core::ops::Range;
 use baud_core::{Screen, Term};
 use baud_domain::{
     Attrs, ClusterEpoch, Col, Cols, LineRendition, LinkEpoch, LinkId, LinkSet, LinkSlot,
-    PackedCell, Row, RowGens, RowStyles, Rows, Seal, SlotMarks, StyleWord, WalkSteps, WindowAt,
-    Wrap,
+    PackedCell, Row, RowExtent, RowGens, RowLinks, RowStyles, Rows, Seal, SlotMarks, StyleWord,
+    WalkSteps, WindowAt, Wrap,
 };
 use baud_render::{AbsLine, LinkLine, Point, Scrolled, row_of, row_styles_of};
 
@@ -542,8 +542,12 @@ pub struct Scan {
     pub rereads: usize,
     /// Cells read for the link slots they name, by the view's syncs after
     /// the last scan ([`ViewLinks::sync`]): a row's, when it was written or
-    /// came into view.
+    /// came into view, to the row's mark and its last cell.
     pub slot_cells: usize,
+    /// Cells this scan's `OSC 8` runs were read from: a linked row's, when
+    /// it was read, to the row's mark, and to its end only where its last
+    /// cell names a link.
+    pub link_cells: usize,
 }
 
 /// How far the window moved over the lines since the last scan, in rows.
@@ -656,7 +660,7 @@ impl ViewLinks {
         }
         let back = key.back;
         let view = term.view(back);
-        let (cols, rows) = (view.cols().index(), view.rows().index());
+        let rows = view.rows().index();
         let gens = term.row_gens(back);
         let now = gens.window();
         let kept = match self.synced {
@@ -675,8 +679,17 @@ impl ViewLinks {
             let r = Row::from_index(y);
             let written = self.synced.is_none_or(|s| gens.after(r, &s.seal));
             if self.held[y] == Held::Open || written {
-                self.sets[y] = LinkSet::of_cells(view.row(r));
-                self.unscanned.set(self.unscanned.get() + cols);
+                let row = view.row(r);
+                let reach = slot_reach(row, view.extent(r));
+                let mut set = LinkSet::of_cells(reach);
+                let mut read = reach.len();
+                // Past the mark every cell is the last one.
+                if read < row.len() && view.extent(r).links() == RowLinks::May {
+                    set = set.union(LinkSet::of_cells(&row[row.len() - 1..]));
+                    read += 1;
+                }
+                self.sets[y] = set;
+                self.unscanned.set(self.unscanned.get() + read);
             }
         }
         self.held.fill(Held::Copy);
@@ -1837,12 +1850,15 @@ impl Lines {
             self.judged.clear();
         }
         let screen = term.screen();
+        let view = term.view(back);
         for y in top.index()..=bottom.index() {
             let r = Row::from_index(y);
             let line: AbsLine = scrolled.line(back, r);
             let Some((cells, _)) = row_of(term, scrolled, line) else {
                 continue;
             };
+            let cells = slot_reach(cells, view.extent(r));
+            scan.link_cells += cells.len();
             let styles = row_styles_of(term, scrolled, line);
             for (x, &cell) in cells.iter().enumerate() {
                 let id = cell.flags.link();
@@ -1873,6 +1889,21 @@ impl Lines {
                 }
             }
         }
+    }
+}
+
+/// **The cells of `row` that may name a link**, by the row's mark `e`:
+/// none on a row the mark says holds no link; else those before the mark,
+/// past which every cell is the row's last; and the whole row where that
+/// last cell names one.
+fn slot_reach(row: &[PackedCell], e: RowExtent) -> &[PackedCell] {
+    if e.links() == RowLinks::None {
+        return &[];
+    }
+    let to = e.index().min(row.len());
+    match row.last() {
+        Some(c) if to < row.len() && c.flags.link() != LinkId::NONE => row,
+        _ => &row[..to],
     }
 }
 
@@ -2829,6 +2860,72 @@ mod tests {
             "{} cells read for slots, against one row's 200",
             s.slot_cells
         );
+    }
+
+    /// **The cells a frame reads for link slots are the same at any width**:
+    /// the same lines, a link on each, at 80 and at 400 columns, frame by
+    /// frame -- the first, a settled one, a line scrolled in, and a linked
+    /// row written over in place -- read as many cells for their slots, and
+    /// underline the same runs. The control: the frame a linked line came in
+    /// reads some. Named breaks: read each synced row to the width in
+    /// `ViewLinks::sync`; walk each linked row to the width in `osc8`.
+    #[test]
+    fn slot_cells_a_frame_do_not_grow_with_the_width() {
+        let frames = |ws_col: u16| {
+            let ws = WinSize { ws_col, ws_row: 8 };
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            let mut scrolled = at();
+            let fed = |t: &mut Term<'_>, scrolled: &mut Scrolled, bytes: &[u8]| {
+                let before = t.rotation();
+                feed(t, bytes);
+                if let baud_core::Moved::Retired(n) = t.moved_since(before) {
+                    *scrolled = scrolled.advanced(n);
+                }
+            };
+            for n in 0..6 {
+                fed(
+                    &mut t,
+                    &mut scrolled,
+                    linked_line(Row::from_index(n)).as_bytes(),
+                );
+            }
+            let (mut l, mut u, mut views) =
+                (Lines::default(), Uris::default(), ViewLinks::default());
+            let mut read = Vec::new();
+            let mut frame = |t: &mut Term<'_>, scrolled: Scrolled| {
+                let s = l.scan(t, scrolled, &views.sync(t, scrolled), &mut u);
+                let _ = t.seal_writes();
+                read.push((s.slot_cells, s.link_cells));
+            };
+            frame(&mut t, scrolled);
+            frame(&mut t, scrolled);
+            for n in 6..9 {
+                fed(
+                    &mut t,
+                    &mut scrolled,
+                    linked_line(Row::from_index(n)).as_bytes(),
+                );
+                frame(&mut t, scrolled);
+                frame(&mut t, scrolled);
+            }
+            fed(
+                &mut t,
+                &mut scrolled,
+                b"\x1b[3;1H\x1b]8;;https://e.example/again\x1b\\again\x1b]8;;\x1b\\",
+            );
+            frame(&mut t, scrolled);
+            frame(&mut t, scrolled);
+            drop(frame);
+            (read, runs(&l))
+        };
+        let (narrow, wide) = (frames(80), frames(400));
+        assert_eq!(narrow.1, wide.1, "the runs underlined");
+        assert!(
+            narrow.0[2].0 > 0 && narrow.0[2].1 > 0,
+            "the control: a line come in reads slots and is underlined"
+        );
+        assert_eq!(narrow.0, wide.0, "cells read for slots, frame by frame");
     }
 
     /// **The hand shows only under the chord; the look shows without it**, and
