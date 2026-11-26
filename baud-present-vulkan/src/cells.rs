@@ -34,9 +34,9 @@ use baud_present_wayland::{Changed, Px, Strip as Damaged};
 use baud_render::cell_frame::{CU_NAMES, CU_WORDS};
 use baud_render::screens::{SETS, ScreenGen, SetIx};
 use baud_render::{
-    Argb, BaseStamp, CursorDrawn, CursorLook, CursorSide, Decorations, Generation, Highlight,
-    Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, Reach, Redraw, Region, Renderer,
-    Resolved, RowSet, StyleStamp, Tally,
+    Argb, BaseStamp, CellKey, CellSpan, CursorDrawn, CursorLook, CursorSide, Decorations,
+    Generation, Highlight, Instance, Kind, MAP_BITS, MAP_SLOTS, MASK_RECORD, MapEntry,
+    MapGeneration, Reach, Redraw, Region, Renderer, Resolved, RowSet, StyleStamp, Tally, TextFace,
 };
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
@@ -410,6 +410,11 @@ pub struct CellDraw<'a> {
     /// The set's overlay as the frame wrote it, through the slice it was
     /// lent.
     pub overlay: &'a [u8],
+    /// The set's copy of the window and its resolved renditions as the
+    /// frame wrote them, through the slices it was lent: what the cell
+    /// stages read.
+    pub cells: &'a [PackedCell],
+    pub styles: &'a [Resolved],
     /// The records from `moving.0` to `moving.1` move with the cursor or
     /// the clock -- the trail, the blink animation -- and are compared by
     /// the rows they cover (`cell_frame::CellFrame::moving`).
@@ -488,6 +493,71 @@ fn paint_word<T: Copy>(
 /// A count as a word, saturating.
 fn count(n: Elems) -> Word {
     Word(u32::try_from(n.0).unwrap_or(u32::MAX))
+}
+
+/// **The first cell whose glyph a frame looks up in `held` and does not
+/// find**, by draw row and column, read as the glyph stage reads it: each
+/// draw row's cells from the copy at the ring row it names, a cell a
+/// record draws and a word past U+10FFFF passed over, an image
+/// placeholder too, which the map never holds, and the key composed from
+/// the codepoint, its rendition's face and font, and whether the next
+/// cell is its wide tail; probed from its home slot to the first empty
+/// one. None where every key is held.
+fn unheld(
+    renderer: &Renderer<'_, '_>,
+    input: &CellDraw<'_>,
+    held: &[MapEntry],
+) -> Option<(Row, Col)> {
+    if held.len() != MAP_SLOTS {
+        return None;
+    }
+    let (cols, rows) = renderer.grid();
+    let ncols = cols.index();
+    let slide_rows = usize::from(input.slide.is_some());
+    let (ring, stride) = (input.ring.index().max(1), input.stride.index());
+    let rot = input.rotation.index();
+    let (bases, _) = renderer.cell_bases(input.set);
+    for dr in 0..rows.index() + slide_rows {
+        // The overlay's row: the screen's, and for the leaving row the one
+        // after the screen's.
+        let mask_row = dr.checked_sub(slide_rows).unwrap_or(rows.index());
+        let at = ((rot + dr + ring - slide_rows) % ring) * stride;
+        let Some(row) = input.cells.get(at..at + ncols) else {
+            continue;
+        };
+        let base = bases
+            .get(dr)
+            .map_or(0, |&b| usize::try_from(b).unwrap_or(0));
+        for (c, cell) in row.iter().enumerate() {
+            let mask = input.overlay.get(mask_row * ncols + c).copied();
+            if mask.is_some_and(|m| m & MASK_RECORD != 0) {
+                continue;
+            }
+            let Some(cp) = cell.content.as_codepoint() else {
+                continue;
+            };
+            if baud_domain::is_placeholder(cp) {
+                continue;
+            }
+            let face = input
+                .styles
+                .get(base + cell.style.index())
+                .map_or(TextFace::default(), |s| s.shapes.text_face());
+            let key = CellKey::of(cp, face, CellSpan::at(row, Col::at_index(c)));
+            let home = key.0.wrapping_mul(0x9E37_79B1) >> (32 - MAP_BITS);
+            let mut i = usize::try_from(home).unwrap_or(0);
+            for _ in 0..MAP_SLOTS {
+                match held[i].key {
+                    k if k == key => break,
+                    k if k == CellKey::EMPTY => {
+                        return Some((Row::from_index(dr), Col::at_index(c)));
+                    }
+                    _ => i = (i + 1) & (MAP_SLOTS - 1),
+                }
+            }
+        }
+    }
+    None
 }
 
 /// **`CU` for a frame**, from the renderer and what the frame draws from,
@@ -888,6 +958,16 @@ impl CellMemory {
             })
             .sum();
         Uploaded(sets + self.maps.iter().map(|m| m.uploaded().0).sum::<u64>())
+    }
+
+    /// The glyph map buffer `side` names: what a frame's draw reads, the
+    /// device-local copy under staging.
+    pub fn map(&self, side: MapSide) -> &Lent<MapEntry> {
+        let [first, second] = &self.maps;
+        match side {
+            MapSide::First => first,
+            MapSide::Second => second,
+        }
     }
 
     /// The arm the memory is on.
@@ -1432,6 +1512,14 @@ impl Gpu {
         mem.bind_atlas(d, sheets);
         mem.bind_map(d, input.set, input.map.1);
         mem.owe_map(input.map);
+        // Every key the frame looks up is in the entries it reads, staged
+        // those its copy takes: a probe for one never crosses a slot an
+        // insert after the copy fills.
+        debug_assert_eq!(
+            unheld(renderer, input, input.map.0),
+            None,
+            "a cell looks up a key its frame's map was copied without"
+        );
         mem.images_skipped.0 += u64::try_from(renderer.image_placements().len()).unwrap_or(0);
         let cu = cell_uniforms(renderer, input);
         let kind = CursorKind::drawn(renderer, input);

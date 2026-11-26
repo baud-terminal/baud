@@ -529,6 +529,8 @@ impl Presenter {
             map: (self.map.entries(), MapSide::First),
             screen: self.screens.now(),
             overlay: &self.lent.overlay[frame.at.0][..],
+            cells: &self.lent.copies[frame.at.0][..],
+            styles: &self.lent.styles[frame.at.0][..],
             moving: (Elems(frame.moving.0), Elems(frame.moving.1)),
             map_gen: self.map.generation(),
         };

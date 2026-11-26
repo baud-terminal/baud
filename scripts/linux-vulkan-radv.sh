@@ -60,6 +60,7 @@ expect=(
   the_cell_path_is_the_instance_path_on_radv
   the_cell_path_is_the_cpu_path_on_radv
   two_targets_in_turn_are_each_the_whole_frame_on_radv
+  the_staged_map_is_whole_for_its_frame_on_radv
   the_cell_arm_draws_what_the_instance_arm_draws_on_radv
   each_decoration_alone_and_the_cursor_line_draw_alike_on_every_arm_on_radv
   a_coloured_bell_draws_alike_on_every_arm_on_radv

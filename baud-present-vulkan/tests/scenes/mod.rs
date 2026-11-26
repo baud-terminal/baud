@@ -66,7 +66,7 @@ use baud_render::cell_frame::{CellFrame, CellInputs, CellParts, build_with};
 use baud_render::screens::{SETS, Screens, SetIx};
 use baud_render::{
     Blend, Candidate, Composition, Damage, GlyphMap, Highlight, Instance, Kind, Leaving, Lent,
-    Overlay, PxSize, Renderer, Stack, StyleStamp, Target as CpuTarget, Theme,
+    MapStats, Overlay, PxSize, Renderer, Stack, StyleStamp, Target as CpuTarget, Theme,
 };
 
 /// The bytes of a file in the repository, by its path from the root.
@@ -423,6 +423,25 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
         self.frame = Some(frame);
     }
 
+    /// **The glyph map given an entry for every glyph `other`'s screen
+    /// draws**, as a build's walk gives it, without building a frame: the
+    /// renditions read from set 0's table.
+    pub fn insert_from(&mut self, other: &Term<'_>) {
+        let held = self.held.as_mut().expect("the arms' memory");
+        held.map.ensure(
+            other,
+            other.viewport(),
+            &held.lent.styles[0][..],
+            &mut self.renderer,
+            &mut self.candidates,
+        );
+    }
+
+    /// The glyph map's counts.
+    pub fn map_stats(&self) -> MapStats {
+        self.held().map.stats()
+    }
+
     /// **`f` handed the last frame built, as the cell path is handed it**,
     /// and what it draws through.
     pub fn with_frame<R>(
@@ -456,6 +475,8 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
             map: (map.entries(), MapSide::First),
             screen: self.screens.now(),
             overlay: &lent.overlay[frame.at.0][..],
+            cells: &lent.copies[frame.at.0][..],
+            styles: &lent.styles[frame.at.0][..],
             moving: (Elems(frame.moving.0), Elems(frame.moving.1)),
             map_gen: map.generation(),
         };

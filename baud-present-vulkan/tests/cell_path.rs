@@ -23,6 +23,11 @@
 //! back is the same frame drawn whole into a new target, exactly, on both
 //! memory arms, on lavapipe and on RADV.
 //!
+//! **The staged map is whole for its frame.** Staged, a frame left in
+//! flight and then entries inserted into the glyph map: the map the frame
+//! read is the host's at its copy, and the next frame copies the inserted
+//! entries alone.
+//!
 //! RADV needs the GPU, so its tests are `#[ignore]`d and run by name from
 //! `scripts/linux-vulkan-radv.sh`.
 //!
@@ -37,14 +42,14 @@ mod scenes;
 use baud_core::{Owned, Term};
 use baud_domain::WinSize;
 use baud_font::Face;
-use baud_present_vulkan::cells::CellDraw;
+use baud_present_vulkan::cells::{CellDraw, End, Finish, MapSide};
 use baud_present_vulkan::frame::Gpu;
 use baud_present_vulkan::lend::Arm;
 use baud_present_wayland::{Changed, Px};
 use baud_render::cell_frame::{CU_NAMES, CU_WORDS};
-use baud_render::{Redraw, Renderer, Stack, Theme};
+use baud_render::{MapEntry, Redraw, Renderer, Stack, Theme};
 use common::{lavapipe, radv};
-use scenes::{Arms, Frames, differing, feed, jetbrains_mono};
+use scenes::{Arms, Drawing, Frames, differing, feed, jetbrains_mono};
 
 /// **Heap allocations made on this thread while counting is on**, for the
 /// caret frames' bound: a frame that only blinks the cursor allocates
@@ -367,6 +372,120 @@ fn two_targets_in_turn_are_each_the_whole_frame_on_radv() {
     let gpu = radv();
     two_targets(&gpu, Arm::Staging);
     two_targets(&gpu, gpu.arm(1));
+}
+
+/// **A staged frame's glyph map is the map as its copy found it**: a
+/// frame submitted and left in flight where the device allows it, then an
+/// entry inserted into the map for every glyph of a screen the frame does
+/// not show. Once the frame has landed, the map its draw read is the host's
+/// at the copy, slot for slot: every entry inserted before it, and none of
+/// those inserted after. The next frame copies the inserted entries alone
+/// beside its `CU`, and the device's map is then the host's.
+fn staged_map(gpu: &Gpu) {
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, &screen(text));
+    let mut arms = Arms::new(gpu, Arm::Staging, renderer(&faces), &t);
+    arms.build(&mut t);
+    let (w, h) = arms.renderer.whole_size();
+    let target = gpu.target(Px(w.value()), Px(h.value())).expect("a target");
+    let fly = Finish {
+        end: End::Fly,
+        acquire: None,
+    };
+    let copied = arms.with_frame(&t, |d, input| {
+        d.gpu
+            .draw_cells(d.pipes, d.mem, d.sheets, d.renderer, input, &target, fly)
+            .expect("the first frame");
+        slots(input.map.0)
+    });
+    let mut other_owned = Owned::new(&WS);
+    let mut other = Term::new(other_owned.storage(), &WS);
+    feed(&mut other, b"QZJKXW 0123456789 #$%&@ VYqzjkxv");
+    let cleared = arms.map_stats().cleared;
+    arms.insert_from(&other);
+    assert_eq!(
+        arms.map_stats().cleared.value(),
+        cleared.value(),
+        "the premise: the insert empties no slot"
+    );
+    arms.with_frame(&t, |d, input| {
+        let now = slots(input.map.0);
+        let inserted: Vec<usize> = (0..now.len()).filter(|&i| now[i] != copied[i]).collect();
+        assert!(!inserted.is_empty(), "the premise: entries were inserted");
+        assert!(
+            inserted.iter().all(|&i| copied[i][..4] == [0xff; 4]),
+            "the premise: an insert fills slots empty at the copy"
+        );
+        d.mem
+            .settle(d.gpu, d.sheets)
+            .expect("the first frame landed");
+        let held = on_device(d);
+        let apart: Vec<usize> = (0..held.len()).filter(|&i| held[i] != copied[i]).collect();
+        assert!(
+            apart.is_empty(),
+            "the first frame's map differs from the host's at its copy in {} slots, \
+             {} of them inserted after it: {:?}",
+            apart.len(),
+            apart.iter().filter(|i| inserted.contains(i)).count(),
+            apart.iter().take(6).collect::<Vec<_>>()
+        );
+        let before = d.mem.uploaded();
+        d.draw(input, &target);
+        let sent = d.mem.uploaded().0 - before.0;
+        let want = 4 * CU_WORDS + MapEntry::BYTES * inserted.len();
+        assert_eq!(
+            sent,
+            u64::try_from(want).expect("bytes"),
+            "the next frame copies its CU and the {} entries inserted since",
+            inserted.len()
+        );
+        assert!(on_device(d) == now, "the next frame's map is the host's");
+        d.mem.forget(d.gpu, &target);
+        d.gpu.drop_target(target);
+    });
+}
+
+/// Each slot of a glyph map as its 24 bytes lie in the buffer.
+fn slots(entries: &[MapEntry]) -> Vec<[u8; MapEntry::BYTES]> {
+    entries
+        .iter()
+        .map(|e| {
+            let mut b = [0; MapEntry::BYTES];
+            b[0..4].copy_from_slice(&e.key.0.to_le_bytes());
+            b[4..8].copy_from_slice(&e.kind.0.to_le_bytes());
+            for (k, v) in [e.x, e.y, e.w, e.h].iter().enumerate() {
+                b[8 + 2 * k..10 + 2 * k].copy_from_slice(&v.0.to_le_bytes());
+            }
+            b[16..18].copy_from_slice(&e.left.0.to_le_bytes());
+            b[18..20].copy_from_slice(&e.top.0.to_le_bytes());
+            b[20..24].copy_from_slice(&e.pad.0.to_le_bytes());
+            b
+        })
+        .collect()
+}
+
+/// The live glyph map as the device's buffer holds it.
+fn on_device(d: &Drawing<'_, '_, '_>) -> Vec<[u8; MapEntry::BYTES]> {
+    let bytes = d
+        .gpu
+        .read_back(d.mem.map(MapSide::First))
+        .expect("the map read back");
+    bytes.as_chunks::<{ MapEntry::BYTES }>().0.to_vec()
+}
+
+#[test]
+fn the_staged_map_is_whole_for_its_frame() {
+    staged_map(&lavapipe());
+}
+
+/// **On RADV, the same.**
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn the_staged_map_is_whole_for_its_frame_on_radv() {
+    staged_map(&radv());
 }
 
 /// How a frame of [`two_targets`] is drawn into its target.
