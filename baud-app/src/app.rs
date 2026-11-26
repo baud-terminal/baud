@@ -8550,6 +8550,67 @@ mod locator_tests {
 mod drag_tests {
     use super::{Builds, builds};
 
+    /// The pump's text from the end of its feed, the `paced` call's closing
+    /// `&mut took, );`, in a body with comments and every space taken out.
+    fn after_the_feed(pump: &str) -> Option<&str> {
+        const ENDS: &str = "&muttook,);";
+        let fed = pump.find(concat!("crate::reads::", "paced("))?;
+        let end = fed + pump[fed..].find(ENDS)? + ENDS.len();
+        Some(&pump[end..])
+    }
+
+    #[test]
+    fn the_pump_gives_its_buffers_back_right_after_the_feed() {
+        // The reads' buffers go back to the reader as soon as the feed has
+        // read their bytes, before anything else reads `drained`: what
+        // follows reads only each chunk's stamp and how many there were.
+        const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
+        const RELEASE: &str = concat!("drained.", "release();");
+        let bare = |s: &str| {
+            s.lines()
+                .filter(|l| !l.trim_start().starts_with("//"))
+                .flat_map(str::split_whitespace)
+                .collect::<String>()
+        };
+        let first_use = |after: &str| {
+            after
+                .find(RELEASE)
+                .is_some_and(|r| after.find("drained") == Some(r))
+        };
+        // The control: the finder reads the two in that order, and only so.
+        let released = bare(concat!(
+            "crate::reads::",
+            "paced(\n    term,\n    hostlog,\n    &mut took,\n);\n",
+            "drained.",
+            "release();\nif !drained.chunks.is_empty() {}"
+        ));
+        assert!(after_the_feed(&released).is_some_and(first_use));
+        let followed = bare(concat!(
+            "crate::reads::",
+            "paced(\n    &mut took,\n);\nself.app.pty.follow(e);\n",
+            "drained.",
+            "release();\nif !drained.chunks.is_empty() {}"
+        ));
+        assert!(after_the_feed(&followed).is_some_and(first_use));
+        let held = bare(concat!(
+            "crate::reads::",
+            "paced(\n    &mut took,\n);\n",
+            "if !drained.chunks.is_empty() {}\ndrained.",
+            "release();"
+        ));
+        assert!(!after_the_feed(&held).is_some_and(first_use));
+        let pump = crate::app_source::split_once(PUMP)
+            .and_then(|(_, rest)| rest.split_once("\n    fn "))
+            .map(|(body, _)| bare(body))
+            .expect("the pump");
+        let after = after_the_feed(&pump).expect("the feed and its end");
+        assert!(
+            first_use(after),
+            "the buffers go back before anything after the feed reads them: {}",
+            &after[..after.len().min(80)]
+        );
+    }
+
     /// The body of the function whose signature line is `head`, to the
     /// first line that closes at `indent`'s depth.
     fn body<'a>(src: &'a str, head: &str, indent: &str) -> &'a str {
@@ -12634,6 +12695,7 @@ mod motion_tests {
             );
             self.app.pty.follow("#,
             r#"self.app.term.input_encoding());
+            drained.release();
             if let Some(ws) = resized { self.program_resized(ws); }
             if let Some(line) = self.app.clips
                 .core_refusals(&self.app.term, self.app.clipboard.budget)
@@ -14248,6 +14310,8 @@ impl Driver {
         // read (`rig::turn`).
         #[cfg(feature = "effect-probe")]
         rig::turn(&drained);
+        // Held to give the reads' buffers back once the feed has read them.
+        let mut drained = drained;
         for chunk in &drained.chunks {
             self.app
                 .launch_log
@@ -14392,6 +14456,9 @@ impl Driver {
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.
         self.app.pty.follow(self.app.term.input_encoding());
+        // The reads' buffers back to the reader: what follows reads only
+        // each chunk's stamp and how many there were.
+        drained.release();
         if let Some(ws) = resized {
             self.program_resized(ws);
         }

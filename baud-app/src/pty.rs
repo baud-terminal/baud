@@ -720,7 +720,7 @@ pub struct Drained {
     pub stream: Stream,
 }
 
-#[cfg(all(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 impl Drained {
     /// Every chunk's buffer back to the reader, the chunks kept for what
     /// is read of them after the feed (each one's stamp and how many there
