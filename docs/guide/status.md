@@ -88,7 +88,7 @@ one PC, an AMD Ryzen Threadripper 9980X running Linux. On Linux, the
 throughput through a pty is quotable with baud drawing on the CPU and
 indicative with it drawing on the GPU, because the build measured does not
 count, at exit, the frames drawn on the GPU
-([MEASUREMENTS.md](../../MEASUREMENTS.md#six-terminals-through-a-pty-both-drawing-arms-linux-x86_64-2026-11-17)).
+([MEASUREMENTS.md](../../MEASUREMENTS.md#six-terminals-through-a-pty-both-drawing-arms-linux-x86_64-2026-11-18)).
 [Performance](performance.md) says what was measured and how.
 
 ## Getting it
