@@ -1060,8 +1060,9 @@ impl Gpu {
     /// target's allocation, a submission, a step of the cell path's
     /// memory (`CellMemory::new`), a buffer's memory, binding or mapping,
     /// an image's memory, binding or view, the sheets' sampler, the
-    /// pipelines' set layouts, pipeline layouts, render pass and cache, or
-    /// a pipeline's shader modules and the pipeline, as a lost device or
+    /// pipelines' set layouts, pipeline layouts, render pass and cache, a
+    /// pipeline's shader modules and the pipeline, or an instance frame's
+    /// descriptor pool, sets, view and framebuffer, as a lost device or
     /// memory running out would.
     #[cfg(feature = "test-hooks")]
     pub fn fail_at(&self, n: crate::hooks::Calls, code: Failed) {

@@ -220,14 +220,21 @@ impl Gpu {
 
     /// **A texture uploaded from `t`**: [`Gpu::image`], the texels copied
     /// in from a staging buffer, left readable by the fragment stage; the
-    /// CPU waits for the copy.
+    /// CPU waits for the copy. A failure at any step destroys the image and
+    /// the staging buffer.
     #[allow(unsafe_code)]
     pub(crate) fn texture(&self, t: &Texels<'_>) -> Result<Texture, Failed> {
         let d = &self.device;
         let (w, h) = (t.width.0.max(1), t.height.0.max(1));
         let made = self.image(t.texel, t.width, t.height)?;
         let image = made.image;
-        let staging = self.buffer(t.bytes, vk::BufferUsageFlags::TRANSFER_SRC)?;
+        let staging = match self.buffer(t.bytes, vk::BufferUsageFlags::TRANSFER_SRC) {
+            Ok(b) => b,
+            Err(e) => {
+                self.drop_texture(made);
+                return Err(e);
+            }
+        };
         let range = vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .level_count(1)
@@ -391,6 +398,14 @@ impl Gpu {
             Some(_) => Some(pipes.get(Fragment::Glyph, Blend::Normal)?),
             None => None,
         };
+        let mut held = Drawing {
+            gpu: self,
+            buffers: Vec::new(),
+            texture: None,
+            pool: None,
+            view: None,
+            framebuffer: None,
+        };
         let mut uniforms = vec![grid_u];
         if let Some(strips) = &strips {
             let (cell, sides) = ((scene.u[2], scene.u[3]), (scene.u[6], scene.u[8]));
@@ -399,7 +414,7 @@ impl Gpu {
         let mut us = Vec::with_capacity(uniforms.len());
         for u in &uniforms {
             let bytes: Vec<u8> = u.iter().flat_map(|f| f.to_le_bytes()).collect();
-            us.push(self.buffer(&bytes, vk::BufferUsageFlags::UNIFORM_BUFFER)?);
+            us.push(held.buffer(self.buffer(&bytes, vk::BufferUsageFlags::UNIFORM_BUFFER)?));
         }
         let all: Vec<u8>;
         let record_bytes = match &scene.framing {
@@ -409,16 +424,18 @@ impl Gpu {
             }
             None => scene.records,
         };
-        let insts = self.buffer(record_bytes, vk::BufferUsageFlags::STORAGE_BUFFER)?;
+        let insts = held.buffer(self.buffer(record_bytes, vk::BufferUsageFlags::STORAGE_BUFFER)?);
         let effect_u = match effect {
-            Some(bytes) => Some(self.buffer(bytes, vk::BufferUsageFlags::UNIFORM_BUFFER)?),
+            Some(bytes) => {
+                Some(held.buffer(self.buffer(bytes, vk::BufferUsageFlags::UNIFORM_BUFFER)?))
+            }
             None => None,
         };
         // Set 2 only for an effect, whose fragment reads it; a set 0 for each
         // `U`, the grid's first.
         let set_count: usize = if effect_u.is_some() { 3 } else { 2 };
         let extra = us.len() - 1;
-        let backgrounds = self.texture(&scene.backgrounds)?;
+        let backgrounds = held.texture(self.texture(&scene.backgrounds)?);
         let sheets = scene.sheets;
         let sampler = sheets.sampler;
         let (mask_view, color_view, curves_buffer) = sheets.bound();
@@ -436,24 +453,27 @@ impl Gpu {
         let pool_info = vk::DescriptorPoolCreateInfo::default()
             .max_sets(u32::try_from(set_count + extra).unwrap_or(6))
             .pool_sizes(&sizes);
+        self.call()?;
         // SAFETY: as above.
         let pool = unsafe { d.create_descriptor_pool(&pool_info, None) }?;
         self.object_made();
+        held.pool = Some(pool);
         let mut layouts = vec![pipes.sets[0], pipes.sets[1], pipes.sets[2]];
         layouts.truncate(set_count);
         layouts.extend(std::iter::repeat_n(pipes.sets[0], extra));
         let alloc = vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(pool)
             .set_layouts(&layouts);
+        self.call()?;
         // SAFETY: the pool holds exactly these sets.
         let sets = unsafe { d.allocate_descriptor_sets(&alloc) }?;
-        let whole = |b: &Buffer| {
+        let whole = |b: vk::Buffer| {
             [vk::DescriptorBufferInfo::default()
-                .buffer(b.buffer)
+                .buffer(b)
                 .range(vk::WHOLE_SIZE)]
         };
-        let insts_info = whole(&insts);
-        let u_infos: Vec<[vk::DescriptorBufferInfo; 1]> = us.iter().map(whole).collect();
+        let insts_info = whole(insts);
+        let u_infos: Vec<[vk::DescriptorBufferInfo; 1]> = us.iter().copied().map(whole).collect();
         let curves_info = [vk::DescriptorBufferInfo::default()
             .buffer(curves_buffer)
             .range(vk::WHOLE_SIZE)];
@@ -464,7 +484,7 @@ impl Gpu {
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)]
         };
         let (mask_info, color_info, bg_info) =
-            (image(mask_view), image(color_view), image(backgrounds.view));
+            (image(mask_view), image(color_view), image(backgrounds));
         let write = |set: vk::DescriptorSet, binding: u32, kind: vk::DescriptorType| {
             vk::WriteDescriptorSet::default()
                 .dst_set(set)
@@ -474,7 +494,7 @@ impl Gpu {
         let storage = vk::DescriptorType::STORAGE_BUFFER;
         let uniform = vk::DescriptorType::UNIFORM_BUFFER;
         let sampled = vk::DescriptorType::COMBINED_IMAGE_SAMPLER;
-        let effect_info = effect_u.as_ref().map(whole);
+        let effect_info = effect_u.map(whole);
         let mut writes = vec![
             write(sets[0], 0, storage).buffer_info(&insts_info),
             write(sets[0], 1, uniform).buffer_info(&u_infos[0]),
@@ -503,9 +523,11 @@ impl Gpu {
             .view_type(vk::ImageViewType::TYPE_2D)
             .format(vk::Format::B8G8R8A8_UNORM)
             .subresource_range(range);
+        self.call()?;
         // SAFETY: the target's image, alive while `t` is.
         let target_view = unsafe { d.create_image_view(&view_info, None) }?;
         self.object_made();
+        held.view = Some(target_view);
         let attachments = [target_view];
         let fb_info = vk::FramebufferCreateInfo::default()
             .render_pass(pipes.pass())
@@ -513,9 +535,11 @@ impl Gpu {
             .width(t.width.0)
             .height(t.height.0)
             .layers(1);
+        self.call()?;
         // SAFETY: as above.
         let framebuffer = unsafe { d.create_framebuffer(&fb_info, None) }?;
         self.object_made();
+        held.framebuffer = Some(framebuffer);
         // A whole frame draws over every pixel, so what the image held is not
         // kept: from UNDEFINED. A pass over it keeps it: taken back from the
         // compositor's queue family in the layout it was released in.
@@ -676,20 +700,66 @@ impl Gpu {
                 );
             }
         });
-        // SAFETY: the submission has finished, or never started.
-        unsafe {
-            d.destroy_framebuffer(framebuffer, None);
-            d.destroy_image_view(target_view, None);
-            d.destroy_descriptor_pool(pool, None);
-        }
-        for _ in 0..3 {
-            self.object_dropped();
-        }
         sheets.finished(self);
-        for b in us.into_iter().chain([insts]).chain(effect_u) {
-            self.drop_buffer(b);
-        }
-        self.drop_texture(backgrounds);
+        drop(held);
         drawn
+    }
+}
+
+/// **What a frame drawn has made**: its buffers, the backgrounds' texture,
+/// the descriptor pool, the target's view and the framebuffer, kept as the
+/// draw makes each and destroyed newest first when it returns, early or
+/// once its submission has finished.
+struct Drawing<'g> {
+    gpu: &'g Gpu,
+    buffers: Vec<Buffer>,
+    texture: Option<Texture>,
+    pool: Option<vk::DescriptorPool>,
+    view: Option<vk::ImageView>,
+    framebuffer: Option<vk::Framebuffer>,
+}
+
+impl Drawing<'_> {
+    /// `b` kept; its handle.
+    fn buffer(&mut self, b: Buffer) -> vk::Buffer {
+        let handle = b.buffer;
+        self.buffers.push(b);
+        handle
+    }
+
+    /// `t` kept; its view.
+    fn texture(&mut self, t: Texture) -> vk::ImageView {
+        let view = t.view;
+        self.texture = Some(t);
+        view
+    }
+}
+
+impl Drop for Drawing<'_> {
+    #[allow(unsafe_code)]
+    fn drop(&mut self) {
+        let (gpu, d) = (self.gpu, &self.gpu.device);
+        // SAFETY: the submission has finished, or never started, and a
+        // descriptor pool's sets go with it.
+        unsafe {
+            if let Some(f) = self.framebuffer.take() {
+                d.destroy_framebuffer(f, None);
+                gpu.object_dropped();
+            }
+            if let Some(v) = self.view.take() {
+                d.destroy_image_view(v, None);
+                gpu.object_dropped();
+            }
+            if let Some(p) = self.pool.take() {
+                d.destroy_descriptor_pool(p, None);
+                gpu.object_dropped();
+            }
+        }
+        if let Some(t) = self.texture.take() {
+            gpu.drop_texture(t);
+        }
+        for b in self.buffers.drain(..).rev() {
+            gpu.drop_buffer(b);
+        }
     }
 }

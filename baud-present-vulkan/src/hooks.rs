@@ -5,7 +5,8 @@
 //! submission, a step of the cell path's memory, a buffer's memory,
 //! binding or mapping, an image's memory, binding or view, the sheets'
 //! sampler, the pipelines' layouts, pass and cache, a pipeline's shader
-//! modules and the pipeline -- as a lost device or memory running out
+//! modules and the pipeline, an instance frame's descriptor pool, sets,
+//! view and framebuffer -- as a lost device or memory running out
 //! would, and a count of the targets made and not yet dropped says whether
 //! a failure left one behind; a second count, the `Gpu`'s tally, says the
 //! same of the other device objects the crate makes.
