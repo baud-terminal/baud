@@ -2347,6 +2347,58 @@ set beside these.
 frame, or the plasma's frame equal to the no-trail frame (the bench exits
 non-zero on either). Neither happened.
 
+## An image store's epoch move, priced on the GPU path (2026-11-24)
+
+**A move of the image store's epoch that rewrites no placed image costs
+nothing measurable: no texture upload, and its upload, GPU and placing
+columns all inside the A/A's range. A move that rewrites both of two
+placed 256-pixel images uploads both, and costs +59.5..+88.7 us of upload
+and +5.9..+6.8 us of placing a frame.** Taken 2026-11-24, Apple M5 Max,
+macOS 27.3 (26C5035r), on AC, nothing else on the GPU, at `a99f330b`:
+
+```sh
+FRAME_ARMS=cells FRAME_IMAGES=20 \
+  cargo bench -p baud-bench --bench frame_gpu -- ascii/less-pager.raw 4
+```
+
+`frame_gpu`'s waited arm draws the recording's final screen, 200x50 at
+14 px, with two kitty images of 256 pixels square placed on it, then
+draws rounds of four frames, each whole and waited for, the images placed
+before the walk (`Renderer::set_images`) as the GPU path places them:
+`still`, nothing written; `still2`, the same again, the A/A; `store`, a
+third image stored and never placed, which moves the store's epoch; and
+`edit`, both placed images rewritten. 20 frames a kind and round. Each
+kind's column is its round's median less `still`'s on the same round. Four
+runs, the first and each run's first round dropped as cold: 9 rounds.
+
+**The counter is read first.** Image snapshots a frame, each one a
+texture upload, in every round of every run: `still` 0.00, `still2` 0.00,
+`store` 0.00, `edit` 2.00. The bench exits non-zero unless those hold and
+`store` and `edit` both move the epoch; every run exited 0. `edit` is the
+counter's positive control.
+
+Each kind less `still`, median [range over 9 rounds], us a frame:
+
+| column | `still2` (A/A) | `store` | `edit` |
+|---|---:|---:|---:|
+| upload | -0.1 [-0.2..-0.0] | +0.0 [-0.1..-0.0] | **+62.6 [+59.5..+88.7]** |
+| GPU start to end | -0.0 [-0.4..+0.3] | +0.0 [-0.2..+0.4] | +0.7 [+0.1..+1.4] |
+| placing | -0.0 [-0.1..+0.0] | -0.2 [-0.3..-0.1] | **+5.9 [+5.9..+6.8]** |
+
+`still` itself read 0.4-0.5 us of upload, 0.9-1.0 us of placing and
+64-293 us of GPU a frame (the GPU's clock moved between rounds). `store`
+overlaps the A/A on every column (its placing meets it at -0.1), so it
+has no cost to quote. `edit`'s
+upload and placing are clear of the A/A; its GPU column overlaps it, so
+no GPU cost is quoted. `edit`'s rows are what an epoch move would cost if
+it dropped every placed image's texture; `store`'s are what it costs when
+the texture is kept. This is this Mac's unified memory at one image size;
+other sizes and any discrete GPU are unmeasured.
+
+**What would have proven this wrong:** `store` taking a snapshot, a run
+exiting non-zero, or `store`'s upload range clear of the A/A's. None
+happened.
+
 ## The glass's backdrop premultiplied once a run (measured, no change)
 
 **A memo of the premultiplied backdrop paints the see-through page no
