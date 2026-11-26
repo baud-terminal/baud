@@ -151,8 +151,8 @@ use crate::bell::Moment;
 use crate::fg::StartTime;
 use crate::lined::{Lines, Uris};
 use crate::paths::{
-    Candidate, CoreLines, Front, Handler, LineOn, LineSpan, Links, Marks, Moved, Owed, Owes,
-    PartLines, Paths, PathsAt, Probe, Program, ProgramDir, Turned,
+    Candidate, CoreLines, Front, Handler, HeldLines, LineOn, LineSpan, Links, Marks, Moved, Owed,
+    Owes, PartLines, Paths, PathsAt, Probe, Program, ProgramDir, Turned,
 };
 use crate::sys::Pid;
 
@@ -1377,28 +1377,262 @@ fn joined(a: Option<LineSpan>, b: Option<LineSpan>) -> Option<LineSpan> {
 
 /// `span` held under `g`, where it is not already: the holds move only
 /// when it is new.
-fn hold(held: &mut Tracked<SpanSet<LineSpan, Option<Pid>>>, (g, span): (Option<Pid>, LineSpan)) {
-    if !held.get().keys_of(span).any(|k| k == g) {
-        let mut steps = WalkSteps::ZERO;
-        let _ = held.edit().insert(span, g, &mut steps);
+fn hold(held: &mut Holds, (g, span): (Option<Pid>, LineSpan)) {
+    let mut steps = WalkSteps::ZERO;
+    let Some(more) = held.take_in(vec![(span, g)], &mut steps) else {
+        return;
+    };
+    if held.get().keys_of(span).any(|k| k == g) {
+        return;
+    }
+    match held.get().len().index() < HOLD_CAP {
+        true => {
+            let _ = held.edit().insert(span, g, &mut steps);
+        }
+        false => held.collapse(more),
     }
 }
 
 /// **Each of `more`'s spans held under its group, by one merge**
 /// (`SpanSet::extend_sorted`): a pair already held is dropped first, so
 /// the holds move once, and only when one is new. Each group looked at and
-/// each pair compared is counted in `steps`.
-fn hold_all(
-    held: &mut Tracked<SpanSet<LineSpan, Option<Pid>>>,
-    mut more: Vec<(LineSpan, Option<Pid>)>,
-    steps: &mut WalkSteps,
-) {
+/// each pair compared is counted in `steps`. Past [`HOLD_CAP`] holds, every
+/// hold and `more` collapse into one over every line ([`Holds::collapse`]),
+/// which takes in every later pair by its group and its hull alone.
+fn hold_all(held: &mut Holds, more: Vec<(LineSpan, Option<Pid>)>, steps: &mut WalkSteps) {
+    let Some(mut more) = held.take_in(more, steps) else {
+        return;
+    };
     more.retain(|&(span, g)| {
         let mut keys = held.get().keys_of(span).inspect(|_| steps.bump());
         !keys.any(|k| k == g)
     });
-    if !more.is_empty() {
-        held.edit().extend_sorted(&mut more, steps);
+    if more.is_empty() {
+        return;
+    }
+    match held.get().len().index() + more.len() <= HOLD_CAP {
+        true => held.edit().extend_sorted(&mut more, steps),
+        false => held.collapse(more),
+    }
+}
+
+/// **The most holds kept each on its lines** (`Probes::held`): past it they
+/// collapse into one hold over every line ([`HoldCollapses`]), so what a
+/// re-cut or an answer compares stays bounded however many lines it moves.
+const HOLD_CAP: usize = 4096;
+
+/// **The times the holds passed [`HOLD_CAP`] and collapsed into one hold
+/// over every line**, saturating: each is coarse and correct, and the count
+/// says the cap is short. Counted only by a collapse: the field is private,
+/// so no count starts anywhere but at [`HoldCollapses::ZERO`], and none is
+/// read but by comparing it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct HoldCollapses(u64);
+
+impl HoldCollapses {
+    /// None taken.
+    pub const ZERO: HoldCollapses = HoldCollapses(0);
+
+    /// One more collapse.
+    fn bump(&mut self) {
+        self.0 = self.0.saturating_add(1);
+    }
+}
+
+/// **Where the holds stand** ([`Holds`]): each on its own lines, or past
+/// [`HOLD_CAP`] one hold over every line.
+enum AllHeld {
+    /// Each hold stands on its own lines under its group.
+    No,
+    /// **One hold over every line**: every line reads held. `groups` are
+    /// the groups whose holds it took in, each released as its own holds
+    /// are -- by the answer naming it, or once none of its lines is left to
+    /// name -- and the hold goes with the last of them; `over` is the hull,
+    /// on each surface, of every line those holds covered, carried and cut
+    /// as they would have been, and filed not known as the hold goes: which
+    /// group's text each of its lines holds is not kept, so no answer
+    /// lights one.
+    Yes {
+        groups: Vec<Option<Pid>>,
+        over: Vec<LineSpan>,
+    },
+}
+
+/// **The lines still to be named that a local answer for another writer
+/// was filed over, by the group still to name them** (`Probes::held`):
+/// each hold on its lines, at most [`HOLD_CAP`] of them, and past that one
+/// hold over every line, counted. Every change to either moves `each`'s
+/// generation, which [`Probes::publish`] hands on with them.
+struct Holds {
+    each: Tracked<SpanSet<LineSpan, Option<Pid>>>,
+    all: AllHeld,
+    collapses: HoldCollapses,
+}
+
+impl Holds {
+    fn new() -> Holds {
+        Holds {
+            each: Tracked::new(SpanSet::new()),
+            all: AllHeld::No,
+            collapses: HoldCollapses::ZERO,
+        }
+    }
+
+    /// The holds each on its lines: none while one holds every line.
+    fn get(&self) -> &SpanSet<LineSpan, Option<Pid>> {
+        self.each.get()
+    }
+
+    /// The holds each on its lines, to change: the generation moves.
+    fn edit(&mut self) -> &mut SpanSet<LineSpan, Option<Pid>> {
+        self.each.edit()
+    }
+
+    /// Where the holds stand.
+    fn generation(&self) -> PendingGen {
+        self.each.generation()
+    }
+
+    /// The holds each on its lines, with their generation, as
+    /// `Paths::set_pending` takes them.
+    fn tracked(&self) -> &Tracked<SpanSet<LineSpan, Option<Pid>>> {
+        &self.each
+    }
+
+    /// Whether every line reads held, as `Paths::set_held_lines` takes it.
+    fn lines(&self) -> HeldLines {
+        match self.all {
+            AllHeld::No => HeldLines::Each,
+            AllHeld::Yes { .. } => HeldLines::All,
+        }
+    }
+
+    /// The hull of every line the hold over every line took in, on each
+    /// surface; none while each hold stands on its own lines.
+    fn over(&self) -> &[LineSpan] {
+        match &self.all {
+            AllHeld::No => &[],
+            AllHeld::Yes { over, .. } => over,
+        }
+    }
+
+    /// The groups whose holds the hold over every line took in: any line
+    /// may be held under any of them. None while each stands on its own.
+    fn all_groups(&self) -> &[Option<Pid>] {
+        match &self.all {
+            AllHeld::No => &[],
+            AllHeld::Yes { groups, .. } => groups,
+        }
+    }
+
+    /// **`more` taken in by the hold over every line**, if it stands: each
+    /// pair's group added and its span joined to the hull, each counted in
+    /// `steps`. `more` back, untaken, while each hold stands on its own.
+    fn take_in(
+        &mut self,
+        more: Vec<(LineSpan, Option<Pid>)>,
+        steps: &mut WalkSteps,
+    ) -> Option<Vec<(LineSpan, Option<Pid>)>> {
+        let AllHeld::Yes { groups, over } = &mut self.all else {
+            return Some(more);
+        };
+        let mut moved = false;
+        for (span, g) in more {
+            steps.bump();
+            if !groups.contains(&g) {
+                groups.push(g);
+            }
+            moved |= hull_in(over, span);
+        }
+        if moved {
+            let _ = self.each.edit();
+        }
+        None
+    }
+
+    /// **`more` held past the cap: every hold, and `more`, collapsed into
+    /// one over every line**, the collapse counted.
+    fn collapse(&mut self, more: Vec<(LineSpan, Option<Pid>)>) {
+        let each = core::mem::replace(self.each.edit(), SpanSet::new());
+        let (mut groups, mut over) = (Vec::new(), Vec::new());
+        for (span, g) in each.iter().chain(more) {
+            if !groups.contains(&g) {
+                groups.push(g);
+            }
+            let _ = hull_in(&mut over, span);
+        }
+        self.all = AllHeld::Yes { groups, over };
+        self.collapses.bump();
+    }
+
+    /// **The groups `waits` keeps, and the hold over every line released
+    /// with the last of them**: its hull back, to be filed, where it went.
+    fn release(&mut self, waits: impl Fn(Option<Pid>) -> bool) -> Option<Vec<LineSpan>> {
+        let AllHeld::Yes { groups, over } = &mut self.all else {
+            return None;
+        };
+        groups.retain(|&g| waits(g));
+        if !groups.is_empty() {
+            return None;
+        }
+        let over = core::mem::take(over);
+        self.all = AllHeld::No;
+        let _ = self.each.edit();
+        Some(over)
+    }
+
+    /// **The hull less the lines `erased`**, joined again on each surface.
+    fn cut(&mut self, erased: LineSpan) {
+        let AllHeld::Yes { over, .. } = &mut self.all else {
+            return;
+        };
+        if !over.iter().any(|o| o.meet(erased).is_some()) {
+            return;
+        }
+        let pieces: Vec<LineSpan> = over.drain(..).flat_map(|o| o.outside(erased)).collect();
+        for piece in pieces {
+            let _ = hull_in(over, piece);
+        }
+        let _ = self.each.edit();
+    }
+
+    /// **The hull carried where `carry` says its text went**, joined again
+    /// on each surface.
+    fn carry(&mut self, carry: impl Fn(LineSpan) -> LineSpan) {
+        let AllHeld::Yes { over, .. } = &mut self.all else {
+            return;
+        };
+        if over.iter().all(|&o| carry(o) == o) {
+            return;
+        }
+        let carried: Vec<LineSpan> = over.drain(..).map(&carry).collect();
+        for span in carried {
+            let _ = hull_in(over, span);
+        }
+        let _ = self.each.edit();
+    }
+
+    /// Every hold dropped, each and over every line; the count kept.
+    fn clear(&mut self) {
+        *self.each.edit() = SpanSet::new();
+        self.all = AllHeld::No;
+    }
+}
+
+/// **`span` joined to the hull on its surface**, or the first there:
+/// whether the hull moved.
+fn hull_in(over: &mut Vec<LineSpan>, span: LineSpan) -> bool {
+    match over.iter_mut().find(|o| o.surface() == span.surface()) {
+        Some(o) => {
+            let joined = o.joined(span);
+            let moved = joined != *o;
+            *o = joined;
+            moved
+        }
+        None => {
+            over.push(span);
+            true
+        }
     }
 }
 
@@ -2492,7 +2726,7 @@ pub struct Probes<T> {
     /// of its own until named, so those lines read as not known
     /// (`Paths::set_pending`) until the answer naming their own group is
     /// filed on them as well (`Probes::file_answered`).
-    held: Tracked<SpanSet<LineSpan, Option<Pid>>>,
+    held: Holds,
     /// The group whose verdict each line's facts came from (G1): a group
     /// still to be named writing over lines another lit holds them.
     lit: Lit,
@@ -2593,7 +2827,7 @@ impl<T: Moment> Probes<T> {
             probe_runs: baud_render::Tally::default(),
             hold_steps: WalkSteps::ZERO,
             cursors: Vec::new(),
-            held: Tracked::new(SpanSet::new()),
+            held: Holds::new(),
             lit: Lit::default(),
             off: Vec::new(),
             shell_group: None,
@@ -2660,6 +2894,12 @@ impl<T: Moment> Probes<T> {
     #[cfg(test)]
     fn hold_steps(&self) -> WalkSteps {
         self.hold_steps
+    }
+
+    /// The times the holds collapsed into one hold over every line, so far.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn hold_collapses(&self) -> HoldCollapses {
+        self.held.collapses
     }
 
     /// **A drain of reads was taken**, the cursor on `began` before the first
@@ -3092,7 +3332,8 @@ impl<T: Moment> Probes<T> {
     /// sent and not yet answered.
     fn pending(&self) -> impl Iterator<Item = LineSpan> + '_ {
         let held = self.held.get().iter().map(|e| e.0);
-        self.kept.get().spans().chain(held)
+        let over = self.held.over().iter().copied();
+        self.kept.get().spans().chain(held).chain(over)
     }
 
     /// Where the lines still to be named and the holds stand: the pair
@@ -3113,7 +3354,8 @@ impl<T: Moment> Probes<T> {
         let began = std::time::Instant::now();
         if paths.pending_at() != Some(self.gens()) {
             let pending = SpanSet::of_unsorted(self.pending().map(|s| (s, ())));
-            paths.set_pending(self.gens(), pending, &self.held);
+            paths.set_held_lines(self.held.lines(), self.held.over());
+            paths.set_pending(self.gens(), pending, self.held.tracked());
         }
         #[cfg(test)]
         {
@@ -3160,8 +3402,10 @@ impl<T: Moment> Probes<T> {
         steps: &mut WalkSteps,
     ) -> Vec<Option<Pid>> {
         let held = self.held.get().keys_of(span);
+        let all = self.held.all_groups().iter().copied();
         kept.keys_of(span)
             .chain(held)
+            .chain(all)
             .inspect(|_| steps.bump())
             .collect()
     }
@@ -3234,6 +3478,9 @@ impl<T: Moment> Probes<T> {
             Some(g) => kept.seen.iter().any(|e| e.0 == g),
             None => kept.unnamed.is_some(),
         } || kept.inflight.iter().any(|e| e.1 == h);
+        for span in self.held.release(named).into_iter().flatten() {
+            paths.written_under(crate::paths::Seen::NotNamed, span);
+        }
         if self.held.get().iter().all(|(_, h)| named(h)) {
             return;
         }
@@ -3328,6 +3575,7 @@ impl<T: Moment> Probes<T> {
             let left = SpanSet::of_unsorted(left);
             *self.held.edit() = left;
         }
+        self.held.cut(erased);
         self.off = core::mem::take(&mut self.off)
             .into_iter()
             .flat_map(|o| o.outside(erased))
@@ -3355,6 +3603,7 @@ impl<T: Moment> Probes<T> {
         if self.held.get().iter().any(|e| moves(e.0)) {
             self.held.edit().map_spans(&carry);
         }
+        self.held.carry(&carry);
         for o in &mut self.off {
             *o = carry(*o);
         }
@@ -3489,6 +3738,9 @@ impl<T: Moment> Probes<T> {
                 }
                 h != g
             });
+            for span in self.held.release(|h| h != g).into_iter().flatten() {
+                paths.written_under(Seen::NotNamed, span);
+            }
             let mine = |&(i, h, _): &(Id, Option<Pid>, LineSpan)| i <= id && h == g;
             // A verdict that lights holds every other writer's lines it
             // lands on.
@@ -4178,7 +4430,7 @@ impl<T: Moment> Probes<T> {
         }
         *self.kept.edit() = Kept::default();
         self.cursors.clear();
-        *self.held.edit() = SpanSet::new();
+        self.held.clear();
         self.lit.clear();
         self.off.clear();
         self.publish(paths);
@@ -9745,6 +9997,142 @@ mod tests {
         assert!(
             steps <= most,
             "the re-cut took {steps} steps to put its holds in, against the bound {most}"
+        );
+    }
+
+    /// **`moved` lines of thirty columns kept to send under group 2, and
+    /// `held` lines of the alternate screen held under group 9, re-cut from
+    /// 40 columns to 20** (`Probes::recut`), each kept line's text then on
+    /// two lines and held under group 2 there. Every line of the primary
+    /// is then filed local, so a line reads not known only where it is
+    /// held. The
+    /// probes, the paths, the primary's last line after the re-cut, and
+    /// the steps its holds took.
+    fn recut_kept(moved: Rows, held: Rows) -> (Probes<Instant>, Paths, AbsLine, WalkSteps) {
+        use crate::paths::Seen;
+        let (moved, held) = (moved.index(), held.index());
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 4,
+        };
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::with_history(
+            &ws,
+            &baud_core::CacheGeometry::UNKNOWN,
+            baud_core::Depth::of(4 * moved),
+        );
+        let mut t = Term::new(owned.storage(), &ws);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let mut counts = crate::keep::Counts::new(&t);
+        let text: Vec<u8> = (0..moved + 10)
+            .flat_map(|i| format!("{i:05}{}\r\n", "y".repeat(25)).into_bytes())
+            .collect();
+        t.write_at(BytePos::ZERO, &text);
+        t.feed(BytePos::ZERO, ReadLen::from_index(text.len()));
+        let _ = t.take_record();
+        let _ = counts.numbered(&t, None);
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let group = Pid::try_from(2).expect("a pid");
+        pr.kept
+            .edit()
+            .seen
+            .push((group, LineSpan::of(line(0), line(moved - 1))));
+        let alternate = crate::paths::Surface::Alternate(crate::paths::AltEpoch::default());
+        for h in 0..held {
+            hold(
+                &mut pr.held,
+                (Some(9), LineSpan::on(alternate, line(h), line(h))),
+            );
+        }
+        pr.publish(&mut paths);
+        let was = (t.geometry().0, t.screen());
+        let was_last = crate::paths::last_line(&t, counts.primary());
+        let mut recuts = crate::paths::Recuts::default();
+        let _ = recuts.resize(
+            &mut t,
+            &WinSize {
+                ws_col: 20,
+                ws_row: 4,
+            },
+        );
+        let rec = t.take_record();
+        let _ = crate::keep::kept_across_resize(&t, was, None, &mut counts, &rec);
+        pr.hold_steps = WalkSteps::ZERO;
+        pr.resized(&mut paths, (&rec, recuts.last()), &t, was_last, &counts);
+        let steps = pr.hold_steps();
+        let last = crate::paths::last_line(&t, counts.primary());
+        paths.written_under(Seen::Named(Front::Local), LineSpan::of(line(0), last));
+        (pr, paths, last, steps)
+    }
+
+    /// **A re-cut of M = 2,149 moved lines beside P = 200 holds stays under
+    /// the cap** ([`HOLD_CAP`]) and puts its holds in by one merge: at most
+    /// (M + P)·⌈log2 (M + P)⌉ = 28,188 steps (`Probes::hold_steps`). The
+    /// controls: every moved line held once under its group, no collapse,
+    /// and the steps counted.
+    #[test]
+    fn a_recut_of_2149_lines_dedups_its_holds_under_the_cap() {
+        const MOVED: usize = 2_149;
+        const HELD: usize = 200;
+        let (pr, _paths, _, steps) = recut_kept(Rows::of_count(MOVED), Rows::of_count(HELD));
+        let steps = steps.get();
+        let mine = pr.held.get().iter().filter(|e| e.1 == Some(2)).count();
+        assert_eq!(
+            (mine, pr.held.get().len().index(), pr.hold_collapses()),
+            (MOVED, MOVED + HELD, HoldCollapses::ZERO),
+            "the control: each moved line held once under its group, under the cap"
+        );
+        assert!(steps > 0, "the control: the steps counted");
+        let n = MOVED + HELD;
+        let log = u64::from(usize::BITS - (n - 1).leading_zeros());
+        let most = u64::try_from(n).expect("a small count") * log;
+        assert!(
+            steps <= most,
+            "the re-cut took {steps} steps to put its {n} holds in, against the bound {most}"
+        );
+    }
+
+    /// **A re-cut of one line past the cap collapses the holds into one
+    /// over every line** ([`HOLD_CAP`] + 1 moved lines kept under group 2):
+    /// every line of the primary, moved or not, reads not known, and the
+    /// collapse is counted once. Group 2's local answer releases it, as it
+    /// releases that group's own holds: the lines the holds covered are
+    /// filed not known, and a line past them reads local again -- the
+    /// control that the local fact survived the re-cut. Named break: the
+    /// holds past the cap dropped, which leaves a moved line lit.
+    #[test]
+    fn past_the_hold_cap_every_line_is_held_and_the_collapse_counted() {
+        use crate::paths::Seen;
+        let (mut pr, mut paths, last, _) = recut_kept(Rows::of_count(HOLD_CAP + 1), Rows::ZERO);
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let (mut lit, mut lines, mut at) = (Vec::new(), 0, line(0));
+        while at <= last {
+            if paths.origin(at) != Origin::Unknown {
+                lit.push(at);
+            }
+            lines += 1;
+            at = at.below();
+        }
+        assert_eq!(
+            (lit.len(), lit.first().copied(), pr.hold_collapses()),
+            (0, None, HoldCollapses(1)),
+            "every line of {lines} held, and one collapse counted"
+        );
+        pr.file_answered(
+            &mut paths,
+            (Id::default(), Kind::Screen),
+            &[(Some(2), Seen::Named(Front::Local))],
+            &[],
+        );
+        assert_eq!(
+            (
+                paths.origin(line(0)),
+                paths.origin(last),
+                pr.hold_collapses()
+            ),
+            (Origin::Unknown, Origin::Local, HoldCollapses(1)),
+            "released by its group's answer: held lines not known, the rest local"
         );
     }
 

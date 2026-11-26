@@ -1593,6 +1593,17 @@ pub enum Seen {
     NotNamed,
 }
 
+/// **Whether the holds stand each on its lines, or as one over every line**
+/// (`probe::Holds`), as [`Paths::set_held_lines`] takes them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum HeldLines {
+    /// A line reads held where a hold covers it ([`Paths::held_over`]).
+    #[default]
+    Each,
+    /// Every line reads held.
+    All,
+}
+
 /// **What wrote a row**, from the facts filed over it ([`Facts::provenance`]),
 /// in the order one outweighs another: a row is local only if everything
 /// filed over it is, any remote writer makes it remote, and a writer not
@@ -1957,6 +1968,9 @@ pub struct Paths {
     /// generation, so a look for a held line is one binary search
     /// ([`Paths::held_over`]); none until the holds are first taken.
     held_cover: Option<HeldCover<LineSpan>>,
+    /// **Whether every line reads held** ([`Paths::set_held_lines`]): the
+    /// holds collapsed into one over every line.
+    held_lines: HeldLines,
     /// Where those spans and the holds stood when last taken
     /// ([`Paths::pending_at`]).
     pending_at: Option<(PendingGen, PendingGen)>,
@@ -2895,6 +2909,9 @@ impl Paths {
     /// `last` of `surface`**: one binary search of the holds' runs, its
     /// steps counted.
     fn held_over(&self, surface: Surface, (first, last): (AbsLine, AbsLine)) -> bool {
+        if self.held_lines == HeldLines::All {
+            return true;
+        }
         let Some(cover) = &self.held_cover else {
             return false;
         };
@@ -2907,6 +2924,22 @@ impl Paths {
         let met = cover.meets(surface, first, last, &mut steps);
         self.held_steps.set(steps);
         met
+    }
+
+    /// **Whether every line reads held**, as the holds stand
+    /// (`probe::Holds`): where that changes, the lines `over` covers -- the
+    /// hull of every line the hold over every line took in -- are read
+    /// again ([`Reader::refiled`]), and so is a link's look under the
+    /// pointer.
+    pub fn set_held_lines(&mut self, lines: HeldLines, over: &[LineSpan]) {
+        if self.held_lines == lines {
+            return;
+        }
+        self.held_lines = lines;
+        for &span in over {
+            self.refiled = Some(self.refiled.map_or(span, |r| r.joined(span)));
+        }
+        self.origins = self.origins.next();
     }
 
     /// **Where the lines still to be named and the holds stood when
