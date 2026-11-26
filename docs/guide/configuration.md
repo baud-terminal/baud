@@ -69,7 +69,7 @@ and their size, padding, the cursor's shape, blink and trail, the bell,
 emoji, scrolling, the screen transition, the exit-status marks, the glass's
 dim, tint and shadow, `[text] ambiguous_width` and `join_spacing_marks`,
 and what programs may do
-(`[window]`, `[font]`, `[clipboard] osc52` and `copy_on_select`,
+(`[window]`, `[font]`, `[clipboard] osc52`, `select` and `copy_on_select`,
 `[message]`, `[message.copy]`, `[message.held]` and `[message.link]`, `[link]`,
 `[launch] splash` turned off while the logo shows,
 `[screen]`'s logging, checksum, substitute mark, notifications and print
@@ -233,9 +233,10 @@ unless you name a trail here.
 
 | key | values | default | what it changes |
 |---|---|---|---|
-| `osc52` | `"write"`, `"off"` | `"write"` | Whether a program can copy text to your clipboard, which is how an editor or a multiplexer on another computer reaches your Mac's clipboard, or on Linux the clipboard or the primary selection the program names (a copy naming neither goes where your own selection goes: the primary selection, unless a program has switched that to the clipboard). Programs can never read your clipboard. With `"write"`, anything printed in the terminal, a file you print included, can replace what you copied. |
+| `osc52` | `"write"`, `"off"` | `"write"` | Whether a program can copy text to your clipboard, which is how an editor or a multiplexer on another computer reaches your Mac's clipboard, or on Linux the clipboard or the primary selection the program names (a copy naming neither goes where your own selection goes: the selections `select` names, unless a program has switched that to the clipboard). Programs can never read your clipboard. With `"write"`, anything printed in the terminal, a file you print included, can replace what you copied. |
 | `body_kb` | number, KiB | `256` | The largest copy a program may make. 256 holds 192 KiB of text. A larger copy is refused whole, never cut short. |
-| `copy_on_select` | `"on"`, `"off"` | `"on"` | Whether letting go of a selection copies it. On a Mac `"on"` puts it on the clipboard, replacing what Cmd-C copied; `"off"` leaves the clipboard to Cmd-C, unless a program has asked for copy-on-select itself. On Linux a selection becomes the primary selection, which a middle click pastes, or the clipboard while a program has asked for that (`?1041`); this key changes neither. |
+| `copy_on_select` | `"on"`, `"off"` | `"on"` | Whether letting go of a selection copies it. On a Mac `"on"` puts it on the clipboard, replacing what Cmd-C copied; `"off"` leaves the clipboard to Cmd-C, unless a program has asked for copy-on-select itself. On Linux a selection goes where `select` says, or to the clipboard while a program has asked for that (`?1041`); this key changes neither. |
+| `select` | `"both"`, `"primary"`, `"clipboard"` | `"both"` | On Linux, where a selection you make goes, and a program's copy that names no selection, a multiplexer's copy over ssh among them. `"both"` sets the clipboard, which Ctrl+V pastes, and the primary selection, which a middle click pastes; `"primary"` sets the primary selection only; `"clipboard"` the clipboard only. A program can switch it to the clipboard (`?1041`) until it switches back or the terminal is reset. A middle click pastes the primary selection unless only the clipboard is named. A Mac has one clipboard, and this key changes nothing there. |
 
 ## [message]
 
@@ -248,7 +249,7 @@ baud's short messages, such as the words a copy says, in a box of their own. A p
 
 ## [message.copy]
 
-What baud says when something is copied: "Copied 42 characters", or "A program copied 42 characters" when a program did it (`OSC 52`), never the text itself. It goes after 1.5 seconds or at any key, which still reaches the program. It follows Cmd-C too (Ctrl+Shift+C on Linux), whatever `copy_on_select` says, and on Linux a finished selection, which goes to the primary selection. While Cmd (Ctrl on Linux) shows a link's address, no words show. VoiceOver speaks the same words on a Mac.
+What baud says when something is copied: "Copied 42 characters", or "A program copied 42 characters" when a program did it (`OSC 52`), never the text itself. On Linux a copy you make names the selections it went to: "Copied 42 characters to the clipboard and the primary selection" by default, "to the primary selection" under `select = "primary"`, and "to the clipboard" for Ctrl+Shift+C. It goes after 1.5 seconds or at any key, which still reaches the program. It follows Cmd-C too (Ctrl+Shift+C on Linux), whatever `copy_on_select` says, and on Linux a finished selection, which goes where `select` says. While Cmd (Ctrl on Linux) shows a link's address, no words show. VoiceOver speaks the same words on a Mac.
 
 | key | values | default | what it changes |
 |---|---|---|---|

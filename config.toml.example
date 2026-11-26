@@ -579,6 +579,13 @@
 # clipboard while a program has asked for that with ?1041; this key
 # changes neither.
 # copy_on_select = "on"
+#
+# select: where SELECT puts a selection you make on Linux and a program's
+# copy that names no selection, and what a middle click pastes, while no
+# program has asked for the CLIPBOARD selection (?1041). "both" sets the
+# CLIPBOARD and PRIMARY selections, so Ctrl+V pastes it too; "primary" the
+# PRIMARY selection only; "clipboard" the CLIPBOARD selection only.
+# select = "both"
 
 # baud's short messages, such as the words a copy says, are drawn in a box of
 # their own, opaque, in two colours a program cannot change.
@@ -596,8 +603,10 @@
 # text_color = "baud"
 
 # What baud says when something is copied: "Copied 42 characters", or "A
-# program copied 42 characters" for a program's OSC 52, never the text. It goes
-# after 1.5 seconds or at any key, which still reaches the program.
+# program copied 42 characters" for a program's OSC 52, never the text. On
+# Linux a copy you make names the selections it went to: "Copied 42 characters
+# to the clipboard and the primary selection" by default. It goes after 1.5
+# seconds or at any key, which still reaches the program.
 #
 # [message.copy]
 #

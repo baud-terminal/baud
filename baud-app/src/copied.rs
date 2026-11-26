@@ -4,8 +4,10 @@
 //! **The words**: "Copied N characters", "1 character" for one, for a copy
 //! of the selection; "A program copied N characters" for a program's `OSC
 //! 52`, never its text, and always in the bar, since it has no selection to
-//! be placed by. On Linux a finished selection sets the primary selection
-//! rather than the clipboard, which is why no variant names either. A
+//! be placed by. On Linux a copy of the selection names the selections it
+//! was set on, "to the clipboard", "to the primary selection" or both,
+//! since SELECT can name either or both (`clip.rs`); on macOS the one
+//! pasteboard is named by neither. A
 //! refused `OSC 52` says nothing here and stays the log line it is
 //! (`clip.rs`). A character here is a Unicode scalar value, as Rust's `chars`
 //! counts them.
@@ -62,9 +64,47 @@ pub(crate) const RETRY: Duration = Duration::from_millis(100);
 /// Who copied, or what a click on a printed path came to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Source {
-    Selection,
+    /// A copy of the selection, and the selections it was set on where the
+    /// system has more than one.
+    Selection(Option<CopiedTo>),
     Program,
     Path(PathNote),
+}
+
+/// **The selections a copy was set on**, from the ones that took it. Made
+/// only where there is more than one selection.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+pub(crate) enum CopiedTo {
+    Clipboard,
+    Primary,
+    Both,
+}
+
+impl CopiedTo {
+    /// The selections in `took`, the ones that took the copy; `None` when
+    /// it names neither.
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn of(took: &[crate::clip::Board]) -> Option<CopiedTo> {
+        use crate::clip::Board;
+        match (
+            took.contains(&Board::Clipboard),
+            took.contains(&Board::Primary),
+        ) {
+            (true, true) => Some(CopiedTo::Both),
+            (true, false) => Some(CopiedTo::Clipboard),
+            (false, true) => Some(CopiedTo::Primary),
+            (false, false) => None,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            CopiedTo::Clipboard => "the clipboard",
+            CopiedTo::Primary => "the primary selection",
+            CopiedTo::Both => "the clipboard and the primary selection",
+        }
+    }
 }
 
 /// **Why a click on a printed path or a struck link opened nothing**, said
@@ -89,7 +129,8 @@ pub(crate) fn words(source: Source, count: Characters) -> String {
         "characters"
     };
     match source {
-        Source::Selection => format!("Copied {count} {noun}"),
+        Source::Selection(None) => format!("Copied {count} {noun}"),
+        Source::Selection(Some(to)) => format!("Copied {count} {noun} to {}", to.name()),
         Source::Program => format!("A program copied {count} {noun}"),
         Source::Path(PathNote::Missing) => format!("No such file on {}", crate::paths::MACHINE),
         Source::Path(PathNote::Unchecked) => {
@@ -270,14 +311,26 @@ impl<T: Moment> Signal<T> {
         self.message
     }
 
-    /// **The user copied the selection.** Its words replace any up, a person
-    /// being who the last word is owed to, and are spoken at once.
+    /// **The user copied the selection**, to the system's one pasteboard.
+    #[cfg(any(target_os = "macos", test))]
     pub(crate) fn selection(&mut self, count: Characters, pulse: Pulse) -> Owes {
+        self.selection_to(None, count, pulse)
+    }
+
+    /// **The user copied the selection, to the selections `to` names.** Its
+    /// words replace any up, a person being who the last word is owed to,
+    /// and are spoken at once.
+    pub(crate) fn selection_to(
+        &mut self,
+        to: Option<CopiedTo>,
+        count: Characters,
+        pulse: Pulse,
+    ) -> Owes {
         if self.message.copy.enable == CopySignal::Off || count == Characters(0) {
             return Owes::Nothing;
         }
         self.up = Some(Up {
-            source: Source::Selection,
+            source: Source::Selection(to),
             count,
             place: match self.message.copy.place {
                 MessagePlace::Tip => Place::Selection,
@@ -288,7 +341,7 @@ impl<T: Moment> Signal<T> {
         if pulse == Pulse::Run {
             self.pulse = Pulsing::Owed;
         }
-        self.saying = Some(words(Source::Selection, count));
+        self.saying = Some(words(Source::Selection(to), count));
         Owes::Frame
     }
 
@@ -519,23 +572,22 @@ mod tests {
         b
     }
 
-    /// **The words, each shape**: one is singular, none names the clipboard
-    /// or the primary selection, which a selection on Linux would make
-    /// false, and a program's is told apart and carries no text of its.
-    /// Perturbations: drop the singular arm; spell "to clipboard" in the
-    /// format.
+    /// **The words, each shape**: one is singular; a copy of the selection
+    /// on the one pasteboard names no selection; a program's is told apart,
+    /// names no selection and carries no text of its. Perturbations: drop
+    /// the singular arm; spell "to clipboard" in the pasteboard's format.
     #[test]
-    fn the_words_are_the_counts_and_name_no_board() {
+    fn the_words_are_the_counts() {
         assert_eq!(
-            words(Source::Selection, Characters(1)),
+            words(Source::Selection(None), Characters(1)),
             "Copied 1 character"
         );
         assert_eq!(
-            words(Source::Selection, Characters(42)),
+            words(Source::Selection(None), Characters(42)),
             "Copied 42 characters"
         );
         assert_eq!(
-            words(Source::Selection, Characters(0)),
+            words(Source::Selection(None), Characters(0)),
             "Copied 0 characters"
         );
         assert_eq!(
@@ -546,7 +598,7 @@ mod tests {
             words(Source::Program, Characters(7)),
             "A program copied 7 characters"
         );
-        for s in [Source::Selection, Source::Program] {
+        for s in [Source::Selection(None), Source::Program] {
             for n in [0, 1, 2] {
                 let w = words(s, Characters(n)).to_lowercase();
                 assert!(!w.contains("clipboard") && !w.contains("primary"), "{w}");
@@ -556,6 +608,40 @@ mod tests {
             characters("h\u{e9}llo"),
             Characters(5),
             "scalars, not bytes"
+        );
+    }
+
+    /// **A copy of the selection to named selections says them**, and so do
+    /// the words it speaks; the selections are the ones that took it, `None`
+    /// when neither did. Perturbation: words that ignore `to`.
+    #[test]
+    fn the_words_name_the_selections_a_copy_was_set_on() {
+        for (to, said) in [
+            (CopiedTo::Clipboard, "Copied 1 character to the clipboard"),
+            (
+                CopiedTo::Primary,
+                "Copied 1 character to the primary selection",
+            ),
+            (
+                CopiedTo::Both,
+                "Copied 1 character to the clipboard and the primary selection",
+            ),
+        ] {
+            assert_eq!(words(Source::Selection(Some(to)), Characters(1)), said);
+        }
+        use crate::clip::Board::{Clipboard, Primary};
+        assert_eq!(CopiedTo::of(&[Primary, Clipboard]), Some(CopiedTo::Both));
+        assert_eq!(CopiedTo::of(&[Clipboard]), Some(CopiedTo::Clipboard));
+        assert_eq!(CopiedTo::of(&[Primary]), Some(CopiedTo::Primary));
+        assert_eq!(CopiedTo::of(&[]), None, "nothing took it");
+        let mut s = signal(Message::default());
+        assert_eq!(
+            s.selection_to(Some(CopiedTo::Primary), Characters(3), Pulse::Skip),
+            Owes::Frame
+        );
+        assert_eq!(
+            s.take_saying().as_deref(),
+            Some("Copied 3 characters to the primary selection")
         );
     }
 
@@ -1040,7 +1126,10 @@ mod tests {
             concat!("    fn copy_selection(", "&mut self, board: Board) {"),
         );
         assert!(
-            linux.contains("Copied::Set => self.selection_copied(&text),"),
+            linux
+                .split_once("Copied::Set => {")
+                .and_then(|(_, set)| set.split_once("Copied::Unavailable"))
+                .is_some_and(|(arm, _)| arm.contains("self.selection_copied(&text, Some(to));")),
             "the Linux copy says it once it is set"
         );
         // To VoiceOver through the window's effect queue, whose turn says

@@ -1260,7 +1260,7 @@ name = "Click to move the shell's cursor"
 does = "A program can ask that a click on the command line move the cursor there, that a selection be copied the moment it is made, and that a paste be quoted for the line editor or keep its line breaks."
 status = "built"
 platform = "both"
-tests = ["baud-app/src/readline.rs::a_click_on_the_cursors_line_moves_the_point_by_the_columns_between", "baud-app/src/paste.rs::readline_quoting_and_newlines_shape_a_paste", "baud-app/src/clip.rs::select_is_the_primary_until_1041", "baud-core/tests/xterm_resources.rs::each_switch_sets_resets_saves_and_restores"]
+tests = ["baud-app/src/readline.rs::a_click_on_the_cursors_line_moves_the_point_by_the_columns_between", "baud-app/src/paste.rs::readline_quoting_and_newlines_shape_a_paste", "baud-app/src/clip.rs::select_is_the_setting_until_1041", "baud-core/tests/xterm_resources.rs::each_switch_sets_resets_saves_and_restores"]
 
 [[feature]]
 id = "program-copy"
@@ -1280,7 +1280,7 @@ name = "baud says when something is copied"
 does = "A copy says so for a moment beside your selection: \"Copied 42 characters\", or \"A program copied 42 characters\" at the bottom of the window when a program did it, never the text. Any key takes it away and still reaches the program. VoiceOver speaks the same words on a Mac, the colours are yours to set and no program's to change, and you can turn it off."
 status = "built"
 platform = "both"
-tests = ["baud-app/src/copied.rs::the_words_are_the_counts_and_name_no_board", "baud-app/src/copied.rs::words_end_on_their_deadline_and_owe_two_frames", "baud-app/src/copied.rs::a_program_looping_copies_cannot_flood_frames_or_announcements", "baud-render/tests/message_pair.rs::nothing_a_program_sets_reaches_the_pair", "baud-render/tests/message_pair.rs::decrqcra_answers_the_same_with_a_message_up", "baud-present-macos/tests/cells.rs::the_message_pair_holds_on_every_arm"]
+tests = ["baud-app/src/copied.rs::the_words_are_the_counts", "baud-app/src/clip.rs::a_selection_copied_names_the_selections_it_was_set_on", "baud-app/src/copied.rs::words_end_on_their_deadline_and_owe_two_frames", "baud-app/src/copied.rs::a_program_looping_copies_cannot_flood_frames_or_announcements", "baud-render/tests/message_pair.rs::nothing_a_program_sets_reaches_the_pair", "baud-render/tests/message_pair.rs::decrqcra_answers_the_same_with_a_message_up", "baud-present-macos/tests/cells.rs::the_message_pair_holds_on_every_arm"]
 
 [[feature]]
 id = "no-clipboard-read"

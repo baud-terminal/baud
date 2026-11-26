@@ -2147,7 +2147,7 @@ mod tests {
         );
         let selected = SRC.split("Owed::Selected => {").nth(1).expect("the arm");
         let arm = &selected[..selected.find("\n            }").expect("ends")];
-        let copied = arm.find("self.copy_selection(board);").expect("copied");
+        let copied = arm.find("self.copy_selection_to(named);").expect("copied");
         let noted = arm
             .find("self.select_offer = self.window.offering(board)")
             .expect("noted");

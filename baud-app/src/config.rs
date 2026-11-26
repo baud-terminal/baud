@@ -582,11 +582,39 @@ pub enum CopyOnSelect {
     Off,
 }
 
+/// `[clipboard] select`: what SELECT, the configurable primary/clipboard
+/// selection (`[[source: ctlseqs]]`), names while `?1041`, use the
+/// CLIPBOARD selection, is reset: `Both`, the CLIPBOARD and PRIMARY
+/// selections; `Primary`, the PRIMARY selection only; `Clipboard`, the
+/// CLIPBOARD selection only. While a program has set `?1041`, SELECT names
+/// the CLIPBOARD selection whatever this says. On Linux SELECT is where a
+/// finished selection goes, where an `OSC 52` write naming `s`, or no
+/// selection, lands, and what the middle button and Shift+Insert paste,
+/// the PRIMARY selection whenever SELECT names it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Select {
+    Both,
+    Primary,
+    Clipboard,
+}
+
+impl Select {
+    /// The word the config file spells it with.
+    pub fn name(self) -> &'static str {
+        match self {
+            Select::Both => "both",
+            Select::Primary => "primary",
+            Select::Clipboard => "clipboard",
+        }
+    }
+}
+
 /// The `[clipboard]` section.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Clipboard {
     pub osc52: Osc52,
     pub copy_on_select: CopyOnSelect,
+    pub select: Select,
     /// `body_kb`: the largest `OSC 52` body the terminal holds, in KiB of
     /// base64 -- three octets of text for every four bytes. The core keeps
     /// two areas of the text, the copy being collected and the last one
@@ -595,10 +623,11 @@ pub struct Clipboard {
 }
 
 impl Clipboard {
-    /// Writes on, and a 256 KiB body.
+    /// Writes on, SELECT on both selections, and a 256 KiB body.
     pub const DEFAULT: Clipboard = Clipboard {
         osc52: Osc52::Write,
         copy_on_select: CopyOnSelect::On,
+        select: Select::Both,
         budget: baud_domain::ClipboardBudget::of_body(256 << 10),
     };
 }
@@ -2633,6 +2662,22 @@ impl Config {
                                  using the default, on"
                             ));
                             CopyOnSelect::On
+                        }
+                    };
+                }
+                ("clipboard", "select") => {
+                    self.clipboard.select = match value.trim().trim_matches('"') {
+                        "both" => Select::Both,
+                        "primary" => Select::Primary,
+                        "clipboard" => Select::Clipboard,
+                        other => {
+                            let d = Clipboard::DEFAULT.select;
+                            said.push(format!(
+                                "config: [clipboard] select {other:?} is not both, primary or clipboard; \
+                                 using the default, {}",
+                                d.name()
+                            ));
+                            d
                         }
                     };
                 }
@@ -6724,6 +6769,30 @@ mod reader {
                 "{bad}: {said:?}"
             );
         }
+    }
+
+    /// **`[clipboard] select` is both selections unless it says one**,
+    /// and a word it does not know is said and leaves the default.
+    #[test]
+    fn select_is_both_unless_it_says_one() {
+        assert_eq!(Config::defaults().clipboard.select, Select::Both);
+        for (v, want) in [
+            ("\"both\"", Select::Both),
+            ("\"primary\"", Select::Primary),
+            ("\"clipboard\"", Select::Clipboard),
+        ] {
+            let mut c = Config::defaults();
+            let _said = c.apply(&format!("[clipboard]\nselect = {v}\n"));
+            assert_eq!(c.clipboard.select, want, "{v}");
+        }
+        let mut c = Config::defaults();
+        let said = c.apply("[clipboard]\nselect = \"all\"\n");
+        assert_eq!(c.clipboard.select, Select::Both);
+        assert!(
+            said.iter()
+                .any(|s| s.contains("select") && s.contains("both, primary or clipboard")),
+            "{said:?}"
+        );
     }
 
     /// **`[clipboard] copy_on_select` is on unless it says off** (note

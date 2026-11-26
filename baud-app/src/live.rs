@@ -199,7 +199,7 @@ impl Part {
             Part::Bell => "bell",
             Part::Emoji => "emoji",
             Part::Notifications => "[screen] notifications",
-            Part::CopyOnSelect => "[clipboard] copy_on_select",
+            Part::CopyOnSelect => "[clipboard] copy_on_select and select",
             Part::Message => "[message]",
             Part::Link => "[link]",
             Part::ActivityLights => "[window] activity_lights",
@@ -381,7 +381,8 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     part(old.emoji != *emoji, Part::Emoji);
     part(old.notifications != *notifications, Part::Notifications);
     part(
-        old.clipboard.copy_on_select != clipboard.copy_on_select,
+        old.clipboard.copy_on_select != clipboard.copy_on_select
+            || old.clipboard.select != clipboard.select,
         Part::CopyOnSelect,
     );
     part(old.message != *message, Part::Message);

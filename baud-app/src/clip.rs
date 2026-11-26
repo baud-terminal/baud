@@ -61,6 +61,16 @@ pub enum Boards {
 
 #[cfg(any(target_os = "linux", test))]
 impl Boards {
+    /// **The one a paste of SELECT reads and a selection's offer is kept
+    /// for**: the primary whenever it is named.
+    #[cfg(target_os = "linux")]
+    pub fn pasted(self) -> Board {
+        match self {
+            Boards::Clipboard => Board::Clipboard,
+            Boards::Both | Boards::Primary => Board::Primary,
+        }
+    }
+
     /// The selections, the clipboard first.
     pub fn each(self) -> impl Iterator<Item = Board> {
         let (c, p) = match self {
@@ -72,17 +82,18 @@ impl Boards {
     }
 }
 
-/// **What xterm's SELECT names now**: the clipboard while `?1041` is set,
-/// else the primary (`[[source: ctlseqs]]`, "Use the CLIPBOARD selection"
-/// and "Use the PRIMARY selection"; `[[source: xterm-man]]`,
-/// selectToClipboard, "The default is false, which tells it to use
-/// PRIMARY"). Where a finished selection goes, what the middle button and
-/// Shift+Insert paste, and where an `OSC 52` `s` lands.
+/// **What SELECT names now**, SELECT being the configurable
+/// primary/clipboard selection (`[[source: ctlseqs]]`): the clipboard while
+/// `?1041`, use the CLIPBOARD selection, is set, else what `[clipboard]
+/// select` names. Where a finished selection goes and where an `OSC 52`
+/// `s`, or an empty selection field, lands.
 #[cfg(any(target_os = "linux", test))]
-pub fn select_board(term: &Term<'_>) -> Board {
-    match term.resource(baud_core::Resource::SelectToClipboard) {
-        true => Board::Clipboard,
-        false => Board::Primary,
+pub fn select_board(term: &Term<'_>, s: crate::config::Select) -> Boards {
+    use crate::config::Select;
+    match (term.resource(baud_core::Resource::SelectToClipboard), s) {
+        (true, _) | (false, Select::Clipboard) => Boards::Clipboard,
+        (false, Select::Primary) => Boards::Primary,
+        (false, Select::Both) => Boards::Both,
     }
 }
 
@@ -100,10 +111,11 @@ pub fn selected_to_pasteboard(term: &Term<'_>, c: crate::config::CopyOnSelect) -
 /// naming `select`; `None` when it names neither the clipboard, the primary
 /// nor SELECT, which `decide` has refused already.
 #[cfg(any(target_os = "linux", test))]
-pub fn boards(targets: baud_core::Selections, select: Board) -> Option<Boards> {
+pub fn boards(targets: baud_core::Selections, select: Boards) -> Option<Boards> {
     let s = targets.contains(Selection::Select);
-    let c = targets.contains(Selection::Clipboard) || (s && select == Board::Clipboard);
-    let p = targets.contains(Selection::Primary) || (s && select == Board::Primary);
+    let named = |b: Board| s && select.each().any(|x| x == b);
+    let c = targets.contains(Selection::Clipboard) || named(Board::Clipboard);
+    let p = targets.contains(Selection::Primary) || named(Board::Primary);
     match (c, p) {
         (true, true) => Some(Boards::Both),
         (true, false) => Some(Boards::Clipboard),
@@ -590,15 +602,15 @@ mod tests {
             (b"q0s", P, C),
         ] {
             let w = write(pc, ClipboardContent::Set(b"hi"));
-            assert_eq!(boards(w.targets, Board::Primary), Some(reset), "{pc:?}");
+            assert_eq!(boards(w.targets, Boards::Primary), Some(reset), "{pc:?}");
             assert_eq!(
-                boards(w.targets, Board::Clipboard),
+                boards(w.targets, Boards::Clipboard),
                 Some(set),
                 "{pc:?} ?1041"
             );
         }
         let w = write(b"q7", ClipboardContent::Set(b"hi"));
-        assert_eq!(boards(w.targets, Board::Primary), None);
+        assert_eq!(boards(w.targets, Boards::Primary), None);
         assert_eq!(
             Both.each().collect::<Vec<_>>(),
             [Board::Clipboard, Board::Primary]
@@ -606,20 +618,150 @@ mod tests {
         assert_eq!(P.each().collect::<Vec<_>>(), [Board::Primary]);
     }
 
-    /// **`?1041` is what SELECT names**: the primary at power-on, the
-    /// clipboard once set, the primary again once reset.
+    /// **`?1041` is what SELECT names**: the configured selections at
+    /// power-on, the clipboard once set, the configured ones again once
+    /// reset.
     #[test]
-    fn select_is_the_primary_until_1041() {
+    fn select_is_the_setting_until_1041() {
+        use crate::config::Select;
         let mut s = Owned::new(&WS);
         let mut t = Term::new(s.storage(), &WS);
-        assert_eq!(select_board(&t), Board::Primary);
-        for (b, want) in [
-            (&b"\x1b[?1041h"[..], Board::Clipboard),
-            (b"\x1b[?1041l", Board::Primary),
+        for (sel, want) in [
+            (Select::Both, Boards::Both),
+            (Select::Primary, Boards::Primary),
         ] {
-            t.write_at(BytePos::ZERO, b);
-            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
-            assert_eq!(select_board(&t), want);
+            assert_eq!(select_board(&t, sel), want);
+            feed(&mut t, b"\x1b[?1041h");
+            assert_eq!(select_board(&t, sel), Boards::Clipboard);
+            feed(&mut t, b"\x1b[?1041l");
+            assert_eq!(select_board(&t, sel), want);
+        }
+    }
+
+    /// **A mouse selection over ssh says where it went, and Ctrl+V finds
+    /// it** (`ls` on the remote host, a selection, Ctrl+V on this one): by
+    /// default the copy is set on both selections and the words name both,
+    /// CLIPBOARD, which Ctrl+V reads, among them; `select = "primary"` sets
+    /// and names the primary alone; `?1041` set sets and names the
+    /// clipboard alone. Perturbations: words that ignore the selections; a
+    /// default of the primary alone.
+    #[test]
+    fn a_selection_copied_names_the_selections_it_was_set_on() {
+        use crate::config::Select;
+        use crate::copied::{Characters, CopiedTo, Source, words};
+        let to = |b: Boards| CopiedTo::of(&b.each().collect::<Vec<Board>>());
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let named = select_board(&t, crate::config::Clipboard::DEFAULT.select);
+        assert!(
+            named.each().any(|b| b == Board::Clipboard),
+            "Ctrl+V's selection holds the copy"
+        );
+        assert_eq!(
+            words(Source::Selection(to(named)), Characters(9)),
+            "Copied 9 characters to the clipboard and the primary selection"
+        );
+        assert_eq!(
+            words(
+                Source::Selection(to(select_board(&t, Select::Primary))),
+                Characters(9)
+            ),
+            "Copied 9 characters to the primary selection"
+        );
+        feed(&mut t, b"\x1b[?1041h");
+        assert_eq!(
+            words(
+                Source::Selection(to(select_board(&t, Select::Primary))),
+                Characters(9)
+            ),
+            "Copied 9 characters to the clipboard"
+        );
+    }
+
+    /// A terminal and the `[clipboard] select` read from `config`.
+    fn configured<'a>(s: &'a mut Owned, config: &str) -> (Term<'a>, crate::config::Select) {
+        let mut c = crate::config::Config::defaults();
+        let _said = c.apply(config);
+        (Term::new(s.storage(), &WS), c.clipboard.select)
+    }
+
+    fn feed(t: &mut Term<'_>, b: &[u8]) {
+        t.write_at(BytePos::ZERO, b);
+        t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+    }
+
+    const PRIMARY_ONLY: &str = "[clipboard]\nselect = \"primary\"\n";
+
+    /// A multiplexer's copy: `OSC 52`, an empty selection field, BEL.
+    const EMPTY_PC: &[u8] = b"\x1b]52;;aGVsbG8=\x07";
+
+    /// Where the Linux driver puts `bytes`' `OSC 52` write, the program's
+    /// modes `modes` fed first.
+    fn landed(config: &str, modes: &[u8], bytes: &[u8]) -> Option<Boards> {
+        let mut s = Owned::new(&WS).with_clipboard(ClipboardBudget::of_text(64));
+        let (mut t, sel) = configured(&mut s, config);
+        feed(&mut t, modes);
+        feed(&mut t, bytes);
+        boards(t.clipboard()?.targets, select_board(&t, sel))
+    }
+
+    /// **A copy with an empty selection field lands on both selections by
+    /// default**, so Ctrl+V pastes it; on the primary only under `select =
+    /// "primary"`; on the clipboard while a program has set `?1041`.
+    #[test]
+    fn an_empty_selection_lands_on_both_by_default() {
+        assert_eq!(landed("", b"", EMPTY_PC), Some(Boards::Both));
+        assert_eq!(landed(PRIMARY_ONLY, b"", EMPTY_PC), Some(Boards::Primary));
+        for config in ["", PRIMARY_ONLY] {
+            assert_eq!(
+                landed(config, b"\x1b[?1041h", EMPTY_PC),
+                Some(Boards::Clipboard)
+            );
+        }
+    }
+
+    /// **A finished selection goes where SELECT names**: both selections by
+    /// default, the clipboard among them, the primary only under `select =
+    /// "primary"`, and the clipboard while a program has set `?1041`.
+    #[test]
+    fn a_finished_selection_goes_to_both_by_default() {
+        for (config, want) in [("", Boards::Both), (PRIMARY_ONLY, Boards::Primary)] {
+            let mut s = Owned::new(&WS);
+            let (mut t, sel) = configured(&mut s, config);
+            assert_eq!(select_board(&t, sel), want, "{config:?}");
+            feed(&mut t, b"\x1b[?1041h");
+            assert_eq!(select_board(&t, sel), Boards::Clipboard, "{config:?}");
+        }
+    }
+
+    /// **A program's `?1041` reset returns SELECT to the setting**, and so
+    /// does `RIS` after a set.
+    #[test]
+    fn a_program_resets_select_to_the_setting() {
+        let mut s = Owned::new(&WS);
+        let (mut t, sel) = configured(&mut s, PRIMARY_ONLY);
+        for (b, want) in [
+            (&b"\x1b[?1041h"[..], Boards::Clipboard),
+            (b"\x1b[?1041l", Boards::Primary),
+            (b"\x1b[?1041h", Boards::Clipboard),
+            (b"\x1bc", Boards::Primary),
+        ] {
+            feed(&mut t, b);
+            assert_eq!(select_board(&t, sel), want, "{b:?}");
+        }
+    }
+
+    /// **`c` and `p` written out land where they say**, whatever `select`
+    /// says.
+    #[test]
+    fn a_named_selection_ignores_the_setting() {
+        for config in ["", PRIMARY_ONLY, "[clipboard]\nselect = \"clipboard\"\n"] {
+            for (b, want) in [
+                (&b"\x1b]52;c;aGVsbG8=\x07"[..], Boards::Clipboard),
+                (b"\x1b]52;p;aGVsbG8=\x07", Boards::Primary),
+            ] {
+                assert_eq!(landed(config, b"", b), Some(want), "{config:?} {b:?}");
+            }
         }
     }
 

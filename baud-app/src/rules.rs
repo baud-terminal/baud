@@ -2131,7 +2131,7 @@ mod tests {
                 "linux.rs",
                 include_str!("linux.rs"),
                 "Board::Clipboard, &text)",
-                "self.selection_copied(&text);",
+                "self.selection_copied(&text, Some(crate::copied::CopiedTo::Clipboard));",
             ),
         ] {
             let (_, body) = crate::app_source::split_once_in(

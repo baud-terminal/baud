@@ -1868,11 +1868,12 @@ impl Driver {
         // nothing here resizes the window, so no width request holds the
         // read; a change of `?46` does, and the feed logs each part.
         let (widths, pace) = (&mut self.widths, &mut self.pace);
-        let (clips, window, conn, osc52) = (
+        let (clips, window, conn, osc52, select) = (
             &mut self.clips,
             &mut self.window,
             &mut self.conn,
             self.clipboard.osc52,
+            self.clipboard.select,
         );
         let mut uncopied = Copied::Set;
         // A program's copies this read, said once after it (`copied.rs`).
@@ -1912,7 +1913,7 @@ impl Driver {
                         crate::clip::Decision::Set(text) => Some(text),
                         _ => None,
                     };
-                    match program_copy(window, conn, t, d) {
+                    match program_copy(window, conn, t, d, select) {
                         Copied::Set => {
                             if let Some(text) = text {
                                 copies.copied(text);
@@ -2267,17 +2268,18 @@ impl Driver {
                     self.pending = Pending::Dirty;
                 }
             }
-            // A selection made is SELECT's: the primary, or the clipboard
-            // under `?1041`, as xterm's `select-end(SELECT, CUT_BUFFER0)`
-            // (note V's V13 copy-on-select is this on Linux).
+            // A selection made goes to each selection SELECT names: those
+            // `[clipboard] select` names, or the clipboard under `?1041`.
             Owed::Selected => {
                 self.pending = Pending::Dirty;
-                let board = board_of(crate::clip::select_board(&self.term));
-                self.copy_selection(board);
+                let named = crate::clip::select_board(&self.term, self.clipboard.select);
+                self.copy_selection_to(named);
+                let board = board_of(named.pasted());
                 self.select_offer = self.window.offering(board).map(|id| (board, id));
             }
             Owed::PasteSelection => {
-                let board = board_of(crate::clip::select_board(&self.term));
+                let board =
+                    board_of(crate::clip::select_board(&self.term, self.clipboard.select).pasted());
                 self.window.paste(&mut self.conn.sender(), board);
             }
             Owed::Link => {
@@ -3237,6 +3239,7 @@ impl Driver {
                 }
                 Part::CopyOnSelect => {
                     self.clipboard.copy_on_select = c.clipboard.copy_on_select;
+                    self.clipboard.select = c.clipboard.select;
                 }
                 Part::Message => {
                     self.renderer.set_message_colours(c.message.colours);
@@ -3542,7 +3545,8 @@ impl Driver {
                 self.window.paste(&mut self.conn.sender(), Board::Clipboard);
             }
             Shortcut::PasteSelection => {
-                let board = board_of(crate::clip::select_board(&self.term));
+                let board =
+                    board_of(crate::clip::select_board(&self.term, self.clipboard.select).pasted());
                 self.window.paste(&mut self.conn.sender(), board);
             }
             Shortcut::ZoomIn => self.zoom(crate::fonts::Zoom::In),
@@ -3785,12 +3789,52 @@ impl Driver {
     }
 
     /// The selection's text to `board`, if there is a selection.
+    /// **A selection made, on each selection SELECT names**, said once.
+    fn copy_selection_to(&mut self, named: crate::clip::Boards) {
+        let Some(text) = self.seat.selected_text(&self.term) else {
+            return;
+        };
+        let mut took = Copied::Unavailable;
+        let mut set = Vec::with_capacity(2);
+        for b in named.each() {
+            let copied = self
+                .window
+                .copy(&mut self.conn.sender(), board_of(b), &text);
+            if copied == Copied::Set {
+                set.push(b);
+            }
+            match copied {
+                Copied::Set if matches!(took, Copied::Unavailable) => took = Copied::Set,
+                Copied::Unfocused => took = Copied::Unfocused,
+                _ => {}
+            }
+        }
+        match took {
+            Copied::Set => {
+                let to = crate::copied::CopiedTo::of(&set);
+                self.selection_copied(&text, to);
+            }
+            Copied::Unavailable => self.uncopied_once(),
+            Copied::Unfocused => {
+                if let Some(line) = self.clips.sent_unfocused() {
+                    crate::warn!("{line}");
+                }
+            }
+        }
+    }
+
     fn copy_selection(&mut self, board: Board) {
         let Some(text) = self.seat.selected_text(&self.term) else {
             return;
         };
         match self.window.copy(&mut self.conn.sender(), board, &text) {
-            Copied::Set => self.selection_copied(&text),
+            Copied::Set => {
+                let to = match board {
+                    Board::Clipboard => crate::copied::CopiedTo::Clipboard,
+                    Board::Primary => crate::copied::CopiedTo::Primary,
+                };
+                self.selection_copied(&text, Some(to));
+            }
             Copied::Unavailable => self.uncopied_once(),
             Copied::Unfocused => {
                 if let Some(line) = self.clips.sent_unfocused() {
@@ -3811,7 +3855,7 @@ impl Driver {
             Copied::Set => {
                 self.report.links.opened.bump();
                 crate::info!("link copied by a [link.*] rule");
-                self.selection_copied(&text);
+                self.selection_copied(&text, Some(crate::copied::CopiedTo::Clipboard));
             }
             Copied::Unavailable => self.uncopied_once(),
             Copied::Unfocused => {
@@ -3822,12 +3866,12 @@ impl Driver {
         }
     }
 
-    /// **A copy of the selection, said** (`copied.rs`): the words, whichever
-    /// selection it went to, and the pulse where the settings and the flash
-    /// budget allow it. Linux's desktop has no Dim Flashing Lights, and baud
-    /// exposes no element to a screen reader on it, so there is nothing to
-    /// announce through.
-    fn selection_copied(&mut self, text: &str) {
+    /// **A copy of the selection, said** (`copied.rs`): the words, naming the
+    /// selections `to` it was set on, and the pulse where the settings and
+    /// the flash budget allow it. Linux's desktop has no Dim Flashing
+    /// Lights, and baud exposes no element to a screen reader on it, so
+    /// there is nothing to announce through.
+    fn selection_copied(&mut self, text: &str, to: Option<crate::copied::CopiedTo>) {
         let count = crate::copied::characters(text);
         let lights = crate::access::FlashingLights::Full;
         let runs = count != crate::copied::Characters(0)
@@ -3840,7 +3884,7 @@ impl Driver {
             true => crate::copied::Pulse::Run,
             false => crate::copied::Pulse::Skip,
         };
-        if self.copied.selection(count, pulse) == crate::copied::Owes::Frame {
+        if self.copied.selection_to(to, count, pulse) == crate::copied::Owes::Frame {
             self.pending = Pending::Dirty;
         }
     }
@@ -5097,12 +5141,13 @@ fn program_copy(
     conn: &mut baud_wayland::Connection,
     t: &Term<'_>,
     d: crate::clip::Decision<'_>,
+    select: crate::config::Select,
 ) -> Copied {
     use crate::clip::Decision;
     let Some(targets) = t.clipboard().map(|w| w.targets) else {
         return Copied::Set;
     };
-    let Some(boards) = crate::clip::boards(targets, crate::clip::select_board(t)) else {
+    let Some(boards) = crate::clip::boards(targets, crate::clip::select_board(t, select)) else {
         return Copied::Set;
     };
     let mut took = Copied::Unavailable;
