@@ -8,24 +8,26 @@ with every table's method and, under Reproducing, how to re-run them.
 
 Every figure here was taken on one Mac, an Apple M5 Max running macOS 27.0,
 unless it is marked Linux: those were taken on one PC, an AMD Ryzen
-Threadripper 9980X running Linux 7.2.6 under NixOS. A figure from one machine
+Threadripper 9980X running Linux 7.2.6. A figure from one machine
 is not comparable with a figure from the other. Every figure carries the
 commit and date it was taken at. A figure is not current just because it is
 printed: code has changed since most of them.
 
 ## In short
 
-- **Taking in output: faster than ghostty and alacritty on every recording
-  measured.** baud's core was 1.19 to 5.80 times as fast as ghostty's on
-  six recordings of real programs, in memory (`e5bc3ef`, 2026-09-20), and
-  1.65 to 1.70 times on three captured later (`e9af53d9`, 2026-10-28); the
-  two sweeps are not comparable with each other. On Linux it was 2.14 to
-  8.26 times as fast as ghostty's on four (`f231b87e`, 2026-11-15).
+- **Taking in output: faster than the other terminals' cores in
+  [the tables](#taking-in-output-against-other-terminals), on every
+  recording measured.** By each table's last column, baud's core was 1.19
+  to 5.80 times as fast on six recordings of real programs, in memory
+  (`e5bc3ef`, 2026-09-20), and 1.65 to 1.70 times on three captured later
+  (`e9af53d9`, 2026-10-28); the two sweeps are not comparable with each
+  other. On Linux it was 2.14 to 8.26 times as fast on four (`f231b87e`,
+  2026-11-15).
 - **Through a real terminal connection: the fastest of five terminals on
-  the Mac, and not the fastest on Linux.** On the Mac,
-  replaying recordings into baud, alacritty, kitty, ghostty and wezterm,
-  baud had the highest throughput on every recording, tied
-  with alacritty on one, and used the least CPU, or tied for least, on all
+  the Mac, and not the fastest on Linux.** On the Mac, replaying
+  recordings into baud and four other terminals, baud had the highest
+  throughput on every recording, tied with one of them on one, and used
+  the least CPU, or tied for least, on all
   but one (`46f5e1c`, 2026-09-12; before baud kept scrollback). On Linux,
   drawing on the CPU, baud took in 77.9-98.1 MB/s as each terminal ships,
   behind the terminal fastest on cat-cjk and less-pager on all four
@@ -36,7 +38,7 @@ printed: code has changed since most of them.
   [MEASUREMENTS.md](../../MEASUREMENTS.md#six-terminals-through-a-pty-both-drawing-arms-linux-x86_64-2026-11-17)).
 - **Answering a key: about 3 ms to a new frame on the Mac.** From a key
   arriving to the new frame being handed to the display took a median of
-  3.0 ms when the program echoing it was `cat` (`28f2382`, 2026-09-18). On
+  3.0 ms when the operating system echoed it (`28f2382`, 2026-09-18). On
   Linux, a key reached the compositor's commit of the frame showing it in a
   median of 0.92 ms, an indicative figure: baud was built with app changes
   not in the repository (`2789e0d0`, 2026-11-16).
@@ -60,10 +62,13 @@ lines of scrollback; medians of 9 runs, taken in turn. Megabytes per second, hig
 | cava | **554.1** | 318.9 | 362.2 | **1.74x** |
 | cat, Chinese, Japanese and Korean text | **459.4** | 385.1 | 221.7 | **1.19x** |
 
-Three recordings were captured again on 2026-10-28, and pipes took the
-place of asciiquarium; measured the same way that day, at `e9af53d9`, with
-less paging a file beside them to show how far baud's own figure has moved
-since the table above:
+[MEASUREMENTS.md](../../MEASUREMENTS.md#against-other-implementations-on-real-capture)
+has this table's rows and their ranges.
+
+Three recordings were captured again on 2026-10-28, and a new animation
+took the place of an older one; measured the same way that day, at
+`e9af53d9`, with the recording of paging a file beside them to show how
+far baud's own figure has moved since the table above:
 
 | recording | baud | ghostty | alacritty | baud vs ghostty |
 |---|---|---|---|---|
@@ -72,24 +77,27 @@ since the table above:
 | vim, Unicode text | **600.7** | 357.4 | 300.2 | **1.68x** |
 | pipes, an animation in eight colours | **503.0** | 304.6 | 316.5 | **1.65x** |
 
+[MEASUREMENTS.md](../../MEASUREMENTS.md#against-other-implementations-on-real-capture)
+has this table's rows and their ranges.
+
 What this does and does not show:
 
 - It compares the part of each terminal that interprets output, not the
   whole application drawing to a screen.
 - baud always works out which characters belong together, such as an
-  emoji sequence or a letter and its accent, and ghostty's core does only
-  when a program asks, so the Chinese, Japanese and Korean rows do not
-  compare equal work.
+  emoji sequence or a letter and its accent, and the core in the third
+  column does only when a program asks, so the Chinese, Japanese and
+  Korean rows do not compare equal work.
 - The first table was taken before the benchmark pinned where the compiler
   places each function, which had moved one of baud's rows by as much as
   10%, and the second after it, so the two tables are not comparable: baud's
-  less row reads 1684.5 in one and 1450.0 in the other.
+  row for paging a file reads 1684.5 in one and 1450.0 in the other.
 
 On Linux, measured at `f231b87e` on 2026-11-15 the same way, in memory with
 10,000 lines of scrollback each and the cores taken in turn, baud was ahead
 of every other core measured on all four recordings, its range clear of
-every other's each time, and 1.77 to 5.71 times as fast as alacritty's.
-Megabytes per second:
+every other's each time, and 1.77 to 5.71 times as fast as the core in
+the fourth column. Megabytes per second:
 
 | recording | baud | ghostty | alacritty | baud vs ghostty |
 |---|---|---|---|---|
@@ -98,7 +106,7 @@ Megabytes per second:
 | less, paging a file | **1084.1** | 273.3 | 208.9 | **3.97x** |
 | git log | **1052.8** | 152.8 | 184.4 | **6.89x** |
 
-alacritty and ghostty ended on baud's screen on three of the four; on the
+Both other cores ended on baud's screen on three of the four; on the
 Chinese, Japanese and Korean recording they lay out an emoji sequence one
 code point at a time where baud joins it into one character, so baud does
 more work there, not less.
@@ -120,11 +128,11 @@ Throughput in MiB per second:
 | asciiquarium | **68** | 67 | 43 | 53 | 46 |
 | vim-unicode | **42** | 38 | 30 | 35 | 21 |
 
-The system monitor, asciiquarium and vim-unicode rows are of the recordings
-as they were then; the files were captured again, or replaced, on 2026-10-28,
-and this comparison has not been run on the new ones.
-baud leads by 16-22% on the system monitor, cat-scroll and cat-cjk; on asciiquarium its
-lead over alacritty is inside the noise. macOS hands a terminal at most
+The first, fourth and fifth rows are of the recordings as they were then;
+the files were captured again, or replaced, on 2026-10-28, and this
+comparison has not been run on the new ones.
+baud leads by 16-22% on the first three rows; on the fourth its lead over
+the terminal in the next column is inside the noise. macOS hands a terminal at most
 1024 bytes at a time, so these rows are bounded by the operating system as
 much as by any terminal: baud reached 89% of what the connection delivers to a
 program that reads and discards. baud did not keep scrollback when this was
@@ -171,20 +179,21 @@ has the ranges, the run with equal fonts and how both were checked.
 Measured at `28f2382` on 2026-09-18, on the built-in 120 Hz display, medians
 of 120 keys:
 
-| from a key arriving to | with `cat` | with the shell |
+| from a key arriving to | with the system's echo | with the shell |
 |---|---|---|
 | the frame handed to the display | **3.0 ms** | **5.4 ms** |
 | the display's next refresh, at the earliest | 7.1 ms | 11.3 ms |
 
-The shell's extra time is the shell itself: zsh took 2.5 ms to echo a key
-where the operating system's own echo for `cat` took 0.015 ms.
+The shell's extra time is the shell itself: the shell took 2.5 ms to echo
+a key where the operating system's own echo took 0.015 ms.
 No other terminal's typing latency has been measured on the Mac, so there
 is no comparison there.
 
 On Linux, measured on 2026-11-16 with baud built from `2789e0d0` and app
 changes not yet published, on a 3840x2160 240 Hz display
-under Hyprland 0.56.2, each terminal running `cat`, medians of 90 keys from
-a key being sent to the compositor committing the frame that shows it.
+under a tiling Wayland compositor, each terminal with the operating system
+echoing the keys, medians of 90 keys from a key being sent to the
+compositor committing the frame that shows it.
 These figures are indicative, not a result, because baud was built with
 app changes not in the repository:
 
@@ -201,7 +210,8 @@ Every terminal was read from outside, the same way. This ends at the
 compositor's commit, not at the light leaving the panel, which comes up to a
 refresh and a scan-out later for every terminal alike, so it is not
 comparable with the Mac figures above. baud's slowest keys were slower than
-kitty's, foot's and alacritty's: its 95th percentile was 2.30 ms, where a
+those of the three terminals after it in the table: its 95th percentile
+was 2.30 ms, where a
 second copy of baud in the same run read 1.07 ms, so the run cannot tell
 whether that tail is baud's.
 [MEASUREMENTS.md](../../MEASUREMENTS.md#keystroke-to-the-compositors-commit-linux-x86_64-2026-11-16)

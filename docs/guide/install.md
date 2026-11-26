@@ -54,7 +54,7 @@ cd baud
 devenv shell -- scripts/bundle-macos.sh
 ```
 
-This leaves `baud.app` in `target/`. Open it from Finder, or drag it to
+This leaves `baud.app` in `target/`. Open it, or drag it to
 Applications and launch it from there or from the Dock.
 
 Clone rather than download a ZIP from GitHub. A ZIP has no `.git` folder:
@@ -97,7 +97,7 @@ cursor or window, see [Configuration](configuration.md).
 ## If something looks wrong
 
 - **Warnings go to the terminal baud was started from.** When you launch
-  the app from Finder or the Dock there is no such terminal, so start it as
+  the app from a file manager or the Dock there is no such terminal, so start it as
   `target/baud.app/Contents/MacOS/baud` from another terminal to see them.
   `BAUD_LOG=info` shows more; `BAUD_LOG=err` shows only errors.
 - **On a release before macOS 26** the app refuses to open, and the bare binary
