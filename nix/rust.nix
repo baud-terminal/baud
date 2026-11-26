@@ -18,6 +18,10 @@ _:
       "clippy"
       "rustfmt"
       "rust-analyzer"
+      # `cargo miri test -p baud-pipeline` checks the handoff's `unsafe`
+      # for undefined behaviour; Miri builds its sysroot from `rust-src`.
+      "miri"
+      "rust-src"
     ];
 
     # Warnings are errors for every cargo invocation in the shell, `devenv test`

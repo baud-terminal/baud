@@ -17,17 +17,80 @@
 //! frame thread may skip any number of publishes.
 //!
 //! **The one `unsafe`** is the slot's deref in [`Filling`] and [`Ready`],
-//! and the `Sync` on the shared state it rests on. The back index, the
+//! through `slot` and `slot_mut`, and the `Sync` on the shared state it
+//! rests on. The back index, the
 //! front index and the shared index are always three different slots: only
 //! [`Filling::publish`] and [`FrameEnd::take`] change them, each by one
 //! atomic swap of its own index with the shared one, and each end is
 //! neither `Clone` nor `Sync`, so it is reached through one `&mut` at a
 //! time.
 
-use std::cell::{Cell, UnsafeCell};
+use std::cell::Cell;
 use std::marker::PhantomData;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+
+// The shared state's types: loom's under `--cfg loom`, so `tests/loom.rs`
+// sees every access to a slot, every swap of `shared` and every end's
+// drop; std's in every other build.
+#[cfg(loom)]
+use loom::{
+    cell::UnsafeCell,
+    sync::Arc,
+    sync::atomic::{AtomicU8, Ordering},
+};
+#[cfg(not(loom))]
+use std::{
+    cell::UnsafeCell,
+    sync::Arc,
+    sync::atomic::{AtomicU8, Ordering},
+};
+
+/// **A slot, to read.**
+///
+/// # Safety
+///
+/// The caller's end holds the slot (the module's rule), and no `&mut` to
+/// it is live for the reference's life.
+#[cfg(not(loom))]
+unsafe fn slot<S>(cell: &UnsafeCell<S>) -> &S {
+    // SAFETY: the caller's.
+    unsafe { &*cell.get() }
+}
+
+/// **A slot, to write.**
+///
+/// # Safety
+///
+/// The caller's end holds the slot (the module's rule), and no other
+/// reference to it is live for the reference's life.
+#[cfg(not(loom))]
+#[allow(clippy::mut_from_ref)]
+unsafe fn slot_mut<S>(cell: &UnsafeCell<S>) -> &mut S {
+    // SAFETY: the caller's.
+    unsafe { &mut *cell.get() }
+}
+
+/// **A slot, to read**, the read recorded where loom checks it.
+///
+/// # Safety
+///
+/// As the std build's.
+#[cfg(loom)]
+unsafe fn slot<S>(cell: &UnsafeCell<S>) -> &S {
+    // SAFETY: the caller's.
+    cell.with(|p| unsafe { &*p })
+}
+
+/// **A slot, to write**, the write recorded where loom checks it.
+///
+/// # Safety
+///
+/// As the std build's.
+#[cfg(loom)]
+#[allow(clippy::mut_from_ref)]
+unsafe fn slot_mut<S>(cell: &UnsafeCell<S>) -> &mut S {
+    // SAFETY: the caller's.
+    cell.with_mut(|p| unsafe { &mut *p })
+}
 
 /// The shared slot's index, in the low two bits.
 const INDEX: u8 = 0b011;
@@ -179,14 +242,14 @@ impl<S> std::ops::Deref for Filling<'_, S> {
     fn deref(&self) -> &S {
         // SAFETY: the back slot is the ingest end's alone (the module's rule), and
         // this guard holds its end mutably.
-        unsafe { &*self.end.h.slots[usize::from(self.end.back)].get() }
+        unsafe { slot(&self.end.h.slots[usize::from(self.end.back)]) }
     }
 }
 
 impl<S> std::ops::DerefMut for Filling<'_, S> {
     fn deref_mut(&mut self) -> &mut S {
         // SAFETY: as `deref`.
-        unsafe { &mut *self.end.h.slots[usize::from(self.end.back)].get() }
+        unsafe { slot_mut(&self.end.h.slots[usize::from(self.end.back)]) }
     }
 }
 
@@ -240,18 +303,18 @@ impl<S> std::ops::Deref for Ready<'_, S> {
     fn deref(&self) -> &S {
         // SAFETY: the front slot is the frame end's alone (the module's rule), and
         // this guard holds its end mutably.
-        unsafe { &*self.end.h.slots[usize::from(self.end.front)].get() }
+        unsafe { slot(&self.end.h.slots[usize::from(self.end.front)]) }
     }
 }
 
 impl<S> std::ops::DerefMut for Ready<'_, S> {
     fn deref_mut(&mut self) -> &mut S {
         // SAFETY: as `deref`.
-        unsafe { &mut *self.end.h.slots[usize::from(self.end.front)].get() }
+        unsafe { slot_mut(&self.end.h.slots[usize::from(self.end.front)]) }
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(loom)))]
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
