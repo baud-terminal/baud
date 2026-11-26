@@ -24,7 +24,8 @@ use baud_present_vulkan::cells::Landing;
 use baud_present_vulkan::choose::{Refusal, SyncObj, choose};
 use baud_present_vulkan::damage::{TARGETS, TargetIx};
 use baud_present_vulkan::frame::{Failed, Gpu, Kind};
-use baud_present_vulkan::present::{Cpu, Frame, Inputs, Owes, Presenter, Remade};
+use baud_present_vulkan::present;
+use baud_present_vulkan::present::{Cpu, Flies, Frame, Inputs, Owes, Presenter, Remade};
 use baud_present_vulkan::reported::Reported;
 use baud_present_vulkan::vk::Vulkan;
 use baud_present_wayland::dmabuf::{Answer, Dmabuf, Imported, Params, Points, Timeline};
@@ -245,13 +246,14 @@ impl core::fmt::Display for Tally {
 
 /// The arm while it runs: the device, the presenter, and each target's
 /// buffer and timeline as the compositor knows them, or its buffer still
-/// asked for.
+/// asked for, and whether frames fly as last logged.
 struct On {
     gpu: Gpu,
     presenter: Presenter,
     asked: [Option<Params>; TARGETS],
     buffers: [Option<ObjectId>; TARGETS],
     timelines: [Option<Timeline>; TARGETS],
+    told: Option<Flies>,
 }
 
 /// When a GPU arm that failed tries again.
@@ -334,6 +336,37 @@ fn teardown<A, B, L>(
     steps
 }
 
+/// **The line the arm logs when it comes on**: the device, the sync arm,
+/// and whether frames fly or wait for the GPU, and why.
+fn on_line(sync: baud_present_vulkan::choose::Sync, flies: Flies) -> String {
+    use baud_present_vulkan::choose::Sync;
+    let sync = match sync {
+        Sync::Explicit => "explicit",
+        Sync::Implicit => "implicit",
+    };
+    let flies = match flies {
+        Flies::Yes => "frames fly",
+        Flies::Waits(present::Why::NoSyncFile) => "frames wait: no sync file",
+        Flies::Waits(present::Why::FenceRefused) => "frames wait: the targets refuse a sync file",
+    };
+    format!("gpu: frames drawn on the device the compositor names, {sync} sync; {flies}")
+}
+
+/// **The on line, when it says something not yet logged**: whether frames
+/// fly is known once the targets are made, so the line is told at the
+/// first targets and again only when a remade set answers otherwise.
+fn tell(
+    told: &mut Option<Flies>,
+    sync: baud_present_vulkan::choose::Sync,
+    flies: Flies,
+) -> Option<String> {
+    if *told == Some(flies) {
+        return None;
+    }
+    *told = Some(flies);
+    Some(on_line(sync, flies))
+}
+
 impl GpuArm {
     /// The arm, off when `env` -- `BAUD_GPU` -- is `off`.
     pub fn new(env: Option<&str>) -> GpuArm {
@@ -394,6 +427,7 @@ impl GpuArm {
                     asked: [None; TARGETS],
                     buffers: [None; TARGETS],
                     timelines: [None; TARGETS],
+                    told: None,
                 },
                 reported,
             ))
@@ -630,7 +664,14 @@ impl On {
             return Ok(Arm::Cpu(Why::Sizeless));
         };
         match self.presenter.fit(&self.gpu, size).map_err(Off::Fitting)? {
-            Remade::Yes => self.import(window, s)?,
+            Remade::Yes => {
+                if let Some(line) =
+                    tell(&mut self.told, self.gpu.choice.sync, self.presenter.flies())
+                {
+                    crate::info!("{line}");
+                }
+                self.import(window, s)?;
+            }
             Remade::No => {}
             // The frame in flight lands first, and the frame is owed.
             Remade::Busy => return Ok(Arm::Owed),
@@ -735,6 +776,7 @@ impl On {
             asked,
             buffers,
             timelines,
+            told: _,
         } = self;
         let (mut presenter, mut gpu) = (Some(presenter), Some(gpu));
         for step in teardown(&asked, &buffers, &timelines) {
@@ -938,6 +980,62 @@ mod tests {
         assert_eq!(
             Off::Failed(Failed::Spirv).failure(size),
             Some(Failure::Other(Failed::Spirv))
+        );
+    }
+
+    /// **The line the arm logs when it comes on names its sync arm, and
+    /// whether frames fly or wait and why**: each of the four answers is
+    /// told apart. Named break: a line that says the device and nothing
+    /// of how its frames are met.
+    #[test]
+    fn the_arm_says_its_sync_and_whether_frames_fly_or_wait() {
+        use baud_present_vulkan::choose::Sync;
+        let lines = [
+            (Sync::Explicit, Flies::Yes, "explicit sync; frames fly"),
+            (Sync::Implicit, Flies::Yes, "implicit sync; frames fly"),
+            (
+                Sync::Implicit,
+                Flies::Waits(present::Why::NoSyncFile),
+                "implicit sync; frames wait: no sync file",
+            ),
+            (
+                Sync::Implicit,
+                Flies::Waits(present::Why::FenceRefused),
+                "implicit sync; frames wait: the targets refuse a sync file",
+            ),
+        ];
+        for (sync, flies, says) in lines {
+            let line = on_line(sync, flies);
+            assert!(
+                line.starts_with("gpu: frames drawn on the device the compositor names"),
+                "{line}"
+            );
+            assert!(line.ends_with(says), "{sync:?} {flies:?}: {line}");
+        }
+    }
+
+    /// **The on line is told at the first targets and again only when a
+    /// remade set answers otherwise**: a resize whose targets fly as the
+    /// ones before logs nothing. Named break: a line logged at every
+    /// remake, or one never told again when the answer changes.
+    #[test]
+    fn the_on_line_is_told_once_per_answer() {
+        use baud_present_vulkan::choose::Sync;
+        let refused = Flies::Waits(present::Why::FenceRefused);
+        let mut told = None;
+        let said: Vec<Option<String>> = [Flies::Yes, Flies::Yes, refused, refused, Flies::Yes]
+            .into_iter()
+            .map(|flies| tell(&mut told, Sync::Implicit, flies))
+            .collect();
+        assert_eq!(
+            said,
+            [
+                Some(on_line(Sync::Implicit, Flies::Yes)),
+                None,
+                Some(on_line(Sync::Implicit, refused)),
+                None,
+                Some(on_line(Sync::Implicit, Flies::Yes)),
+            ]
         );
     }
 }
