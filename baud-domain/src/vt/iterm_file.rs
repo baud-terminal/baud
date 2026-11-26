@@ -590,18 +590,15 @@ fn picture_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<P
         u16::try_from(size.height).ok()?,
     );
     let (id, px) = store.store(ImagePx::of(w), ImagePx::of(h), ImageAlpha::OpaqueOrClear)?;
-    match png.decode(rest, Pixel::bytes_mut(px)) {
-        Ok(_) => {
-            for p in px.iter_mut() {
-                *p = p.from_memory_rgba();
-            }
-            Some(Picture {
-                id,
-                width: size.width,
-                height: size.height,
-                parts_not_drawn: 0,
-            })
-        }
+    // The picture keeps the mark it was stored with.
+    let mut alpha = ImageAlpha::OpaqueOrClear;
+    match png.decode_pixels(rest, px, &mut alpha) {
+        Ok(_) => Some(Picture {
+            id,
+            width: size.width,
+            height: size.height,
+            parts_not_drawn: 0,
+        }),
         Err(_) => {
             store.free(id);
             None

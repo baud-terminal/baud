@@ -1303,3 +1303,41 @@ fn a_file_and_a_kitty_png_take_the_scratch_in_turn() {
         });
     }
 }
+
+/// **A PNG's picture is the pixels `decode` gives**, read as
+/// `from_memory_rgba` reads them: an RGBA picture whose alpha runs through
+/// clear, partial and opaque, so a decode that wrote none, or left a
+/// pixel's bytes in memory order, shows.
+#[test]
+fn an_iterm_png_is_the_pixels_decode_gives() {
+    let (w, h) = (16u32, 16u32);
+    let data: Vec<u8> = (0..w * h * 4)
+        .map(|i| (i * 37 + i / 4).to_le_bytes()[0])
+        .collect();
+    let mut encoded = Vec::new();
+    {
+        let mut e = png::Encoder::new(&mut encoded, w, h);
+        e.set_color(png::ColorType::Rgba);
+        e.set_depth(png::BitDepth::Eight);
+        let mut wr = e.write_header().unwrap();
+        wr.write_image_data(&data).unwrap();
+    }
+    let p = baud_domain::png::Png::parse(&encoded).expect("parses");
+    let mut rgba = vec![0u8; p.rgba_len().unwrap()];
+    p.decode(&mut vec![0u8; p.raw_len().unwrap()], &mut rgba)
+        .expect("decodes");
+    let mut want = vec![Pixel::CLEAR; rgba.len() / 4];
+    Pixel::bytes_mut(&mut want).copy_from_slice(&rgba);
+    let want: Vec<u32> = want.iter().map(|x| x.from_memory_rgba().bits()).collect();
+    let partial = want
+        .iter()
+        .filter(|&&x| !matches!(x >> 24, 0 | 0xFF))
+        .count();
+    assert!(partial > 0, "the control: partial alpha");
+    with(1 << 16, |t| {
+        feed(t, &file("inline=1", &encoded), 1 << 20);
+        let (_, pw, ph, got) = placed(t);
+        assert_eq!((pw, ph), (16, 16));
+        assert!(got == want, "the pixels");
+    });
+}

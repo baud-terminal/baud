@@ -176,7 +176,7 @@ impl Pixel {
     }
 
     /// The words of `px` as the bytes they lie in, for a decoder that
-    /// writes RGBA8 rows in place, as kitty's PNG decode does.
+    /// writes its own bytes in place before the pixels are made.
     pub fn bytes_mut(px: &mut [Pixel]) -> &mut [u8] {
         px.as_mut_bytes()
     }
@@ -200,6 +200,58 @@ impl Pixel {
     pub fn from_memory_rgba(self) -> Pixel {
         let [r, g, b, a] = self.0.to_ne_bytes();
         Pixel(u32::from_be_bytes([a, r, g, b]))
+    }
+}
+
+/// **The words of an image still being decoded**, lent by
+/// [`ImageStore::decoding_mut`]: not yet pixels. A decoder writes them as
+/// bytes ([`DecodingWords::bytes_mut`]); only baud-domain's own decoders,
+/// writing finished pixels, have them as [`Pixel`]s. A reader sees an
+/// image's words as pixels through [`ImageStore::image`], once it is
+/// complete.
+///
+/// Outside the crate the words are not pixels, and they cannot be indexed:
+///
+/// ```compile_fail,E0624
+/// fn f(mut w: baud_domain::DecodingWords<'_>) -> &mut [baud_domain::Pixel] { w.pixels_mut() }
+/// ```
+///
+/// ```compile_fail,E0608
+/// fn f(w: &baud_domain::DecodingWords<'_>) -> baud_domain::Pixel { w[0] }
+/// ```
+///
+/// The legal path:
+///
+/// ```
+/// fn f(mut w: baud_domain::DecodingWords<'_>) -> usize { w.bytes_mut().len() + w.len() }
+/// ```
+pub struct DecodingWords<'a>(&'a mut [Pixel]);
+
+#[allow(
+    clippy::len_without_is_empty,
+    reason = "the count is all a decoder asks of the words"
+)]
+impl<'a> DecodingWords<'a> {
+    /// `px`, lent as a decoding image's words.
+    pub(crate) fn lend(px: &'a mut [Pixel]) -> DecodingWords<'a> {
+        DecodingWords(px)
+    }
+
+    /// How many words: the image's pixels.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// The words as the bytes they lie in, for a decoder writing packed
+    /// samples in place.
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut_bytes()
+    }
+
+    /// The words as pixels: for a writer of finished pixels, and for the
+    /// widening of packed samples into pixels.
+    pub(crate) fn pixels_mut(&mut self) -> &mut [Pixel] {
+        &mut *self.0
     }
 }
 
@@ -2697,16 +2749,22 @@ impl<'b> ImageStore<'b> {
         Some(id)
     }
 
-    /// The pixels of an image still being decoded, to write in place;
-    /// `None` once it is complete or if `id` names none.
-    pub fn decoding_mut(&mut self, id: ImageId) -> Option<&mut [Pixel]> {
+    /// The words of an image still being decoded, to write in place
+    /// ([`DecodingWords`]); `None` once it is complete or if `id` names
+    /// none.
+    pub fn decoding_mut(&mut self, id: ImageId) -> Option<DecodingWords<'_>> {
         if id == ImageId::PROBE {
             let (w, h) = self.probe_size?;
-            return self.probe.get_mut(..w.index() * h.index());
+            return self
+                .probe
+                .get_mut(..w.index() * h.index())
+                .map(DecodingWords::lend);
         }
         let s = *self.slots.get(id.index()?)?;
         match !s.is_empty() && s.state == ImageState::Decoding {
-            true => Some(&mut self.pixels[s.start()..s.start() + s.area()]),
+            true => Some(DecodingWords::lend(
+                &mut self.pixels[s.start()..s.start() + s.area()],
+            )),
             false => None,
         }
     }

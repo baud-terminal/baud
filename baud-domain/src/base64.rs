@@ -521,9 +521,11 @@ impl Block {
         {
             Block::lanes(chars)
         }
-        #[cfg(not(target_endian = "little"))]
+        #[cfg(target_endian = "big")]
         {
-            Block::quanta(chars)
+            compile_error!(
+                "baud-domain: the kitty base64 block and pixel widening have no big-endian form"
+            )
         }
     }
 
@@ -566,28 +568,6 @@ impl Block {
         let octets: Simd<u8, BLOCK_OCTETS> =
             simd_swizzle!(word.to_ne_bytes(), [2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12]);
         Some(octets.to_array())
-    }
-
-    /// The four quanta one at a time, through [`VALUE`]: the form for a
-    /// word whose bytes are not read lowest first.
-    #[cfg(not(target_endian = "little"))]
-    fn quanta(chars: [u8; BLOCK_CHARS]) -> Option<[u8; BLOCK_OCTETS]> {
-        let mut out = [0u8; BLOCK_OCTETS];
-        for (q, o) in chars
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .zip(out.as_chunks_mut::<3>().0)
-        {
-            let v = q.map(|c| VALUE[usize::from(c)]);
-            if v.contains(&NOT_BASE64) {
-                return None;
-            }
-            let word = v.iter().fold(0u32, |w, &x| (w << 6) | u32::from(x));
-            let [_, a, b, c] = word.to_be_bytes();
-            *o = [a, b, c];
-        }
-        Some(out)
     }
 }
 

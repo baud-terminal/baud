@@ -686,3 +686,53 @@ fn a_refused_png_releases_the_scratch_it_wrote() {
         }
     }
 }
+
+/// **A file medium's PNG is made whole when its transmission ends**:
+/// written as pixels in one pass, nothing left to step, its pixels the ones
+/// `decode` and `from_memory_rgba` make, and the scratch it used released.
+/// A conversion left to run over the written pixels would read each word's
+/// bytes again and swap its red and blue.
+#[test]
+fn a_png_sent_whole_completes_with_no_convert() {
+    let image = png(3, 2, 0, 11);
+    let p = baud_domain::png::Png::parse(&image).expect("parses");
+    let mut rgba = vec![0u8; p.rgba_len().unwrap()];
+    p.decode(&mut vec![0u8; p.raw_len().unwrap()], &mut rgba)
+        .expect("decodes");
+    let mut want = vec![Pixel::CLEAR; 6];
+    Pixel::bytes_mut(&mut want).copy_from_slice(&rgba);
+    let want: Vec<u32> = want.iter().map(|x| x.from_memory_rgba().bits()).collect();
+    assert!(
+        want.iter().any(|&x| (x >> 16) & 0xFF != x & 0xFF),
+        "the control: a pixel whose red and blue differ"
+    );
+    let mut px = vec![Pixel::CLEAR; 256];
+    let (mut slots, mut places) = ([ImageSlot::EMPTY; 4], [PlacementSlot::EMPTY; 8]);
+    let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
+    let mut store = ImageStore::new(&mut px, &mut slots, &mut places, &mut places_index);
+    store.set_release(PageRelease::new(1, record).unwrap());
+    RELEASED.with(|r| r.set(0));
+    let mut k = KittyStream::NEW;
+    k.set_files(Box::leak(Box::new(Echo)));
+    let mut scratch = vec![0u8; 4096];
+    let body = chunked("a=T,i=1,f=100,t=f", &base64(&image), &[]).remove(0);
+    k.begin(ImageScreen::Primary, &mut store, &mut scratch);
+    k.put_run(&body, &mut store, &mut scratch);
+    k.end(&place(), &mut store, &mut scratch);
+    assert_eq!(k.pending(), DecodeProgress::Idle, "a step left");
+    let replies: Vec<Vec<u8>> = k.replies().map(<[u8]>::to_vec).collect();
+    assert!(
+        replies.len() == 1 && replies[0].ends_with(b"OK"),
+        "{replies:?}"
+    );
+    let drawn: Vec<Vec<u32>> = store
+        .placements()
+        .filter_map(|(_, p)| store.image(p.image))
+        .map(|v| v.pixels.iter().map(|p| p.bits()).collect())
+        .collect();
+    assert_eq!(drawn, [want], "the pixels");
+    assert!(
+        RELEASED.with(std::cell::Cell::get) > 0,
+        "the scratch released"
+    );
+}

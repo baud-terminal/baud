@@ -12,6 +12,7 @@
 
 use baud_domain::png::{Png, PngError};
 use baud_domain::zlib::{Inflate, Inflated, ZlibError};
+use baud_domain::{DecodeBudget, ImageAlpha, Pixel};
 use miniz_oxide::deflate::core::{
     CompressionStrategy, CompressorOxide, TDEFLFlush, TDEFLStatus, compress_to_output,
     create_comp_flags_from_zip_params,
@@ -1030,15 +1031,26 @@ fn reconstructs_as_it_decodes(what: &str, png: &Png<'_>) -> bool {
     let (r, a) = (png.raw_len().unwrap_or(0), png.rgba_len().unwrap_or(0));
     let (mut raw, mut once) = (vec![0u8; r], vec![0u8; a]);
     let whole = png.decode(&mut raw, &mut once);
-    let (mut raw, mut rgba) = (vec![0u8; r], vec![0u8; a]);
+    let (mut raw, mut px) = (vec![0u8; r], vec![Pixel::CLEAR; a / 4]);
     let first = png.reconstruct(&mut raw);
     assert_eq!(first, whole.map(|_| ()), "{what}");
     if first.is_err() {
         return true;
     }
-    assert_eq!(png.write_rgba(&raw, &mut rgba), whole, "{what}");
-    assert!(rgba == once, "{what}: the pixels differ");
+    let mut alpha = ImageAlpha::OpaqueOrClear;
+    assert_eq!(png.write_pixels(&raw, &mut px, &mut alpha), whole, "{what}");
+    assert!((px, alpha) == words(&once), "{what}: the pixels differ");
     false
+}
+
+/// The pixels `rgba`'s bytes make, as [`Pixel::from_memory_rgba`] reads
+/// them, and their alpha mark: what the pixel writers are held to.
+fn words(rgba: &[u8]) -> (Vec<Pixel>, ImageAlpha) {
+    let mut px = vec![Pixel::CLEAR; rgba.len() / 4];
+    Pixel::bytes_mut(&mut px).copy_from_slice(rgba);
+    let px: Vec<Pixel> = px.into_iter().map(Pixel::from_memory_rgba).collect();
+    let alpha = px.iter().fold(ImageAlpha::OpaqueOrClear, |a, &p| a.with(p));
+    (px, alpha)
 }
 
 /// **Reconstructing first and writing the pixels after is the one-shot
@@ -1090,11 +1102,18 @@ fn a_stepped_decode_is_the_one_shot_decode_at_every_step_size() {
             &[61, 4096, 1 << 20, usize::MAX]
         };
         for &budget in budgets {
-            let (mut raw, mut rgba) = (vec![0u8; r], vec![0u8; a]);
+            let (mut raw, mut px) = (vec![0u8; r], vec![Pixel::CLEAR; a / 4]);
+            let mut alpha = ImageAlpha::OpaqueOrClear;
             let again = Png::reparse(&bytes).expect("reparsed");
             let stepped = png.steps().and_then(|mut st| {
                 loop {
-                    match again.step(&mut st, &mut raw, &mut rgba, budget)? {
+                    match again.step(
+                        &mut st,
+                        &mut raw,
+                        &mut px,
+                        DecodeBudget::of(budget),
+                        &mut alpha,
+                    )? {
                         baud_domain::png::PngProgress::Done => break Ok(()),
                         baud_domain::png::PngProgress::More => continue,
                     }
@@ -1102,7 +1121,10 @@ fn a_stepped_decode_is_the_one_shot_decode_at_every_step_size() {
             });
             assert_eq!(stepped, whole, "{what} at {budget}");
             if whole.is_ok() {
-                assert!(rgba == once, "{what} at {budget}: the pixels differ");
+                assert!(
+                    (px, alpha) == words(&once),
+                    "{what} at {budget}: the pixels differ"
+                );
             }
         }
     }

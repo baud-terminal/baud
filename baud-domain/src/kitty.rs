@@ -119,12 +119,12 @@
 
 use crate::KittyBase64;
 use crate::image::{
-    FrameBlend, FrameCompose, FrameControl, FrameDeleted, FrameDepth, FrameLoad, FrameRefusal,
+    DecodingWords, ImageAlpha, ImageId, ImageOwner, ImagePx, ImageRefusal, ImageScreen, ImageStore,
+    KittyFit, KittyFree, KittyId, KittyNumber, KittyParent, KittyPlace, KittyPlacement,
+    LinkRefusal, ParentOn, Pixel, PlaceSerial, PlacementSlot, ZIndex,
 };
 use crate::image::{
-    ImageAlpha, ImageId, ImageOwner, ImagePx, ImageRefusal, ImageScreen, ImageStore, KittyFit,
-    KittyFree, KittyId, KittyNumber, KittyParent, KittyPlace, KittyPlacement, LinkRefusal,
-    ParentOn, Pixel, PlaceSerial, PlacementSlot, ZIndex,
+    FrameBlend, FrameCompose, FrameControl, FrameDeleted, FrameDepth, FrameLoad, FrameRefusal,
 };
 use crate::png::{Png, PngError, PngProgress, PngSteps};
 use crate::pos::LineIdx;
@@ -781,6 +781,11 @@ impl DecodeBudget {
     pub fn of(bytes: usize) -> DecodeBudget {
         DecodeBudget(bytes.max(1))
     }
+
+    /// The bytes of work it bounds a step to.
+    pub(crate) fn bytes(self) -> usize {
+        self.0
+    }
 }
 
 /// Whether a deferred decode remains after a step.
@@ -1107,7 +1112,7 @@ enum Load {
         alpha: ImageAlpha,
     },
     /// `f=24`/`f=32` with `o=z`: inflating into the span's bytes.
-    RawZ { image: ImageId },
+    RawZ { image: ImageId, packed: Packed },
     /// `f=100`: the PNG's bytes into the scratch.
     Png { len: usize },
     /// `f=100` with `o=z`: inflating into the scratch's first `need` bytes.
@@ -1158,6 +1163,17 @@ enum Replaces {
     },
 }
 
+/// **The samples a raw image's inflate packs into its words**, which
+/// [`convert`] widens to pixels: `f=24`'s three bytes a pixel, or `f=32`'s
+/// four.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Packed {
+    /// `r, g, b`.
+    Rgb,
+    /// `r, g, b, a`.
+    Rgba,
+}
+
 /// A finished transmission whose pixels are still to be made.
 #[derive(Clone, Copy)]
 enum Deferred {
@@ -1175,7 +1191,7 @@ enum Deferred {
     /// first up otherwise; `left` pixels remain.
     Convert {
         image: ImageId,
-        format: KittyFormat,
+        format: Packed,
         left: usize,
         alpha: ImageAlpha,
     },
@@ -1183,9 +1199,10 @@ enum Deferred {
 
 /// **The protocol's state, in caller memory**: the chunk being read, the
 /// transmission in flight, the decode deferred, and the replies owed.
-/// About 21 KB, most of it two inflate states, the virtual placements'
-/// table and the 2 KiB path buffer; an embedder keeps one beside
-/// the Sixel stream.
+/// 29216 bytes on a 64-bit target, most of it two inflate states, the
+/// virtual placements' table, the 2 KiB path buffer and the 1.5 KiB buffer
+/// raw pixels' octets are decoded into; an embedder keeps one beside the
+/// Sixel stream.
 pub struct KittyStream {
     ctrl: [u8; KITTY_CONTROL_MAX],
     ctrl_len: usize,
@@ -2035,7 +2052,14 @@ impl KittyStream {
                             held: 0,
                             alpha: ImageAlpha::OpaqueOrClear,
                         },
-                        KittyCompression::Zlib => Load::RawZ { image },
+                        KittyCompression::Zlib => Load::RawZ {
+                            image,
+                            packed: match cmd.format {
+                                KittyFormat::Rgb => Packed::Rgb,
+                                // The arms above took the PNGs.
+                                _ => Packed::Rgba,
+                            },
+                        },
                     },
                 }
             }
@@ -2297,9 +2321,10 @@ impl KittyStream {
         else {
             return Ok(());
         };
-        let Some(px) = store.decoding_mut(image) else {
+        let Some(mut words) = store.decoding_mut(image) else {
             return Err(KittyError::NO_SPACE);
         };
+        let px = words.pixels_mut();
         for &x in bytes {
             carry[held] = x;
             held += 1;
@@ -2340,13 +2365,13 @@ impl KittyStream {
         let n = self.stage_len;
         self.stage_len = 0;
         let fed = match self.load {
-            Load::RawZ { image } => {
+            Load::RawZ { image, .. } => {
                 let need = self.raw_bytes();
-                let Some(px) = store.decoding_mut(image) else {
+                let Some(mut words) = store.decoding_mut(image) else {
                     return self.refuse_load(KittyError::NO_SPACE, store);
                 };
                 self.z
-                    .feed(&self.stage[..n], &mut px.as_mut_bytes()[..need])
+                    .feed(&self.stage[..n], &mut words.bytes_mut()[..need])
             }
             Load::PngZ { need } => {
                 let before = self.z.written();
@@ -2378,7 +2403,7 @@ impl KittyStream {
     /// Refuse the load in flight: its reserved image goes, and the chunks
     /// left are consumed to the last, which replies.
     fn refuse_load(&mut self, e: KittyError, store: &mut ImageStore) {
-        if let Load::Raw { image, .. } | Load::RawZ { image } = self.load {
+        if let Load::Raw { image, .. } | Load::RawZ { image, .. } = self.load {
             store.free_decoding(image);
         }
         self.load = Load::Refused(e);
@@ -2387,7 +2412,7 @@ impl KittyStream {
     /// Abort the load in flight with no reply: a delete or a cancelled
     /// chunk. The image it would have replaced stays ([`Replaces`]).
     fn abort(&mut self, store: &mut ImageStore) {
-        if let Load::Raw { image, .. } | Load::RawZ { image } = self.load {
+        if let Load::Raw { image, .. } | Load::RawZ { image, .. } = self.load {
             store.free_decoding(image);
         }
         self.load = Load::Idle;
@@ -2540,14 +2565,14 @@ impl KittyStream {
                 }
                 self.done(image, cmd, at, store)
             }
-            Load::RawZ { image } => {
+            Load::RawZ { image, packed } => {
                 let left = store
                     .size_of(image)
                     .map_or(0, |(w, h)| w.index() * h.index());
                 self.defer(
                     Deferred::Convert {
                         image,
-                        format: cmd.format,
+                        format: packed,
                         left,
                         alpha: ImageAlpha::OpaqueOrClear,
                     },
@@ -2636,28 +2661,22 @@ impl KittyStream {
             }
         };
         if now {
-            // What is left cannot refuse: the pixels, then the conversion
-            // a stepped decode ends in.
+            // What is left cannot refuse: the pixels, written whole.
             let (data, rest) = scratch.split_at_mut(len);
+            let mut alpha = ImageAlpha::OpaqueOrClear;
             let made = Png::reparse(data).and_then(|p| {
-                let px = store.decoding_mut(image).ok_or(PngError::Buffer)?;
-                p.write_rgba(rest, px.as_mut_bytes())
+                let mut words = store.decoding_mut(image).ok_or(PngError::Buffer)?;
+                p.write_pixels(rest, words.pixels_mut(), &mut alpha)
             });
             if made.is_err() {
                 store.free_decoding(image);
                 self.reply(&cmd, Err(KittyError::BAD_PNG));
                 return None;
             }
-            let left = store
-                .size_of(image)
-                .map_or(0, |(w, h)| w.index() * h.index());
-            let d = Deferred::Convert {
-                image,
-                format: KittyFormat::Png,
-                left,
-                alpha: ImageAlpha::OpaqueOrClear,
-            };
-            return self.defer(d, cmd, at, store, scratch);
+            // Whole now: shown, placed and answered as a raw image is, with
+            // no step left.
+            store.complete(image, alpha);
+            return self.done(image, cmd, at, store);
         }
         self.png = Some(steps);
         // The decode makes its scanlines in `[len, len + raw)`.
@@ -2833,9 +2852,9 @@ impl KittyStream {
                 let png = &mut self.png;
                 let mut mark = alpha;
                 let result = Png::reparse(data).and_then(|p| {
-                    let px = store.decoding_mut(image).ok_or(PngError::Buffer)?;
+                    let mut words = store.decoding_mut(image).ok_or(PngError::Buffer)?;
                     let steps = png.as_mut().ok_or(PngError::Buffer)?;
-                    p.step_pixels(steps, rest, px, budget.0, &mut mark)
+                    p.step(steps, rest, words.pixels_mut(), budget, &mut mark)
                 });
                 match result {
                     Ok(PngProgress::More) => {
@@ -2858,12 +2877,12 @@ impl KittyStream {
                 left,
                 alpha,
             } => {
-                let Some(px) = store.decoding_mut(image) else {
+                let Some(mut words) = store.decoding_mut(image) else {
                     return self.pending();
                 };
-                let n = px.len();
-                let k = left.min((budget.0 / 4).max(1));
-                let alpha = convert(px, format, n - left, k, alpha);
+                let n = words.len();
+                let k = left.min((budget.bytes() / 4).max(1));
+                let alpha = convert(&mut words, format, n - left, k, alpha);
                 let left = left - k;
                 match left {
                     0 => self.complete(image, alpha, cmd, store),
@@ -3878,27 +3897,30 @@ fn header_fits(head: &[u8], act: KittyAction, store: &mut ImageStore) -> Result<
 ///
 /// Four pixels a step through one byte shuffle, the pixels short of a
 /// whole four a pixel at a time ([`convert_scalar`]). The shuffles read the
-/// word's bytes in little-endian order, so another order takes the scalar
-/// form throughout.
+/// word's bytes in little-endian order, the order of every target baud
+/// builds for.
 fn convert(
-    px: &mut [Pixel],
-    format: KittyFormat,
+    words: &mut DecodingWords<'_>,
+    format: Packed,
     from: usize,
     k: usize,
     alpha: ImageAlpha,
 ) -> ImageAlpha {
+    let px = words.pixels_mut();
     #[cfg(target_endian = "little")]
     {
         let whole = k / 4 * 4;
         let alpha = match format {
-            KittyFormat::Rgb => rgb_lanes(px, from, whole, alpha),
-            KittyFormat::Rgba | KittyFormat::Png => rgba_lanes(px, from, whole, alpha),
+            Packed::Rgb => rgb_lanes(px, from, whole, alpha),
+            Packed::Rgba => rgba_lanes(px, from, whole, alpha),
         };
         convert_scalar(px, format, from + whole, k - whole, alpha)
     }
-    #[cfg(not(target_endian = "little"))]
+    #[cfg(target_endian = "big")]
     {
-        convert_scalar(px, format, from, k, alpha)
+        compile_error!(
+            "baud-domain: the kitty base64 block and pixel widening have no big-endian form"
+        )
     }
 }
 
@@ -3973,14 +3995,14 @@ fn rgba_lanes(px: &mut [Pixel], from: usize, whole: usize, alpha: ImageAlpha) ->
 /// [`convert`] a pixel at a time: the remainder a vector step leaves.
 fn convert_scalar(
     px: &mut [Pixel],
-    format: KittyFormat,
+    format: Packed,
     from: usize,
     k: usize,
     mut alpha: ImageAlpha,
 ) -> ImageAlpha {
     let n = px.len();
     match format {
-        KittyFormat::Rgb => {
+        Packed::Rgb => {
             let bytes = px.as_mut_bytes();
             for done in from..from + k {
                 let i = n - 1 - done;
@@ -3995,7 +4017,7 @@ fn convert_scalar(
             }
             alpha
         }
-        KittyFormat::Rgba | KittyFormat::Png => {
+        Packed::Rgba => {
             for p in &mut px[from..from + k] {
                 *p = p.from_memory_rgba();
                 alpha = alpha.with(*p);
@@ -4129,13 +4151,13 @@ mod tests {
         px
     }
 
-    /// **The vector conversion equals the scalar one**, RGB and RGBA and a
-    /// PNG's RGBA, every span of 0-67 pixels and every `from`/`k` a budget
-    /// can make, from both alpha marks: the same pixels and the same mark.
+    /// **The vector conversion equals the scalar one**, RGB and RGBA, every
+    /// span of 0-67 pixels and every `from`/`k` a budget can make, from both
+    /// alpha marks: the same pixels and the same mark.
     #[test]
     fn convert_vector_equals_scalar() {
         let mut converted = 0;
-        for format in [KittyFormat::Rgb, KittyFormat::Rgba, KittyFormat::Png] {
+        for format in [Packed::Rgb, Packed::Rgba] {
             for n in 0..68usize {
                 let base = span(u64::try_from(n).unwrap_or(0) * 31 + 7, n);
                 for from in 0..=n {
@@ -4145,7 +4167,13 @@ mod tests {
                             let before = convert_scalar(&mut want, format, 0, from, start);
                             let mut got = want.clone();
                             let a = convert_scalar(&mut want, format, from, k, before);
-                            let b = convert(&mut got, format, from, k, before);
+                            let b = convert(
+                                &mut DecodingWords::lend(&mut got),
+                                format,
+                                from,
+                                k,
+                                before,
+                            );
                             assert_eq!(
                                 (got.as_slice(), b),
                                 (want.as_slice(), a),
@@ -4159,5 +4187,55 @@ mod tests {
         }
         // The control: the spans did change.
         assert!(converted > 0);
+    }
+
+    /// **`KittyStream`'s size**, which its doc states.
+    #[test]
+    fn a_kitty_stream_is_the_size_its_doc_states() {
+        assert_eq!(core::mem::size_of::<KittyStream>(), 29216);
+    }
+
+    /// **Four places take a decoding image's words as pixels**
+    /// ([`DecodingWords::pixels_mut`]): the raw octets, which build finished
+    /// pixels; a file medium's PNG, written whole; the stepped PNG; and
+    /// [`convert`], which widens packed samples. Every other writer has the
+    /// words as bytes, so nothing reads packed samples as pixels. A source
+    /// check over every file of the crate, with a control: the four are
+    /// found, each in the function named.
+    #[test]
+    fn four_writers_take_decoding_words_as_pixels() {
+        let needle = concat!(".pixels", "_mut()");
+        let src = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+        let mut paths = std::vec![std::path::PathBuf::from(src)];
+        let mut found: Vec<std::string::String> = Vec::new();
+        while let Some(p) = paths.pop() {
+            if p.is_dir() {
+                for e in std::fs::read_dir(&p).expect("a source folder") {
+                    paths.push(e.expect("an entry").path());
+                }
+                continue;
+            }
+            if p.extension().is_none_or(|x| x != "rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&p).expect("a source file");
+            for (at, _) in text.match_indices(needle) {
+                let line = text[..at]
+                    .rfind('\n')
+                    .map_or(&text[..at], |l| &text[l + 1..at]);
+                if line.trim_start().starts_with("//") {
+                    continue;
+                }
+                let head = text[..at].rfind("fn ").map_or("", |f| &text[f + 3..at]);
+                let name = head.split(['(', '<']).next().unwrap_or("");
+                found.push(std::string::String::from(name));
+            }
+        }
+        found.sort_unstable();
+        assert_eq!(
+            found,
+            ["convert", "png_ready", "raw_octets", "step"],
+            "the callers of pixels_mut"
+        );
     }
 }
