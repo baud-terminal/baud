@@ -231,6 +231,9 @@ group  = "C"
 # Not in the repository: no grant to redistribute it was found (a DEC manual
 # as transcribed on vt100.net). It was read as vt510-DECDHL.html, and the
 # digest is of that copy.
+# Re-fetched 2026-11-17 for what a region scroll does to a line's rendition, the
+# sha256 matching: the page states the rendition the sequences give the line
+# with the cursor and the loss of the right half, and nothing of a scroll.
 
 [sources.vt510-decdwl]
 key    = "vt510-decdwl"
@@ -247,6 +250,9 @@ group  = "C"
 # Not in the repository: no grant to redistribute it was found (a DEC manual
 # as transcribed on vt100.net). It was read as vt510-DECDWL.html, and the
 # digest is of that copy.
+# Re-fetched 2026-11-17 for what a region scroll does to a line's rendition, the
+# sha256 matching: the page states the rendition DECDWL gives the line with
+# the cursor and the loss of the right half, and nothing of a scroll.
 
 [sources.vt510-decswl]
 key    = "vt510-decswl"
@@ -662,6 +668,16 @@ group  = "C"
 # terminal is in graphics input mode, no further data from the application (screen
 # output) is processed until the locator input is complete and a report is generated"
 # (PDF 1026).
+# Re-fetched 2026-11-17 for what a region scroll does to each line, the sha256
+# matching, on the text layer [text] with a positive control ("Notes on DECFRA")
+# found first, and pp. 5-210 and 5-211 read against the page image [img]: IL and
+# DL list line_rendition under State Affected and call scroll_down and scroll_up
+# (pp. 5-146 to 5-149, PDF 401-404), whose comments read "Line and Character
+# Renditions are scrolled with the data. A new single-width line with all character
+# positions empty is inserted at the Bottom Margin" (Top Margin for scroll_down)
+# (§ 5.14.2-3, PDF 465-466); IND scrolls through scroll_up (p. 5-34); SU and SD
+# are Pan Down and Pan Up, "No movement of data within the Logical Display occurs"
+# (pp. 5-91 and 5-92, PDF 346-347).
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
