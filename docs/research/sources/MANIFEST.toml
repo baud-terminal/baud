@@ -7232,6 +7232,32 @@ group  = "J"
 # Committed under docs/research/sources/ -- a spec, protocol file, paper or small
 # permissively-licensed reference source, re-hashed on commit.
 
+[sources.linux-uapi-dma-buf]
+key    = "linux-uapi-dma-buf"
+title  = "Linux v6.12, include/uapi/linux/dma-buf.h -- DMA_BUF_IOCTL_EXPORT_SYNC_FILE and DMA_BUF_IOCTL_IMPORT_SYNC_FILE"
+author = "The Linux kernel developers"
+year   = 2024
+venue  = "Linux"
+url    = "https://raw.githubusercontent.com/torvalds/linux/v6.12/include/uapi/linux/dma-buf.h"
+file   = ""
+sha256 = "f9e4cff5ae3a9e5d9b0db9a22cb98720d4d9d656544e0088d80c17a436c5b8f2"
+bytes  = 7322
+status = "external"
+group  = "J"
+
+[sources.vulkan-synchronization]
+key    = "vulkan-synchronization"
+title  = "Vulkan specification, chapters/synchronization.adoc -- semaphores, fences, and their POSIX file descriptor import and export"
+author = "Khronos Group"
+year   = 2026
+venue  = "KhronosGroup/Vulkan-Docs f7de774c, chapters/"
+url    = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/f7de774cace1509af0f10b8d859c973b5354ff62/chapters/synchronization.adoc"
+file   = ""
+sha256 = "947a3efa7d85935ce57a0ffe4e3479363631148dd2c08bafdce388ca412cf7fe"
+bytes  = 393588
+status = "external"
+group  = "J"
+
 [sources.vulkan-vk-ext-image-drm-format-modifier]
 key    = "vulkan-vk-ext-image-drm-format-modifier"
 title  = "VK_EXT_image_drm_format_modifier"
