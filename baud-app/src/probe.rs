@@ -9749,91 +9749,99 @@ mod tests {
     }
 
     /// **A local answer finds the lines it holds by one sweep**
-    /// (`Probes::file_answered`): I = 150 one-line spans of group 2's sent,
-    /// its lines from 0 to 298 with every other line erased whole
-    /// (`Probes::cut` splits a span at each), beside K = 216 spans of other
-    /// writers still to be named: 199 two-line spans of fifteen groups
-    /// sent by the next batch, 16 groups kept to send, and the lines past
-    /// them, a hull over 600 lines. Group 2's answer names it local.
-    /// Finding where each of its spans meets another writer's and putting
-    /// those holds in take at most (⌈log2 n⌉ + 2)·n + (⌈log2 P⌉ + 1)·P
-    /// steps, n = I + K and P the pairs that meet: each span sorted and
-    /// swept, each pair found, sorted and merged in. The controls: every pair
-    /// that meets held once under the other writer's group, the holds
+    /// (`Probes::file_answered`), at I = 150 and K = 216 and at ten times
+    /// both, I = 1,500 and K = 2,160: I one-line spans of group 2's sent,
+    /// its lines from 0 to 2(I - 1) with every other line erased whole
+    /// (`Probes::cut` splits a span at each), beside K spans of other
+    /// writers still to be named: K - 17 two-line spans of fifteen groups
+    /// sent by the next batch, 16 groups kept to send past them, and the
+    /// lines past those groups, a hull over every line the next batch
+    /// sent. Group 2's answer names it local.
+    ///
+    /// The bound is `meets_of`'s and `hold_all`'s, with n = I + K and P the
+    /// pairs that meet: the sorts of the n spans, at most ⌈log2 n⌉·n
+    /// compares; the sweep, at most 2n + P -- one compare per span taken,
+    /// and each open span visited either gives a pair or is closed, once;
+    /// and `hold_all`'s sort and merge of the P pairs, at most
+    /// ⌈log2 P⌉·P + P. In all, (⌈log2 n⌉ + 2)·n + (⌈log2 P⌉ + 1)·P steps.
+    /// The controls, at both sizes: every pair that meets held once under
+    /// the other writer's group, against every pair compared, the holds
     /// handed on once, and the steps counted. Named break: each of the
     /// answered group's spans compared with every other writer's -- I·K
     /// steps.
     #[test]
     fn a_local_answer_finds_its_holds_by_one_sweep() {
         use crate::paths::Seen;
-        const MINE: usize = 150;
-        const SENT: usize = 199;
-        let (mut pr, _) = probes(named_groups());
-        let mut paths = Paths::new(None, Forms::DEFAULT);
-        paths.set(Turned::On);
         let line = |n: usize| AbsLine::at(Rows::of_count(n));
         let span = |a: usize, b: usize| LineSpan::of(line(a), line(b));
         let pid = |n: usize| Pid::try_from(n).expect("a pid");
-        let (id, next) = (Id::default(), Id::default().next());
-        let group = Some(pid(2));
-        let mut others = Vec::new();
-        for i in 0..MINE {
-            pr.kept
-                .edit()
-                .inflight
-                .push((id, group, span(2 * i, 2 * i)));
-        }
-        for h in 0..SENT {
-            let g = Some(pid(100 + h % 15));
-            pr.kept
-                .edit()
-                .inflight
-                .push((next, g, span(3 * h, 3 * h + 1)));
-            others.push((g, span(3 * h, 3 * h + 1)));
-        }
-        for g in 0..GROUPS {
-            let at = span(1_000 + 10 * g, 1_001 + 10 * g);
-            pr.kept.edit().seen.push((pid(200 + g), at));
-            others.push((Some(pid(200 + g)), at));
-        }
-        pr.kept.edit().unnamed = Some(span(0, 599));
-        others.push((None, span(0, 599)));
-        let kept = MINE + others.len();
-        assert_eq!(kept, MINE + 216, "the control: I and K as named");
-        let expected: std::collections::BTreeSet<(LineSpan, Option<Pid>)> = (0..MINE)
-            .flat_map(|i| others.iter().map(move |&(g, o)| (span(2 * i, 2 * i), g, o)))
-            .filter_map(|(m, g, o)| m.meet(o).map(|both| (both, g)))
-            .collect();
-        pr.publish(&mut paths);
-        let (steps, publishes) = (pr.hold_steps().get(), paths.publishes().value());
-        pr.file_answered(
-            &mut paths,
-            (id, Kind::Screen),
-            &[(group, Seen::Named(Front::Local))],
-            &[],
-        );
-        let steps = pr.hold_steps().get() - steps;
-        let held: std::collections::BTreeSet<_> = pr.held.get().iter().collect();
-        assert_eq!(
-            held, expected,
-            "the control: every pair that meets held once under the other writer's group"
-        );
-        assert_eq!(
-            paths.publishes().value() - publishes,
-            1,
-            "the control: the holds handed on once"
-        );
-        assert!(steps > 0, "the control: the steps counted");
         let log = |n: usize| u64::from(usize::BITS - (n - 1).leading_zeros());
-        let n = u64::try_from(kept).expect("a small count");
-        let pairs = u64::try_from(expected.len()).expect("a small count");
-        let most = (log(kept) + 2) * n + (log(expected.len()) + 1) * pairs;
-        assert!(
-            steps <= most,
-            "the answer took {steps} steps to find and put in its {pairs} holds \
-             (I = {MINE}, K = {}), against the bound {most}",
-            kept - MINE
-        );
+        let count = |n: usize| u64::try_from(n).expect("a small count");
+        for (mine, kept) in [(150, 216), (1_500, 2_160)] {
+            let sent = kept - GROUPS - 1;
+            let (mut pr, _) = probes(named_groups());
+            let mut paths = Paths::new(None, Forms::DEFAULT);
+            paths.set(Turned::On);
+            let (id, next) = (Id::default(), Id::default().next());
+            let group = Some(pid(2));
+            let mut others = Vec::new();
+            for i in 0..mine {
+                pr.kept
+                    .edit()
+                    .inflight
+                    .push((id, group, span(2 * i, 2 * i)));
+            }
+            for h in 0..sent {
+                let g = Some(pid(100 + h % 15));
+                pr.kept
+                    .edit()
+                    .inflight
+                    .push((next, g, span(3 * h, 3 * h + 1)));
+                others.push((g, span(3 * h, 3 * h + 1)));
+            }
+            for g in 0..GROUPS {
+                let at = span(3 * sent + 1_000 + 10 * g, 3 * sent + 1_001 + 10 * g);
+                pr.kept.edit().seen.push((pid(200 + g), at));
+                others.push((Some(pid(200 + g)), at));
+            }
+            let hull = span(0, 3 * sent + 2);
+            pr.kept.edit().unnamed = Some(hull);
+            others.push((None, hull));
+            assert_eq!(others.len(), kept, "the control: K as named");
+            let expected: std::collections::BTreeSet<(LineSpan, Option<Pid>)> = (0..mine)
+                .flat_map(|i| others.iter().map(move |&(g, o)| (span(2 * i, 2 * i), g, o)))
+                .filter_map(|(m, g, o)| m.meet(o).map(|both| (both, g)))
+                .collect();
+            pr.publish(&mut paths);
+            let (steps, publishes) = (pr.hold_steps().get(), paths.publishes().value());
+            pr.file_answered(
+                &mut paths,
+                (id, Kind::Screen),
+                &[(group, Seen::Named(Front::Local))],
+                &[],
+            );
+            let steps = pr.hold_steps().get() - steps;
+            let held: std::collections::BTreeSet<_> = pr.held.get().iter().collect();
+            assert_eq!(
+                held, expected,
+                "the control: every pair that meets held once under the other writer's group, \
+                 at I = {mine}"
+            );
+            assert_eq!(
+                paths.publishes().value() - publishes,
+                1,
+                "the control: the holds handed on once, at I = {mine}"
+            );
+            assert!(steps > 0, "the control: the steps counted, at I = {mine}");
+            let n = mine + kept;
+            let pairs = expected.len();
+            let most = (log(n) + 2) * count(n) + (log(pairs) + 1) * count(pairs);
+            assert!(
+                steps <= most,
+                "the answer took {steps} steps to find and put in its {pairs} holds \
+                 (I = {mine}, K = {kept}), against the bound {most}"
+            );
+        }
     }
 
     /// **A read that moved nothing carries no lit run** (`Lit::carry`):
