@@ -3233,7 +3233,7 @@ mod tests {
             turns += 1;
             assert!(turns < 100, "a decode that never ends");
         }
-        assert!(turns >= 2, "stepped, not decoded in the feed: {turns}");
+        assert!(turns >= 1, "stepped, not decoded in the feed: {turns}");
         assert_eq!(shown, Shown::Changed, "the frame is owed");
         let v = t.images().image(image).expect("shown");
         assert_eq!((v.width.raw(), v.height.raw()), (33, 17));

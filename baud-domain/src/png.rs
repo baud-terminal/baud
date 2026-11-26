@@ -34,6 +34,7 @@
 //! handed to [`Inflate::run`] one by one as a source of slices, the same
 //! resumable inflate a caller with a stream split across reads feeds itself.
 
+use crate::image::{ImageAlpha, Pixel};
 use crate::zlib::{Inflate, Inflated, ZlibError};
 use core::ops::Range;
 
@@ -548,7 +549,14 @@ impl<'a> Png<'a> {
             // three.
             let h = usize::try_from(self.size.height).map_err(|_| PngError::Buffer)?;
             self.unfilter(raw, self.size, 0..h)?;
-            self.expand(raw, rgba, self.size, Pass::WHOLE, 0..h)?;
+            self.expand(
+                raw,
+                rgba.as_chunks_mut::<4>().0,
+                &mut Bytes,
+                self.size,
+                Pass::WHOLE,
+                0..h,
+            )?;
             return Ok(self.size);
         }
         // The reduced images follow one another in the stream, an empty
@@ -564,7 +572,14 @@ impl<'a> Png<'a> {
             let h = usize::try_from(size.height).map_err(|_| PngError::Buffer)?;
             let part = raw.get_mut(at..at + stride * h).ok_or(PngError::Buffer)?;
             self.unfilter(part, size, 0..h)?;
-            self.expand(part, rgba, size, pass, 0..h)?;
+            self.expand(
+                part,
+                rgba.as_chunks_mut::<4>().0,
+                &mut Bytes,
+                size,
+                pass,
+                0..h,
+            )?;
             at += stride * h;
         }
         Ok(self.size)
@@ -617,7 +632,14 @@ impl<'a> Png<'a> {
         let rgba = rgba.get_mut(..rgba_len).ok_or(PngError::Buffer)?;
         if self.interlace == Interlace::Null {
             let h = usize::try_from(self.size.height).map_err(|_| PngError::Buffer)?;
-            self.expand(raw, rgba, self.size, Pass::WHOLE, 0..h)?;
+            self.expand(
+                raw,
+                rgba.as_chunks_mut::<4>().0,
+                &mut Bytes,
+                self.size,
+                Pass::WHOLE,
+                0..h,
+            )?;
             return Ok(self.size);
         }
         let mut at = 0;
@@ -630,7 +652,14 @@ impl<'a> Png<'a> {
                 + 1;
             let h = usize::try_from(size.height).map_err(|_| PngError::Buffer)?;
             let part = raw.get(at..at + stride * h).ok_or(PngError::Buffer)?;
-            self.expand(part, rgba, size, pass, 0..h)?;
+            self.expand(
+                part,
+                rgba.as_chunks_mut::<4>().0,
+                &mut Bytes,
+                size,
+                pass,
+                0..h,
+            )?;
             at += stride * h;
         }
         Ok(self.size)
@@ -707,13 +736,14 @@ impl<'a> Png<'a> {
     }
 
     /// The pixels of scanlines `rows` of one reduced image of `size` pixels
-    /// to RGBA8, at the place `pass` puts them in the whole image: each
-    /// scanline's pixels go to every `step`-th four-byte slot of their row
-    /// from the first.
-    fn expand(
+    /// to `out`, one slot a pixel in `form`, at the place `pass` puts them
+    /// in the whole image: each scanline's pixels go to every `step`-th slot
+    /// of their row from the first.
+    fn expand<F: PixelForm>(
         &self,
         raw: &[u8],
-        rgba: &mut [u8],
+        out: &mut [F::Slot],
+        form: &mut F,
         size: Size,
         pass: Pass,
         rows: Range<usize>,
@@ -727,37 +757,36 @@ impl<'a> Png<'a> {
         let (y0, dy) = (at(pass.row.first.0)?, at(pass.row.step.0)?);
         for r in rows {
             let line = &raw[r * (rb + 1) + 1..r * (rb + 1) + 1 + rb];
-            let start = ((y0 + r * dy) * full + x0) * 4;
-            // The row's last slot is in `rgba`, so every one before it is.
-            let end = start + ((w - 1) * dx + 1) * 4;
-            let slots = rgba
-                .get_mut(start..end)
-                .ok_or(PngError::Buffer)?
-                .as_chunks_mut::<4>()
-                .0
-                .iter_mut();
+            let start = (y0 + r * dy) * full + x0;
+            // The row's last slot is in `out`, so every one before it is.
+            let end = start + (w - 1) * dx + 1;
+            let slots = out.get_mut(start..end).ok_or(PngError::Buffer)?.iter_mut();
             // A step of 1 is the null method's and pass 7's; it is its own
             // loop so that it has no step to take.
             if dx == 1 {
-                self.pixels(line, slots)?;
+                self.pixels(line, slots, form)?;
             } else {
-                self.pixels(line, slots.step_by(dx))?;
+                self.pixels(line, slots.step_by(dx), form)?;
             }
         }
         Ok(())
     }
 
-    /// One scanline's pixels to RGBA8, into `slots` in order, each an array
-    /// store rather than a `copy_from_slice` (`zlib.rs`'s stored-block copy
-    /// says why). Sixteen-bit samples keep their high byte; sub-byte grey
-    /// scales to the full range; palette indices look up `PLTE` with `tRNS`
-    /// alpha; a `tRNS` colour key on grey and RGB images makes that one
-    /// colour transparent (11.3.2.1).
-    fn pixels<'p>(
+    /// One scanline's pixels, into `slots` in order through `form`, each an
+    /// array store rather than a `copy_from_slice` (`zlib.rs`'s stored-block
+    /// copy says why). Sixteen-bit samples keep their high byte; sub-byte
+    /// grey scales to the full range; palette indices look up `PLTE` with
+    /// `tRNS` alpha; a `tRNS` colour key on grey and RGB images makes that
+    /// one colour transparent (11.3.2.1).
+    fn pixels<'p, F: PixelForm>(
         &self,
         line: &[u8],
-        slots: impl Iterator<Item = &'p mut [u8; 4]>,
-    ) -> Result<(), PngError> {
+        slots: impl Iterator<Item = &'p mut F::Slot>,
+        form: &mut F,
+    ) -> Result<(), PngError>
+    where
+        F::Slot: 'p,
+    {
         let depth = usize::from(self.depth);
         let palette = self.palette.unwrap_or(&[]);
         let trns = self.trns.unwrap_or(&[]);
@@ -771,7 +800,7 @@ impl<'a> Png<'a> {
                     } else {
                         255
                     };
-                    *px = [g, g, g, a];
+                    form.put(px, [g, g, g, a]);
                 }
                 Color::Palette => {
                     let i = usize::from(
@@ -779,13 +808,13 @@ impl<'a> Png<'a> {
                     );
                     let rgb = palette.get(i * 3..i * 3 + 3).ok_or(PngError::Palette)?;
                     let a = trns.get(i).copied().unwrap_or(255);
-                    *px = [rgb[0], rgb[1], rgb[2], a];
+                    form.put(px, [rgb[0], rgb[1], rgb[2], a]);
                 }
                 Color::GrayAlpha => {
                     let s = depth / 8;
                     let g = line[x * 2 * s];
                     let a = line[x * 2 * s + s];
-                    *px = [g, g, g, a];
+                    form.put(px, [g, g, g, a]);
                 }
                 Color::Rgb => {
                     let s = depth / 8;
@@ -796,12 +825,15 @@ impl<'a> Png<'a> {
                     } else {
                         255
                     };
-                    *px = [r8, g8, b8, a];
+                    form.put(px, [r8, g8, b8, a]);
                 }
                 Color::Rgba => {
                     let s = depth / 8;
                     let at = x * 4 * s;
-                    *px = [line[at], line[at + s], line[at + 2 * s], line[at + 3 * s]];
+                    form.put(
+                        px,
+                        [line[at], line[at + s], line[at + 2 * s], line[at + 3 * s]],
+                    );
                 }
             }
         }
@@ -1108,10 +1140,23 @@ impl<'a> Png<'a> {
         rgba: &mut [u8],
         budget: usize,
     ) -> Result<PngProgress, PngError> {
-        let raw_len = self.raw_len().ok_or(PngError::Buffer)?;
         let rgba_len = self.rgba_len().ok_or(PngError::Buffer)?;
-        let raw = raw.get_mut(..raw_len).ok_or(PngError::Buffer)?;
         let rgba = rgba.get_mut(..rgba_len).ok_or(PngError::Buffer)?;
+        self.step_into(st, raw, rgba.as_chunks_mut::<4>().0, &mut Bytes, budget)
+    }
+
+    /// [`Png::step`]'s work, each pixel written to its slot of `out` in
+    /// `form`.
+    fn step_into<F: PixelForm>(
+        &self,
+        st: &mut PngSteps,
+        raw: &mut [u8],
+        out: &mut [F::Slot],
+        form: &mut F,
+        budget: usize,
+    ) -> Result<PngProgress, PngError> {
+        let raw_len = self.raw_len().ok_or(PngError::Buffer)?;
+        let raw = raw.get_mut(..raw_len).ok_or(PngError::Buffer)?;
         let mut left = budget.max(1);
         while left > 0 {
             match st.stage {
@@ -1170,7 +1215,7 @@ impl<'a> Png<'a> {
                         .get_mut(base..base + stride * h)
                         .ok_or(PngError::Buffer)?;
                     self.unfilter(part, size, row..row + n)?;
-                    self.expand(part, rgba, size, p, row..row + n)?;
+                    self.expand(part, out, form, size, p, row..row + n)?;
                     left = left.saturating_sub(n * stride);
                     st.stage = match row + n == h {
                         true => Stage::Rows {
@@ -1191,6 +1236,63 @@ impl<'a> Png<'a> {
             Stage::Done => PngProgress::Done,
             _ => PngProgress::More,
         })
+    }
+
+    /// **[`Png::step`], the pixels written as [`Pixel`] words**: each the
+    /// word [`Pixel::from_memory_rgba`] reads from the four bytes `step`
+    /// writes, with `alpha` folded over every pixel written
+    /// ([`ImageAlpha::with`]). `px` holds the image's pixels, the same span
+    /// on every step.
+    pub fn step_pixels(
+        &self,
+        st: &mut PngSteps,
+        raw: &mut [u8],
+        px: &mut [Pixel],
+        budget: usize,
+        alpha: &mut ImageAlpha,
+    ) -> Result<PngProgress, PngError> {
+        let n = self.rgba_len().ok_or(PngError::Buffer)? / 4;
+        let px = px.get_mut(..n).ok_or(PngError::Buffer)?;
+        let mut words = Words(*alpha);
+        let progress = self.step_into(st, raw, px, &mut words, budget);
+        *alpha = words.0;
+        progress
+    }
+}
+
+/// **What a decoded pixel is written as**: the four bytes `r, g, b, a` a
+/// caller reads as RGBA8, or the [`Pixel`] word a store keeps.
+trait PixelForm {
+    /// One pixel's place in the output.
+    type Slot;
+    /// The pixel whose bytes in memory order are `rgba`, into `slot`.
+    fn put(&mut self, slot: &mut Self::Slot, rgba: [u8; 4]);
+}
+
+/// RGBA8, four bytes a pixel: [`Png::decode`]'s and [`Png::step`]'s output.
+struct Bytes;
+
+impl PixelForm for Bytes {
+    type Slot = [u8; 4];
+
+    #[inline(always)]
+    fn put(&mut self, slot: &mut [u8; 4], rgba: [u8; 4]) {
+        *slot = rgba;
+    }
+}
+
+/// [`Pixel`] words, as [`Pixel::from_memory_rgba`] reads the bytes, with
+/// the alpha mark of every pixel written folded in.
+struct Words(ImageAlpha);
+
+impl PixelForm for Words {
+    type Slot = Pixel;
+
+    #[inline(always)]
+    fn put(&mut self, slot: &mut Pixel, [r, g, b, a]: [u8; 4]) {
+        let p = Pixel::from_bits(u32::from_be_bytes([a, r, g, b]));
+        *slot = p;
+        self.0 = self.0.with(p);
     }
 }
 
@@ -1448,6 +1550,177 @@ mod tests {
             Some(trusted.size())
         );
         assert!(trusted.steps().is_ok(), "steps took the CRC again");
+    }
+
+    /// **A PNG of `w`x`h` pixels**, colour type `color` at `depth`, Adam7
+    /// when `interlace` is 1, its scanlines unfiltered (filter type 0) and
+    /// its whole-byte pixels drawn from four made from `seed`, so a `tRNS`
+    /// colour key -- the first of the four -- matches some of them. A
+    /// palette has every entry its depth can index; its `tRNS` gives half
+    /// of them an alpha.
+    fn png_of(color: u8, depth: u8, (w, h): (u32, u32), interlace: u8, trns: bool) -> Vec<u8> {
+        let mut s = u64::from(color) << 32 | u64::from(depth) << 16 | u64::from(w * 31 + h);
+        let mut next = move || {
+            s = s
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            s.to_le_bytes()[5]
+        };
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&w.to_be_bytes());
+        ihdr.extend_from_slice(&h.to_be_bytes());
+        ihdr.extend_from_slice(&[depth, color, 0, 0, interlace]);
+        let mut head = SIGNATURE.to_vec();
+        head.extend(chunk_bytes(b"IHDR", &ihdr));
+        let channels = match color {
+            0 | 3 => 1,
+            4 => 2,
+            2 => 3,
+            _ => 4,
+        };
+        let pixel_bytes = (channels * usize::from(depth)).div_ceil(8);
+        let pool: Vec<Vec<u8>> = (0..4)
+            .map(|_| (0..pixel_bytes).map(|_| next()).collect())
+            .collect();
+        let entries = 1usize << depth.min(8);
+        match (color, trns) {
+            (3, _) => {
+                let plte: Vec<u8> = (0..entries * 3).map(|_| next()).collect();
+                head.extend(chunk_bytes(b"PLTE", &plte));
+                if trns {
+                    let alphas: Vec<u8> = (0..entries / 2).map(|_| next()).collect();
+                    head.extend(chunk_bytes(b"tRNS", &alphas));
+                }
+            }
+            (0, true) => {
+                let key = match depth {
+                    16 => [pool[0][0], pool[0][1]],
+                    8 => [0, pool[0][0]],
+                    _ => [0, next() & ((1 << depth) - 1)],
+                };
+                head.extend(chunk_bytes(b"tRNS", &key));
+            }
+            (2, true) => {
+                let key: Vec<u8> = match depth {
+                    16 => pool[0].clone(),
+                    _ => pool[0].iter().flat_map(|&v| [0, v]).collect(),
+                };
+                head.extend(chunk_bytes(b"tRNS", &key));
+            }
+            _ => {}
+        }
+        let empty = miniz_oxide::deflate::compress_to_vec_zlib(&[], 6);
+        let mut probe = head.clone();
+        probe.extend(chunk_bytes(b"IDAT", &empty));
+        probe.extend(chunk_bytes(b"IEND", &[]));
+        let layout = Png::parse(&probe).expect("the header parses");
+        let mut raw = Vec::new();
+        for &pass in layout.passes() {
+            let Some(size) = pass.reduced(layout.size()) else {
+                continue;
+            };
+            let rb = usize::try_from(layout.row_bytes(size).expect("a row")).expect("a row");
+            for _ in 0..size.height {
+                // Filter type 0, then the scanline.
+                raw.extend_from_slice(&[0]);
+                match depth {
+                    8 | 16 => {
+                        for _ in 0..size.width {
+                            raw.extend_from_slice(&pool[usize::from(next() % 4)]);
+                        }
+                    }
+                    _ => raw.extend((0..rb).map(|_| next())),
+                }
+            }
+        }
+        let z = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 6);
+        head.extend(chunk_bytes(b"IDAT", &z));
+        head.extend(chunk_bytes(b"IEND", &[]));
+        head
+    }
+
+    /// **`step_pixels` writes the pixels `step` and `from_memory_rgba`
+    /// make**, the alpha mark folded over them, for every colour type at
+    /// every depth, interlaced or not, with and without `tRNS`, at budgets
+    /// from one byte to all; and `step`'s RGBA is `decode`'s, pinned byte
+    /// for byte on the 3x2 image.
+    #[test]
+    fn png_writes_pixels_as_convert_would() {
+        let (png, _) = one_idat();
+        let p = Png::parse(&png).expect("good");
+        let (mut raw, mut rgba) = (std::vec![0u8; 64], std::vec![0u8; 24]);
+        assert_eq!(p.decode(&mut raw, &mut rgba).ok(), Some(p.size()));
+        let pinned = [
+            1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 9, 8, 7, 255, 6, 5, 4, 255, 3, 2, 1, 255,
+        ];
+        assert_eq!(rgba, pinned, "the 3x2 RGB image's RGBA");
+        let kinds: [(u8, &[u8]); 5] = [
+            (0, &[1, 2, 4, 8, 16]),
+            (2, &[8, 16]),
+            (3, &[1, 2, 4, 8]),
+            (4, &[8, 16]),
+            (6, &[8, 16]),
+        ];
+        let (mut cases, mut lit, mut partial) = (0, 0, 0);
+        for (color, depths) in kinds {
+            for &depth in depths {
+                for interlace in [0, 1] {
+                    for trns in [false, true] {
+                        for size in [(1, 1), (3, 2), (9, 7), (17, 5)] {
+                            if trns && matches!(color, 4 | 6) {
+                                continue;
+                            }
+                            let png = png_of(color, depth, size, interlace, trns);
+                            let p = Png::parse(&png).expect("parses");
+                            let raw_len = p.raw_len().expect("raw");
+                            let n = usize::try_from(size.0 * size.1).expect("n");
+                            let mut once = std::vec![0u8; 4 * n];
+                            p.decode(&mut std::vec![0u8; raw_len], &mut once)
+                                .expect("decodes");
+                            let what = (color, depth, interlace, trns, size);
+                            for budget in [1, 7, 64, usize::MAX] {
+                                let mut st = p.steps().expect("steps");
+                                let (mut raw, mut rgba) =
+                                    (std::vec![0u8; raw_len], std::vec![0u8; 4 * n]);
+                                while p.step(&mut st, &mut raw, &mut rgba, budget)
+                                    == Ok(PngProgress::More)
+                                {}
+                                assert_eq!(rgba, once, "step against decode, {what:?}");
+                                let want: Vec<Pixel> = rgba
+                                    .as_chunks::<4>()
+                                    .0
+                                    .iter()
+                                    .map(|c| {
+                                        Pixel::from_bits(u32::from_ne_bytes(*c)).from_memory_rgba()
+                                    })
+                                    .collect();
+                                let want_alpha = want
+                                    .iter()
+                                    .fold(ImageAlpha::OpaqueOrClear, |a, &x| a.with(x));
+                                let mut st = p.steps().expect("steps");
+                                let mut raw = std::vec![0u8; raw_len];
+                                let mut px = std::vec![Pixel::CLEAR; n];
+                                let mut alpha = ImageAlpha::OpaqueOrClear;
+                                while p.step_pixels(&mut st, &mut raw, &mut px, budget, &mut alpha)
+                                    == Ok(PngProgress::More)
+                                {}
+                                assert_eq!(
+                                    (px, alpha),
+                                    (want.clone(), want_alpha),
+                                    "{what:?} at budget {budget}"
+                                );
+                                cases += 1;
+                                lit += usize::from(want.iter().any(|&x| x != Pixel::CLEAR));
+                                partial += usize::from(want_alpha == ImageAlpha::Partial);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // The controls: pixels were made, and both marks were reached.
+        assert!(lit * 2 > cases, "{lit} of {cases}");
+        assert!(partial > 0 && partial < cases, "{partial} of {cases}");
     }
 
     proptest::proptest! {

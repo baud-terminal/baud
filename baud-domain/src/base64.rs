@@ -413,6 +413,22 @@ impl KittyBase64 {
                 return fed;
             }
             if self.held == Held::Zero {
+                // Sixteen characters at a time while all are the alphabet,
+                // then four, then the byte path for the stop.
+                while let (Some(chars), Some(dst)) = (
+                    input
+                        .get(fed.read..fed.read + BLOCK_CHARS)
+                        .and_then(|s| <&[u8; BLOCK_CHARS]>::try_from(s).ok()),
+                    out.get_mut(fed.wrote..fed.wrote + BLOCK_OCTETS)
+                        .and_then(|s| <&mut [u8; BLOCK_OCTETS]>::try_from(s).ok()),
+                ) {
+                    let Some(octets) = Block::decode(*chars) else {
+                        break;
+                    };
+                    *dst = octets;
+                    fed.read += BLOCK_CHARS;
+                    fed.wrote += BLOCK_OCTETS;
+                }
                 while let (Some(&[c0, c1, c2, c3]), Some([d0, d1, d2])) = (
                     input.get(fed.read..fed.read + 4),
                     out.get_mut(fed.wrote..fed.wrote + 3),
@@ -481,5 +497,154 @@ fn octets(word: u32, count: OctetCount) -> Octets {
     Octets {
         bytes: [(word >> 16) as u8, (word >> 8) as u8, word as u8],
         count,
+    }
+}
+
+/// Characters one [`Block`] decodes: four quanta.
+const BLOCK_CHARS: usize = 16;
+
+/// Octets one [`Block`] writes: three a quantum.
+const BLOCK_OCTETS: usize = 12;
+
+/// **Sixteen characters of the alphabet to twelve octets**, four whole
+/// quanta at once (`[[source: rfc4648-base64]]` section 4), for
+/// [`KittyBase64::feed`] while nothing is held. It declines -- `None`, and
+/// nothing decoded -- when any of the sixteen is outside Table 1's
+/// alphabet, `=` included, so the caller's four-character loop and byte
+/// path meet that character exactly where they would without it.
+pub(crate) struct Block;
+
+impl Block {
+    /// The octets of `chars`, or `None` if any is outside the alphabet.
+    pub(crate) fn decode(chars: [u8; BLOCK_CHARS]) -> Option<[u8; BLOCK_OCTETS]> {
+        #[cfg(target_endian = "little")]
+        {
+            Block::lanes(chars)
+        }
+        #[cfg(not(target_endian = "little"))]
+        {
+            Block::quanta(chars)
+        }
+    }
+
+    /// **All sixteen at once**: each character's class by range compares
+    /// -- `A-Z`, `a-z`, `0-9`, `+`, `/`, Table 1's runs -- and its value
+    /// by the offset its class adds, modulo 256: -65, -71, +4, +19, +16.
+    /// Then each four sextets, read as one word of four bytes, the first in
+    /// the lowest, are packed as `(s0 << 18) | (s1 << 12) | (s2 << 6) | s3`,
+    /// and the word's three low bytes, highest first, are its quantum's
+    /// octets. Reading a word's bytes lowest first is little-endian, which
+    /// this form needs.
+    #[cfg(target_endian = "little")]
+    fn lanes(chars: [u8; BLOCK_CHARS]) -> Option<[u8; BLOCK_OCTETS]> {
+        use core::simd::cmp::{SimdPartialEq, SimdPartialOrd};
+        use core::simd::{Select, Simd, ToBytes, simd_swizzle};
+        type V = Simd<u8, BLOCK_CHARS>;
+        type W = Simd<u32, 4>;
+        let c = V::from_array(chars);
+        let within = |lo: u8, hi: u8| c.simd_ge(V::splat(lo)) & c.simd_le(V::splat(hi));
+        let upper = within(b'A', b'Z');
+        let lower = within(b'a', b'z');
+        let digit = within(b'0', b'9');
+        let plus = c.simd_eq(V::splat(b'+'));
+        let slash = c.simd_eq(V::splat(b'/'));
+        if !(upper | lower | digit | plus | slash).all() {
+            return None;
+        }
+        let offset = upper.select(
+            V::splat(0u8.wrapping_sub(65)),
+            lower.select(
+                V::splat(0u8.wrapping_sub(71)),
+                digit.select(V::splat(4), plus.select(V::splat(19), V::splat(16))),
+            ),
+        );
+        let w = W::from_ne_bytes(c + offset);
+        let word = ((w & W::splat(0xFF)) << 18)
+            | ((w & W::splat(0xFF00)) << 4)
+            | ((w & W::splat(0xFF_0000)) >> 10)
+            | (w >> 24);
+        let octets: Simd<u8, BLOCK_OCTETS> =
+            simd_swizzle!(word.to_ne_bytes(), [2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12]);
+        Some(octets.to_array())
+    }
+
+    /// The four quanta one at a time, through [`VALUE`]: the form for a
+    /// word whose bytes are not read lowest first.
+    #[cfg(not(target_endian = "little"))]
+    fn quanta(chars: [u8; BLOCK_CHARS]) -> Option<[u8; BLOCK_OCTETS]> {
+        let mut out = [0u8; BLOCK_OCTETS];
+        for (q, o) in chars
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(out.as_chunks_mut::<3>().0)
+        {
+            let v = q.map(|c| VALUE[usize::from(c)]);
+            if v.contains(&NOT_BASE64) {
+                return None;
+            }
+            let word = v.iter().fold(0u32, |w, &x| (w << 6) | u32::from(x));
+            let [_, a, b, c] = word.to_be_bytes();
+            *o = [a, b, c];
+        }
+        Some(out)
+    }
+}
+
+/// [`Block`] against the scalar path it stands in for.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The alphabet in Table 1's order.
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    /// What the scalar path makes of sixteen characters: [`KittyBase64::push`]
+    /// on each from a fresh decoder, or `None` where one stops the chunk
+    /// inside them.
+    fn scalar(chars: [u8; BLOCK_CHARS]) -> Option<[u8; BLOCK_OCTETS]> {
+        let mut d = KittyBase64::NEW;
+        let mut out = [0u8; BLOCK_OCTETS];
+        let mut n = 0;
+        for c in chars {
+            let o = d.push(c);
+            if d.chunk == ChunkData::Stopped {
+                return None;
+            }
+            for &x in o.as_slice() {
+                out[n] = x;
+                n += 1;
+            }
+        }
+        Some(out)
+    }
+
+    /// **The block decodes as the scalar path**: every byte value in each of
+    /// the sixteen lanes, the rest `A`, and every character of the alphabet
+    /// in every lane beside the others. It declines exactly where the scalar
+    /// path stops inside the sixteen, and otherwise writes its octets.
+    #[test]
+    fn the_block_decodes_as_the_scalar_path() {
+        let mut declined = 0;
+        for lane in 0..BLOCK_CHARS {
+            for b in 0..=u8::MAX {
+                let mut chars = [b'A'; BLOCK_CHARS];
+                chars[lane] = b;
+                let want = scalar(chars);
+                assert_eq!(Block::decode(chars), want, "byte {b:#04x} in lane {lane}");
+                declined += usize::from(want.is_none());
+            }
+        }
+        // The control: 192 of the 256 bytes are outside the alphabet.
+        assert_eq!(declined, BLOCK_CHARS * 192);
+        for start in 0..ALPHABET.len() {
+            let mut chars = [0u8; BLOCK_CHARS];
+            for (i, c) in chars.iter_mut().enumerate() {
+                *c = ALPHABET[(start + i * 5) % ALPHABET.len()];
+            }
+            let want = scalar(chars);
+            assert!(want.is_some(), "the control: all sixteen are the alphabet");
+            assert_eq!(Block::decode(chars), want, "from {start}");
+        }
     }
 }

@@ -746,8 +746,8 @@ pub const KITTY_BODY_MAX: usize = 262_144;
 /// inflate's setup three bytes at a time.
 const STAGE: usize = 512;
 
-/// Octets [`KittyStream::put_run`] decodes into the stack before it hands
-/// them on: 2048 encoded bytes a call.
+/// Octets of raw pixels [`KittyStream::put_run`] decodes into its run buffer
+/// before it builds them into pixels: 2048 encoded bytes a feed.
 const RUN_OCTETS: usize = 1536;
 
 /// The work [`KittyStream::step`] may do in one call, in bytes: compressed
@@ -1162,11 +1162,13 @@ enum Replaces {
 #[derive(Clone, Copy)]
 enum Deferred {
     Idle,
-    /// A PNG in the scratch's first `len` bytes, its scanlines after them;
-    /// the decode's own state is [`KittyStream`]'s `png`.
+    /// A PNG in the scratch's first `len` bytes, its scanlines after them,
+    /// written into the span as pixels with `alpha` the mark of those
+    /// written; the decode's own state is [`KittyStream`]'s `png`.
     Png {
         image: ImageId,
         len: usize,
+        alpha: ImageAlpha,
     },
     /// Bytes in the span becoming pixels: from the last down for `f=24`,
     /// whose four-byte pixels outgrow their three-byte source, and from the
@@ -1212,6 +1214,10 @@ pub struct KittyStream {
     excess_at: usize,
     stage: [u8; STAGE],
     stage_len: usize,
+    /// A raw load's octets from one feed of [`KittyStream::put_run`],
+    /// before they are built into pixels: written by the decode, never
+    /// cleared.
+    run_out: [u8; RUN_OCTETS],
     z: Inflate,
     deferred: Deferred,
     /// A deferred PNG's decode, beside `deferred` rather than in it, since
@@ -1307,6 +1313,7 @@ impl KittyStream {
         excess_at: 0,
         stage: [0; STAGE],
         stage_len: 0,
+        run_out: [0; RUN_OCTETS],
         z: Inflate::NEW,
         deferred: Deferred::Idle,
         png: None,
@@ -1664,21 +1671,87 @@ impl KittyStream {
         said
     }
 
-    /// **Payload bytes in bulk**, the octets of each [`KittyBase64::feed`]
-    /// to [`KittyStream::decoded`] as the byte path hands it each quantum's:
-    /// the data, or a file medium's path. A byte that is no base64 stops the
-    /// chunk's data there, in bulk as a byte at a time, and the rest of the
-    /// run is read and dropped; past a refusal by the octets nothing more is
-    /// decoded, as on the byte path.
+    /// **Payload bytes in bulk**, each [`KittyBase64::feed`] decoding into
+    /// where the load keeps its octets: a PNG's into the scratch after its
+    /// bytes so far, an inflate's into the stage, a file medium's path into
+    /// the path buffer, and raw pixels' into `run_out`, built into pixels
+    /// from there. A byte that is no base64 stops the chunk's data there, in
+    /// bulk as a byte at a time, and the rest of the run is read and
+    /// dropped; past a refusal nothing more is decoded, as on the byte path.
+    ///
+    /// **A feed stops short only where the next character completes a
+    /// quantum whose octets do not fit**, and the byte path takes that
+    /// character: it writes what fits, flushes a full stage, checks a PNG's
+    /// header at its 24th byte and refuses past the scratch or the path
+    /// buffer, each at the octet a byte at a time would. A PNG's window ends
+    /// at its 24th byte until the header is checked, so nothing past it is
+    /// written first.
     fn payload_run(&mut self, mut run: &[u8], store: &mut ImageStore, scratch: &mut [u8]) {
-        let mut out = [0u8; RUN_OCTETS];
         while !run.is_empty() {
-            if matches!(self.load, Load::Idle | Load::Refused(_)) {
-                return;
-            }
-            let fed = self.b64.feed(run, &mut out);
-            self.decoded(&out[..fed.wrote], store, scratch);
+            let fed = match (self.start.medium, self.load) {
+                (_, Load::Idle | Load::Refused(_)) => return,
+                (KittyMedium::Direct, Load::Png { len }) => {
+                    // The most octets the run can make, a held quantum's
+                    // included.
+                    let most = run.len().saturating_mul(3) / 4 + 3;
+                    let header = match len < 24 {
+                        true => 24,
+                        false => usize::MAX,
+                    };
+                    let end = scratch
+                        .len()
+                        .min(header)
+                        .min(len.saturating_add(most))
+                        .max(len);
+                    self.scratch_hi = self.scratch_hi.max(end);
+                    let fed = self
+                        .b64
+                        .feed(run, scratch.get_mut(len..end).unwrap_or_default());
+                    let now = len + fed.wrote;
+                    self.load = Load::Png { len: now };
+                    if len < 24 && now >= 24 {
+                        if let Err(e) = header_fits(&scratch[..24], self.start.act(), store) {
+                            return self.refuse_load(e, store);
+                        }
+                    }
+                    fed
+                }
+                (KittyMedium::Direct, Load::RawZ { .. } | Load::PngZ { .. }) => {
+                    let fed = self.b64.feed(
+                        run,
+                        self.stage.get_mut(self.stage_len..).unwrap_or_default(),
+                    );
+                    self.stage_len += fed.wrote;
+                    fed
+                }
+                (KittyMedium::Direct, Load::Raw { .. }) => {
+                    let fed = self.b64.feed(run, &mut self.run_out);
+                    let bpp = self.start.format.bytes_per_pixel();
+                    let built = Self::raw_octets(
+                        &mut self.load,
+                        bpp,
+                        &mut self.counts.excess,
+                        store,
+                        &self.run_out[..fed.wrote],
+                    );
+                    if let Err(e) = built {
+                        self.refuse_load(e, store);
+                    }
+                    fed
+                }
+                _ => {
+                    let fed = self
+                        .b64
+                        .feed(run, self.path.get_mut(self.path_len..).unwrap_or_default());
+                    self.path_len += fed.wrote;
+                    fed
+                }
+            };
             run = &run[fed.read..];
+            if let Some((&b, rest)) = run.split_first() {
+                self.payload(b, store, scratch);
+                run = rest;
+            }
         }
     }
 
@@ -2165,49 +2238,13 @@ impl KittyStream {
     /// Decoded octets, to where the load puts them.
     fn octets(&mut self, bytes: &[u8], store: &mut ImageStore, scratch: &mut [u8]) {
         match self.load {
-            Load::Raw {
-                image,
-                mut at,
-                mut carry,
-                mut held,
-                mut alpha,
-            } => {
+            Load::Raw { .. } => {
                 let bpp = self.start.format.bytes_per_pixel();
-                let Some(px) = store.decoding_mut(image) else {
-                    return self.refuse_load(KittyError::NO_SPACE, store);
-                };
-                for &x in bytes {
-                    carry[held] = x;
-                    held += 1;
-                    if held < bpp {
-                        continue;
-                    }
-                    held = 0;
-                    let p = match bpp {
-                        3 => Pixel::opaque(chan(carry[0]), chan(carry[1]), chan(carry[2])),
-                        _ => Pixel::straight(
-                            chan(carry[3]),
-                            chan(carry[0]),
-                            chan(carry[1]),
-                            chan(carry[2]),
-                        ),
-                    };
-                    match px.get_mut(at) {
-                        Some(slot) => {
-                            *slot = p;
-                            alpha = alpha.with(p);
-                            at += 1;
-                        }
-                        None => self.counts.excess += bpp,
-                    }
+                let built =
+                    Self::raw_octets(&mut self.load, bpp, &mut self.counts.excess, store, bytes);
+                if let Err(e) = built {
+                    self.refuse_load(e, store);
                 }
-                self.load = Load::Raw {
-                    image,
-                    at,
-                    carry,
-                    held,
-                    alpha,
-                };
             }
             Load::RawZ { .. } | Load::PngZ { .. } => {
                 for &x in bytes {
@@ -2237,6 +2274,65 @@ impl KittyStream {
             }
             Load::Idle | Load::Refused(_) => {}
         }
+    }
+
+    /// **A raw load's octets (`f=24`/`f=32`) built into pixels in its
+    /// span**, `bpp` bytes a pixel, the pixel in progress carried in the
+    /// load: a pixel past the span's end counts its bytes in `excess`. The
+    /// span gone is the error.
+    fn raw_octets(
+        load: &mut Load,
+        bpp: usize,
+        excess: &mut usize,
+        store: &mut ImageStore,
+        bytes: &[u8],
+    ) -> Result<(), KittyError> {
+        let Load::Raw {
+            image,
+            mut at,
+            mut carry,
+            mut held,
+            mut alpha,
+        } = *load
+        else {
+            return Ok(());
+        };
+        let Some(px) = store.decoding_mut(image) else {
+            return Err(KittyError::NO_SPACE);
+        };
+        for &x in bytes {
+            carry[held] = x;
+            held += 1;
+            if held < bpp {
+                continue;
+            }
+            held = 0;
+            let p = match bpp {
+                3 => Pixel::opaque(chan(carry[0]), chan(carry[1]), chan(carry[2])),
+                _ => Pixel::straight(
+                    chan(carry[3]),
+                    chan(carry[0]),
+                    chan(carry[1]),
+                    chan(carry[2]),
+                ),
+            };
+            match px.get_mut(at) {
+                Some(slot) => {
+                    *slot = p;
+                    alpha = alpha.with(p);
+                    at += 1;
+                }
+                None => *excess += bpp,
+            }
+        }
+        *load = Load::Raw {
+            image,
+            at,
+            carry,
+            held,
+            alpha,
+        };
+        Ok(())
     }
 
     /// The staged octets into the inflate.
@@ -2566,7 +2662,12 @@ impl KittyStream {
         self.png = Some(steps);
         // The decode makes its scanlines in `[len, len + raw)`.
         self.scratch_hi = self.scratch_hi.max(len + raw);
-        self.defer(Deferred::Png { image, len }, cmd, at, store, scratch)
+        let d = Deferred::Png {
+            image,
+            len,
+            alpha: ImageAlpha::OpaqueOrClear,
+        };
+        self.defer(d, cmd, at, store, scratch)
     }
 
     /// **The refusal [`KittyStream::place`] would make of `cmd` for an
@@ -2727,27 +2828,26 @@ impl KittyStream {
                 self.replace_owed(ImageId::NONE, store);
                 self.reply(&cmd, Err(KittyError::CLEARED));
             }
-            Deferred::Png { image, len } => {
+            Deferred::Png { image, len, alpha } => {
                 let (data, rest) = scratch.split_at_mut(len);
                 let png = &mut self.png;
+                let mut mark = alpha;
                 let result = Png::reparse(data).and_then(|p| {
                     let px = store.decoding_mut(image).ok_or(PngError::Buffer)?;
                     let steps = png.as_mut().ok_or(PngError::Buffer)?;
-                    p.step(steps, rest, px.as_mut_bytes(), budget.0)
+                    p.step_pixels(steps, rest, px, budget.0, &mut mark)
                 });
                 match result {
-                    Ok(PngProgress::More) => {}
+                    Ok(PngProgress::More) => {
+                        self.deferred = Deferred::Png {
+                            image,
+                            len,
+                            alpha: mark,
+                        };
+                    }
                     Ok(PngProgress::Done) => {
                         self.png = None;
-                        let left = store
-                            .size_of(image)
-                            .map_or(0, |(w, h)| w.index() * h.index());
-                        self.deferred = Deferred::Convert {
-                            image,
-                            format: KittyFormat::Png,
-                            left,
-                            alpha: ImageAlpha::OpaqueOrClear,
-                        };
+                        self.complete(image, mark, cmd, store);
                     }
                     Err(_) => self.fail_deferred(image, &cmd, store, KittyError::BAD_PNG),
                 }
@@ -2766,34 +2866,7 @@ impl KittyStream {
                 let alpha = convert(px, format, n - left, k, alpha);
                 let left = left - k;
                 match left {
-                    0 => {
-                        self.deferred = Deferred::Idle;
-                        // The old image goes in the step that shows the new.
-                        self.replace_owed(image, store);
-                        store.complete(image, alpha);
-                        // An RGB root frame keeps no alpha a later frame could
-                        // give it, as kitty's three-byte frame keeps none.
-                        if cmd.format == KittyFormat::Rgb {
-                            store.mark_rgb(image);
-                        }
-                        // What `defer` kept of the placement it tried.
-                        let placed = cmd.error.map_or(Ok(()), Err);
-                        match (cmd.act(), cmd.read) {
-                            (KittyAction::Query, _) => {
-                                store.free(image);
-                                self.reply(&cmd, placed);
-                            }
-                            (KittyAction::Frame, KittyFileRead::Unasked) => {
-                                self.frame_done(image, cmd, store);
-                            }
-                            // `defer`, draining, places and answers it.
-                            (_, KittyFileRead::Asked) => {}
-                            _ => {
-                                self.counts.images += 1;
-                                self.reply(&cmd, placed);
-                            }
-                        }
-                    }
+                    0 => self.complete(image, alpha, cmd, store),
                     _ => {
                         self.deferred = Deferred::Convert {
                             image,
@@ -2807,6 +2880,44 @@ impl KittyStream {
         }
         self.settle(store, scratch);
         self.pending()
+    }
+
+    /// **A deferred decode's pixels are whole**: the image shows with its
+    /// alpha mark, the image it replaces goes in this step, and the command
+    /// is answered, placed or freed as it asked.
+    fn complete(
+        &mut self,
+        image: ImageId,
+        alpha: ImageAlpha,
+        cmd: KittyCommand,
+        store: &mut ImageStore,
+    ) {
+        self.deferred = Deferred::Idle;
+        // The old image goes in the step that shows the new.
+        self.replace_owed(image, store);
+        store.complete(image, alpha);
+        // An RGB root frame keeps no alpha a later frame could give it: a
+        // three-byte frame has none.
+        if cmd.format == KittyFormat::Rgb {
+            store.mark_rgb(image);
+        }
+        // What `defer` kept of the placement it tried.
+        let placed = cmd.error.map_or(Ok(()), Err);
+        match (cmd.act(), cmd.read) {
+            (KittyAction::Query, _) => {
+                store.free(image);
+                self.reply(&cmd, placed);
+            }
+            (KittyAction::Frame, KittyFileRead::Unasked) => {
+                self.frame_done(image, cmd, store);
+            }
+            // `defer`, draining, places and answers it.
+            (_, KittyFileRead::Asked) => {}
+            _ => {
+                self.counts.images += 1;
+                self.reply(&cmd, placed);
+            }
+        }
     }
 
     /// A deferred decode failed: the image goes, with its placement.
@@ -3764,7 +3875,103 @@ fn header_fits(head: &[u8], act: KittyAction, store: &mut ImageStore) -> Result<
 /// `4i..4i+4`, above every source byte of a lower pixel), so `from` counts
 /// down from the end; RGBA from the first up. Returns the alpha mark with
 /// these pixels folded in.
+///
+/// Four pixels a step through one byte shuffle, the pixels short of a
+/// whole four a pixel at a time ([`convert_scalar`]). The shuffles read the
+/// word's bytes in little-endian order, so another order takes the scalar
+/// form throughout.
 fn convert(
+    px: &mut [Pixel],
+    format: KittyFormat,
+    from: usize,
+    k: usize,
+    alpha: ImageAlpha,
+) -> ImageAlpha {
+    #[cfg(target_endian = "little")]
+    {
+        let whole = k / 4 * 4;
+        let alpha = match format {
+            KittyFormat::Rgb => rgb_lanes(px, from, whole, alpha),
+            KittyFormat::Rgba | KittyFormat::Png => rgba_lanes(px, from, whole, alpha),
+        };
+        convert_scalar(px, format, from + whole, k - whole, alpha)
+    }
+    #[cfg(not(target_endian = "little"))]
+    {
+        convert_scalar(px, format, from, k, alpha)
+    }
+}
+
+/// **`whole` pixels of `f=24`'s three bytes each, four at a time from pixel
+/// `from` counted down from the end**: each four's twelve source bytes
+/// copied out before its sixteen are written, which lie above every source
+/// byte of a lower pixel. Opaque, so the mark is unchanged.
+#[cfg(target_endian = "little")]
+fn rgb_lanes(px: &mut [Pixel], from: usize, whole: usize, alpha: ImageAlpha) -> ImageAlpha {
+    use core::simd::{Simd, simd_swizzle};
+    let n = px.len();
+    let bytes = px.as_mut_bytes();
+    let mut done = from;
+    while done < from + whole {
+        // The four pixels `lo..lo + 4`, the highest of them `n - 1 - done`.
+        let lo = n - 4 - done;
+        let Some(src) = bytes
+            .get(3 * lo..3 * lo + 12)
+            .and_then(|s| <&[u8; 12]>::try_from(s).ok())
+        else {
+            break;
+        };
+        let mut v = [0xFF; 16];
+        for (d, &s) in v.iter_mut().zip(src) {
+            *d = s;
+        }
+        // Each pixel's `r, g, b` as the word's bytes in memory, `b, g, r`,
+        // and lane 12's 0xFF as its alpha.
+        let words: Simd<u8, 16> = simd_swizzle!(
+            Simd::from_array(v),
+            [2, 1, 0, 12, 5, 4, 3, 12, 8, 7, 6, 12, 11, 10, 9, 12]
+        );
+        let Some(dst) = bytes
+            .get_mut(4 * lo..4 * lo + 16)
+            .and_then(|s| <&mut [u8; 16]>::try_from(s).ok())
+        else {
+            break;
+        };
+        *dst = words.to_array();
+        done += 4;
+    }
+    alpha
+}
+
+/// **`whole` pixels of RGBA bytes, four at a time from pixel `from`**,
+/// each four's bytes `r, g, b, a` shuffled to the word's `b, g, r, a` in
+/// place, and the mark partial once any alpha lies strictly between clear
+/// and opaque ([`ImageAlpha::with`]).
+#[cfg(target_endian = "little")]
+fn rgba_lanes(px: &mut [Pixel], from: usize, whole: usize, alpha: ImageAlpha) -> ImageAlpha {
+    use core::simd::cmp::SimdPartialOrd;
+    use core::simd::{Mask, Simd, simd_swizzle};
+    let Some(span) = px.get_mut(from..from + whole) else {
+        return alpha;
+    };
+    let mut between = Mask::<i8, 4>::splat(false);
+    for four in span.as_mut_bytes().as_chunks_mut::<16>().0 {
+        let v = Simd::from_array(*four);
+        let a: Simd<u8, 4> = simd_swizzle!(v, [3, 7, 11, 15]);
+        // 1-254 less one is below 254; 0 wraps to 255 and 255 is 254.
+        between |= (a - Simd::splat(1)).simd_lt(Simd::splat(254));
+        let words: Simd<u8, 16> =
+            simd_swizzle!(v, [2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15]);
+        *four = words.to_array();
+    }
+    match between.any() {
+        true => ImageAlpha::Partial,
+        false => alpha,
+    }
+}
+
+/// [`convert`] a pixel at a time: the remainder a vector step leaves.
+fn convert_scalar(
     px: &mut [Pixel],
     format: KittyFormat,
     from: usize,
@@ -3893,4 +4100,64 @@ fn geometry(cmd: &KittyCommand, iw: ImagePx, ih: ImagePx, at: &KittyAt) -> Kitty
         KittyFit::Box => {}
     }
     place
+}
+
+/// The vector pixel conversion against the scalar form it stands in for.
+#[cfg(test)]
+mod tests {
+    // The no_std crate's tests run hosted: the check below builds buffers.
+    extern crate std;
+    use super::*;
+    use std::vec::Vec;
+
+    /// `n` pixels of bytes from `seed`, their alpha bytes mostly clear or
+    /// opaque so the mark stays and changes along the span.
+    fn span(seed: u64, n: usize) -> Vec<Pixel> {
+        let mut px = std::vec![Pixel::CLEAR; n];
+        let mut s = seed;
+        for (i, b) in px.as_mut_bytes().iter_mut().enumerate() {
+            s = s
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let x = s.to_le_bytes()[5];
+            *b = match (i % 4, x % 8) {
+                (3, 0..=2) => 0,
+                (3, 3..=5) => 0xFF,
+                _ => x,
+            };
+        }
+        px
+    }
+
+    /// **The vector conversion equals the scalar one**, RGB and RGBA and a
+    /// PNG's RGBA, every span of 0-67 pixels and every `from`/`k` a budget
+    /// can make, from both alpha marks: the same pixels and the same mark.
+    #[test]
+    fn convert_vector_equals_scalar() {
+        let mut converted = 0;
+        for format in [KittyFormat::Rgb, KittyFormat::Rgba, KittyFormat::Png] {
+            for n in 0..68usize {
+                let base = span(u64::try_from(n).unwrap_or(0) * 31 + 7, n);
+                for from in 0..=n {
+                    for k in 0..=n - from {
+                        for start in [ImageAlpha::OpaqueOrClear, ImageAlpha::Partial] {
+                            let mut want = base.clone();
+                            let before = convert_scalar(&mut want, format, 0, from, start);
+                            let mut got = want.clone();
+                            let a = convert_scalar(&mut want, format, from, k, before);
+                            let b = convert(&mut got, format, from, k, before);
+                            assert_eq!(
+                                (got.as_slice(), b),
+                                (want.as_slice(), a),
+                                "{format:?}, {n} pixels, from {from}, {k} of them"
+                            );
+                            converted += usize::from(k > 0 && got != base);
+                        }
+                    }
+                }
+            }
+        }
+        // The control: the spans did change.
+        assert!(converted > 0);
+    }
 }

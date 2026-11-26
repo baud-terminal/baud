@@ -8357,7 +8357,7 @@ RFC 4648: The Base16, Base32, and Base64 Data Encodings. S. Josefsson, 2006, IET
 - **URL:** <https://www.rfc-editor.org/rfc/rfc4648.txt>
 - **sha256:** `84e14418f795d503be5f34bf23ce4ebaa119e9ec7c9f667d8caeb111385b178f` (35491 bytes)
 - **Copy:** [docs/research/sources/rfc4648-base64.txt](research/sources/rfc4648-base64.txt)
-- **Cited in:** `baud-domain/src/base64.rs`, `baud-domain/src/vt/clipboard.rs`, `baud-domain/tests/base64.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-domain/src/base64.rs`, `baud-domain/src/vt/clipboard.rs`, `baud-domain/tests/base64.rs`, `baud-domain/tests/kitty_graphics.rs`, `docs/vt-coverage.md`
 
 <a id="rfc6068"></a>
 ### rfc6068
