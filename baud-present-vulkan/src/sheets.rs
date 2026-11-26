@@ -107,9 +107,16 @@ impl Gpu {
             retired: RefCell::default(),
             copied: Cell::default(),
         };
-        sheets.copy(self, Which::Mask, (Px(0), Px(0)), &one(Texel::Coverage))?;
-        sheets.copy(self, Which::Color, (Px(0), Px(0)), &one(Texel::Argb))?;
-        Ok(sheets)
+        let copied = sheets
+            .copy(self, Which::Mask, (Px(0), Px(0)), &one(Texel::Coverage))
+            .and_then(|()| sheets.copy(self, Which::Color, (Px(0), Px(0)), &one(Texel::Argb)));
+        match copied {
+            Ok(()) => Ok(sheets),
+            Err(e) => {
+                sheets.destroy(self);
+                Err(e)
+            }
+        }
     }
 
     fn sheet(&self, texel: Texel, width: Px, height: Px) -> Result<Sheet, Failed> {

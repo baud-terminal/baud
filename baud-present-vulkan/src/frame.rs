@@ -638,27 +638,16 @@ impl Gpu {
         let d = &self.device;
         let words = usize::try_from(u64::from(t.width.0) * u64::from(t.height.0)).unwrap_or(0);
         let bytes = u64::from(t.width.0) * u64::from(t.height.0) * 4;
-        let info = vk::BufferCreateInfo::default()
-            .size(bytes)
-            .usage(vk::BufferUsageFlags::TRANSFER_DST)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        // SAFETY: a valid create-info.
-        let buffer = unsafe { d.create_buffer(&info, None) }?;
-        // SAFETY: the buffer was just made.
-        let req = unsafe { d.get_buffer_memory_requirements(buffer) };
-        let host = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
-        let Some(index) = self.memory_type(&req, host, Fallback::None) else {
-            // SAFETY: the buffer is unbound and unused.
-            unsafe { d.destroy_buffer(buffer, None) };
+        let (made, at) = self.bound(
+            bytes,
+            vk::BufferUsageFlags::TRANSFER_DST,
+            crate::lend::PROPS_HOST,
+        )?;
+        let buffer = made.buffer;
+        let Some(at) = at else {
+            self.drop_buffer(made);
             return Err(Failed::NoMemoryType);
         };
-        let alloc = vk::MemoryAllocateInfo::default()
-            .allocation_size(req.size)
-            .memory_type_index(index.0);
-        // SAFETY: an allocate-info for this buffer's requirements; bound once.
-        let memory = unsafe { d.allocate_memory(&alloc, None) }?;
-        // SAFETY: fresh memory of the buffer's size, bound once at zero.
-        unsafe { d.bind_buffer_memory(buffer, memory, 0) }?;
         let range = vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .level_count(1)
@@ -728,21 +717,13 @@ impl Gpu {
                 );
             }
         });
-        let read = out.and_then(|()| {
+        let read = out.map(|()| {
             // SAFETY: host-visible coherent memory the queue has finished
-            // writing; mapped whole and unmapped before it is freed.
-            unsafe {
-                let p = d.map_memory(memory, 0, bytes, vk::MemoryMapFlags::empty())?;
-                let v = core::slice::from_raw_parts(p.cast::<u32>(), words).to_vec();
-                d.unmap_memory(memory);
-                Ok::<_, Failed>(v)
-            }
+            // writing, mapped whole: `words` words, freed after the copy.
+            unsafe { core::slice::from_raw_parts(at.cast::<u32>(), words) }.to_vec()
         });
-        // SAFETY: the queue has finished with both.
-        unsafe {
-            d.destroy_buffer(buffer, None);
-            d.free_memory(memory, None);
-        }
+        // The queue has finished with it, or never took it.
+        self.drop_buffer(made);
         read
     }
 
@@ -998,9 +979,10 @@ impl Gpu {
         self.hooks.dropped();
     }
 
-    /// One of the cell path's device objects made, counted for the
-    /// crate's tests: a buffer, a memory, a descriptor pool, a command
-    /// buffer, a fence, a semaphore or a query pool.
+    /// One of the device objects the cell path, the sheets, a presenter
+    /// and a read back make, counted for the crate's tests: a buffer, a
+    /// memory, a descriptor pool, a command buffer, a fence, a semaphore or
+    /// a query pool.
     pub(crate) fn object_made(&self) {
         #[cfg(feature = "test-hooks")]
         self.hooks.object_made();
@@ -1013,9 +995,9 @@ impl Gpu {
     }
 
     /// **The `n`-th fallible device call from now fails with `code`**: a
-    /// target's allocation, a submission, or a step of the cell path's
-    /// memory (`CellMemory::new`), as a lost device or memory running out
-    /// would.
+    /// target's allocation, a submission, a step of the cell path's
+    /// memory (`CellMemory::new`), or a buffer's memory, binding or mapping,
+    /// as a lost device or memory running out would.
     #[cfg(any(test, feature = "test-hooks"))]
     pub fn fail_at(&self, n: crate::hooks::Calls, code: Failed) {
         self.hooks.fail_at(n, code);
@@ -1027,7 +1009,7 @@ impl Gpu {
         self.hooks.live()
     }
 
-    /// **The cell path's device objects made and not yet destroyed**
+    /// **The device objects counted made and not yet destroyed**
     /// ([`Gpu::object_made`]).
     #[cfg(feature = "test-hooks")]
     pub fn objects_live(&self) -> crate::hooks::Live {

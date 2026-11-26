@@ -259,9 +259,30 @@ impl Presenter {
         let need =
             term.stride().index() * (rows.index() + 1) * core::mem::size_of::<PackedCell>() * SETS;
         let arm = gpu.arm(u64::try_from(need).unwrap_or(u64::MAX));
-        let (mem, mut lent) = CellMemory::new(gpu, &pipes, arm, sizes)?;
-        let sheets = gpu.sheets(&baud_domain::contrast::CURVES[..])?;
-        let map = GlyphMap::over(lent.maps[0].take().ok_or(Failed::Outside)?);
+        // A failure part way destroys what the steps before it made: the
+        // memory when the glyph map or the sheets fail, the pipelines when
+        // anything after them does.
+        let made = CellMemory::new(gpu, &pipes, arm, sizes).and_then(|(mem, mut lent)| {
+            let held = lent.maps[0]
+                .take()
+                .ok_or(Failed::Outside)
+                .and_then(|m| Ok((m, gpu.sheets(&baud_domain::contrast::CURVES[..])?)));
+            match held {
+                Ok((m, sheets)) => Ok((mem, lent, sheets, GlyphMap::over(m))),
+                Err(e) => {
+                    drop(lent);
+                    mem.destroy(gpu);
+                    Err(e)
+                }
+            }
+        });
+        let (mem, lent, sheets, map) = match made {
+            Ok(made) => made,
+            Err(e) => {
+                pipes.destroy();
+                return Err(e);
+            }
+        };
         Ok(Presenter {
             pipes,
             mem,

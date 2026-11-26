@@ -91,7 +91,7 @@ const PROPS_IN_PLACE: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_ra
         | vk::MemoryPropertyFlags::HOST_COHERENT.as_raw()
         | vk::MemoryPropertyFlags::HOST_CACHED.as_raw(),
 );
-const PROPS_HOST: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_raw(
+pub(crate) const PROPS_HOST: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_raw(
     vk::MemoryPropertyFlags::HOST_VISIBLE.as_raw()
         | vk::MemoryPropertyFlags::HOST_COHERENT.as_raw(),
 );
@@ -148,10 +148,11 @@ impl Gpu {
         }
     }
 
-    /// A buffer of `size` bytes in memory with `props`, bound, and its
-    /// mapping where the memory is host-visible.
+    /// **A buffer of `size` bytes in memory with `props`, bound**, and its
+    /// mapping where the memory is host-visible. A failure at any step
+    /// destroys what the steps before it made.
     #[allow(unsafe_code)]
-    fn bound(
+    pub(crate) fn bound(
         &self,
         size: vk::DeviceSize,
         usage: vk::BufferUsageFlags,
@@ -191,23 +192,29 @@ impl Gpu {
         };
         self.object_made();
         let made = Buffer { buffer, memory };
-        // SAFETY: bound once, at offset 0; a host-visible memory is mapped
-        // whole and stays mapped until it is freed.
-        let mapped = unsafe {
-            d.bind_buffer_memory(buffer, memory, 0).and_then(|()| {
-                match props.contains(vk::MemoryPropertyFlags::HOST_VISIBLE) {
-                    true => d
-                        .map_memory(memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty())
-                        .map(|at| Some(at.cast::<u8>())),
+        let mapped = self
+            .call()
+            // SAFETY: bound once, at offset 0.
+            .and_then(|()| unsafe { d.bind_buffer_memory(buffer, memory, 0) }.map_err(Failed::from))
+            .and_then(
+                |()| match props.contains(vk::MemoryPropertyFlags::HOST_VISIBLE) {
+                    true => self.call().and_then(|()| {
+                        // SAFETY: a host-visible memory, mapped whole; it stays
+                        // mapped until it is freed.
+                        unsafe {
+                            d.map_memory(memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty())
+                        }
+                        .map(|at| Some(at.cast::<u8>()))
+                        .map_err(Failed::from)
+                    }),
                     false => Ok(None),
-                }
-            })
-        };
+                },
+            );
         match mapped {
             Ok(at) => Ok((made, at)),
             Err(e) => {
                 self.drop_buffer(made);
-                Err(e.into())
+                Err(e)
             }
         }
     }

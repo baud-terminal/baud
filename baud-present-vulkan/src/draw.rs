@@ -8,7 +8,7 @@
 
 use crate::chrome::Chrome;
 use crate::frame::{Failed, Fallback, Gpu, Target};
-use crate::lend::Elems;
+use crate::lend::{Elems, PROPS_HOST};
 use crate::pipeline::{Blend, Fragment, Pipelines};
 use crate::sheets::Sheets;
 use ash::vk;
@@ -98,44 +98,27 @@ pub(crate) struct Texture {
 
 impl Gpu {
     /// A host-visible buffer holding `bytes` (at least four, as an empty
-    /// buffer is not one Vulkan makes).
+    /// buffer is not one Vulkan makes). A failure at any step destroys what
+    /// the steps before it made ([`Gpu::bound`]).
     #[allow(unsafe_code)]
     pub(crate) fn buffer(
         &self,
         bytes: &[u8],
         usage: vk::BufferUsageFlags,
     ) -> Result<Buffer, Failed> {
-        let d = &self.device;
-        let size =
-            vk::DeviceSize::try_from(bytes.len().max(4)).map_err(|_| Failed::NoMemoryType)?;
-        let info = vk::BufferCreateInfo::default()
-            .size(size)
-            .usage(usage)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        // SAFETY: a device of this struct.
-        let buffer = unsafe { d.create_buffer(&info, None) }?;
-        self.object_made();
-        // SAFETY: the buffer was just made.
-        let req = unsafe { d.get_buffer_memory_requirements(buffer) };
-        let want = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
-        let kind = self
-            .memory_type(&req, want, Fallback::None)
-            .ok_or(Failed::NoMemoryType)?;
-        let alloc = vk::MemoryAllocateInfo::default()
-            .allocation_size(req.size)
-            .memory_type_index(kind.0);
-        // SAFETY: as above; the memory is bound once, at offset 0.
-        let memory = unsafe { d.allocate_memory(&alloc, None) }?;
-        self.object_made();
-        // SAFETY: the memory is host-visible and coherent, mapped over the
-        // bytes copied and unmapped before any submission reads it.
+        let size = vk::DeviceSize::try_from(bytes.len()).map_err(|_| Failed::NoMemoryType)?;
+        let (made, at) = self.bound(size, usage, PROPS_HOST)?;
+        let Some(at) = at else {
+            self.drop_buffer(made);
+            return Err(Failed::NoMemoryType);
+        };
+        // SAFETY: the mapping is the whole memory, at least `bytes` long,
+        // host-coherent, and unmapped before any submission reads it.
         unsafe {
-            d.bind_buffer_memory(buffer, memory, 0)?;
-            let at = d.map_memory(memory, 0, size, vk::MemoryMapFlags::empty())?;
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), at.cast::<u8>(), bytes.len());
-            d.unmap_memory(memory);
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), at, bytes.len());
+            self.device.unmap_memory(made.memory);
         }
-        Ok(Buffer { buffer, memory })
+        Ok(made)
     }
 
     /// **A device image of `texel`, `width` by `height`**, its memory and

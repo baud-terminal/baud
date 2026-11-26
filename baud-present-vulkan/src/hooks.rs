@@ -2,10 +2,11 @@
 //! crate's own tests: the `test-hooks` feature, which baud's own build
 //! leaves off (`xtask/tests/test_hooks.rs`). The `n`-th fallible device
 //! call from now fails with the code given -- a target's allocation, a
-//! submission, a step of the cell path's memory -- as a lost device or
-//! memory running out would, and a count of the targets made and not yet
-//! dropped says whether a failure left one behind; a second count says the
-//! same of the cell path's device objects.
+//! submission, a step of the cell path's memory, a buffer's memory,
+//! binding or mapping -- as a lost device or memory running out would, and
+//! a count of the targets made and not yet dropped says whether a failure
+//! left one behind; a second count says the same of the device objects the
+//! cell path, the sheets, a presenter and a read back make.
 
 use crate::frame::Failed;
 use std::io::Write;
@@ -48,8 +49,8 @@ pub(crate) enum Export {
 struct State {
     fail: Option<(Calls, Failed)>,
     live: Live,
-    /// The cell path's buffers, memories, descriptor pools, command
-    /// buffers, fences, semaphores and query pools made and not destroyed.
+    /// The buffers, memories, descriptor pools, command buffers, fences,
+    /// semaphores and query pools counted made and not destroyed.
     objects: Live,
     /// Landings held: the end handed out for the next frame, and the side
     /// whose write turns it readable.
