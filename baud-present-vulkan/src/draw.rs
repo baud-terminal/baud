@@ -114,6 +114,7 @@ impl Gpu {
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
         // SAFETY: a device of this struct.
         let buffer = unsafe { d.create_buffer(&info, None) }?;
+        self.object_made();
         // SAFETY: the buffer was just made.
         let req = unsafe { d.get_buffer_memory_requirements(buffer) };
         let want = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
@@ -125,6 +126,7 @@ impl Gpu {
             .memory_type_index(kind.0);
         // SAFETY: as above; the memory is bound once, at offset 0.
         let memory = unsafe { d.allocate_memory(&alloc, None) }?;
+        self.object_made();
         // SAFETY: the memory is host-visible and coherent, mapped over the
         // bytes copied and unmapped before any submission reads it.
         unsafe {
@@ -277,6 +279,8 @@ impl Gpu {
             self.device.destroy_buffer(b.buffer, None);
             self.device.free_memory(b.memory, None);
         }
+        self.object_dropped();
+        self.object_dropped();
     }
 
     #[allow(unsafe_code)]

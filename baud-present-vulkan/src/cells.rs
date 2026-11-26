@@ -21,7 +21,7 @@ use crate::chrome::{Chrome, View, scissor};
 use crate::damage::{self, BANDS, Stale, TARGETS, TargetIx};
 use crate::draw::Buffer;
 use crate::frame::{Done, Failed, Gpu, Recorder, Signals, Target, Timeline};
-use crate::lend::{Arm, Elems, Lent, Uploaded};
+use crate::lend::{Arm, Elems, Lent, Plain, Uploaded};
 use crate::pipeline::{Blend, Fragment, Fx, Pipelines, Skipped};
 use crate::sheets::Sheets;
 use crate::vk::Has;
@@ -587,6 +587,89 @@ impl Gpu {
     }
 }
 
+/// **What [`CellMemory::new`] has made and its memory does not hold yet**:
+/// each object's handles, kept as it is made and destroyed newest first
+/// when `new` returns early. [`Making::whole`] gives them up once the
+/// memory holds every one.
+struct Making<'g> {
+    gpu: &'g Gpu,
+    made: Vec<Made>,
+}
+
+/// One object [`Making`] keeps.
+enum Made {
+    Pool(vk::DescriptorPool),
+    Buffer(vk::Buffer, vk::DeviceMemory),
+    Recorder(vk::CommandBuffer, vk::Fence),
+    Semaphore(vk::Semaphore),
+    Queries(vk::QueryPool),
+}
+
+impl Made {
+    /// **The object destroyed.** No frame uses it: the memory it was made
+    /// for was never whole, or the device is idle. A descriptor pool's
+    /// sets go with it.
+    #[allow(unsafe_code)]
+    fn release(self, gpu: &Gpu) {
+        let d = &gpu.device;
+        match self {
+            Made::Buffer(buffer, memory) => gpu.drop_buffer(Buffer { buffer, memory }),
+            Made::Recorder(cb, fence) => gpu.drop_recorder(Recorder { cb, fence }),
+            Made::Pool(p) => {
+                // SAFETY: no frame uses it, nor any set it holds.
+                unsafe { d.destroy_descriptor_pool(p, None) };
+                gpu.object_dropped();
+            }
+            Made::Semaphore(s) => {
+                // SAFETY: no frame signals it again.
+                unsafe { d.destroy_semaphore(s, None) };
+                gpu.object_dropped();
+            }
+            Made::Queries(q) => {
+                // SAFETY: no frame writes the pool again.
+                unsafe { d.destroy_query_pool(q, None) };
+                gpu.object_dropped();
+            }
+        }
+    }
+}
+
+impl Making<'_> {
+    /// [`Gpu::lend`], its buffers kept.
+    fn lend<T: Plain>(
+        &mut self,
+        arm: Arm,
+        n: Elems,
+        usage: vk::BufferUsageFlags,
+    ) -> Result<(Lent<T>, &'static mut [T]), Failed> {
+        let (lent, slice) = self.gpu.lend::<T>(arm, n, usage)?;
+        self.made
+            .extend(lent.buffers().map(|b| Made::Buffer(b.buffer, b.memory)));
+        Ok((lent, slice))
+    }
+
+    /// [`Gpu::mapped`], its buffer kept.
+    fn mapped(&mut self, bytes: Elems, usage: vk::BufferUsageFlags) -> Result<Mapped, Failed> {
+        let m = self.gpu.mapped(bytes, usage)?;
+        self.made
+            .push(Made::Buffer(m.buffer.buffer, m.buffer.memory));
+        Ok(m)
+    }
+
+    /// **The memory is whole** and holds every object: none is destroyed.
+    fn whole(mut self) {
+        self.made.clear();
+    }
+}
+
+impl Drop for Making<'_> {
+    fn drop(&mut self) {
+        while let Some(m) = self.made.pop() {
+            m.release(self.gpu);
+        }
+    }
+}
+
 impl CellMemory {
     /// **Every set's memory on `arm`**, sized as the app sizes the macOS
     /// cell path's -- the copy at the provisioned rows and one more at the
@@ -621,19 +704,24 @@ impl CellMemory {
         let pool_info = vk::DescriptorPoolCreateInfo::default()
             .max_sets(n_sets)
             .pool_sizes(&pool_sizes);
+        let mut making = Making {
+            gpu,
+            made: Vec::new(),
+        };
+        gpu.call()?;
         // SAFETY: a device of `gpu`'s.
         let pool = unsafe { d.create_descriptor_pool(&pool_info, None) }?;
+        gpu.object_made();
+        making.made.push(Made::Pool(pool));
         let atlas_layout = [pipes.sets[1]];
         let alloc = vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(pool)
             .set_layouts(&atlas_layout);
+        gpu.call()?;
         // SAFETY: the pool holds it.
         let atlas = unsafe { d.allocate_descriptor_sets(&alloc) }?[0];
-        let maps = [
-            gpu.lend::<MapEntry>(arm, Elems(MAP_SLOTS), storage)?,
-            gpu.lend::<MapEntry>(arm, Elems(MAP_SLOTS), storage)?,
-        ];
-        let [(map0, map0_mem), (map1, map1_mem)] = maps;
+        let (map0, map0_mem) = making.lend::<MapEntry>(arm, Elems(MAP_SLOTS), storage)?;
+        let (map1, map1_mem) = making.lend::<MapEntry>(arm, Elems(MAP_SLOTS), storage)?;
         let mut slices = CellSlices {
             copies: Vec::with_capacity(SETS),
             styles: Vec::with_capacity(SETS),
@@ -646,15 +734,15 @@ impl CellMemory {
         let overlay_len = Elems(overlay_bytes.div_ceil(4).saturating_mul(4).max(4));
         let mut sets = Vec::with_capacity(SETS);
         for _ in 0..SETS {
-            let (grid, copy) = gpu.lend::<PackedCell>(arm, grid_len, storage)?;
+            let (grid, copy) = making.lend::<PackedCell>(arm, grid_len, storage)?;
             copy.fill(PackedCell::EMPTY);
-            let (styles, styles_mem) = gpu.lend::<Resolved>(arm, sizes.styles, storage)?;
+            let (styles, styles_mem) = making.lend::<Resolved>(arm, sizes.styles, storage)?;
             styles_mem.fill(Resolved::default());
-            let (overlay, overlay_mem) = gpu.lend::<u8>(arm, overlay_len, storage)?;
+            let (overlay, overlay_mem) = making.lend::<u8>(arm, overlay_len, storage)?;
             let (cu, cu_mem) =
-                gpu.lend::<u32>(arm, Elems(CU_WORDS), vk::BufferUsageFlags::UNIFORM_BUFFER)?;
+                making.lend::<u32>(arm, Elems(CU_WORDS), vk::BufferUsageFlags::UNIFORM_BUFFER)?;
             let seg_len = Elems(rows1);
-            let (seg_base, seg_mem) = gpu.lend::<u32>(arm, seg_len, storage)?;
+            let (seg_base, seg_mem) = making.lend::<u32>(arm, seg_len, storage)?;
             seg_mem.fill(0);
             let layouts = [
                 pipes.cell_set,
@@ -667,14 +755,15 @@ impl CellMemory {
             let alloc = vk::DescriptorSetAllocateInfo::default()
                 .descriptor_pool(pool)
                 .set_layouts(&layouts);
+            gpu.call()?;
             // SAFETY: the pool holds them.
             let made = unsafe { d.allocate_descriptor_sets(&alloc) }?;
-            let records = gpu.mapped(Elems(RECORDS_FLOOR * Instance::BYTES), storage)?;
-            let us = gpu.mapped(
+            let records = making.mapped(Elems(RECORDS_FLOOR * Instance::BYTES), storage)?;
+            let us = making.mapped(
                 Elems(INSTANCE_US * U_PITCH),
                 vk::BufferUsageFlags::UNIFORM_BUFFER,
             )?;
-            let fx_u = gpu.mapped(Elems(FX_U_BYTES), vk::BufferUsageFlags::UNIFORM_BUFFER)?;
+            let fx_u = making.mapped(Elems(FX_U_BYTES), vk::BufferUsageFlags::UNIFORM_BUFFER)?;
             let set = CellSet {
                 grid,
                 grid_len,
@@ -708,9 +797,16 @@ impl CellMemory {
             slices.overlay.push(&mut overlay_mem[..overlay_bytes]);
         }
         let recorder = gpu.recorder()?;
+        making
+            .made
+            .push(Made::Recorder(recorder.cb, recorder.fence));
         // What a frame signals for its end to be handed out as a sync file.
         let sync = match gpu.sync_fd {
-            Has::Yes => Some(gpu.sync_semaphore()?),
+            Has::Yes => {
+                let s = gpu.sync_semaphore()?;
+                making.made.push(Made::Semaphore(s));
+                Some(s)
+            }
             Has::No => None,
         };
         let pool_of = |ty: vk::QueryType, n: usize, stats: vk::QueryPipelineStatisticFlags| {
@@ -718,25 +814,37 @@ impl CellMemory {
                 .query_type(ty)
                 .query_count(u32::try_from(n).unwrap_or(u32::MAX))
                 .pipeline_statistics(stats);
+            gpu.call()?;
             // SAFETY: a device of `gpu`'s.
-            unsafe { d.create_query_pool(&info, None) }
+            let made = unsafe { d.create_query_pool(&info, None) }?;
+            gpu.object_made();
+            Ok::<_, Failed>(made)
         };
         let stamps = match gpu.clock.stamps {
-            Has::Yes => Some(pool_of(
-                vk::QueryType::TIMESTAMP,
-                crate::timing::STAMPS,
-                vk::QueryPipelineStatisticFlags::empty(),
-            )?),
+            Has::Yes => {
+                let q = pool_of(
+                    vk::QueryType::TIMESTAMP,
+                    crate::timing::STAMPS,
+                    vk::QueryPipelineStatisticFlags::empty(),
+                )?;
+                making.made.push(Made::Queries(q));
+                Some(q)
+            }
             Has::No => None,
         };
         let fragments = match gpu.clock.statistics {
-            Has::Yes => Some(pool_of(
-                vk::QueryType::PIPELINE_STATISTICS,
-                crate::timing::EFFECT_SLOTS,
-                vk::QueryPipelineStatisticFlags::FRAGMENT_SHADER_INVOCATIONS,
-            )?),
+            Has::Yes => {
+                let q = pool_of(
+                    vk::QueryType::PIPELINE_STATISTICS,
+                    crate::timing::EFFECT_SLOTS,
+                    vk::QueryPipelineStatisticFlags::FRAGMENT_SHADER_INVOCATIONS,
+                )?;
+                making.made.push(Made::Queries(q));
+                Some(q)
+            }
             Has::No => None,
         };
+        making.whole();
         Ok((
             CellMemory {
                 arm,
@@ -813,22 +921,20 @@ impl CellMemory {
         }
         gpu.drop_recorder(self.recorder);
         if let Some(s) = self.sync {
-            // SAFETY: the device is idle; no frame signals it again.
-            unsafe { gpu.device.destroy_semaphore(s, None) };
+            Made::Semaphore(s).release(gpu);
         }
         for pool in [self.stamps, self.fragments].into_iter().flatten() {
-            // SAFETY: the device is idle; no frame writes the pool again.
-            unsafe { gpu.device.destroy_query_pool(pool, None) };
+            Made::Queries(pool).release(gpu);
         }
-        // SAFETY: the device is idle; the sets go with the pool, and no
-        // frame draws through a target's view or framebuffer again.
+        // SAFETY: the device is idle, and no frame draws through a
+        // target's view or framebuffer again.
         unsafe {
             for h in self.targets {
                 gpu.device.destroy_framebuffer(h.framebuffer, None);
                 gpu.device.destroy_image_view(h.view, None);
             }
-            gpu.device.destroy_descriptor_pool(self.pool, None);
         }
+        Made::Pool(self.pool).release(gpu);
     }
 
     /// **A target no frame will draw into again**, its view and framebuffer

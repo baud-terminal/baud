@@ -111,8 +111,8 @@ pub struct Target {
 
 /// A command buffer and fence reused frame after frame.
 pub(crate) struct Recorder {
-    cb: vk::CommandBuffer,
-    fence: vk::Fence,
+    pub(crate) cb: vk::CommandBuffer,
+    pub(crate) fence: vk::Fence,
 }
 
 /// What a submission signals beside its fence ([`Gpu::submit`]).
@@ -755,17 +755,21 @@ impl Gpu {
             .command_pool(self.pool)
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(1);
+        self.call()?;
         // SAFETY: the pool is this device's.
         let cb = unsafe { d.allocate_command_buffers(&alloc) }?[0];
+        self.object_made();
         // SAFETY: a device of this struct.
         let fence = match unsafe { d.create_fence(&vk::FenceCreateInfo::default(), None) } {
             Ok(f) => f,
             Err(e) => {
                 // SAFETY: never submitted.
                 unsafe { d.free_command_buffers(self.pool, &[cb]) };
+                self.object_dropped();
                 return Err(e.into());
             }
         };
+        self.object_made();
         Ok(Recorder { cb, fence })
     }
 
@@ -854,8 +858,11 @@ impl Gpu {
         let mut export = vk::ExportSemaphoreCreateInfo::default()
             .handle_types(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD);
         let info = vk::SemaphoreCreateInfo::default().push_next(&mut export);
+        self.call()?;
         // SAFETY: a device of this struct, and a chain alive through the call.
-        Ok(unsafe { self.device.create_semaphore(&info, None) }?)
+        let made = unsafe { self.device.create_semaphore(&info, None) }?;
+        self.object_made();
+        Ok(made)
     }
 
     /// **The pending signal of `sem` as a sync file**, readable once the
@@ -910,6 +917,8 @@ impl Gpu {
             self.device.destroy_fence(r.fence, None);
             self.device.free_command_buffers(self.pool, &[r.cb]);
         }
+        self.object_dropped();
+        self.object_dropped();
     }
 
     /// Record with `record` into a fresh command buffer, submit it alone,
@@ -989,9 +998,24 @@ impl Gpu {
         self.hooks.dropped();
     }
 
+    /// One of the cell path's device objects made, counted for the
+    /// crate's tests: a buffer, a memory, a descriptor pool, a command
+    /// buffer, a fence, a semaphore or a query pool.
+    pub(crate) fn object_made(&self) {
+        #[cfg(feature = "test-hooks")]
+        self.hooks.object_made();
+    }
+
+    /// One of them destroyed, counted for the crate's tests.
+    pub(crate) fn object_dropped(&self) {
+        #[cfg(feature = "test-hooks")]
+        self.hooks.object_dropped();
+    }
+
     /// **The `n`-th fallible device call from now fails with `code`**: a
-    /// target's allocation or a submission, as a lost device or memory
-    /// running out would.
+    /// target's allocation, a submission, or a step of the cell path's
+    /// memory (`CellMemory::new`), as a lost device or memory running out
+    /// would.
     #[cfg(any(test, feature = "test-hooks"))]
     pub fn fail_at(&self, n: crate::hooks::Calls, code: Failed) {
         self.hooks.fail_at(n, code);
@@ -1001,6 +1025,13 @@ impl Gpu {
     #[cfg(any(test, feature = "test-hooks"))]
     pub fn targets_live(&self) -> crate::hooks::Live {
         self.hooks.live()
+    }
+
+    /// **The cell path's device objects made and not yet destroyed**
+    /// ([`Gpu::object_made`]).
+    #[cfg(feature = "test-hooks")]
+    pub fn objects_live(&self) -> crate::hooks::Live {
+        self.hooks.objects()
     }
 
     /// **Frames from now land only at [`Gpu::release_landings`]**, as a

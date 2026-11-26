@@ -53,6 +53,7 @@ expect=(
   lent_memory_is_read_as_owed_on_radv
   bg_fragment_stores_every_channel_at_every_alpha_as_the_cpu_on_radv
   a_page_at_a_tie_is_stored_as_the_cpu_on_both_paths_on_radv
+  cell_memory_that_fails_part_way_leaves_nothing_on_radv
   the_cell_path_is_the_instance_path_on_radv
   the_cell_path_is_the_cpu_path_on_radv
   two_targets_in_turn_are_each_the_whole_frame_on_radv

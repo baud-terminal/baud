@@ -2,9 +2,10 @@
 //! crate's own tests: the `test-hooks` feature, which baud's own build
 //! leaves off (`xtask/tests/test_hooks.rs`). The `n`-th fallible device
 //! call from now fails with the code given -- a target's allocation, a
-//! submission -- as a lost device or memory running out would, and a count
-//! of the targets made and not yet dropped says whether a failure left one
-//! behind.
+//! submission, a step of the cell path's memory -- as a lost device or
+//! memory running out would, and a count of the targets made and not yet
+//! dropped says whether a failure left one behind; a second count says the
+//! same of the cell path's device objects.
 
 use crate::frame::Failed;
 use std::io::Write;
@@ -16,7 +17,7 @@ use std::sync::Mutex;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Calls(pub u32);
 
-/// How many targets are made and not yet dropped.
+/// How many are made and not yet dropped.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Live(pub usize);
 
@@ -47,6 +48,9 @@ pub(crate) enum Export {
 struct State {
     fail: Option<(Calls, Failed)>,
     live: Live,
+    /// The cell path's buffers, memories, descriptor pools, command
+    /// buffers, fences, semaphores and query pools made and not destroyed.
+    objects: Live,
     /// Landings held: the end handed out for the next frame, and the side
     /// whose write turns it readable.
     landing: Option<(Option<OwnedFd>, UnixStream)>,
@@ -99,6 +103,18 @@ impl Hooks {
 
     pub(crate) fn live(&self) -> Live {
         self.with(|s| s.live)
+    }
+
+    pub(crate) fn object_made(&self) {
+        self.with(|s| s.objects.0 += 1);
+    }
+
+    pub(crate) fn object_dropped(&self) {
+        self.with(|s| s.objects.0 = s.objects.0.saturating_sub(1));
+    }
+
+    pub(crate) fn objects(&self) -> Live {
+        self.with(|s| s.objects)
     }
 
     /// **Landings held from now**: a connected pair, the end handed out

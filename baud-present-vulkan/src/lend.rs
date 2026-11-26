@@ -164,31 +164,52 @@ impl Gpu {
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
         // SAFETY: a device of this struct.
         let buffer = unsafe { d.create_buffer(&info, None) }?;
+        self.object_made();
         // SAFETY: the buffer was just made.
         let req = unsafe { d.get_buffer_memory_requirements(buffer) };
         let Some(kind) = self.memory_type(&req, props, Fallback::None) else {
             // SAFETY: unbound and unused.
             unsafe { d.destroy_buffer(buffer, None) };
+            self.object_dropped();
             return Err(Failed::NoMemoryType);
         };
         let alloc = vk::MemoryAllocateInfo::default()
             .allocation_size(req.size)
             .memory_type_index(kind.0);
         // SAFETY: as above.
-        let memory = unsafe { d.allocate_memory(&alloc, None) }?;
+        let memory = match self
+            .call()
+            .and_then(|()| unsafe { d.allocate_memory(&alloc, None) }.map_err(Failed::from))
+        {
+            Ok(m) => m,
+            Err(e) => {
+                // SAFETY: unbound and unused.
+                unsafe { d.destroy_buffer(buffer, None) };
+                self.object_dropped();
+                return Err(e);
+            }
+        };
+        self.object_made();
+        let made = Buffer { buffer, memory };
         // SAFETY: bound once, at offset 0; a host-visible memory is mapped
         // whole and stays mapped until it is freed.
         let mapped = unsafe {
-            d.bind_buffer_memory(buffer, memory, 0)?;
-            match props.contains(vk::MemoryPropertyFlags::HOST_VISIBLE) {
-                true => Some(
-                    d.map_memory(memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty())?
-                        .cast::<u8>(),
-                ),
-                false => None,
-            }
+            d.bind_buffer_memory(buffer, memory, 0).and_then(|()| {
+                match props.contains(vk::MemoryPropertyFlags::HOST_VISIBLE) {
+                    true => d
+                        .map_memory(memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty())
+                        .map(|at| Some(at.cast::<u8>())),
+                    false => Ok(None),
+                }
+            })
         };
-        Ok((Buffer { buffer, memory }, mapped))
+        match mapped {
+            Ok(at) => Ok((made, at)),
+            Err(e) => {
+                self.drop_buffer(made);
+                Err(e.into())
+            }
+        }
     }
 
     /// **`n` elements of `T` for the cell path on `arm`**, bound as
@@ -235,7 +256,13 @@ impl Gpu {
                 (d, Some(h), at)
             }
         };
-        let at = at.ok_or(Failed::NoMemoryType)?;
+        let Some(at) = at else {
+            self.drop_buffer(device);
+            if let Some(h) = host {
+                self.drop_buffer(h);
+            }
+            return Err(Failed::NoMemoryType);
+        };
         // SAFETY: the mapping is `bytes` long, host-coherent, and stays
         // mapped until `Lent::destroy` frees it; it is zeroed before the
         // slice is made, and `T: Plain` makes zero (and anything the CPU
@@ -379,6 +406,12 @@ impl<T: Plain> Lent<T> {
         }
         self.uploaded.0 += self.owed.iter().map(|r| r.size).sum::<u64>();
         self.owed.clear();
+    }
+
+    /// Its buffers: the one the stage reads, then the mapped one under
+    /// staging.
+    pub(crate) fn buffers(&self) -> impl Iterator<Item = &Buffer> {
+        std::iter::once(&self.device).chain(&self.host)
     }
 
     /// The buffers freed. The caller has waited for the device to be idle
