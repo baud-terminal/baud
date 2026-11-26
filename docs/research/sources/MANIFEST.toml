@@ -32617,6 +32617,23 @@ group  = "AK"
 # Fetched 2026-10-21 (lane b143): where Command-G with the find field closed
 # takes its string. Its value, "Apple CFPasteboard find", read from the SDK.
 
+[sources.apple-nspasteboard-changecount]
+key    = "apple-nspasteboard-changecount"
+title  = "AppKit, NSPasteboard.changeCount -- the count starts at zero and moves each time the pasteboard changes hands; clearContents returns it (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nspasteboard/changecount.json"
+file   = ""
+sha256 = "2b694e83175a73a3ed8d69f861faf5b214248a087d3520586ff5d727e9ca69eb"
+bytes  = 12933
+status = "external"
+group  = "AK"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as apple-nspasteboard-changecount.json, and the
+# digest is of that copy. A copy is taken only while the count the clear
+# returned still stands after the set.
+
 [sources.apple-hig-the-menu-bar]
 key    = "apple-hig-the-menu-bar"
 title  = "Human Interface Guidelines, The menu bar -- the Edit menu's Find submenu: Find, Find and Replace, Find Next, Find Previous, Use Selection for Find, Jump to Selection (documentation JSON)"

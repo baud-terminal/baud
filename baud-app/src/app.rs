@@ -14146,6 +14146,19 @@ mod moved_tests {
     }
 }
 
+/// **A copy the clipboard did not keep, logged**: its change counts and the
+/// text's length, never the text, as a warning and as one line of
+/// `clipboard.log` beside the launch timeline's file.
+fn log_not_kept(kept: clipboard::Unconfirmed) {
+    let line = format!(
+        "clipboard: a copy was not kept: change count {} before the clear, {} from it, {} after \
+         the set; {} bytes",
+        kept.before, kept.owned, kept.after, kept.want_len
+    );
+    crate::warn!("{line}");
+    crate::host::append_log("clipboard.log", &line);
+}
+
 impl Driver {
     /// A key the user pressed: sent to the core and on to the child, with
     /// the instrument's first two stamps around it -- the key event's own
@@ -19185,6 +19198,14 @@ impl Driver {
                         crate::warn!("clipboard: the pasteboard refused a program's copy");
                     }
                 },
+                Outcome::Copied {
+                    written: clipboard::Written::Unconfirmed(kept),
+                    ..
+                } => {
+                    log_not_kept(kept);
+                    self.say_not_copied();
+                }
+                Outcome::Found(clipboard::Written::Unconfirmed(kept)) => log_not_kept(kept),
                 Outcome::Found(clipboard::Written::Refused) => {
                     crate::warn!("clipboard: the find pasteboard refused the query");
                 }
@@ -20680,6 +20701,16 @@ impl Driver {
             app.owe_frame();
         }
         app.take_copied();
+        app.say_copied();
+    }
+
+    /// **A copy the clipboard did not keep, said** (`copied.rs`): in the
+    /// bar and to a screen reader, with none of a copy's words.
+    fn say_not_copied(&mut self) {
+        let app = &mut self.app;
+        if app.copied.not_copied() == crate::copied::Owes::Frame {
+            app.owe_frame();
+        }
         app.say_copied();
     }
 

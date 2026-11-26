@@ -903,6 +903,30 @@ pub fn tell_defaults(
     );
 }
 
+/// **One line appended to `name`** beside the launch timeline's file
+/// ([`Timeline::path`]), its directory made; nothing when it cannot be
+/// opened.
+#[cfg(target_os = "macos")]
+pub(crate) fn append_log(name: &str, line: &str) {
+    use std::io::Write;
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let Some(path) = Timeline::path(home.as_deref(), None) else {
+        return;
+    };
+    let path = path.with_file_name(name);
+    let file = path.parent().and_then(|dir| {
+        std::fs::create_dir_all(dir).ok()?;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok()
+    });
+    if let Some(mut file) = file {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
 pub fn startup_begin() {
     let _ = START.set(Instant::now());
     let wanted = match std::env::var_os("BAUD_STARTUP") {

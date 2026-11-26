@@ -69,6 +69,9 @@ pub(crate) enum Source {
     Selection(Option<CopiedTo>),
     Program,
     Path(PathNote),
+    /// A copy the clipboard did not keep.
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    NotCopied,
 }
 
 /// **The selections a copy was set on**, from the ones that took it. Made
@@ -121,6 +124,9 @@ pub(crate) enum PathNote {
     NoApp(crate::link::Scheme),
 }
 
+/// **The words for a copy the clipboard did not keep.**
+pub(crate) const NOT_COPIED: &str = "Not copied: the clipboard kept what it had";
+
 /// **The words a copy says.**
 pub(crate) fn words(source: Source, count: Characters) -> String {
     let noun = if count == Characters(1) {
@@ -137,6 +143,7 @@ pub(crate) fn words(source: Source, count: Characters) -> String {
             format!("Couldn't check this file on {}", crate::paths::MACHINE)
         }
         Source::Path(PathNote::TooLong) => "This path is too long to open".to_string(),
+        Source::NotCopied => NOT_COPIED.to_string(),
         Source::Path(PathNote::NoApp(s)) => match scheme_name(s) {
             Some(name) => format!("No app for {name}:"),
             None => "No app for this kind of link".to_string(),
@@ -379,6 +386,22 @@ impl<T: Moment> Signal<T> {
         }
         self.speak_from = Some(now.after(MESSAGE_FOR));
         self.saying = Some(words(Source::Program, count));
+    }
+
+    /// **A copy the clipboard did not keep**: said in the bar, as a
+    /// program's copy is, whatever `[message.copy]` says, since nothing was
+    /// copied.
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    pub(crate) fn not_copied(&mut self) -> Owes {
+        self.up = Some(Up {
+            source: Source::NotCopied,
+            count: Characters(0),
+            place: Place::At(MessageAt::Bar),
+            until: None,
+        });
+        self.held = None;
+        self.saying = Some(NOT_COPIED.to_string());
+        Owes::Frame
     }
 
     /// **A click on a printed path opened nothing**: why, in the bar, as a
@@ -818,6 +841,40 @@ mod tests {
         assert!(!Route::Program(release).typed());
         assert!(!Route::Field(release).typed());
         assert!(!Route::Nobody.typed());
+    }
+
+    /// **"Copied" is said only for a copy the pasteboard kept**: the arm
+    /// for a write the pasteboard did not keep says none of a copy's words,
+    /// and says the not-copied words through the function that raises them.
+    /// Perturbation: fold that arm into the taken one.
+    #[test]
+    fn the_copied_words_come_only_from_a_confirmed_copy() {
+        let head = concat!("written: clipboard::Written::", "Unconfirmed(");
+        let src = crate::app_source::within(crate::app_source::app_source(), head);
+        let at = src.find(head).expect("the arm for a write not kept");
+        let arm = &src[at..];
+        let arm = arm
+            .find("\n                Outcome::")
+            .map_or(arm, |end| &arm[..end]);
+        assert!(!arm.contains("selection_copied("), "{arm}");
+        assert!(!arm.contains("programs.copied("), "{arm}");
+        assert!(arm.contains("self.say_not_copied()"), "{arm}");
+        let said = body(
+            crate::app_source::app_source(),
+            concat!("    fn say_not_copied", "(&mut self) {"),
+        );
+        assert!(said.contains("app.copied.not_copied()"), "{said}");
+    }
+
+    /// **A copy not kept says so, in the bar and to a screen reader, and
+    /// none of a copy's words.** Perturbation: say a count.
+    #[test]
+    fn a_copy_not_kept_says_not_copied() {
+        let mut s = signal(Message::default());
+        assert_eq!(s.not_copied(), Owes::Frame);
+        let said = s.take_saying().unwrap_or_default();
+        assert_eq!(said, "Not copied: the clipboard kept what it had");
+        assert!(!said.starts_with("Copied"), "{said}");
     }
 
     /// The text of the function `head` starts, from `src`.

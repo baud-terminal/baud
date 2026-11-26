@@ -769,6 +769,16 @@ NSNumber stringValue (documentation JSON): "created by invoking description(with
 - **Copy:** not committed; cited by URL and sha256
 - **Cited in:** `docs/vt-coverage.md`
 
+<a id="apple-nspasteboard-changecount"></a>
+### apple-nspasteboard-changecount
+
+AppKit, NSPasteboard.changeCount -- the count starts at zero and moves each time the pasteboard changes hands; clearContents returns it (documentation JSON). Apple, 2026, developer.apple.com/documentation/appkit.
+
+- **URL:** <https://developer.apple.com/tutorials/data/documentation/appkit/nspasteboard/changecount.json>
+- **sha256:** `2b694e83175a73a3ed8d69f861faf5b214248a087d3520586ff5d727e9ca69eb` (12933 bytes)
+- **Copy:** not committed; cited by URL and sha256
+- **Cited in:** `baud-present-macos/src/clipboard.rs`
+
 <a id="apple-nspasteboard-name-find"></a>
 ### apple-nspasteboard-name-find
 

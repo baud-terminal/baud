@@ -9,11 +9,28 @@ use macos_liquid_glass::objc2_foundation::NSString;
 /// to be read, which the bindings make `unsafe`.
 const STRING_TYPE: &str = "public.utf8-plain-text";
 
-/// Whether the pasteboard took the text.
+/// Whether the pasteboard took the text and kept it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Written {
+    /// Set, after a clear that took the pasteboard, its change count
+    /// unmoved since.
     Taken,
+    /// Set, and the clear did not move the change count, or the count
+    /// moved again by the time the set returned.
+    Unconfirmed(Unconfirmed),
+    /// The set refused.
     Refused,
+}
+
+/// **A write the pasteboard said it took and did not keep**: its change
+/// count before the clear, the one the clear returned, the one after the
+/// set, and the text's length in bytes. The text itself is not kept.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Unconfirmed {
+    pub before: isize,
+    pub owned: isize,
+    pub after: isize,
+    pub want_len: usize,
 }
 
 /// Replace the pasteboard's contents with `text`, on a turn of its own
@@ -33,19 +50,57 @@ pub fn write_text(_turn: &crate::turn::Turn<'_>, text: &str) -> Written {
 
 #[cfg(not(feature = "effect-probe"))]
 fn written(text: &str) -> Written {
-    written_to(&NSPasteboard::generalPasteboard(), text)
+    written_to(&*NSPasteboard::generalPasteboard(), text)
+}
+
+/// **What a write asks of a pasteboard**: its change count, an empty that
+/// returns the count it leaves, and a string set as [`STRING_TYPE`]. The
+/// contents are never read here: a program's read of the general
+/// pasteboard is paste's alone (`sdk_gates.rs`).
+#[cfg(not(feature = "effect-probe"))]
+trait Board {
+    fn change_count(&self) -> isize;
+    fn clear(&self) -> isize;
+    fn set(&self, text: &str) -> bool;
+}
+
+#[cfg(not(feature = "effect-probe"))]
+impl Board for NSPasteboard {
+    fn change_count(&self) -> isize {
+        self.changeCount()
+    }
+
+    fn clear(&self) -> isize {
+        self.clearContents()
+    }
+
+    fn set(&self, text: &str) -> bool {
+        self.setString_forType(&NSString::from_str(text), &NSString::from_str(STRING_TYPE))
+    }
 }
 
 /// Replace `board`'s contents with `text`, as the one string type
 /// [`STRING_TYPE`]: the text's UTF-8 bytes, which AppKit also lists under
-/// the legacy name it keeps for that type.
+/// the legacy name it keeps for that type. Taken only when the clear moved
+/// the change count past the one before and the set left it where the
+/// clear put it: the count moves each time the pasteboard changes hands
+/// ([[source: apple-nspasteboard-changecount]]).
 #[cfg(not(feature = "effect-probe"))]
-fn written_to(board: &NSPasteboard, text: &str) -> Written {
-    board.clearContents();
-    let kind = NSString::from_str(STRING_TYPE);
-    match board.setString_forType(&NSString::from_str(text), &kind) {
+fn written_to(board: &impl Board, text: &str) -> Written {
+    let before = board.change_count();
+    let owned = board.clear();
+    if !board.set(text) {
+        return Written::Refused;
+    }
+    let after = board.change_count();
+    match owned != before && after == owned {
         true => Written::Taken,
-        false => Written::Refused,
+        false => Written::Unconfirmed(Unconfirmed {
+            before,
+            owned,
+            after,
+            want_len: text.len(),
+        }),
     }
 }
 
@@ -99,7 +154,7 @@ pub fn write_find(_turn: &crate::turn::Turn<'_>, text: &str) -> Written {
 
 #[cfg(not(feature = "effect-probe"))]
 fn found(text: &str) -> Written {
-    written_to(&find_board(), text)
+    written_to(&*find_board(), text)
 }
 
 #[cfg(all(test, not(feature = "effect-probe")))]
@@ -126,7 +181,7 @@ mod tests {
         const TEXT: &str =
             "\u{5e9}\u{5b8}\u{5c1}\u{5dc}\u{5d5}\u{5b9}\u{5dd} caf\u{e9} cafe\u{301} \u{1f980}";
         let board = NSPasteboard::pasteboardWithName(&NSString::from_str(TEST_BOARD));
-        assert_eq!(written_to(&board, TEXT), Written::Taken);
+        assert_eq!(written_to(&*board, TEXT), Written::Taken);
         const UTF8: &str = "public.utf8-plain-text";
         let bytes = board
             .dataForType(&NSString::from_str(UTF8))
@@ -137,5 +192,66 @@ mod tests {
             .map(|t| t.to_vec().iter().map(|k| k.to_string()).collect())
             .unwrap_or_default();
         assert_eq!(types.first().map(String::as_str), Some(UTF8), "{types:?}");
+    }
+
+    /// A pasteboard that says yes to a set and keeps what it had, its
+    /// change count never moving.
+    struct Kept {
+        count: isize,
+    }
+
+    impl Board for Kept {
+        fn change_count(&self) -> isize {
+            self.count
+        }
+
+        fn clear(&self) -> isize {
+            self.count
+        }
+
+        fn set(&self, _text: &str) -> bool {
+            true
+        }
+    }
+
+    /// **A copy the clipboard did not keep is not taken**: a board whose
+    /// set says yes and whose change count the clear did not move answers
+    /// [`Written::Unconfirmed`], with its counts and the text's length.
+    /// Perturbation: take a set's yes as taken.
+    #[test]
+    fn a_copy_the_clipboard_did_not_keep_is_not_taken() {
+        const TEXT: &str = "the selection, which the board never kept";
+        let board = Kept { count: 41 };
+        assert_eq!(
+            written_to(&board, TEXT),
+            Written::Unconfirmed(Unconfirmed {
+                before: 41,
+                owned: 41,
+                after: 41,
+                want_len: TEXT.len(),
+            })
+        );
+    }
+
+    /// **A copy read back through another handle is taken**: a pasteboard
+    /// of this test's own, written through the writer a copy takes and read
+    /// through a second handle of the same name, holds the text under a
+    /// change count past the one before. The board is emptied after.
+    #[test]
+    fn a_copy_read_back_through_another_handle_is_taken() {
+        const NAME: &str = "baud test pasteboard, read back";
+        const TEXT: &str = "read back through a second handle";
+        let board = NSPasteboard::pasteboardWithName(&NSString::from_str(NAME));
+        let before = board.changeCount();
+        let written = written_to(&*board, TEXT);
+        let other = NSPasteboard::pasteboardWithName(&NSString::from_str(NAME));
+        let read = other
+            .dataForType(&NSString::from_str("public.utf8-plain-text"))
+            .map(|d| String::from_utf8_lossy(&d.to_vec()).into_owned());
+        let after = other.changeCount();
+        other.clear();
+        assert_eq!(written, Written::Taken);
+        assert_eq!(read.as_deref(), Some(TEXT));
+        assert!(after > before, "{before} -> {after}");
     }
 }
