@@ -506,6 +506,56 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         self.set_row(Row::from_index(cy + k));
     }
 
+    /// **The shell's marks go with their lines** when the rows `top..=bot`
+    /// of the window move `k` rows `mv`: the block's first row, the input's
+    /// row and the later line's, each a ring row, are renamed to where
+    /// their line now is. The band moves as a rotation: a line that leaves
+    /// it at one end gives its row to a line the move opens at the other,
+    /// and a mark on it names that opened line, as the row it was on does.
+    /// The `retired` lines at the band's top went to the history with the
+    /// ring's rotation and keep their ring rows, and a mark outside the
+    /// band keeps its window row. `before` is the rotation the band was
+    /// numbered under; the view's is the one after the move.
+    pub(crate) fn marks_moved(
+        &mut self,
+        before: RowRot,
+        (top, bot): (Row, Row),
+        k: Rows,
+        mv: BandMove,
+        retired: Rows,
+    ) {
+        let (after, ring, rows) = (self.view.rotation(), self.view.ring(), self.rows.index());
+        let (t, b) = (top.index(), bot.index());
+        let h = b + 1 - t;
+        let k = k.index() % h.max(1);
+        let moved = |r: RowRot| {
+            let y = r.retreat(before.index(), ring).index();
+            if y >= rows || (y >= t && y < t + retired.index()) {
+                return r;
+            }
+            let to = match (t..=b).contains(&y) {
+                true => match mv {
+                    BandMove::Up => t + (y - t + h - k) % h,
+                    BandMove::Down => t + (y - t + k) % h,
+                },
+                false => y,
+            };
+            after.advance(to, ring)
+        };
+        let shell = &mut self.strs.shell;
+        shell.block = PromptBlock::at(moved(shell.block.start()));
+        if let Input::At { row, col, end } = shell.input {
+            shell.input = Input::At {
+                row: moved(row),
+                col,
+                end,
+            };
+        }
+        if let Later::At(r) = shell.secondary {
+            shell.secondary = Later::At(moved(r));
+        }
+    }
+
     /// **The drawn prompt walks down**, from its block's first row to the
     /// cursor's: at the input mark, `B` or `I`, and at the setter. Not at
     /// the initial mark, before the shell has drawn the prompt: there the

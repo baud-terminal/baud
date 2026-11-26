@@ -1242,10 +1242,17 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             // records, and one narrowed before anything was written past the
             // new edge -- runs the loop with nothing past the edge compiled
             // into it.
+            let before = self.view.rotation();
             match reach.index() > self.cols.index() {
                 false => self.rotate_top_region::<false>(Rows::of_count(k), bot, reach),
                 true => self.rotate_top_region_past_edge(Rows::of_count(k), bot, reach),
             }
+            // The primary's lines leave the region for the history.
+            let retired = match keeps {
+                true => Rows::of_count(k),
+                false => Rows::ZERO,
+            };
+            self.marks_moved(before, (top, bot), Rows::of_count(k), BandMove::Up, retired);
             self.path_rows(Row::from_index(bot.index() + 1 - k), bot);
             return;
         }
@@ -1278,6 +1285,8 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                 self.lines_moved_past_edge(top, n, bot, BandMove::Up);
             }
         }
+        let rot = self.view.rotation();
+        self.marks_moved(rot, (top, bot), Rows::of_count(k), BandMove::Up, Rows::ZERO);
         if self.images.any_placed() {
             self.band_images_moved(top, bot, Rows::of_count(k), BandMove::Up);
         }
@@ -1700,6 +1709,14 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         if self.past_edge() {
             self.lines_moved_past_edge(top, n, bot, BandMove::Down);
         }
+        let rot = self.view.rotation();
+        self.marks_moved(
+            rot,
+            (top, bot),
+            Rows::of_count(k),
+            BandMove::Down,
+            Rows::ZERO,
+        );
         if self.images.any_placed() {
             self.band_images_moved(top, bot, Rows::of_count(k), BandMove::Down);
         }
@@ -1852,6 +1869,14 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         self.view.insert_lines_in(at, n, bot, b, &mut x);
         self.moved(&x);
         self.lines_bounded(at, bot, Rows::of_count(k), BandMove::Down);
+        let rot = self.view.rotation();
+        self.marks_moved(
+            rot,
+            (at, bot),
+            Rows::of_count(k),
+            BandMove::Down,
+            Rows::ZERO,
+        );
         self.path_rows(at, Row::from_index(at.index() + k - 1));
         if self.past_edge() {
             self.lines_moved_past_edge(at, n, bot, BandMove::Down);
@@ -1954,6 +1979,8 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         self.view.delete_lines_in(at, n, bot, b, &mut x);
         self.moved(&x);
         self.lines_bounded(at, bot, Rows::of_count(k), BandMove::Up);
+        let rot = self.view.rotation();
+        self.marks_moved(rot, (at, bot), Rows::of_count(k), BandMove::Up, Rows::ZERO);
         self.path_rows(Row::from_index(bot.index() + 1 - k), bot);
         if self.past_edge() {
             self.lines_moved_past_edge(at, n, bot, BandMove::Up);
