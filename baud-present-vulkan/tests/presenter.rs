@@ -885,7 +885,7 @@ fn until_readable(fd: impl Fn() -> Option<std::os::fd::OwnedFd>) {
 /// drawn. Named break: a frame that waits on its fence has landed by the
 /// time it returns.
 #[test]
-#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+#[ignore = "frames fly on RADV only: lavapipe's SYNC_FD export waits for the frame; scripts/linux-vulkan-radv.sh"]
 fn a_frame_asked_while_one_flies_is_busy_and_never_waits_on_radv() {
     let gpu = radv_explicit();
     assert_eq!(
@@ -963,7 +963,7 @@ fn the_acquire_point_is_the_gpus_to_signal_on_radv() {
 /// the time it returns; a frame left in flight with no write fence on its
 /// target, which the compositor would read before it is drawn.
 #[test]
-#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+#[ignore = "frames fly on RADV only: lavapipe's SYNC_FD export waits for the frame; scripts/linux-vulkan-radv.sh"]
 fn a_frame_without_points_flies_with_its_end_on_the_target_on_radv() {
     let gpu = radv();
     assert_eq!(
