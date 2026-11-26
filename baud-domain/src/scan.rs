@@ -1153,14 +1153,9 @@ impl Vectorized<Utf8> {
         {
             <[u32; START_COUNT]>::read_from_bytes(&self.v).expect("sixteen bytes is four u32")
         }
-        #[cfg(not(target_endian = "little"))]
+        #[cfg(target_endian = "big")]
         {
-            let mut out = [0u32; START_COUNT];
-            let b = self.v;
-            for (k, o) in out.iter_mut().enumerate() {
-                *o = u32::from_le_bytes([b[4 * k], b[4 * k + 1], b[4 * k + 2], b[4 * k + 3]]);
-            }
-            out
+            compile_error!("baud-domain: the scan block's four groups have no big-endian form")
         }
     }
 }

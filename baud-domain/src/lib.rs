@@ -345,3 +345,75 @@ pub use vs16::Vs16Width;
 pub use vt::*;
 pub use width::*;
 pub use write_combined::*;
+
+#[cfg(test)]
+mod endian_gates {
+    extern crate std;
+    use std::string::String;
+    use std::vec::Vec;
+
+    /// The lines of `src` holding a `cfg` that names a byte order other
+    /// than little-endian, whose block does not open on `compile_error!`.
+    fn unchecked(src: &str) -> Vec<String> {
+        let lines: Vec<&str> = src.lines().collect();
+        let mut found = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            let code = line.trim_start();
+            if code.starts_with("//") || !code.starts_with("#[cfg(") {
+                continue;
+            }
+            let little = concat!("target_endian = ", "\"little\"");
+            let other = code.contains(concat!("not(target_", "endian"))
+                || (code.contains(concat!("target_", "endian")) && !code.contains(little));
+            if !other {
+                continue;
+            }
+            let next: String = lines[i + 1..]
+                .iter()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty() && !l.starts_with("//"))
+                .take(2)
+                .collect();
+            if !next.starts_with(concat!("{compile_", "error!(")) {
+                found.push(String::from(code));
+            }
+        }
+        found
+    }
+
+    /// **No big-endian arm is left unchecked**: every `cfg` in this crate
+    /// that names a byte order other than little-endian opens a block whose
+    /// first item is `compile_error!`, since every target baud builds for is
+    /// little-endian. The control: the matcher finds the one unchecked arm
+    /// of a fixed source holding a refusing arm too.
+    #[test]
+    fn no_big_endian_arm_is_left_unchecked() {
+        let control = concat!(
+            "#[cfg(target_endian = \"big\")]\n{\n    compile_",
+            "error!(\"no\")\n}\n",
+            "#[cfg(not(target_endian = \"little\"))]\nfor x in y {}\n",
+        );
+        assert_eq!(unchecked(control).len(), 1, "the control's one arm");
+        let src = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+        let mut paths = std::vec![std::path::PathBuf::from(src)];
+        let mut found = Vec::new();
+        while let Some(p) = paths.pop() {
+            if p.is_dir() {
+                for e in std::fs::read_dir(&p).expect("a source folder") {
+                    paths.push(e.expect("an entry").path());
+                }
+                continue;
+            }
+            if p.extension().is_none_or(|x| x != "rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&p).expect("a source file");
+            let name = p.file_name().map(|n| n.to_string_lossy().into_owned());
+            for arm in unchecked(&text) {
+                found.push(std::format!("{}: {arm}", name.clone().unwrap_or_default()));
+            }
+        }
+        found.sort();
+        assert!(found.is_empty(), "unchecked big-endian arms: {found:?}");
+    }
+}

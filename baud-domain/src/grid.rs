@@ -2335,9 +2335,9 @@ impl<'a, S: SlotMode> View<'a, S> {
                 *dc = PackedCell::glyph(cp, proto.style, proto.flags);
             }
         }
-        #[cfg(not(target_endian = "little"))]
-        for (dc, &cp) in dst.iter_mut().zip(cps) {
-            *dc = PackedCell::glyph(cp, proto.style, proto.flags);
+        #[cfg(target_endian = "big")]
+        {
+            compile_error!("baud-domain: the eight-cell narrow store has no big-endian form")
         }
     }
 
@@ -2377,10 +2377,9 @@ impl<'a, S: SlotMode> View<'a, S> {
                 dc[1] = proto;
             }
         }
-        #[cfg(not(target_endian = "little"))]
-        for (dc, &cp) in dst.as_chunks_mut::<2>().0.iter_mut().zip(cps) {
-            dc[0] = PackedCell::glyph(cp, proto.style, proto.flags);
-            dc[1] = proto;
+        #[cfg(target_endian = "big")]
+        {
+            compile_error!("baud-domain: the wide-cell interleave has no big-endian form")
         }
     }
 
@@ -2436,9 +2435,9 @@ impl<'a, S: SlotMode> View<'a, S> {
                 *dc = proto.with_ascii(StreamByte::from_stream(b));
             }
         }
-        #[cfg(all(not(target_endian = "little"), not(feature = "ceiling-no-store")))]
-        for (dc, &b) in dst.iter_mut().zip(src) {
-            *dc = proto.with_ascii(StreamByte::from_stream(b));
+        #[cfg(all(target_endian = "big", not(feature = "ceiling-no-store")))]
+        {
+            compile_error!("baud-domain: the eight-cell ASCII store has no big-endian form")
         }
     }
 
