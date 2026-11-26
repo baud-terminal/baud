@@ -1439,6 +1439,45 @@ impl HoldCollapses {
     }
 }
 
+/// **The lines a cleared hold over every line left not known that read a
+/// known answer**, saturating: what a collapse cost, each line held again
+/// until its writer is named again. Counted only by a clear: the field is
+/// private, so no count starts anywhere but at [`HoldDowngrades::ZERO`],
+/// and none is read but by comparing it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct HoldDowngrades(u64);
+
+impl HoldDowngrades {
+    /// None taken.
+    pub const ZERO: HoldDowngrades = HoldDowngrades(0);
+
+    /// `lines` more.
+    fn add(&mut self, lines: Rows) {
+        let lines = u64::try_from(lines.index()).unwrap_or(u64::MAX);
+        self.0 = self.0.saturating_add(lines);
+    }
+}
+
+/// **The lines a cleared hold over every line kept to send again**, one
+/// for each line of its hull and each group it took in
+/// (`Probes::reprobe`), saturating: what naming a collapse's lines again
+/// asks. Counted only by a clear: the field is private, so no count starts
+/// anywhere but at [`HoldReprobes::ZERO`], and none is read but by
+/// comparing it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct HoldReprobes(u64);
+
+impl HoldReprobes {
+    /// None taken.
+    pub const ZERO: HoldReprobes = HoldReprobes(0);
+
+    /// `lines` more.
+    fn add(&mut self, lines: Rows) {
+        let lines = u64::try_from(lines.index()).unwrap_or(u64::MAX);
+        self.0 = self.0.saturating_add(lines);
+    }
+}
+
 /// **Where the holds stand** ([`Holds`]): each on its own lines, or past
 /// [`HOLD_CAP`] one hold over every line.
 enum AllHeld {
@@ -1449,13 +1488,23 @@ enum AllHeld {
     /// are -- by the answer naming it, or once none of its lines is left to
     /// name -- and the hold goes with the last of them; `over` is the hull,
     /// on each surface, of every line those holds covered, carried and cut
-    /// as they would have been, and filed not known as the hold goes: which
-    /// group's text each of its lines holds is not kept, so no answer
-    /// lights one.
+    /// as they would have been; `took` is every group it took in. As the
+    /// hold goes, its hull is kept to send again and held under each of
+    /// those groups (`Probes::reprobe`): which group's text each line holds
+    /// is not kept, so a line reads its answer again only once each of them
+    /// is named over it again.
     Yes {
         groups: Vec<Option<Pid>>,
         over: Vec<LineSpan>,
+        took: Vec<Option<Pid>>,
     },
+}
+
+/// **A hold over every line, released**: its hull, and every group it took
+/// in ([`AllHeld::Yes`]).
+struct Cleared {
+    over: Vec<LineSpan>,
+    took: Vec<Option<Pid>>,
 }
 
 /// **The lines still to be named that a local answer for another writer
@@ -1467,6 +1516,8 @@ struct Holds {
     each: Tracked<SpanSet<LineSpan, Option<Pid>>>,
     all: AllHeld,
     collapses: HoldCollapses,
+    downgrades: HoldDowngrades,
+    reprobes: HoldReprobes,
 }
 
 impl Holds {
@@ -1475,6 +1526,8 @@ impl Holds {
             each: Tracked::new(SpanSet::new()),
             all: AllHeld::No,
             collapses: HoldCollapses::ZERO,
+            downgrades: HoldDowngrades::ZERO,
+            reprobes: HoldReprobes::ZERO,
         }
     }
 
@@ -1533,7 +1586,7 @@ impl Holds {
         more: Vec<(LineSpan, Option<Pid>)>,
         steps: &mut WalkSteps,
     ) -> Option<Vec<(LineSpan, Option<Pid>)>> {
-        let AllHeld::Yes { groups, over } = &mut self.all else {
+        let AllHeld::Yes { groups, over, took } = &mut self.all else {
             return Some(more);
         };
         let mut moved = false;
@@ -1541,6 +1594,9 @@ impl Holds {
             steps.bump();
             if !groups.contains(&g) {
                 groups.push(g);
+            }
+            if !took.contains(&g) {
+                took.push(g);
             }
             moved |= hull_in(over, span);
         }
@@ -1561,24 +1617,29 @@ impl Holds {
             }
             let _ = hull_in(&mut over, span);
         }
-        self.all = AllHeld::Yes { groups, over };
+        let took = groups.clone();
+        self.all = AllHeld::Yes { groups, over, took };
         self.collapses.bump();
     }
 
     /// **The groups `waits` keeps, and the hold over every line released
-    /// with the last of them**: its hull back, to be filed, where it went.
-    fn release(&mut self, waits: impl Fn(Option<Pid>) -> bool) -> Option<Vec<LineSpan>> {
-        let AllHeld::Yes { groups, over } = &mut self.all else {
+    /// with the last of them**: its hull and the groups it took in back, to
+    /// be named again ([`Probes::reprobe`]).
+    fn release(&mut self, waits: impl Fn(Option<Pid>) -> bool) -> Option<Cleared> {
+        let AllHeld::Yes { groups, over, took } = &mut self.all else {
             return None;
         };
         groups.retain(|&g| waits(g));
         if !groups.is_empty() {
             return None;
         }
-        let over = core::mem::take(over);
+        let cleared = Cleared {
+            over: core::mem::take(over),
+            took: core::mem::take(took),
+        };
         self.all = AllHeld::No;
         let _ = self.each.edit();
-        Some(over)
+        Some(cleared)
     }
 
     /// **The hull less the lines `erased`**, joined again on each surface.
@@ -1634,6 +1695,16 @@ fn hull_in(over: &mut Vec<LineSpan>, span: LineSpan) -> bool {
             true
         }
     }
+}
+
+/// **Whether a hold under `h` waits on an answer still to come**: a span of
+/// `h`'s kept to send, or sent and not yet answered.
+fn waits(kept: &Kept, h: Option<Pid>) -> bool {
+    let kept_to_send = match h {
+        Some(g) => kept.seen.iter().any(|e| e.0 == g),
+        None => kept.unnamed.is_some(),
+    };
+    kept_to_send || kept.inflight.iter().any(|e| e.1 == h)
 }
 
 /// Which list a sweep takes its next span from ([`meets_of`]).
@@ -2902,6 +2973,20 @@ impl<T: Moment> Probes<T> {
         self.held.collapses
     }
 
+    /// The known answers cleared holds over every line left not known, so
+    /// far.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn hold_downgrades(&self) -> HoldDowngrades {
+        self.held.downgrades
+    }
+
+    /// The lines cleared holds over every line kept to send again, one a
+    /// group, so far.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn hold_reprobes(&self) -> HoldReprobes {
+        self.held.reprobes
+    }
+
     /// **A drain of reads was taken**, the cursor on `began` before the first
     /// and on `ended` after the last, as macOS feeds a drain: each part is
     /// filed over the lines the core's record of it names on each surface
@@ -3473,14 +3558,11 @@ impl<T: Moment> Probes<T> {
     /// none of that group's lines left to name -- a close, the same-group
     /// shortcut, a batch whose answer did not name it -- none will come.
     fn drop_orphan_holds(&mut self, paths: &mut Paths, f: crate::paths::Seen) {
-        let kept = self.kept.get();
-        let named = |h: Option<Pid>| match h {
-            Some(g) => kept.seen.iter().any(|e| e.0 == g),
-            None => kept.unnamed.is_some(),
-        } || kept.inflight.iter().any(|e| e.1 == h);
-        for span in self.held.release(named).into_iter().flatten() {
-            paths.written_under(crate::paths::Seen::NotNamed, span);
+        if let Some(cleared) = self.held.release(|h| waits(self.kept.get(), h)) {
+            self.reprobe(paths, cleared);
         }
+        let kept = self.kept.get();
+        let named = |h: Option<Pid>| waits(kept, h);
         if self.held.get().iter().all(|(_, h)| named(h)) {
             return;
         }
@@ -3491,6 +3573,36 @@ impl<T: Moment> Probes<T> {
             }
             waits
         });
+    }
+
+    /// **A hold over every line released: its lines named again**. Each
+    /// line of its hull that reads a known answer by what was filed over it
+    /// alone is counted ([`HoldDowngrades`]); the hull is kept to send again
+    /// under each group the hold took in, each line counted once a group
+    /// ([`HoldReprobes`]), and held under that group until its answer is
+    /// filed there, as any hold is.
+    fn reprobe(&mut self, paths: &mut Paths, Cleared { over, took }: Cleared) {
+        for &span in &over {
+            self.held.downgrades.add(paths.filed_lit_lines(span));
+        }
+        for g in took {
+            for &span in &over {
+                self.held.reprobes.add(span.lines());
+                let under = match g {
+                    Some(p) => {
+                        self.group_wrote(paths, p, span);
+                        let kept = self.kept.get();
+                        g.filter(|_| kept.seen.iter().any(|e| e.0 == p))
+                    }
+                    None => {
+                        let both = joined(self.kept.get().unnamed, Some(span));
+                        self.kept.edit().unnamed = both;
+                        None
+                    }
+                };
+                hold(&mut self.held, (under, span));
+            }
+        }
     }
 
     /// **Every line whose writer is still to be named, carried through a
@@ -3738,8 +3850,8 @@ impl<T: Moment> Probes<T> {
                 }
                 h != g
             });
-            for span in self.held.release(|h| h != g).into_iter().flatten() {
-                paths.written_under(Seen::NotNamed, span);
+            if let Some(cleared) = self.held.release(|h| h != g) {
+                self.reprobe(paths, cleared);
             }
             let mine = |&(i, h, _): &(Id, Option<Pid>, LineSpan)| i <= id && h == g;
             // A verdict that lights holds every other writer's lines it
@@ -10134,6 +10246,160 @@ mod tests {
             (Origin::Unknown, Origin::Local, HoldCollapses(1)),
             "released by its group's answer: held lines not known, the rest local"
         );
+        // Each moved line's text took two lines, every one filed local.
+        let moved = u64::try_from(2 * (HOLD_CAP + 1)).expect("a small count");
+        assert_eq!(
+            pr.hold_downgrades(),
+            HoldDowngrades(moved),
+            "the clear's downgrades: expected {moved}, got {:?}",
+            pr.hold_downgrades()
+        );
+    }
+
+    /// **A line the cleared hold covered is named again and reads its
+    /// answer again**: [`HOLD_CAP`] + 1 one-line holds under group 1 (zsh,
+    /// local) collapse into one over every line, its lines kept to send
+    /// by a read of group 1's and filed local. Turns of the real worker name group
+    /// 1, which clears the collapse; a line inside the hull then reads not
+    /// known, one past it local, and the clear's downgrades are counted.
+    /// The batch the clear queued names group 1 again, and the line inside
+    /// the hull reads local. Named break: the cleared lines never queued
+    /// again -- the line inside the hull stays not known.
+    #[test]
+    fn a_line_the_cleared_hold_covered_is_named_again() {
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let span = |a: usize, b: usize| LineSpan::of(line(a), line(b));
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.write_at(BytePos::ZERO, b"plain\r\n");
+        t.feed(BytePos::ZERO, ReadLen::from_index(7));
+        // Printed paths off: each batch names the groups kept, at once.
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let one = Pid::try_from(1).expect("a pid");
+        pr.read_taken(
+            &mut paths,
+            Writers::at(Some(1)),
+            span(0, HOLD_CAP),
+            ReadLinked::Yes,
+        );
+        let local = crate::paths::Seen::Named(Front::Local);
+        paths.written_under(local, span(0, HOLD_CAP + 5));
+        let mut steps = WalkSteps::ZERO;
+        let each = (0..=HOLD_CAP).map(|n| (span(n, n), Some(one))).collect();
+        hold_all(&mut pr.held, each, &mut steps);
+        pr.publish(&mut paths);
+        let (inside, past) = (line(3), line(HOLD_CAP + 3));
+        assert_eq!(
+            (
+                pr.hold_collapses(),
+                paths.origin(inside),
+                paths.origin(past)
+            ),
+            (HoldCollapses(1), Origin::Unknown, Origin::Unknown),
+            "the control: collapsed, every line held"
+        );
+        let t0 = Instant::now();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut step = 0;
+        let mut turn = |pr: &mut Probes<Instant>, paths: &mut Paths, phase: &str| {
+            let seen = Seen {
+                term: &t,
+                scrolled: Scrolled::START,
+                lines: &mut lines,
+                uris: &mut uris,
+                urls: Turned::On,
+                paths,
+            };
+            let _ = pr.turn(t0 + Duration::from_millis(step), seen, || Some(1));
+            step += 200;
+            assert!(
+                Instant::now() < deadline,
+                "never named {phase}, {} batches sent, owed {:?}",
+                pr.counts.batches,
+                paths.owed()
+            );
+            std::thread::yield_now();
+        };
+        while pr.held.lines() == HeldLines::All {
+            turn(&mut pr, &mut paths, "to clear the collapse");
+        }
+        let expected = HoldDowngrades(u64::try_from(HOLD_CAP + 1).expect("a small count"));
+        assert_eq!(
+            (
+                paths.origin(inside),
+                paths.origin(past),
+                pr.hold_downgrades()
+            ),
+            (Origin::Unknown, Origin::Local, expected),
+            "cleared: inside the hull not known until named again, past it local, \
+             the downgrades counted"
+        );
+        while paths.origin(inside) != Origin::Local {
+            turn(&mut pr, &mut paths, "to name the cleared lines again");
+        }
+        assert_eq!(
+            (pr.hold_collapses(), pr.held.lines()),
+            (HoldCollapses(1), HeldLines::Each),
+            "named again, the collapse counted once"
+        );
+    }
+
+    /// **A cleared hold over every line asks for each of its lines once a
+    /// group it took in** (`Probes::reprobe`), at [`HOLD_CAP`] + 1 = 4,097
+    /// lines and at ten times that, 40,970: one hold a line, the lines
+    /// alternating between groups 1 and 2, the shape a re-cut puts in, held
+    /// by direct calls rather than a re-cut of a terminal's lines. They
+    /// collapse; group 1's local answer, filed directly, releases it, and
+    /// group 2, with nothing of its own left to name, goes with it. The
+    /// re-probes counted are at most the hull's lines times the groups taken
+    /// in, and equal it: each group is kept to send over every line of the
+    /// hull, once.
+    #[test]
+    fn a_cleared_hold_asks_each_line_once_a_group() {
+        use crate::paths::Seen;
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let span = |a: usize, b: usize| LineSpan::of(line(a), line(b));
+        let pid = |g: usize| Pid::try_from(g).expect("a pid");
+        for lines in [HOLD_CAP + 1, 10 * (HOLD_CAP + 1)] {
+            let (mut pr, _) = probes(named_groups());
+            let mut paths = Paths::new(None, Forms::DEFAULT);
+            let each = (0..lines).map(|i| (span(i, i), Some(pid(1 + i % 2))));
+            let mut steps = WalkSteps::ZERO;
+            hold_all(&mut pr.held, each.collect(), &mut steps);
+            assert_eq!(pr.held.all_groups(), &[Some(pid(1)), Some(pid(2))]);
+            let local = Seen::Named(Front::Local);
+            let answer = (Id::default(), Kind::Screen);
+            pr.file_answered(&mut paths, answer, &[(Some(pid(1)), local)], &[]);
+            let hull = span(0, lines - 1);
+            let groups = [1, 2];
+            let kept = pr.kept.get();
+            let asked: Vec<usize> = groups
+                .into_iter()
+                .filter(|&g| {
+                    kept.seen
+                        .iter()
+                        .any(|e| e.0 == pid(g) && e.1.meet(hull) == Some(hull))
+                })
+                .collect();
+            let count = pr.hold_reprobes();
+            let most = HoldReprobes(u64::try_from(lines * groups.len()).expect("a small count"));
+            eprintln!("re-probes at {lines} lines: {count:?}, bound {most:?}");
+            assert_eq!(
+                (pr.hold_collapses(), pr.held.lines(), asked),
+                (HoldCollapses(1), HeldLines::Each, groups.to_vec()),
+                "cleared, every line of the hull kept to send under each group, at {lines} lines"
+            );
+            assert!(
+                count <= most,
+                "{count:?} re-probes against the bound {most:?}"
+            );
+            assert_eq!(
+                count, most,
+                "each line asked once a group, at {lines} lines"
+            );
+        }
     }
 
     /// **A local answer finds the lines it holds by one sweep**

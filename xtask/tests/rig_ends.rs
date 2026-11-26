@@ -1639,9 +1639,16 @@ const SITES: &[Site] = &[
     site(
         PATHS_PROBE,
         "let deadline = Instant::now() + Duration::from_secs(30);",
-        Times(1),
+        Times(2),
         Kind::Bound("never named"),
         "a worker's naming waited for on the test's own clock; reached, the test fails",
+    ),
+    site(
+        PATHS_PROBE,
+        "Instant::now() < deadline,",
+        Times(1),
+        Kind::Bound("never named"),
+        "that bound, checked, with the phase it was waiting in",
     ),
     site(
         PATHS_PROBE,

@@ -1313,6 +1313,12 @@ impl LineSpan {
         }
     }
 
+    /// **How many lines the span holds**, each stepped over once.
+    pub fn lines(self) -> Rows {
+        let next = move |&l: &AbsLine| (l < self.last).then(|| l.below());
+        Rows::of_count(core::iter::successors(Some(self.first), next).count())
+    }
+
     /// The surface.
     pub fn surface(self) -> Surface {
         self.surface
@@ -2903,6 +2909,15 @@ impl Paths {
             }
         }
         out
+    }
+
+    /// **How many lines of `span` read as written on this machine** by what
+    /// was filed over them alone ([`Paths::filed_lit`]).
+    pub fn filed_lit_lines(&self, span: LineSpan) -> Rows {
+        let lines = self.filed_lit(span).into_iter().flat_map(|run| {
+            core::iter::successors(Some(run.first), move |&l| (l < run.last).then(|| l.below()))
+        });
+        Rows::of_count(lines.count())
     }
 
     /// **Whether a held line ([`Paths::set_pending`]) lies in `first` to
