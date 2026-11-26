@@ -34,7 +34,7 @@
 //! blocks one, building on a worker from the same cache and answering
 //! `None` until the build is done.
 
-use crate::frame::Failed;
+use crate::frame::{Failed, Gpu, Tally};
 use ash::vk;
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -417,6 +417,8 @@ struct Shape {
     layout: vk::PipelineLayout,
     cell_layout: vk::PipelineLayout,
     pass: vk::RenderPass,
+    /// The objects made and destroyed, counted for the crate's tests.
+    tally: Tally,
 }
 
 impl Shape {
@@ -432,7 +434,9 @@ impl Shape {
                 ash::util::read_spv(&mut std::io::Cursor::new(s.0)).map_err(|_| Failed::Spirv)?;
             let info = vk::ShaderModuleCreateInfo::default().code(&words);
             // SAFETY: valid SPIR-V words (spirv-val, `shaders_reproduce`).
-            Ok(unsafe { d.create_shader_module(&info, None) }?)
+            let made = unsafe { d.create_shader_module(&info, None) }?;
+            self.tally.made();
+            Ok(made)
         };
         let (vm, fm) = (module(&vs)?, module(&fs)?);
         let entry = c"main";
@@ -486,7 +490,11 @@ impl Shape {
             d.destroy_shader_module(vm, None);
             d.destroy_shader_module(fm, None);
         }
-        made.map(|p| p[0]).map_err(|(_, r)| Failed::Vulkan(r))
+        self.tally.dropped();
+        self.tally.dropped();
+        let p = made.map(|p| p[0]).map_err(|(_, r)| Failed::Vulkan(r))?;
+        self.tally.made();
+        Ok(p)
     }
 }
 
@@ -539,8 +547,9 @@ impl Pipelines {
     /// compositor's queue family after the frame, an empty pipeline cache,
     /// and the worker that builds for [`Pipelines::ready`].
     #[allow(unsafe_code)]
-    pub fn new(device: &ash::Device) -> Result<Pipelines, Failed> {
-        let d = device;
+    pub fn new(gpu: &Gpu) -> Result<Pipelines, Failed> {
+        let d = &gpu.device;
+        let tally = gpu.tally.clone();
         let layout_of = |set: Set| {
             let bindings: Vec<vk::DescriptorSetLayoutBinding<'_>> = (0u32..)
                 .zip(set)
@@ -554,7 +563,11 @@ impl Pipelines {
                 .collect();
             let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
             // SAFETY: a device of the caller's.
-            unsafe { d.create_descriptor_set_layout(&info, None) }
+            let made = unsafe { d.create_descriptor_set_layout(&info, None) };
+            if made.is_ok() {
+                tally.made();
+            }
+            made
         };
         let [s0, s1, s2] = INSTANCE_SETS;
         let sets = [layout_of(s0)?, layout_of(s1)?, layout_of(s2)?];
@@ -562,6 +575,7 @@ impl Pipelines {
         let info = vk::PipelineLayoutCreateInfo::default().set_layouts(&sets);
         // SAFETY: layouts just made on this device.
         let layout = unsafe { d.create_pipeline_layout(&info, None) }?;
+        tally.made();
         let cell_sets = [cell_set, sets[1]];
         let push = [vk::PushConstantRange::default()
             .stage_flags(VERTEX)
@@ -572,6 +586,7 @@ impl Pipelines {
             .push_constant_ranges(&push);
         // SAFETY: as above.
         let cell_layout = unsafe { d.create_pipeline_layout(&info, None) }?;
+        tally.made();
         let attachment = [vk::AttachmentDescription::default()
             .format(vk::Format::B8G8R8A8_UNORM)
             .samples(vk::SampleCountFlags::TYPE_1)
@@ -590,15 +605,18 @@ impl Pipelines {
             .subpasses(&subpass);
         // SAFETY: as above.
         let pass = unsafe { d.create_render_pass(&pass_info, None) }?;
+        tally.made();
         let cache_info = vk::PipelineCacheCreateInfo::default();
         // SAFETY: as above.
         let cache = unsafe { d.create_pipeline_cache(&cache_info, None) }?;
+        tally.made();
         let shape = Shape {
             device: d.clone(),
             cache,
             layout,
             cell_layout,
             pass,
+            tally,
         };
         let building = Building::start(shape.clone());
         Ok(Pipelines {
@@ -718,6 +736,11 @@ impl Pipelines {
             for s in self.sets {
                 d.destroy_descriptor_set_layout(s, None);
             }
+        }
+        // The pipelines, then the cache, the pass, the two layouts, the cell
+        // set's layout and the instance path's.
+        for _ in 0..self.built.len() + 5 + self.sets.len() {
+            self.shape.tally.dropped();
         }
     }
 

@@ -3,10 +3,11 @@
 //! leaves off (`xtask/tests/test_hooks.rs`). The `n`-th fallible device
 //! call from now fails with the code given -- a target's allocation, a
 //! submission, a step of the cell path's memory, a buffer's memory,
-//! binding or mapping -- as a lost device or memory running out would, and
-//! a count of the targets made and not yet dropped says whether a failure
-//! left one behind; a second count says the same of the device objects the
-//! cell path, the sheets, a presenter and a read back make.
+//! binding or mapping, an image's memory, binding or view, the sheets'
+//! sampler -- as a lost device or memory running out would, and a count of
+//! the targets made and not yet dropped says whether a failure left one
+//! behind; a second count, the `Gpu`'s tally, says the same of the other
+//! device objects the crate makes.
 
 use crate::frame::Failed;
 use std::io::Write;
@@ -49,9 +50,6 @@ pub(crate) enum Export {
 struct State {
     fail: Option<(Calls, Failed)>,
     live: Live,
-    /// The buffers, memories, descriptor pools, command buffers, fences,
-    /// semaphores and query pools counted made and not destroyed.
-    objects: Live,
     /// Landings held: the end handed out for the next frame, and the side
     /// whose write turns it readable.
     landing: Option<(Option<OwnedFd>, UnixStream)>,
@@ -104,18 +102,6 @@ impl Hooks {
 
     pub(crate) fn live(&self) -> Live {
         self.with(|s| s.live)
-    }
-
-    pub(crate) fn object_made(&self) {
-        self.with(|s| s.objects.0 += 1);
-    }
-
-    pub(crate) fn object_dropped(&self) {
-        self.with(|s| s.objects.0 = s.objects.0.saturating_sub(1));
-    }
-
-    pub(crate) fn objects(&self) -> Live {
-        self.with(|s| s.objects)
     }
 
     /// **Landings held from now**: a connected pair, the end handed out

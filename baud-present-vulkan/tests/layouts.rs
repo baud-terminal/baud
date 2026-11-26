@@ -82,7 +82,7 @@ const CELL: [(Fragment, Blend); 4] = [
 ];
 
 fn builds_every_cell_pipeline(gpu: &Gpu) {
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(gpu).expect("the pipelines");
     for (fragment, blend) in CELL {
         assert_eq!(fragment.layout(), Layout::Cell);
         pipes

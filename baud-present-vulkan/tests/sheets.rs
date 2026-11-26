@@ -118,7 +118,7 @@ fn want(atlas: &Atlas, slots: &[Slot]) -> Vec<u32> {
 }
 
 fn persists_and_copies_a_rectangle(gpu: &Gpu) {
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(gpu).expect("the pipelines");
     let curves: Vec<u8> = (0..=255u8).collect();
     let mut sheets = gpu.sheets(&curves).expect("the sheets");
     let mut atlas = Atlas::new();

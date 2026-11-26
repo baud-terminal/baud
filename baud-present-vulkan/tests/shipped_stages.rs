@@ -239,9 +239,9 @@ fn unbound(
 /// what the nearest layout lacks.
 #[test]
 fn every_shipped_stage_is_bound_by_a_layout_the_crate_makes() {
-    let gpu = lavapipe();
-    let device = watched(&gpu);
-    let pipes = Pipelines::new(&device).expect("the pipelines");
+    let mut gpu = lavapipe();
+    gpu.device = watched(&gpu);
+    let pipes = Pipelines::new(&gpu).expect("the pipelines");
     pipes.destroy();
     let made = MADE.lock().expect("the layouts made");
     assert!(!made.layouts.is_empty(), "no pipeline layout was watched");

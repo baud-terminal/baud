@@ -55,7 +55,7 @@ fn straight(i: u32) -> u32 {
 /// **Every straight word `C C C` at alpha `a` drawn by `bg_fragment`**, a
 /// cell a pixel, `C` the column and `a` the row, read back.
 fn swept(gpu: &Gpu) -> Vec<u32> {
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(gpu).expect("the pipelines");
     let sheets = common::sheets(
         gpu,
         Texels {

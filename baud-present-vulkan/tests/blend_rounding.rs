@@ -59,7 +59,7 @@ struct Measured {
 }
 
 fn measure(gpu: &Gpu) -> Measured {
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(gpu).expect("the pipelines");
     let curves: Vec<u8> = (0..=255u8).collect();
     let mask: Vec<u8> = (0..=255u8).collect();
     let sheets = common::sheets(

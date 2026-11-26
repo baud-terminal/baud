@@ -125,7 +125,7 @@ fn gpu_frame(
 }
 
 fn every_show(gpu: &Gpu) {
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(gpu).expect("the pipelines");
     for (age, form) in [
         (0.15, Form::Moving),
         (0.5, Form::Moving),

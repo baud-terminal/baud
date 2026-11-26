@@ -329,7 +329,7 @@ fn bar(gpu: &Gpu) -> Bar {
 fn every_effect(gpu: &Gpu) {
     let bar = bar(gpu);
     let rounding = bar.rounding;
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(gpu).expect("the pipelines");
     for effect in Effect::ALL {
         for age in [0.1, 0.25, 0.4].map(|k| k * effect.life()) {
             let v = vfx(effect, age);
@@ -485,7 +485,7 @@ fn mix_scene(v: &Vfx, page: u32, mix: Mix) -> (Vec<u8>, Records, [u8; 144], Vec<
 
 fn every_mix(gpu: &Gpu) {
     let rounding = rounding(gpu);
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(gpu).expect("the pipelines");
     for (name, page, blend, mix) in mix_pages() {
         for age in [0.1, 0.25, 0.4].map(|k| k * Effect::Plasma.life()) {
             let v = vfx(Effect::Plasma, age);
@@ -532,7 +532,7 @@ fn every_mix(gpu: &Gpu) {
 fn two_pass(mut gpu: Gpu) {
     gpu.multiply = Multiply::TwoPass;
     let rounding = rounding(&gpu);
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(&gpu).expect("the pipelines");
     for (name, page, blend, mix) in mix_pages() {
         if blend != Blend::Multiply {
             continue;
@@ -575,7 +575,7 @@ fn covers(r: &Instance, at: usize) -> bool {
 /// of that. Prints each pixel, so the evidence for the two-step rule is
 /// in the log. A device with no such pixel reports none.
 fn isolate(gpu: &Gpu) {
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(gpu).expect("the pipelines");
     let ch = |p: u32, k: u32| (p >> (8 * k)) & 0xff;
     let step = |x: u32, y: u32| {
         (0..4)

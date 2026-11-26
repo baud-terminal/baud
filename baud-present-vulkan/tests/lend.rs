@@ -176,7 +176,7 @@ fn fails_whole(gpu: &Gpu, arm: Arm) {
         stride: t.stride(),
         styles: Elems(t.styles().one().len()),
     };
-    let pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let pipes = Pipelines::new(gpu).expect("the pipelines");
     let before = gpu.objects_live();
     let mut failed = 0;
     loop {
@@ -205,9 +205,18 @@ fn fails_whole(gpu: &Gpu, arm: Arm) {
         assert!(failed <= 1000, "{arm:?}: a step past every call");
     }
     assert_eq!(failed, steps(gpu, arm), "{arm:?}: every step failed once");
-    assert_eq!(before, Live(0), "the control: nothing made before");
+    assert_eq!(
+        before,
+        Live(PIPELINES_HOLD),
+        "the control: the pipelines' objects alone made before"
+    );
     pipes.destroy();
+    assert_eq!(gpu.objects_live(), Live(0), "the pipelines given back");
 }
+
+/// The objects pipelines hold before any is built: the four set layouts,
+/// the two pipeline layouts, the render pass and the cache.
+const PIPELINES_HOLD: usize = 8;
 
 #[test]
 fn cell_memory_that_fails_part_way_leaves_nothing_on_lavapipe() {
@@ -266,12 +275,23 @@ fn each_step_fails<T>(
 /// memory, the binding and the mapping.
 const BUFFER_STEPS: u32 = 3;
 
-/// **The sheets that fail part way leave nothing made**: each of the
-/// curves' buffer and the two transparent texels' staging buffers forced to
-/// fail at each step, and every buffer made before it destroyed. The
-/// controls: whole sheets hold objects, and the steps failed are three
-/// buffers' each. Named break: a buffer whose memory, binding or mapping
-/// fails left alive, or sheets dropped without being destroyed.
+/// The fallible device calls an image is made through: its memory, the
+/// binding and the view.
+const IMAGE_STEPS: u32 = 3;
+
+/// The fallible device calls the sheets are made through: the sampler, the
+/// two images, the curves' buffer and the two transparent texels' staging
+/// buffers.
+const SHEETS_STEPS: u32 = 1 + 2 * IMAGE_STEPS + 3 * BUFFER_STEPS;
+
+/// **The sheets that fail part way leave nothing made**: the sampler, each
+/// of the two images, the curves' buffer and the two transparent texels'
+/// staging buffers forced to fail at each step, and every object made
+/// before it destroyed. The controls: whole sheets hold objects, and the
+/// steps failed are the sheets' every one. Named break: the sampler or the
+/// first image left alive when a later step fails, a buffer whose memory,
+/// binding or mapping fails left alive, or sheets dropped without being
+/// destroyed.
 fn sheets_fail_whole(gpu: &Gpu) {
     assert_eq!(
         gpu.objects_live(),
@@ -287,7 +307,7 @@ fn sheets_fail_whole(gpu: &Gpu) {
             s.destroy(gpu);
         },
     );
-    assert_eq!(failed, 3 * BUFFER_STEPS, "every step failed once");
+    assert_eq!(failed, SHEETS_STEPS, "every step failed once");
 }
 
 /// **A presenter that fails part way leaves nothing made**: each step of
@@ -295,7 +315,7 @@ fn sheets_fail_whole(gpu: &Gpu) {
 /// device object made before it destroyed. The controls: a whole presenter
 /// holds objects, and the steps failed are the cell memory's on its arm and
 /// the sheets'. Named break: the cell memory left alive when the sheets
-/// fail.
+/// fail, or the pipelines when anything after them does.
 fn presenter_fails_whole(gpu: &Gpu) {
     const WS: WinSize = WinSize {
         ws_col: 24,
@@ -328,7 +348,7 @@ fn presenter_fails_whole(gpu: &Gpu) {
     );
     assert_eq!(
         failed,
-        steps(gpu, arm) + 3 * BUFFER_STEPS,
+        steps(gpu, arm) + SHEETS_STEPS,
         "{arm:?}: every step failed once"
     );
 }

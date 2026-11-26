@@ -95,12 +95,44 @@ impl Gpu {
             .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_EDGE)
             .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_EDGE)
             .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE);
+        self.call()?;
         // SAFETY: a device of this struct.
         let sampler = unsafe { self.device.create_sampler(&sampler_info, None) }?;
+        self.object_made();
+        // A failure part way destroys what the steps before it made.
+        let unmake = |made: (Option<Sheet>, Option<Sheet>)| {
+            for s in [made.0, made.1].into_iter().flatten() {
+                self.drop_texture(s.texture);
+            }
+            // SAFETY: made above and never used.
+            unsafe { self.device.destroy_sampler(sampler, None) };
+            self.object_dropped();
+        };
+        let mask = match self.sheet(Texel::Coverage, Px(1), Px(1)) {
+            Ok(s) => s,
+            Err(e) => {
+                unmake((None, None));
+                return Err(e);
+            }
+        };
+        let color = match self.sheet(Texel::Argb, Px(1), Px(1)) {
+            Ok(s) => s,
+            Err(e) => {
+                unmake((Some(mask), None));
+                return Err(e);
+            }
+        };
+        let curves = match self.buffer(curves, vk::BufferUsageFlags::STORAGE_BUFFER) {
+            Ok(b) => b,
+            Err(e) => {
+                unmake((Some(mask), Some(color)));
+                return Err(e);
+            }
+        };
         let mut sheets = Sheets {
-            mask: self.sheet(Texel::Coverage, Px(1), Px(1))?,
-            color: self.sheet(Texel::Argb, Px(1), Px(1))?,
-            curves: self.buffer(curves, vk::BufferUsageFlags::STORAGE_BUFFER)?,
+            mask,
+            color,
+            curves,
             sampler,
             pending: RefCell::default(),
             recorded: RefCell::default(),
@@ -386,6 +418,7 @@ impl Sheets {
         gpu.drop_buffer(self.curves);
         // SAFETY: the device is idle; nothing samples through it.
         unsafe { gpu.device.destroy_sampler(self.sampler, None) };
+        gpu.object_dropped();
     }
 }
 

@@ -123,7 +123,8 @@ impl Gpu {
 
     /// **A device image of `texel`, `width` by `height`**, its memory and
     /// its view, written by transfers and sampled by the fragment stage; its
-    /// texels undefined until a copy.
+    /// texels undefined until a copy. A failure at any step destroys what
+    /// the steps before it made.
     #[allow(unsafe_code)]
     pub(crate) fn image(&self, texel: Texel, width: Px, height: Px) -> Result<Texture, Failed> {
         let d = &self.device;
@@ -144,18 +145,51 @@ impl Gpu {
             .initial_layout(vk::ImageLayout::UNDEFINED);
         // SAFETY: a device of this struct.
         let image = unsafe { d.create_image(&info, None) }?;
+        self.object_made();
+        let unmake = |memory: Option<vk::DeviceMemory>| {
+            // SAFETY: neither is in use; the image goes first.
+            unsafe {
+                d.destroy_image(image, None);
+                if let Some(m) = memory {
+                    d.free_memory(m, None);
+                }
+            }
+            self.object_dropped();
+            if memory.is_some() {
+                self.object_dropped();
+            }
+        };
         // SAFETY: the image was just made.
         let req = unsafe { d.get_image_memory_requirements(image) };
-        let kind = self
-            .memory_type(&req, vk::MemoryPropertyFlags::DEVICE_LOCAL, Fallback::Any)
-            .ok_or(Failed::NoMemoryType)?;
+        let Some(kind) =
+            self.memory_type(&req, vk::MemoryPropertyFlags::DEVICE_LOCAL, Fallback::Any)
+        else {
+            unmake(None);
+            return Err(Failed::NoMemoryType);
+        };
         let alloc = vk::MemoryAllocateInfo::default()
             .allocation_size(req.size)
             .memory_type_index(kind.0);
         // SAFETY: as above.
-        let memory = unsafe { d.allocate_memory(&alloc, None) }?;
+        let memory = match self
+            .call()
+            .and_then(|()| unsafe { d.allocate_memory(&alloc, None) }.map_err(Failed::from))
+        {
+            Ok(m) => m,
+            Err(e) => {
+                unmake(None);
+                return Err(e);
+            }
+        };
+        self.object_made();
         // SAFETY: as above; bound once.
-        unsafe { d.bind_image_memory(image, memory, 0) }?;
+        let bound = self
+            .call()
+            .and_then(|()| unsafe { d.bind_image_memory(image, memory, 0) }.map_err(Failed::from));
+        if let Err(e) = bound {
+            unmake(Some(memory));
+            return Err(e);
+        }
         let range = vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .level_count(1)
@@ -166,7 +200,17 @@ impl Gpu {
             .format(texel.format())
             .subresource_range(range);
         // SAFETY: as above.
-        let view = unsafe { d.create_image_view(&view_info, None) }?;
+        let view = match self
+            .call()
+            .and_then(|()| unsafe { d.create_image_view(&view_info, None) }.map_err(Failed::from))
+        {
+            Ok(v) => v,
+            Err(e) => {
+                unmake(Some(memory));
+                return Err(e);
+            }
+        };
+        self.object_made();
         Ok(Texture {
             image,
             memory,
@@ -273,6 +317,9 @@ impl Gpu {
             self.device.destroy_image_view(t.view, None);
             self.device.destroy_image(t.image, None);
             self.device.free_memory(t.memory, None);
+        }
+        for _ in 0..3 {
+            self.object_dropped();
         }
     }
 
@@ -391,6 +438,7 @@ impl Gpu {
             .pool_sizes(&sizes);
         // SAFETY: as above.
         let pool = unsafe { d.create_descriptor_pool(&pool_info, None) }?;
+        self.object_made();
         let mut layouts = vec![pipes.sets[0], pipes.sets[1], pipes.sets[2]];
         layouts.truncate(set_count);
         layouts.extend(std::iter::repeat_n(pipes.sets[0], extra));
@@ -457,6 +505,7 @@ impl Gpu {
             .subresource_range(range);
         // SAFETY: the target's image, alive while `t` is.
         let target_view = unsafe { d.create_image_view(&view_info, None) }?;
+        self.object_made();
         let attachments = [target_view];
         let fb_info = vk::FramebufferCreateInfo::default()
             .render_pass(pipes.pass())
@@ -466,6 +515,7 @@ impl Gpu {
             .layers(1);
         // SAFETY: as above.
         let framebuffer = unsafe { d.create_framebuffer(&fb_info, None) }?;
+        self.object_made();
         // A whole frame draws over every pixel, so what the image held is not
         // kept: from UNDEFINED. A pass over it keeps it: taken back from the
         // compositor's queue family in the layout it was released in.
@@ -631,6 +681,9 @@ impl Gpu {
             d.destroy_framebuffer(framebuffer, None);
             d.destroy_image_view(target_view, None);
             d.destroy_descriptor_pool(pool, None);
+        }
+        for _ in 0..3 {
+            self.object_dropped();
         }
         sheets.finished(self);
         for b in us.into_iter().chain([insts]).chain(effect_u) {

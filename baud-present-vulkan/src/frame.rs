@@ -57,6 +57,45 @@ pub struct Gpu {
     /// The failures the crate's tests force, and the targets alive.
     #[cfg(any(test, feature = "test-hooks"))]
     pub(crate) hooks: crate::hooks::Hooks,
+    /// The device objects made and not destroyed, counted for the crate's
+    /// tests ([`Gpu::object_made`]).
+    pub(crate) tally: Tally,
+}
+
+/// **The device objects made and not destroyed**, counted for the crate's
+/// tests and shared with what makes them away from the [`Gpu`]: the
+/// pipelines and the worker that builds them. Nothing is kept without
+/// `test-hooks`.
+#[derive(Clone, Default)]
+pub(crate) struct Tally {
+    #[cfg(feature = "test-hooks")]
+    objects: std::sync::Arc<std::sync::Mutex<crate::hooks::Live>>,
+}
+
+impl Tally {
+    /// One object made.
+    pub(crate) fn made(&self) {
+        #[cfg(feature = "test-hooks")]
+        {
+            let mut n = self.objects.lock().unwrap_or_else(|e| e.into_inner());
+            n.0 += 1;
+        }
+    }
+
+    /// One object destroyed.
+    pub(crate) fn dropped(&self) {
+        #[cfg(feature = "test-hooks")]
+        {
+            let mut n = self.objects.lock().unwrap_or_else(|e| e.into_inner());
+            n.0 = n.0.saturating_sub(1);
+        }
+    }
+
+    /// The objects made and not destroyed.
+    #[cfg(feature = "test-hooks")]
+    pub(crate) fn live(&self) -> crate::hooks::Live {
+        *self.objects.lock().unwrap_or_else(|e| e.into_inner())
+    }
 }
 
 /// **How many times the CPU waited on a fence** ([`Gpu::waits`]).
@@ -294,6 +333,7 @@ impl Gpu {
             waits: std::cell::Cell::new(Waits(0)),
             #[cfg(any(test, feature = "test-hooks"))]
             hooks: crate::hooks::Hooks::default(),
+            tally: Tally::default(),
         })
     }
 
@@ -979,25 +1019,28 @@ impl Gpu {
         self.hooks.dropped();
     }
 
-    /// One of the device objects the cell path, the sheets, a presenter
-    /// and a read back make, counted for the crate's tests: a buffer, a
-    /// memory, a descriptor pool, a command buffer, a fence, a semaphore or
-    /// a query pool.
+    /// One of the device objects the cell path, the sheets, a presenter,
+    /// the pipelines, a frame drawn and a read back make, counted for the
+    /// crate's tests: a buffer, a memory, a descriptor pool, a command
+    /// buffer, a fence, a semaphore, a query pool, an image, an image view,
+    /// a framebuffer, a sampler, a shader module, a pipeline, a pipeline
+    /// layout, a descriptor set layout, a render pass or a pipeline cache.
+    /// A target's image and memory are the target's count
+    /// ([`Gpu::targets_live`]).
     pub(crate) fn object_made(&self) {
-        #[cfg(feature = "test-hooks")]
-        self.hooks.object_made();
+        self.tally.made();
     }
 
     /// One of them destroyed, counted for the crate's tests.
     pub(crate) fn object_dropped(&self) {
-        #[cfg(feature = "test-hooks")]
-        self.hooks.object_dropped();
+        self.tally.dropped();
     }
 
     /// **The `n`-th fallible device call from now fails with `code`**: a
     /// target's allocation, a submission, a step of the cell path's
-    /// memory (`CellMemory::new`), or a buffer's memory, binding or mapping,
-    /// as a lost device or memory running out would.
+    /// memory (`CellMemory::new`), a buffer's memory, binding or mapping,
+    /// an image's memory, binding or view, or the sheets' sampler, as a
+    /// lost device or memory running out would.
     #[cfg(any(test, feature = "test-hooks"))]
     pub fn fail_at(&self, n: crate::hooks::Calls, code: Failed) {
         self.hooks.fail_at(n, code);
@@ -1013,7 +1056,7 @@ impl Gpu {
     /// ([`Gpu::object_made`]).
     #[cfg(feature = "test-hooks")]
     pub fn objects_live(&self) -> crate::hooks::Live {
-        self.hooks.objects()
+        self.tally.live()
     }
 
     /// **Frames from now land only at [`Gpu::release_landings`]**, as a

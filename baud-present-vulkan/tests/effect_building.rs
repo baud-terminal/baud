@@ -138,7 +138,7 @@ fn woken(pipes: &Pipelines, limit: Duration) -> bool {
 #[test]
 fn a_building_effect_draws_nothing_and_never_waits() {
     let gpu = lavapipe();
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(&gpu).expect("the pipelines");
     pipes.hold_builds();
     let (t, records) = frame(&gpu);
     let at = Instant::now();
@@ -164,7 +164,7 @@ fn a_building_effect_draws_nothing_and_never_waits() {
 #[test]
 fn a_finished_pipeline_gets_its_frame_when_nothing_else_is_dirty() {
     let gpu = lavapipe();
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(&gpu).expect("the pipelines");
     pipes.hold_builds();
     let (t, records) = frame(&gpu);
     assert_eq!(draw(&gpu, &mut pipes, &t, &records), Drawn::Building);

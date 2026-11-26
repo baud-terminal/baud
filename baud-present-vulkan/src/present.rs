@@ -247,7 +247,7 @@ impl Presenter {
     /// **The arm for a terminal like `term`**, its memory on the arm the
     /// device's heaps allow, and no target yet ([`Presenter::fit`]).
     pub fn new(gpu: &Gpu, term: &Term<'_>) -> Result<Presenter, Failed> {
-        let pipes = Pipelines::new(&gpu.device)?;
+        let pipes = Pipelines::new(gpu)?;
         let (cols, rows) = term.geometry();
         let sizes = CellSizes {
             cols,

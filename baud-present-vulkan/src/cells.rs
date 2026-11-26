@@ -1009,10 +1009,13 @@ impl CellMemory {
         // SAFETY: the device is idle, and no frame draws through a
         // target's view or framebuffer again.
         unsafe {
-            for h in self.targets {
+            for h in &self.targets {
                 gpu.device.destroy_framebuffer(h.framebuffer, None);
                 gpu.device.destroy_image_view(h.view, None);
             }
+        }
+        for _ in 0..2 * self.targets.len() {
+            gpu.object_dropped();
         }
         Made::Pool(self.pool).release(gpu);
     }
@@ -1032,6 +1035,8 @@ impl CellMemory {
                 gpu.device.destroy_framebuffer(h.framebuffer, None);
                 gpu.device.destroy_image_view(h.view, None);
             }
+            gpu.object_dropped();
+            gpu.object_dropped();
         }
     }
 
@@ -1164,13 +1169,14 @@ impl CellMemory {
     #[allow(unsafe_code)]
     fn framebuffer(
         &mut self,
-        d: &ash::Device,
+        gpu: &Gpu,
         pass: vk::RenderPass,
         t: &Target,
     ) -> Result<(vk::Framebuffer, Option<TargetIx>), Failed> {
         if let Some(h) = self.targets.iter().find(|h| h.image == t.image) {
             return Ok((h.framebuffer, h.ix));
         }
+        let d = &gpu.device;
         let range = vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .level_count(1)
@@ -1182,6 +1188,7 @@ impl CellMemory {
             .subresource_range(range);
         // SAFETY: the target's image, alive until `forget`.
         let view = unsafe { d.create_image_view(&view_info, None) }?;
+        gpu.object_made();
         let attachments = [view];
         let fb_info = vk::FramebufferCreateInfo::default()
             .render_pass(pass)
@@ -1195,9 +1202,11 @@ impl CellMemory {
             Err(e) => {
                 // SAFETY: unused.
                 unsafe { d.destroy_image_view(view, None) };
+                gpu.object_dropped();
                 return Err(e.into());
             }
         };
+        gpu.object_made();
         let ix = (0..TARGETS)
             .map(TargetIx)
             .find(|k| self.targets.iter().all(|h| h.ix != Some(*k)));
@@ -1809,7 +1818,7 @@ impl Gpu {
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .level_count(1)
             .layer_count(1);
-        let (framebuffer, ix) = mem.framebuffer(d, pipes.pass(), t)?;
+        let (framebuffer, ix) = mem.framebuffer(self, pipes.pass(), t)?;
         // **What the frame draws into `t`**: the rows it lacks and this
         // frame's change; the whole into a target outside the kept ones.
         let drawn = match ix {

@@ -59,7 +59,7 @@ fn the_instance_path_is_the_cpu_path_on_radv() {
 }
 
 fn draw_and_check(gpu: &Gpu, rounding: Rounding) {
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(gpu).expect("the pipelines");
     let (cols, rows, cell) = (8u32, 4u32, 8u32);
     let (w, h) = (cols * cell, rows * cell);
     let t = gpu.target(Px(w), Px(h)).expect("a target");
@@ -188,7 +188,7 @@ fn a_pass_over_keeps_the_target_on_radv() {
 }
 
 fn over_and_check(gpu: &Gpu, rounding: Rounding) {
-    let mut pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+    let mut pipes = Pipelines::new(gpu).expect("the pipelines");
     let (w, h, cell) = (32u32, 16u32, 8u32);
     let t = gpu.target(Px(w), Px(h)).expect("a target");
     gpu.clear(&t, Premultiplied(0), None)

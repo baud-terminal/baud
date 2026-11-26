@@ -291,7 +291,7 @@ pub struct Arms<'g, 'f, 'a> {
 impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
     /// **The arms for `t`'s geometry**, the cell path's memory on `arm`.
     pub fn new(gpu: &'g Gpu, arm: Arm, renderer: Renderer<'f, 'a>, t: &Term<'_>) -> Self {
-        let pipes = Pipelines::new(&gpu.device).expect("the pipelines");
+        let pipes = Pipelines::new(gpu).expect("the pipelines");
         let (cols, rows) = t.geometry();
         let sizes = CellSizes {
             cols,
