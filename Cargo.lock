@@ -232,7 +232,11 @@ dependencies = [
 name = "baud-present-wayland"
 version = "1.0.0-unstable"
 dependencies = [
+ "baud-core",
  "baud-domain",
+ "baud-font",
+ "baud-present-wayland",
+ "baud-render",
  "baud-wayland",
  "baud-xkb",
 ]

@@ -42,7 +42,7 @@ use crate::third_party::Outcome;
 pub const MANIFEST: &str = "baud-core/Cargo.toml";
 
 /// The features the manifest declares.
-pub const FLOOR: Floor = Floor(54);
+pub const FLOOR: Floor = Floor(55);
 
 /// One build a line, its arms joined by commas.
 pub const BUILDS: [&str; 5] = [
@@ -82,7 +82,11 @@ pub const OFF_ARM64: [&str; 1] = ["route-stride"];
 pub const DEFAULT_OFF: [&str; 1] = ["read-record"];
 
 /// Not run: each name and why.
-pub const EXCLUDED: [(&str, &str); 26] = [
+pub const EXCLUDED: [(&str, &str); 27] = [
+    (
+        "copy-counts",
+        "covered by another gate: baud-present-wayland's copies_per_mb test builds baud-core with it and reads the counts",
+    ),
     (
         "alloc",
         "on in every test build: the dev-dependency on baud-core itself enables it",

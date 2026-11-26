@@ -19,3 +19,17 @@ include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
 baud-domain = { workspace = true, features = ["alloc"] }
 baud-wayland = { workspace = true }
 baud-xkb = { workspace = true }
+
+[features]
+# The bytes `Window::present` copies into shared memory, read through
+# `Window::copy_counts`; off, the field and its add do not exist.
+copy-counts = []
+
+[dev-dependencies]
+# `copies_per_mb` (tests/handshake.rs) feeds a recording through the core
+# and the CPU renderer before the window presents it.
+baud-core = { workspace = true, features = ["alloc", "copy-counts"] }
+baud-font = { workspace = true }
+baud-render = { workspace = true, features = ["counters"] }
+# The window's own copy counts, on for this crate's tests.
+baud-present-wayland = { path = ".", features = ["copy-counts"] }

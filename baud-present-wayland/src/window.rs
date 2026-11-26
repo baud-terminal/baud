@@ -577,6 +577,10 @@ pub struct Window {
     copies: Copies,
     /// How the buffer the compositor last had attached was filled.
     attached: Attached,
+    /// The bytes [`Window::present`] copied into shared memory, counted once
+    /// a row on the frame-to-screen hop.
+    #[cfg(feature = "copy-counts")]
+    copy_counts: baud_domain::CopyCounts,
     callback: Option<ObjectId>,
     /// The presentation clock, from `clock_id`, and the last frame the
     /// compositor said it showed (`timing.rs`).
@@ -724,6 +728,8 @@ impl Window {
             copied: Px(0),
             copies: Copies::default(),
             attached: Attached::Nothing,
+            #[cfg(feature = "copy-counts")]
+            copy_counts: baud_domain::CopyCounts::NONE,
             callback: None,
             clock: None,
             presented: None,
@@ -1835,6 +1841,11 @@ impl Window {
                 let src = &frame[y * stride..y * stride + wu];
                 let dst = &mut pixels[y * dst_stride..y * dst_stride + wu];
                 premultiply_row(src, dst);
+                #[cfg(feature = "copy-counts")]
+                self.copy_counts.add(
+                    baud_domain::CopyHop::FrameToScreen,
+                    baud_domain::CopiedBytes::of(dst),
+                );
             }
         }
         self.copies.add(copy.count(), w, h);
@@ -2415,6 +2426,16 @@ impl Window {
     /// that copied them.
     pub fn copies(&self) -> Copies {
         self.copies
+    }
+
+    /// **The bytes copied from frames into shared memory, by hop**: each
+    /// row premultiplied into a buffer, the [`CopyHop::FrameToScreen`] hop,
+    /// every other hop zero.
+    ///
+    /// [`CopyHop::FrameToScreen`]: baud_domain::CopyHop::FrameToScreen
+    #[cfg(feature = "copy-counts")]
+    pub fn copy_counts(&self) -> baud_domain::CopyCounts {
+        self.copy_counts
     }
 
     /// The pointer's shape device, once both the pointer and the

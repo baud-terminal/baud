@@ -80,6 +80,9 @@ alloc = ["baud-domain/alloc"]
 # Histograms of how often each bulk path is *entered*, which is the question
 # a throughput number cannot answer.
 diag = []
+# The bytes `Term::write_at` copies into the arena, counted once a read and
+# read through `Term::copied`; off, the field and its add do not exist.
+copy-counts = []
 ceiling-no-write = []
 # The single-character decode stubbed: with `ceiling-no-write` it brackets
 # what the per-character path costs on a recording whose runs are one long.

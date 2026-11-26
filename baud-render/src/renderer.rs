@@ -4200,6 +4200,12 @@ pub struct Renderer<'f, 'a> {
     /// changes how the row is drawn and no cell.
     cur: Mirror,
     prev_size: Vec<LineRendition>,
+    /// **The bytes this renderer copied from the grid into its frame**: the
+    /// `CopyHop::GridToFrame` hop, counted once a copy where a row of the
+    /// screen, the status line or a sized line is copied into `cur`, and
+    /// where `prev` is brought up to `cur`.
+    #[cfg(feature = "counters")]
+    copied: baud_domain::CopyCounts,
     /// What the frame does with each row of `cur`, in a buffer kept
     /// across frames.
     mirror_rows: Vec<MirrorRow>,
@@ -5016,6 +5022,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             known: Prev::Unknown,
             cur: Mirror::default(),
             prev_size: Vec::new(),
+            #[cfg(feature = "counters")]
+            copied: baud_domain::CopyCounts::NONE,
             mirror_rows: Vec::new(),
             veiled_last: Vec::new(),
             veiled_now: Vec::new(),
@@ -9550,6 +9558,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// **The bytes this renderer copied from the grid into its frames**,
+    /// since it was made: the [`CopyHop::GridToFrame`] hop, every other hop
+    /// zero.
+    ///
+    /// [`CopyHop::GridToFrame`]: baud_domain::CopyHop::GridToFrame
+    #[cfg(feature = "counters")]
+    pub fn copied(&self) -> baud_domain::CopyCounts {
+        self.copied
+    }
+
     /// **The pixel rows the last [`Renderer::render`] wrote**, top to
     /// bottom: each run of repainted rows as one band. An image is blitted
     /// only into the rows a frame repaints, and a row one arrived on, left
@@ -11353,6 +11371,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let at = self.slot_cells(r).start;
         let (cells, sizes) = self.cur.scribble();
         cells[at..at + ncols].copy_from_slice(view.row(r));
+        #[cfg(feature = "counters")]
+        self.copied.add(
+            baud_domain::CopyHop::GridToFrame,
+            baud_domain::CopiedBytes::of(&cells[at..at + ncols]),
+        );
         sizes[y] = view.rendition(r);
         crate::counters::add(Counter::CellsCopied, Site::Sized, Tally::of(ncols));
         if let Some(c) = composition.filter(|c| c.row == r) {
@@ -11524,6 +11547,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             r,
             &line.cells[..n],
             &mut self.cur.scribble().0[range.start..range.start + n],
+        );
+        #[cfg(feature = "counters")]
+        self.copied.add(
+            baud_domain::CopyHop::GridToFrame,
+            baud_domain::CopiedBytes::of(&line.cells[..n]),
         );
         crate::counters::add(Counter::CellsCopied, Site::Status, Tally::of(n));
         self.cur.scribble().1[r.index()] = line.rendition;
@@ -11746,6 +11774,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 Some(j) => {
                     logical.clear();
                     logical.extend_from_slice(vp.row(row));
+                    #[cfg(feature = "counters")]
+                    self.copied.add(
+                        baud_domain::CopyHop::GridToFrame,
+                        baud_domain::CopiedBytes::of(&logical),
+                    );
                     // A struck column is a visual one, as `cur` holds it.
                     j.rewrite(&mut logical, |l| orders.visual_col(row, l), &mut pairs);
                     let at = self.cur.ring().slot(row).index() * ncols;
@@ -11756,6 +11789,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     }));
                     let (cells, _) = self.cur.converting();
                     orders.permute(row, &logical, &mut cells[at..at + ncols]);
+                    #[cfg(feature = "counters")]
+                    self.copied.add(
+                        baud_domain::CopyHop::GridToFrame,
+                        baud_domain::CopiedBytes::of(&cells[at..at + ncols]),
+                    );
                     j.fill(
                         (&pairs, &greys),
                         (&self.window, term.styles().band_slots()),
@@ -11766,6 +11804,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     let at = self.cur.ring().slot(row).index() * ncols;
                     let (cells, _) = self.cur.converting();
                     orders.permute(row, vp.row(row), &mut cells[at..at + ncols]);
+                    #[cfg(feature = "counters")]
+                    self.copied.add(
+                        baud_domain::CopyHop::GridToFrame,
+                        baud_domain::CopiedBytes::of(&cells[at..at + ncols]),
+                    );
                 }
             }
             self.cur.converting().1[r] = vp.rendition(row);
@@ -11782,6 +11825,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     Row::from_index(r),
                     &line.cells[..n],
                     &mut self.cur.converting().0[at..at + n],
+                );
+                #[cfg(feature = "counters")]
+                self.copied.add(
+                    baud_domain::CopyHop::GridToFrame,
+                    baud_domain::CopiedBytes::of(&line.cells[..n]),
                 );
                 crate::counters::add(Counter::CellsCopied, Site::Convert, Tally::of(n));
                 self.cur.converting().1[r] = line.rendition;
@@ -12368,7 +12416,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             let range = self.slot_cells(Row::from_index(r));
             copied += range.len();
-            self.prev[range.clone()].copy_from_slice(&self.cur[range]);
+            let into = &mut self.prev[range.clone()];
+            into.copy_from_slice(&self.cur[range]);
+            #[cfg(feature = "counters")]
+            self.copied.add(
+                baud_domain::CopyHop::GridToFrame,
+                baud_domain::CopiedBytes::of(into),
+            );
         }
         crate::counters::add(Counter::CellsCopied, Site::Convert, Tally::of(copied));
         self.prev_size.clear();

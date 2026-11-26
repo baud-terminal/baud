@@ -62,7 +62,7 @@ pub struct Floor(pub usize);
 /// fails here.
 pub const CRATES: [(&str, Floor); 14] = [
     ("baud-bench", Floor(53)),
-    ("baud-core", Floor(54)),
+    ("baud-core", Floor(55)),
     ("baud-domain", Floor(7)),
     ("baud-isa", Floor(1)),
     ("baud-isa-aarch64", Floor(1)),
@@ -73,7 +73,7 @@ pub const CRATES: [(&str, Floor); 14] = [
     ("baud-app", Floor(4)),
     ("baud-wayland", Floor(0)),
     ("baud-xkb", Floor(0)),
-    ("baud-present-wayland", Floor(0)),
+    ("baud-present-wayland", Floor(1)),
     ("baud-present-vulkan", Floor(1)),
 ];
 

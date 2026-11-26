@@ -2495,6 +2495,10 @@ pub struct Term<'b> {
     pub fast_hit: usize,
     #[cfg(all(feature = "diag", feature = "sgr-table"))]
     pub sgr_hit: usize,
+    /// **The bytes the core copied on the pty-to-grid hop**: each read
+    /// placed in the arena by [`Term::write_at`], counted once a call.
+    #[cfg(feature = "copy-counts")]
+    pub(crate) copied: CopyCounts,
 }
 
 /// Outcome of a [`Term::resize`].
@@ -3982,6 +3986,8 @@ impl<'b> Term<'b> {
             charset: Charset::Ascii,
             cluster: ClusterBreak::new(),
             cold: Cold::new(rows, cols),
+            #[cfg(feature = "copy-counts")]
+            copied: CopyCounts::NONE,
             utf8: Utf8Acc::lead(0),
             utf8_min: Utf8Min::Two,
             csi: crate::write::Csi::NEW,
@@ -6266,7 +6272,18 @@ impl<'b> Term<'b> {
     /// the kernel `&mut arena[base..]` directly.
     pub fn write_at(&mut self, base: BytePos, src: &[u8]) {
         let from = base.index();
-        self.store.arena[from..from + src.len()].copy_from_slice(src);
+        let into = &mut self.store.arena[from..from + src.len()];
+        into.copy_from_slice(src);
+        #[cfg(feature = "copy-counts")]
+        self.copied.add(CopyHop::PtyToGrid, CopiedBytes::of(into));
+    }
+
+    /// **The bytes this terminal copied between the pty and its grid**,
+    /// counted where [`Term::write_at`] places a read in the arena: the
+    /// [`CopyHop::PtyToGrid`] hop, every other hop zero.
+    #[cfg(feature = "copy-counts")]
+    pub fn copied(&self) -> CopyCounts {
+        self.copied
     }
 
     /// Where a renderer should draw the cursor.

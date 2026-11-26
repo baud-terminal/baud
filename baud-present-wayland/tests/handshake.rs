@@ -7719,3 +7719,135 @@ fn a_dmabuf_buffer_is_free_again_on_release() {
         "shown with points: its release point's"
     );
 }
+
+/// **`copies_per_mb`: the bytes each hop copies per MB of the child's
+/// output, `cat-scroll` on a 3840 x 2160 window, each hop within its
+/// bound.** A bound only comes down: the commit that removes a hop's copy
+/// lowers it, and one that raises it says why. Where each comes down to:
+/// pty to grid 0, once a read lands in the arena itself; grid to frame 0
+/// on `cat-scroll`, and only `copy::cow_row` bytes elsewhere, once the GPU
+/// reads a pool of rows in place; frame to screen 0, once a frame is drawn
+/// straight into the buffer the compositor shows. The pty to grid
+/// count reads exactly one byte copied per byte in, which shows the
+/// counters are live. The
+/// recording goes in as the Linux driver drains it, 16 reads of
+/// `READ_CHUNK` a turn, each turn's bytes placed in the core
+/// (`Term::write_at`) and fed, one frame built by the CPU renderer into a
+/// 3840 x 2160 frame (`Renderer::render_at`, what the driver's CPU arm
+/// calls), and that frame presented over this file's compositor
+/// (`Window::present`) with the buffer released and the callback done
+/// before the next. Each hop is read from the stage that copies:
+/// pty to grid from the `Term`, grid to frame from the `Renderer`, frame
+/// to screen from the `Window`.
+///
+/// Named breaks: a copy added on a hop -- its rate passes its bound; a
+/// count left out of `Term::write_at` -- pty to grid reads below one byte
+/// a byte.
+#[test]
+fn copies_per_mb_stays_within_its_bounds() {
+    use baud_core::{Owned, READ_CHUNK, Term};
+    use baud_domain::{BytePos, Cols, CopyHop, ReadLen, Rows, WinSize};
+    // Bytes copied per MB in, by hop, at most.
+    const BOUNDS: [(CopyHop, u64); 3] = [
+        (CopyHop::PtyToGrid, 1_000_000),
+        (CopyHop::GridToFrame, 14_385_230),
+        (CopyHop::FrameToScreen, 516_635_241),
+    ];
+    use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
+
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let data = std::fs::read(format!("{root}/tests/recordings/ascii/cat-scroll.raw")).unwrap();
+    let font = std::fs::read(format!(
+        "{root}/baud-font/tests/fonts/JetBrainsMono-Regular.ttf"
+    ))
+    .unwrap();
+    let faces = [baud_font::Face::parse(&font).unwrap()];
+    let renderer = |cols: usize, rows: usize| {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(cols),
+            Rows::of_index(rows),
+        )
+        .unwrap()
+    };
+    // The grid that fills the window at this face's cell.
+    let (wu, hu) = UHD;
+    let cell = renderer(1, 1).metrics();
+    let (cell_w, cell_h) = (
+        usize::try_from(cell.cell_w.value()).unwrap(),
+        usize::try_from(cell.cell_h.value()).unwrap(),
+    );
+    let mut r = renderer(wu / cell_w, hu / cell_h);
+    let (gw, gh) = r.whole_size();
+    let ws = WinSize {
+        ws_col: u16::try_from(wu / cell_w).unwrap(),
+        ws_row: u16::try_from(hu / cell_h).unwrap(),
+    };
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
+    let mut frame = vec![0u32; wu * hu];
+    let stride = baud_font::Px::of(u32::try_from(wu).unwrap());
+    // One turn of the driver: the batch placed and fed, and one frame built
+    // from it, the rows it painted returned.
+    let mut turn_of = |t: &mut Term<'_>, frame: &mut [u32], bytes: &[u8], d: Damage| {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        let seal = t.seal_writes();
+        let mut target = Target::new(frame, stride, gw, gh).unwrap();
+        let _ = r.render_at(&*t, seal, Rows::ZERO, &mut target, d);
+        r.painted()
+            .map(|b| Strip {
+                top: Px(b.top.value()),
+                bottom: Px(b.bottom.value()),
+            })
+            .collect::<Vec<Strip>>()
+    };
+    let mut batches = data.chunks(16 * READ_CHUNK);
+    let _ = turn_of(&mut t, &mut frame, batches.next().unwrap(), Damage::Full);
+    let (mut conn, mut server, mut w, buffers, mut cb) = shown_at_uhd(&frame);
+    let mut held = buffers[0];
+    for (n, bytes) in batches.enumerate() {
+        let strips = turn_of(&mut t, &mut frame, bytes, Damage::Incremental);
+        turn(&mut conn, &mut server, &mut w, cb, &[held]);
+        assert_eq!(
+            w.present(&mut conn.sender(), &frame, wu, Changed::Strips(&strips)),
+            Presented::Yes,
+            "frame {n}"
+        );
+        conn.flush().unwrap();
+        let (attached, _, next) = frame_requests(&mut server);
+        held = attached.unwrap_or(held);
+        cb = next;
+    }
+    drop(turn_of);
+    let bytes_in = u64::try_from(data.len()).unwrap();
+    let counts = t.copied().plus(r.copied()).plus(w.copy_counts());
+    let per_mb = CopyHop::ALL.map(|hop| (hop, counts.hop_per_mb(hop, bytes_in).unwrap()));
+    eprintln!(
+        "copies_per_mb: cat-scroll, {bytes_in} bytes in, {}x{} cells at {wu}x{hu}",
+        ws.ws_col, ws.ws_row
+    );
+    for (hop, rate) in per_mb {
+        eprintln!(
+            "  {hop:?}: {} bytes copied, {} bytes per MB in",
+            counts.of(hop).get(),
+            rate.get()
+        );
+    }
+    for ((hop, rate), (bounded, bound)) in per_mb.into_iter().zip(BOUNDS) {
+        assert_eq!(hop, bounded);
+        assert!(
+            rate.get() <= bound,
+            "{hop:?}: {} bytes per MB in, bound {bound}",
+            rate.get()
+        );
+    }
+    assert_eq!(
+        counts.of(CopyHop::PtyToGrid).get(),
+        bytes_in,
+        "the control: each byte in is placed once"
+    );
+}
