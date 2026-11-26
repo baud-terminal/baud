@@ -12,11 +12,13 @@
 //! cores are that affinity and each one's SMT siblings, which share a core
 //! with it. It refuses only when one of them is at least `BAUD_QUIET_BUSY`
 //! percent busy (default 5) over `BAUD_QUIET_SAMPLE` ms of /proc/stat
-//! (default 500), or when a GPU's `gpu_busy_percent` reads at least
-//! `BAUD_QUIET_GPU_BUSY` (default 10) on both of two reads 100 ms apart. A
-//! watcher or a build on other CPUs is not load on its cores, so neither is
-//! asked about. A GPU with no such file is not checked, and one whose file
-//! cannot be read refuses; so does a CPU file absent or unreadable.
+//! (default 500). A measurement that draws on the GPU calls
+//! [`refuse_while_warm_on_gpu`], which also refuses when a GPU's
+//! `gpu_busy_percent` reads at least `BAUD_QUIET_GPU_BUSY` (default 75) on
+//! both of two reads 100 ms apart. A watcher or a build on other CPUs is
+//! not load on its cores, so neither is asked about. A GPU with no such
+//! file is not checked, and one whose file cannot be read refuses; so does
+//! a CPU file absent or unreadable.
 //!
 //! An idle watcher counts, since the next save starts a build halfway
 //! through the measurement. It is found on the whole machine, not in one
@@ -216,8 +218,14 @@ pub fn watch_refusal(watch: Option<&Path>) -> Option<String> {
 /// and warm builds do. A machine whose processes or cores cannot be read is
 /// a reason: what cannot be seen is not known to be quiet.
 pub fn refusal() -> Option<String> {
+    refusal_on(Load::Cores)
+}
+
+/// [`refusal`], with `load` saying whether a pinned measurement's GPU is
+/// read as well as its cores.
+pub fn refusal_on(load: Load) -> Option<String> {
     if cfg!(target_os = "linux") {
-        match on_own_cores(&Host) {
+        match on_own_cores(&Host, load) {
             Verdict::Quiet => return None,
             Verdict::Refused(why) => return Some(why),
             Verdict::Unpinned => {}
@@ -276,10 +284,33 @@ pub fn refusal() -> Option<String> {
 
 /// Exit before measuring when [`refusal`] has a reason.
 pub fn refuse_while_warm() {
-    if let Some(why) = refusal() {
+    exit_on(refusal());
+}
+
+/// Exit before measuring when [`refusal_on`] has a reason with the GPU
+/// read: the guard of a measurement that draws on the GPU. Unpinned, it is
+/// [`refuse_while_warm`].
+// `bench-others/multibench` takes this file by `#[path]` and draws on no GPU.
+#[allow(dead_code)]
+pub fn refuse_while_warm_on_gpu() {
+    exit_on(refusal_on(Load::CoresAndGpu));
+}
+
+/// Exit when there is a reason, naming it.
+fn exit_on(refusal: Option<String>) {
+    if let Some(why) = refusal {
         eprintln!("refused: {why}");
         std::process::exit(1);
     }
+}
+
+/// What a pinned measurement's quiet is read on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Load {
+    /// Its cores and their SMT siblings.
+    Cores,
+    /// Its cores and every GPU: a measurement that draws.
+    CoresAndGpu,
 }
 
 /// The kernel's file of each CPU's ticks.
@@ -302,6 +333,12 @@ pub const QUIET_SAMPLE: &str = "BAUD_QUIET_SAMPLE";
 
 /// The GPU busy percent at which a pinned measurement refuses.
 pub const QUIET_GPU_BUSY: &str = "BAUD_QUIET_GPU_BUSY";
+
+/// The GPU line when [`QUIET_GPU_BUSY`] is unset. It sits above what the
+/// compositor's idle drawing reads: sampled at 10 Hz for 180 s, the lower of
+/// two reads 100 ms apart was 58 at most and 24 at the 99th percentile, and
+/// the line is 17 above that highest value.
+pub const QUIET_GPU_BUSY_DEFAULT: BusyPct = BusyPct(75.0);
 
 /// The time between the GPU's two reads.
 pub const GPU_GAP: Duration = Duration::from_millis(100);
@@ -453,7 +490,7 @@ pub fn refuse_while_counting(asks_for_time: &[&str]) {
             std::process::exit(1);
         }
     }
-    if cfg!(target_os = "linux") && on_own_cores(&Host) == Verdict::Counting {
+    if cfg!(target_os = "linux") && on_own_cores(&Host, Load::Cores) == Verdict::Counting {
         return;
     }
     refuse_while_warm();
@@ -681,8 +718,9 @@ struct Quiet {
     gpu: BusyPct,
 }
 
-/// The lines from the environment, each defaulted when unset.
-fn quiet(m: &impl Machine) -> Result<Quiet, String> {
+/// The lines from the environment, each defaulted when unset; the GPU's is
+/// read only when the GPU is.
+fn quiet(m: &impl Machine, load: Load) -> Result<Quiet, String> {
     let line = |name: &str, default: BusyPct| match m.var(name) {
         None => Ok(default),
         Some(v) => percent(&v).map_err(|e| format!("{name}: {e}")),
@@ -698,7 +736,10 @@ fn quiet(m: &impl Machine) -> Result<Quiet, String> {
     Ok(Quiet {
         busy: line(QUIET_BUSY, BusyPct(5.0))?,
         sample,
-        gpu: line(QUIET_GPU_BUSY, BusyPct(10.0))?,
+        gpu: match load {
+            Load::Cores => QUIET_GPU_BUSY_DEFAULT,
+            Load::CoresAndGpu => line(QUIET_GPU_BUSY, QUIET_GPU_BUSY_DEFAULT)?,
+        },
     })
 }
 
@@ -746,10 +787,11 @@ fn gpu_load(m: &impl Machine, max: BusyPct) -> Result<Vec<String>, String> {
 
 /// Whether a measurement pinned to some CPUs may start: unpinned, nothing
 /// is read past its affinity; pinned, its cores and their siblings must
-/// each be under [`QUIET_BUSY`] over [`QUIET_SAMPLE`], and every GPU under
-/// [`QUIET_GPU_BUSY`] on one of two reads. What cannot be read refuses.
-pub fn on_own_cores(m: &impl Machine) -> Verdict {
-    match judge(m) {
+/// each be under [`QUIET_BUSY`] over [`QUIET_SAMPLE`], and with
+/// [`Load::CoresAndGpu`] every GPU under [`QUIET_GPU_BUSY`] on one of two
+/// reads. What cannot be read refuses.
+pub fn on_own_cores(m: &impl Machine, load: Load) -> Verdict {
+    match judge(m, load) {
         Ok(verdict) => verdict,
         Err(e) => Verdict::Refused(format!(
             "whether this measurement's cores are quiet cannot be read ({e})"
@@ -757,7 +799,7 @@ pub fn on_own_cores(m: &impl Machine) -> Verdict {
     }
 }
 
-fn judge(m: &impl Machine) -> Result<Verdict, String> {
+fn judge(m: &impl Machine, load: Load) -> Result<Verdict, String> {
     let status = text(m.read(Path::new(STATUS)), Path::new(STATUS))?;
     let allowed = allowed(&status).map_err(|e| format!("{STATUS}: {e}"))?;
     let online = text(m.read(Path::new(ONLINE)), Path::new(ONLINE))?;
@@ -768,19 +810,26 @@ fn judge(m: &impl Machine) -> Result<Verdict, String> {
         Placement::Pinned(_) if measures == Measures::Counts => return Ok(Verdict::Counting),
         Placement::Pinned(pinned) => pinned,
     };
-    let quiet = quiet(m)?;
+    let quiet = quiet(m, load)?;
     let cores = siblings(&pinned, |cpu| m.read(&siblings_path(cpu)))?;
     let before = text(m.read(Path::new(STAT)), Path::new(STAT))?;
     m.sleep(quiet.sample);
     let after = text(m.read(Path::new(STAT)), Path::new(STAT))?;
     let busy = busy(&before, &after, &cores, quiet.busy).map_err(|e| format!("{STAT}: {e}"))?;
-    let gpus = gpu_load(m, quiet.gpu)?;
+    let gpus = match load {
+        Load::Cores => Vec::new(),
+        Load::CoresAndGpu => gpu_load(m, quiet.gpu)?,
+    };
     if busy.is_empty() && gpus.is_empty() {
         return Ok(Verdict::Quiet);
     }
+    let on = match load {
+        Load::Cores => "",
+        Load::CoresAndGpu => " or on the GPU",
+    };
     let mut why = format!(
-        "there is load on this measurement's cores ({cores}: its affinity and their SMT siblings) \
-         or on the GPU, and a measurement must not share them:"
+        "there is load on this measurement's cores ({cores}: its affinity and their SMT siblings){on}, \
+         and a measurement must not share them:"
     );
     for b in &busy {
         why.push_str(&format!(

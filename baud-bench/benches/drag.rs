@@ -35,7 +35,7 @@
 
 #[cfg(target_os = "macos")]
 fn main() {
-    baud_bench::warm::refuse_while_warm();
+    baud_bench::warm::refuse_while_warm_on_gpu();
     // Imported here rather than at the top of the file: the bench is macOS
     // only, so a top-level `use` is unused elsewhere and `-D warnings` makes
     // that an error on the Linux lint.
@@ -383,6 +383,6 @@ fn main() {
 
 #[cfg(not(target_os = "macos"))]
 fn main() {
-    baud_bench::warm::refuse_while_warm();
+    baud_bench::warm::refuse_while_warm_on_gpu();
     println!("drag: macOS only");
 }

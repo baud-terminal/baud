@@ -12,7 +12,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use baud_bench::warm::{
-    self, Busy, BusyPct, CoreSet, Cpu, Machine, PAUSE, Pid, Placement, Read, Verdict, Warm,
+    self, Busy, BusyPct, CoreSet, Cpu, Load, Machine, PAUSE, Pid, Placement, Read, Verdict, Warm,
 };
 
 fn repo() -> PathBuf {
@@ -382,6 +382,7 @@ fn on_linux_a_pause_stops_the_whole_build() {
 fn every_measuring_main_asks_first() {
     let repo = repo();
     let call = "baud_bench::warm::refuse_while_warm();";
+    let gpu_call = "baud_bench::warm::refuse_while_warm_on_gpu();";
     let mut files: Vec<PathBuf> = std::fs::read_dir(repo.join("baud-bench/benches"))
         .unwrap()
         .map(|e| e.unwrap().path())
@@ -402,9 +403,9 @@ fn every_measuring_main_asks_first() {
         let mains = text.matches("fn main()").count();
         assert!(mains > 0, "{}: no main", file.display());
         assert_eq!(
-            text.matches(call).count(),
+            text.matches(call).count() + text.matches(gpu_call).count(),
             mains,
-            "{}: every main calls {call}",
+            "{}: every main calls {call} or {gpu_call}",
             file.display()
         );
     }
@@ -859,8 +860,13 @@ impl Fake {
         self.files.get_mut().insert(PathBuf::from(path), reads);
     }
 
+    /// The verdict of a measurement that draws on the GPU.
     fn verdict(&self) -> Verdict {
-        warm::on_own_cores(self)
+        self.verdict_on(Load::CoresAndGpu)
+    }
+
+    fn verdict_on(&self, load: Load) -> Verdict {
+        warm::on_own_cores(self, load)
     }
 
     fn refusal(&self) -> String {
@@ -965,13 +971,19 @@ fn load_on_an_own_core_or_its_sibling_refuses_naming_it() {
 #[test]
 fn a_busy_gpu_refuses_naming_the_card() {
     let mut fake = Fake::pinned();
+    fake.file(GPU, &["80\n", "91\n"]);
+    let why = fake.refusal();
+    assert!(why.contains("card1 80% then 91% busy"), "{why}");
+
+    let mut fake = Fake::pinned();
+    fake.file(GPU, &["91\n", "6\n"]);
+    assert_eq!(fake.verdict(), Verdict::Quiet);
+
+    let mut fake = Fake::pinned();
+    fake.vars.insert("BAUD_QUIET_GPU_BUSY".into(), "10".into());
     fake.file(GPU, &["12\n", "41\n"]);
     let why = fake.refusal();
     assert!(why.contains("card1 12% then 41% busy"), "{why}");
-
-    let mut fake = Fake::pinned();
-    fake.file(GPU, &["41\n", "6\n"]);
-    assert_eq!(fake.verdict(), Verdict::Quiet);
 
     let mut fake = Fake::pinned();
     fake.vars.insert("BAUD_QUIET_GPU_BUSY".into(), "50".into());
@@ -1010,12 +1022,12 @@ fn an_absent_gpu_is_no_check_and_an_unreadable_file_refuses() {
     );
 
     let mut fake = Fake::pinned();
-    fake.set(GPU, [Read::Text("12\n".into()), Read::Absent].into());
+    fake.set(GPU, [Read::Text("80\n".into()), Read::Absent].into());
     let why = fake.refusal();
     assert!(why.contains(GPU), "a file gone by the second read: {why}");
 
     let mut fake = Fake::pinned();
-    fake.file(GPU, &["12\n", "busy\n"]);
+    fake.file(GPU, &["80\n", "busy\n"]);
     let why = fake.refusal();
     assert!(why.contains(GPU), "{why}");
 
@@ -1083,4 +1095,147 @@ fn the_lines_and_the_sample_come_from_the_environment() {
         let why = fake.refusal();
         assert!(why.contains(name) && why.contains("five"), "{why}");
     }
+}
+
+/// A measurement that does not draw reads its cores alone: a busy GPU, or
+/// one that cannot be read, is not its load.
+#[test]
+fn a_cpu_only_measurement_reads_no_gpu() {
+    let mut fake = Fake::pinned();
+    fake.file(GPU, &["99\n"]);
+    assert_eq!(fake.verdict_on(Load::Cores), Verdict::Quiet);
+    assert_eq!(*fake.slept.borrow(), [Duration::from_millis(500)]);
+    assert!(
+        fake.read
+            .borrow()
+            .iter()
+            .all(|p| !p.starts_with("/sys/class/drm")),
+        "{:?}",
+        fake.read.borrow()
+    );
+
+    let mut fake = Fake::pinned();
+    fake.drm = Read::Unreadable("Permission denied".into());
+    fake.vars
+        .insert("BAUD_QUIET_GPU_BUSY".into(), "five".into());
+    assert_eq!(fake.verdict_on(Load::Cores), Verdict::Quiet);
+
+    // Its cores still decide.
+    let mut fake = Fake::pinned();
+    fake.file("/proc/stat", &[STAT_BEFORE, STAT_AFTER]);
+    let why = match fake.verdict_on(Load::Cores) {
+        Verdict::Refused(why) => why,
+        other => panic!("not refused: {other:?}"),
+    };
+    assert!(why.contains("cpu57 98% busy"), "{why}");
+    assert!(!why.contains("GPU"), "{why}");
+}
+
+/// The GPU line sits above what the compositor's idle reads: the lower of
+/// two reads 100 ms apart reached 58 at most, so 60 then 58 measures and
+/// 75 then 75 does not.
+#[test]
+fn the_gpu_line_sits_above_the_compositors_idle() {
+    assert_eq!(warm::QUIET_GPU_BUSY_DEFAULT, BusyPct(75.0));
+    let mut fake = Fake::pinned();
+    fake.file(GPU, &["60\n", "58\n"]);
+    assert_eq!(fake.verdict(), Verdict::Quiet);
+    let mut fake = Fake::pinned();
+    fake.file(GPU, &["75\n", "75\n"]);
+    let why = fake.refusal();
+    assert!(why.contains("card1 75% then 75% busy"), "{why}");
+}
+
+/// What marks a source as drawing on the GPU: a GPU crate it names by
+/// path, or the host module that times the Metal shader caches through the
+/// app it launches.
+const GPU_USES: [&str; 7] = [
+    "baud_present_vulkan",
+    "baud_present_macos",
+    "wgpu",
+    "metal",
+    "objc2_metal",
+    "ash",
+    "host::shader_cache",
+];
+
+/// Whether `source` starts a Rust path with `path`: `path::` with no
+/// identifier character before it, so `hash::` is not `ash::`.
+fn names_path(source: &str, path: &str) -> bool {
+    let needle = format!("{path}::");
+    source.match_indices(&needle).any(|(at, _)| {
+        !source[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+    })
+}
+
+/// Why a measuring source's guard does not fit what it draws on, or `None`:
+/// one that names a GPU use calls the GPU guard and never the CPU-only one.
+fn gpu_guard_fault(source: &str) -> Option<String> {
+    let uses = GPU_USES.iter().find(|u| names_path(source, u))?;
+    let cpu = source.matches("warm::refuse_while_warm();").count();
+    let gpu = source.matches("warm::refuse_while_warm_on_gpu();").count();
+    (gpu == 0 || cpu > 0).then(|| {
+        format!(
+            "it uses {uses} and calls refuse_while_warm_on_gpu {gpu} times and the CPU-only refuse_while_warm {cpu}"
+        )
+    })
+}
+
+/// Every bench and example that draws on the GPU asks about the GPU, and
+/// none of them asks about its cores alone.
+#[test]
+fn every_measurement_that_draws_on_the_gpu_asks_about_the_gpu() {
+    // The positive control: a planted source naming a device crate and
+    // calling the CPU-only guard fails the check.
+    let planted = "use baud_present_vulkan::Device;\nfn main() {\n    baud_bench::warm::refuse_while_warm();\n}\n";
+    assert!(
+        gpu_guard_fault(planted).is_some(),
+        "the check passed a GPU source with the CPU-only guard"
+    );
+    let both = planted.replace(
+        "fn main() {\n",
+        "fn main() {\n    baud_bench::warm::refuse_while_warm_on_gpu();\n",
+    );
+    assert!(gpu_guard_fault(&both).is_some(), "both guards passed");
+    let right = planted.replace("refuse_while_warm()", "refuse_while_warm_on_gpu()");
+    assert_eq!(gpu_guard_fault(&right), None);
+    assert_eq!(
+        gpu_guard_fault(
+            "use std::hash::Hash;\nfn main() {\n    baud_bench::warm::refuse_while_warm();\n}\n"
+        ),
+        None,
+        "`hash::` is not `ash::`"
+    );
+
+    let repo = repo();
+    let mut drawing = Vec::new();
+    let mut faults = Vec::new();
+    for dir in ["baud-bench/benches", "baud-bench/examples"] {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(repo.join(dir))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|x| x == "rs"))
+            .collect();
+        files.sort();
+        for file in files {
+            let text = read(&file);
+            let name = file.file_name().unwrap().to_string_lossy().into_owned();
+            if GPU_USES.iter().any(|u| names_path(&text, u)) {
+                drawing.push(name.clone());
+            }
+            if let Some(fault) = gpu_guard_fault(&text) {
+                faults.push(format!("{name}: {fault}"));
+            }
+        }
+    }
+    assert_eq!(faults, Vec::<String>::new());
+    // On the tree too, the check finds what it must: the Metal frames and
+    // the shader-cache launches.
+    for known in ["frame_gpu.rs", "shader-cache-bench.rs"] {
+        assert!(drawing.iter().any(|d| d == known), "{known}: {drawing:?}");
+    }
+    assert!(repo.join("baud-bench/src/host/shader_cache.rs").exists());
 }

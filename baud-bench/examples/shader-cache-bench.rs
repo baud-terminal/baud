@@ -9,7 +9,7 @@
 use baud_bench::host::{self, Live};
 
 fn main() {
-    baud_bench::warm::refuse_while_warm();
+    baud_bench::warm::refuse_while_warm_on_gpu();
     host::catch_interrupt();
     let args: Vec<String> = host::py_args();
     let env: Vec<_> = std::env::vars_os().collect();

@@ -17,7 +17,7 @@
 
 #[cfg(target_os = "macos")]
 fn main() {
-    baud_bench::warm::refuse_while_warm();
+    baud_bench::warm::refuse_while_warm_on_gpu();
     use baud_font::Px;
     use baud_present_macos::{Changed, Presented, Presenter};
     use baud_render::Argb;
@@ -82,6 +82,6 @@ fn main() {
 
 #[cfg(not(target_os = "macos"))]
 fn main() {
-    baud_bench::warm::refuse_while_warm();
+    baud_bench::warm::refuse_while_warm_on_gpu();
     eprintln!("surface_copy copies into IOSurfaces and runs on macOS only");
 }
