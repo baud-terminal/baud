@@ -13,7 +13,7 @@
 
 #[cfg(feature = "alloc")]
 use super::body::{BodyWriter, EncodeError};
-use super::decode::{ArrayRead, BodyReader, Malformed, Unread};
+use super::decode::{ArrayRead, BodyReader, DictRead, Malformed, VariantRef};
 use super::name::{ObjectPath, Str};
 use super::sig::{Sig, SigCodes};
 
@@ -595,9 +595,9 @@ impl<K: Basic, V: Marshal> sealed::Value for Dict<'_, K, V> {}
 impl<K: Basic, V: Marshal> Marshal for Dict<'_, K, V> {
     const ALIGN: Align = Align::Four;
     const SIG: SigCodes = SigCodes::dict(K::SIG, V::SIG);
-    type Read<'a> = Unread<'a>;
-    fn read<'a>(r: &mut BodyReader<'a>) -> Result<Unread<'a>, Malformed> {
-        r.unread(Self::SIG.as_sig())
+    type Read<'a> = DictRead<'a, K, V>;
+    fn read<'a>(r: &mut BodyReader<'a>) -> Result<DictRead<'a, K, V>, Malformed> {
+        DictRead::read(r)
     }
     #[cfg(feature = "alloc")]
     fn marshal(&self, w: &mut BodyWriter<'_>) -> Result<(), EncodeError> {
@@ -764,9 +764,9 @@ impl sealed::Value for Variant<'_> {}
 impl Marshal for Variant<'_> {
     const ALIGN: Align = Align::One;
     const SIG: SigCodes = SigCodes::of(Sig::lit("v"));
-    type Read<'a> = Unread<'a>;
-    fn read<'a>(r: &mut BodyReader<'a>) -> Result<Unread<'a>, Malformed> {
-        r.unread(Self::SIG.as_sig())
+    type Read<'a> = VariantRef<'a>;
+    fn read<'a>(r: &mut BodyReader<'a>) -> Result<VariantRef<'a>, Malformed> {
+        r.variant()
     }
     #[cfg(feature = "alloc")]
     fn marshal(&self, w: &mut BodyWriter<'_>) -> Result<(), EncodeError> {

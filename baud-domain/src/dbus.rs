@@ -60,8 +60,8 @@ pub use body::{ArrayLen, EncodeError, MessageLen};
 pub use body::{Body, BodyWriter};
 pub use bus::{FromBus, HolderChange};
 pub use decode::{
-    ArrayRead, BodyError, BodyReader, BodyRef, Called, ErrorReply, Frame, Header, Inbound,
-    Malformed, Order, Peer, Return, Signal, Trusted, Unread, decode, frame,
+    ArrayRead, BodyError, BodyReader, BodyRef, Called, DictRead, ErrorReply, Frame, Header,
+    Inbound, Malformed, Order, Peer, Return, Signal, Trusted, VariantRef, decode, frame,
 };
 #[cfg(feature = "alloc")]
 pub use header::Encoded;

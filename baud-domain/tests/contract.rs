@@ -1686,8 +1686,39 @@ const _: fn(
     &mut baud_domain::dbus::ArrayRead<'static, baud_domain::dbus::Str<'static>>,
 ) -> Option<baud_domain::dbus::Str<'static>> =
     <baud_domain::dbus::ArrayRead<'static, baud_domain::dbus::Str<'static>> as Iterator>::next;
-const _: fn(&baud_domain::dbus::Unread<'static>) -> &'static [u8] =
-    baud_domain::dbus::Unread::bytes;
+const _: fn(&baud_domain::dbus::VariantRef<'static>) -> baud_domain::dbus::Sig<'static> =
+    baud_domain::dbus::VariantRef::sig;
+const _: fn(&baud_domain::dbus::VariantRef<'static>) -> Option<baud_domain::dbus::U32> =
+    baud_domain::dbus::VariantRef::read::<baud_domain::dbus::U32>;
+const _: for<'a> fn(
+    &'a baud_domain::dbus::DictRead<
+        'static,
+        baud_domain::dbus::Str<'static>,
+        baud_domain::dbus::Variant<'static>,
+    >,
+) -> bool = baud_domain::dbus::DictRead::is_empty;
+fn dict_read_yields_key_and_variant(
+    d: baud_domain::dbus::DictRead<
+        'static,
+        baud_domain::dbus::Str<'static>,
+        baud_domain::dbus::Variant<'static>,
+    >,
+) -> Option<(
+    baud_domain::dbus::Str<'static>,
+    baud_domain::dbus::VariantRef<'static>,
+)> {
+    d.into_iter().next()
+}
+const _: fn(
+    baud_domain::dbus::DictRead<
+        'static,
+        baud_domain::dbus::Str<'static>,
+        baud_domain::dbus::Variant<'static>,
+    >,
+) -> Option<(
+    baud_domain::dbus::Str<'static>,
+    baud_domain::dbus::VariantRef<'static>,
+)> = dict_read_yields_key_and_variant;
 const _: fn(&baud_domain::dbus::Header<'static>) -> Option<baud_domain::dbus::MessageKind> =
     baud_domain::dbus::Header::kind;
 const _: fn(&baud_domain::dbus::Header<'static>) -> baud_domain::dbus::Serial =

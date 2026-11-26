@@ -405,11 +405,16 @@ impl<'a> BodyReader<'a> {
         done
     }
 
-    /// One value of `sig`, a single complete type, passed over.
-    pub(super) fn unread(&mut self, sig: Sig<'_>) -> Result<Unread<'a>, Malformed> {
-        let start = self.at;
-        walk(self, sig.as_bytes(), 0)?;
-        Ok(Unread(&self.bytes[start.0..self.at.0]))
+    /// A VARIANT: its signature, a single complete type, and its value,
+    /// passed over and kept to be read as that type.
+    pub(super) fn variant(&mut self) -> Result<VariantRef<'a>, Malformed> {
+        let sig = self.signature()?;
+        if !sig.is_single() {
+            return Err(Malformed::NotSingle);
+        }
+        let value = self.clone();
+        self.nest(|r| walk(r, sig.as_bytes(), 0))?;
+        Ok(VariantRef { sig, value })
     }
 }
 
@@ -565,16 +570,100 @@ impl<T> fmt::Debug for ArrayRead<'_, T> {
     }
 }
 
-/// A received value of a type this module reads only as its bytes: a
-/// variant or a dict, checked against its signature when the message was
-/// decoded and passed over.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Unread<'a>(&'a [u8]);
+/// A received VARIANT: "the marshalled SIGNATURE of a single complete
+/// type, followed by a marshalled value with the type given in the
+/// signature" ("Marshalling containers"). The message was checked whole
+/// when it was decoded, so the value reads as its signature's type, and
+/// only as that type: [`VariantRef::read`] of any other is `None`.
+#[derive(Clone, Debug)]
+pub struct VariantRef<'a> {
+    sig: Sig<'a>,
+    value: BodyReader<'a>,
+}
 
-impl<'a> Unread<'a> {
-    /// The value's bytes, in the message's byte order.
-    pub const fn bytes(&self) -> &'a [u8] {
-        self.0
+impl<'a> VariantRef<'a> {
+    /// The value's type.
+    pub const fn sig(&self) -> Sig<'a> {
+        self.sig
+    }
+
+    /// The value as `T` reads it, or `None` when the variant holds another
+    /// type. Reads only the value, so asking for the wrong type reads
+    /// nothing.
+    pub fn read<T: Marshal>(&self) -> Option<T::Read<'a>> {
+        if self.sig.as_bytes() != T::SIG.as_sig().as_bytes() {
+            return None;
+        }
+        T::read(&mut self.value.clone()).ok()
+    }
+}
+
+/// The entries of a received dict, `a{KV}`, read one at a time as `K`
+/// and `V` read: each DICT_ENTRY is "marshalled like a STRUCT", on an
+/// 8-byte boundary. The message was checked whole when it was decoded,
+/// so every entry reads.
+pub struct DictRead<'a, K, V> {
+    r: BodyReader<'a>,
+    end: At,
+    entry: PhantomData<fn() -> (K, V)>,
+}
+
+impl<'a, K: Marshal, V: Marshal> DictRead<'a, K, V> {
+    /// The dict at the reader's place, which moves past it.
+    pub(super) fn read(r: &mut BodyReader<'a>) -> Result<DictRead<'a, K, V>, Malformed> {
+        let end = r.array(8)?;
+        let entries = DictRead {
+            r: r.clone(),
+            end,
+            entry: PhantomData,
+        };
+        r.at = end;
+        Ok(entries)
+    }
+
+    /// Whether no entry is left.
+    pub fn is_empty(&self) -> bool {
+        self.r.at >= self.end
+    }
+}
+
+impl<'a, K: Marshal, V: Marshal> Iterator for DictRead<'a, K, V> {
+    type Item = (K::Read<'a>, V::Read<'a>);
+
+    fn next(&mut self) -> Option<(K::Read<'a>, V::Read<'a>)> {
+        if self.is_empty() {
+            return None;
+        }
+        let entry = (|| {
+            self.r.align(Align::Eight)?;
+            Ok::<_, Malformed>((K::read(&mut self.r)?, V::read(&mut self.r)?))
+        })();
+        match entry {
+            Ok(kv) => Some(kv),
+            Err(_) => {
+                self.r.at = self.end;
+                None
+            }
+        }
+    }
+}
+
+impl<K, V> Clone for DictRead<'_, K, V> {
+    fn clone(&self) -> Self {
+        DictRead {
+            r: self.r.clone(),
+            end: self.end,
+            entry: PhantomData,
+        }
+    }
+}
+
+impl<K, V> fmt::Debug for DictRead<'_, K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DictRead")
+            .field("at", &self.r.at.0)
+            .field("end", &self.end.0)
+            .finish()
     }
 }
 
