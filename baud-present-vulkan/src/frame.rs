@@ -43,6 +43,8 @@ pub struct Gpu {
     /// The CPU's waits on a fence, for a test to count ([`Gpu::waits`]).
     #[cfg(any(test, feature = "test-hooks"))]
     waits: std::cell::Cell<Waits>,
+    /// What the device can time a frame with (`timing.rs`).
+    pub clock: crate::timing::Clock,
     /// The failures the crate's tests force, and the targets alive.
     #[cfg(any(test, feature = "test-hooks"))]
     pub(crate) hooks: crate::hooks::Hooks,
@@ -203,8 +205,25 @@ impl Gpu {
             vk::TRUE => Multiply::DualSource,
             _ => Multiply::TwoPass,
         };
-        let features =
-            vk::PhysicalDeviceFeatures::default().dual_src_blend(multiply == Multiply::DualSource);
+        // Pipeline statistics, where offered, count the trail's fragment
+        // invocations (`timing.rs`).
+        let statistics = match offered.pipeline_statistics_query {
+            vk::TRUE => crate::vk::Has::Yes,
+            _ => crate::vk::Has::No,
+        };
+        let features = vk::PhysicalDeviceFeatures::default()
+            .dual_src_blend(multiply == Multiply::DualSource)
+            .pipeline_statistics_query(statistics == crate::vk::Has::Yes);
+        // SAFETY: a physical device of this instance.
+        let limits = unsafe { inst.get_physical_device_properties(physical) }.limits;
+        let clock = crate::timing::Clock {
+            period: limits.timestamp_period,
+            stamps: match families[index].timestamp_valid_bits {
+                0 => crate::vk::Has::No,
+                _ => crate::vk::Has::Yes,
+            },
+            statistics,
+        };
         let info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queues)
             .enabled_extension_names(&names)
@@ -229,6 +248,7 @@ impl Gpu {
             pool,
             choice,
             multiply,
+            clock,
             #[cfg(any(test, feature = "test-hooks"))]
             waits: std::cell::Cell::new(Waits(0)),
             #[cfg(any(test, feature = "test-hooks"))]

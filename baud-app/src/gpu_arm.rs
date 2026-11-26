@@ -550,6 +550,16 @@ impl GpuArm {
         }
     }
 
+    /// **What the last frame the GPU arm drew cost the GPU**, read from its
+    /// timestamp queries (`baud_present_vulkan::timing`); `None` while the
+    /// arm is not on.
+    pub fn gpu_times(&self) -> Option<baud_present_vulkan::timing::GpuTimes> {
+        match &self.state {
+            State::On(on) => Some(on.presenter.gpu_times()),
+            _ => None,
+        }
+    }
+
     /// The descriptor a finished pipeline build makes readable.
     pub fn ready_fd(&self) -> Option<BorrowedFd<'_>> {
         match &self.state {

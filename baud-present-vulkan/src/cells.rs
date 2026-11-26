@@ -24,6 +24,7 @@ use crate::frame::{Failed, Gpu, Recorder, Target};
 use crate::lend::{Arm, Elems, Lent, Uploaded};
 use crate::pipeline::{Blend, Fragment, Fx, Pipelines, Skipped};
 use crate::sheets::Sheets;
+use crate::vk::Has;
 use ash::vk;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, RowRot, Rows, Stride};
@@ -208,6 +209,13 @@ pub struct CellMemory {
     /// The command buffer and fence every frame is recorded and waited
     /// through, made once.
     recorder: Recorder,
+    /// The queries a frame times itself with: timestamps where the queue
+    /// family keeps them, fragment counts where pipeline statistics are on
+    /// (`timing.rs`).
+    stamps: Option<vk::QueryPool>,
+    fragments: Option<vk::QueryPool>,
+    /// **What the last frame cost the GPU**, read after its fence.
+    pub times: crate::timing::GpuTimes,
     /// Each target drawn into, its view and framebuffer, made the first
     /// frame it is drawn and kept until [`CellMemory::forget`].
     targets: Vec<Held>,
@@ -621,6 +629,30 @@ impl CellMemory {
             slices.overlay.push(&mut overlay_mem[..overlay_bytes]);
         }
         let recorder = gpu.recorder()?;
+        let pool_of = |ty: vk::QueryType, n: usize, stats: vk::QueryPipelineStatisticFlags| {
+            let info = vk::QueryPoolCreateInfo::default()
+                .query_type(ty)
+                .query_count(u32::try_from(n).unwrap_or(u32::MAX))
+                .pipeline_statistics(stats);
+            // SAFETY: a device of `gpu`'s.
+            unsafe { d.create_query_pool(&info, None) }
+        };
+        let stamps = match gpu.clock.stamps {
+            Has::Yes => Some(pool_of(
+                vk::QueryType::TIMESTAMP,
+                crate::timing::STAMPS,
+                vk::QueryPipelineStatisticFlags::empty(),
+            )?),
+            Has::No => None,
+        };
+        let fragments = match gpu.clock.statistics {
+            Has::Yes => Some(pool_of(
+                vk::QueryType::PIPELINE_STATISTICS,
+                crate::timing::EFFECT_SLOTS,
+                vk::QueryPipelineStatisticFlags::FRAGMENT_SHADER_INVOCATIONS,
+            )?),
+            Has::No => None,
+        };
         Ok((
             CellMemory {
                 arm,
@@ -633,6 +665,9 @@ impl CellMemory {
                 images_skipped: Skipped::default(),
                 trail_skipped: Skipped::default(),
                 recorder,
+                stamps,
+                fragments,
+                times: crate::timing::GpuTimes::default(),
                 targets: Vec::with_capacity(TARGETS),
                 stale: Stale::new(),
                 last: None,
@@ -691,6 +726,10 @@ impl CellMemory {
             m.destroy(gpu);
         }
         gpu.drop_recorder(self.recorder);
+        for pool in [self.stamps, self.fragments].into_iter().flatten() {
+            // SAFETY: the device is idle; no frame writes the pool again.
+            unsafe { gpu.device.destroy_query_pool(pool, None) };
+        }
         // SAFETY: the device is idle; the sets go with the pool, and no
         // frame draws through a target's view or framebuffer again.
         unsafe {
@@ -740,6 +779,44 @@ impl CellMemory {
     /// and the next GPU frame into each draws them.
     pub fn drawn_elsewhere(&mut self, changed: Redraw) {
         self.stale.elsewhere(changed);
+    }
+
+    /// **What the frame just waited for cost the GPU**, from the queries it
+    /// wrote: nothing where the queue family keeps no timestamps.
+    #[allow(unsafe_code)]
+    fn read_times(&self, gpu: &Gpu, draws: crate::timing::Draws) -> crate::timing::GpuTimes {
+        use crate::timing::{EFFECT_SLOTS, Fragments, GpuTimes, STAMPS, Ticks, read};
+        let Some(p) = self.stamps else {
+            return GpuTimes::default();
+        };
+        let timed = draws.0.min(EFFECT_SLOTS);
+        let n = 2 + 2 * timed;
+        let mut raw = [0_u64; STAMPS];
+        // SAFETY: the frame's fence has passed, and it wrote every one of
+        // these queries.
+        let read_ok = unsafe {
+            gpu.device
+                .get_query_pool_results(p, 0, &mut raw[..n], vk::QueryResultFlags::TYPE_64)
+        };
+        if read_ok.is_err() {
+            return GpuTimes::default();
+        }
+        let stamps = raw.map(Ticks);
+        let fragments = self.fragments.filter(|_| timed > 0).and_then(|q| {
+            let mut each = [0_u64; EFFECT_SLOTS];
+            // SAFETY: as above: each of these queries was begun and ended.
+            unsafe {
+                gpu.device.get_query_pool_results(
+                    q,
+                    0,
+                    &mut each[..timed],
+                    vk::QueryResultFlags::TYPE_64,
+                )
+            }
+            .ok()?;
+            Some(Fragments(each.iter().sum()))
+        });
+        read(gpu.clock, &stamps[..n], draws, fragments)
     }
 
     /// **What the frame drawn last changed of the frame the compositor
@@ -1487,7 +1564,21 @@ impl Gpu {
         let target_size = (t.width, t.height);
         let mut skipped = 0u64;
         let clips = &clips[..n_clips];
+        // The trail draws timed so far this frame (`timing.rs`).
+        let timed = core::cell::Cell::new(0usize);
+        let (stamps, fragments) = (mem.stamps, mem.fragments);
         let submitted = self.submit_reusing(&mem.recorder, |cb| {
+            // SAFETY: the pools are this device's, reset outside a render
+            // pass before any query in them is written.
+            unsafe {
+                if let Some(p) = stamps {
+                    d.cmd_reset_query_pool(cb, p, 0, n32(Elems(crate::timing::STAMPS)).0);
+                    d.cmd_write_timestamp(cb, vk::PipelineStageFlags::TOP_OF_PIPE, p, 0);
+                }
+                if let Some(p) = fragments {
+                    d.cmd_reset_query_pool(cb, p, 0, n32(Elems(crate::timing::EFFECT_SLOTS)).0);
+                }
+            }
             sheets.record(d, cb);
             let s = &mut mem.sets[set];
             s.grid.record(d, cb);
@@ -1560,6 +1651,29 @@ impl Gpu {
                             // layout, set 2 the trail's uniform, and the
                             // records `a..b` lie inside the buffer.
                             Some(passes) => unsafe {
+                                // The draws timed by a pair of stamps, and
+                                // counted, up to `EFFECT_SLOTS` a frame.
+                                let slot = timed.get();
+                                let at = n32(Elems(slot)).0;
+                                let timing = slot < crate::timing::EFFECT_SLOTS;
+                                if timing {
+                                    if let Some(q) = stamps {
+                                        d.cmd_write_timestamp(
+                                            cb,
+                                            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                                            q,
+                                            2 + 2 * at,
+                                        );
+                                    }
+                                    if let Some(q) = fragments {
+                                        d.cmd_begin_query(
+                                            cb,
+                                            q,
+                                            at,
+                                            vk::QueryControlFlags::empty(),
+                                        );
+                                    }
+                                }
                                 for &p in passes {
                                     d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, p);
                                     d.cmd_bind_descriptor_sets(
@@ -1579,6 +1693,20 @@ impl Gpu {
                                         &[],
                                     );
                                     d.cmd_draw(cb, 4, n32(Elems(b - a)).0, 0, n32(Elems(a)).0);
+                                }
+                                if timing {
+                                    if let Some(q) = fragments {
+                                        d.cmd_end_query(cb, q, at);
+                                    }
+                                    if let Some(q) = stamps {
+                                        d.cmd_write_timestamp(
+                                            cb,
+                                            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                                            q,
+                                            3 + 2 * at,
+                                        );
+                                    }
+                                    timed.set(slot + 1);
                                 }
                             },
                             None => skipped += u64::try_from(b - a).unwrap_or(0),
@@ -1676,6 +1804,9 @@ impl Gpu {
             // SAFETY: as above.
             unsafe {
                 d.cmd_end_render_pass(cb);
+                if let Some(p) = stamps {
+                    d.cmd_write_timestamp(cb, vk::PipelineStageFlags::BOTTOM_OF_PIPE, p, 1);
+                }
                 d.cmd_pipeline_barrier(
                     cb,
                     vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
@@ -1688,6 +1819,10 @@ impl Gpu {
             }
         });
         mem.trail_skipped.0 += skipped;
+        // What the frame cost the GPU, read now its fence has passed.
+        if submitted.is_ok() {
+            mem.times = mem.read_times(self, crate::timing::Draws(timed.get()));
+        }
         sheets.finished(self);
         // A frame that failed leaves its target holding nothing; the frame
         // drawn last is still the one before it.

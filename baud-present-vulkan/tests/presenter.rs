@@ -609,6 +609,29 @@ fn an_effect_trail_is_drawn_on_the_gpu_arm_once_built() {
         }
     }
     assert_eq!(p.counts().trail.0, 0, "no trail frame for the CPU arm");
+    // What the trail's frame cost the GPU, read from its own queries: the
+    // pass, the trail's draw within it, and its fragments where counted.
+    let times = p.gpu_times();
+    assert!(times.pass > Duration::ZERO, "the pass is timed: {times:?}");
+    assert_eq!(times.effect_draws.0, 1, "one trail draw timed: {times:?}");
+    assert!(
+        times
+            .effect
+            .is_some_and(|e| e > Duration::ZERO && e <= times.pass),
+        "the trail's draw is timed inside its pass: {times:?}"
+    );
+    if gpu.clock.statistics == baud_present_vulkan::vk::Has::Yes {
+        assert!(
+            times.effect_fragments.is_some_and(|f| f.0 > 0),
+            "its fragments are counted: {times:?}"
+        );
+    }
+    // A frame with no trail times no effect.
+    r.set_trail(None);
+    let Frame::Drew(_) = frame(&gpu, &mut p, &mut r, &mut t) else {
+        panic!("drawn")
+    };
+    assert_eq!(p.gpu_times().effect, None, "no trail, no effect timed");
     p.destroy(&gpu);
 }
 

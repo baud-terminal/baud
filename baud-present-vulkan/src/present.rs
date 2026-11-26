@@ -519,6 +519,12 @@ impl Presenter {
         self.pipes.finished()
     }
 
+    /// **What the last frame drawn cost the GPU** (`timing.rs`): its pass and,
+    /// where it drew a trail, the trail's draws and their fragments.
+    pub fn gpu_times(&self) -> crate::timing::GpuTimes {
+        self.mem.times
+    }
+
     /// **What the last frame drawn cost**: from its target in hand to its
     /// fence, the wait on it included.
     pub fn cost(&self) -> std::time::Duration {

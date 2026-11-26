@@ -386,6 +386,8 @@ struct Driver {
     /// Whether the CPU arm's last build drew into the atlas, which effect
     /// pacing leaves out of its average.
     cpu_cold: baud_render::Cold,
+    /// When the GPU arm last logged an effect frame's GPU times.
+    gpu_said: Option<Instant>,
     /// The session bus, for the portal's appearance and the file
     /// manager's reveal; `None` once it is gone or was never there.
     bus: Option<crate::bus::Bus>,
@@ -995,6 +997,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         gpu: crate::gpu_arm::GpuArm::new(std::env::var("BAUD_GPU").ok().as_deref()),
         paced_said: None,
         cpu_cold: baud_render::Cold::No,
+        gpu_said: None,
         timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition)
             .with_trail_scroll(cfg.trail_scroll)
             // Every window's, a new window's process as much as the
@@ -4558,6 +4561,9 @@ impl Driver {
             crate::gpu_arm::Arm::Shown => {
                 if let (Some(drawn), Some((cost, cold))) = (effect, self.gpu.cost()) {
                     self.pace(crate::pacer::PacedArm::Gpu, drawn, (cost, cold), late);
+                    if let Some(times) = self.gpu.gpu_times() {
+                        self.say_gpu_times(drawn, cost, times);
+                    }
                 }
                 self.seat.drawn(self.renderer.bidi());
                 self.timed
@@ -4799,6 +4805,38 @@ impl Driver {
             crate::info!(
                 "effects: {drawn:?} on the {arm:?} arm drawn {divisor:?}, a frame costing {cost:?} against {:?}",
                 self.window.frame_interval()
+            );
+        }
+    }
+
+    /// **What an effect frame on the GPU arm cost the GPU**, at most once a
+    /// second under `BAUD_LOG=debug`: the pass from the command buffer's
+    /// start to its end, the trail's draws inside it and their fragment
+    /// invocations (`baud_present_vulkan::timing`), beside the frame's cost
+    /// from target to fence, whose remainder is recording, submission and
+    /// the queue.
+    fn say_gpu_times(
+        &mut self,
+        drawn: crate::pacer::Paced,
+        cost: Duration,
+        times: baud_present_vulkan::timing::GpuTimes,
+    ) {
+        let now = Instant::now();
+        if self
+            .gpu_said
+            .is_none_or(|t| now.duration_since(t) >= Duration::from_secs(1))
+        {
+            self.gpu_said = Some(now);
+            let (w, h) = self.renderer.whole_size();
+            crate::debug!(
+                "gpu times: {drawn:?} at {}x{}, pass {:?}, trail {:?} over {} draws of {} records, {:?} fragments, frame {cost:?}",
+                w.value(),
+                h.value(),
+                times.pass,
+                times.effect,
+                times.effect_draws.0,
+                self.renderer.trail().len(),
+                times.effect_fragments.map(|f| f.0),
             );
         }
     }
