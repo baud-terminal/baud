@@ -100,6 +100,9 @@ pub fn feed_parts<'r, T: Part>(
 /// ([`paced`]'s `took`).
 pub struct Pace<T = ()> {
     held: std::collections::VecDeque<(Vec<u8>, T)>,
+    /// **The bytes `held` holds, all its reads together**, kept as each
+    /// read is held and as the reads are taken to be fed.
+    held_len: ReadLen,
     until: Option<Instant>,
     input: Input,
     why: Why,
@@ -112,6 +115,8 @@ pub struct Pace<T = ()> {
     wake: Option<crate::kitty_files::Wake>,
     /// Delays ended early by [`HELD_MAX`].
     pub cut: DelaysCut,
+    /// The looks at the held bytes (`Pace::waiting`).
+    pub looks: HeldLooks,
     /// **What the shell's marks have left open**, stepped over each
     /// part's record as it is taken ([`Taken::ran`]), in the order the
     /// parts ran.
@@ -222,6 +227,16 @@ impl DelaysCut {
     pub const NONE: DelaysCut = DelaysCut(0);
 }
 
+/// **How many times the bytes the reads hold were looked at**: one look per
+/// held read walked, or per look at their total, each time a wait asks how
+/// many bytes wait.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct HeldLooks(usize);
+
+impl HeldLooks {
+    pub const NONE: HeldLooks = HeldLooks(0);
+}
+
 /// The bytes a delay may hold before it ends early: four mebibytes, 1,024
 /// reads of `READ_CHUNK`.
 pub const HELD_MAX: usize = 4 << 20;
@@ -230,6 +245,7 @@ impl<T: Copy> Pace<T> {
     pub fn new() -> Pace<T> {
         Pace {
             held: std::collections::VecDeque::new(),
+            held_len: ReadLen::ZERO,
             until: None,
             input: Input::Free,
             why: Why::Delay,
@@ -237,6 +253,7 @@ impl<T: Copy> Pace<T> {
             reading: None,
             wake: None,
             cut: DelaysCut::NONE,
+            looks: HeldLooks::NONE,
             marks: crate::ran::Fold::default(),
             recuts: crate::paths::Recuts::default(),
             #[cfg(all(feature = "effect-probe", target_os = "macos"))]
@@ -300,10 +317,24 @@ impl<T: Copy> Pace<T> {
         }
     }
 
+    /// **The bytes the reads hold**, as each wait weighs them against
+    /// [`HELD_MAX`], counted in [`Pace::looks`].
+    fn waiting(&mut self) -> ReadLen {
+        self.looks = HeldLooks(self.looks.0 + 1);
+        self.held_len
+    }
+
     fn keep(&mut self, bytes: &[u8], tag: T) {
         if !bytes.is_empty() {
             self.held.push_back((bytes.to_vec(), tag));
+            self.held_len = self.held_len.plus(ReadLen::of(bytes));
         }
+    }
+
+    /// **Every read held, taken to be fed**, the total with them.
+    fn take_held(&mut self) -> std::collections::VecDeque<(Vec<u8>, T)> {
+        self.held_len = ReadLen::ZERO;
+        core::mem::take(&mut self.held)
     }
 }
 
@@ -544,7 +575,7 @@ pub fn paced<'r, T: Part>(
     owed(term, &mut sink);
     log.follow(term);
     if pace.input != Input::Free {
-        let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
+        let waiting = pace.waiting().index();
         if term.regis_input() == RegisInput::OneShot {
             if waiting <= HELD_MAX {
                 for (bytes, tag) in reads {
@@ -558,7 +589,7 @@ pub fn paced<'r, T: Part>(
         pace.input = Input::Free;
     }
     if let Some(t) = pace.until {
-        let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
+        let waiting = pace.waiting().index();
         if now < t && waiting <= HELD_MAX {
             for (bytes, tag) in reads {
                 pace.keep(bytes, tag);
@@ -570,7 +601,7 @@ pub fn paced<'r, T: Part>(
         }
         pace.until = None;
     }
-    let held = core::mem::take(&mut pace.held);
+    let held = pace.take_held();
     let mut fed = ended;
     for (bytes, tag) in held.iter() {
         fed = paced_one(
@@ -608,7 +639,7 @@ fn printer_wait<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) 
     let Some(t) = pace.until.filter(|_| pace.why == Why::Printer) else {
         return;
     };
-    let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
+    let waiting = pace.waiting().index();
     if term.printer_asked() == PrinterAsked::Owed && (now >= t || waiting > HELD_MAX) {
         let last = term.printer();
         term.set_printer(last);
@@ -625,7 +656,7 @@ fn notice_wait<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) {
     let Some(t) = pace.until.filter(|_| pace.why == Why::Notices) else {
         return;
     };
-    let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
+    let waiting = pace.waiting().index();
     if term.notices_alive_asked() == NoticeAsked::Owed && (now >= t || waiting > HELD_MAX) {
         term.answer_notices_alive();
         #[cfg(all(feature = "effect-probe", target_os = "macos"))]
@@ -654,7 +685,7 @@ fn kitty_wait<T: Part>(
     let Some(t) = pace.until.filter(|_| pace.why == Why::KittyFile) else {
         return Fed::Nothing;
     };
-    let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
+    let waiting = pace.waiting().index();
     let due = now >= t || waiting > HELD_MAX;
     let drain = match due {
         true => crate::kitty_files::Drain::All,
@@ -2869,6 +2900,101 @@ mod tests {
         );
         assert_eq!((fed, pace.cut), (Fed::Some, DelaysCut(1)));
         assert_eq!(pace.deadline(), None);
+    }
+
+    /// **Reads held through one delay are weighed once each**: `k` reads,
+    /// each in a call of its own before the deadline, look at the held
+    /// bytes `k` times in all, never once per read already held. Break:
+    /// the waits walk the queue for its bytes, a look per read held on
+    /// each call, `k * (k + 1) / 2` with the delay's own terminator.
+    #[test]
+    fn reads_held_through_a_delay_are_weighed_once_each() {
+        let k = 40;
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = Pace::new();
+        let t0 = Instant::now();
+        paced(
+            &mut t,
+            &mut pace,
+            t0,
+            [&b"\x1bPpS(T60)\x1b\\"[..]],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!(pace.deadline(), Some(t0 + Duration::from_secs(1)));
+        for _ in 0..k {
+            let fed = paced(
+                &mut t,
+                &mut pace,
+                t0,
+                [&b"x"[..]],
+                |_| {},
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
+            assert_eq!(fed, Fed::Nothing);
+        }
+        assert_eq!(pace.looks, HeldLooks(k));
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            t0 + Duration::from_secs(1),
+            [],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((fed, row0(&t)), (Fed::Some, "x".repeat(k)));
+    }
+
+    /// **The held total is the bytes the queue holds after every change to
+    /// it**: the rest of a read a delay stops part way through, a read held
+    /// whole behind it, the queue taken at the deadline, and a delay met
+    /// again in a held read, its rest held anew with a read behind it.
+    /// Break: a held read not added to the total, or the total not cleared
+    /// as the queue is taken.
+    #[test]
+    fn the_held_total_is_the_bytes_the_queue_holds() {
+        fn walked<T>(p: &Pace<T>) -> ReadLen {
+            ReadLen::from_index(p.held.iter().map(|(b, _)| b.len()).sum())
+        }
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = Pace::new();
+        let t0 = Instant::now();
+        let second = t0 + Duration::from_secs(1);
+        let third = second + Duration::from_secs(1);
+        let steps: [(Instant, &[&[u8]], &str); 4] = [
+            // Fed part way: `AB` drawn, the rest after the delay held.
+            (t0, &[&b"AB\x1bPpS(T60)\x1b\\CD"[..]], "AB"),
+            // Held whole behind the delay.
+            (t0, &[&b"E\x1bPpS(T60)\x1b\\F"[..]], "AB"),
+            // Taken at the deadline and fed until the delay in `E`'s read,
+            // whose rest is held with `GH` behind it.
+            (second, &[&b"GH"[..]], "ABCDE"),
+            (third, &[], "ABCDEFGH"),
+        ];
+        let mut lens = Vec::new();
+        for (now, reads, row) in steps {
+            paced(
+                &mut t,
+                &mut pace,
+                now,
+                reads.iter().copied(),
+                |_| {},
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
+            assert_eq!(pace.held_len, walked(&pace), "at {row}");
+            assert_eq!(row0(&t), row);
+            lens.push(pace.held_len);
+        }
+        let at = ReadLen::from_index;
+        assert_eq!(lens, [at(4), at(17), at(5), at(0)]);
     }
 
     /// **A call with no read on an idle pace does nothing but clear the
