@@ -899,9 +899,6 @@ fn term_read<T: baud_domain::TermRead + 'static>() {
     let _: for<'a> fn(&'a T, KittyId, KittyPlacement) -> Option<KittyVirtual> = T::kitty_virtual;
     let _: for<'a> fn(&'a T) -> bool = T::kitty_virtuals;
     // present planning
-    let _: for<'a> fn(&'a T) -> Option<CursorGuide> = T::cursor_guide;
-    let _: for<'a> fn(&'a T) -> Option<Highlighted> = T::highlight;
-    let _: for<'a> fn(&'a T) -> RegisBlink = T::regis_blink;
 }
 /// The four reads that return an iterator and the one that takes a
 /// closure: their types cannot be spelled as a fn pointer, so each is

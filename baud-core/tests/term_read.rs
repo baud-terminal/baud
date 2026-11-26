@@ -103,8 +103,6 @@ fn every_read_through_the_trait_answers_as_the_inherent_read() {
     same!(t, primary_zone);
     same!(t, kitty_virtual, KittyId::NONE, KittyPlacement::NONE);
     same!(t, kitty_virtuals);
-    same!(t, highlight);
-    same!(t, regis_blink);
     let kept = t.sealed();
     same!(t, wrote_since, &kept);
 

@@ -286,16 +286,4 @@ impl<'b> TermRead for Term<'b> {
     ) -> PlaceholderRuns<impl Iterator<Item = PlaceholderCell> + 'r> {
         Term::placeholder_runs(self, row, styles)
     }
-
-    fn cursor_guide(&self) -> Option<CursorGuide> {
-        Term::cursor_guide(self)
-    }
-
-    fn highlight(&self) -> Option<Highlighted> {
-        Term::highlight(self)
-    }
-
-    fn regis_blink(&self) -> RegisBlink {
-        Term::regis_blink(self)
-    }
 }

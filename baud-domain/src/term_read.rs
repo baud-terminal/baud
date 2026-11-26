@@ -18,14 +18,14 @@
 
 use crate::{
     AmbiguousWidth, Band, BandsView, BidiDirection, BidiSupport, Chan, ClusterCells, ClusterEpoch,
-    Col, ColorEpoch, ColorModes, Cols, Content, CopyDirection, CursorGuide, CursorStyle,
-    DynamicColor, Found, Highlighted, HistoryErasures, HistoryWipes, ImageAge, ImageGen, ImageId,
-    ImageOrigin, ImageSince, ImageStore, ImageView, KittyId, KittyNumber, KittyPlacement,
-    KittyRoot, KittyVirtual, LineIdx, Needle, PackedCell, PaintRole, PlaceholderCell,
-    PlaceholderRuns, PlacementId, PlacementSlot, ProgramPaint, PromptMark, Reclaims, RegisBlink,
-    Resets, Row, RowGens, RowStyles, Rows, Screen, ScreenEpoch, Seal, SearchLines, SpecialColor,
-    StatusGen, StatusLine, Stride, StringEntry, StringId, StyleWord, StyleWrites, SurfaceLine,
-    TableSerial, UnicodeWidths, Video, Viewport, Vs16Width, WrapPending, Written, Zone,
+    Col, ColorEpoch, ColorModes, Cols, Content, CopyDirection, CursorStyle, DynamicColor, Found,
+    HistoryErasures, HistoryWipes, ImageAge, ImageGen, ImageId, ImageOrigin, ImageSince,
+    ImageStore, ImageView, KittyId, KittyNumber, KittyPlacement, KittyRoot, KittyVirtual, LineIdx,
+    Needle, PackedCell, PaintRole, PlaceholderCell, PlaceholderRuns, PlacementId, PlacementSlot,
+    ProgramPaint, PromptMark, Reclaims, Resets, Row, RowGens, RowStyles, Rows, Screen, ScreenEpoch,
+    Seal, SearchLines, SpecialColor, StatusGen, StatusLine, Stride, StringEntry, StringId,
+    StyleWord, StyleWrites, SurfaceLine, TableSerial, UnicodeWidths, Video, Viewport, Vs16Width,
+    WrapPending, Written, Zone,
 };
 
 /// **A terminal, read**: the reads a renderer makes of a terminal, each
@@ -51,6 +51,27 @@ use crate::{
 /// ```
 /// fn f<T: baud_domain::TermRead>(t: &T) -> bool {
 ///     t.cursor_visible()
+/// }
+/// ```
+///
+/// **A frame's planning inputs are not reads.** The program's cursor guide,
+/// what `?1001` highlights and whether a ReGIS page keeps blinking are read
+/// once by the plan before a frame and handed to it, so a reader holding a
+/// `TermRead` reaches none of them:
+///
+/// ```compile_fail,E0599
+/// fn f<T: baud_domain::TermRead>(t: &T) {
+///     let _ = t.highlight();
+/// }
+/// ```
+/// ```compile_fail,E0599
+/// fn f<T: baud_domain::TermRead>(t: &T) {
+///     let _ = t.cursor_guide();
+/// }
+/// ```
+/// ```compile_fail,E0599
+/// fn f<T: baud_domain::TermRead>(t: &T) {
+///     let _ = t.regis_blink();
 /// }
 /// ```
 ///
@@ -247,15 +268,6 @@ pub trait TermRead {
         row: &'r [PackedCell],
         styles: RowStyles<'r>,
     ) -> PlaceholderRuns<impl Iterator<Item = PlaceholderCell> + 'r>;
-
-    // Present planning.
-
-    /// The cursor guide as a program set it, or `None`.
-    fn cursor_guide(&self) -> Option<CursorGuide>;
-    /// What `?1001` highlights now, or `None`.
-    fn highlight(&self) -> Option<Highlighted>;
-    /// Whether the page shown keeps blinking pixels.
-    fn regis_blink(&self) -> RegisBlink;
 }
 
 /// **The images, read**: the reads a renderer makes of the image store,
