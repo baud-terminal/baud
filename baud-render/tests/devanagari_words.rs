@@ -470,11 +470,14 @@ fn a_selection_lights_exactly_the_syllables_it_selects() {
         for w in &words {
             for (k, &(at, n)) in w.syllables.iter().enumerate() {
                 let row = Row::from_index(1);
-                s.r.set_highlight(Some(Highlight::new(
-                    (row, at),
-                    (row, Col::at_index(at.index() + n.index() - 1)),
-                    Region::Stream,
-                )));
+                s.r.set_highlight(
+                    Some(Highlight::new(
+                        (row, at),
+                        (row, Col::at_index(at.index() + n.index() - 1)),
+                        Region::Stream,
+                    ))
+                    .map(|h| h.span()),
+                );
                 s.draw(|_| {}, &line);
                 let lit: Vec<(i32, i32)> = s.lights(1).iter().map(|l| (l.0, l.1)).collect();
                 assert_eq!(
@@ -524,11 +527,14 @@ fn no_ink_lies_in_the_colour_of_its_ground() {
         bytes.push_str(" हर");
         let cursor = if hit == 7 { 3 } else { 7 };
         bytes.push_str(&format!("\x1b[2;{}H\x1b[?25h", cursor + 1));
-        s.r.set_highlight(Some(Highlight::new(
-            (row, Col::at_index(9)),
-            (row, Col::at_index(10)),
-            Region::Stream,
-        )));
+        s.r.set_highlight(
+            Some(Highlight::new(
+                (row, Col::at_index(9)),
+                (row, Col::at_index(10)),
+                Region::Stream,
+            ))
+            .map(|h| h.span()),
+        );
         s.draw(|_| {}, &bytes);
         let (cw, _) = s.cell();
         let lit = s.lights(1);
@@ -659,11 +665,14 @@ fn a_selection_across_words_leaves_no_hole() {
         let words: Vec<_> = s.r.words_on(Row::from_index(1)).to_vec();
         let (a, b) = (&words[0], &words[1]);
         let row = Row::from_index(1);
-        s.r.set_highlight(Some(Highlight::new(
-            (row, a.at),
-            (row, Col::at_index(b.at.index() + b.cells.index() - 1)),
-            Region::Stream,
-        )));
+        s.r.set_highlight(
+            Some(Highlight::new(
+                (row, a.at),
+                (row, Col::at_index(b.at.index() + b.cells.index() - 1)),
+                Region::Stream,
+            ))
+            .map(|h| h.span()),
+        );
         s.draw(|_| {}, &line);
         let lit = s.lights(1);
         let colour = lit.first().map(|l| l.2).expect("the words are lit");
@@ -695,11 +704,14 @@ fn a_rectangular_selection_lights_each_rows_syllables() {
     let mut s = Scene::new(&faces, &roles, 28.0, &ws);
     let text = format!("\x1b[?25l\x1b[2;3H{README}\x1b[3;3Hअक्षर टर्मिनल को");
     s.draw(|_| {}, &text);
-    s.r.set_highlight(Some(Highlight::new(
-        (Row::from_index(1), Col::at_index(4)),
-        (Row::from_index(2), Col::at_index(5)),
-        Region::Block,
-    )));
+    s.r.set_highlight(
+        Some(Highlight::new(
+            (Row::from_index(1), Col::at_index(4)),
+            (Row::from_index(2), Col::at_index(5)),
+            Region::Block,
+        ))
+        .map(|h| h.span()),
+    );
     s.draw(|_| {}, &text);
     for y in [1usize, 2] {
         let w = &s.r.words_on(Row::from_index(y))[0];

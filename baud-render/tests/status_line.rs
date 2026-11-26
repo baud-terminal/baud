@@ -308,7 +308,7 @@ fn status_drawn(faces: &[Face<'_>], back: Rows, highlight: Option<Highlight>) ->
     scrolled_back(|t| {
         let mut r = support::renderer(faces);
         r.fit(t);
-        r.set_highlight(highlight);
+        r.set_highlight(highlight.map(|h| h.span()));
         let mut c = support::Canvas::for_renderer(&r);
         {
             let mut target = c.target();
@@ -389,7 +389,7 @@ fn a_selection_reaching_below_the_window_leaves_the_status_line_unselected() {
         scrolled_back(|t| {
             let mut r = support::renderer(&faces);
             r.fit(t);
-            r.set_highlight(highlight);
+            r.set_highlight(highlight.map(|h| h.span()));
             let mut out = Vec::new();
             r.status_records(t, None, &mut out);
             out

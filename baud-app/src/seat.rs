@@ -23,7 +23,7 @@ use baud_domain::{
     Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, PointerPx, Row, Rows,
 };
 use baud_font::Px;
-use baud_render::{Clip, Highlight, Press, Scrolled, Selection};
+use baud_render::{Clip, Press, Scrolled, SelectedSpan, Selection};
 use std::time::Duration;
 
 /// **The longest a second press may follow the last release and count as
@@ -1057,7 +1057,7 @@ impl Seat {
     /// **What the frame highlights**: the selection's share of the view
     /// drawn, or, while a program's `?1001` region tracks the mouse, that
     /// region in its place (`keep::tracked_highlight`).
-    pub(crate) fn highlight(&self, term: &Term<'_>) -> Option<Highlight> {
+    pub(crate) fn highlight(&self, term: &Term<'_>) -> Option<SelectedSpan> {
         let back = term.window_back();
         let view = term.view(back);
         let top = self.scrolled.top(back);
@@ -1066,7 +1066,7 @@ impl Seat {
             None => {
                 let beyond = crate::keep::beyond(term, back, self.kept.word_wrap());
                 self.selection
-                    .and_then(|s| s.highlight_reaching(top, view.rows(), view.cols(), beyond))
+                    .and_then(|s| s.span_reaching(top, view.rows(), view.cols(), beyond))
             }
         }
     }
@@ -1078,7 +1078,14 @@ mod tests {
     use baud_core::Owned;
     use baud_domain::EventMillis as Ms;
     use baud_domain::{BytePos, ReadLen, WinSize};
-    use baud_render::Region;
+    use baud_render::{Highlight, Region};
+
+    /// What the seat highlights, clipped to the window it is drawn on.
+    fn drawn(seat: &Seat, t: &Term<'_>) -> Option<Highlight> {
+        let view = t.view(t.window_back());
+        seat.highlight(t)
+            .map(|s| Highlight::of(s, view.rows(), view.cols()))
+    }
 
     /// **The next click is the same button within 250 ms of the last
     /// release**, as xterm's `EvalSelectUnit` counts: 250 counts and 251
@@ -1732,7 +1739,7 @@ mod tests {
             "made: the driver copies it to SELECT"
         );
         assert_eq!(seat.selected_text(&t).as_deref(), Some("hello"));
-        let h = seat.highlight(&t).expect("drawn");
+        let h = drawn(&seat, &t).expect("drawn");
         assert_eq!(
             (h.from, h.to),
             ((Row::ZERO, Col::ZERO), (Row::ZERO, Col::at_index(4)))
@@ -1768,7 +1775,7 @@ mod tests {
             Some("world"),
             "a double click's word is made too"
         );
-        let h = seat.highlight(&t).expect("the word");
+        let h = drawn(&seat, &t).expect("the word");
         assert_eq!(
             (h.from, h.to),
             (
@@ -2478,7 +2485,7 @@ mod tests {
                 Some("line 1"),
                 "{sizes:?}"
             );
-            let h = seat.highlight(&t).expect("drawn");
+            let h = drawn(&seat, &t).expect("drawn");
             assert_eq!(
                 h.from.0,
                 Row::ZERO,
@@ -2603,7 +2610,7 @@ mod tests {
             put(seat, t, down(Pressed::Left, at), mods);
             put(seat, t, Input::Moved(31.0, 21.0), mods);
             put(seat, t, up(Pressed::Left, at), mods);
-            seat.highlight(t).expect("drawn")
+            drawn(seat, t).expect("drawn")
         };
         let shift_alt = alt.with(Modifiers::SHIFT);
         let h = block(&mut seat, &mut t, shift_alt, Ms::of_millis(1000));
@@ -2804,7 +2811,7 @@ mod tests {
             NONE,
         );
         assert_eq!(seat.selected_text(&t).as_deref(), Some("YYYYYYYY"));
-        let h = seat.highlight(&t).expect("drawn");
+        let h = drawn(&seat, &t).expect("drawn");
         let shown = order.view(&t, Rows::ZERO).row(Row::ZERO).to_vec();
         let lit: Vec<bool> = (0..13)
             .map(|x| {

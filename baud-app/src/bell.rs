@@ -183,19 +183,7 @@ impl Moment for Instant {
     }
 }
 
-/// Whether a synchronised update is open, and if it is, whether the driver
-/// still honours it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Update {
-    /// No update is open.
-    Closed,
-    /// One is open and its hold younger than the driver's bound: its frames
-    /// are held.
-    Honoured,
-    /// One is open and its hold older than the bound: the driver draws
-    /// through it, and what it held is on screen.
-    Outlived,
-}
+pub use baud_domain::Update;
 
 /// Whether a hold check found a `?5` change made past the hold's bound.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

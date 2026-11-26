@@ -52,8 +52,8 @@ use baud_present_wayland::{Changed, Px};
 use baud_render::cell_frame::{CellInputs, CellParts, build_with};
 use baud_render::screens::{SETS, Screens, SetIx};
 use baud_render::{
-    Candidate, Composition, GlyphMap, Highlight, Instance, Kind, Leaving, Lent, Overlay, Redraw,
-    Renderer, StyleStamp,
+    Candidate, Composition, GlyphMap, Instance, Kind, Leaving, Lent, Overlay, Redraw, Renderer,
+    SelectedSpan, StyleStamp,
 };
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
@@ -173,7 +173,7 @@ pub enum Owes {
 /// echoes. No pan and no leaving row: the Linux driver draws none.
 pub struct Inputs<'i> {
     pub back: Rows,
-    pub highlight: Option<Highlight>,
+    pub highlight: Option<SelectedSpan>,
     pub composition: &'i Option<Composition>,
     pub predictions: &'i [(Row, Col, Codepoint)],
 }
@@ -478,7 +478,7 @@ impl Presenter {
             predictions: inputs.predictions.iter().copied(),
             live,
             composition: inputs.composition,
-            highlight: inputs.highlight,
+            highlight: renderer.highlight(),
             leaving: Leaving::None,
             pan: FontPx::of(0),
         };
@@ -515,7 +515,7 @@ impl Presenter {
             ring: frame.ring,
             cursor: frame.cursor,
             cursor_drawn: self.exceptions.cursor_drawn(),
-            highlight: inputs.highlight,
+            highlight: renderer.highlight(),
             records: &self.records,
             grounds: &self.grounds,
             under: self.exceptions.under(),

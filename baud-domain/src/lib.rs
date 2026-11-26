@@ -126,6 +126,7 @@ mod font;
 #[cfg(feature = "alloc")]
 mod foreign;
 mod frame;
+mod frame_plan;
 mod frozen;
 pub mod gif;
 mod grapheme;
@@ -296,6 +297,7 @@ pub use font::*;
 #[cfg(feature = "alloc")]
 pub use foreign::*;
 pub use frame::*;
+pub use frame_plan::*;
 pub use frozen::*;
 pub use grapheme::*;
 pub use grid::*;

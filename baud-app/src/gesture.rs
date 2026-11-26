@@ -360,8 +360,8 @@ pub(crate) fn select(
     // line is single-width, as every line of a paragraph re-broken is.
     let past = match at.row(view.rows()) {
         Some(_) => None,
-        None => at
-            .line(top)
+        None => top
+            .at_window_line(at)
             .and_then(|line| baud_render::row_of(term, scrolled, line).map(|(r, _)| (line, r))),
     };
     let row = at

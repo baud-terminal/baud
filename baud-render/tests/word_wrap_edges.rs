@@ -414,8 +414,8 @@ fn a_selection_above_the_window_is_painted_on_its_first_line() {
         usize::try_from(m.cell_w.value()).unwrap(),
         usize::try_from(m.cell_h.value()).unwrap(),
     );
-    let mut lit_cells = |t: &mut Term<'_>, h| {
-        r.set_highlight(h);
+    let mut lit_cells = |t: &mut Term<'_>, h: Option<baud_render::Highlight>| {
+        r.set_highlight(h.map(|h| h.span()));
         let lit = paint(&mut r, t);
         let mut cells: Vec<(usize, usize)> = (0..plain.len())
             .filter(|&i| plain[i] != lit[i])
@@ -600,10 +600,10 @@ fn a_change_past_the_window_repaints_the_line_it_is_drawn_on() {
     );
     let mut r = renderer(&faces);
     let mut kept = paint(&mut r, &mut t);
-    r.set_highlight(h);
+    r.set_highlight(h.map(|h| h.span()));
     paint_over(&mut r, &mut t, &mut kept, Damage::Incremental);
     let mut whole = renderer(&faces);
-    whole.set_highlight(h);
+    whole.set_highlight(h.map(|h| h.span()));
     assert!(
         kept == paint(&mut whole, &mut t),
         "the selection: painted over is painted whole"

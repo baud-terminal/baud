@@ -368,22 +368,16 @@ pub fn live_cursor(term: &Term<'_>) -> Option<(Row, Col)> {
     }
 }
 
-/// **The cursor as a frame presents it**: its cell, `None` where it is not
-/// drawn ([`live_cursor`]), and its style, the shape with the blink `?12`
-/// folds in (`Term::cursor_style`). What [`Caret::present`] compares.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct PresentedCursor {
-    at: Option<(Row, Col)>,
-    style: CursorStyle,
-}
+pub use baud_domain::PresentedCursor;
 
-impl PresentedCursor {
-    /// The cursor a frame of `term` drawn now presents.
-    pub fn of(term: &Term<'_>) -> PresentedCursor {
-        PresentedCursor {
-            at: live_cursor(term),
-            style: term.cursor_style(),
-        }
+/// **The cursor a frame of `term` drawn now presents**: its cell, `None`
+/// where it is not drawn ([`live_cursor`]), and its style, the shape with
+/// the blink `?12` folds in (`Term::cursor_style`). What
+/// [`Caret::present`] compares.
+pub fn presented_cursor(term: &Term<'_>) -> PresentedCursor {
+    PresentedCursor {
+        at: live_cursor(term),
+        style: term.cursor_style(),
     }
 }
 
@@ -1856,7 +1850,7 @@ mod tests {
                 "app.rs",
                 crate::app_source::app_source(),
                 "self.caret.plan(seen_at, blinks);",
-                "PresentedCursor::of(",
+                "presented_cursor(",
             ),
             (
                 "linux.rs",
@@ -1868,7 +1862,7 @@ mod tests {
                 "film.rs",
                 include_str!("film.rs"),
                 "caret.plan(now, blinks);",
-                "PresentedCursor::of(",
+                "presented_cursor(",
             ),
         ];
         for (name, src, plan, presented) in plans {

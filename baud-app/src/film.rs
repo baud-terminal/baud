@@ -959,7 +959,7 @@ fn play(
             crate::caret::blinks(term.cursor_style(), Focus::Gained, visible.then_some(()));
         // The cursor this frame presents restarts the cycle if it is not
         // the one the last frame did (`Caret::present`).
-        caret.present(now, crate::caret::PresentedCursor::of(&term));
+        caret.present(now, crate::caret::presented_cursor(&term));
         let phase = caret.plan(now, blinks);
         r.set_cursor_blink(phase);
         r.set_highlight(seat.highlight(&term));

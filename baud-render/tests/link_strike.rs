@@ -247,7 +247,7 @@ fn a_struck_links_text_is_grey_in_its_cells_and_the_selection_wins() {
         Region::Stream,
     );
     // The selection with nothing struck: the reference for its cells.
-    r.set_highlight(Some(sel));
+    r.set_highlight(Some(sel.span()));
     paint(&mut r, &mut t, &mut px, Damage::Full);
     let selected = |r: &Renderer<'_, '_>| {
         (10..=12)

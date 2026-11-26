@@ -20,6 +20,7 @@
 use baud_core::{SurfaceLine, TextMoved, WatchedLines};
 use baud_domain::TermRead;
 use baud_domain::{Col, Cols, Content, CopyDirection, PackedCell, Row, Rows, Viewport, Wrap};
+pub use baud_domain::{SelectedSpan, SpanShape as Region, WindowLine};
 
 use std::rc::Rc;
 
@@ -58,6 +59,31 @@ impl AbsLine {
     /// The line before this one; `None` above the session's first.
     pub fn above(self) -> Option<AbsLine> {
         self.0.checked_sub(1).map(AbsLine)
+    }
+
+    /// Absolute line `line` counted from a window whose top is this line.
+    pub fn window_line(self, line: AbsLine) -> WindowLine {
+        let top = WindowLine::of(Row::ZERO);
+        let count = |d: u64| Rows::of_count(usize::try_from(d).unwrap_or(usize::MAX));
+        match line.0.checked_sub(self.0) {
+            Some(d) => top.down(count(d)),
+            None => top.up(count(self.0 - line.0)),
+        }
+    }
+
+    /// The absolute line `l` is on a window whose top is this line; none
+    /// before the session's first.
+    pub fn at_window_line(self, l: WindowLine) -> Option<AbsLine> {
+        let top = WindowLine::of(Row::ZERO);
+        match l.since(top) {
+            Some(n) => Some(self.plus(n)),
+            None => {
+                let n = top.since(l)?;
+                self.0
+                    .checked_sub(u64::try_from(n.index()).ok()?)
+                    .map(AbsLine)
+            }
+        }
     }
 }
 
@@ -145,69 +171,6 @@ impl Scrolled {
     /// history behind the live screen.
     pub fn oldest(self, retained: Rows) -> AbsLine {
         AbsLine(self.0).minus(retained)
-    }
-}
-
-/// **A stored line counted from the window's top**: a row of the window,
-/// or a line that many above its top or past its last row. The display's
-/// word wrap ([`crate::rebreak`]) draws cells of such lines on the window's
-/// own: the rows of its first paragraph above it on its first line, and,
-/// while it looks back, the rows of its last paragraph below it on its
-/// last; a selection, a find mark and a pointer name them by this.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
-pub struct WindowLine(isize);
-
-impl WindowLine {
-    /// Window row `r`.
-    pub fn of(r: Row) -> WindowLine {
-        WindowLine(isize::try_from(r.index()).unwrap_or(isize::MAX))
-    }
-
-    /// The line `n` above this one.
-    pub fn up(self, n: Rows) -> WindowLine {
-        WindowLine(
-            self.0
-                .saturating_sub(isize::try_from(n.index()).unwrap_or(isize::MAX)),
-        )
-    }
-
-    /// The line `n` below this one.
-    pub fn down(self, n: Rows) -> WindowLine {
-        WindowLine(
-            self.0
-                .saturating_add(isize::try_from(n.index()).unwrap_or(isize::MAX)),
-        )
-    }
-
-    /// The window row this line is, of a window `rows` tall; none above its
-    /// top or past its last row.
-    pub fn row(self, rows: Rows) -> Option<Row> {
-        usize::try_from(self.0)
-            .ok()
-            .filter(|&y| y < rows.index())
-            .map(Row::from_index)
-    }
-
-    /// How many lines this is below `earlier`; none above it.
-    pub fn since(self, earlier: WindowLine) -> Option<Rows> {
-        let d = self.0.checked_sub(earlier.0)?;
-        usize::try_from(d).ok().map(Rows::of_count)
-    }
-
-    /// Absolute line `line` counted from a window whose top is `top`.
-    pub fn between(top: AbsLine, line: AbsLine) -> WindowLine {
-        let d = i128::from(line.0) - i128::from(top.0);
-        WindowLine(isize::try_from(d).unwrap_or(match d < 0 {
-            true => isize::MIN,
-            false => isize::MAX,
-        }))
-    }
-
-    /// The absolute line this is on a window whose top is `top`; none
-    /// before the session's first.
-    pub fn line(self, top: AbsLine) -> Option<AbsLine> {
-        let d = i128::from(top.0) + i128::try_from(self.0).ok()?;
-        u64::try_from(d).ok().map(AbsLine)
     }
 }
 
@@ -397,15 +360,6 @@ pub enum Grain {
     Cell,
     Word,
     Line,
-}
-
-/// Whether a selection runs in reading order or is a rectangle of columns.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Region {
-    /// Contiguous, from one cell to another in row-major order.
-    Stream,
-    /// Every row between the endpoints, over one range of columns.
-    Block,
 }
 
 /// What a left press does to the selection on screen.
@@ -599,6 +553,27 @@ impl Selection {
         cols: Cols,
         beyond: Beyond,
     ) -> Option<Highlight> {
+        self.span_reaching(top, rows, cols, beyond)
+            .map(|span| Highlight::of(span, rows, cols))
+    }
+
+    /// The selection's span on a view whose top row is `top`
+    /// ([`Selection::span_reaching`] with no line past it).
+    pub fn span(&self, top: AbsLine, rows: Rows, cols: Cols) -> Option<SelectedSpan> {
+        self.span_reaching(top, rows, cols, Beyond::NONE)
+    }
+
+    /// **The selection's span on a view whose top row is `top`**: its ends
+    /// counted from the window's top, unclipped, each column within the
+    /// view's; `None` when none of it is on the screen or on the lines
+    /// `beyond` it that the display may draw on the window's own.
+    pub fn span_reaching(
+        &self,
+        top: AbsLine,
+        rows: Rows,
+        cols: Cols,
+        beyond: Beyond,
+    ) -> Option<SelectedSpan> {
         let (start, end) = self.ordered();
         let last_line = top.plus(Rows::of_count(rows.index().saturating_sub(1)));
         if end.line < top.minus(beyond.above)
@@ -609,44 +584,10 @@ impl Selection {
         }
         let last_col = Col::at_index(cols.index().saturating_sub(1));
         let col = |c: Col| Col::at_index(c.index().min(last_col.index()));
-        let ends = (
-            (WindowLine::between(top, start.line), col(start.col)),
-            (WindowLine::between(top, end.line), col(end.col)),
-        );
-        if end.line < top || start.line > last_line {
-            return Some(Highlight {
-                from: (Row::from_index(1), Col::ZERO),
-                to: (Row::ZERO, Col::ZERO),
-                region: self.region,
-                ends,
-            });
-        }
-        if self.region == Region::Block {
-            // Rows clipped to the view, and the same columns on every row.
-            let first = start.line.max(top);
-            let last = end.line.min(last_line);
-            return Some(Highlight {
-                from: (row_in(top, first), col(start.col)),
-                to: (row_in(top, last), col(end.col)),
-                region: Region::Block,
-                ends,
-            });
-        }
-        let from = if start.line < top {
-            (Row::ZERO, Col::ZERO)
-        } else {
-            (row_in(top, start.line), col(start.col))
-        };
-        let to = if end.line > last_line {
-            (Row::from_index(rows.index() - 1), last_col)
-        } else {
-            (row_in(top, end.line), col(end.col))
-        };
-        Some(Highlight {
-            from,
-            to,
-            region: Region::Stream,
-            ends,
+        Some(SelectedSpan {
+            from: (top.window_line(start.line), col(start.col)),
+            to: (top.window_line(end.line), col(end.col)),
+            shape: self.region,
         })
     }
 
@@ -760,11 +701,12 @@ impl Selection {
     }
 }
 
-/// A selection on one view, in screen coordinates, both ends inclusive:
+/// **A selected span on one window**: the span's ends and shape, and its
+/// corners clipped to the window's rows ([`corners`]), both ends inclusive:
 /// a stream's in row-major order, a block's its top-left and bottom-right
-/// corners. What the renderers draw from. The region is part of equality,
-/// so the renderer's damage repaints a switch between the two over the
-/// same corners.
+/// corners. What the renderers draw from, built where the renderer takes
+/// the span. The region is part of equality, so the renderer's damage
+/// repaints a switch between the two over the same corners.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Highlight {
     /// The corners clipped to the window's rows: what the cell shader's
@@ -794,24 +736,36 @@ impl Highlight {
         }
     }
 
+    /// `span` on a window `rows` tall and `cols` wide: its ends, and its
+    /// corners clipped to the window's rows ([`corners`]).
+    pub fn of(span: SelectedSpan, rows: Rows, cols: Cols) -> Highlight {
+        let (from, to) = corners(&span, rows, cols);
+        Highlight {
+            from,
+            to,
+            region: span.shape,
+            ends: (span.from, span.to),
+        }
+    }
+
+    /// The span this highlights: its unclipped ends and its shape.
+    pub fn span(&self) -> SelectedSpan {
+        SelectedSpan {
+            from: self.ends.0,
+            to: self.ends.1,
+            shape: self.region,
+        }
+    }
+
     /// Whether the cell at `(r, c)` is inside the selection's geometry.
     pub fn contains(&self, r: Row, c: Col) -> bool {
-        self.contains_line(WindowLine::of(r), c)
+        self.span().contains(r, c)
     }
 
     /// Whether column `c` of stored line `l`, the window's or one past it,
     /// is inside the selection's geometry.
     pub fn contains_line(&self, l: WindowLine, c: Col) -> bool {
-        let ((fl, fc), (tl, tc)) = self.ends;
-        match self.region {
-            Region::Stream => {
-                let p = (l, c.index());
-                p >= (fl, fc.index()) && p <= (tl, tc.index())
-            }
-            Region::Block => {
-                l >= fl && l <= tl && c.index() >= fc.index() && c.index() <= tc.index()
-            }
-        }
+        self.span().contains_line(l, c)
     }
 
     /// Whether the cell at `(r, c)`, holding `content`, is drawn selected:
@@ -827,12 +781,7 @@ impl Highlight {
     /// [`Highlight::selects`] for column `c` of stored line `l`, the
     /// window's or one past it that the display draws on a window line.
     pub fn selects_line(&self, l: WindowLine, c: Col, content: Content) -> bool {
-        let c = if content.is_wide_tail() && c.index() > 0 {
-            Col::at_index(c.index() - 1)
-        } else {
-            c
-        };
-        self.contains_line(l, c)
+        self.span().selects_line(l, c, content)
     }
 
     /// Whether any cell of screen row `r` is selected.
@@ -841,8 +790,38 @@ impl Highlight {
     }
 }
 
-fn row_in(top: AbsLine, line: AbsLine) -> Row {
-    Row::from_index(usize::try_from(line.0.saturating_sub(top.0)).unwrap_or(usize::MAX))
+/// **`span`'s corners clipped to a window `rows` tall and `cols` wide**:
+/// what the cell shader's uniforms carry. A block keeps its columns on
+/// every row; a stream cut by the window's top starts at the first row's
+/// first column, and one cut by its bottom ends at the last row's last.
+/// Where none of the window's rows is selected, the first corner is after
+/// the second, so no cell of the window is between them.
+pub fn corners(span: &SelectedSpan, rows: Rows, cols: Cols) -> ((Row, Col), (Row, Col)) {
+    let (start, end) = (span.from, span.to);
+    let top = WindowLine::of(Row::ZERO);
+    let last = Row::from_index(rows.index().saturating_sub(1));
+    let last_line = WindowLine::of(last);
+    if end.0 < top || start.0 > last_line {
+        return ((Row::from_index(1), Col::ZERO), (Row::ZERO, Col::ZERO));
+    }
+    let row = |l: WindowLine| l.row(rows).unwrap_or(last);
+    match span.shape {
+        Region::Block => (
+            (row(start.0.max(top)), start.1),
+            (row(end.0.min(last_line)), end.1),
+        ),
+        Region::Stream => {
+            let from = match start.0 < top {
+                true => (Row::ZERO, Col::ZERO),
+                false => (row(start.0), start.1),
+            };
+            let to = match end.0 > last_line {
+                true => (last, Col::at_index(cols.index().saturating_sub(1))),
+                false => (row(end.0), end.1),
+            };
+            (from, to)
+        }
+    }
 }
 
 /// **Each copied row's cells in the order they are drawn, from the right
@@ -1376,6 +1355,81 @@ mod tests {
             s.highlight(AbsLine::at(Rows::of_count(9)), rows, cols)
                 .is_none()
         );
+    }
+
+    /// **A span's clipped corners are the window's share of its ends**: for
+    /// a span above, inside, below and across the window's edges, stream
+    /// and block, the corners the span gives on the window's rows equal the
+    /// corners the selection's highlight carries, and a span of the window's
+    /// own rows gives back the corners it was built from.
+    #[test]
+    fn a_span_s_corners_are_the_highlight_s() {
+        let rows = Rows::of_count(4);
+        let cols = Cols::of_index(10);
+        let top = AbsLine::at(Rows::of_count(10));
+        let beyond = Beyond {
+            above: Rows::of_count(3),
+            below: Rows::of_count(3),
+        };
+        let at = |r: usize, c: usize| (Row::from_index(r), Col::at_index(c));
+        let none = (at(1, 0), at(0, 0));
+        let cases = [
+            ("above", (7, 2), (8, 5), Region::Stream, none),
+            (
+                "inside",
+                (11, 3),
+                (12, 4),
+                Region::Stream,
+                (at(1, 3), at(2, 4)),
+            ),
+            ("below", (15, 0), (16, 1), Region::Stream, none),
+            (
+                "across the top",
+                (8, 5),
+                (11, 2),
+                Region::Stream,
+                (at(0, 0), at(1, 2)),
+            ),
+            (
+                "across the bottom",
+                (12, 4),
+                (15, 6),
+                Region::Stream,
+                (at(2, 4), at(3, 9)),
+            ),
+            (
+                "a block across both",
+                (8, 2),
+                (15, 6),
+                Region::Block,
+                (at(0, 2), at(3, 6)),
+            ),
+            ("a block below", (14, 2), (15, 6), Region::Block, none),
+        ];
+        for (name, (l0, c0), (l1, c1), region, want) in cases {
+            let point =
+                |l: usize, c: usize| Point::new(AbsLine::at(Rows::of_count(l)), Col::at_index(c));
+            let mut s = Selection::at(
+                Span {
+                    start: point(l0, c0),
+                    end: point(l1, c1),
+                },
+                Grain::Cell,
+            );
+            s.region = region;
+            let h = s.highlight_reaching(top, rows, cols, beyond).expect(name);
+            assert_eq!((h.from, h.to), want, "{name}: the highlight");
+            let span = s.span_reaching(top, rows, cols, beyond).expect(name);
+            assert_eq!(corners(&span, rows, cols), want, "{name}: the span");
+        }
+        for (from, to, region) in [
+            (at(0, 3), at(2, 7), Region::Stream),
+            (at(1, 2), at(3, 5), Region::Block),
+        ] {
+            let h = Highlight::new(from, to, region);
+            let span = SelectedSpan::on_window(from, to, region);
+            assert_eq!(corners(&span, rows, cols), (h.from, h.to), "{region:?}");
+        }
     }
 
     #[test]

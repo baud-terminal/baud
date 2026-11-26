@@ -2084,6 +2084,111 @@ const _: fn(
     baud_domain::HostTime,
     core::time::Duration,
 ) -> baud_domain::NoticeAliveStep = baud_domain::notice_alive_step;
+// The frame's plan: CursorShown, PresentedCursor, TrailCursor, CursorPlan,
+// ImeRect, Update, ScrollWindow, ScrollbarPlan, Carry, ScreenMove,
+// SplashGate, WindowLine, SpanShape, SelectedSpan, PointerState,
+// WindowEffect, Effects
+const _: baud_domain::CursorShown = baud_domain::CursorShown::Yes;
+const _: baud_domain::CursorShown = baud_domain::CursorShown::No;
+const _: baud_domain::PresentedCursor = baud_domain::PresentedCursor {
+    at: Some((baud_domain::Row::ZERO, baud_domain::Col::ZERO)),
+    style: baud_domain::CursorStyle::SteadyBlock,
+};
+const _: baud_domain::TrailCursor =
+    baud_domain::TrailCursor::Shown(baud_domain::Row::ZERO, baud_domain::Col::ZERO);
+const _: baud_domain::TrailCursor =
+    baud_domain::TrailCursor::Placed(baud_domain::Row::ZERO, baud_domain::Col::ZERO);
+const _: fn(baud_domain::TrailCursor) -> (baud_domain::Row, baud_domain::Col) =
+    baud_domain::TrailCursor::cell;
+const _: fn(baud_domain::TrailCursor, baud_domain::CursorStyle) -> baud_domain::CursorStyle =
+    baud_domain::TrailCursor::style;
+const _: baud_domain::CursorPlan = baud_domain::CursorPlan {
+    at: (baud_domain::Row::ZERO, baud_domain::Col::ZERO),
+    style: baud_domain::CursorStyle::SteadyBlock,
+    shown: baud_domain::CursorShown::Yes,
+    presented: baud_domain::PresentedCursor {
+        at: None,
+        style: baud_domain::CursorStyle::SteadyBlock,
+    },
+    followed: None,
+};
+const _: fn(baud_domain::CursorPlan) -> Option<(baud_domain::Row, baud_domain::Col)> =
+    baud_domain::CursorPlan::drawn;
+const _: fn((baud_domain::Row, baud_domain::Col), baud_domain::Cols) -> baud_domain::ImeRect =
+    |at, width| baud_domain::ImeRect { at, width };
+const _: baud_domain::Update = baud_domain::Update::Closed;
+const _: baud_domain::Update = baud_domain::Update::Honoured;
+const _: baud_domain::Update = baud_domain::Update::Outlived;
+const _: baud_domain::ScrollWindow = baud_domain::ScrollWindow {
+    retained: baud_domain::Rows::ZERO,
+    back: baud_domain::Rows::ZERO,
+    rows: baud_domain::Rows::ZERO,
+};
+const _: fn(baud_domain::ScrollWindow) -> baud_domain::ScrollbarPlan =
+    |window| baud_domain::ScrollbarPlan { window };
+const _: baud_domain::Carry = baud_domain::Carry::Up(baud_domain::Rows::ZERO);
+const _: baud_domain::Carry = baud_domain::Carry::Down(baud_domain::Rows::ZERO);
+const _: fn(baud_domain::Carry, baud_domain::Row) -> baud_domain::Row = baud_domain::Carry::row;
+const _: fn(
+    baud_domain::Cols,
+    baud_domain::Rows,
+    baud_domain::Rows,
+    Option<baud_domain::Carry>,
+) -> baud_domain::ScreenMove = |cols, rows, back, carried| baud_domain::ScreenMove {
+    cols,
+    rows,
+    back,
+    carried,
+};
+const _: baud_domain::SplashGate = baud_domain::SplashGate::Waiting;
+const _: baud_domain::SplashGate = baud_domain::SplashGate::Drawn;
+const _: fn(baud_domain::Row) -> baud_domain::WindowLine = baud_domain::WindowLine::of;
+const _: fn(baud_domain::WindowLine, baud_domain::Rows) -> baud_domain::WindowLine =
+    baud_domain::WindowLine::up;
+const _: fn(baud_domain::WindowLine, baud_domain::Rows) -> baud_domain::WindowLine =
+    baud_domain::WindowLine::down;
+const _: fn(baud_domain::WindowLine, baud_domain::Rows) -> Option<baud_domain::Row> =
+    baud_domain::WindowLine::row;
+const _: fn(baud_domain::WindowLine, baud_domain::WindowLine) -> Option<baud_domain::Rows> =
+    baud_domain::WindowLine::since;
+const _: baud_domain::SpanShape = baud_domain::SpanShape::Stream;
+const _: baud_domain::SpanShape = baud_domain::SpanShape::Block;
+const _: fn(
+    (baud_domain::WindowLine, baud_domain::Col),
+    (baud_domain::WindowLine, baud_domain::Col),
+    baud_domain::SpanShape,
+) -> baud_domain::SelectedSpan = |from, to, shape| baud_domain::SelectedSpan { from, to, shape };
+const _: fn(
+    (baud_domain::Row, baud_domain::Col),
+    (baud_domain::Row, baud_domain::Col),
+    baud_domain::SpanShape,
+) -> baud_domain::SelectedSpan = baud_domain::SelectedSpan::on_window;
+const _: fn(&baud_domain::SelectedSpan, baud_domain::Row, baud_domain::Col) -> bool =
+    baud_domain::SelectedSpan::contains;
+const _: fn(&baud_domain::SelectedSpan, baud_domain::WindowLine, baud_domain::Col) -> bool =
+    baud_domain::SelectedSpan::contains_line;
+const _: fn(
+    &baud_domain::SelectedSpan,
+    baud_domain::Row,
+    baud_domain::Col,
+    baud_domain::Content,
+) -> bool = baud_domain::SelectedSpan::selects;
+const _: fn(
+    &baud_domain::SelectedSpan,
+    baud_domain::WindowLine,
+    baud_domain::Col,
+    baud_domain::Content,
+) -> bool = baud_domain::SelectedSpan::selects_line;
+const _: baud_domain::PointerState = baud_domain::PointerState::Shown(None);
+const _: fn(String) -> baud_domain::WindowEffect = baud_domain::WindowEffect::Title;
+const _: baud_domain::WindowEffect =
+    baud_domain::WindowEffect::Pointer(baud_domain::PointerState::Shown(None));
+const _: fn(&mut baud_domain::Effects, baud_domain::WindowEffect) = baud_domain::Effects::push;
+const _: for<'a> fn(
+    &'a mut baud_domain::Effects,
+) -> std::vec::Drain<'a, baud_domain::WindowEffect> = baud_domain::Effects::drain;
+const _: fn() -> baud_domain::Effects = <baud_domain::Effects as Default>::default;
+
 /// Each type that holds a rule, and the error code its witness expects.
 const WITNESSED: &[(&str, &str)] = &[
     ("ExportToplevel", "E0451"),
@@ -2239,6 +2344,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("Tracked", "E0599"),
     ("Variants", "E0603"),
     ("WalkSteps", "E0423"),
+    ("WindowEffect", "E0004"),
     ("Width", "E0603"),
     ("WrapMargins", "E0451"),
 ];

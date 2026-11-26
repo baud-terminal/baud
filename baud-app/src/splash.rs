@@ -168,7 +168,7 @@ impl Splash {
         motion: SystemMotion,
     ) -> Option<SplashLook> {
         let gate = match self.gated(motion) {
-            true => SplashGate::of(term),
+            true => gate(term),
             false => SplashGate::Waiting,
         };
         self.look_gated(now, gate, motion)
@@ -476,20 +476,14 @@ impl LaunchLog {
     }
 }
 
+pub(crate) use baud_domain::SplashGate;
+
 /// **Whether the shell has drawn**, read by the frame's plan while the
 /// splash holds for it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum SplashGate {
-    Waiting,
-    Drawn,
-}
-
-impl SplashGate {
-    pub(crate) fn of(term: &Term<'_>) -> SplashGate {
-        match drawn(term) {
-            true => SplashGate::Drawn,
-            false => SplashGate::Waiting,
-        }
+pub(crate) fn gate(term: &Term<'_>) -> SplashGate {
+    match drawn(term) {
+        true => SplashGate::Drawn,
+        false => SplashGate::Waiting,
     }
 }
 

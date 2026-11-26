@@ -6,7 +6,7 @@
 //! flip (`timed.rs`). Pure, so the tests run on every platform.
 
 use baud_core::Term;
-use baud_domain::{Chan, Col, RegisPhase, Row, Rows};
+use baud_domain::{Chan, RegisPhase, Rows};
 use baud_render::Blinking;
 use baud_render::{Blink, BlinkPhases, GuideLook, Window};
 
@@ -500,35 +500,7 @@ pub(crate) fn window_of(term: &Term<'_>) -> Window {
     }
 }
 
-/// The cursor a trail follows, while the window is on the live screen.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum TrailCursor {
-    /// The cursor as it is drawn.
-    Shown(Row, Col),
-    /// Where a program put the cursor before it hid it
-    /// (`Term::placed_cursor`): helix's selection, where helix draws its own
-    /// block. Never drawn here -- the program hid it.
-    Placed(Row, Col),
-}
-
-impl TrailCursor {
-    pub(crate) fn cell(self) -> (Row, Col) {
-        match self {
-            TrailCursor::Shown(r, c) | TrailCursor::Placed(r, c) => (r, c),
-        }
-    }
-
-    /// The shape the trail arrives at: the drawn cursor's own, and the whole
-    /// cell for a placement, because the program draws a block there whatever
-    /// shape the terminal's cursor is configured to -- the smear's hole has to
-    /// be that block, or a bar-shaped hole leaves the trail over it.
-    pub(crate) fn style(self, drawn: baud_core::CursorStyle) -> baud_core::CursorStyle {
-        match self {
-            TrailCursor::Shown(..) => drawn,
-            TrailCursor::Placed(..) => baud_core::CursorStyle::SteadyBlock,
-        }
-    }
-}
+pub(crate) use baud_domain::TrailCursor;
 
 /// **The cursor a trail follows**: the one drawn, and while it is hidden,
 /// where a program placed it before hiding it. Helix hides the terminal's

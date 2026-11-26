@@ -7,7 +7,7 @@
 
 use baud_core::{HistoryMark, Resource, Screen, SurfaceLine, Term};
 use baud_domain::{Col, Cols, Row, RowRot, Rows};
-use baud_render::{AbsLine, Clip, Grain, Highlight, Point, Scrolled, Selection, Span};
+use baud_render::{AbsLine, Clip, Grain, Point, Scrolled, SelectedSpan, Selection, Span};
 
 pub(crate) use baud_core::Moved as Ring;
 
@@ -672,7 +672,7 @@ pub(crate) fn tracked_highlight(
     term: &Term<'_>,
     scrolled: Scrolled,
     back: Rows,
-) -> Option<Highlight> {
+) -> Option<SelectedSpan> {
     let h = term.highlight()?;
     let point = |c: baud_core::CellAt| Point::new(scrolled.line(Rows::ZERO, c.row), c.col);
     let (a, b) = (point(h.start), point(h.end));
@@ -681,7 +681,7 @@ pub(crate) fn tracked_highlight(
         end: a.max(b),
     };
     let view = term.view(back);
-    Selection::at(span, Grain::Cell).highlight(scrolled.top(back), view.rows(), view.cols())
+    Selection::at(span, Grain::Cell).span(scrolled.top(back), view.rows(), view.cols())
 }
 
 /// Whether a read reset the terminal -- `RIS`, from either screen -- by the
@@ -711,7 +711,6 @@ pub(crate) fn snap_live(term: &mut Term<'_>) -> bool {
 /// selection's highlight (`tracked_highlight`).
 #[cfg(test)]
 mod highlight_tests {
-    use super::tracked_highlight;
     use baud_core::{CellAt, MouseButton, MouseEvent, MouseKind, MouseMods, Owned, Term};
     use baud_domain::{BytePos, Col, ReadLen, Row, Rows, WinSize};
     use baud_render::{Highlight, Region, Scrolled};
@@ -741,6 +740,13 @@ mod highlight_tests {
             px: None,
         });
         t.clear_reply();
+    }
+
+    /// The program's region on the window `back` lines up, clipped to it.
+    fn tracked_highlight(t: &Term<'_>, scrolled: Scrolled, back: Rows) -> Option<Highlight> {
+        let view = t.view(back);
+        super::tracked_highlight(t, scrolled, back)
+            .map(|s| Highlight::of(s, view.rows(), view.cols()))
     }
 
     /// The stream highlight from one cell to another, as the view draws it.

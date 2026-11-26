@@ -219,7 +219,7 @@ fn draw_themed(setup: impl FnOnce(&mut Term), lit: Option<Highlight>, theme: The
     let faces = [Face::parse(&data).unwrap()];
     let mut r = renderer(&faces);
     r.set_theme(theme);
-    r.set_highlight(lit);
+    r.set_highlight(lit.map(|h| h.span()));
     let m = r.metrics();
     let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
     let mut c = Canvas::for_renderer(&r);

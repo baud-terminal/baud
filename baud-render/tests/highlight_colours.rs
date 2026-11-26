@@ -54,11 +54,14 @@ fn selected_in(theme: Theme, osc: &[u8]) -> (Argb, Argb, u32) {
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, b"\x1b[?25l\x1b[38;2;205;0;0m\xe2\x96\x88\x1b[0m ");
     feed(&mut t, osc);
-    r.set_highlight(Some(Highlight::new(
-        (Row::ZERO, Col::at_index(0)),
-        (Row::ZERO, Col::at_index(1)),
-        Region::Stream,
-    )));
+    r.set_highlight(
+        Some(Highlight::new(
+            (Row::ZERO, Col::at_index(0)),
+            (Row::ZERO, Col::at_index(1)),
+            Region::Stream,
+        ))
+        .map(|h| h.span()),
+    );
     let (w, h) = r.pixel_size();
     let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     {
@@ -162,7 +165,7 @@ fn an_incremental_frame_after_osc_17_equals_a_full_repaint() {
     let (w, h) = inc.pixel_size();
     let n = usize::try_from(w.value() * h.value()).unwrap();
     let (mut a, mut b) = (vec![0u32; n], vec![0u32; n]);
-    inc.set_highlight(sel);
+    inc.set_highlight(sel.map(|h| h.span()));
     let seal = t.seal_writes();
     inc.render(
         &t,
@@ -184,7 +187,7 @@ fn an_incremental_frame_after_osc_17_equals_a_full_repaint() {
             &mut Target::new(&mut a, w, w, h).unwrap(),
             Damage::Incremental,
         );
-        full.set_highlight(sel);
+        full.set_highlight(sel.map(|h| h.span()));
         let seal = t.seal_writes();
         full.render(
             &t,

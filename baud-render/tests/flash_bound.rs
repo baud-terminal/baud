@@ -861,11 +861,15 @@ fn a_repeat_pass_over_a_selection_is_capped_against_its_colours() {
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, b"\x1b[?25l\x1b]12;rgb:00/00/00\x07");
         let mut r = renderer(&faces);
-        r.set_highlight(selection.then_some(baud_render::Highlight::new(
-            (Row::from_index(2), Col::at_index(0)),
-            (Row::from_index(7), Col::at_index(29)),
-            baud_render::Region::Stream,
-        )));
+        r.set_highlight(
+            selection
+                .then_some(baud_render::Highlight::new(
+                    (Row::from_index(2), Col::at_index(0)),
+                    (Row::from_index(7), Col::at_index(29)),
+                    baud_render::Region::Stream,
+                ))
+                .map(|h| h.span()),
+        );
         let bare = paint(&mut r, &mut t);
         r.set_trail(Some(over_rows(&r)));
         let _ = paint(&mut r, &mut t);

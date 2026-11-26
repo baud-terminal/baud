@@ -4,7 +4,7 @@
 use crate::access::{Contrast, MotionSource, motion_override, system_motion};
 use crate::bar::Took;
 use crate::bell::{Bell, Rings, Update, UpdateClock};
-use crate::caret::{Caret, Cycle, Gate, NonBlinking, Owes, PresentedCursor, live_cursor};
+use crate::caret::{Caret, Cycle, Gate, NonBlinking, Owes, live_cursor, presented_cursor};
 use crate::effects::{
     Composed, SwitchForm, TrailCursor, regis_phase, switch_at, switch_form, text_blink,
     trail_cursor, window_of,
@@ -2595,11 +2595,12 @@ impl App {
                     let wrap = self.renderer.word_wrap();
                     let beyond = crate::keep::beyond(&self.term, back, wrap);
                     self.selection
-                        .and_then(|s| s.highlight_reaching(top, view.rows(), view.cols(), beyond))
+                        .and_then(|s| s.span_reaching(top, view.rows(), view.cols(), beyond))
                 }
             }
         };
         self.renderer.set_highlight(highlight);
+        let highlight = self.renderer.highlight();
         // iTerm2's cursor guide: what a program set, else `[cursor] guide`.
         let guide = self.term.cursor_guide().unwrap_or(self.cursor_guide);
         self.renderer
@@ -2950,7 +2951,7 @@ impl App {
         );
         // The cursor this frame presents restarts the cycle if it is not
         // the one the last frame did (`Caret::present`).
-        self.caret.present(seen_at, PresentedCursor::of(&self.term));
+        self.caret.present(seen_at, presented_cursor(&self.term));
         let caret = self.caret.plan(seen_at, blinks);
         self.renderer.set_cursor_blink(caret);
         // Image placements for this view, for the two GPU arms: both read the
@@ -5954,7 +5955,7 @@ fn frame_trail(
     if let Some(c) = carry {
         *trail = trail.map(|st| TrailState {
             to: (c.row(st.to.0), st.to.1),
-            origin_dy: st.origin_dy + c.px(cell.1),
+            origin_dy: st.origin_dy + crate::carried::carry_px(c, cell.1),
             ..st
         });
     }

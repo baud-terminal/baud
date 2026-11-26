@@ -696,13 +696,17 @@ fn hinted(
         hints,
         caret: Caret::End,
     }));
-    r.set_highlight(selected.map(|(a, b)| {
-        Highlight::new(
-            (row, baud_domain::Col::at_index(a)),
-            (row, baud_domain::Col::at_index(b)),
-            Region::Stream,
-        )
-    }));
+    r.set_highlight(
+        selected
+            .map(|(a, b)| {
+                Highlight::new(
+                    (row, baud_domain::Col::at_index(a)),
+                    (row, baud_domain::Col::at_index(b)),
+                    Region::Stream,
+                )
+            })
+            .map(|h| h.span()),
+    );
     let mut c = Canvas::for_renderer(r);
     support::paint(r, &mut t, &mut c, Damage::Full);
     r.set_composition(None);
@@ -877,13 +881,17 @@ fn with_caret(
         hints: Vec::new(),
         caret,
     }));
-    r.set_highlight(selected.map(|(a, b)| {
-        Highlight::new(
-            (row, baud_domain::Col::at_index(a)),
-            (row, baud_domain::Col::at_index(b)),
-            Region::Stream,
-        )
-    }));
+    r.set_highlight(
+        selected
+            .map(|(a, b)| {
+                Highlight::new(
+                    (row, baud_domain::Col::at_index(a)),
+                    (row, baud_domain::Col::at_index(b)),
+                    Region::Stream,
+                )
+            })
+            .map(|h| h.span()),
+    );
     let mut c = Canvas::for_renderer(r);
     support::paint(r, &mut t, &mut c, Damage::Full);
     r.set_composition(None);

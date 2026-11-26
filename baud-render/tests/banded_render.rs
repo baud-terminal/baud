@@ -222,7 +222,10 @@ fn wrapped_and_right_to_left_text_paints_as_one_table_does() {
                 scrolled.line(back, Row::from_index(24)),
                 Col::at_index(30),
             ));
-            r.set_highlight(sel.highlight(top, view.rows(), view.cols()));
+            r.set_highlight(
+                sel.highlight(top, view.rows(), view.cols())
+                    .map(|h| h.span()),
+            );
         }
     };
     for back in [Rows::ZERO, Rows::of_index(10)] {

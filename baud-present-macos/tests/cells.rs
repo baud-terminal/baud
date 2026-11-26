@@ -434,7 +434,8 @@ impl Arms<'_, '_> {
             .renderer
             .bidi()
             .window_kept(t, self.back, &mut self.drawn);
-        self.renderer.set_highlight(self.highlight);
+        self.renderer
+            .set_highlight(self.highlight.map(|h| h.span()));
         self.renderer.set_cursor_guide(self.guide);
         self.renderer.set_badge(self.badge.clone());
         self.renderer.set_scrollbar(self.window);

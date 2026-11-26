@@ -211,8 +211,8 @@ pub use scrollbar::{
 };
 pub use seeded::{HashSeed, Map, Seeded, fix_hash_seed};
 pub use select::{
-    AbsLine, Beyond, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,
-    WindowLine, char_col, row_of, row_styles_of,
+    AbsLine, Beyond, Clip, Grain, Highlight, Point, Press, Region, Scrolled, SelectedSpan,
+    Selection, Span, WindowLine, char_col, corners, row_of, row_styles_of,
 };
 pub use splash::{SplashLook, SplashPhase};
 pub use stack::{

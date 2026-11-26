@@ -539,7 +539,7 @@ impl Timed {
             },
             style: term.cursor_style(),
             splash: match self.splash.gated(self.motion) {
-                true => crate::splash::SplashGate::of(term),
+                true => crate::splash::gate(term),
                 false => crate::splash::SplashGate::Waiting,
             },
             fireworks: crate::fireworks::FireworksAsked::of(term),
@@ -618,7 +618,7 @@ impl Timed {
         if let Some(c) = carried {
             self.ghost = self.ghost.map(|g| Ghost {
                 to: (c.row(g.to.0), g.to.1),
-                origin_dy: g.origin_dy + c.px(cell.px.1),
+                origin_dy: g.origin_dy + crate::carried::carry_px(c, cell.px.1),
                 ..g
             });
         }
@@ -738,25 +738,7 @@ impl Timed {
     }
 }
 
-/// **The thumb's window over the history**, read by the plan while the
-/// program shows a scrollbar.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ScrollbarPlan {
-    pub(crate) window: baud_render::Window,
-}
-
-/// **The screen the trail moves over**: its size, the rows the window
-/// looks back, and how far the program's scroll took the followed
-/// cursor's line since the last plan.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ScreenMove {
-    /// Read by the Linux driver's frame, which sizes the copied signal by it.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    pub(crate) cols: baud_domain::Cols,
-    pub(crate) rows: Rows,
-    pub(crate) back: Rows,
-    pub(crate) carried: Option<crate::carried::Carry>,
-}
+pub(crate) use baud_domain::{ScreenMove, ScrollbarPlan};
 
 /// **What a frame's timed effects read of the screen**, from the plan:
 /// none of them reads the terminal.

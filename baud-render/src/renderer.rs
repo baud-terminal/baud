@@ -4399,9 +4399,12 @@ pub struct Renderer<'f, 'a> {
     /// changed still dirties the cursor's row.
     cursor_look: CursorLook,
     last_cursor_look: CursorLook,
-    /// The selection on this frame's view, set by [`Renderer::set_highlight`]
-    /// before a convert, and the one the last convert drew -- a row whose
-    /// share of it changed is dirty, the cursor's own rule.
+    /// The span to draw selected, as [`Renderer::set_highlight`] took it.
+    span: Option<crate::select::SelectedSpan>,
+    /// The selection on this frame's view -- the span clipped to the main
+    /// display's rows ([`Highlight::of`]), again whenever their count
+    /// changes -- set before a convert, and the one the last convert drew:
+    /// a row whose share of it changed is dirty, the cursor's own rule.
     highlight: Option<Highlight>,
     last_highlight: Option<Highlight>,
     /// The colours the selection draws in, read from the terminal each frame
@@ -5088,6 +5091,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_cursor_opacity: Chan::from_u8(0xFF),
             cursor_look: CursorLook::Shaped,
             last_cursor_look: CursorLook::Shaped,
+            span: None,
             highlight: None,
             last_highlight: None,
             hilite: Hilite::REVERSE,
@@ -5587,11 +5591,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The selection to draw on the next frame, in the view's screen
     /// coordinates, or none. One rule on every path: a selected cell's
     /// resolved colours swap, before the block cursor's own swap.
-    pub fn set_highlight(&mut self, highlight: Option<Highlight>) {
+    pub fn set_highlight(&mut self, span: Option<crate::select::SelectedSpan>) {
+        self.span = span;
+        let highlight = self.clipped_span();
         if highlight != self.highlight {
             self.overlay_set(OverlayChanges::SELECTION);
         }
         self.highlight = highlight;
+    }
+
+    /// The span set, clipped to the main display's rows and its columns.
+    fn clipped_span(&self) -> Option<Highlight> {
+        self.span.map(|s| Highlight::of(s, self.main, self.cols))
     }
 
     /// **`overlay` set otherwise since the last frame was built**: named
@@ -5600,8 +5611,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.overlays_set = self.overlays_set.union(overlay);
     }
 
-    /// The selection the next frame draws ([`Renderer::set_highlight`]).
-    pub(crate) fn highlight(&self) -> Option<Highlight> {
+    /// The selection the next frame draws ([`Renderer::set_highlight`]),
+    /// clipped to the main display's rows.
+    pub fn highlight(&self) -> Option<Highlight> {
         self.highlight
     }
 
@@ -11554,6 +11566,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.main = main;
             self.known = Prev::Unknown;
         }
+        self.highlight = self.clipped_span();
     }
 
     /// The main display's rows, above the status line's.

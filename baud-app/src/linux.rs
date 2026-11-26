@@ -1727,7 +1727,7 @@ impl Driver {
                 self.composing_caret,
             ),
         };
-        let cursor = plan::CursorPlan::of(&self.term, composed.as_ref());
+        let cursor = plan::cursor_plan(&self.term, composed.as_ref());
         let highlight = self.seat.highlight(&self.term);
         // A `selection` the badge names reads what a copy would copy.
         let selection = || self.seat.selected_text(&self.term);
@@ -4517,9 +4517,11 @@ impl Driver {
         self.caret.present(seen_at, frame.cursor.presented);
         let caret = self.caret.plan(seen_at, blinks);
         self.renderer.set_cursor_blink(caret);
-        // The selection's share of the view, or `?1001`'s region.
-        let highlight = frame.highlight;
-        self.renderer.set_highlight(highlight);
+        // The selection's span on the view, or `?1001`'s region, and its
+        // share of the view as the renderer clipped it.
+        let span = frame.highlight;
+        self.renderer.set_highlight(span);
+        let highlight = self.renderer.highlight();
         // iTerm2's cursor guide: what a program set, else `[cursor] guide`,
         // its one point at a point's pixels (`type_px`).
         let scale = self.scale.factor();
@@ -4587,7 +4589,7 @@ impl Driver {
         // cursor, the last stands. While the find field is open both are
         // the field's: the composition in it, the window at its caret.
         let m = self.renderer.metrics();
-        let rect = frame.ime.map(|r| r.px(m.cell_w, m.cell_h));
+        let rect = frame.ime.map(|r| plan::ime_px(r, m.cell_w, m.cell_h));
         self.renderer
             .set_composition(self.plan_text.preedit.clone());
         // In the surface's points, "surface local coordinates": the grid
@@ -4681,7 +4683,7 @@ impl Driver {
         }
         let inputs = baud_present_vulkan::present::Inputs {
             back: moved.back,
-            highlight,
+            highlight: span,
             composition: &self.plan_text.preedit,
             predictions: &[],
         };

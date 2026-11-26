@@ -364,7 +364,7 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
         let held = self.held.as_mut().expect("the arms' memory");
         let r = &mut self.renderer;
         r.fit(t);
-        r.set_highlight(self.highlight);
+        r.set_highlight(self.highlight.map(|h| h.span()));
         r.set_composition(self.composition.clone());
         let seal = t.seal_writes();
         r.set_images(t, self.back);

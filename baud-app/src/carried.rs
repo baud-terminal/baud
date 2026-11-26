@@ -65,28 +65,13 @@ const BORDERS: [u32; 8] = [0x7C, 0x2502, 0x2503, 0x2551, 0x2506, 0x2507, 0x250A,
 /// A cell nothing was written to, read as the space it shows.
 const BLANK: u32 = 0x20;
 
-/// **How far a program's scroll took the text under the cursor**, rows.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Carry {
-    Up(Rows),
-    Down(Rows),
-}
+pub(crate) use baud_domain::Carry;
 
-impl Carry {
-    /// The pixels it moved the text, y down, on cells `cell_h` tall.
-    pub(crate) fn px(self, cell_h: f32) -> f32 {
-        match self {
-            Carry::Up(n) => -(n.index() as f32) * cell_h,
-            Carry::Down(n) => n.index() as f32 * cell_h,
-        }
-    }
-
-    /// Where it took row `r`: never above the first.
-    pub(crate) fn row(self, r: Row) -> Row {
-        match self {
-            Carry::Up(n) => Row::from_index(r.index().saturating_sub(n.index())),
-            Carry::Down(n) => Row::from_index(r.index() + n.index()),
-        }
+/// The pixels `carry` moved the text, y down, on cells `cell_h` tall.
+pub(crate) fn carry_px(carry: Carry, cell_h: f32) -> f32 {
+    match carry {
+        Carry::Up(n) => -(n.index() as f32) * cell_h,
+        Carry::Down(n) => n.index() as f32 * cell_h,
     }
 }
 
@@ -420,7 +405,7 @@ pub(crate) fn rebase<M: Moment>(
     cell_h: f32,
 ) -> Option<Carry> {
     let c = c?;
-    chase.rebase(c.px(cell_h));
+    chase.rebase(carry_px(c, cell_h));
     *last = last.map(|(r, col)| (c.row(r), col));
     Some(c)
 }

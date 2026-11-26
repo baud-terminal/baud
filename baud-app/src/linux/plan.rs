@@ -8,73 +8,43 @@
 //! cursor, and the visual bell, the thumb, the trail's screen, the splash
 //! and the fireworks are timed from what the plan read.
 
-use baud_core::{CursorStyle, Term};
-use baud_domain::{Col, Cols, CursorGuide, RegisBlink, Row, Seal};
+use baud_core::Term;
+use baud_domain::{CursorGuide, RegisBlink, Row, Seal, SelectedSpan};
+pub(crate) use baud_domain::{
+    CursorPlan, CursorShown as Shown, Effects, ImeRect, PointerState, WindowEffect,
+};
 use baud_font::Px;
-use baud_render::{Composition, FindLook, Highlight, LinkHover, LinkLine, LinkLook, TipLook};
+use baud_render::{Composition, FindLook, LinkHover, LinkLine, LinkLook, TipLook};
 
-/// Whether a cursor is on the screen being drawn: the live screen's while
-/// `DECTCEM` shows it, or the status line's while DECSASD selects the line.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Shown {
-    Yes,
-    No,
-}
-
-/// **The cursor a frame draws**: the cell it is drawn in, its style, whether
-/// one is on the screen, and the cursor as the caret compares it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) struct CursorPlan {
-    /// The cell the cursor is drawn in: the status line's row while
-    /// DECSASD selects the line, else the input method's caret in its
-    /// composition while one is drawn at the cursor, else the cursor's.
-    pub(crate) at: (Row, Col),
-    pub(crate) style: CursorStyle,
-    pub(crate) shown: Shown,
-    pub(crate) presented: crate::caret::PresentedCursor,
-    /// The cursor a trail follows, `None` while the window looks back.
-    pub(crate) followed: Option<crate::effects::TrailCursor>,
-}
-
-impl CursorPlan {
-    /// The cursor a frame of `term` drawn now draws, `composed` the
-    /// composition drawn at its cursor, if one is.
-    pub(crate) fn of(term: &Term<'_>, composed: Option<&Composition>) -> CursorPlan {
-        let on_line = term.status_line().and_then(|l| l.cursor);
-        let at = match on_line {
-            Some(c) => (Row::from_index(term.geometry().1.index()), c),
-            None => composed
-                .and_then(|c| c.cursor(c.width_on(&term.view(term.window_back()))))
-                .unwrap_or(term.cursor()),
-        };
-        let shown = match term.cursor_visible() || on_line.is_some() {
-            true => Shown::Yes,
-            false => Shown::No,
-        };
-        // The trail starts where the cursor is drawn; a hidden one's is
-        // where the program placed it, and none while the window looks back.
-        let followed = match (term.window_back().index() != 0, shown) {
-            (true, _) => None,
-            (false, Shown::Yes) => Some(crate::effects::TrailCursor::Shown(at.0, at.1)),
-            (false, Shown::No) => term
-                .placed_cursor()
-                .map(|(r, c)| crate::effects::TrailCursor::Placed(r, c)),
-        };
-        CursorPlan {
-            at,
-            style: term.cursor_style(),
-            shown,
-            presented: crate::caret::PresentedCursor::of(term),
-            followed,
-        }
-    }
-
-    /// The cell the cursor is drawn in, `None` where none is on the screen.
-    pub(crate) fn drawn(self) -> Option<(Row, Col)> {
-        match self.shown {
-            Shown::Yes => Some(self.at),
-            Shown::No => None,
-        }
+/// **The cursor a frame of `term` drawn now draws**, `composed` the
+/// composition drawn at its cursor, if one is.
+pub(crate) fn cursor_plan(term: &Term<'_>, composed: Option<&Composition>) -> CursorPlan {
+    let on_line = term.status_line().and_then(|l| l.cursor);
+    let at = match on_line {
+        Some(c) => (Row::from_index(term.geometry().1.index()), c),
+        None => composed
+            .and_then(|c| c.cursor(c.width_on(&term.view(term.window_back()))))
+            .unwrap_or(term.cursor()),
+    };
+    let shown = match term.cursor_visible() || on_line.is_some() {
+        true => Shown::Yes,
+        false => Shown::No,
+    };
+    // The trail starts where the cursor is drawn; a hidden one's is
+    // where the program placed it, and none while the window looks back.
+    let followed = match (term.window_back().index() != 0, shown) {
+        (true, _) => None,
+        (false, Shown::Yes) => Some(crate::effects::TrailCursor::Shown(at.0, at.1)),
+        (false, Shown::No) => term
+            .placed_cursor()
+            .map(|(r, c)| crate::effects::TrailCursor::Placed(r, c)),
+    };
+    CursorPlan {
+        at,
+        style: term.cursor_style(),
+        shown,
+        presented: crate::caret::presented_cursor(term),
+        followed,
     }
 }
 
@@ -86,8 +56,8 @@ pub(crate) struct FramePlan {
     /// The cursor guide: the program's, else the configured one.
     pub(crate) guide: CursorGuide,
     pub(crate) regis_blink: RegisBlink,
-    /// The selection's share of the window, or `?1001`'s region.
-    pub(crate) highlight: Option<Highlight>,
+    /// The selection's span on the window, or `?1001`'s region.
+    pub(crate) highlight: Option<SelectedSpan>,
     /// The write generation this frame closed, before its first read.
     pub(crate) seal: Seal,
     /// Where the input method's candidate window is asked to open; `None`
@@ -105,21 +75,10 @@ pub(crate) struct FramePlan {
     pub(crate) fireworks: crate::fireworks::FireworksAsked,
 }
 
-/// **The cells an input method's candidate window is asked to open over**:
-/// its caret's or its range's in the composition as drawn, the cursor's
-/// with none, the find field's caret while the field is open.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) struct ImeRect {
-    pub(crate) at: (Row, Col),
-    pub(crate) width: Cols,
-}
-
-impl ImeRect {
-    /// As `[x, y, width, height]` in pixels from the grid's top-left
-    /// corner, for a cell `w` by `h` pixels.
-    pub(crate) fn px(self, w: Px, h: Px) -> [Px; 4] {
-        crate::marked::cells_rect(self.at, self.width, w, h)
-    }
+/// `rect` as `[x, y, width, height]` in pixels from the grid's top-left
+/// corner, for a cell `w` by `h` pixels.
+pub(crate) fn ime_px(rect: ImeRect, w: Px, h: Px) -> [Px; 4] {
+    crate::marked::cells_rect(rect.at, rect.width, w, h)
 }
 
 /// **A held window's line**, and the cursor's row it is placed against.
@@ -167,39 +126,6 @@ pub(crate) enum Planned {
     Held,
     /// What the next frame shows.
     Frame(FramePlan),
-}
-
-/// **The pointer's state over the window**: the shape the session
-/// resolved, a previewed link's or the program's, or none for the window's
-/// own.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum PointerState {
-    Shown(Option<baud_core::PointerShape>),
-}
-
-/// **What the plan decided the window does**, applied by the frame once.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub(crate) enum WindowEffect {
-    /// The window's title, pushed when it changed.
-    Title(String),
-    /// The pointer's shape over the window.
-    Pointer(PointerState),
-}
-
-/// **The window effects owed**, pushed by the plan and drained by the
-/// frame, in the order pushed; the queue keeps its allocation.
-#[derive(Default, Debug)]
-pub(crate) struct Effects(Vec<WindowEffect>);
-
-impl Effects {
-    pub(crate) fn push(&mut self, effect: WindowEffect) {
-        self.0.push(effect);
-    }
-
-    /// Every effect owed, once: none is left for the next frame.
-    pub(crate) fn drain(&mut self) -> std::vec::Drain<'_, WindowEffect> {
-        self.0.drain(..)
-    }
 }
 
 #[cfg(test)]
@@ -300,7 +226,7 @@ mod tests {
                 false => None,
             };
             assert_eq!(composed.is_some(), composing, "{name}: composed");
-            let planned = CursorPlan::of(&t, composed.as_ref());
+            let planned = cursor_plan(&t, composed.as_ref());
             assert_eq!(drawn(&mut t, composed.as_ref()), planned.drawn(), "{name}");
             let trail = planned.followed.map(crate::effects::TrailCursor::cell);
             assert_eq!(trail, planned.drawn(), "{name}: the trail");

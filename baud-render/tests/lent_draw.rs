@@ -625,7 +625,7 @@ fn a_row_left_is_painted_again_in_every_buffer() {
         Region::Stream,
     );
     for x in [&mut r, &mut whole] {
-        x.set_highlight(Some(selection));
+        x.set_highlight(Some(selection.span()));
         x.set_blink(hidden);
     }
     for k in 0..3 {

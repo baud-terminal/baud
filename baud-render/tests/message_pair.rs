@@ -542,11 +542,14 @@ fn a_pulse_recolours_the_selection_and_no_field() {
     )
     .unwrap();
     r.fit(&t);
-    r.set_highlight(Some(Highlight::new(
-        (Row::ZERO, Col::ZERO),
-        (Row::ZERO, Col::at_index(3)),
-        Region::Stream,
-    )));
+    r.set_highlight(
+        Some(Highlight::new(
+            (Row::ZERO, Col::ZERO),
+            (Row::ZERO, Col::at_index(3)),
+            Region::Stream,
+        ))
+        .map(|h| h.span()),
+    );
     let field = tip(Hints::SELECTION);
     r.set_tip(Some(field.clone()));
     let (w, h) = r.pixel_size();

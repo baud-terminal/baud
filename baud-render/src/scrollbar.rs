@@ -14,12 +14,7 @@ use baud_font::Px;
 
 /// Where the window is: the lines retained behind the live screen, how
 /// many of them it is up, and the screen's rows.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Window {
-    pub retained: Rows,
-    pub back: Rows,
-    pub rows: Rows,
-}
+pub type Window = baud_domain::ScrollWindow;
 
 /// The thumb, in pixels of the frame.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

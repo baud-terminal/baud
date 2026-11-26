@@ -138,11 +138,14 @@ fn set(r: &mut Renderer<'_, '_>, t: &Term<'_>, look: &Look) {
         }
         Strike::Selected => {
             r.set_link_strikes(&line, &[]);
-            r.set_highlight(Some(Highlight::new(
-                (row(), Col::at_index(0)),
-                (row(), Col::at_index(COLS - 1)),
-                Region::Stream,
-            )));
+            r.set_highlight(
+                Some(Highlight::new(
+                    (row(), Col::at_index(0)),
+                    (row(), Col::at_index(COLS - 1)),
+                    Region::Stream,
+                ))
+                .map(|h| h.span()),
+            );
         }
     }
 }
@@ -551,18 +554,22 @@ fn set_links(r: &mut Renderer<'_, '_>, t: &Term<'_>, h: &Host) {
         }
     });
     r.set_link_hover(hover.as_ref());
-    r.set_highlight(l.selected.map(|a| {
-        let row = line_at(t, h.back, a).row;
-        let from = match l.selected_from {
-            SelectionStart::Row => 0,
-            SelectionStart::Edge => EDGE,
-        };
-        Highlight::new(
-            (row, Col::at_index(from)),
-            (row, Col::at_index(COLS - 1)),
-            Region::Stream,
-        )
-    }));
+    r.set_highlight(
+        l.selected
+            .map(|a| {
+                let row = line_at(t, h.back, a).row;
+                let from = match l.selected_from {
+                    SelectionStart::Row => 0,
+                    SelectionStart::Edge => EDGE,
+                };
+                Highlight::new(
+                    (row, Col::at_index(from)),
+                    (row, Col::at_index(COLS - 1)),
+                    Region::Stream,
+                )
+            })
+            .map(|h| h.span()),
+    );
 }
 
 /// The theme `p` names.

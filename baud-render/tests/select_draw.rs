@@ -56,11 +56,14 @@ fn a_blocks_edge_never_cuts_a_wide_character_in_two() {
     let view = t.viewport();
     assert!(view.row(Row::from_index(1))[2].content.is_wide_tail());
     assert!(view.row(Row::from_index(2))[3].content.is_wide_tail());
-    r.set_highlight(Some(Highlight::new(
-        (Row::ZERO, Col::at_index(2)),
-        (Row::from_index(3), Col::at_index(2)),
-        Region::Block,
-    )));
+    r.set_highlight(
+        Some(Highlight::new(
+            (Row::ZERO, Col::at_index(2)),
+            (Row::from_index(3), Col::at_index(2)),
+            Region::Block,
+        ))
+        .map(|h| h.span()),
+    );
     let _ = r.convert(&t, Rows::ZERO, Damage::Full);
     let bg = r.background();
     let at = |row: usize, col: usize| bg[row * usize::from(WS.ws_col) + col];
@@ -122,11 +125,14 @@ fn a_selected_line_takes_the_floored_background_a_letter_does() {
             &mut t,
             "\x1b[?25l\x1b[38;2;21;22;27mx\u{2502}\r\nx\u{2502}".as_bytes(),
         );
-        r.set_highlight(Some(Highlight::new(
-            (Row::from_index(1), Col::at_index(0)),
-            (Row::from_index(1), Col::at_index(1)),
-            Region::Stream,
-        )));
+        r.set_highlight(
+            Some(Highlight::new(
+                (Row::from_index(1), Col::at_index(0)),
+                (Row::from_index(1), Col::at_index(1)),
+                Region::Stream,
+            ))
+            .map(|h| h.span()),
+        );
         let mut canvas = support::Canvas::for_renderer(&r);
         support::paint(&mut r, &mut t, &mut canvas, Damage::Full);
         let m = r.metrics();
