@@ -2716,8 +2716,11 @@ impl Driver {
         let title = crate::print::job_title(&window, job.cut, Default::default());
         let parent = print_parent(self.window.exported());
         crate::info!("print: the dialog, its parent {parent:?}");
-        bus.prepare_print(&parent, &title);
+        let ended = bus.prepare_print(&parent, &title);
         self.print_dialog = PrintDialog::Asked { job, title };
+        if let Some(h) = ended {
+            self.heard(h);
+        }
     }
 
     /// **The dialog's choices: the job as a PDF on its paper, printed**
@@ -2754,14 +2757,14 @@ impl Driver {
             }
         };
         let parent = print_parent(self.window.exported());
-        let sent = self
-            .bus
-            .as_mut()
-            .is_some_and(|b| b.print(&parent, &title, file, token));
+        let sent = match self.bus.as_mut() {
+            Some(b) => b.print(&parent, &title, file, token),
+            None => Err("no session bus".into()),
+        };
         match sent {
-            true => self.print_dialog = PrintDialog::Printing,
-            false => {
-                crate::warn!("print: not printed: the session bus does not pass files");
+            Ok(()) => self.print_dialog = PrintDialog::Printing,
+            Err(e) => {
+                crate::warn!("print: not printed: {e}");
                 self.print_next();
             }
         }

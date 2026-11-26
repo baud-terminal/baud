@@ -72,9 +72,10 @@ use std::os::unix::net::UnixStream;
 
 use baud_domain::dbus::{
     ADD_MATCH, Array, AuthSent, AuthStep, Body, Boolean, BusName, Byte, Bytes, CLOSE_NOTIFICATION,
-    Connection, Dict, Double, Emit, EncodeError, Encoded, FdAnswer, FdoNotify, FdsAgreed,
-    GET_CAPABILITIES, Handshake, HolderChange, I32, ImageData, Inbound, InterfaceName, MemberName,
-    NOTIFY, Negotiating, NoFds, ObjectPath, Peer, Return, Str, Trusted, U32, Variant, auth_line,
+    Connection, Dict, Double, Emit, EncodeError, Encoded, FdAnswer, FdIndex, FdoNotify, FdsAgreed,
+    GET_CAPABILITIES, Handle, HandleToken, Handshake, HolderChange, I32, ImageData, Inbound,
+    InterfaceName, MemberName, MethodCall, NOTIFY, Negotiating, NoFds, ObjectPath, Peer,
+    RequestPath, ResponseCode, Return, Signal, Str, Trusted, U32, UnixFd, Variant, auth_line,
 };
 
 /// The portal's `color-scheme`.
@@ -230,6 +231,41 @@ pub(crate) struct PageSetup {
     pub(crate) right: Option<f64>,
 }
 
+impl PageSetup {
+    /// The page setup the portal's answer holds, each key the codec read
+    /// as millimetres.
+    fn of(p: baud_domain::dbus::PageSetup) -> PageSetup {
+        let mm = |m: Option<baud_domain::PaperMm>| m.map(baud_domain::PaperMm::get);
+        PageSetup {
+            width: mm(p.width),
+            height: mm(p.height),
+            top: mm(p.top),
+            bottom: mm(p.bottom),
+            left: mm(p.left),
+            right: mm(p.right),
+        }
+    }
+}
+
+/// **How many `Response`s carried a code the Request protocol does not
+/// give** (`[[source: xdg-portal-request]]` gives 0, 1 and 2): each ended
+/// its exchange as failed, and the failure says the count.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) struct UnknownCodes(u32);
+
+impl std::fmt::Display for UnknownCodes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl UnknownCodes {
+    /// One more.
+    const fn counted(self) -> UnknownCodes {
+        UnknownCodes(self.0.saturating_add(1))
+    }
+}
+
 /// How a print exchange ended: the `Response` codes of
 /// `[[source: xdg-portal-request]]`, 0 success, 1 "the user cancelled the
 /// interaction", 2 "the user interaction was ended in some other way", and
@@ -382,7 +418,6 @@ const FIELD_ERROR_NAME: Code = Code(4);
 const FIELD_REPLY_SERIAL: Code = Code(5);
 const FIELD_DESTINATION: Code = Code(6);
 const FIELD_SIGNATURE: Code = Code(8);
-const FIELD_UNIX_FDS: Code = Code(9);
 
 const PORTAL: &str = "org.freedesktop.portal.Desktop";
 const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
@@ -408,10 +443,29 @@ const LAUNCHER_URI: &str = "application://org.baud.terminal.desktop";
 const DESKTOP_ENTRY: &str = "org.baud.terminal";
 const FILE_MANAGER: &str = "org.freedesktop.FileManager1";
 const FILE_MANAGER_PATH: &str = "/org/freedesktop/FileManager1";
-const PRINT: &str = "org.freedesktop.portal.Print";
-const REQUEST: &str = "org.freedesktop.portal.Request";
-const BUS: &str = "org.freedesktop.DBus";
-const BUS_PATH: &str = "/org/freedesktop/DBus";
+/// The bus's `RemoveMatch`, its body the rule, `s`.
+const REMOVE_MATCH: MethodCall<'static> = MethodCall {
+    member: MemberName::lit("RemoveMatch"),
+    ..ADD_MATCH
+};
+/// The print portal's `PreparePrint`, `ssa{sv}a{sv}a{sv}`.
+const PREPARE_PRINT: MethodCall<'static> = MethodCall {
+    destination: baud_domain::dbus::PORTAL,
+    path: baud_domain::dbus::PORTAL_PATH,
+    interface: baud_domain::dbus::PRINT,
+    member: MemberName::lit("PreparePrint"),
+};
+/// Its `Print`, `ssha{sv}`.
+const PRINT_CALL: MethodCall<'static> = MethodCall {
+    member: MemberName::lit("Print"),
+    ..PREPARE_PRINT
+};
+/// `Properties.Get` on the portal's object, `ss`.
+const PROPERTIES_GET: MethodCall<'static> = MethodCall {
+    interface: InterfaceName::lit("org.freedesktop.DBus.Properties"),
+    member: MemberName::lit("Get"),
+    ..PREPARE_PRINT
+};
 
 /// The longest message this reads, a guard on a length a broken peer
 /// claims: the spec's own maximum, 2^27 bytes.
@@ -456,7 +510,9 @@ impl Writer {
     }
 
     /// An array: its length word, the padding to its elements' boundary,
-    /// the elements, and the length -- of the elements alone -- written.
+    /// the elements, and the length -- of the elements alone -- written:
+    /// the print tests' `Response`.
+    #[cfg(test)]
     fn array(&mut self, elem: Align, f: impl FnOnce(&mut Writer)) {
         self.word(Word(0));
         let at = self.buf.len() - 4;
@@ -496,7 +552,7 @@ struct Call<'a> {
 /// member, destination, signature -- and the body after the header's
 /// padding to eight.
 fn marshal(call: &Call<'_>, serial: Serial) -> Vec<u8> {
-    header_and_body(METHOD_CALL, call, serial, Word(0))
+    header_and_body(METHOD_CALL, call, serial)
 }
 
 /// A signal's bytes: a call's, with no destination, "the message is a
@@ -504,13 +560,11 @@ fn marshal(call: &Call<'_>, serial: Serial) -> Vec<u8> {
 /// `Response`.
 #[cfg(test)]
 fn marshal_signal(call: &Call<'_>, serial: Serial) -> Vec<u8> {
-    header_and_body(SIGNAL, call, serial, Word(0))
+    header_and_body(SIGNAL, call, serial)
 }
 
-/// The message, and with `fds` files the `UNIX_FDS` field last, "the
-/// number of Unix file descriptors that accompany the message"
-/// (`[[source: dbus-spec]]`), where libdbus writes it.
-fn header_and_body(kind: Kind, call: &Call<'_>, serial: Serial, fds: Word) -> Vec<u8> {
+/// The message: its fixed header, its fields, and the body.
+fn header_and_body(kind: Kind, call: &Call<'_>, serial: Serial) -> Vec<u8> {
     let mut w = Writer::default();
     w.buf.extend_from_slice(&[b'l', kind.0, 0, 1]);
     w.word(Word(u32::try_from(call.body.len()).unwrap_or(u32::MAX)));
@@ -534,12 +588,6 @@ fn header_and_body(kind: Kind, call: &Call<'_>, serial: Serial, fds: Word) -> Ve
     }
     if !call.signature.is_empty() {
         field(&mut w, FIELD_SIGNATURE, "g", call.signature);
-    }
-    if fds.0 > 0 {
-        w.align(Align::EIGHT);
-        w.buf.push(FIELD_UNIX_FDS.0);
-        w.signature("u");
-        w.word(fds);
     }
     let len = u32::try_from(w.buf.len() - start).unwrap_or(u32::MAX);
     w.buf[12..16].copy_from_slice(&len.to_le_bytes());
@@ -1061,11 +1109,6 @@ impl std::fmt::Display for NotSent {
 enum Asked {
     ReadAll(Serial),
     ShowItems(Serial),
-    /// The print portal's `version`, asked through `Properties.Get`.
-    PrintVersion(Serial),
-    /// `PreparePrint` or `Print`: its reply is only the Request's path,
-    /// which this predicted; an error ends the exchange.
-    PrintCall(Serial),
 }
 
 /// Which call a print exchange's `Response` answers.
@@ -1075,13 +1118,51 @@ enum PrintStep {
     Print,
 }
 
-/// **The print exchange waiting for its `Response`**: the step, the
-/// Request's path, predicted from the unique name and the token sent, and
-/// the match rule added for it, removed when it answers.
+/// **The print exchange waiting for its `Response`**: the step, the call
+/// whose reply names the Request's path, the path predicted from the
+/// unique name and the token sent, the path that reply named instead when
+/// it named another, and the match rule added for the path answered on,
+/// removed when it answers.
 struct Pending {
     step: PrintStep,
-    path: String,
+    call: baud_domain::dbus::Serial,
+    predicted: RequestPath,
+    moved: Option<String>,
     rule: String,
+}
+
+impl Pending {
+    /// The path the `Response` comes on.
+    fn path(&self) -> &str {
+        match &self.moved {
+            Some(p) => p,
+            None => self.predicted.as_path().as_str(),
+        }
+    }
+}
+
+/// The match rule for a `Response` on `path`.
+fn response_rule(path: &str) -> String {
+    format!(
+        "type='signal',interface='{}',member='Response',path='{path}'",
+        baud_domain::dbus::REQUEST.as_str()
+    )
+}
+
+/// The print portal's `version`, from `Properties.Get`'s reply: a `v`
+/// holding a `u`.
+fn version_in(r: &Return<'_>) -> Result<PortalVersion, String> {
+    r.body()
+        .read::<(Variant<'static>,)>()
+        .ok()
+        .and_then(|(v,)| v.read::<U32>())
+        .map(|v| PortalVersion(v.get()))
+        .ok_or_else(|| "a version that is not a u".to_owned())
+}
+
+/// A print exchange ended as failed, for `why`.
+fn print_failed(why: impl Into<String>) -> Heard {
+    Heard::PrintEnded(PrintEnd::Failed(why.into()))
 }
 
 /// **The protocol over bytes**: what to send, and what the bytes that came
@@ -1118,6 +1199,10 @@ pub(crate) struct Session {
     prepare_after_hello: Option<(String, String)>,
     /// The print exchange waiting for its `Response`.
     print: Option<Pending>,
+    /// The `Properties.Get` calls for the print portal's `version`.
+    version_asked: Vec<baud_domain::dbus::Serial>,
+    /// The `Response`s whose code the Request protocol does not give.
+    unknown_codes: UnknownCodes,
     /// The handle tokens sent so far, so each Request path is new.
     handles: Word,
 }
@@ -1144,6 +1229,8 @@ impl Session {
             token: baud_domain::TokenFor::new(),
             prepare_after_hello: None,
             print: None,
+            version_asked: Vec::new(),
+            unknown_codes: UnknownCodes::default(),
             handles: Word(0),
         };
         s.ask_appearance();
@@ -1372,24 +1459,37 @@ impl Session {
         self.asked.push(Asked::ShowItems(serial));
     }
 
+    /// The `Response`s whose code the Request protocol does not give.
+    #[cfg(test)]
+    fn unknown_codes(&self) -> UnknownCodes {
+        self.unknown_codes
+    }
+
     /// Whether the session has failed and will say nothing more.
     pub(crate) fn failed(&self) -> bool {
         self.link == Link::Failed
     }
 
-    /// **A call that carries files**, its `h` arguments indexes into
-    /// `fds`: `None` where the bus refused to pass them, and while the
-    /// handshake has not yet said, the call is queued and asked again at
-    /// `BEGIN` (`begin` drops it there if the bus refused).
-    fn call_with_fds(&mut self, call: &Call<'_>, fds: Vec<OwnedFd>) -> Option<Serial> {
-        if matches!(self.link, Link::NoFds(_)) {
-            return None;
-        }
-        let serial = self.next_serial();
-        let count = Word(u32::try_from(fds.len()).unwrap_or(u32::MAX));
-        let bytes = header_and_body(METHOD_CALL, call, serial, count);
-        self.send(bytes, fds);
-        Some(serial)
+    /// **A call that carries one file**, its body built around the `h`
+    /// that names it, which only a connection that agreed to pass files
+    /// makes: refused, and why, where the bus does not pass them or the
+    /// message breaks a bound.
+    fn call_with_file(
+        &mut self,
+        call: &MethodCall<'_>,
+        body: impl FnOnce(UnixFd) -> Result<Body, EncodeError>,
+        file: OwnedFd,
+    ) -> Result<baud_domain::dbus::Serial, String> {
+        let Link::Fds(c) = &self.link else {
+            return Err("the session bus does not pass files".into());
+        };
+        let fd = c.fds().fd(FdIndex::ZERO);
+        let e = body(fd)
+            .and_then(|b| call.encode(&b, &mut self.serials))
+            .map_err(|e| e.to_string())?;
+        let serial = e.serial();
+        self.send(e.into_bytes(), vec![file]);
+        Ok(serial)
     }
 
     /// **What goes next**: the bytes up to the next message that carries
@@ -1465,8 +1565,7 @@ impl Session {
         };
         Some(match (self.prepare_after_hello.take(), kept) {
             (Some((parent, title)), Ok(())) => {
-                self.prepare_print(&parent, &title);
-                Vec::new()
+                self.prepare_print(&parent, &title).into_iter().collect()
             }
             (Some(_), Err(e)) => vec![Heard::PrintEnded(PrintEnd::Failed(format!(
                 "the bus gave no unique name: {e}"
@@ -1478,157 +1577,271 @@ impl Session {
     /// **Ask whether the print portal is there**: its `version` property,
     /// heard as [`Heard::PrintPortal`].
     pub(crate) fn ask_print_portal(&mut self) {
-        let mut b = Writer::default();
-        b.string(PRINT);
-        b.string("version");
-        let serial = self.call(&Call {
-            destination: PORTAL,
-            path: PORTAL_PATH,
-            interface: "org.freedesktop.DBus.Properties",
-            member: "Get",
-            signature: "ss",
-            body: b.buf,
-        });
-        self.asked.push(Asked::PrintVersion(serial));
+        let body = Body::of(&(
+            Str::lit(baud_domain::dbus::PRINT.as_str()),
+            Str::lit("version"),
+        ));
+        if let Ok(e) = body.and_then(|b| PROPERTIES_GET.encode(&b, &mut self.serials)) {
+            self.version_asked.push(e.serial());
+            self.send(e.into_bytes(), Vec::new());
+        }
     }
 
-    /// The match for the next Request's `Response`, sent **before** the
+    /// The token for the next call's `handle_token`, numbered so each
+    /// Request path is new, and the path it answers on, predicted from the
+    /// unique name; why not, where there is no unique name or it makes no
+    /// path.
+    fn next_request(&mut self) -> Result<(HandleToken, RequestPath), String> {
+        let n = self.handles.0.wrapping_add(1);
+        let token = HandleToken::numbered(n);
+        let unique = self.unique().ok_or("the bus gave no unique name")?;
+        let path = RequestPath::predict(unique, &token)
+            .ok_or_else(|| format!("the unique name {} makes no Request path", unique.as_str()))?;
+        self.handles = Word(n);
+        Ok((token, path))
+    }
+
+    /// `AddMatch` or `RemoveMatch`, `call`, for `rule`.
+    fn match_rule(&mut self, call: &MethodCall<'_>, rule: &str) {
+        let Ok(rule) = Str::parse(rule) else {
+            return;
+        };
+        if let Ok(e) = Body::of(&(rule,)).and_then(|b| call.encode(&b, &mut self.serials)) {
+            self.send(e.into_bytes(), Vec::new());
+        }
+    }
+
+    /// The match for a Request's `Response` on `path`, sent **before** the
     /// call it answers, so an answer that comes before the method's reply
     /// is not missed (`[[source: xdg-portal-request]]`: the path is
     /// predictable "to let applications subscribe to the Response signal
-    /// before making the initial portal call"). The token, for the call's
-    /// `handle_token`; `None` before the unique name is known.
-    fn expect_response(&mut self, step: PrintStep) -> Option<String> {
-        let sender = self
-            .unique()?
-            .as_str()
-            .trim_start_matches(':')
-            .replace('.', "_");
-        self.handles = Word(self.handles.0.wrapping_add(1));
-        let token = format!("baud_print_{}", self.handles.0);
-        let path = format!("{PORTAL_PATH}/request/{sender}/{token}");
-        let rule = format!("type='signal',interface='{REQUEST}',member='Response',path='{path}'");
-        self.match_rule("AddMatch", &rule);
-        self.print = Some(Pending { step, path, rule });
-        Some(token)
-    }
-
-    fn match_rule(&mut self, member: &str, rule: &str) {
-        let mut b = Writer::default();
-        b.string(rule);
-        self.call(&Call {
-            destination: BUS,
-            path: BUS_PATH,
-            interface: BUS,
-            member,
-            signature: "s",
-            body: b.buf,
-        });
+    /// before making the initial portal call"). The rule, removed when the
+    /// call fails or the Request answers.
+    fn subscribe(&mut self, path: &RequestPath) -> String {
+        let rule = response_rule(path.as_path().as_str());
+        self.match_rule(&ADD_MATCH, &rule);
+        rule
     }
 
     /// **The print dialog**, titled `title`: `PreparePrint` with nothing
     /// preset, offering PDF to print to a file, as that is what the job
-    /// becomes. Before `Hello`'s reply it waits for it.
-    pub(crate) fn prepare_print(&mut self, parent: &str, title: &str) {
-        let Some(token) = self.expect_response(PrintStep::Prepare) else {
+    /// becomes. Before `Hello`'s reply it waits for it. The exchange's
+    /// end, and why, where it cannot be asked.
+    pub(crate) fn prepare_print(&mut self, parent: &str, title: &str) -> Option<Heard> {
+        if self.unique().is_none() {
             self.prepare_after_hello = Some((parent.to_owned(), title.to_owned()));
-            return;
+            return None;
+        }
+        let (Ok(parent), Ok(title)) = (Str::parse(parent), Str::parse(title)) else {
+            return Some(print_failed(
+                "a parent window or title that is not a D-Bus string",
+            ));
         };
-        let mut b = Writer::default();
-        b.string(parent);
-        b.string(title);
-        b.array(Align::EIGHT, |_| {});
-        b.array(Align::EIGHT, |_| {});
-        b.array(Align::EIGHT, |w| {
-            w.align(Align::EIGHT);
-            w.string("handle_token");
-            w.signature("s");
-            w.string(&token);
-            w.align(Align::EIGHT);
-            w.string("supported_output_file_formats");
-            w.signature("as");
-            w.strings(&["pdf"]);
-        });
-        let serial = self.call(&Call {
-            destination: PORTAL,
-            path: PORTAL_PATH,
-            interface: PRINT,
-            member: "PreparePrint",
-            signature: "ssa{sv}a{sv}a{sv}",
-            body: b.buf,
-        });
-        self.asked.push(Asked::PrintCall(serial));
+        let (token, predicted) = match self.next_request() {
+            Ok(t) => t,
+            Err(e) => return Some(print_failed(e)),
+        };
+        let Ok(handle) = Str::parse(token.as_str()) else {
+            return Some(print_failed("a handle token that is not a D-Bus string"));
+        };
+        let formats = [Str::lit("pdf")];
+        let options = [
+            (Str::lit("handle_token"), Variant::Str(handle)),
+            (
+                Str::lit("supported_output_file_formats"),
+                Variant::Strs(Array::new(&formats)),
+            ),
+        ];
+        let none: [(Str<'_>, Variant<'_>); 0] = [];
+        let body = match Body::of(&(
+            parent,
+            title,
+            Dict::new(&none),
+            Dict::new(&none),
+            Dict::new(&options),
+        )) {
+            Ok(b) => b,
+            Err(e) => return Some(print_failed(e.to_string())),
+        };
+        let rule = self.subscribe(&predicted);
+        match PREPARE_PRINT.encode(&body, &mut self.serials) {
+            Ok(e) => {
+                self.print = Some(Pending {
+                    step: PrintStep::Prepare,
+                    call: e.serial(),
+                    predicted,
+                    moved: None,
+                    rule,
+                });
+                self.send(e.into_bytes(), Vec::new());
+                None
+            }
+            Err(e) => {
+                self.match_rule(&REMOVE_MATCH, &rule);
+                Some(print_failed(e.to_string()))
+            }
+        }
     }
 
     /// **The document, printed with the dialog's choices**: `Print` with
     /// `pdf`, open for reading at its start, and the token
-    /// `PreparePrint` gave. `false` where the bus does not pass files or
-    /// the name is not known, and nothing is sent.
+    /// `PreparePrint` gave. Not sent, and why, where the bus does not pass
+    /// files, the name is not known or makes no Request path, or a text
+    /// is not a D-Bus string.
     pub(crate) fn print(
         &mut self,
         parent: &str,
         title: &str,
         pdf: OwnedFd,
         token: PrintToken,
-    ) -> bool {
+    ) -> Result<(), String> {
         if !matches!(self.link, Link::Fds(_)) {
-            return false;
+            return Err("the session bus does not pass files".into());
         }
-        let Some(handle) = self.expect_response(PrintStep::Print) else {
-            return false;
+        let (Ok(parent), Ok(title)) = (Str::parse(parent), Str::parse(title)) else {
+            return Err("a parent window or title that is not a D-Bus string".into());
         };
-        let mut b = Writer::default();
-        b.string(parent);
-        b.string(title);
-        b.word(Word(0));
-        b.array(Align::EIGHT, |w| {
-            w.align(Align::EIGHT);
-            w.string("handle_token");
-            w.signature("s");
-            w.string(&handle);
-            w.align(Align::EIGHT);
-            w.string("token");
-            w.signature("u");
-            w.word(token.0);
-        });
-        let call = Call {
-            destination: PORTAL,
-            path: PORTAL_PATH,
-            interface: PRINT,
-            member: "Print",
-            signature: "ssha{sv}",
-            body: b.buf,
-        };
-        match self.call_with_fds(&call, vec![pdf]) {
-            Some(serial) => {
-                self.asked.push(Asked::PrintCall(serial));
-                true
+        let (handle, predicted) = self.next_request()?;
+        let handle = Str::parse(handle.as_str()).map_err(|e| e.to_string())?;
+        let options = [
+            (Str::lit("handle_token"), Variant::Str(handle)),
+            (Str::lit("token"), Variant::U32(U32::new(token.0.0))),
+        ];
+        let rule = self.subscribe(&predicted);
+        let body = |fd| Body::of(&(parent, title, fd, Dict::new(&options)));
+        match self.call_with_file(&PRINT_CALL, body, pdf) {
+            Ok(call) => {
+                self.print = Some(Pending {
+                    step: PrintStep::Print,
+                    call,
+                    predicted,
+                    moved: None,
+                    rule,
+                });
+                Ok(())
             }
-            None => false,
+            Err(e) => {
+                self.match_rule(&REMOVE_MATCH, &rule);
+                Err(e)
+            }
         }
     }
 
+    /// **The reply to `PreparePrint` or `Print`**: the Request path it
+    /// returns, against the one predicted. Where it is another, the match
+    /// moves to it (`[[source: xdg-portal-request]]`: "verify that the
+    /// returned handle is what it expected, and update its signal
+    /// subscription if it isn't").
+    fn handle_returned(&mut self, r: &Return<'_>) {
+        let Some(mut p) = self.print.take() else {
+            return;
+        };
+        let moved = match (
+            p.call == r.reply_to,
+            r.body().read::<(ObjectPath<'static>,)>(),
+        ) {
+            (true, Ok((returned,))) => match p.predicted.matches(returned) {
+                Handle::Moved(to) => Some(to.as_str().to_owned()),
+                Handle::Expected => None,
+            },
+            _ => None,
+        };
+        if let Some(to) = moved {
+            self.match_rule(&REMOVE_MATCH, &p.rule);
+            p.rule = response_rule(&to);
+            self.match_rule(&ADD_MATCH, &p.rule);
+            p.moved = Some(to);
+        }
+        self.print = Some(p);
+    }
+
     /// **A Request's `Response`**, if it is the one waited for: the match
-    /// removed, and what it means for the step it answers.
-    fn heard_response(&mut self, m: &Message<'_>) -> Option<Heard> {
-        let ours = m.interface == Some(REQUEST)
-            && m.member == Some("Response")
-            && self.print.as_ref().map(|p| p.path.as_str()) == m.path;
+    /// removed, and what its code means for the step it answers
+    /// ([`ResponseCode`]): success, cancelled, or failed with the code
+    /// said, a code the protocol does not give counted as well.
+    fn heard_response(&mut self, s: &Signal<'_>) -> Option<Heard> {
+        let ours = s.interface == baud_domain::dbus::REQUEST
+            && s.member == baud_domain::dbus::RESPONSE
+            && self.print.as_ref().map(Pending::path) == Some(s.path.as_str());
         if !ours {
             return None;
         }
         let pending = self.print.take()?;
-        self.match_rule("RemoveMatch", &pending.rule);
-        let (code, setup, token) = response_in(m)?;
-        Some(Heard::PrintEnded(match (code.0, pending.step, token) {
-            (0, PrintStep::Prepare, Some(token)) => return Some(Heard::PrintReady(token, setup)),
-            (0, PrintStep::Prepare, None) => {
-                PrintEnd::Failed("a dialog's answer with no token".into())
+        self.match_rule(&REMOVE_MATCH, &pending.rule);
+        let Ok((code, results)) = s
+            .body()
+            .read::<(U32, Dict<'static, Str<'static>, Variant<'static>>)>()
+        else {
+            return Some(print_failed("a Response that is not ua{sv}"));
+        };
+        let mut setup = PageSetup::default();
+        let mut token = None;
+        for (key, value) in results {
+            match key.as_str() {
+                "token" => token = value.read::<U32>().map(|t| PrintToken(Word(t.get()))),
+                "page-setup" => {
+                    if let Some(d) = value.read::<Dict<'static, Str<'static>, Variant<'static>>>() {
+                        setup = PageSetup::of(baud_domain::dbus::PageSetup::read(d));
+                    }
+                }
+                _ => {}
             }
-            (0, PrintStep::Print, _) => PrintEnd::Printed,
-            (1, ..) => PrintEnd::Cancelled,
-            (n, ..) => PrintEnd::Failed(format!("the dialog ended with response {n}")),
-        }))
+        }
+        Some(match (ResponseCode::of(code), pending.step, token) {
+            (ResponseCode::Success, PrintStep::Prepare, Some(token)) => {
+                Heard::PrintReady(token, setup)
+            }
+            (ResponseCode::Success, PrintStep::Prepare, None) => {
+                print_failed("a dialog's answer with no token")
+            }
+            (ResponseCode::Success, PrintStep::Print, _) => Heard::PrintEnded(PrintEnd::Printed),
+            (ResponseCode::Cancelled, ..) => Heard::PrintEnded(PrintEnd::Cancelled),
+            (ResponseCode::Ended, ..) => {
+                print_failed("the dialog ended with response 2, ended in some other way")
+            }
+            (ResponseCode::Unknown(n), ..) => {
+                self.unknown_codes = self.unknown_codes.counted();
+                print_failed(format!(
+                    "the dialog ended with response {}, a code the Request protocol does not give ({} so far)",
+                    n.get(),
+                    self.unknown_codes
+                ))
+            }
+        })
+    }
+
+    /// **What a message means to the print half**, read through the
+    /// codec: the portal's `version`, a print call's reply or error, or
+    /// the Request's `Response`. `None` for any other message.
+    fn print_heard(&mut self, m: &Inbound<'_>) -> Option<Vec<Heard>> {
+        match m {
+            Inbound::Return(r) => {
+                if let Some(i) = self.version_asked.iter().position(|s| *s == r.reply_to) {
+                    self.version_asked.swap_remove(i);
+                    return Some(vec![Heard::PrintPortal(version_in(r))]);
+                }
+                if self.print.as_ref().is_some_and(|p| p.call == r.reply_to) {
+                    self.handle_returned(r);
+                    return Some(Vec::new());
+                }
+                None
+            }
+            Inbound::ErrorReply(e) => {
+                let name = e.name.as_str().to_owned();
+                if let Some(i) = self.version_asked.iter().position(|s| *s == e.reply_to) {
+                    self.version_asked.swap_remove(i);
+                    return Some(vec![Heard::PrintPortal(Err(name))]);
+                }
+                if !self.print.as_ref().is_some_and(|p| p.call == e.reply_to) {
+                    return None;
+                }
+                let p = self.print.take()?;
+                self.match_rule(&REMOVE_MATCH, &p.rule);
+                Some(vec![print_failed(name)])
+            }
+            Inbound::Signal(s) => self.heard_response(s).map(|h| vec![h]),
+            Inbound::Called(_) | Inbound::Unknown(_) => None,
+        }
     }
 
     /// **Bytes the bus sent**, and what they meant.
@@ -1698,6 +1911,7 @@ impl Session {
             if let Some(h) = baud_domain::dbus::decode(&bytes).ok().and_then(|m| {
                 self.hello_heard(&m)
                     .or_else(|| self.notifications_heard(&m))
+                    .or_else(|| self.print_heard(&m))
             }) {
                 heard.extend(h);
                 continue;
@@ -1767,23 +1981,14 @@ impl Session {
     /// the appearance: a `ReadAll` reply can say three things.
     fn heard(&mut self, m: &Message<'_>) -> Vec<Heard> {
         if m.kind == SIGNAL {
-            if let Some(h) = heard_in_signal(m) {
-                return vec![h];
-            }
-            if let Some(h) = self.heard_response(m) {
-                return vec![h];
-            }
-            return Vec::new();
+            return heard_in_signal(m).into_iter().collect();
         }
         let error = (m.kind == ERROR).then(|| m.error.unwrap_or("an unnamed error").to_owned());
         let Some(reply) = m.reply_serial else {
             return Vec::new();
         };
         let Some(i) = self.asked.iter().position(|w| match w {
-            Asked::ReadAll(s)
-            | Asked::ShowItems(s)
-            | Asked::PrintVersion(s)
-            | Asked::PrintCall(s) => *s == reply,
+            Asked::ReadAll(s) | Asked::ShowItems(s) => *s == reply,
         }) else {
             return Vec::new();
         };
@@ -1793,85 +1998,9 @@ impl Session {
             (Asked::ReadAll(_), _, Some(e)) => vec![Heard::NoScheme(e)],
             (Asked::ShowItems(_), METHOD_RETURN, _) => vec![Heard::Revealed],
             (Asked::ShowItems(_), _, Some(e)) => vec![Heard::NotRevealed(e)],
-            (Asked::PrintVersion(_), METHOD_RETURN, _) => {
-                let mut r = Reader::new(m.body, m.order);
-                let version = (m.signature == "v")
-                    .then(|| r.signature().filter(|s| *s == "u").and_then(|_| r.word()))
-                    .flatten();
-                vec![Heard::PrintPortal(
-                    version
-                        .map(|v| PortalVersion(v.0))
-                        .ok_or_else(|| "a version that is not a u".to_owned()),
-                )]
-            }
-            (Asked::PrintVersion(_), _, Some(e)) => vec![Heard::PrintPortal(Err(e))],
-            (Asked::PrintCall(_), _, Some(e)) => {
-                if let Some(p) = self.print.take() {
-                    self.match_rule("RemoveMatch", &p.rule);
-                }
-                vec![Heard::PrintEnded(PrintEnd::Failed(e))]
-            }
             _ => Vec::new(),
         }
     }
-}
-
-/// **A Request's `Response`, read**: its code, the `page-setup` the
-/// dialog's answer holds (millimetres, `d`s) and its `token` (a `u`),
-/// `ua{sv}` (`[[source: xdg-portal-request]]`, `[[source:
-/// xdg-portal-print]]`).
-fn response_in(m: &Message<'_>) -> Option<(Word, PageSetup, Option<PrintToken>)> {
-    if m.signature != "ua{sv}" {
-        return None;
-    }
-    let mut r = Reader::new(m.body, m.order);
-    let code = r.word()?;
-    let mut setup = PageSetup::default();
-    let mut token = None;
-    let n = r.len()?;
-    r.align(Align::EIGHT)?;
-    let end = Len(r.at.0.checked_add(n.0)?);
-    while r.at < end {
-        r.align(Align::EIGHT)?;
-        let key = r.string()?;
-        let sig = r.signature()?;
-        match (key, sig) {
-            ("token", "u") => token = Some(PrintToken(r.word()?)),
-            ("page-setup", "a{sv}") => {
-                let n = r.len()?;
-                r.align(Align::EIGHT)?;
-                let inner = Len(r.at.0.checked_add(n.0)?);
-                while r.at < inner {
-                    r.align(Align::EIGHT)?;
-                    let key = r.string()?;
-                    let sig = r.signature()?;
-                    let slot = match key {
-                        "Width" => &mut setup.width,
-                        "Height" => &mut setup.height,
-                        "MarginTop" => &mut setup.top,
-                        "MarginBottom" => &mut setup.bottom,
-                        "MarginLeft" => &mut setup.left,
-                        "MarginRight" => &mut setup.right,
-                        _ => {
-                            r.skip(sig)?;
-                            continue;
-                        }
-                    };
-                    match sig {
-                        "d" => *slot = Some(r.double()?),
-                        _ => {
-                            r.skip(sig)?;
-                        }
-                    }
-                }
-                r.at = inner;
-            }
-            _ => {
-                r.skip(sig)?;
-            }
-        }
-    }
-    Some((code, setup, token))
 }
 
 /// Where the session bus is, from `DBUS_SESSION_BUS_ADDRESS`, else
@@ -2020,13 +2149,14 @@ impl Bus {
 
     #[cfg(target_os = "linux")]
     /// The print dialog.
-    pub(crate) fn prepare_print(&mut self, parent: &str, title: &str) {
-        self.session.prepare_print(parent, title);
+    pub(crate) fn prepare_print(&mut self, parent: &str, title: &str) -> Option<Heard> {
+        let ended = self.session.prepare_print(parent, title);
         let _ = self.flush();
+        ended
     }
 
     #[cfg(target_os = "linux")]
-    /// The document printed with the dialog's choices; `false` where it
+    /// The document printed with the dialog's choices; why not where it
     /// cannot be sent.
     pub(crate) fn print(
         &mut self,
@@ -2034,7 +2164,7 @@ impl Bus {
         title: &str,
         pdf: OwnedFd,
         token: PrintToken,
-    ) -> bool {
+    ) -> Result<(), String> {
         let sent = self.session.print(parent, title, pdf, token);
         let _ = self.flush();
         sent
@@ -2330,21 +2460,15 @@ mod tests {
         assert!(no.outgoing().starts_with(b"NEGOTIATE_UNIX_FD\r\nBEGIN\r\n"));
         assert!(!no.failed());
         let file = std::fs::File::open("/dev/null").unwrap();
-        assert_eq!(no.call_with_fds(&one_file_call(), vec![file.into()]), None);
+        assert!(
+            no.call_with_file(&PRINT_CALL, one_file, file.into())
+                .is_err()
+        );
     }
 
-    /// A call whose body is one file, index 0.
-    fn one_file_call() -> Call<'static> {
-        let mut b = Writer::default();
-        b.word(Word(0));
-        Call {
-            destination: PORTAL,
-            path: PORTAL_PATH,
-            interface: "org.freedesktop.portal.Print",
-            member: "Print",
-            signature: "h",
-            body: b.buf,
-        }
+    /// A body that is one file.
+    fn one_file(fd: UnixFd) -> Result<Body, EncodeError> {
+        Body::of(&(fd,))
     }
 
     /// **A message that carries a file says how many in its header**, the
@@ -2356,10 +2480,7 @@ mod tests {
         s.reveal("file:///tmp/x");
         let ahead = s.outgoing().len();
         let file = std::fs::File::open("/dev/null").unwrap();
-        assert!(
-            s.call_with_fds(&one_file_call(), vec![file.into()])
-                .is_some()
-        );
+        assert!(s.call_with_file(&PRINT_CALL, one_file, file.into()).is_ok());
         let (bytes, fds) = s.next_send();
         assert_eq!((bytes.len(), fds.len()), (ahead, 0), "the reveal first");
         s.sent(Len(ahead));
@@ -2394,8 +2515,8 @@ mod tests {
         let ino = file.metadata().unwrap().ino();
         let serial = bus
             .session
-            .call_with_fds(&one_file_call(), vec![file.into()]);
-        assert!(serial.is_some());
+            .call_with_file(&PRINT_CALL, one_file, file.into());
+        assert!(serial.is_ok());
         bus.flush().unwrap();
         let n = baud_wayland::sys::recv(&theirs, &mut sink, &mut fds).unwrap();
         assert!(message_len(&sink[..n]).is_some(), "a whole call");
@@ -3417,7 +3538,7 @@ mod tests {
         last
     }
 
-    const PATH_1: &str = "/org/freedesktop/portal/desktop/request/1_42/baud_print_1";
+    const PATH_1: &str = "/org/freedesktop/portal/desktop/request/1_42/baud_1";
 
     /// A `Response` on `path`: `code`, and the dialog's page setup and token.
     fn response(path: &str, code: Word, token: Option<Word>) -> Vec<u8> {
@@ -3450,7 +3571,7 @@ mod tests {
             &Call {
                 destination: "",
                 path,
-                interface: REQUEST,
+                interface: "org.freedesktop.portal.Request",
                 member: "Response",
                 signature: "ua{sv}",
                 body: b.buf,
@@ -3530,14 +3651,17 @@ mod tests {
     /// removes the match too.
     #[test]
     fn the_document_prints_with_the_dialog_s_token() {
-        let path_2 = "/org/freedesktop/portal/desktop/request/1_42/baud_print_2";
+        let path_2 = "/org/freedesktop/portal/desktop/request/1_42/baud_2";
         let mut s = named();
         s.prepare_print("", "t");
         s.received(&response(PATH_1, Word(0), Some(Word(7))));
         let n = s.outgoing().len();
         s.sent(Len(n));
         let pdf = std::fs::File::open("/dev/null").unwrap();
-        assert!(s.print("wayland:h-1", "t", pdf.into(), PrintToken(Word(7))));
+        assert_eq!(
+            s.print("wayland:h-1", "t", pdf.into(), PrintToken(Word(7))),
+            Ok(())
+        );
         let (bytes, fds) = s.next_send();
         assert!(fds.is_empty(), "the match goes first, alone");
         assert!(bytes.windows(path_2.len()).any(|w| w == path_2.as_bytes()));
@@ -3616,5 +3740,67 @@ mod tests {
                 "org.freedesktop.DBus.Error.InvalidArgs".into()
             ))]
         );
+    }
+
+    /// **A handle the portal moved is followed**: `PreparePrint`'s reply
+    /// names another Request path, the match moves to it, and its
+    /// `Response` is heard (`[[source: xdg-portal-request]]`: "verify that
+    /// the returned handle is what it expected, and update its signal
+    /// subscription if it isn't"). Perturbation: ignore the reply's path --
+    /// no match names the moved path and its answer is not heard.
+    #[test]
+    fn a_moved_handle_is_followed() {
+        let moved = "/org/freedesktop/portal/desktop/request/1_42/elsewhere";
+        let mut s = named();
+        s.prepare_print("", "t");
+        let serial = last_serial(&s);
+        let n = s.outgoing().len();
+        s.sent(Len(n));
+        let mut path = Writer::default();
+        path.string(moved);
+        assert_eq!(
+            s.received(&reply_to(serial, METHOD_RETURN, "o", path.buf, "")),
+            []
+        );
+        let out = s.outgoing().to_vec();
+        let at = |needle: &[u8]| out.windows(needle.len()).position(|w| w == needle);
+        let removed = at(b"RemoveMatch").expect("the old match removed");
+        let added = at(b"AddMatch").expect("a match for the moved path");
+        assert!(removed < added, "removed, then added");
+        assert!(
+            at(moved.as_bytes()).is_some_and(|p| p > added),
+            "the new match names the moved path"
+        );
+        assert_eq!(
+            s.received(&response(PATH_1, Word(0), Some(Word(7)))),
+            [],
+            "the predicted path no longer answers"
+        );
+        assert_eq!(
+            s.received(&response(moved, Word(0), Some(Word(7)))),
+            [Heard::PrintReady(PrintToken(Word(7)), a4())]
+        );
+    }
+
+    /// **Code 2, and a code the text does not give, end the exchange as
+    /// failed**, each with its code said; the unknown code is counted
+    /// (`[[source: xdg-portal-request]]`: 0, 1 and 2 are the codes).
+    #[test]
+    fn an_ended_or_unknown_response_fails_and_the_unknown_is_counted() {
+        for (code, counted) in [(2, UnknownCodes(0)), (7, UnknownCodes(1))] {
+            let mut s = named();
+            s.prepare_print("", "t");
+            let h = s.received(&response(PATH_1, Word(code), Some(Word(1))));
+            let [Heard::PrintEnded(PrintEnd::Failed(e))] = h.as_slice() else {
+                panic!("{code}: {h:?}");
+            };
+            assert!(e.contains(&code.to_string()), "{e}");
+            assert_eq!(s.unknown_codes(), counted, "{code}");
+            assert_eq!(
+                s.received(&response(PATH_1, Word(0), Some(Word(1)))),
+                [],
+                "{code}: the exchange is over"
+            );
+        }
     }
 }
