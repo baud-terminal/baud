@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use baud_bench::warm::{
     self, Busy, BusyPct, Conditions, CoreSet, Cpu, Load, Machine, PAUSE, Pid, Placement, Read,
-    Shares, Tick, Verdict, Void, Warm,
+    Shares, Tick, Unresolved, Verdict, Void, Warm,
 };
 
 fn repo() -> PathBuf {
@@ -1271,15 +1271,21 @@ fn others_load_is_the_cores_busy_less_this_process_time() {
         warm::others_busy(STAT_BEFORE, STAT_AFTER, &own, all_mine),
         Ok(BusyPct(0.0))
     );
-    // Half of them: the other 48 were someone else's.
+    // Half of them: the other 48 were someone else's, less 3 of slack.
     assert_eq!(
         warm::others_busy(STAT_BEFORE, STAT_AFTER, &own, [Tick(0), Tick(50)]),
-        Ok(BusyPct(48.0))
+        Ok(BusyPct(45.0))
     );
-    // Over two cores: 98 + 4 busy of 200, 98 of them this process's.
+    // Over two cores: 98 + 4 busy of 200, 90 of them this process's, less
+    // 4 of slack.
     assert_eq!(
-        warm::others_busy(STAT_BEFORE, STAT_AFTER, &cores("57,121"), all_mine),
-        Ok(BusyPct(2.0))
+        warm::others_busy(
+            STAT_BEFORE,
+            STAT_AFTER,
+            &cores("57,121"),
+            [Tick(0), Tick(90)]
+        ),
+        Ok(BusyPct(4.0))
     );
     // More of this process's time than the cores show is no one else's.
     assert_eq!(
@@ -1317,6 +1323,7 @@ fn shares() -> Shares {
         siblings: Some(BusyPct(4.0)),
         rest: Some(BusyPct(100.0)),
         gpu: None,
+        unresolved: None,
         over: Duration::from_secs(1),
     }
 }
@@ -1395,7 +1402,7 @@ fn a_pinned_run_is_void_when_load_arrives_mid_run() {
         panic!("not void")
     };
     assert!(
-        why.contains("others' load on own cores 57 was 98%"),
+        why.contains("others' load on own cores 57 was 95%"),
         "{why}"
     );
 
@@ -1405,8 +1412,10 @@ fn a_pinned_run_is_void_when_load_arrives_mid_run() {
     };
     assert_eq!(shares.own, cores("57"));
     assert_eq!(shares.others, BusyPct(0.0));
-    assert_eq!(shares.siblings, Some(BusyPct(4.0)));
+    // cpu121's 4 busy ticks less its one of slack.
+    assert_eq!(shares.siblings, Some(BusyPct(3.0)));
     assert_eq!(shares.rest, Some(BusyPct(100.0)));
+    assert_eq!(shares.unresolved, None);
     assert_eq!(shares.gpu, None);
     assert!(
         fake.read
@@ -1470,8 +1479,9 @@ fn an_unpinned_run_records_and_never_voids() {
         panic!("not measured")
     };
     assert_eq!(shares.own, cores("0,57,121-122"));
-    // 100 + 98 + 4 + 0 busy of 300, none of it this process's.
-    assert_eq!(shares.others.to_string(), "67%");
+    // 100 + 98 + 4 + 0 busy of 300, none of it this process's, less 6 of
+    // slack.
+    assert_eq!(shares.others.to_string(), "65%");
     assert_eq!((shares.siblings, shares.rest), (None, None));
 
     let mut fake = run_fake(SELF_AFTER);
@@ -1533,4 +1543,98 @@ fn a_pinned_run_that_cannot_read_its_conditions_is_void() {
         panic!("not void")
     };
     assert!(why.contains(GPU), "{why}");
+}
+
+/// cpu57's /proc/stat line at a run's start, and after 2, 20 and 100 ticks
+/// all busy.
+const RUN_START: &str = "cpu57 0 0 0 0 0 0 0 0 0 0\n";
+const RUN_2: &str = "cpu57 2 0 0 0 0 0 0 0 0 0\n";
+const RUN_20: &str = "cpu57 20 0 0 0 0 0 0 0 0 0\n";
+const RUN_100: &str = "cpu57 100 0 0 0 0 0 0 0 0 0\n";
+
+/// A run of 2 ticks, one of them rounding, cannot resolve a 5% line: it
+/// says so, and others' and siblings' load never void it. The GPU, a
+/// percent read directly, still does.
+#[test]
+fn a_run_of_too_few_ticks_is_unresolved_and_never_voids() {
+    let own = cores("57");
+    let five = BusyPct(5.0);
+    let unresolved = Unresolved {
+        ticks: Tick(2),
+        under: Tick(20),
+    };
+    assert_eq!(
+        warm::unresolved(RUN_START, RUN_2, &own, five),
+        Ok(Some(unresolved))
+    );
+    assert_eq!(
+        warm::others_busy(RUN_START, RUN_2, &own, [Tick(0), Tick(1)]),
+        Ok(BusyPct(0.0))
+    );
+    let short = Shares {
+        others: BusyPct(50.0),
+        siblings: Some(BusyPct(50.0)),
+        unresolved: Some(unresolved),
+        ..shares()
+    };
+    assert_eq!(warm::void_reason(&short, five, BusyPct(75.0)), None);
+    assert_eq!(
+        short.to_string(),
+        "own cores 57 others unresolved (2 ticks, under 20); siblings 50%; rest of the machine 100% busy"
+    );
+    let drawn = Shares {
+        gpu: Some(BusyPct(80.0)),
+        ..short
+    };
+    let why = warm::void_reason(&drawn, five, BusyPct(75.0)).expect("the gpu still voids");
+    assert!(
+        why.contains("gpu was 80% busy") && !why.contains("others"),
+        "{why}"
+    );
+}
+
+/// Others' ticks within the slack, one a core and two for this process's
+/// time, are rounding: 3 of 100 read 0%.
+#[test]
+fn others_within_the_slack_read_nothing() {
+    let own = cores("57");
+    assert_eq!(warm::slack(&own), Tick(3));
+    assert_eq!(warm::slack(&cores("56-57")), Tick(4));
+    assert_eq!(
+        warm::others_busy(RUN_START, RUN_100, &own, [Tick(0), Tick(97)]),
+        Ok(BusyPct(0.0))
+    );
+}
+
+/// 30 ticks of others' load in a 100-tick run are 27 past the slack, and
+/// void it at 5%.
+#[test]
+fn others_past_the_slack_void_a_resolved_run() {
+    let own = cores("57");
+    let five = BusyPct(5.0);
+    let others = warm::others_busy(RUN_START, RUN_100, &own, [Tick(0), Tick(70)]).unwrap();
+    assert_eq!(others, BusyPct(27.0));
+    let unresolved = warm::unresolved(RUN_START, RUN_100, &own, five).unwrap();
+    assert_eq!(unresolved, None);
+    let run = Shares {
+        others,
+        unresolved,
+        ..shares()
+    };
+    let why = warm::void_reason(&run, five, BusyPct(75.0)).expect("void at 27%");
+    assert!(
+        why.contains("others' load on own cores 57 was 27%"),
+        "{why}"
+    );
+}
+
+/// A run of exactly the resolution's ticks a core is resolved: 20 at 5%.
+#[test]
+fn a_run_of_exactly_the_resolution_is_resolved() {
+    assert_eq!(warm::resolution(BusyPct(5.0)), Tick(20));
+    assert_eq!(warm::resolution(BusyPct(3.0)), Tick(34));
+    assert_eq!(
+        warm::unresolved(RUN_START, RUN_20, &cores("57"), BusyPct(5.0)),
+        Ok(None)
+    );
 }

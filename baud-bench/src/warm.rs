@@ -27,7 +27,11 @@
 //! `BAUD_QUIET_BUSY`, or, for a run that draws, the GPU reached its line.
 //! `end` prints the conditions to stderr on one `quiet:` line, with the rest
 //! of the machine's busy beside them, or a `void:` line naming why. An
-//! unpinned run's conditions are recorded and never void it.
+//! unpinned run's conditions are recorded and never void it. Ticks within
+//! the counters' rounding are not load ([`slack`]), and a run too short for
+//! its ticks to resolve the line ([`resolution`]) says so and is judged by
+//! the start's check alone; the GPU, a percent read directly, still voids
+//! it.
 //!
 //! An idle watcher counts, since the next save starts a build halfway
 //! through the measurement. It is found on the whole machine, not in one
@@ -340,6 +344,9 @@ pub const QUIET_SAMPLE: &str = "BAUD_QUIET_SAMPLE";
 
 /// The GPU busy percent at which a pinned measurement refuses.
 pub const QUIET_GPU_BUSY: &str = "BAUD_QUIET_GPU_BUSY";
+
+/// The line on a core's busy when [`QUIET_BUSY`] is unset.
+pub const QUIET_BUSY_DEFAULT: BusyPct = BusyPct(5.0);
 
 /// The GPU line when [`QUIET_GPU_BUSY`] is unset. It sits above what the
 /// compositor's idle drawing reads: sampled at 10 Hz for 180 s, the lower of
@@ -741,7 +748,7 @@ fn lines(m: &impl Machine, load: Load) -> Result<Lines, String> {
         ),
     };
     Ok(Lines {
-        busy: line(QUIET_BUSY, BusyPct(5.0))?,
+        busy: line(QUIET_BUSY, QUIET_BUSY_DEFAULT)?,
         sample,
         gpu: match load {
             Load::Cores => QUIET_GPU_BUSY_DEFAULT,
@@ -938,9 +945,17 @@ pub fn group_busy(before: &str, after: &str, cores: &CoreSet) -> Result<Option<B
     Ok(Some(share(spent.busy, spent.total)))
 }
 
+/// The ticks of others' load within the counters' resolution, which are
+/// not counted: one a core for the truncation of its busy ticks at the two
+/// reads, and two for this process's user and system time.
+pub fn slack(own: &CoreSet) -> Tick {
+    Tick(per_core(own).0.saturating_add(2))
+}
+
 /// Others' load on the measurement's own cores: their busy ticks between
 /// two reads of [`STAT`], less this process's CPU time over the same
-/// interval (`mine`, before and after), as a share of all their ticks. The
+/// interval (`mine`, before and after) and less [`slack`], as a share of
+/// all their ticks. The
 /// measurement keeps its own cores busy, so their busy alone cannot say
 /// whether anything else ran there.
 pub fn others_busy(
@@ -951,7 +966,67 @@ pub fn others_busy(
 ) -> Result<BusyPct, String> {
     let spent = spent(before, after, own)?;
     let mine = mine[1].0.saturating_sub(mine[0].0);
-    Ok(share(Tick(spent.busy.0.saturating_sub(mine)), spent.total))
+    let others = spent
+        .busy
+        .0
+        .saturating_sub(mine)
+        .saturating_sub(slack(own).0);
+    Ok(share(Tick(others), spent.total))
+}
+
+/// A run too short for its ticks to resolve the line: the ticks each own
+/// core counted, and the fewest that resolve it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unresolved {
+    /// The ticks each own core counted over the run.
+    pub ticks: Tick,
+    /// The fewest a core must count for one tick to be under the line.
+    pub under: Tick,
+}
+
+/// The fewest ticks a core must count for one tick of it to be under
+/// `line` percent: 20 at 5%. A line of nothing or less is always resolved.
+pub fn resolution(line: BusyPct) -> Tick {
+    if line.0 > 0.0 {
+        Tick((100.0 / line.0).ceil() as u64)
+    } else {
+        Tick(0)
+    }
+}
+
+/// How many cores a set holds, in ticks of slack.
+fn per_core(cores: &CoreSet) -> Tick {
+    Tick(u64::try_from(cores.0.len()).unwrap_or(u64::MAX))
+}
+
+/// Whether a run is too short for its own cores' ticks to resolve `line`:
+/// fewer ticks a core, between two reads of [`STAT`], than
+/// [`resolution`] asks.
+pub fn unresolved(
+    before: &str,
+    after: &str,
+    own: &CoreSet,
+    line: BusyPct,
+) -> Result<Option<Unresolved>, String> {
+    let spent = spent(before, after, own)?;
+    let ticks = Tick(spent.total.0 / per_core(own).0.max(1));
+    let under = resolution(line);
+    Ok((ticks < under).then_some(Unresolved { ticks, under }))
+}
+
+/// The siblings' busy between two reads of [`STAT`], less one tick of
+/// slack each for the truncation of its counts, or `None` for none.
+pub fn siblings_busy(
+    before: &str,
+    after: &str,
+    siblings: &CoreSet,
+) -> Result<Option<BusyPct>, String> {
+    if siblings.0.is_empty() {
+        return Ok(None);
+    }
+    let spent = spent(before, after, siblings)?;
+    let busy = spent.busy.0.saturating_sub(per_core(siblings).0);
+    Ok(Some(share(Tick(busy), spent.total)))
 }
 
 /// The online CPUs that are neither the measurement's own nor their
@@ -980,6 +1055,9 @@ pub struct Shares {
     /// The busiest GPU, as the lower of its two reads; `None` for a
     /// measurement that does not draw, or a machine with no GPU file.
     pub gpu: Option<BusyPct>,
+    /// Set when the run was too short for its ticks to resolve the line on
+    /// others' and siblings' load, which then never voids it.
+    pub unresolved: Option<Unresolved>,
     /// The run's length.
     pub over: Duration,
 }
@@ -988,11 +1066,14 @@ impl std::fmt::Display for Shares {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let or_none =
             |p: Option<BusyPct>| p.map_or_else(|| String::from("none"), |p| p.to_string());
+        let others = match self.unresolved {
+            Some(u) => format!("unresolved ({} ticks, under {})", u.ticks.0, u.under.0),
+            None => self.others.to_string(),
+        };
         write!(
             f,
-            "own cores {} others {}; siblings {}; rest of the machine {} busy",
+            "own cores {} others {others}; siblings {}; rest of the machine {} busy",
             self.own,
-            self.others,
             or_none(self.siblings),
             or_none(self.rest)
         )?;
@@ -1004,17 +1085,20 @@ impl std::fmt::Display for Shares {
 }
 
 /// Why a pinned run's conditions void its result, or `None`: others' load
-/// on its own cores, or its siblings' load, at or above `busy`, or the GPU
-/// at or above `gpu`. The rest of the machine is recorded and never voids.
+/// on its own cores, or its siblings' load, at or above `busy` where the
+/// run's ticks resolve it, or the GPU at or above `gpu`, a percent read
+/// directly. The rest of the machine is recorded and never voids.
 pub fn void_reason(shares: &Shares, busy: BusyPct, gpu: BusyPct) -> Option<String> {
     let mut why = Vec::new();
-    if shares.others >= busy {
+    // Too few ticks to resolve the line: the start's check is the judge.
+    let resolved = shares.unresolved.is_none();
+    if resolved && shares.others >= busy {
         why.push(format!(
             "others' load on own cores {} was {}, at or above {QUIET_BUSY}'s {busy}",
             shares.own, shares.others
         ));
     }
-    if let Some(siblings) = shares.siblings.filter(|s| *s >= busy) {
+    if let Some(siblings) = shares.siblings.filter(|s| resolved && *s >= busy) {
         why.push(format!(
             "their siblings were {siblings} busy, at or above {QUIET_BUSY}'s {busy}"
         ));
@@ -1192,7 +1276,9 @@ fn measure(m: &impl Machine, begun: &Begun, load: Load, began: Instant) -> Resul
         [before.mine, after.mine],
     )
     .map_err(in_stat)?;
-    let siblings = group_busy(&before.stat, &after.stat, &groups.siblings).map_err(in_stat)?;
+    let siblings = siblings_busy(&before.stat, &after.stat, &groups.siblings).map_err(in_stat)?;
+    let line = begun.lines.as_ref().map_or(QUIET_BUSY_DEFAULT, |l| l.busy);
+    let unresolved = unresolved(&before.stat, &after.stat, &groups.own, line).map_err(in_stat)?;
     let rest = group_busy(&before.stat, &after.stat, &groups.rest).map_err(in_stat)?;
     let gpu = match load {
         Load::Cores => None,
@@ -1216,6 +1302,7 @@ fn measure(m: &impl Machine, begun: &Begun, load: Load, began: Instant) -> Resul
         siblings,
         rest,
         gpu,
+        unresolved,
         over,
     })
 }
