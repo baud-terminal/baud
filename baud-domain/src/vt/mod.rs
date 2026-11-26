@@ -2,6 +2,7 @@
 mod activation_token;
 mod charset;
 mod clipboard;
+mod crm;
 mod csi;
 mod dcs;
 mod dock_bars;
@@ -57,6 +58,7 @@ mod xres;
 pub use activation_token::*;
 pub use charset::*;
 pub use clipboard::*;
+pub use crm::*;
 pub use csi::*;
 pub use dcs::*;
 pub use dock_bars::*;

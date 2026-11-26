@@ -1076,6 +1076,20 @@ const _: fn(
     [f64; 3],
 ) -> ([u8; 3], baud_domain::themefile::gamut::Fit) = baud_domain::themefile::gamut::to_srgb;
 
+// CrmHold
+const _: usize = baud_domain::CrmHold::CAPACITY;
+const _: fn() -> baud_domain::CrmHold = baud_domain::CrmHold::new;
+const _: for<'a> fn(&'a mut baud_domain::CrmHold, u8) -> baud_domain::CrmStep<'a> =
+    baud_domain::CrmHold::hold;
+const _: for<'a> fn(&'a baud_domain::CrmHold) -> &'a [u8] = baud_domain::CrmHold::held;
+const _: for<'a> fn(&'a mut baud_domain::CrmHold) -> baud_domain::CrmEnd<'a> =
+    baud_domain::CrmHold::finish;
+const _: fn(baud_domain::CrmStep<'static>) = |s| match s {
+    baud_domain::CrmStep::Kept | baud_domain::CrmStep::Spill(_) | baud_domain::CrmStep::Pass => {}
+};
+const _: fn(baud_domain::CrmEnd<'static>) = |e| match e {
+    baud_domain::CrmEnd::Whole(_) | baud_domain::CrmEnd::Shown => {}
+};
 // WcSlice
 const _: fn(&'static mut [u32]) -> baud_domain::WcSlice<'static, u32> = baud_domain::WcSlice::new;
 const _: for<'a> fn(&'a baud_domain::WcSlice<'static, u32>) -> usize = baud_domain::WcSlice::len;
@@ -2053,6 +2067,7 @@ const WITNESSED: &[(&str, &str)] = &[
     ("MemberName", "E0080"),
     ("ErrorName", "E0080"),
     ("BusName", "E0080"),
+    ("CrmHold", "E0451"),
     ("WcSlice", "E0369"),
     ("WcSlice", "E0599"),
     ("WcSlice", "E0608"),
