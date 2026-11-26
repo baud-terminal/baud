@@ -1402,6 +1402,79 @@ fn hold_all(
     }
 }
 
+/// Which list a sweep takes its next span from ([`meets_of`]).
+enum Next {
+    Mine,
+    Other,
+}
+
+/// **Where each of `mine` meets each of `others`, with the other's group**:
+/// both sorted by where they start, then one sweep in that order. Each
+/// span taken is compared with the spans of the other list still open, the
+/// ones begun before it: one that meets it gives a pair and stays open, one
+/// that does not ends before it or lies on an earlier surface, so it meets
+/// no later span and is closed. Each compare of the sorts, the sweep and the open spans
+/// is counted in `steps`: at most the sorts, twice the spans and once per
+/// pair.
+fn meets_of(
+    mut mine: Vec<LineSpan>,
+    mut others: Vec<(LineSpan, Option<Pid>)>,
+    steps: &mut WalkSteps,
+) -> Vec<(LineSpan, Option<Pid>)> {
+    let mut out = Vec::new();
+    if mine.is_empty() || others.is_empty() {
+        return out;
+    }
+    mine.sort_unstable_by(|a, b| {
+        steps.bump();
+        a.cmp(b)
+    });
+    others.sort_unstable_by(|a, b| {
+        steps.bump();
+        a.0.cmp(&b.0)
+    });
+    let (mut mine, mut others) = (mine.into_iter().peekable(), others.into_iter().peekable());
+    let mut open_mine: Vec<LineSpan> = Vec::new();
+    let mut open_others: Vec<(LineSpan, Option<Pid>)> = Vec::new();
+    loop {
+        let next = match (mine.peek(), others.peek()) {
+            (Some(&m), Some(&(o, _))) => {
+                steps.bump();
+                match m <= o {
+                    true => Next::Mine,
+                    false => Next::Other,
+                }
+            }
+            (Some(_), None) if !open_others.is_empty() => Next::Mine,
+            (None, Some(_)) if !open_mine.is_empty() => Next::Other,
+            _ => break,
+        };
+        match next {
+            Next::Mine => {
+                let Some(m) = mine.next() else { break };
+                open_others.retain(|&(o, g)| {
+                    steps.bump();
+                    let both = m.meet(o);
+                    out.extend(both.map(|both| (both, g)));
+                    both.is_some()
+                });
+                open_mine.push(m);
+            }
+            Next::Other => {
+                let Some((o, g)) = others.next() else { break };
+                open_mine.retain(|&m| {
+                    steps.bump();
+                    let both = m.meet(o);
+                    out.extend(both.map(|both| (both, g)));
+                    both.is_some()
+                });
+                open_others.push((o, g));
+            }
+        }
+    }
+    out
+}
+
 /// A newer screen batch in `newer`'s place: the groups `older` carried go
 /// with it, so a batch left untaken drops none.
 fn replace(slot: &mut Option<Ask>, mut newer: Ask, answers: &Sender<Answer>) -> bool {
@@ -3421,19 +3494,13 @@ impl<T: Moment> Probes<T> {
             // lands on.
             if matches!(f, Seen::Named(Front::Local | Front::Multiplexer)) {
                 let kept = self.kept.get();
-                let others = kept.seen.iter().map(|e| (Some(e.0), e.1));
+                let others = kept.seen.iter().map(|e| (e.1, Some(e.0)));
                 let others = others
-                    .chain(kept.unnamed.map(|l| (None, l)))
-                    .chain(kept.inflight.iter().map(|e| (e.1, e.2)))
-                    .filter(|e| e.0 != g);
-                let mut more = Vec::new();
-                for &(_, _, span) in kept.inflight.iter().filter(|e| mine(e)) {
-                    for (h, other) in others.clone() {
-                        if let Some(both) = span.meet(other) {
-                            more.push((both, h));
-                        }
-                    }
-                }
+                    .chain(kept.unnamed.map(|l| (l, None)))
+                    .chain(kept.inflight.iter().map(|e| (e.2, e.1)))
+                    .filter(|e| e.1 != g);
+                let spans = kept.inflight.iter().filter(|e| mine(e)).map(|e| e.2);
+                let more = meets_of(spans.collect(), others.collect(), &mut self.hold_steps);
                 hold_all(&mut self.held, more, &mut self.hold_steps);
             }
             let lit = &mut self.lit;
@@ -9678,6 +9745,94 @@ mod tests {
         assert!(
             steps <= most,
             "the re-cut took {steps} steps to put its holds in, against the bound {most}"
+        );
+    }
+
+    /// **A local answer finds the lines it holds by one sweep**
+    /// (`Probes::file_answered`): I = 150 one-line spans of group 2's sent,
+    /// its lines from 0 to 298 with every other line erased whole
+    /// (`Probes::cut` splits a span at each), beside K = 216 spans of other
+    /// writers still to be named: 199 two-line spans of fifteen groups
+    /// sent by the next batch, 16 groups kept to send, and the lines past
+    /// them, a hull over 600 lines. Group 2's answer names it local.
+    /// Finding where each of its spans meets another writer's and putting
+    /// those holds in take at most (⌈log2 n⌉ + 2)·n + (⌈log2 P⌉ + 1)·P
+    /// steps, n = I + K and P the pairs that meet: each span sorted and
+    /// swept, each pair found, sorted and merged in. The controls: every pair
+    /// that meets held once under the other writer's group, the holds
+    /// handed on once, and the steps counted. Named break: each of the
+    /// answered group's spans compared with every other writer's -- I·K
+    /// steps.
+    #[test]
+    fn a_local_answer_finds_its_holds_by_one_sweep() {
+        use crate::paths::Seen;
+        const MINE: usize = 150;
+        const SENT: usize = 199;
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let span = |a: usize, b: usize| LineSpan::of(line(a), line(b));
+        let pid = |n: usize| Pid::try_from(n).expect("a pid");
+        let (id, next) = (Id::default(), Id::default().next());
+        let group = Some(pid(2));
+        let mut others = Vec::new();
+        for i in 0..MINE {
+            pr.kept
+                .edit()
+                .inflight
+                .push((id, group, span(2 * i, 2 * i)));
+        }
+        for h in 0..SENT {
+            let g = Some(pid(100 + h % 15));
+            pr.kept
+                .edit()
+                .inflight
+                .push((next, g, span(3 * h, 3 * h + 1)));
+            others.push((g, span(3 * h, 3 * h + 1)));
+        }
+        for g in 0..GROUPS {
+            let at = span(1_000 + 10 * g, 1_001 + 10 * g);
+            pr.kept.edit().seen.push((pid(200 + g), at));
+            others.push((Some(pid(200 + g)), at));
+        }
+        pr.kept.edit().unnamed = Some(span(0, 599));
+        others.push((None, span(0, 599)));
+        let kept = MINE + others.len();
+        assert_eq!(kept, MINE + 216, "the control: I and K as named");
+        let expected: std::collections::BTreeSet<(LineSpan, Option<Pid>)> = (0..MINE)
+            .flat_map(|i| others.iter().map(move |&(g, o)| (span(2 * i, 2 * i), g, o)))
+            .filter_map(|(m, g, o)| m.meet(o).map(|both| (both, g)))
+            .collect();
+        pr.publish(&mut paths);
+        let (steps, publishes) = (pr.hold_steps().get(), paths.publishes().value());
+        pr.file_answered(
+            &mut paths,
+            (id, Kind::Screen),
+            &[(group, Seen::Named(Front::Local))],
+            &[],
+        );
+        let steps = pr.hold_steps().get() - steps;
+        let held: std::collections::BTreeSet<_> = pr.held.get().iter().collect();
+        assert_eq!(
+            held, expected,
+            "the control: every pair that meets held once under the other writer's group"
+        );
+        assert_eq!(
+            paths.publishes().value() - publishes,
+            1,
+            "the control: the holds handed on once"
+        );
+        assert!(steps > 0, "the control: the steps counted");
+        let log = |n: usize| u64::from(usize::BITS - (n - 1).leading_zeros());
+        let n = u64::try_from(kept).expect("a small count");
+        let pairs = u64::try_from(expected.len()).expect("a small count");
+        let most = (log(kept) + 2) * n + (log(expected.len()) + 1) * pairs;
+        assert!(
+            steps <= most,
+            "the answer took {steps} steps to find and put in its {pairs} holds \
+             (I = {MINE}, K = {}), against the bound {most}",
+            kept - MINE
         );
     }
 
