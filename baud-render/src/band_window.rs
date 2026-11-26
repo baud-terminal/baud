@@ -191,15 +191,17 @@ impl OverlayRows {
     }
 
     /// **The set's copy as a view**, `cells` at `stride`, `cols` by `rows`
-    /// with `used` their extents, each row's ids read through its band's
-    /// table in `term`, a line of its own's through its pairs' words;
-    /// through one table on a terminal of one band.
+    /// with `used` their extents, a ring of `ring` rows whose row `d` is at
+    /// slot `(rot + d) % ring` in both, read where it lies; each row's ids
+    /// read through its band's table in `term`, a line of its own's through
+    /// its pairs' words; through one table on a terminal of one band.
     pub fn view<'a>(
         &'a self,
         term: &'a impl TermRead,
         (cells, used): (&'a [PackedCell], &'a [baud_domain::RowExtent]),
         stride: baud_domain::Stride,
         (cols, rows): (Cols, Rows),
+        (ring, rot): (Rows, baud_domain::RowRot),
     ) -> baud_domain::Viewport<'a> {
         let view = term.styles();
         baud_domain::Viewport::new_in(
@@ -208,8 +210,8 @@ impl OverlayRows {
             stride,
             cols,
             rows,
-            rows,
-            baud_domain::RowRot::NONE,
+            ring,
+            rot,
             baud_domain::LiveBands::lines_own(
                 view.slots(),
                 view.band_slots().0,

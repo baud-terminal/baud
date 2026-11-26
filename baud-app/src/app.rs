@@ -2384,7 +2384,6 @@ impl App {
                 None => None,
                 Some(b) => {
                     let set = b.at.0;
-                    let n = b.rows.index() * b.stride.index();
                     // The set's rows as its last frame drew them: each
                     // read through its band's table.
                     let leaving = match b.slide {
@@ -2392,24 +2391,16 @@ impl App {
                         None => baud_render::Leaving::None,
                     };
                     let overlay = self.renderer.overlay_rows(&*self.term, b.at, leaving);
-                    // The copy's rows in screen order, as the view reads them.
-                    let copy = &cell.copies_mem[set][..];
-                    let unrolled: Vec<PackedCell>;
-                    let cells = match b.rot == RowRot::NONE {
-                        true => &copy[..n.min(copy.len())],
-                        false => {
-                            let (stride, ring) = (b.stride.index(), b.ring.index().max(1));
-                            unrolled = (0..b.rows.index())
-                                .flat_map(|d| {
-                                    let at = (b.rot.index() + d) % ring * stride;
-                                    copy.get(at..at + stride).unwrap_or(&[]).iter().copied()
-                                })
-                                .collect();
-                            &unrolled[..]
-                        }
-                    };
-                    let view =
-                        overlay.view(&*self.term, (cells, &b.used), b.stride, (b.cols, b.rows));
+                    // The copy read where it lies, row `d` at slot
+                    // `(head + d) % ring`, its marks at the same slots.
+                    let cells = &cell.copies_mem[set][..];
+                    let view = overlay.view(
+                        &*self.term,
+                        (cells, &b.used),
+                        b.stride,
+                        (b.cols, b.rows),
+                        (b.ring, b.rot),
+                    );
                     self.renderer.set_trail(None);
                     self.renderer.set_cursor_glow_at(None);
                     self.renderer.place_grounds(None, None);

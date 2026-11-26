@@ -144,7 +144,9 @@ pub struct CellFrame {
 
 /// **Builds the cell frame** into the set `building` names, once the
 /// window is laid out; none, the layout done, when `building` names none.
-/// `used` is left holding each row's mark as the view read it.
+/// `used` is left holding each row's mark as the view read it, at the
+/// row's slot in the set's ring ([`CellFrame::rot`]), where the set's copy
+/// holds the row's cells.
 ///
 /// **The cell path's frame, its damage read here**: [`build_with`] with
 /// [`Renderer::damage`] of `term` against the last frame built, for a
@@ -577,6 +579,7 @@ where
                     (cell.lent_cells, cell.lent_used),
                     term.stride(),
                     (view.cols(), view.rows()),
+                    (view.rows(), RowRot::NONE),
                 ),
                 false => baud_domain::Viewport::new(
                     cell.lent_cells,
@@ -835,14 +838,20 @@ where
     cell.records.extend_from_slice(renderer.scrollbar());
     cell.records.extend_from_slice(renderer.screen_fade());
     let chrome = Tally::of(cell.records.len() - chrome_from);
+    // Each row's mark at its slot in the set's ring, where the copy holds
+    // its cells: row `d` at `(head + d) % ring`.
+    let kept = Rows::of_index(vrows + lined + noticed + usize::from(sliding));
     used.clear();
-    used.extend((0..view.rows().index()).map(|y| view.extent(Row::from_index(y))));
+    used.resize(kept.index().max(view.rows().index()), RowExtent::default());
+    for y in 0..view.rows().index() {
+        used[ring.head().advance(y, kept).index()] = view.extent(Row::from_index(y));
+    }
     let frame = CellFrame {
         at,
         built,
         cols: view.cols(),
         rows: view.rows(),
-        ring: Rows::of_index(vrows + lined + noticed + usize::from(sliding)),
+        ring: kept,
         rot: ring.head(),
         cursor,
         walked: Tally::of(walked),
