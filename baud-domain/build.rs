@@ -45,6 +45,8 @@ mod sequence;
 mod tcap;
 #[path = "build/termcap_keys.rs"]
 mod termcap_keys;
+#[path = "build/terminfo_caps.rs"]
+mod terminfo_caps;
 #[path = "build/ucd.rs"]
 mod ucd;
 #[path = "build/width.rs"]
@@ -84,6 +86,7 @@ fn main() {
         &iso96::INPUTS,
         &tcap::INPUTS,
         &termcap_keys::INPUTS,
+        &terminfo_caps::INPUTS,
         &iterm_keys::INPUTS,
     ]
     .iter()
@@ -96,7 +99,7 @@ fn main() {
     }
     std::fs::write(out.join("contrast.bin"), contrast::build()).expect("write contrast.bin");
     let read = |file: &str| std::fs::read_to_string(data.join(file));
-    let tables: [(&str, Table); 19] = [
+    let tables: [(&str, Table); 20] = [
         ("bidi", bidi::build),
         ("grapheme", grapheme::build),
         ("width", width::build),
@@ -115,6 +118,7 @@ fn main() {
         ("iso96", iso96::build),
         ("tcap", tcap::build),
         ("termcap keys", termcap_keys::build),
+        ("terminfo caps", terminfo_caps::build),
         ("iterm2 keys", iterm_keys::build),
     ];
     let mut built: Vec<(&str, Result<Emit, Errors>)> = tables

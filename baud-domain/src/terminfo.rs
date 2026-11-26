@@ -403,3 +403,15 @@ const fn octal(value: &[u8], at: usize) -> bool {
         && value[at + 2] >= b'0'
         && value[at + 2] <= b'7'
 }
+
+/// **baud's xterm-256color entry, compiled**, by `build/terminfo_caps.rs`:
+/// the pinned entry (`[[source: terminfo-xterm-256color]]`) with `Se`, the
+/// cursor style's reset, set to `\E[0 q`, which returns the cursor to the
+/// configured style, in the format `[[source: term-man5]]` gives a compiled
+/// entry, the extended section included; and the predefined capabilities'
+/// capnames in the order that format stores them
+/// (`[[source: ncurses-caps]]`). The app writes the entry where the
+/// `TERMINFO` it hands the programs it starts names it.
+pub mod compiled {
+    include!(concat!(env!("OUT_DIR"), "/terminfo_caps_data.rs"));
+}

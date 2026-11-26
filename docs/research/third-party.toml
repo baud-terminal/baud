@@ -815,7 +815,7 @@ files   = [
 ]
 
 [upstream.ncurses]
-name    = "ncurses terminfo entries (infocmp output) and terminfo(5)"
+name    = "ncurses terminfo entries (infocmp output), terminfo(5), term(5) and include/Caps"
 licence = "X11"
 notice  = "LICENSES/ncurses-COPYING.txt"
 status  = "kept"
@@ -823,8 +823,10 @@ files   = [
   "terminfo/ansi.ti",
   "terminfo/dtterm.ti",
   "terminfo/hpterm.ti",
+  "terminfo/ncurses-6.0-Caps",
   "terminfo/nsterm.ti",
   "terminfo/rxvt.ti",
+  "terminfo/term.5",
   "terminfo/terminfo.5",
   "terminfo/vt100.ti",
   "terminfo/vt102.ti",
@@ -2336,6 +2338,26 @@ copyright = [
   "Copyright 2018-2025,2026 Thomas E. Dickey",
   "Copyright 1998-2017,2018 Free Software Foundation, Inc.",
 ]
+licence   = "X11"
+
+[[tree]]
+what     = "ncurses 6.0's include/Caps, which baud-domain's build reads, through a link in baud-domain/data/ to terminfo/ncurses-6.0-Caps in docs/research/sources/, which the published crate carries as the file: the order of the capabilities in baud's compiled xterm-256color entry"
+paths    = ["baud-domain/data/ncurses-6.0-Caps.txt"]
+licence  = "X11"
+notice   = "LICENSES/ncurses-COPYING.txt"
+upstream = "docs/research/sources/terminfo/ncurses-6.0-Caps"
+status   = "kept"
+public   = "ncurses 6.0's list of predefined terminfo capabilities, carried unmodified, which the build reads for the order a compiled entry stores them in"
+holder   = "Thomas E. Dickey and the Free Software Foundation (ncurses)"
+
+[tree.credit]
+title     = "ncurses 6.0's include/Caps: the compiled xterm-256color entry"
+used      = "The order of the capabilities in baud's compiled xterm-256color entry."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+copyright = [
+  "Copyright (c) 1998-2011,2015 Free Software Foundation, Inc.",
+]
+seen      = ["docs/research/sources/terminfo/ncurses-6.0-Caps"]
 licence   = "X11"
 
 [[tree]]

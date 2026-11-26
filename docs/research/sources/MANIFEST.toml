@@ -1280,6 +1280,41 @@ bytes  = 96313
 status = "retrieved"
 group  = "C"
 
+# The term(5) page of the same ncurses: the compiled entry's layout -- the
+# header's six short integers, the names, booleans, numbers, string offsets
+# and string table, and the extended section after them. baud compiles the
+# entry it advertises as $TERM into this form for the programs it starts
+# (`baud_domain::terminfo::compiled`).
+[sources.term-man5]
+key    = "term-man5"
+title  = "term(5): format of compiled term file"
+author = "ncurses 6.0.20150808 (term.5 1.22)"
+year   = 2015
+venue  = "ncurses manual pages, /usr/share/man/man5/term.5 on macOS"
+url    = "https://invisible-island.net/ncurses/man/term.5.html"
+file   = "terminfo/term.5"
+sha256 = "7a4c584436fbd9d8bf7b4ae3eaacc034c72e4601fbc1f827f2f7f58a5dec2f90"
+bytes  = 11788
+status = "retrieved"
+group  = "C"
+
+# ncurses 6.0's include/Caps: every predefined capability, in the order
+# <term.h> numbers them and a compiled entry stores them -- 44 booleans, 39
+# numbers and 414 strings, the obsolete termcap ones (OTbs and the rest)
+# after the SVr4 set. baud-domain's build reads the order from it.
+[sources.ncurses-caps]
+key    = "ncurses-caps"
+title  = "ncurses 6.0, include/Caps -- the predefined capabilities in compiled order"
+author = "Thomas E. Dickey and the Free Software Foundation"
+year   = 2015
+venue  = "ncurses-snapshots, tag v6_0 @ 3ee43f2d (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/ncurses-snapshots/3ee43f2d93b5089689641c11f8acb225d7214863/include/Caps"
+file   = "terminfo/ncurses-6.0-Caps"
+sha256 = "f329299bc45f5fd455999133a2babb08971f4d3d3e3d7d71462d9057fffbccf6"
+bytes  = 65613
+status = "retrieved"
+group  = "C"
+
 [sources.terminfo-ansi]
 key    = "terminfo-ansi"
 title  = "terminfo entry: ansi"

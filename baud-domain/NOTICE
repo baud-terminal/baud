@@ -123,6 +123,15 @@ build compiles into the termcap keyboard's strings
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://invisible-island.net/ncurses/
 
+ncurses 6.0's list of predefined terminfo capabilities, carried unmodified,
+which the build reads for the order a compiled entry stores them in
+  Files:   data/ncurses-6.0-Caps.txt
+  Holder:  Thomas E. Dickey and the Free Software Foundation (ncurses)
+  Licence: X11
+  Notice:  LICENSES/ncurses-COPYING.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://raw.githubusercontent.com/ThomasDickey/ncurses-snapshots/3ee43f2d93b5089689641c11f8acb225d7214863/include/Caps
+
 X.Org's keysymdef.h, carried unmodified with its notices, which the build
 reads for the keysyms xterm's national character sets name
   Files:   data/xorg-keysymdef.h

@@ -52,27 +52,28 @@ Notices
   15. xterm's charsets.h
   16. xterm's xtermcap.c
   17. ncurses' xterm-256color terminfo entry: the termcap keyboard
-  18. X.Org's keysymdef.h
-  19. Unicode's JIS X 0201 and ISO 8859 mapping tables
-  20. ncurses' xterm-256color terminfo entry
-  21. libxkbcommon 1.13.2's Compose reader
-  22. xkbcommon's keysym header
-  23. Windows Terminal's text-contrast curve
-  24. Björn Ottosson's OKLab matrices
-  25. HarfBuzz: shaping code
-  26. ab_glyph_rasterizer 0.1.10 and font-rs: the glyph rasteriser
-  27. ttf-parser 0.25.1: font outlines
-  28. fontTools 4.63.0: variation arithmetic
-  29. Adobe's CFF Standard Encoding (Technical Note #5176, Appendix B)
-  30. The kitty keyboard protocol's key numbers (kitty v0.49.2, Kovid Goyal)
-  31. kitty's placeholder diacritics (kitty v0.49.2, Kovid Goyal)
-  32. iTerm2's OSC 1337 key names (iTerm2 at 964a75d, George Nachman)
-  33. The Independent JPEG Group's libjpeg 6b: the JPEG decoder's arithmetic
-  34. libjpeg-turbo 3.1.4: the arithmetic-coded refinement scan
-  35. xterm's readline click (button.c, patch #411)
-  36. The Wayland and wayland-protocols XML files
-  37. wayland-protocols' text-input-unstable-v3
-  38. Rust crates the program links
+  18. ncurses 6.0's include/Caps: the compiled xterm-256color entry
+  19. X.Org's keysymdef.h
+  20. Unicode's JIS X 0201 and ISO 8859 mapping tables
+  21. ncurses' xterm-256color terminfo entry
+  22. libxkbcommon 1.13.2's Compose reader
+  23. xkbcommon's keysym header
+  24. Windows Terminal's text-contrast curve
+  25. Björn Ottosson's OKLab matrices
+  26. HarfBuzz: shaping code
+  27. ab_glyph_rasterizer 0.1.10 and font-rs: the glyph rasteriser
+  28. ttf-parser 0.25.1: font outlines
+  29. fontTools 4.63.0: variation arithmetic
+  30. Adobe's CFF Standard Encoding (Technical Note #5176, Appendix B)
+  31. The kitty keyboard protocol's key numbers (kitty v0.49.2, Kovid Goyal)
+  32. kitty's placeholder diacritics (kitty v0.49.2, Kovid Goyal)
+  33. iTerm2's OSC 1337 key names (iTerm2 at 964a75d, George Nachman)
+  34. The Independent JPEG Group's libjpeg 6b: the JPEG decoder's arithmetic
+  35. libjpeg-turbo 3.1.4: the arithmetic-coded refinement scan
+  36. xterm's readline click (button.c, patch #411)
+  37. The Wayland and wayland-protocols XML files
+  38. wayland-protocols' text-input-unstable-v3
+  39. Rust crates the program links
 Licence texts
   A. SIL Open Font License, Version 1.1
   B. MIT License
@@ -479,7 +480,17 @@ Changes:    Compiled into tables when baud is built; the files themselves
 Licence:    X11 License, as ncurses gives it (full text: D, below)
 
 ============================================================================
-18. X.Org's keysymdef.h
+18. ncurses 6.0's include/Caps: the compiled xterm-256color entry
+============================================================================
+Used for:   The order of the capabilities in baud's compiled xterm-256color
+            entry.
+Copyright:  Copyright (c) 1998-2011,2015 Free Software Foundation, Inc.
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    X11 License, as ncurses gives it (full text: D, below)
+
+============================================================================
+19. X.Org's keysymdef.h
 ============================================================================
 Used for:   The keysyms xterm's national character sets name, resolved to
             their characters.
@@ -494,7 +505,7 @@ Licence:    The Open Group's notice (MIT, Open Group variant) (full text: L,
             Digital (full text: O, below)
 
 ============================================================================
-19. Unicode's JIS X 0201 and ISO 8859 mapping tables
+20. Unicode's JIS X 0201 and ISO 8859 mapping tables
 ============================================================================
 Used for:   JIS-Katakana, JIS-Roman's Yen sign, and the six 96-character
             sets ESC - . / designate.
@@ -504,7 +515,7 @@ Changes:    Compiled into tables when baud is built; the files themselves
 Licence:    Unicode License V3 (full text: E, below)
 
 ============================================================================
-20. ncurses' xterm-256color terminfo entry
+21. ncurses' xterm-256color terminfo entry
 ============================================================================
 Used for:   How long the visual bell's flash lasts: the entry's padding,
             read when baud is built.
@@ -514,7 +525,7 @@ Changes:    None: the entry is included as infocmp wrote it.
 Licence:    X11 License, as ncurses gives it (full text: D, below)
 
 ============================================================================
-21. libxkbcommon 1.13.2's Compose reader
+22. libxkbcommon 1.13.2's Compose reader
 ============================================================================
 Used for:   On Linux, Compose sequences: dead keys and the Compose key, read
             from the system's Compose files.
@@ -553,7 +564,7 @@ Licence:    MIT License, in the form whose notice includes its next
             Digital (full text: O, below)
 
 ============================================================================
-22. xkbcommon's keysym header
+23. xkbcommon's keysym header
 ============================================================================
 Used for:   On Linux, the keysym table: each key's name and its character.
 Copyright:  Copyright 1987, 1994, 1998 The Open Group
@@ -567,7 +578,7 @@ Licence:    The Open Group's notice (MIT, Open Group variant) (full text: L,
             Digital (full text: O, below)
 
 ============================================================================
-23. Windows Terminal's text-contrast curve
+24. Windows Terminal's text-contrast curve
 ============================================================================
 Used for:   How glyphs are brightened against their background: a table
             computed when baud is built, from the curve's four coefficients.
@@ -577,7 +588,7 @@ Changes:    DirectWrite's curve, as Windows Terminal ports it, computed into
 Licence:    MIT License (full text: B, below)
 
 ============================================================================
-24. Björn Ottosson's OKLab matrices
+25. Björn Ottosson's OKLab matrices
 ============================================================================
 Used for:   The oklch( and lab( colours of a kitty theme file.
 Ported from: https://bottosson.github.io/posts/oklab/
@@ -586,7 +597,7 @@ Changes:    Written in Rust in oklab.rs, number for number.
 Licence:    MIT License (full text: B, below)
 
 ============================================================================
-25. HarfBuzz: shaping code
+26. HarfBuzz: shaping code
 ============================================================================
 Used for:   Shaping text: Apple's morx tables, variable fonts' glyph
             variations, fallback mark placement, Hebrew presentation forms,
@@ -623,7 +634,7 @@ Changes:    Transcribed to Rust and re-expressed in baud-font's sources,
 Licence:    HarfBuzz's licence (MIT, Modern Variant) (full text: T, below)
 
 ============================================================================
-26. ab_glyph_rasterizer 0.1.10 and font-rs: the glyph rasteriser
+27. ab_glyph_rasterizer 0.1.10 and font-rs: the glyph rasteriser
 ============================================================================
 Used for:   Turning each glyph's outline into coverage: line, quadratic and
             cubic flattening and the coverage accumulation.
@@ -636,7 +647,7 @@ Changes:    Transcribed to Rust in raster.rs and changed as its header
 Licence:    Apache License, Version 2.0 (full text: C, below)
 
 ============================================================================
-27. ttf-parser 0.25.1: font outlines
+28. ttf-parser 0.25.1: font outlines
 ============================================================================
 Used for:   Reading CFF charstrings and their charsets, TrueType glyph
             outlines, and the outline transforms.
@@ -648,7 +659,7 @@ Changes:    Transcribed to Rust in cff.rs, glyf.rs and outline.rs, taken
 Licence:    MIT License (full text: B, below)
 
 ============================================================================
-28. fontTools 4.63.0: variation arithmetic
+29. fontTools 4.63.0: variation arithmetic
 ============================================================================
 Used for:   Baking the static styles of a variable font when baud is built:
             axis normalisation, the avar mapping, tuple scalars and delta
@@ -659,7 +670,7 @@ Changes:    Transcribed to Rust in bake.rs.
 Licence:    MIT License (full text: B, below)
 
 ============================================================================
-29. Adobe's CFF Standard Encoding (Technical Note #5176, Appendix B)
+30. Adobe's CFF Standard Encoding (Technical Note #5176, Appendix B)
 ============================================================================
 Used for:   Which glyph each code of a CFF font with the standard encoding
             names, as Appendix B of The Compact Font Format Specification,
@@ -669,7 +680,7 @@ Changes:    Compiled into a 256-byte table when baud is built; the table is
 
 The work it reproduces in part, under its licence:
 
-29.1 Technical Note #5176's CFF Standard Encoding (Appendix B)
+30.1 Technical Note #5176's CFF Standard Encoding (Appendix B)
     Creator:           Adobe Systems Incorporated
     Copyright notice:  Copyright © 1996–1998, 2000, 2003 by Adobe Systems
                        Incorporated. All rights reserved.
@@ -686,7 +697,7 @@ The work it reproduces in part, under its licence:
     Licence URI:       https://creativecommons.org/licenses/by-nd/4.0/
 
 ============================================================================
-30. The kitty keyboard protocol's key numbers (kitty v0.49.2, Kovid Goyal)
+31. The kitty keyboard protocol's key numbers (kitty v0.49.2, Kovid Goyal)
 ============================================================================
 Used for:   The numbers of the functional keys in the kitty keyboard
             protocol, with the X keysym of each key, in input.rs.
@@ -699,7 +710,7 @@ Licence:    none is needed: the numbers are what an application and a
             attributed to it.
 
 ============================================================================
-31. kitty's placeholder diacritics (kitty v0.49.2, Kovid Goyal)
+32. kitty's placeholder diacritics (kitty v0.49.2, Kovid Goyal)
 ============================================================================
 Used for:   The 297 combining marks that number a kitty graphics
             placeholder's rows and columns.
@@ -711,7 +722,7 @@ Licence:    none is needed: the list is the kitty graphics protocol's
             to kitty v0.49.2.
 
 ============================================================================
-32. iTerm2's OSC 1337 key names (iTerm2 at 964a75d, George Nachman)
+33. iTerm2's OSC 1337 key names (iTerm2 at 964a75d, George Nachman)
 ============================================================================
 Used for:   The keys of OSC 1337 that baud recognises.
 Changes:    Compiled into tables when baud is built; the files themselves
@@ -722,7 +733,7 @@ Licence:    none is needed: the names are the words an application sends to
             iTerm2's is included.
 
 ============================================================================
-33. The Independent JPEG Group's libjpeg 6b: the JPEG decoder's arithmetic
+34. The Independent JPEG Group's libjpeg 6b: the JPEG decoder's arithmetic
 ============================================================================
 Used for:   Decoding JPEG images: the inverse DCT, triangle upsampling and
             YCbCr conversion.
@@ -736,7 +747,7 @@ As its licence asks: This software is based in part on the work of the
                      Independent JPEG Group.
 
 ============================================================================
-34. libjpeg-turbo 3.1.4: the arithmetic-coded refinement scan
+35. libjpeg-turbo 3.1.4: the arithmetic-coded refinement scan
 ============================================================================
 Used for:   Decoding arithmetic-coded progressive JPEG images: the
             refinement scan's order.
@@ -757,7 +768,7 @@ As its licence asks: This software is based in part on the work of the
                      Independent JPEG Group.
 
 ============================================================================
-35. xterm's readline click (button.c, patch #411)
+36. xterm's readline click (button.c, patch #411)
 ============================================================================
 Used for:   Clicking in a shell's command line to move its cursor: the
             column a click names, and the cursor keys sent.
@@ -772,7 +783,7 @@ Licence:    xterm's licence (X11) (full text: M, below)
             Digital Equipment Corporation (full text: N, below)
 
 ============================================================================
-36. The Wayland and wayland-protocols XML files
+37. The Wayland and wayland-protocols XML files
 ============================================================================
 Used for:   On Linux, the Wayland interfaces baud speaks: their requests,
             events, arguments and versions.
@@ -809,7 +820,7 @@ Licence:    MIT License, in the form whose notice includes its next
             paragraph (full text: P, below)
 
 ============================================================================
-37. wayland-protocols' text-input-unstable-v3
+38. wayland-protocols' text-input-unstable-v3
 ============================================================================
 Used for:   On Linux, the input-method interface: composed text from an
             input method.
@@ -823,28 +834,28 @@ Licence:    The historical permission notice (sell variant), as
             text-input-unstable-v3 gives it (full text: X, below)
 
 ============================================================================
-38. Rust crates the program links
+39. Rust crates the program links
 ============================================================================
 The crates from crates.io the program file links, each with the platforms
 whose build links it, the copyright notices of its licence file, and the
 licence it falls under. A crate offered under several licences is credited
 under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
 
-38.1 ash 0.38.0+1.3.281
+39.1 ash 0.38.0+1.3.281
     Platforms:         Linux
     Copyright:         Copyright (c) 2016 ASH
     Upstream:          https://github.com/ash-rs/ash
     Licence:           MIT License (full text: B, below)
     Offered under:     MIT OR Apache-2.0
 
-38.2 bitflags 2.13.2
+39.2 bitflags 2.13.2
     Platforms:         macOS
     Copyright:         Copyright (c) 2014 The Rust Project Developers
     Upstream:          https://github.com/bitflags/bitflags
     Licence:           MIT License (full text: B, below)
     Offered under:     MIT OR Apache-2.0
 
-38.3 block2 0.6.2
+39.3 block2 0.6.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -854,7 +865,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Upstream:          https://github.com/madsmtm/objc2
     Licence:           MIT License (full text: B, below)
 
-38.4 dispatch2 0.3.1
+39.4 dispatch2 0.3.1
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -865,20 +876,20 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.5 libc 0.2.191
+39.5 libc 0.2.191
     Platforms:         macOS
     Copyright:         Copyright (c) The Rust Project Developers
     Upstream:          https://github.com/rust-lang/libc
     Licence:           MIT License (full text: B, below)
     Offered under:     MIT OR Apache-2.0
 
-38.6 macos-liquid-glass 1.0.0-beta.9
+39.6 macos-liquid-glass 1.0.0-beta.9
     Platforms:         macOS
     Copyright:         Copyright (c) 2026 i-am-logger
     Upstream:          https://github.com/i-am-logger/macos-liquid-glass
     Licence:           MIT License (full text: B, below)
 
-38.7 objc2 0.6.5
+39.7 objc2 0.6.5
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -888,18 +899,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Upstream:          https://github.com/madsmtm/objc2
     Licence:           MIT License (full text: B, below)
 
-38.8 objc2-app-kit 0.3.2
-    Platforms:         macOS
-    Copyright:         Copyright 2026 Mads Marquart
-    Note:              Its crates.io source carries no licence file; its
-                       copyright notice is from its upstream repository's
-                       licence file,
-                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
-    Upstream:          https://github.com/madsmtm/objc2
-    Licence:           MIT License (full text: B, below)
-    Offered under:     Zlib OR Apache-2.0 OR MIT
-
-38.9 objc2-cloud-kit 0.3.2
+39.8 objc2-app-kit 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -910,7 +910,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.10 objc2-core-data 0.3.2
+39.9 objc2-cloud-kit 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -921,7 +921,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.11 objc2-core-foundation 0.3.2
+39.10 objc2-core-data 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -932,7 +932,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.12 objc2-core-graphics 0.3.2
+39.11 objc2-core-foundation 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -943,7 +943,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.13 objc2-core-image 0.3.2
+39.12 objc2-core-graphics 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -954,7 +954,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.14 objc2-core-text 0.3.2
+39.13 objc2-core-image 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -965,7 +965,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.15 objc2-core-video 0.3.2
+39.14 objc2-core-text 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -976,27 +976,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.16 objc2-encode 4.1.0
-    Platforms:         macOS
-    Copyright:         Copyright 2026 Mads Marquart
-    Note:              Its crates.io source carries no licence file; its
-                       copyright notice is from its upstream repository's
-                       licence file,
-                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
-    Upstream:          https://github.com/madsmtm/objc2
-    Licence:           MIT License (full text: B, below)
-
-38.17 objc2-foundation 0.3.2
-    Platforms:         macOS
-    Copyright:         Copyright 2026 Mads Marquart
-    Note:              Its crates.io source carries no licence file; its
-                       copyright notice is from its upstream repository's
-                       licence file,
-                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
-    Upstream:          https://github.com/madsmtm/objc2
-    Licence:           MIT License (full text: B, below)
-
-38.18 objc2-io-surface 0.3.2
+39.15 objc2-core-video 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -1007,7 +987,27 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.19 objc2-metal 0.3.2
+39.16 objc2-encode 4.1.0
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+
+39.17 objc2-foundation 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+
+39.18 objc2-io-surface 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -1018,7 +1018,7 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.20 objc2-quartz-core 0.3.2
+39.19 objc2-metal 0.3.2
     Platforms:         macOS
     Copyright:         Copyright 2026 Mads Marquart
     Note:              Its crates.io source carries no licence file; its
@@ -1029,7 +1029,18 @@ under one of them: MIT, then BSD-2-Clause, then Apache-2.0.
     Licence:           MIT License (full text: B, below)
     Offered under:     Zlib OR Apache-2.0 OR MIT
 
-38.21 zerocopy 0.8.63
+39.20 objc2-quartz-core 0.3.2
+    Platforms:         macOS
+    Copyright:         Copyright 2026 Mads Marquart
+    Note:              Its crates.io source carries no licence file; its
+                       copyright notice is from its upstream repository's
+                       licence file,
+                       https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt.
+    Upstream:          https://github.com/madsmtm/objc2
+    Licence:           MIT License (full text: B, below)
+    Offered under:     Zlib OR Apache-2.0 OR MIT
+
+39.21 zerocopy 0.8.63
     Platforms:         macOS, Linux
     Copyright:         Copyright 2023 The Fuchsia Authors
     Upstream:          https://github.com/google/zerocopy
@@ -1166,31 +1177,31 @@ The works under it, by notice, and their copyright notices:
   3.14    Copyright 2013 Kim Silkebækken and other contributors
   3.15    Copyright (c) 2013 Joe Loughry
   6.      Copyright (c) 2021 Björn Ottosson
-  23.     Copyright (c) Microsoft Corporation. All rights reserved.
-  24.     Copyright (c) 2021 Björn Ottosson
-  27.     Copyright (c) 2018 Yevhenii Reizner
-  28.     Copyright (c) 2017 Just van Rossum
-  38.1    Copyright (c) 2016 ASH
-  38.2    Copyright (c) 2014 The Rust Project Developers
-  38.3    Copyright 2026 Mads Marquart
-  38.4    Copyright 2026 Mads Marquart
-  38.5    Copyright (c) The Rust Project Developers
-  38.6    Copyright (c) 2026 i-am-logger
-  38.7    Copyright 2026 Mads Marquart
-  38.8    Copyright 2026 Mads Marquart
-  38.9    Copyright 2026 Mads Marquart
-  38.10   Copyright 2026 Mads Marquart
-  38.11   Copyright 2026 Mads Marquart
-  38.12   Copyright 2026 Mads Marquart
-  38.13   Copyright 2026 Mads Marquart
-  38.14   Copyright 2026 Mads Marquart
-  38.15   Copyright 2026 Mads Marquart
-  38.16   Copyright 2026 Mads Marquart
-  38.17   Copyright 2026 Mads Marquart
-  38.18   Copyright 2026 Mads Marquart
-  38.19   Copyright 2026 Mads Marquart
-  38.20   Copyright 2026 Mads Marquart
-  38.21   Copyright 2023 The Fuchsia Authors
+  24.     Copyright (c) Microsoft Corporation. All rights reserved.
+  25.     Copyright (c) 2021 Björn Ottosson
+  28.     Copyright (c) 2018 Yevhenii Reizner
+  29.     Copyright (c) 2017 Just van Rossum
+  39.1    Copyright (c) 2016 ASH
+  39.2    Copyright (c) 2014 The Rust Project Developers
+  39.3    Copyright 2026 Mads Marquart
+  39.4    Copyright 2026 Mads Marquart
+  39.5    Copyright (c) The Rust Project Developers
+  39.6    Copyright (c) 2026 i-am-logger
+  39.7    Copyright 2026 Mads Marquart
+  39.8    Copyright 2026 Mads Marquart
+  39.9    Copyright 2026 Mads Marquart
+  39.10   Copyright 2026 Mads Marquart
+  39.11   Copyright 2026 Mads Marquart
+  39.12   Copyright 2026 Mads Marquart
+  39.13   Copyright 2026 Mads Marquart
+  39.14   Copyright 2026 Mads Marquart
+  39.15   Copyright 2026 Mads Marquart
+  39.16   Copyright 2026 Mads Marquart
+  39.17   Copyright 2026 Mads Marquart
+  39.18   Copyright 2026 Mads Marquart
+  39.19   Copyright 2026 Mads Marquart
+  39.20   Copyright 2026 Mads Marquart
+  39.21   Copyright 2023 The Fuchsia Authors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1215,7 +1226,7 @@ C. Apache License, Version 2.0
 ----------------------------------------------------------------------------
 The works under it, by notice, and their copyright notices:
   3.8     MaterialDesign, October 6, 2022
-  26.     Copyright 2015 Google Inc. All rights reserved.
+  27.     Copyright 2015 Google Inc. All rights reserved.
           Modifications copyright (C) 2020 Alex Butler
           Copyright 2018 Google Inc. All rights reserved.
 
@@ -1299,7 +1310,8 @@ D. X11 License, as ncurses gives it
 The works under it, by notice, and their copyright notices:
   17.     Copyright 2018-2025,2026 Thomas E. Dickey
           Copyright 1998-2017,2018 Free Software Foundation, Inc.
-  20.     Copyright 2018-2025,2026 Thomas E. Dickey
+  18.     Copyright (c) 1998-2011,2015 Free Software Foundation, Inc.
+  21.     Copyright 2018-2025,2026 Thomas E. Dickey
           Copyright 1998-2017,2018 Free Software Foundation, Inc.
 
 Copyright 2018-2025,2026 Thomas E. Dickey
@@ -1342,7 +1354,7 @@ The works under it, by notice, and their copyright notices:
   10.     Copyright © 1991-2026 Unicode, Inc.
   11.     Copyright © 1991-2026 Unicode, Inc.
   12.     Copyright © 1991-2026 Unicode, Inc.
-  19.     Copyright © 1991-2026 Unicode, Inc.
+  20.     Copyright © 1991-2026 Unicode, Inc.
 
 UNICODE LICENSE V3
 
@@ -1423,7 +1435,7 @@ https://creativecommons.org/licenses/by/4.0/
 H. Creative Commons Attribution-NoDerivatives 4.0 International
 ----------------------------------------------------------------------------
 The works under it, by notice, and their copyright notices:
-  29.1    Copyright © 1996–1998, 2000, 2003 by Adobe Systems Incorporated.
+  30.1    Copyright © 1996–1998, 2000, 2003 by Adobe Systems Incorporated.
           All rights reserved.
 
 Given by its URI, as its section 3(a)(1)(C) allows in place of its text:
@@ -1509,8 +1521,8 @@ The works under it, by notice, and their copyright notices:
   5.      Copyright 1990, 1998 The Open Group
   13.     Copyright 1985, 1989, 1998 The Open Group
   14.     Copyright 1985, 1989, 1998 The Open Group
-  18.     Copyright 1987, 1994, 1998 The Open Group
-  22.     Copyright 1987, 1994, 1998 The Open Group
+  19.     Copyright 1987, 1994, 1998 The Open Group
+  23.     Copyright 1987, 1994, 1998 The Open Group
 
 Permission to use, copy, modify, distribute, and sell this software and its
 documentation for any purpose is hereby granted without fee, provided that
@@ -1540,7 +1552,7 @@ The works under it, by notice, and their copyright notices:
           Copyright 1987, 1988 X Consortium
   16.     Copyright 1996-2025,2026 by Thomas E. Dickey
           Copyright 1987, 1988 X Consortium
-  35.     Copyright 1996-2025,2026 by Thomas E. Dickey
+  36.     Copyright 1996-2025,2026 by Thomas E. Dickey
           Copyright 1987, 1988 X Consortium
 
 Permission is hereby granted, free of charge, to any person obtaining a
@@ -1576,7 +1588,7 @@ The works under it, by notice, and their copyright notices:
           Massachusetts. All Rights Reserved
   16.     Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
           Massachusetts. All Rights Reserved
-  35.     Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
+  36.     Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
           Massachusetts. All Rights Reserved
 
 Permission to use, copy, modify, and distribute this software and its
@@ -1599,11 +1611,11 @@ SOFTWARE.
 O. Digital Equipment Corporation's notice, in the form naming Digital
 ----------------------------------------------------------------------------
 The works under it, by notice, and their copyright notices:
-  18.     Copyright 1987 by Digital Equipment Corporation, Maynard,
+  19.     Copyright 1987 by Digital Equipment Corporation, Maynard,
           Massachusetts All Rights Reserved
-  21.     Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
+  22.     Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
           Massachusetts. All Rights Reserved
-  22.     Copyright 1987 by Digital Equipment Corporation, Maynard,
+  23.     Copyright 1987 by Digital Equipment Corporation, Maynard,
           Massachusetts All Rights Reserved
 
 Permission to use, copy, modify, and distribute this software and its
@@ -1626,7 +1638,7 @@ SOFTWARE.
 P. MIT License, in the form whose notice includes its next paragraph
 ----------------------------------------------------------------------------
 The works under it, by notice, and their copyright notices:
-  21.     Copyright © 2008-2009 Dan Nicholson <dbn.lists@gmail.com>
+  22.     Copyright © 2008-2009 Dan Nicholson <dbn.lists@gmail.com>
           Copyright © 2009-2012, 2016 Daniel Stone <daniel@fooishbar.org>
           Copyright © 2012-2014, 2020-2022, 2025 Ran Benita
           <ran@unusedvar.com>
@@ -1639,7 +1651,7 @@ The works under it, by notice, and their copyright notices:
           Copyright © 2012 Collabora, Ltd.
           Copyright © 2015 Kazunobu Kuriyama <kazunobu.kuriyama@nifty.com>
           Copyright (C) 2011 Joseph Adams <joeyadams3.14159@gmail.com>
-  36.     Copyright © 2008-2011 Kristian Høgsberg
+  37.     Copyright © 2008-2011 Kristian Høgsberg
           Copyright © 2010-2011 Intel Corporation
           Copyright © 2012-2013 Collabora, Ltd.
           Copyright © 2023 Valve Corporation
@@ -1690,7 +1702,7 @@ DEALINGS IN THE SOFTWARE.
 Q. The Open Group's notice, in the X11 form
 ----------------------------------------------------------------------------
 The works under it, by notice, and their copyright notices:
-  21.     Copyright 1985, 1987, 1988, 1990, 1998 The Open Group
+  22.     Copyright 1985, 1987, 1988, 1990, 1998 The Open Group
 
 Permission is hereby granted, free of charge, to any person obtaining a
 copy of this software and associated documentation files (the "Software"),
@@ -1718,7 +1730,7 @@ authorization from the authors.
 R. Silicon Graphics' historical permission notice
 ----------------------------------------------------------------------------
 The works under it, by notice, and their copyright notices:
-  21.     Copyright (c) 1993, 1994, 1995, 1996 by Silicon Graphics Computer
+  22.     Copyright (c) 1993, 1994, 1995, 1996 by Silicon Graphics Computer
           Systems, Inc.
 
 Permission to use, copy, modify, and distribute this
@@ -1747,7 +1759,7 @@ S. Oki Technosystems Laboratory's and Fuji Xerox's notice (historical
    permission, sell variant)
 ----------------------------------------------------------------------------
 The works under it, by notice, and their copyright notices:
-  21.     Copyright 1992 by Oki Technosystems Laboratory, Inc.
+  22.     Copyright 1992 by Oki Technosystems Laboratory, Inc.
           Copyright 1992 by Fuji Xerox Co., Ltd.
 
 Permission to use, copy, modify, distribute, and sell this software
@@ -1775,7 +1787,7 @@ OR PERFORMANCE OF THIS SOFTWARE.
 T. HarfBuzz's licence (MIT, Modern Variant)
 ----------------------------------------------------------------------------
 The works under it, by notice, and their copyright notices:
-  25.     Copyright © 2010-2022 Google, Inc.
+  26.     Copyright © 2010-2022 Google, Inc.
           Copyright © 2015-2020 Ebrahim Byagowi
           Copyright © 2019,2020 Facebook, Inc.
           Copyright © 2012,2015 Mozilla Foundation
@@ -1817,7 +1829,7 @@ PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 U. The IJG's licence, as libjpeg 6b's README gives it
 ----------------------------------------------------------------------------
 The works under it, by notice, and their copyright notices:
-  33.     This software is copyright (C) 1991-1998, Thomas G. Lane.
+  34.     This software is copyright (C) 1991-1998, Thomas G. Lane.
 
 In legalese:
 
@@ -1860,7 +1872,7 @@ assumed by the product vendor.
 V. The IJG's licence, as libjpeg-turbo's README.ijg gives it
 ----------------------------------------------------------------------------
 The works under it, by notice, and their copyright notices:
-  34.     This software is copyright (C) 1991-2020, Thomas G. Lane, Guido
+  35.     This software is copyright (C) 1991-2020, Thomas G. Lane, Guido
           Vollbeding.
 
 In legalese:
@@ -1904,7 +1916,7 @@ assumed by the product vendor.
 W. libjpeg-turbo's Modified (3-clause) BSD License
 ----------------------------------------------------------------------------
 The works under it, by notice, and their copyright notices:
-  34.     Copyright (C) 2009-2026 D. R. Commander. All Rights Reserved.
+  35.     Copyright (C) 2009-2026 D. R. Commander. All Rights Reserved.
           Copyright (C) 2015 Viktor Szathmáry. All Rights Reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -1936,7 +1948,7 @@ X. The historical permission notice (sell variant), as
    text-input-unstable-v3 gives it
 ----------------------------------------------------------------------------
 The works under it, by notice, and their copyright notices:
-  37.     Copyright © 2012, 2013 Intel Corporation
+  38.     Copyright © 2012, 2013 Intel Corporation
           Copyright © 2015, 2016 Jan Arne Petersen
           Copyright © 2017, 2018 Red Hat, Inc.
           Copyright © 2018 Purism SPC
@@ -1968,9 +1980,9 @@ THIS SOFTWARE.
 | status | research sources | other entries | meaning |
 |---|---|---|---|
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 353 | 69 | redistributable, and its notice is satisfied |
+| kept | 355 | 70 | redistributable, and its notice is satisfied |
 | own | 10 | 11 | the work of baud's author |
-| total | 364 | 80 | |
+| total | 366 | 81 | |
 
 ## Licence texts in LICENSES/
 
@@ -2307,6 +2319,14 @@ they were built from.
 - **Notice:** [LICENSES/ncurses-COPYING.txt](LICENSES/ncurses-COPYING.txt)
 - **From:** docs/research/sources/terminfo/xterm-256color.ti
 - **Files:** [baud-domain/data/terminfo-xterm-256color.ti](baud-domain/data/terminfo-xterm-256color.ti)
+
+### ncurses 6.0's include/Caps, which baud-domain's build reads, through a link in baud-domain/data/ to terminfo/ncurses-6.0-Caps in docs/research/sources/, which the published crate carries as the file: the order of the capabilities in baud's compiled xterm-256color entry
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** X11
+- **Notice:** [LICENSES/ncurses-COPYING.txt](LICENSES/ncurses-COPYING.txt)
+- **From:** docs/research/sources/terminfo/ncurses-6.0-Caps
+- **Files:** [baud-domain/data/ncurses-6.0-Caps.txt](baud-domain/data/ncurses-6.0-Caps.txt)
 
 ### X.Org's keysymdef.h, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file with its notices, The Open Group's and Digital's: the keysyms xterm's national macros name, resolved to their codepoints
 
@@ -3262,20 +3282,22 @@ notice is, and the URL each file was copied from.
 |---|---|
 | [msdfgen-README.md](docs/research/sources/msdfgen-README.md) | https://raw.githubusercontent.com/Chlumsky/msdfgen/master/README.md |
 
-### ncurses terminfo entries (infocmp output) and terminfo(5)
+### ncurses terminfo entries (infocmp output), terminfo(5), term(5) and include/Caps
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11
 - **Notice:** [LICENSES/ncurses-COPYING.txt](LICENSES/ncurses-COPYING.txt)
-- **Files:** 14
+- **Files:** 16
 
 | file | copied from |
 |---|---|
 | [terminfo/ansi.ti](docs/research/sources/terminfo/ansi.ti) | https://invisible-island.net/ncurses/ |
 | [terminfo/dtterm.ti](docs/research/sources/terminfo/dtterm.ti) | https://invisible-island.net/ncurses/ |
 | [terminfo/hpterm.ti](docs/research/sources/terminfo/hpterm.ti) | https://invisible-island.net/ncurses/ |
+| [terminfo/ncurses-6.0-Caps](docs/research/sources/terminfo/ncurses-6.0-Caps) | https://raw.githubusercontent.com/ThomasDickey/ncurses-snapshots/3ee43f2d93b5089689641c11f8acb225d7214863/include/Caps |
 | [terminfo/nsterm.ti](docs/research/sources/terminfo/nsterm.ti) | https://invisible-island.net/ncurses/ |
 | [terminfo/rxvt.ti](docs/research/sources/terminfo/rxvt.ti) | https://invisible-island.net/ncurses/ |
+| [terminfo/term.5](docs/research/sources/terminfo/term.5) | https://invisible-island.net/ncurses/man/term.5.html |
 | [terminfo/terminfo.5](docs/research/sources/terminfo/terminfo.5) | https://invisible-island.net/ncurses/man/terminfo.5.html |
 | [terminfo/vt100.ti](docs/research/sources/terminfo/vt100.ti) | https://invisible-island.net/ncurses/ |
 | [terminfo/vt102.ti](docs/research/sources/terminfo/vt102.ti) | https://invisible-island.net/ncurses/ |

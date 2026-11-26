@@ -7841,6 +7841,16 @@ Mohan Sundar Rajan, Doorsanchar Katha (दूरसंचार कथा), Nati
 - **Copy:** not committed; cited by URL and sha256
 - **Cited in:** `baud-app/examples/demo/session.rs`
 
+<a id="ncurses-caps"></a>
+### ncurses-caps
+
+ncurses 6.0, include/Caps -- the predefined capabilities in compiled order. Thomas E. Dickey and the Free Software Foundation, 2015, ncurses-snapshots, tag v6\_0 @ 3ee43f2d (X11 licence).
+
+- **URL:** <https://raw.githubusercontent.com/ThomasDickey/ncurses-snapshots/3ee43f2d93b5089689641c11f8acb225d7214863/include/Caps>
+- **sha256:** `f329299bc45f5fd455999133a2babb08971f4d3d3e3d7d71462d9057fffbccf6` (65613 bytes)
+- **Copy:** [docs/research/sources/terminfo/ncurses-6.0-Caps](research/sources/terminfo/ncurses-6.0-Caps)
+- **Cited in:** `baud-domain/build/terminfo_caps.rs`, `baud-domain/src/terminfo.rs`
+
 <a id="neovide-cursor-renderer"></a>
 ### neovide-cursor-renderer
 
@@ -8832,6 +8842,16 @@ swift-corelibs-foundation 28249ce, Scanner.swift -- charactersToBeSkipped defaul
 - **Copy:** not committed; cited by URL and sha256
 - **Cited in:** `baud-domain/src/vt/iterm.rs`, `docs/vt-coverage.md`
 
+<a id="term-man5"></a>
+### term-man5
+
+term(5): format of compiled term file. ncurses 6.0.20150808 (term.5 1.22), 2015, ncurses manual pages, /usr/share/man/man5/term.5 on macOS.
+
+- **URL:** <https://invisible-island.net/ncurses/man/term.5.html>
+- **sha256:** `7a4c584436fbd9d8bf7b4ae3eaacc034c72e4601fbc1f827f2f7f58a5dec2f90` (11788 bytes)
+- **Copy:** [docs/research/sources/terminfo/term.5](research/sources/terminfo/term.5)
+- **Cited in:** `baud-domain/build/terminfo_caps.rs`, `baud-domain/src/terminfo.rs`
+
 <a id="terminal-wg-bidi-arrow-key-swapping"></a>
 ### terminal-wg-bidi-arrow-key-swapping
 
@@ -8968,7 +8988,7 @@ terminfo(5): terminal capability data base. ncurses 6.0.20150808 (terminfo.head 
 - **URL:** <https://invisible-island.net/ncurses/man/terminfo.5.html>
 - **sha256:** `229b3f5cd16826ed0d9dddd1ee7b14f86f9893521738a6328f58b2487c40d836` (96313 bytes)
 - **Copy:** [docs/research/sources/terminfo/terminfo.5](research/sources/terminfo/terminfo.5)
-- **Cited in:** `baud-domain/src/terminfo.rs`, `baud-domain/src/vt/tcap.rs`
+- **Cited in:** `baud-domain/build/terminfo_caps.rs`, `baud-domain/src/terminfo.rs`, `baud-domain/src/vt/tcap.rs`
 
 <a id="terminfo-nsterm"></a>
 ### terminfo-nsterm
@@ -9041,7 +9061,7 @@ terminfo entry: xterm-256color, with user-defined capabilities. ncurses 6.0.2015
 - **URL:** <https://invisible-island.net/ncurses/>
 - **sha256:** `3efe945da1810e50a82ce8bd1564dd6eb9615082f2f0459c5c94d7cdf335e0e7` (3960 bytes)
 - **Copy:** [docs/research/sources/terminfo/xterm-256color.ti](research/sources/terminfo/xterm-256color.ti)
-- **Cited in:** `baud-core/tests/vt420/erase_colour.rs`, `baud-core/tests/xterm_keyboards.rs`, `baud-domain/build/termcap_keys.rs`, `baud-domain/src/vt/key/keyboards.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `baud-core/tests/vt420/erase_colour.rs`, `baud-core/tests/xterm_keyboards.rs`, `baud-domain/build/termcap_keys.rs`, `baud-domain/build/terminfo_caps.rs`, `baud-domain/src/terminfo.rs`, `baud-domain/src/vt/key/keyboards.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="terminfo-xterm-256color-ncurses66"></a>
 ### terminfo-xterm-256color-ncurses66
