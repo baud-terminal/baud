@@ -71,9 +71,10 @@ use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 
 use baud_domain::dbus::{
-    ADD_MATCH, Array, Body, Boolean, Byte, Bytes, CLOSE_NOTIFICATION, Dict, Double, Emit,
-    EncodeError, Encoded, FdoNotify, GET_CAPABILITIES, HolderChange, I32, ImageData, Inbound,
-    InterfaceName, MemberName, NOTIFY, ObjectPath, Peer, Return, Str, Trusted, U32, Variant,
+    ADD_MATCH, Array, AuthSent, AuthStep, Body, Boolean, BusName, Byte, Bytes, CLOSE_NOTIFICATION,
+    Connection, Dict, Double, Emit, EncodeError, Encoded, FdAnswer, FdoNotify, FdsAgreed,
+    GET_CAPABILITIES, Handshake, HolderChange, I32, ImageData, Inbound, InterfaceName, MemberName,
+    NOTIFY, Negotiating, NoFds, ObjectPath, Peer, Return, Str, Trusted, U32, Variant, auth_line,
 };
 
 /// The portal's `color-scheme`.
@@ -972,26 +973,24 @@ fn fdo_signal(t: Trusted<'_>) -> Option<FromServer> {
     }
 }
 
-/// Where the handshake is.
+/// **Where the connection is**: the handshake in its state, the
+/// connection it began, with file passing agreed or not, or the end.
+/// A call that carries a file is made only on [`Link::Fds`], the one
+/// state whose [`FdsAgreed`] makes a [`baud_domain::dbus::UnixFd`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Auth {
+enum Link {
     /// `AUTH` sent; waiting for `OK`, or for `DATA` when no identity was
     /// sent with it.
-    Sent,
+    Sent(Handshake<AuthSent>),
     /// `NEGOTIATE_UNIX_FD` sent after `OK`; waiting for `AGREE_UNIX_FD` or
     /// `ERROR`, and either begins.
-    Negotiating,
-    /// `BEGIN` and `Hello` sent: messages flow.
-    Done,
+    Negotiating(Handshake<Negotiating>),
+    /// `BEGIN` and `Hello` sent, files agreed: messages flow.
+    Fds(Connection<FdsAgreed>),
+    /// `BEGIN` and `Hello` sent, files refused: messages flow, and a call
+    /// that carries a file is not made.
+    NoFds(Connection<NoFds>),
     Failed,
-}
-
-/// Whether the bus agreed to pass files: a call that carries one is
-/// refused where it did not.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Files {
-    Agreed,
-    Refused,
 }
 
 /// The notification server's calls whose replies this waits for, each
@@ -1062,8 +1061,6 @@ impl std::fmt::Display for NotSent {
 enum Asked {
     ReadAll(Serial),
     ShowItems(Serial),
-    /// `Hello`, whose reply is this connection's unique name.
-    Hello(Serial),
     /// The print portal's `version`, asked through `Properties.Get`.
     PrintVersion(Serial),
     /// `PreparePrint` or `Print`: its reply is only the Request's path,
@@ -1090,8 +1087,7 @@ struct Pending {
 /// **The protocol over bytes**: what to send, and what the bytes that came
 /// mean. No I/O, so a test drives it with a peer's bytes.
 pub(crate) struct Session {
-    auth: Auth,
-    files: Files,
+    link: Link,
     out: Vec<u8>,
     /// The files that go with the bytes of `out` from each offset on: one
     /// message's, sent with its first byte.
@@ -1100,7 +1096,10 @@ pub(crate) struct Session {
     /// `Hello`.
     queued: Vec<(Vec<u8>, Vec<OwnedFd>)>,
     inb: Vec<u8>,
-    /// Every message's serial, drawn as it is encoded.
+    /// Every message's serial after `Hello`, drawn as it is encoded. Calls
+    /// made during the handshake queue behind `Hello` already encoded, so
+    /// they draw here from the session's start, and the connection's own
+    /// counter is not drawn from.
     serials: baud_domain::dbus::Serials,
     /// The notification server's calls waited for.
     awaiting: Notifying,
@@ -1115,9 +1114,6 @@ pub(crate) struct Session {
     /// notification it named: handed over with that notification's next
     /// click, and dropped by a click or a close of it.
     token: baud_domain::TokenFor<NotifyId>,
-    /// This connection's unique name, from `Hello`'s reply: the Request
-    /// paths the portal makes are under it.
-    unique: Option<String>,
     /// A dialog asked for before the name was known, its title.
     prepare_after_hello: Option<(String, String)>,
     /// The print exchange waiting for its `Response`.
@@ -1131,23 +1127,10 @@ impl Session {
     /// and `AUTH EXTERNAL`, with the user ID as the identity when it is
     /// known, and then the appearance asked for, behind it.
     pub(crate) fn new(uid: Option<Uid>) -> Session {
-        let mut out = vec![0u8];
-        match uid {
-            Some(uid) => {
-                let hex: String = uid
-                    .0
-                    .to_string()
-                    .bytes()
-                    .map(|b| format!("{b:02x}"))
-                    .collect();
-                out.extend_from_slice(format!("AUTH EXTERNAL {hex}\r\n").as_bytes());
-            }
-            None => out.extend_from_slice(b"AUTH EXTERNAL\r\n"),
-        }
+        let (h, first) = Handshake::start(uid.map(|u| baud_domain::dbus::Uid::new(u.0)));
         let mut s = Session {
-            auth: Auth::Sent,
-            files: Files::Refused,
-            out,
+            link: Link::Sent(h),
+            out: first.bytes().to_vec(),
             out_fds: Vec::new(),
             queued: Vec::new(),
             inb: Vec::new(),
@@ -1159,7 +1142,6 @@ impl Session {
             watch: HolderWatch::Unasked,
             asked: Vec::new(),
             token: baud_domain::TokenFor::new(),
-            unique: None,
             prepare_after_hello: None,
             print: None,
             handles: Word(0),
@@ -1183,15 +1165,15 @@ impl Session {
     /// A message's bytes and its files out, or queued behind `Hello` while
     /// the handshake goes on.
     fn send(&mut self, bytes: Vec<u8>, fds: Vec<OwnedFd>) {
-        match self.auth {
-            Auth::Done => {
+        match self.link {
+            Link::Fds(_) | Link::NoFds(_) => {
                 if !fds.is_empty() {
                     self.out_fds.push((Len(self.out.len()), fds));
                 }
                 self.out.extend_from_slice(&bytes);
             }
-            Auth::Sent | Auth::Negotiating => self.queued.push((bytes, fds)),
-            Auth::Failed => {}
+            Link::Sent(_) | Link::Negotiating(_) => self.queued.push((bytes, fds)),
+            Link::Failed => {}
         }
     }
 
@@ -1392,7 +1374,7 @@ impl Session {
 
     /// Whether the session has failed and will say nothing more.
     pub(crate) fn failed(&self) -> bool {
-        self.auth == Auth::Failed
+        self.link == Link::Failed
     }
 
     /// **A call that carries files**, its `h` arguments indexes into
@@ -1400,7 +1382,7 @@ impl Session {
     /// handshake has not yet said, the call is queued and asked again at
     /// `BEGIN` (`begin` drops it there if the bus refused).
     fn call_with_fds(&mut self, call: &Call<'_>, fds: Vec<OwnedFd>) -> Option<Serial> {
-        if self.auth == Auth::Done && self.files == Files::Refused {
+        if matches!(self.link, Link::NoFds(_)) {
             return None;
         }
         let serial = self.next_serial();
@@ -1442,30 +1424,55 @@ impl Session {
         }
     }
 
-    /// `BEGIN`, `Hello`, and what was queued behind them; a queued call
-    /// with files is dropped where the bus refused them.
-    fn begin(&mut self, files: Files) {
-        self.files = files;
-        self.auth = Auth::Done;
-        self.out.extend_from_slice(b"BEGIN\r\n");
-        let hello = marshal(
-            &Call {
-                destination: "org.freedesktop.DBus",
-                path: "/org/freedesktop/DBus",
-                interface: "org.freedesktop.DBus",
-                member: "Hello",
-                signature: "",
-                body: Vec::new(),
-            },
-            Serial(Word(1)),
-        );
-        self.out.extend_from_slice(&hello);
-        self.asked.push(Asked::Hello(Serial(Word(1))));
+    /// `BEGIN` and `Hello`, the bytes `begun` gives, the connection begun
+    /// as `link`, and what was queued behind them; a queued call with
+    /// files is dropped where the bus refused them.
+    fn begin(&mut self, begun: &[u8], link: Link) {
+        self.out.extend_from_slice(begun);
+        self.link = link;
+        let agreed = matches!(link, Link::Fds(_));
         for (bytes, fds) in std::mem::take(&mut self.queued) {
-            if fds.is_empty() || files == Files::Agreed {
+            if fds.is_empty() || agreed {
                 self.send(bytes, fds);
             }
         }
+    }
+
+    /// This connection's unique name, once `Hello` has answered: the
+    /// Request paths the portal makes are under it.
+    fn unique(&self) -> Option<BusName<'_>> {
+        match &self.link {
+            Link::Fds(c) => c.unique(),
+            Link::NoFds(c) => c.unique(),
+            Link::Sent(_) | Link::Negotiating(_) | Link::Failed => None,
+        }
+    }
+
+    /// **`Hello`'s reply**, read through the codec: the unique name kept
+    /// by the connection, and a dialog asked for before it then asked.
+    /// `None` for any other message.
+    fn hello_heard(&mut self, m: &Inbound<'_>) -> Option<Vec<Heard>> {
+        let Inbound::Return(r) = m else {
+            return None;
+        };
+        if r.reply_to != baud_domain::dbus::Serial::HELLO || self.unique().is_some() {
+            return None;
+        }
+        let kept = match &mut self.link {
+            Link::Fds(c) => c.on_hello(r),
+            Link::NoFds(c) => c.on_hello(r),
+            Link::Sent(_) | Link::Negotiating(_) | Link::Failed => return None,
+        };
+        Some(match (self.prepare_after_hello.take(), kept) {
+            (Some((parent, title)), Ok(())) => {
+                self.prepare_print(&parent, &title);
+                Vec::new()
+            }
+            (Some(_), Err(e)) => vec![Heard::PrintEnded(PrintEnd::Failed(format!(
+                "the bus gave no unique name: {e}"
+            )))],
+            (None, _) => Vec::new(),
+        })
     }
 
     /// **Ask whether the print portal is there**: its `version` property,
@@ -1493,8 +1500,8 @@ impl Session {
     /// `handle_token`; `None` before the unique name is known.
     fn expect_response(&mut self, step: PrintStep) -> Option<String> {
         let sender = self
-            .unique
-            .as_deref()?
+            .unique()?
+            .as_str()
             .trim_start_matches(':')
             .replace('.', "_");
         self.handles = Word(self.handles.0.wrapping_add(1));
@@ -1564,7 +1571,7 @@ impl Session {
         pdf: OwnedFd,
         token: PrintToken,
     ) -> bool {
-        if self.files == Files::Refused {
+        if !matches!(self.link, Link::Fds(_)) {
             return false;
         }
         let Some(handle) = self.expect_response(PrintStep::Print) else {
@@ -1631,37 +1638,54 @@ impl Session {
         // The handshake's lines, as many as came: after `OK`, file passing
         // is asked for (`NEGOTIATE_UNIX_FD`), and its answer, agreed or an
         // `ERROR`, begins.
-        while matches!(self.auth, Auth::Sent | Auth::Negotiating) {
-            let Some(nl) = self.inb.windows(2).position(|w| w == b"\r\n") else {
+        while matches!(self.link, Link::Sent(_) | Link::Negotiating(_)) {
+            let Some(line) = auth_line(&self.inb) else {
                 return heard;
             };
-            let line: Vec<u8> = self.inb.drain(..nl + 2).collect();
-            let line = &line[..nl];
-            match self.auth {
-                Auth::Negotiating if line == b"AGREE_UNIX_FD" => self.begin(Files::Agreed),
-                Auth::Negotiating if line.starts_with(b"ERROR") => self.begin(Files::Refused),
-                Auth::Sent if line.starts_with(b"OK ") || line == b"OK" => {
-                    self.auth = Auth::Negotiating;
-                    self.out.extend_from_slice(b"NEGOTIATE_UNIX_FD\r\n");
+            let said = String::from_utf8_lossy(line.bytes()).into_owned();
+            let consumed = line.consumed().index();
+            let refused = match std::mem::replace(&mut self.link, Link::Failed) {
+                Link::Sent(h) => match h.on_line(line) {
+                    AuthStep::Data(h, answer) | AuthStep::Unknown(h, answer) => {
+                        self.out.extend_from_slice(answer);
+                        self.link = Link::Sent(h);
+                        None
+                    }
+                    AuthStep::Ok(h) => {
+                        let (h, ask) = h.negotiate_fds();
+                        self.out.extend_from_slice(ask);
+                        self.link = Link::Negotiating(h);
+                        None
+                    }
+                    AuthStep::Refused(r) => Some(r),
+                },
+                Link::Negotiating(h) => match h.on_line(line) {
+                    FdAnswer::Agreed(b) => {
+                        self.begin(b.bytes(), Link::Fds(b.into_connection()));
+                        None
+                    }
+                    FdAnswer::Refused(b) => {
+                        self.begin(b.bytes(), Link::NoFds(b.into_connection()));
+                        None
+                    }
+                    FdAnswer::Unexpected(r) => Some(r),
+                },
+                link @ (Link::Fds(_) | Link::NoFds(_) | Link::Failed) => {
+                    self.link = link;
+                    None
                 }
-                Auth::Sent if line.starts_with(b"DATA") => {
-                    // The empty identity: the server takes the socket's own.
-                    self.out.extend_from_slice(b"DATA\r\n");
-                    return heard;
-                }
-                _ => {
-                    self.auth = Auth::Failed;
-                    let said = String::from_utf8_lossy(line).into_owned();
-                    heard.push(Heard::Closed(format!(
-                        "the bus refused the handshake: {said}"
-                    )));
-                    return heard;
-                }
+            };
+            self.inb.drain(..consumed);
+            if let Some(r) = refused {
+                heard.push(Heard::Closed(format!(
+                    "the bus refused the handshake: {r}: {said}"
+                )));
+                return heard;
             }
         }
         while let Some(len) = message_len(&self.inb) {
             let Ok(len) = len else {
-                self.auth = Auth::Failed;
+                self.link = Link::Failed;
                 heard.push(Heard::Closed(
                     "the bus sent a message this cannot read".into(),
                 ));
@@ -1671,10 +1695,10 @@ impl Session {
                 break;
             }
             let bytes: Vec<u8> = self.inb.drain(..len.0).collect();
-            if let Some(h) = baud_domain::dbus::decode(&bytes)
-                .ok()
-                .and_then(|m| self.notifications_heard(&m))
-            {
+            if let Some(h) = baud_domain::dbus::decode(&bytes).ok().and_then(|m| {
+                self.hello_heard(&m)
+                    .or_else(|| self.notifications_heard(&m))
+            }) {
                 heard.extend(h);
                 continue;
             }
@@ -1758,7 +1782,6 @@ impl Session {
         let Some(i) = self.asked.iter().position(|w| match w {
             Asked::ReadAll(s)
             | Asked::ShowItems(s)
-            | Asked::Hello(s)
             | Asked::PrintVersion(s)
             | Asked::PrintCall(s) => *s == reply,
         }) else {
@@ -1770,21 +1793,6 @@ impl Session {
             (Asked::ReadAll(_), _, Some(e)) => vec![Heard::NoScheme(e)],
             (Asked::ShowItems(_), METHOD_RETURN, _) => vec![Heard::Revealed],
             (Asked::ShowItems(_), _, Some(e)) => vec![Heard::NotRevealed(e)],
-            (Asked::Hello(_), METHOD_RETURN, _) => {
-                self.unique = (m.signature == "s")
-                    .then(|| Reader::new(m.body, m.order).string().map(str::to_owned))
-                    .flatten();
-                match self.prepare_after_hello.take() {
-                    Some((parent, title)) if self.unique.is_some() => {
-                        self.prepare_print(&parent, &title);
-                        Vec::new()
-                    }
-                    Some(_) => vec![Heard::PrintEnded(PrintEnd::Failed(
-                        "the bus gave no unique name".into(),
-                    ))],
-                    None => Vec::new(),
-                }
-            }
             (Asked::PrintVersion(_), METHOD_RETURN, _) => {
                 let mut r = Reader::new(m.body, m.order);
                 let version = (m.signature == "v")
@@ -2068,7 +2076,7 @@ impl Bus {
             return Vec::new();
         }
         if let Err(e) = self.flush() {
-            self.session.auth = Auth::Failed;
+            self.session.link = Link::Failed;
             return vec![Heard::Closed(format!("the session bus: {e}"))];
         }
         let mut heard = Vec::new();
@@ -2076,7 +2084,7 @@ impl Bus {
         loop {
             match self.stream.read(&mut buf) {
                 Ok(0) => {
-                    self.session.auth = Auth::Failed;
+                    self.session.link = Link::Failed;
                     heard.push(Heard::Closed(
                         "the session bus closed the connection".into(),
                     ));
@@ -2091,7 +2099,7 @@ impl Bus {
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(e) => {
-                    self.session.auth = Auth::Failed;
+                    self.session.link = Link::Failed;
                     heard.push(Heard::Closed(format!("the session bus: {e}")));
                     return heard;
                 }
