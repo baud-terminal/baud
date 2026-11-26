@@ -121,6 +121,9 @@ use baud_wayland::Connection;
 use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
 
+mod plan;
+use plan::FramePlan;
+
 /// How long a synchronised update may hold the frame: two 60 Hz periods,
 /// the bound the macOS loop keeps for the same reason -- long enough that
 /// no real redraw is cut off, short enough that a stalled update is not a
@@ -1667,6 +1670,29 @@ impl Driver {
                 crate::warn!("poll: {e}");
                 return;
             }
+        }
+    }
+
+    /// **What the next frame shows, read from the terminal and the
+    /// session**: the cursor, the guide, ReGIS's blink, the highlight and the
+    /// write seal (`plan.rs`). The composition is drawn at the cursor only
+    /// while the find field is closed.
+    fn plan(&mut self) -> FramePlan {
+        let composed = match self.finding {
+            Some(_) => None,
+            None => crate::marked::composition(
+                &self.term,
+                &self.composing,
+                &self.composing_hints,
+                self.composing_caret,
+            ),
+        };
+        FramePlan {
+            cursor: plan::CursorPlan::of(&self.term, composed.as_ref()),
+            guide: self.term.cursor_guide().unwrap_or(self.cursor_guide),
+            regis_blink: self.term.regis_blink(),
+            highlight: self.seat.highlight(&self.term),
+            seal: self.term.seal_writes(),
         }
     }
 
@@ -4322,6 +4348,10 @@ impl Driver {
             self.bell.hold(&self.term);
             return;
         }
+        // **What this frame shows, read from the terminal once** (`plan`):
+        // its write generation closed before the frame's first ask of the
+        // display; the draw (`draw_kept`) paints under the same seal.
+        let frame = self.plan();
         // The moment the frame is first seen: the next refresh where the
         // compositor's presentation feedback says one, else now -- what
         // the macOS frame plans for with its display link's target.
@@ -4331,20 +4361,19 @@ impl Driver {
         let bell = self.bell.plan(&self.term, seen_at, update);
         self.renderer.set_flash(bell.flash);
         self.renderer.set_bell_tint(bell.tint);
-        let blinks = self.blinks();
+        let blinks = crate::caret::blinks(frame.cursor.style, self.focus, frame.cursor.drawn());
         // The cursor this frame presents restarts the cycle if it is not
         // the one the last frame did (`Caret::present`).
-        self.caret
-            .present(seen_at, crate::caret::PresentedCursor::of(&self.term));
+        self.caret.present(seen_at, frame.cursor.presented);
         let caret = self.caret.plan(seen_at, blinks);
         self.renderer.set_cursor_blink(caret);
         // The selection's share of the view, or `?1001`'s region.
-        let highlight = self.seat.highlight(&self.term);
+        let highlight = frame.highlight;
         self.renderer.set_highlight(highlight);
         // iTerm2's cursor guide: what a program set, else `[cursor] guide`,
         // its one point at a point's pixels (`type_px`).
         let scale = self.scale.factor();
-        let guide = self.term.cursor_guide().unwrap_or(self.cursor_guide);
+        let guide = frame.guide;
         self.renderer
             .set_cursor_guide(crate::effects::guide_look(guide, self.type_px()));
         // A `selection` the badge names reads what a copy would copy.
@@ -4544,12 +4573,7 @@ impl Driver {
             self.margin = margin;
             self.damage = Damage::Full;
         }
-        // **One write generation closed a frame, before its first ask of
-        // the display** (`Term::seal_writes`), and after the link scan,
-        // which keeps the seal it read under, as `App::present` seals: the
-        // re-cut keeps its layout under the seal, so the frame's later asks
-        // read no row. The draw (`draw_kept`) paints under the same seal.
-        let seal = self.term.seal_writes();
+        let seal = frame.seal;
         // The marks on the window shown, and the whole frame they are
         // drawn in: the strip at its left, then the grid.
         self.renderer.place_marks(
@@ -4599,7 +4623,7 @@ impl Driver {
                 }
                 self.seat.drawn(self.renderer.bidi());
                 self.timed
-                    .drawn(self.renderer.blink_seen(), self.term.regis_blink());
+                    .drawn(self.renderer.blink_seen(), frame.regis_blink);
                 startup_first("first present", &FIRST_PRESENT);
                 self.report.presented();
                 self.latency.shown_cpu(crate::pty::host_now);
@@ -5799,6 +5823,92 @@ mod tests {
                 false => assert!(line.iter().all(|&p| p == POISON), "row {y} untouched"),
             }
         }
+    }
+
+    /// What the frame reads that the plan reads instead: the terminal and
+    /// the session's state, by their fields and the helpers over them.
+    const PLANNING_INPUTS: [&str; 21] = [
+        "term",
+        "seat",
+        "finding",
+        "composing",
+        "composing_hints",
+        "composing_caret",
+        "derive",
+        "pty",
+        "send_title",
+        "session",
+        "updates",
+        "lines",
+        "views",
+        "uris",
+        "holding",
+        "line_tip",
+        "probes",
+        "cursor_guide",
+        "badge",
+        "link_config",
+        "blinks",
+    ];
+
+    /// The body of the driver's `present`, read off this file.
+    fn present_body(src: &str) -> &str {
+        let start = src
+            .find(concat!("    fn ", "present(&mut self) {"))
+            .expect("present");
+        let body = &src[start..];
+        let end = body.find("\n    }\n").expect("present's end");
+        &body[..end]
+    }
+
+    /// **The frame reads the terminal and the session only through the
+    /// plan**: the reads of the planning inputs left in `present`'s body
+    /// are at most `CEILING`, which comes down as the plan takes them, and
+    /// the plan is asked for once. The control: the scan finds the body
+    /// by the frame's own clock read, counts a read planted in it, and
+    /// does not count a longer name or another field.
+    #[test]
+    fn present_reads_no_planning_input() {
+        const SRC: &str = include_str!("linux.rs");
+        const CEILING: usize = 75;
+        let body = present_body(SRC);
+        // Each `self.` name read, not a longer name it begins.
+        let planning_reads = |code: &str| {
+            PLANNING_INPUTS
+                .iter()
+                .map(|name| {
+                    let read = format!("self.{name}");
+                    code.match_indices(&read)
+                        .filter(|&(i, _)| {
+                            code[i + read.len()..]
+                                .chars()
+                                .next()
+                                .is_none_or(|c| !(c.is_alphanumeric() || c == '_'))
+                        })
+                        .count()
+                })
+                .sum::<usize>()
+        };
+        assert!(
+            body.contains(concat!("self.window.", "next_shown(")),
+            "the control: the body read is the frame's"
+        );
+        let planted = format!("{body}\n        let _ = self.term.cursor();");
+        assert_eq!(planning_reads(&planted), planning_reads(body) + 1);
+        assert_eq!(
+            planning_reads(
+                "self.terminal self.term.x self.seat self.renderer self.composing_hints"
+            ),
+            3,
+            "the control: a longer name and the frame's own fields are not counted"
+        );
+        assert_eq!(
+            planning_reads(body),
+            CEILING,
+            "the frame's reads of the terminal and the session"
+        );
+        let asked = body.matches(concat!("self.", "plan()")).count();
+        assert_eq!(asked, 1, "the plan is read once a frame");
     }
 
     /// **Effect pacing weighs the fireworks over a trail, and never a

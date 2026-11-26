@@ -1856,26 +1856,29 @@ mod tests {
                 "app.rs",
                 crate::app_source::app_source(),
                 "self.caret.plan(seen_at, blinks);",
+                "PresentedCursor::of(",
             ),
             (
                 "linux.rs",
                 include_str!("linux.rs"),
                 "self.caret.plan(seen_at, blinks);",
+                "frame.cursor.presented",
             ),
             (
                 "film.rs",
                 include_str!("film.rs"),
                 "caret.plan(now, blinks);",
+                "PresentedCursor::of(",
             ),
         ];
-        for (name, src, plan) in plans {
+        for (name, src, plan, presented) in plans {
             let lines: Vec<&str> = src.lines().map(str::trim).collect();
             let at: Vec<usize> = (0..lines.len())
                 .filter(|&i| lines[i].ends_with(plan))
                 .collect();
             assert_eq!(at.len(), 1, "{name}: one plan of the frame's blink");
             assert!(
-                at[0] > 0 && lines[at[0] - 1].contains("PresentedCursor::of("),
+                at[0] > 0 && lines[at[0] - 1].contains(presented),
                 "{name}: the cursor presented just before the plan"
             );
             assert!(
