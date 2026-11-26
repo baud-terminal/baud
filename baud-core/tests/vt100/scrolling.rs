@@ -405,6 +405,51 @@ fn il_is_bounded_by_the_region() {
     }
 }
 
+/// **IL and DL in a region count every cell they write**: each row from the
+/// cursor's line to the bottom margin is rewritten at full width, the rows
+/// that move and the rows that open alike, so `cells_written` rises by
+/// `(bot - cy + 1) * cols` whatever the count. SU's copy counts its whole
+/// region the same way, and this pins the same total for IL and DL on both
+/// screens, at a count of one, of two and past the bottom margin.
+///
+/// Named break: count only the `k` rows a move opens -- every case with a row
+/// left to move reads `k * cols` against the rows written.
+#[test]
+fn il_and_dl_in_a_region_count_every_row_they_write() {
+    const WS: WinSize = WinSize {
+        ws_row: 10,
+        ws_col: 20,
+    };
+    // Region rows 2 to 8 (indices 1..=7), the cursor on index 3: five rows
+    // from the cursor to the bottom margin.
+    const WRITTEN: usize = (7 + 1 - 3) * 20;
+    for (screen, enter) in [("primary", ""), ("alternate", "\x1b[?1049h")] {
+        for (op, seq) in [
+            ("IL 1", "\x1b[L"),
+            ("IL 2", "\x1b[2L"),
+            ("IL past the bottom margin", "\x1b[99L"),
+            ("DL 1", "\x1b[M"),
+            ("DL 2", "\x1b[2M"),
+            ("DL past the bottom margin", "\x1b[99M"),
+        ] {
+            let cells = support::with_term(&WS, |t| {
+                support::feed(t, enter.as_bytes());
+                for y in 1..=10 {
+                    support::feed(t, format!("\x1b[{y};1Hrow{y}").as_bytes());
+                }
+                support::feed(t, b"\x1b[2;8r\x1b[4;1H");
+                let (_, before) = t.amplification();
+                support::feed(t, seq.as_bytes());
+                t.amplification().1 - before
+            });
+            assert_eq!(
+                cells, WRITTEN,
+                "{screen}, {op}: the rows from the cursor to the bottom margin"
+            );
+        }
+    }
+}
+
 // ── reset ───────────────────────────────────────────────────────────────────
 
 /// RIS restores the full-screen region and the default modes.

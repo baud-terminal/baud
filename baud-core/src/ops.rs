@@ -1868,7 +1868,11 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         if self.cold.placement.is_placed() {
             self.placement_band_moved(at, bot, Rows::of_count(k), BandMove::Down);
         }
-        self.cells = self.cells.plus(k * self.cols.index());
+        // Every row from the cursor's line to the bottom margin: the moved
+        // rows and the `k` opened ones are each written at full width.
+        self.cells = self
+            .cells
+            .plus((bot.index() + 1 - at.index()) * self.cols.index());
         self.row_changed_to(self.cy);
     }
 
@@ -1966,7 +1970,11 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         if self.cold.placement.is_placed() {
             self.placement_band_moved(at, bot, Rows::of_count(k), BandMove::Up);
         }
-        self.cells = self.cells.plus(k * self.cols.index());
+        // Every row from the cursor's line to the bottom margin: the moved
+        // rows and the `k` opened ones are each written at full width.
+        self.cells = self
+            .cells
+            .plus((bot.index() + 1 - at.index()) * self.cols.index());
         self.row_changed_to(self.cy);
     }
 
