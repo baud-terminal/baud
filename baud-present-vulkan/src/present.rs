@@ -805,6 +805,16 @@ impl Presenter {
         self.mem.uniforms(SetIx(0))
     }
 
+    /// **The memory types behind the lent slices its frames' builds read
+    /// back** ([`CellMemory::read_back`]).
+    #[cfg(feature = "test-hooks")]
+    pub fn read_back(
+        &self,
+        gpu: &Gpu,
+    ) -> Vec<(&'static str, Option<ash::vk::MemoryPropertyFlags>)> {
+        self.mem.read_back(gpu)
+    }
+
     /// The pipelines, for a test to hold their builds.
     pub fn pipes(&self) -> &Pipelines {
         &self.pipes

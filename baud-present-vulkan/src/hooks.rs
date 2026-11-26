@@ -56,6 +56,10 @@ struct State {
     landing: Option<(Option<OwnedFd>, UnixStream)>,
     /// What targets made from now answer whether they take sync files.
     sync_files: Option<crate::sys::SyncFiles>,
+    /// Each device memory the crate's buffers were bound to, and the
+    /// flags of its memory type.
+    #[cfg(feature = "test-hooks")]
+    memory: std::collections::HashMap<ash::vk::DeviceMemory, ash::vk::MemoryPropertyFlags>,
     /// The frames' ends the kernel took as their target's write fence.
     fenced: Fenced,
     /// Whether wakes at a release point are refused.
@@ -183,6 +187,25 @@ impl Hooks {
     /// The frames' ends taken as their target's write fence so far.
     pub(crate) fn fences(&self) -> Fenced {
         self.with(|s| s.fenced)
+    }
+
+    /// A buffer's memory allocated, of a type with `flags`.
+    #[cfg(feature = "test-hooks")]
+    pub(crate) fn allocated(
+        &self,
+        memory: ash::vk::DeviceMemory,
+        flags: ash::vk::MemoryPropertyFlags,
+    ) {
+        self.with(|s| s.memory.insert(memory, flags));
+    }
+
+    /// The flags of the memory type `memory` was allocated from.
+    #[cfg(feature = "test-hooks")]
+    pub(crate) fn memory_flags(
+        &self,
+        memory: ash::vk::DeviceMemory,
+    ) -> Option<ash::vk::MemoryPropertyFlags> {
+        self.with(|s| s.memory.get(&memory).copied())
     }
 
     /// **The held landings released**: their end turns readable.

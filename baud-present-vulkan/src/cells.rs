@@ -975,6 +975,22 @@ impl CellMemory {
         self.arm
     }
 
+    /// **The memory types behind the slices a frame's build reads back**,
+    /// each named: every set's copy, renditions and overlay, and the two
+    /// glyph maps.
+    #[cfg(feature = "test-hooks")]
+    pub fn read_back(&self, gpu: &Gpu) -> Vec<(&'static str, Option<vk::MemoryPropertyFlags>)> {
+        let sets = self.sets.iter().flat_map(|s| {
+            [
+                ("copy", s.grid.slice_memory(gpu)),
+                ("renditions", s.styles.slice_memory(gpu)),
+                ("overlay", s.overlay.slice_memory(gpu)),
+            ]
+        });
+        let maps = self.maps.iter().map(|m| ("glyph map", m.slice_memory(gpu)));
+        sets.chain(maps).collect()
+    }
+
     /// The `CU` the last frame drawn from `set` was given.
     pub fn uniforms(&self, set: SetIx) -> Cu {
         self.sets

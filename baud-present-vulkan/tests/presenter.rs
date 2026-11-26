@@ -7,6 +7,7 @@
 mod common;
 mod scenes;
 
+use ash::vk;
 use baud_core::{Owned, Term};
 use baud_domain::{Rows, WinSize};
 use baud_font::Face;
@@ -19,6 +20,7 @@ use baud_present_vulkan::present::{Cpu, Flies, Frame, Inputs, Owes, Presenter, R
 use baud_present_vulkan::sys::{Readable, SyncFiles, put_write_fence, readable, takes_sync_files};
 use baud_present_vulkan::vk::Has;
 use baud_present_wayland::{Changed, DmabufShown, Px};
+use baud_render::screens::SETS;
 use baud_render::{Renderer, Stack, Theme};
 use common::{lavapipe, radv, radv_explicit};
 use scenes::{feed, jetbrains_mono};
@@ -1239,4 +1241,49 @@ fn a_refused_wake_is_counted_and_the_frame_drawn_at_the_next_wake_on_radv() {
     );
     assert_eq!(p.counts().unwoken.0, 2, "a frame drawn is not counted");
     p.destroy(&gpu);
+}
+
+/// **Every lent slice a frame's build reads back is mapped from host-cached
+/// memory**: after `gpu` draws a frame, the memory type behind each set's
+/// copy, renditions and overlay and each glyph map's entries -- the slices
+/// the glyph map's probes, a copy's row compare and the overlay read every
+/// frame -- has `HOST_CACHED`. Named break: the slices mapped in place from
+/// device-local memory the CPU reads uncached.
+fn reads_cached_memory(gpu: &Gpu) {
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = warm(gpu, &mut r, &mut t);
+    feed(&mut t, b"x");
+    assert_eq!(frame(gpu, &mut p, &mut r, &mut t), Frame::Drew(TargetIx(0)));
+    let read = p.read_back(gpu);
+    let arm = p.arm();
+    p.destroy(gpu);
+    assert_eq!(read.len(), 3 * SETS + 2, "every set's three and two maps");
+    for (what, flags) in read {
+        let flags = flags.unwrap_or_else(|| panic!("{what}: no memory recorded"));
+        eprintln!("{arm:?}: {what} from {:#x}", flags.as_raw());
+        assert!(
+            flags.contains(vk::MemoryPropertyFlags::HOST_CACHED),
+            "{arm:?}: the {what} is read from {:#x}",
+            flags.as_raw()
+        );
+    }
+}
+
+/// [`reads_cached_memory`] on lavapipe, whose memory is all host-cached:
+/// it holds there whichever type the slices take.
+#[test]
+fn the_memory_the_cpu_reads_is_cached_on_lavapipe() {
+    reads_cached_memory(&lavapipe());
+}
+
+/// [`reads_cached_memory`] on the machine's AMD GPU, whose device-local
+/// memory is mapped uncached.
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn the_memory_the_cpu_reads_is_cached_on_radv() {
+    reads_cached_memory(&radv());
 }

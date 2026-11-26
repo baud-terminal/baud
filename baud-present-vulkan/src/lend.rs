@@ -191,6 +191,13 @@ impl Gpu {
             }
         };
         self.object_made();
+        #[cfg(feature = "test-hooks")]
+        if let Some(t) = usize::try_from(kind.0)
+            .ok()
+            .and_then(|i| self.memory().memory_types.get(i).copied())
+        {
+            self.hooks.allocated(memory, t.property_flags);
+        }
         let made = Buffer { buffer, memory };
         let mapped = self
             .call()
@@ -325,6 +332,14 @@ impl<T: Plain> Lent<T> {
     /// The buffer a descriptor binds.
     pub fn buffer(&self) -> vk::Buffer {
         self.device.buffer
+    }
+
+    /// **The flags of the memory type its slice is mapped from**: its own
+    /// buffer's in place, the host buffer's under staging.
+    #[cfg(feature = "test-hooks")]
+    pub fn slice_memory(&self, gpu: &Gpu) -> Option<vk::MemoryPropertyFlags> {
+        gpu.hooks
+            .memory_flags(self.host.as_ref().unwrap_or(&self.device).memory)
     }
 
     /// The arm it was made on.
