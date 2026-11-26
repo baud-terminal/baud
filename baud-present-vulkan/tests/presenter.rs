@@ -13,9 +13,10 @@ use baud_font::Face;
 use baud_present_vulkan::cells::Landing;
 use baud_present_vulkan::damage::TargetIx;
 use baud_present_vulkan::frame::Gpu;
+use baud_present_vulkan::hooks::Fenced;
 use baud_present_vulkan::pipeline::Built;
-use baud_present_vulkan::present::{Cpu, Frame, Inputs, Owes, Presenter, Remade};
-use baud_present_vulkan::sys::{Readable, readable};
+use baud_present_vulkan::present::{Cpu, Flies, Frame, Inputs, Owes, Presenter, Remade, Why};
+use baud_present_vulkan::sys::{Readable, SyncFiles, put_write_fence, readable, takes_sync_files};
 use baud_present_vulkan::vk::Has;
 use baud_present_wayland::{Changed, DmabufShown, Px};
 use baud_render::{Renderer, Stack, Theme};
@@ -378,12 +379,14 @@ fn a_resize_remakes_both_targets() {
 
 /// **A resize waits no more than a steady frame**: remaking both targets
 /// waits on no fence, and the first frame into the new target, drawn
-/// whole, waits as many times as a frame into a warm target. Named break:
-/// a remade target cleared and waited for before its first frame, two
-/// waits more on every resize.
+/// whole, waits as many times as a frame into a warm target, on targets
+/// that refuse a sync file so each frame is waited for. Named break: a
+/// remade target cleared and waited for before its first frame, two waits
+/// more on every resize.
 #[test]
 fn a_resize_waits_no_more_than_a_steady_frame() {
     let gpu = lavapipe();
+    gpu.refuse_sync_files();
     let data = jetbrains_mono();
     let faces = [Face::parse(&data).expect("the face")];
     let mut r = renderer(&faces);
@@ -946,5 +949,106 @@ fn the_acquire_point_is_the_gpus_to_signal_on_radv() {
         reached, acquire,
         "reached by the GPU before the points were taken"
     );
+    p.destroy(&gpu);
+}
+
+/// **A frame without points flies too**, on RADV with implicit sync: its
+/// end is put on its target's dmabuf as the write fence the compositor's
+/// reads wait on, the kernel taking one for each frame drawn, so a frame
+/// drawn with its landing held returns in flight, its end a descriptor
+/// not yet readable, and no frame was finished on the CPU. Named breaks:
+/// a frame without points waited for before it is shown has landed by
+/// the time it returns; a frame left in flight with no write fence on its
+/// target, which the compositor would read before it is drawn.
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn a_frame_without_points_flies_with_its_end_on_the_target_on_radv() {
+    let gpu = radv();
+    assert_eq!(
+        gpu.choice.sync,
+        baud_present_vulkan::choose::Sync::Implicit,
+        "the premise: implicit sync"
+    );
+    assert_eq!(
+        gpu.sync_fd,
+        Has::Yes,
+        "the premise: a frame's end is a sync file"
+    );
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = warm(&gpu, &mut r, &mut t);
+    assert_eq!(p.flies(), Flies::Yes, "the targets take a sync file");
+    assert_eq!(gpu.fences_put(), Fenced(2), "the warm frames' ends");
+    feed(&mut t, b"one");
+    let f = frame_held(&gpu, &mut p, &mut r, &mut t);
+    assert!(matches!(f, Frame::Drew(_)), "drawn: {f:?}");
+    assert_eq!(gpu.fences_put(), Fenced(3), "its end on its target");
+    assert_eq!(p.land(&gpu), Ok(Landing::Flying), "returned in flight");
+    let end = p.done_fd().expect("its end as a descriptor");
+    assert_eq!(readable(end), Readable::No, "not finished while held");
+    gpu.release_landings();
+    land(&gpu, &mut p);
+    assert_eq!(p.counts().waited.0, 0, "no frame finished on the CPU");
+    p.destroy(&gpu);
+}
+
+/// **A target is put a write fence only by the kernel, which takes only a
+/// sync file**, on lavapipe: the target's dmabuf takes sync files, the
+/// control, and a descriptor that is not one is refused. Named break: a
+/// write fence answered taken without the kernel asked.
+#[test]
+fn a_target_refuses_a_write_fence_that_is_not_a_sync_file() {
+    let gpu = lavapipe();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let t = Term::new(owned.storage(), &WS);
+    let mut p = Presenter::new(&gpu, &t).expect("the arm");
+    assert_eq!(p.fit(&gpu, size(&r)).expect("targets"), Remade::Yes);
+    let (target, _) = p.target(TargetIx(0)).expect("a target");
+    let dmabuf = target.plane().fd;
+    assert_eq!(takes_sync_files(dmabuf), SyncFiles::Taken, "the control");
+    let (not_one, _) = UnixStream::pair().expect("a pair");
+    assert_eq!(
+        put_write_fence(dmabuf, not_one.as_fd()),
+        SyncFiles::Refused,
+        "not a sync file"
+    );
+    p.destroy(&gpu);
+}
+
+/// **Targets that refuse a sync file keep every frame finished before it
+/// is shown, and counted**, on lavapipe with the refusal forced: the
+/// presenter says why its frames wait, a frame drawn with its landing held
+/// has landed by the time it returns, and each frame drawn is counted.
+/// Named break: a frame left in flight with nothing to make the
+/// compositor's reads wait for it, or a wait no count shows.
+#[test]
+fn targets_that_refuse_a_sync_file_keep_frames_waited_for_and_counted() {
+    let gpu = lavapipe();
+    gpu.refuse_sync_files();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = warm(&gpu, &mut r, &mut t);
+    assert_eq!(p.flies(), Flies::Waits(Why::FenceRefused), "why they wait");
+    assert_eq!(p.counts().waited.0, 2, "the two warm frames, counted");
+    feed(&mut t, b"one");
+    let f = frame_held(&gpu, &mut p, &mut r, &mut t);
+    assert!(matches!(f, Frame::Drew(_)), "drawn: {f:?}");
+    assert_eq!(
+        p.land(&gpu),
+        Ok(Landing::Idle),
+        "finished before it returned"
+    );
+    assert_eq!(p.done_fd().map(|_| ()), None, "no end to poll");
+    assert_eq!(p.counts().waited.0, 3, "counted");
+    gpu.release_landings();
     p.destroy(&gpu);
 }

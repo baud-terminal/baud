@@ -137,7 +137,9 @@ pub enum End {
     Wait,
     /// Left in flight, its end handed out as a sync file the loop polls
     /// ([`CellMemory::done_fd`]) and met by [`CellMemory::land`]; waited
-    /// for where the device hands out none.
+    /// for where the device hands out none. With no acquire point the
+    /// sync file is the target's write fence too (`Gpu::sync_file`), and
+    /// the frame is waited for where the target refuses it.
     Fly,
 }
 
@@ -1973,9 +1975,12 @@ impl Gpu {
         let draws = crate::timing::Draws(timed.get());
         mem.flight = Flight::InFlight { done: None, draws };
         // In flight with its end as a sync file, or met here: on a device
-        // that hands out none, or when the export fails, by a wait.
+        // that hands out none, or when the export fails, by a wait. With no
+        // acquire point the end is the target's write fence, which the
+        // compositor's reads wait on, put there before the frame is shown.
+        let onto = finish.acquire.is_none().then_some(t);
         let done = match (flies, mem.sync) {
-            (true, Some(s)) => self.sync_file(s),
+            (true, Some(s)) => self.sync_file(s, onto),
             _ => Err(Failed::NoSyncFile),
         };
         match done {

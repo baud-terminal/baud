@@ -7,6 +7,7 @@
 //! encoding the shared-memory path writes.
 
 use crate::choose::{Choice, Sync};
+use crate::sys::SyncFiles;
 use crate::vk::{REQUIRED, SEMAPHORE_FD, Vulkan};
 use ash::vk;
 use baud_present_wayland::Px;
@@ -141,6 +142,8 @@ pub enum Failed {
     Outside,
     /// A frame's end asked for as a sync file on a device that has none.
     NoSyncFile,
+    /// A frame's end refused as its target's write fence.
+    FenceRefused,
 }
 
 /// **What a [`Failed`] means to a caller deciding what to do next.**
@@ -855,8 +858,17 @@ impl Gpu {
     /// the `-1` an implementation may hand back for a signalled semaphore
     /// (`[[source: vulkan-synchronization]]`). The export has a wait's
     /// effect on `sem`, which is unsignalled again for the next frame.
+    ///
+    /// Given `onto`, a target shown without points, the sync file is put on
+    /// its dmabuf as its write fence ([`crate::sys::put_write_fence`]), so
+    /// the compositor's reads wait for the frame; refused, the answer is
+    /// [`Failed::FenceRefused`] and the caller waits for the frame.
     #[allow(unsafe_code)]
-    pub(crate) fn sync_file(&self, sem: vk::Semaphore) -> Result<Option<OwnedFd>, Failed> {
+    pub(crate) fn sync_file(
+        &self,
+        sem: vk::Semaphore,
+        onto: Option<&Target>,
+    ) -> Result<Option<OwnedFd>, Failed> {
         let Some(ext) = &self.semaphore_fd else {
             return Err(Failed::NoSyncFile);
         };
@@ -867,6 +879,13 @@ impl Gpu {
         let raw = unsafe { ext.get_semaphore_fd(&info) }?;
         // SAFETY: the call hands over a new descriptor the caller owns.
         let fd = (raw >= 0).then(|| unsafe { OwnedFd::from_raw_fd(raw) });
+        if let (Some(t), Some(end)) = (onto, &fd) {
+            if crate::sys::put_write_fence(t.fd.as_fd(), end.as_fd()) == SyncFiles::Refused {
+                return Err(Failed::FenceRefused);
+            }
+            #[cfg(feature = "test-hooks")]
+            self.hooks.fenced();
+        }
         // A held landing hands out the test's descriptor in its place.
         #[cfg(feature = "test-hooks")]
         if let Some(held) = self.hooks.landing_fd() {
@@ -990,6 +1009,20 @@ impl Gpu {
     #[cfg(feature = "test-hooks")]
     pub fn release_landings(&self) {
         self.hooks.release_landings();
+    }
+
+    /// **Targets made from now refuse sync files**, as a dmabuf whose
+    /// exporter keeps no fences does.
+    #[cfg(feature = "test-hooks")]
+    pub fn refuse_sync_files(&self) {
+        self.hooks.refuse_sync_files();
+    }
+
+    /// **The frames' ends the kernel took as their target's write fence**
+    /// so far ([`crate::sys::put_write_fence`]).
+    #[cfg(feature = "test-hooks")]
+    pub fn fences_put(&self) -> crate::hooks::Fenced {
+        self.hooks.fences()
     }
 }
 

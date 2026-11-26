@@ -6,13 +6,20 @@
 //! timeline semaphore exported as an opaque fd is a syncobj on the drivers
 //! that run here, but Vulkan does not promise it, so the fd is turned into
 //! a handle on the device's render node with `DRM_IOCTL_SYNCOBJ_FD_TO_HANDLE`
-//! and the handle destroyed at once: only a syncobj converts. This module
-//! declares `ioctl` as the extern it is, the way the Wayland crates declare
+//! and the handle destroyed at once: only a syncobj converts.
+//!
+//! **A frame's end on its target's dmabuf**, where frames carry no points:
+//! the sync file is put on the dmabuf as its write fence, which the
+//! compositor's implicitly synchronised reads wait on, and whether a
+//! dmabuf takes sync files at all is asked once per target set
+//! (`[[source: linux-uapi-dma-buf]]`).
+//!
+//! This module declares `ioctl` as the extern it is, the way the Wayland crates declare
 //! theirs, and is the crate's other place `unsafe` is allowed.
 
 use crate::choose::Node;
 use std::fs::File;
-use std::os::fd::{AsRawFd, BorrowedFd};
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 
 #[allow(unsafe_code)]
 unsafe extern "C" {
@@ -119,5 +126,76 @@ pub fn readable(fd: BorrowedFd<'_>) -> Readable {
     match n.0 > 0 && p.revents & POLLIN != 0 {
         true => Readable::Yes,
         false => Readable::No,
+    }
+}
+
+/// `struct dma_buf_export_sync_file` and `struct dma_buf_import_sync_file`
+/// alike: the access flags and a sync file's fd
+/// (`[[source: linux-uapi-dma-buf]]`).
+#[repr(C)]
+struct DmaSync {
+    flags: Handle,
+    fd: i32,
+}
+
+/// `DMA_BUF_SYNC_READ`: an export that waits on the dmabuf's writers.
+const SYNC_READ: Handle = Handle(1);
+/// `DMA_BUF_SYNC_WRITE`: an import that "inserts the sync_file as a write
+/// fence. All subsequent implicitly synchronized access to this dma-buf
+/// will wait on this fence" (`[[source: linux-uapi-dma-buf]]`).
+const SYNC_WRITE: Handle = Handle(2);
+/// `_IOWR('b', 2, struct dma_buf_export_sync_file)`: read-write, eight
+/// bytes, type `'b'`.
+const EXPORT_SYNC_FILE: u64 = 0xC008_6202;
+/// `_IOW('b', 3, struct dma_buf_import_sync_file)`: write, eight bytes.
+const IMPORT_SYNC_FILE: u64 = 0x4008_6203;
+
+/// Whether a dmabuf takes sync files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncFiles {
+    Taken,
+    /// The kernel refused: `ENOTTY` where the dmabuf has no such ioctl,
+    /// `EINVAL` where its exporter does not keep fences.
+    Refused,
+}
+
+/// **Whether `dmabuf` takes sync files**, asked once of a target with
+/// `DMA_BUF_IOCTL_EXPORT_SYNC_FILE` (`[[source: linux-uapi-dma-buf]]`):
+/// the sync file it answers with is closed at once. A refusal of any kind
+/// answers no.
+#[allow(unsafe_code)]
+pub fn takes_sync_files(dmabuf: BorrowedFd<'_>) -> SyncFiles {
+    let mut s = DmaSync {
+        flags: SYNC_READ,
+        fd: -1,
+    };
+    // SAFETY: an open descriptor and the request's own struct, which the
+    // kernel reads and writes and does not keep.
+    let ok = unsafe { ioctl(dmabuf.as_raw_fd(), EXPORT_SYNC_FILE, &mut s) } == 0;
+    match ok && s.fd >= 0 {
+        true => {
+            // SAFETY: the kernel hands over a new descriptor the caller owns.
+            drop(unsafe { OwnedFd::from_raw_fd(s.fd) });
+            SyncFiles::Taken
+        }
+        false => SyncFiles::Refused,
+    }
+}
+
+/// **`end` put on `dmabuf` as its write fence**, with
+/// `DMA_BUF_IOCTL_IMPORT_SYNC_FILE` and `DMA_BUF_SYNC_WRITE`
+/// (`[[source: linux-uapi-dma-buf]]`): every implicitly synchronised
+/// access after waits for the work `end` stands for. The kernel takes its
+/// own reference to the fence; `end` stays the caller's.
+#[allow(unsafe_code)]
+pub fn put_write_fence(dmabuf: BorrowedFd<'_>, end: BorrowedFd<'_>) -> SyncFiles {
+    let mut s = DmaSync {
+        flags: SYNC_WRITE,
+        fd: end.as_raw_fd(),
+    };
+    // SAFETY: as above; the kernel reads the struct and keeps no pointer.
+    match unsafe { ioctl(dmabuf.as_raw_fd(), IMPORT_SYNC_FILE, &mut s) } == 0 {
+        true => SyncFiles::Taken,
+        false => SyncFiles::Refused,
     }
 }

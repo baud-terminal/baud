@@ -106,7 +106,10 @@ pub enum SyncObj {
 pub enum Sync {
     /// Acquire and release points on a timeline.
     Explicit,
-    /// No points: the frame is finished on the CPU before it is shown.
+    /// No points: the frame's end is put on its target's dmabuf as the
+    /// write fence the compositor's reads wait on, or where the targets
+    /// take no sync file, the frame is finished on the CPU before it is
+    /// shown.
     Implicit,
 }
 

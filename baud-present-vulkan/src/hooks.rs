@@ -20,6 +20,10 @@ pub struct Calls(pub u32);
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Live(pub usize);
 
+/// How many frames' ends the kernel took as their target's write fence.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Fenced(pub u64);
+
 #[derive(Default)]
 struct State {
     fail: Option<(Calls, Failed)>,
@@ -27,6 +31,10 @@ struct State {
     /// Landings held: the end handed out for the next frame, and the side
     /// whose write turns it readable.
     landing: Option<(Option<OwnedFd>, UnixStream)>,
+    /// What targets made from now answer whether they take sync files.
+    sync_files: Option<crate::sys::SyncFiles>,
+    /// The frames' ends the kernel took as their target's write fence.
+    fenced: Fenced,
 }
 
 /// The forced failure waiting, and the targets alive.
@@ -90,6 +98,28 @@ impl Hooks {
     /// The held landing's end, for the frame in flight, once.
     pub(crate) fn landing_fd(&self) -> Option<OwnedFd> {
         self.with(|s| s.landing.as_mut().and_then(|(end, _)| end.take()))
+    }
+
+    /// **Targets made from now refuse sync files**, as a dmabuf whose
+    /// exporter keeps no fences does.
+    pub(crate) fn refuse_sync_files(&self) {
+        self.with(|s| s.sync_files = Some(crate::sys::SyncFiles::Refused));
+    }
+
+    /// What a target answers whether it takes sync files: refused while
+    /// [`Hooks::refuse_sync_files`] holds, else `answer`.
+    pub(crate) fn sync_files(&self, answer: crate::sys::SyncFiles) -> crate::sys::SyncFiles {
+        self.with(|s| s.sync_files.unwrap_or(answer))
+    }
+
+    /// A frame's end taken as its target's write fence.
+    pub(crate) fn fenced(&self) {
+        self.with(|s| s.fenced.0 += 1);
+    }
+
+    /// The frames' ends taken as their target's write fence so far.
+    pub(crate) fn fences(&self) -> Fenced {
+        self.with(|s| s.fenced)
     }
 
     /// **The held landings released**: their end turns readable.

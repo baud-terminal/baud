@@ -23,8 +23,10 @@
 //! timeline, the frame's own submission signals its acquire point, nothing
 //! waits for it, and its end is a sync file the loop polls
 //! ([`Presenter::done_fd`]); a frame asked for meanwhile is owed and drawn
-//! once it lands ([`Presenter::land`]). Without points a frame is finished
-//! before it is shown.
+//! once it lands ([`Presenter::land`]). Without points the end is put on the
+//! target's dmabuf as its write fence, which the compositor's reads wait on;
+//! where the device or the targets take no sync file, a frame is finished
+//! before it is shown, counted ([`Flies`], [`Counts::waited`]).
 //!
 //! The driver passes no smooth scroll: no pan and no leaving row
 //! ([`Inputs`]).
@@ -93,6 +95,45 @@ pub struct Counts {
     pub building: Skipped,
     pub images: Skipped,
     pub trail: Skipped,
+    /// Frames drawn and finished on the CPU before they returned
+    /// ([`Flies::Waits`], or an end the device or the target refused for
+    /// that frame).
+    pub waited: Skipped,
+}
+
+/// **Whether a frame drawn is left in flight**, answered once per target
+/// set, or finished on the CPU before it is shown, and why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Flies {
+    Yes,
+    Waits(Why),
+}
+
+/// Why a frame is finished on the CPU before it is shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Why {
+    /// The device hands out no sync file for a frame's end.
+    NoSyncFile,
+    /// Without points, the targets' dmabufs take no sync file
+    /// ([`crate::sys::takes_sync_files`]), so nothing would make the
+    /// compositor's reads wait for the frame.
+    FenceRefused,
+}
+
+impl Flies {
+    /// **Whether frames on `gpu` fly**, `targets` the dmabuf answer where
+    /// frames carry no points: explicit sync needs only the device's sync
+    /// file, implicit sync its targets' too.
+    fn of(gpu: &Gpu, targets: crate::sys::SyncFiles) -> Flies {
+        match (gpu.sync_fd, gpu.choice.sync, targets) {
+            (crate::vk::Has::No, _, _) => Flies::Waits(Why::NoSyncFile),
+            (_, crate::choose::Sync::Explicit, _)
+            | (_, crate::choose::Sync::Implicit, crate::sys::SyncFiles::Taken) => Flies::Yes,
+            (_, crate::choose::Sync::Implicit, crate::sys::SyncFiles::Refused) => {
+                Flies::Waits(Why::FenceRefused)
+            }
+        }
+    }
 }
 
 /// **Whether a frame was asked for while the one before flew**, so its
@@ -172,6 +213,8 @@ pub struct Presenter {
     cpu_cold: baud_render::Cold,
     /// Whether a frame was asked for while the one in flight flew.
     owes: Owes,
+    /// Whether a frame drawn flies, answered when the targets are made.
+    flies: Flies,
 }
 
 impl Presenter {
@@ -217,6 +260,8 @@ impl Presenter {
             cpu_cost: std::time::Duration::ZERO,
             cpu_cold: baud_render::Cold::No,
             owes: Owes::Nothing,
+            // Until the targets answer, a frame without points waits.
+            flies: Flies::of(gpu, crate::sys::SyncFiles::Refused),
         })
     }
 
@@ -271,6 +316,16 @@ impl Presenter {
                 points: None,
             });
         }
+        // Asked of one target: both are made alike, on one device.
+        let takes = match (gpu.choice.sync, self.slots.first()) {
+            (crate::choose::Sync::Implicit, Some(s)) => {
+                crate::sys::takes_sync_files(s.target.plane().fd)
+            }
+            _ => crate::sys::SyncFiles::Refused,
+        };
+        #[cfg(feature = "test-hooks")]
+        let takes = gpu.hooks.sync_files(takes);
+        self.flies = Flies::of(gpu, takes);
         Ok(())
     }
 
@@ -436,13 +491,14 @@ impl Presenter {
             .timeline
             .as_ref()
             .map(|tl| (tl, Point(slot.point.0 + 1)));
-        // In flight only where the compositor waits on the GPU itself, at
-        // the acquire point; without points the frame is finished before it
+        // In flight where the compositor waits on the GPU itself: at the
+        // acquire point, or without points on the target's write fence the
+        // frame's end is put on (`Gpu::sync_file`); else finished before it
         // is shown.
         let finish = Finish {
-            end: match points {
-                Some(_) => End::Fly,
-                None => End::Wait,
+            end: match self.flies {
+                Flies::Yes => End::Fly,
+                Flies::Waits(_) => End::Wait,
             },
             acquire: points,
         };
@@ -462,9 +518,11 @@ impl Presenter {
         slot.holder = Holder::Drawn;
         self.cpu_cost = started.elapsed();
         self.cpu_cold = frame.cold;
-        // A frame met before `draw_cells` returned costs what it took.
+        // A frame met before `draw_cells` returned costs what it took, and
+        // is counted.
         if self.mem.in_flight() == Landing::Idle {
             (self.cost, self.cold) = (self.cpu_cost, self.cpu_cold);
+            self.counts.waited.0 += 1;
         }
         self.next = TargetIx((k.0 + 1) % TARGETS);
         self.counts.drew.0 += 1;
@@ -521,6 +579,11 @@ impl Presenter {
     /// once the frame in flight has landed, and cleared.
     pub fn owed_on_landing(&mut self) -> Owes {
         core::mem::replace(&mut self.owes, Owes::Nothing)
+    }
+
+    /// **Whether a frame drawn flies**, as the targets made last answered.
+    pub fn flies(&self) -> Flies {
+        self.flies
     }
 
     /// The frame in flight's end, readable once it has finished: for the
