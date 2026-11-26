@@ -347,6 +347,9 @@ fn on_line(sync: baud_present_vulkan::choose::Sync, flies: Flies) -> String {
     let flies = match flies {
         Flies::Yes => "frames fly",
         Flies::Waits(present::Why::NoSyncFile) => "frames wait: no sync file",
+        Flies::Waits(present::Why::ExportWaits) => {
+            "frames wait: the device's sync file waits for the frame"
+        }
         Flies::Waits(present::Why::FenceRefused) => "frames wait: the targets refuse a sync file",
     };
     format!("gpu: frames drawn on the device the compositor names, {sync} sync; {flies}")
@@ -984,7 +987,7 @@ mod tests {
     }
 
     /// **The line the arm logs when it comes on names its sync arm, and
-    /// whether frames fly or wait and why**: each of the four answers is
+    /// whether frames fly or wait and why**: each of the five answers is
     /// told apart. Named break: a line that says the device and nothing
     /// of how its frames are met.
     #[test]
@@ -997,6 +1000,11 @@ mod tests {
                 Sync::Implicit,
                 Flies::Waits(present::Why::NoSyncFile),
                 "implicit sync; frames wait: no sync file",
+            ),
+            (
+                Sync::Implicit,
+                Flies::Waits(present::Why::ExportWaits),
+                "implicit sync; frames wait: the device's sync file waits for the frame",
             ),
             (
                 Sync::Implicit,

@@ -49,6 +49,10 @@ pub struct Gpu {
     /// Whether a frame's end can be handed out as a sync file, so the loop
     /// polls for it rather than waits ([`Gpu::sync_file`]).
     pub sync_fd: crate::vk::Has,
+    /// When the device's export of a frame's end returns
+    /// ([`crate::vk::SyncExport::of_device_type`]): where it waits for the
+    /// frame, the frame is finished before it is shown.
+    pub sync_export: crate::vk::SyncExport,
     semaphore_fd: Option<ash::khr::external_semaphore_fd::Device>,
     /// The failures the crate's tests force, and the targets alive.
     #[cfg(any(test, feature = "test-hooks"))]
@@ -218,6 +222,7 @@ impl Gpu {
             REQUIRED.iter().map(|n| n.as_ptr()).collect();
         // A frame's end handed out as a sync file, where the device can.
         let sync_fd = vulkan.exports_sync_fd(physical);
+        let sync_export = crate::vk::SyncExport::of_device_type(vulkan.device_type(physical));
         if choice.sync == Sync::Explicit || sync_fd == crate::vk::Has::Yes {
             names.push(SEMAPHORE_FD.as_ptr());
         }
@@ -283,6 +288,7 @@ impl Gpu {
             multiply,
             clock,
             sync_fd,
+            sync_export,
             semaphore_fd,
             #[cfg(any(test, feature = "test-hooks"))]
             waits: std::cell::Cell::new(Waits(0)),
@@ -306,18 +312,8 @@ impl Gpu {
 
     /// **The device's driver**, as `VkPhysicalDeviceDriverProperties` names
     /// it: how a test tells one implementation's blend from another's.
-    #[allow(unsafe_code)]
     pub fn driver(&self) -> vk::DriverId {
-        let mut driver = vk::PhysicalDeviceDriverProperties::default();
-        let mut props = vk::PhysicalDeviceProperties2::default().push_next(&mut driver);
-        // SAFETY: the device's own physical device, and a chain whose
-        // members live through the call.
-        unsafe {
-            self.vulkan
-                .instance
-                .get_physical_device_properties2(self.physical, &mut props)
-        };
-        driver.driver_id
+        self.vulkan.driver(self.physical)
     }
 
     /// **An image of `width` by `height` in the chosen format and
@@ -888,6 +884,8 @@ impl Gpu {
         let raw = unsafe { ext.get_semaphore_fd(&info) }?;
         // SAFETY: the call hands over a new descriptor the caller owns.
         let fd = (raw >= 0).then(|| unsafe { OwnedFd::from_raw_fd(raw) });
+        #[cfg(feature = "test-hooks")]
+        let fd = fd.filter(|_| self.hooks.export() == crate::hooks::Export::AsMade);
         if let (Some(t), Some(end)) = (onto, &fd) {
             if crate::sys::put_write_fence(t.fd.as_fd(), end.as_fd()) == SyncFiles::Refused {
                 return Err(Failed::FenceRefused);
@@ -897,7 +895,7 @@ impl Gpu {
         }
         // A held landing hands out the test's descriptor in its place.
         #[cfg(feature = "test-hooks")]
-        if let Some(held) = self.hooks.landing_fd() {
+        if let Some(held) = fd.as_ref().and_then(|_| self.hooks.landing_fd()) {
             return Ok(Some(held));
         }
         Ok(fd)
@@ -1018,6 +1016,14 @@ impl Gpu {
     #[cfg(feature = "test-hooks")]
     pub fn release_landings(&self) {
         self.hooks.release_landings();
+    }
+
+    /// **Frames' ends export as `-1` from now** ([`Gpu::sync_file`]), as an
+    /// implementation may answer for a semaphore already signalled; the
+    /// descriptor it made is closed.
+    #[cfg(feature = "test-hooks")]
+    pub fn signal_exports(&self) {
+        self.hooks.signal_exports();
     }
 
     /// **Targets made from now refuse sync files**, as a dmabuf whose

@@ -11,3 +11,4 @@ exportable modifier: yes
 LINEAR among them: yes
 timeline export: yes
 dual-source blend: yes
+SYNC_FD export waits for the frame: no

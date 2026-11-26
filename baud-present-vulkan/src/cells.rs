@@ -149,8 +149,8 @@ pub enum End {
 enum Flight {
     Idle,
     InFlight {
-        /// Readable once the frame has finished; none where it had
-        /// finished by the time it was asked for.
+        /// Readable once the frame has finished; none until its end is
+        /// exported.
         done: Option<OwnedFd>,
         /// The trail draws it timed (`timing.rs`).
         draws: crate::timing::Draws,
@@ -347,6 +347,23 @@ struct CellLast {
 pub struct CellDrawn {
     pub changed: Redraw,
     pub drawn: Redraw,
+    /// How the frame was met by the time `draw_cells` returned.
+    pub met: Met,
+}
+
+/// **How a frame drawn was met by the time `Gpu::draw_cells` returned.**
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Met {
+    /// Left in flight, its end a sync file the loop polls
+    /// ([`CellMemory::done_fd`]).
+    Flying,
+    /// Waited for on the CPU: drawn with [`End::Wait`], or its end refused
+    /// as a sync file or as the target's write fence.
+    Waited,
+    /// Its end exported as `-1`, the answer for a semaphore already
+    /// signalled: the frame had finished by the time the export returned,
+    /// so it is met there, and no descriptor is left to poll.
+    Signalled,
 }
 
 /// Where a pass of a frame draws: the whole target, or a band of rows under
@@ -891,8 +908,7 @@ impl CellMemory {
     }
 
     /// **The frame in flight's end as a descriptor**, readable once it has
-    /// finished, for the loop's poll; none while no frame flies or once it
-    /// had finished by the time it was asked for.
+    /// finished, for the loop's poll; none while no frame flies.
     pub fn done_fd(&self) -> Option<BorrowedFd<'_>> {
         match &self.flight {
             Flight::InFlight { done: Some(fd), .. } => Some(fd.as_fd()),
@@ -1979,14 +1995,29 @@ impl Gpu {
         // acquire point the end is the target's write fence, which the
         // compositor's reads wait on, put there before the frame is shown.
         let onto = finish.acquire.is_none().then_some(t);
+        // An export of `-1` says the frame has already finished: its fence,
+        // signalled by the same submission, is met here.
         let done = match (flies, mem.sync) {
             (true, Some(s)) => self.sync_file(s, onto),
             _ => Err(Failed::NoSyncFile),
         };
-        match done {
-            Ok(fd) => mem.flight = Flight::InFlight { done: fd, draws },
-            Err(_) => mem.settle(self, sheets)?,
-        }
+        let met = match done {
+            Ok(Some(fd)) => {
+                mem.flight = Flight::InFlight {
+                    done: Some(fd),
+                    draws,
+                };
+                Met::Flying
+            }
+            Ok(None) => {
+                mem.settle(self, sheets)?;
+                Met::Signalled
+            }
+            Err(_) => {
+                mem.settle(self, sheets)?;
+                Met::Waited
+            }
+        };
         let drawn = match ix {
             Some(k) => mem.stale.drew(k, changed),
             None => {
@@ -2062,6 +2093,10 @@ impl Gpu {
         last.grounds.clear();
         last.grounds.extend_from_slice(input.grounds);
         last.screen = input.screen;
-        Ok(CellDrawn { changed, drawn })
+        Ok(CellDrawn {
+            changed,
+            drawn,
+            met,
+        })
     }
 }

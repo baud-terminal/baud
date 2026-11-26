@@ -26,13 +26,19 @@
 //! ([`Presenter::done_fd`]); a frame asked for meanwhile is owed and drawn
 //! once it lands ([`Presenter::land`]). Without points the end is put on the
 //! target's dmabuf as its write fence, which the compositor's reads wait on;
-//! where the device or the targets take no sync file, a frame is finished
-//! before it is shown, counted ([`Flies`], [`Counts::waited`]).
+//! where the device or the targets take no sync file, or the device is a CPU
+//! device, whose export of one returns only once the frame has ended, a
+//! frame is finished before it is shown, counted ([`Flies`],
+//! [`Counts::waited`]). An end exported as `-1`, a semaphore already
+//! signalled, is a frame finished at its export, counted
+//! ([`Counts::signalled`]).
 //!
 //! The driver passes no smooth scroll: no pan and no leaving row
 //! ([`Inputs`]).
 
-use crate::cells::{CellDraw, CellMemory, CellSizes, CellSlices, End, Finish, Landing, MapSide};
+use crate::cells::{
+    CellDraw, CellMemory, CellSizes, CellSlices, End, Finish, Landing, MapSide, Met,
+};
 use crate::damage::{TARGETS, TargetIx};
 use crate::frame::{Failed, Gpu, Target, Timeline};
 use crate::lend::Elems;
@@ -100,6 +106,10 @@ pub struct Counts {
     /// ([`Flies::Waits`], or an end the device or the target refused for
     /// that frame).
     pub waited: Skipped,
+    /// Frames whose end exported as `-1`, the answer for a semaphore
+    /// already signalled: finished by the time the export returned, met
+    /// there rather than left in flight or waited for.
+    pub signalled: Skipped,
     /// Frames owed to a release point with nothing to wake the loop when
     /// it is reached: no wake was made ([`crate::sys::wake_at`] answered
     /// none), so the frame waits for the next thing that wakes the loop.
@@ -119,6 +129,10 @@ pub enum Flies {
 pub enum Why {
     /// The device hands out no sync file for a frame's end.
     NoSyncFile,
+    /// The device's export of a frame's end returns only once the frame
+    /// has ended ([`crate::vk::SyncExport::WaitsForFrame`]): the frame is
+    /// finished by the time it could fly.
+    ExportWaits,
     /// Without points, the targets' dmabufs take no sync file
     /// ([`crate::sys::takes_sync_files`]), so nothing would make the
     /// compositor's reads wait for the frame.
@@ -128,15 +142,20 @@ pub enum Why {
 impl Flies {
     /// **Whether frames on `gpu` fly**, `targets` the dmabuf answer where
     /// frames carry no points: explicit sync needs only the device's sync
-    /// file, implicit sync its targets' too.
+    /// file, implicit sync its targets' too, and neither flies where the
+    /// device's export of that sync file waits for the frame. Targets that
+    /// refuse a sync file are named before such an export: they keep a
+    /// frame from flying on any device.
     fn of(gpu: &Gpu, targets: crate::sys::SyncFiles) -> Flies {
-        match (gpu.sync_fd, gpu.choice.sync, targets) {
-            (crate::vk::Has::No, _, _) => Flies::Waits(Why::NoSyncFile),
-            (_, crate::choose::Sync::Explicit, _)
-            | (_, crate::choose::Sync::Implicit, crate::sys::SyncFiles::Taken) => Flies::Yes,
-            (_, crate::choose::Sync::Implicit, crate::sys::SyncFiles::Refused) => {
-                Flies::Waits(Why::FenceRefused)
-            }
+        use crate::choose::Sync;
+        use crate::sys::SyncFiles;
+        use crate::vk::{Has, SyncExport};
+        match (gpu.sync_fd, gpu.choice.sync, targets, gpu.sync_export) {
+            (Has::No, _, _, _) => Flies::Waits(Why::NoSyncFile),
+            (_, Sync::Implicit, SyncFiles::Refused, _) => Flies::Waits(Why::FenceRefused),
+            (_, _, _, SyncExport::WaitsForFrame) => Flies::Waits(Why::ExportWaits),
+            (_, Sync::Explicit, _, SyncExport::Pending)
+            | (_, Sync::Implicit, SyncFiles::Taken, SyncExport::Pending) => Flies::Yes,
         }
     }
 }
@@ -511,7 +530,7 @@ impl Presenter {
             },
             acquire: points,
         };
-        gpu.draw_cells(
+        let drawn = gpu.draw_cells(
             &mut self.pipes,
             &mut self.mem,
             &mut self.sheets,
@@ -528,10 +547,17 @@ impl Presenter {
         self.cpu_cost = started.elapsed();
         self.cpu_cold = frame.cold;
         // A frame met before `draw_cells` returned costs what it took, and
-        // is counted.
-        if self.mem.in_flight() == Landing::Idle {
-            (self.cost, self.cold) = (self.cpu_cost, self.cpu_cold);
-            self.counts.waited.0 += 1;
+        // is counted as waited for, or as finished by its export.
+        match drawn.met {
+            Met::Flying => {}
+            Met::Waited => {
+                (self.cost, self.cold) = (self.cpu_cost, self.cpu_cold);
+                self.counts.waited.0 += 1;
+            }
+            Met::Signalled => {
+                (self.cost, self.cold) = (self.cpu_cost, self.cpu_cold);
+                self.counts.signalled.0 += 1;
+            }
         }
         self.next = TargetIx((k.0 + 1) % TARGETS);
         self.counts.drew.0 += 1;

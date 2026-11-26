@@ -18,13 +18,18 @@
 //! nodes (a GPU), without an exportable modifier, or with a required
 //! extension missing;
 //! LINEAR when it is the only modifier.
+//!
+//! **When a frame's sync file is handed out** is a line of each row, by the
+//! type the device reports (`vk::SyncExport::of_device_type`): a CPU
+//! device's export, lavapipe's, returns only once the frame has ended, so
+//! its frames never fly; a GPU's, RADV's, returns at once.
 
 #![cfg(target_os = "linux")]
 
 use baud_present_vulkan::choose::{
     Candidate, Choice, Extensions, Kind, Refusal, Sync, SyncObj, TimelineExport, choose,
 };
-use baud_present_vulkan::vk::{Row, Vulkan};
+use baud_present_vulkan::vk::{Row, SyncExport, Vulkan};
 use baud_present_wayland::dmabuf::{
     Count, Feedback, Format, Fourcc, Modifier, Tranche, TrancheFlags,
 };
@@ -230,4 +235,49 @@ fn each_fallback_is_forced_by_a_mask_on_each_device() {
             at("a required extension missing")
         );
     }
+}
+
+/// The live row of `driver`.
+fn row_of(driver: &str) -> Row {
+    rows()
+        .into_iter()
+        .find(|r| r.driver == driver)
+        .unwrap_or_else(|| panic!("{driver} among the devices"))
+}
+
+/// **Lavapipe's export of a frame's end waits for the frame**, as a CPU
+/// device's, and its row says so. Named break: a CPU device answered as one
+/// whose sync file is handed out pending, so its frames would be said to
+/// fly while each export blocks for the frame.
+#[test]
+fn lavapipe_s_sync_file_export_waits_for_the_frame() {
+    let row = row_of("MESA_LLVMPIPE");
+    assert_eq!(row.candidate.kind, Kind::Cpu, "the premise: a CPU device");
+    assert_eq!(row.sync_export, SyncExport::WaitsForFrame);
+    assert!(
+        row.lines()
+            .contains(&"SYNC_FD export waits for the frame: yes".to_string()),
+        "{:?}",
+        row.lines()
+    );
+}
+
+/// **RADV's export of a frame's end returns at once**, as a GPU's, and its
+/// row says so. Named break: a GPU answered as a device whose export waits,
+/// so its frames would be finished on the CPU.
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn radv_s_sync_file_export_returns_before_the_frame_ends_on_radv() {
+    let row = row_of("MESA_RADV");
+    assert!(
+        matches!(row.candidate.kind, Kind::Gpu { .. }),
+        "the premise: a GPU"
+    );
+    assert_eq!(row.sync_export, SyncExport::Pending);
+    assert!(
+        row.lines()
+            .contains(&"SYNC_FD export waits for the frame: no".to_string()),
+        "{:?}",
+        row.lines()
+    );
 }

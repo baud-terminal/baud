@@ -995,6 +995,43 @@ fn a_frame_without_points_flies_with_its_end_on_the_target_on_radv() {
     p.destroy(&gpu);
 }
 
+/// **A frame whose end exports as `-1` has landed by the time it returns,
+/// and is not counted waited**, on RADV with explicit sync: the export
+/// answering `-1`, as an implementation may for a semaphore already
+/// signalled, and the frame drawn with its landing held, so its fence is
+/// never found finished by asking; it has landed when it returns, with no
+/// end for the loop to poll, counted signalled and not waited, and the
+/// next frame is drawn rather than busy. Named break: a frame left in
+/// flight with no descriptor to poll, so a frame asked meanwhile is owed
+/// to a wake that never comes.
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn a_frame_whose_end_exports_as_minus_one_has_landed_on_radv() {
+    let gpu = radv_explicit();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = warm(&gpu, &mut r, &mut t);
+    assert_eq!(p.flies(), Flies::Yes, "the premise: frames fly");
+    let waited = p.counts().waited.0;
+    gpu.signal_exports();
+    feed(&mut t, b"one");
+    let f = frame_held(&gpu, &mut p, &mut r, &mut t);
+    assert!(matches!(f, Frame::Drew(_)), "drawn: {f:?}");
+    assert_eq!(p.land(&gpu), Ok(Landing::Idle), "landed before it returned");
+    assert_eq!(p.done_fd().map(|_| ()), None, "no end to poll");
+    assert_eq!(p.counts().waited.0, waited, "not waited for");
+    assert_eq!(p.counts().signalled.0, 1, "met at its export");
+    feed(&mut t, b"two");
+    let seal = t.seal_writes();
+    let next = p.frame(&gpu, &mut r, &t, seal, &NONE).expect("a frame");
+    assert!(matches!(next, Frame::Drew(_)), "not busy: {next:?}");
+    gpu.release_landings();
+    p.destroy(&gpu);
+}
+
 /// **A target is put a write fence only by the kernel, which takes only a
 /// sync file**, on lavapipe: the target's dmabuf takes sync files, the
 /// control, and a descriptor that is not one is refused. Named break: a
@@ -1038,6 +1075,47 @@ fn targets_that_refuse_a_sync_file_keep_frames_waited_for_and_counted() {
     let mut t = Term::new(owned.storage(), &WS);
     let mut p = warm(&gpu, &mut r, &mut t);
     assert_eq!(p.flies(), Flies::Waits(Why::FenceRefused), "why they wait");
+    assert_eq!(p.counts().waited.0, 2, "the two warm frames, counted");
+    feed(&mut t, b"one");
+    let f = frame_held(&gpu, &mut p, &mut r, &mut t);
+    assert!(matches!(f, Frame::Drew(_)), "drawn: {f:?}");
+    assert_eq!(
+        p.land(&gpu),
+        Ok(Landing::Idle),
+        "finished before it returned"
+    );
+    assert_eq!(p.done_fd().map(|_| ()), None, "no end to poll");
+    assert_eq!(p.counts().waited.0, 3, "counted");
+    gpu.release_landings();
+    p.destroy(&gpu);
+}
+
+/// **Frames on lavapipe never fly: a CPU device's export of a frame's end
+/// waits for the frame, so each is finished before it is shown, and
+/// counted**: the
+/// premise, a device that hands out sync files and targets that take them,
+/// so nothing else would keep a frame from flying; the presenter says why
+/// its frames wait, the two warm frames are counted, and a frame drawn with
+/// its landing held has landed by the time it returns, with no end to
+/// poll. Named break: lavapipe's frames said to fly while each export
+/// blocks for the frame, and no count showing the wait.
+#[test]
+fn lavapipe_s_frames_wait_for_its_sync_file_and_are_counted() {
+    let gpu = lavapipe();
+    assert_eq!(gpu.sync_fd, Has::Yes, "the premise: a sync file exports");
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = warm(&gpu, &mut r, &mut t);
+    let (target, _) = p.target(TargetIx(0)).expect("a target");
+    assert_eq!(
+        takes_sync_files(target.plane().fd),
+        SyncFiles::Taken,
+        "the premise: the targets take a sync file"
+    );
+    assert_eq!(p.flies(), Flies::Waits(Why::ExportWaits), "why they wait");
     assert_eq!(p.counts().waited.0, 2, "the two warm frames, counted");
     feed(&mut t, b"one");
     let f = frame_held(&gpu, &mut p, &mut r, &mut t);

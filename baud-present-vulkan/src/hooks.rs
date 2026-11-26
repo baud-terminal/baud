@@ -33,6 +33,16 @@ pub(crate) enum Wakes {
     Refused,
 }
 
+/// What a frame's end exports as: the descriptor the implementation made,
+/// or `-1`, as an implementation may answer for a semaphore already
+/// signalled.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Export {
+    #[default]
+    AsMade,
+    Signalled,
+}
+
 #[derive(Default)]
 struct State {
     fail: Option<(Calls, Failed)>,
@@ -46,6 +56,8 @@ struct State {
     fenced: Fenced,
     /// Whether wakes at a release point are refused.
     wakes: Wakes,
+    /// What frames' ends export as.
+    export: Export,
 }
 
 /// The forced failure waiting, and the targets alive.
@@ -132,6 +144,16 @@ impl Hooks {
     /// Whether wakes at a release point are refused.
     pub(crate) fn wakes(&self) -> Wakes {
         self.with(|s| s.wakes)
+    }
+
+    /// **Frames' ends export as `-1` from now**, their descriptors closed.
+    pub(crate) fn signal_exports(&self) {
+        self.with(|s| s.export = Export::Signalled);
+    }
+
+    /// What frames' ends export as.
+    pub(crate) fn export(&self) -> Export {
+        self.with(|s| s.export)
     }
 
     /// A frame's end taken as its target's write fence.

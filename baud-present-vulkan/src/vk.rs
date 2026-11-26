@@ -292,8 +292,9 @@ impl Vulkan {
 }
 
 /// **One device's row of the vendor matrix** (`tests/vendors.rs`): its driver, what
-/// the GPU path's choice reads of it, each extension the path names, and
-/// whether it blends by a second source.
+/// the GPU path's choice reads of it, each extension the path names,
+/// whether it blends by a second source, and whether its export of a
+/// frame's end waits for the frame.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
     /// The driver, by its `VkDriverId` name ([`driver_name`]).
@@ -301,6 +302,36 @@ pub struct Row {
     pub candidate: Candidate,
     pub extensions: Vec<(&'static str, Has)>,
     pub dual_source: Has,
+    /// When the device's `SYNC_FD` export of a frame's end returns
+    /// ([`SyncExport::of_device_type`]).
+    pub sync_export: SyncExport,
+}
+
+/// **When a device's export of a frame's end as a sync file returns**
+/// (`vkGetSemaphoreFdKHR` with `SYNC_FD`): at once, the sync file readable
+/// once the frame ends, or only after the frame has ended. A frame on a
+/// device whose export waits is finished before it is shown, so it never
+/// flies (`present::Why::ExportWaits`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncExport {
+    /// Returned at once, the sync file pending until the frame ends.
+    Pending,
+    /// Returned only once the frame has ended.
+    WaitsForFrame,
+}
+
+impl SyncExport {
+    /// **When a device's `SYNC_FD` export returns**, by the type the device
+    /// reports: [`SyncExport::WaitsForFrame`] for a CPU device, whose host
+    /// finishes the frame before the export returns, and
+    /// [`SyncExport::Pending`] for every other type. Each driver's answer is
+    /// a line of its committed row (`tests/vendors/`).
+    pub fn of_device_type(device: vk::PhysicalDeviceType) -> SyncExport {
+        match device {
+            vk::PhysicalDeviceType::CPU => SyncExport::WaitsForFrame,
+            _ => SyncExport::Pending,
+        }
+    }
 }
 
 /// Whether a device has a thing.
@@ -380,6 +411,10 @@ impl Row {
                 yes(c.timeline == TimelineExport::Yes)
             ),
             format!("dual-source blend: {}", self.dual_source.word()),
+            format!(
+                "SYNC_FD export waits for the frame: {}",
+                yes(self.sync_export == SyncExport::WaitsForFrame)
+            ),
         ]);
         out
     }
@@ -393,8 +428,10 @@ impl Vulkan {
             .map(|(pd, candidate)| {
                 let mut names: Vec<&CStr> = REQUIRED.to_vec();
                 names.extend([SEMAPHORE_FD, PHYSICAL_DEVICE_DRM]);
+                let driver = self.driver(pd);
                 Row {
-                    driver: driver_name(self.driver(pd)),
+                    driver: driver_name(driver),
+                    sync_export: SyncExport::of_device_type(self.device_type(pd)),
                     candidate,
                     extensions: names
                         .into_iter()
@@ -414,7 +451,7 @@ impl Vulkan {
 
     /// The driver behind `pd`, as `VkPhysicalDeviceDriverProperties` names it.
     #[allow(unsafe_code)]
-    fn driver(&self, pd: vk::PhysicalDevice) -> vk::DriverId {
+    pub(crate) fn driver(&self, pd: vk::PhysicalDevice) -> vk::DriverId {
         let mut driver = vk::PhysicalDeviceDriverProperties::default();
         let mut props = vk::PhysicalDeviceProperties2::default().push_next(&mut driver);
         // SAFETY: a physical device of this instance, and a chain whose
@@ -424,6 +461,13 @@ impl Vulkan {
                 .get_physical_device_properties2(pd, &mut props)
         };
         driver.driver_id
+    }
+
+    /// The type `pd` reports (`VkPhysicalDeviceProperties::deviceType`).
+    #[allow(unsafe_code)]
+    pub(crate) fn device_type(&self, pd: vk::PhysicalDevice) -> vk::PhysicalDeviceType {
+        // SAFETY: a physical device of this instance.
+        unsafe { self.instance.get_physical_device_properties(pd) }.device_type
     }
 
     /// Whether `pd` blends by a second source (`dualSrcBlend`).
@@ -443,5 +487,35 @@ impl Drop for Vulkan {
     fn drop(&mut self) {
         // SAFETY: nothing made from the instance outlives it here.
         unsafe { self.instance.destroy_instance(None) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SyncExport;
+    use ash::vk;
+
+    /// **A CPU device's export waits for the frame, and every other type's
+    /// returns at once**, by the type alone. Named break: a device keyed by
+    /// anything but its type, so a CPU device answered pending.
+    #[test]
+    fn a_cpu_device_s_export_waits_for_the_frame_and_no_other_type_s() {
+        assert_eq!(
+            SyncExport::of_device_type(vk::PhysicalDeviceType::CPU),
+            SyncExport::WaitsForFrame
+        );
+        for other in [
+            vk::PhysicalDeviceType::OTHER,
+            vk::PhysicalDeviceType::INTEGRATED_GPU,
+            vk::PhysicalDeviceType::DISCRETE_GPU,
+            vk::PhysicalDeviceType::VIRTUAL_GPU,
+        ] {
+            assert_eq!(
+                SyncExport::of_device_type(other),
+                SyncExport::Pending,
+                "type {}",
+                other.as_raw()
+            );
+        }
     }
 }
