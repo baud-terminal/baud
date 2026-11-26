@@ -3044,7 +3044,9 @@ mod tests {
     /// `linux.rs` that moves the preview -- a pointer event, a change of
     /// the modifiers, a frame's plan, the thumb a frame draws, the
     /// keyboard's coming and going --
-    /// shows the pointer again; showing it asks the seat with the
+    /// shows the pointer again, or, in the plan, pushes the pointer's
+    /// shape as a window effect the frame applies after it; the shape
+    /// asks the seat with the
     /// program's `OSC 22` shape and sends nothing while a key has it
     /// hidden, since a shape set shows it (`[[source: wayland]]`). The
     /// driver runs only on Linux, so this holds its source.
@@ -3069,18 +3071,29 @@ mod tests {
                     .max()
                     .expect("a call");
                 assert!(
-                    code[after..].contains(concat!(".show_", "pointer()")),
+                    code[after..].contains(concat!(".show_", "pointer()"))
+                        || code[after..].contains(concat!(".plan_", "pointer()")),
                     "{name} moves the preview and does not show the pointer after"
                 );
                 names.push(name);
             }
         }
         assert_eq!(names.len(), 5, "the five sites: {names:?}");
-        let head = concat!("    fn show_", "pointer(&mut self) {");
-        assert_eq!(SRC.matches(head).count(), 1);
-        let show = SRC.split(head).nth(1).expect(head);
-        let show = &show[..show.find("\n    }\n").expect("the function ends")];
-        let code: String = show.chars().filter(|c| !c.is_whitespace()).collect();
+        let body = |head: &str| {
+            assert_eq!(SRC.matches(head).count(), 1, "{head}");
+            let body = SRC.split(head).nth(1).expect(head);
+            let body = &body[..body.find("\n    }\n").expect("the function ends")];
+            body.chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>()
+        };
+        let show = body(concat!("    fn show_", "pointer(&mut self) {"));
+        assert!(
+            show.contains(concat!("self.plan_", "pointer();self.apply_effects();")),
+            "shown: the shape pushed, then applied"
+        );
+        let code = body(concat!("    fn plan_", "pointer(&mut self) {"))
+            + &body(concat!("    fn apply_", "effects(&mut self) {"));
         assert!(
             code.contains(concat!("self.hiding.hidden()==", "PointerHides::Yes")),
             "a hidden pointer is shown by a shape"

@@ -122,7 +122,7 @@ use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
 
 mod plan;
-use plan::FramePlan;
+use plan::{FramePlan, Planned};
 
 /// How long a synchronised update may hold the frame: two 60 Hz periods,
 /// the bound the macOS loop keeps for the same reason -- long enough that
@@ -380,6 +380,9 @@ struct Driver {
     composing_caret: baud_render::Caret,
     /// The overlays' text the next frame shows, refilled by `plan`.
     plan_text: plan::PlanText,
+    /// What the plan settled the window does, the title and the pointer,
+    /// until the frame applies it (`apply_effects`).
+    effects: plan::Effects,
     /// Text blink, the cursor trail, the alternate screen's fade and the
     /// scrollbar's thumb, each owing a deadline or a frame (`timed.rs`).
     timed: crate::timed::Timed,
@@ -999,6 +1002,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         pressed: crate::pressed::Pressed::default(),
         composing_caret: baud_render::Caret::End,
         plan_text: plan::PlanText::default(),
+        effects: plan::Effects::default(),
         // `BAUD_GPU=off` keeps every frame on the CPU arm, read once.
         gpu: crate::gpu_arm::GpuArm::new(std::env::var("BAUD_GPU").ok().as_deref()),
         paced_said: None,
@@ -1681,8 +1685,39 @@ impl Driver {
     /// write seal and where the input method's window opens, and the
     /// overlays' text into `plan_text` (`plan.rs`). The composition is drawn
     /// at the cursor only while the find field is closed. The link scan
-    /// runs here, and the pointer shown for a preview it read again.
-    fn plan(&mut self) -> FramePlan {
+    /// runs here, and the pointer for a preview it read again is pushed as
+    /// a window effect, as is a title the derived title's check changed.
+    /// A finished job's paths and program probes are owed here, and a
+    /// synchronised update that holds the screen plans no frame.
+    fn plan(&mut self) -> Planned {
+        // **The derived title's check, once a frame and only when owed**
+        // (`title::Derive`): the compositor's frame events pace it, as the
+        // display link paces macOS's. Linux has no unprivileged fork
+        // event, so a job that prints nothing is seen by the key that
+        // started it and the reads around it.
+        let job = self.derive.group();
+        if self.derive.check(&self.pty.reads()) == crate::title::Changed::Yes {
+            self.send_title();
+            // A job that ended may have made what is struck, or installed
+            // an app: asked again at the next batch, and the apps only
+            // while one was found missing, as on macOS.
+            if self.derive.group() != job {
+                self.seat.paths.recheck();
+                if self.seat.paths.programs_missing() {
+                    self.probes.owe_programs();
+                }
+            }
+        }
+        // Each hold is timed from the opening that began it (`UpdateClock`).
+        let update = self.updates.observe(&self.term, Instant::now());
+        // A `?5` change the check found made past a hold's bound is shown
+        // by the next frame drawn, whatever the update is by then.
+        self.bell.past_bound(self.updates.held_past());
+        if update == Update::Honoured {
+            // Honoured: what the update changes of `?5` is its to hide.
+            self.bell.hold(&self.term);
+            return Planned::Held;
+        }
         let composed = match self.finding {
             Some(_) => None,
             None => crate::marked::composition(
@@ -1773,11 +1808,21 @@ impl Driver {
         // The pointer shown for the preview read above, once the scan is
         // done with the view's slots.
         if previewed {
-            self.show_pointer();
+            self.plan_pointer();
+        }
+        // A link entered whose file is gone is asked again, and a missing
+        // app or command owes the program probes.
+        match self.seat.take_entered() {
+            Some(crate::paths::Gone::File(path)) => self.seat.paths.recheck_path(&path),
+            Some(crate::paths::Gone::NoApp(_) | crate::paths::Gone::NoCommand) => {
+                self.probes.owe_programs()
+            }
+            None => {}
         }
         let facts = self.timed.facts(&self.term, cursor.followed);
-        FramePlan {
+        Planned::Frame(FramePlan {
             cursor,
+            update,
             scrollbar: facts.scrollbar,
             moved: facts.moved,
             splash: facts.splash,
@@ -1788,7 +1833,7 @@ impl Driver {
             highlight,
             seal: self.term.seal_writes(),
             ime,
-        }
+        })
     }
 
     /// Whether the cursor blinks now: a style that asks to, the keyboard, and
@@ -2019,11 +2064,13 @@ impl Driver {
         );
         if changed == crate::title::Changed::Yes {
             self.send_title();
+            self.apply_effects();
         }
         took
     }
 
-    /// The window's title, sent when it changed (`title::Shown`): the
+    /// The window's title, pushed as a window effect when it changed
+    /// (`title::Shown`): the
     /// program's, else the folder and program (`title::Derive::title`),
     /// else "baud". A report naming another host, refused, is logged once
     /// (`Derive::refusal`).
@@ -2046,7 +2093,7 @@ impl Driver {
             &fallback,
             self.term.print_run(),
         ) {
-            self.window.set_title(&mut self.conn.sender(), &t);
+            self.effects.push(plan::WindowEffect::Title(t));
         }
         let was = self.session.clone();
         let s = &mut self.session;
@@ -3844,27 +3891,54 @@ impl Driver {
     /// window draws the image itself, the I-beam, the hand or the arrow
     /// (`baud_present_wayland::cursor`), and that is said once.
     fn show_pointer(&mut self) {
-        if !self.seat.inside() || self.hiding.hidden() == PointerHides::Yes {
-            return;
-        }
-        let want = baud_present_wayland::pointer::shape(
-            self.seat.pointer_shape(self.term.pointer_shape()),
-        );
-        if self.shape == Some(want) {
-            return;
-        }
-        match self.window.set_pointer_shape(&mut self.conn.sender(), want) {
-            Shaped::Set => self.shape = Some(want),
-            Shaped::Drawn => {
-                self.shape = Some(want);
-                if self.shapeless == Said::Not {
-                    self.shapeless = Said::Once;
-                    crate::info!(
-                        "the compositor offers no cursor-shape global: baud draws its own pointer, an I-beam, a pointing hand or an arrow, and a program's OSC 22 shape is the nearest of the three"
-                    );
+        self.plan_pointer();
+        self.apply_effects();
+    }
+
+    /// **The pointer's shape as the session resolves it**, pushed as a
+    /// window effect: a previewed link's, else the program's `OSC 22`
+    /// shape, else none.
+    fn plan_pointer(&mut self) {
+        let shape = self.seat.pointer_shape(self.term.pointer_shape());
+        self.effects
+            .push(plan::WindowEffect::Pointer(plan::PointerState::Shown(
+                shape,
+            )));
+    }
+
+    /// **The window effects the plan pushed, each applied once**, in the
+    /// order pushed: the title set, and the pointer's shape set while the
+    /// pointer is inside the window and not hidden, and only when it is
+    /// not the shape already set.
+    fn apply_effects(&mut self) {
+        for effect in self.effects.drain() {
+            let shape = match effect {
+                plan::WindowEffect::Title(t) => {
+                    self.window.set_title(&mut self.conn.sender(), &t);
+                    continue;
                 }
+                plan::WindowEffect::Pointer(plan::PointerState::Shown(shape)) => shape,
+            };
+            if !self.seat.inside() || self.hiding.hidden() == PointerHides::Yes {
+                continue;
             }
-            Shaped::Unavailable => {}
+            let want = baud_present_wayland::pointer::shape(shape);
+            if self.shape == Some(want) {
+                continue;
+            }
+            match self.window.set_pointer_shape(&mut self.conn.sender(), want) {
+                Shaped::Set => self.shape = Some(want),
+                Shaped::Drawn => {
+                    self.shape = Some(want);
+                    if self.shapeless == Said::Not {
+                        self.shapeless = Said::Once;
+                        crate::info!(
+                            "the compositor offers no cursor-shape global: baud draws its own pointer, an I-beam, a pointing hand or an arrow, and a program's OSC 22 shape is the nearest of the three"
+                        );
+                    }
+                }
+                Shaped::Unavailable => {}
+            }
         }
     }
 
@@ -4415,38 +4489,18 @@ impl Driver {
         {
             return;
         }
-        // **The derived title's check, once a frame and only when owed**
-        // (`title::Derive`): the compositor's frame events pace it, as the
-        // display link paces macOS's. Linux has no unprivileged fork
-        // event, so a job that prints nothing is seen by the key that
-        // started it and the reads around it.
-        let job = self.derive.group();
-        if self.derive.check(&self.pty.reads()) == crate::title::Changed::Yes {
-            self.send_title();
-            // A job that ended may have made what is struck, or installed
-            // an app: asked again at the next batch, and the apps only
-            // while one was found missing, as on macOS.
-            if self.derive.group() != job {
-                self.seat.paths.recheck();
-                if self.seat.paths.programs_missing() {
-                    self.probes.owe_programs();
-                }
-            }
-        }
-        // Each hold is timed from the opening that began it (`UpdateClock`).
-        let update = self.updates.observe(&self.term, Instant::now());
-        // A `?5` change the check found made past a hold's bound is shown
-        // by the next frame drawn, whatever the update is by then.
-        self.bell.past_bound(self.updates.held_past());
-        if update == Update::Honoured {
-            // Honoured: what the update changes of `?5` is its to hide.
-            self.bell.hold(&self.term);
-            return;
-        }
         // **What this frame shows, read from the terminal once** (`plan`):
         // its write generation closed before the frame's first ask of the
-        // display; the draw (`draw_kept`) paints under the same seal.
-        let frame = self.plan();
+        // display; the draw (`draw_kept`) paints under the same seal. None
+        // while a synchronised update holds the screen.
+        let planned = self.plan();
+        // What the plan settled the window does, the title and the
+        // pointer, applied whether or not a frame follows.
+        self.apply_effects();
+        let Planned::Frame(frame) = planned else {
+            return;
+        };
+        let update = frame.update;
         let moved = frame.moved;
         // The moment the frame is first seen: the next refresh where the
         // compositor's presentation feedback says one, else now -- what
@@ -4493,13 +4547,6 @@ impl Driver {
         }
         self.renderer
             .set_link_missing(self.link_config.missing_color);
-        match self.seat.take_entered() {
-            Some(crate::paths::Gone::File(path)) => self.seat.paths.recheck_path(&path),
-            Some(crate::paths::Gone::NoApp(_) | crate::paths::Gone::NoCommand) => {
-                self.probes.owe_programs()
-            }
-            None => {}
-        }
         let preview = crate::copied::Preview::of(self.plan_text.hover.as_ref());
         self.renderer.set_link(self.plan_text.hover.take());
         self.renderer
@@ -5910,7 +5957,7 @@ mod tests {
     #[test]
     fn present_reads_no_planning_input() {
         const SRC: &str = include_str!("linux.rs");
-        const CEILING: usize = 27;
+        const CEILING: usize = 12;
         let body = present_body(SRC);
         // Each `self.` name read, not a longer name it begins.
         let planning_reads = |code: &str| {
@@ -5949,6 +5996,47 @@ mod tests {
         );
         let asked = body.matches(concat!("self.", "plan()")).count();
         assert_eq!(asked, 1, "the plan is read once a frame");
+    }
+
+    /// **A derived title arrives as one window effect, applied once**:
+    /// `send_title` pushes the title it chose as one `Title` effect and
+    /// names no window, and the window's title and pointer shape are set
+    /// in `apply_effects` alone, which drains the queue. The control: the
+    /// scan finds `send_title`'s body by its title read.
+    #[test]
+    fn a_derived_title_arrives_as_one_effect_applied_once() {
+        const SRC: &str = include_str!("linux.rs");
+        let body = |head: &str| {
+            let start = SRC.find(head).expect(head);
+            let body = &SRC[start..];
+            &body[..body.find("\n    }\n").expect("the body's end")]
+        };
+        let send = body(concat!("    fn ", "send_title(&mut self) {"));
+        assert!(
+            send.contains(concat!("self.titles", ".next(")),
+            "the control"
+        );
+        assert_eq!(
+            send.matches(concat!("WindowEffect::", "Title(")).count(),
+            1,
+            "one Title effect"
+        );
+        assert!(
+            !send.contains(concat!("self.", "window")),
+            "send_title names no window"
+        );
+        let apply = body(concat!("    fn ", "apply_effects(&mut self) {"));
+        for set in [
+            concat!(".set_", "title("),
+            concat!(".set_", "pointer_shape("),
+        ] {
+            assert_eq!(SRC.matches(set).count(), 1, "{set}: set in one place");
+            assert!(apply.contains(set), "{set}: set by the frame");
+        }
+        assert!(
+            apply.contains(concat!("self.effects", ".drain()")),
+            "applied once: the queue is drained"
+        );
     }
 
     /// **Effect pacing weighs the fireworks over a trail, and never a

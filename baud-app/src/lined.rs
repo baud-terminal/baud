@@ -2422,7 +2422,7 @@ mod tests {
                 "linux.rs",
                 body(
                     include_str!("linux.rs"),
-                    concat!("    fn ", "plan(&mut self) -> FramePlan {"),
+                    concat!("    fn ", "plan(&mut self) -> Planned {"),
                 ),
                 "self.link_config.",
             ),

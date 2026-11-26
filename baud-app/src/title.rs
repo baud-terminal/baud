@@ -935,10 +935,14 @@ mod tests {
             .contains(owe),
             "a Linux key"
         );
-        let present = body(LINUX, concat!("    fn present(", "&mut self) {"), "    ");
+        let plan = body(
+            LINUX,
+            concat!("    fn plan(", "&mut self) -> Planned {"),
+            "    ",
+        );
         assert!(
-            present.contains(concat!("self.derive", ".check(")),
-            "checked at a frame"
+            plan.contains(concat!("self.derive", ".check(")),
+            "checked at a frame's plan"
         );
         let send = body(LINUX, concat!("    fn send_title(", "&mut self) {"), "    ");
         assert!(send.contains(next) && send.contains("&fallback"));

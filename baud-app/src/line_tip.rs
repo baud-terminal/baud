@@ -638,7 +638,7 @@ mod tests {
             ),
         );
         assert!(route.contains("self.line_tip.dismiss(&self.term)"));
-        let plan = body(LINUX, concat!("    fn plan(&mut self", ") -> FramePlan {"));
+        let plan = body(LINUX, concat!("    fn plan(&mut self", ") -> Planned {"));
         assert!(plan.contains("text.tip = self.line_tip.look().cloned();"));
         let present = body(LINUX, concat!("    fn present(&mut self", ") {"));
         assert!(present.contains("self.renderer.set_tip(self.plan_text.tip.clone());"));

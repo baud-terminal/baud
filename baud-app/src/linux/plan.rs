@@ -96,6 +96,9 @@ pub(crate) struct FramePlan {
     /// What the visual bell reads of the screen: the `?5` counts, the
     /// video and how a ring shows.
     pub(crate) bell: crate::bell::BellFacts,
+    /// The synchronised update's state when the plan was read: the bell's
+    /// flash shows what an outlived update held.
+    pub(crate) update: crate::bell::Update,
     pub(crate) scrollbar: Option<crate::timed::ScrollbarPlan>,
     pub(crate) moved: crate::timed::ScreenMove,
     pub(crate) splash: crate::splash::SplashGate,
@@ -152,8 +155,69 @@ pub(crate) struct PlanText {
     pub(crate) held: Option<HeldText>,
 }
 
+/// **What the plan finds**: no frame while a synchronised update holds the
+/// screen, else what the next frame shows.
+#[derive(Clone, Copy, Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "returned once a frame and taken apart at once; a box would allocate every frame"
+)]
+pub(crate) enum Planned {
+    /// An update holds the screen: no frame is drawn.
+    Held,
+    /// What the next frame shows.
+    Frame(FramePlan),
+}
+
+/// **The pointer's state over the window**: the shape the session
+/// resolved, a previewed link's or the program's, or none for the window's
+/// own.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PointerState {
+    Shown(Option<baud_core::PointerShape>),
+}
+
+/// **What the plan decided the window does**, applied by the frame once.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) enum WindowEffect {
+    /// The window's title, pushed when it changed.
+    Title(String),
+    /// The pointer's shape over the window.
+    Pointer(PointerState),
+}
+
+/// **The window effects owed**, pushed by the plan and drained by the
+/// frame, in the order pushed; the queue keeps its allocation.
+#[derive(Default, Debug)]
+pub(crate) struct Effects(Vec<WindowEffect>);
+
+impl Effects {
+    pub(crate) fn push(&mut self, effect: WindowEffect) {
+        self.0.push(effect);
+    }
+
+    /// Every effect owed, once: none is left for the next frame.
+    pub(crate) fn drain(&mut self) -> std::vec::Drain<'_, WindowEffect> {
+        self.0.drain(..)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    /// **An effect pushed is applied once**: the drain hands each over in
+    /// the order pushed and leaves none for the next frame.
+    #[test]
+    fn an_effect_pushed_is_drained_once() {
+        use super::{Effects, PointerState, WindowEffect};
+        let mut owed = Effects::default();
+        let title = WindowEffect::Title("main.rs - vim".to_string());
+        let pointer = WindowEffect::Pointer(PointerState::Shown(None));
+        owed.push(title.clone());
+        owed.push(pointer.clone());
+        assert_eq!(owed.drain().collect::<Vec<_>>(), [title, pointer]);
+        assert_eq!(owed.drain().count(), 0, "applied once");
+    }
+
     use super::*;
     use baud_core::Owned;
     use baud_domain::WinSize;
