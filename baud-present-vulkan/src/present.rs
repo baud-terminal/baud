@@ -247,7 +247,13 @@ impl Presenter {
     /// device's heaps allow, and no target yet ([`Presenter::fit`]).
     pub fn new(gpu: &Gpu, term: &Term<'_>) -> Result<Presenter, Failed> {
         let pipes = Pipelines::new(gpu)?;
-        let (cols, rows) = term.geometry();
+        // **Every set holds the largest grid the storage is provisioned
+        // for**: as many rows as a resize can grow to
+        // (`Term::row_capacity`), each the pitch wide, which no width can
+        // pass. A window that grows after the arm starts draws into the
+        // memory it has, the status line's row included.
+        let rows = term.row_capacity();
+        let cols = baud_domain::Cols::of_index(term.stride().index());
         let sizes = CellSizes {
             cols,
             rows,

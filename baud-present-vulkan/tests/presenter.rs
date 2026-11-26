@@ -379,6 +379,59 @@ fn a_resize_remakes_both_targets() {
     p.destroy(&gpu);
 }
 
+/// **A window that grows after the arm starts draws into the memory it
+/// has**: a presenter made at six rows, on storage provisioned for eight,
+/// draws a frame after the grid grows to seven with the status line shown,
+/// whose row is the eighth. Named break: the sets sized to the grid the arm
+/// started at, whose copy has no row for the status line once the grid
+/// grows by one.
+#[test]
+fn a_grid_grown_after_the_arm_starts_draws_with_its_status_line() {
+    const PROVISIONED: WinSize = WinSize {
+        ws_col: 24,
+        ws_row: 8,
+    };
+    const GROWN: WinSize = WinSize {
+        ws_col: 24,
+        ws_row: 7,
+    };
+    let gpu = lavapipe();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&PROVISIONED);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[2$~\x1b[1$}status\x1b[0$}");
+    assert!(
+        t.status_line().is_some(),
+        "the premise: the status line is shown"
+    );
+    let mut p = warm(&gpu, &mut r, &mut t);
+    let _ = t.resize(&GROWN);
+    assert_eq!(
+        t.geometry().1,
+        Rows::of_index(7),
+        "the premise: the grid grew"
+    );
+    r.fit(&t);
+    assert_eq!(p.fit(&gpu, size(&r)).expect("targets"), Remade::Yes);
+    let drawn = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let seal = t.seal_writes();
+        let f = p.frame(&gpu, &mut r, &t, seal, &NONE);
+        land(&gpu, &mut p);
+        f
+    }));
+    assert!(
+        matches!(drawn, Ok(Ok(Frame::Drew(_)))),
+        "a frame after the grid grew by a row, the status line shown, is drawn: {:?}",
+        drawn
+            .as_ref()
+            .map(|f| f.as_ref().map_err(|_| "failed"))
+            .map_err(|_| "panicked")
+    );
+    p.destroy(&gpu);
+}
+
 /// **A resize waits no more than a steady frame**: remaking both targets
 /// waits on no fence, and the first frame into the new target, drawn
 /// whole, waits as many times as a frame into a warm target, on targets
