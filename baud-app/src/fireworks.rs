@@ -404,7 +404,7 @@ mod tests {
         assert!(tick.contains(&bare(TICK)), "the tick owes them a frame");
         let linux = include_str!("linux.rs");
         let plan = linux
-            .split_once("let plan = self.timed.plan(")
+            .split_once("let plan = self.timed.plan_following(")
             .and_then(|(_, rest)| {
                 rest.split_once("let margin = self.renderer.clear_color_of(&self.term);")
             })

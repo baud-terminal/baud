@@ -4,7 +4,8 @@
 //! text -- the badge, the find field, the link under the pointer, the
 //! lines under links, the tip, a held window's line and the composition --
 //! each read once and handed to the frame, which reads none of them from
-//! the terminal or the session itself.
+//! the terminal or the session itself. The trail starts from the planned
+//! cursor, and the visual bell is timed from what the plan read.
 
 use baud_core::{CursorStyle, Term};
 use baud_domain::{Col, Cols, CursorGuide, RegisBlink, Row, Seal};
@@ -30,6 +31,8 @@ pub(crate) struct CursorPlan {
     pub(crate) style: CursorStyle,
     pub(crate) shown: Shown,
     pub(crate) presented: crate::caret::PresentedCursor,
+    /// The cursor a trail follows, `None` while the window looks back.
+    pub(crate) followed: Option<crate::effects::TrailCursor>,
 }
 
 impl CursorPlan {
@@ -47,11 +50,21 @@ impl CursorPlan {
             true => Shown::Yes,
             false => Shown::No,
         };
+        // The trail starts where the cursor is drawn; a hidden one's is
+        // where the program placed it, and none while the window looks back.
+        let followed = match (term.window_back().index() != 0, shown) {
+            (true, _) => None,
+            (false, Shown::Yes) => Some(crate::effects::TrailCursor::Shown(at.0, at.1)),
+            (false, Shown::No) => term
+                .placed_cursor()
+                .map(|(r, c)| crate::effects::TrailCursor::Placed(r, c)),
+        };
         CursorPlan {
             at,
             style: term.cursor_style(),
             shown,
             presented: crate::caret::PresentedCursor::of(term),
+            followed,
         }
     }
 
@@ -79,6 +92,9 @@ pub(crate) struct FramePlan {
     /// Where the input method's candidate window is asked to open; `None`
     /// while it hides its cursor, so the last stands.
     pub(crate) ime: Option<ImeRect>,
+    /// What the visual bell reads of the screen: the `?5` counts, the
+    /// video and how a ring shows.
+    pub(crate) bell: crate::bell::BellFacts,
 }
 
 /// **The cells an input method's candidate window is asked to open over**:
@@ -141,10 +157,10 @@ mod tests {
     /// **The planned cursor is the cell the renderer draws it in**, on a
     /// whole frame, after a scroll, on the alternate screen, on DEC's
     /// status line and at an input method's composition: the cell is read
-    /// back from the pixels a shown phase changes against a hidden one. The
-    /// trail follows the screen's own cursor, which is the planned cell but
-    /// on the status line and under a composition. The control: a hidden
-    /// cursor changes no pixel and plans none.
+    /// back from the pixels a shown phase changes against a hidden one, and
+    /// the trail starts from that cell on each. A lending is not a case: it
+    /// changes the cells' style ids, never the cursor's cell. The control: a
+    /// hidden cursor changes no pixel and plans none.
     #[test]
     fn the_planned_cursor_is_the_cell_the_renderer_draws() {
         use baud_core::{BytePos, ReadLen};
@@ -196,15 +212,15 @@ mod tests {
             .filter_map(|c| Codepoint::new(u32::from(c)))
             .collect();
         let lines = b"line\r\n".repeat(9);
-        let cases: [(&str, &[u8], bool, bool); 6] = [
-            ("whole", b"\x1b[1 q\x1b[3;5Hab", false, true),
-            ("scroll", &lines, false, true),
-            ("alternate screen", b"\x1b[?1049h\x1b[2;3Hq", false, true),
-            ("status line", b"\x1b[2$~\x1b[1$}st", false, false),
-            ("composition", b"\x1b[2;2H", true, false),
-            ("hidden", b"\x1b[?25l", false, true),
+        let cases: [(&str, &[u8], bool); 6] = [
+            ("whole", b"\x1b[1 q\x1b[3;5Hab", false),
+            ("scroll", &lines, false),
+            ("alternate screen", b"\x1b[?1049h\x1b[2;3Hq", false),
+            ("status line", b"\x1b[2$~\x1b[1$}st", false),
+            ("composition", b"\x1b[2;2H", true),
+            ("hidden", b"\x1b[?25l", false),
         ];
-        for (name, bytes, composing, follows) in cases {
+        for (name, bytes, composing) in cases {
             let mut store = Owned::new(&ws);
             let mut t = Term::new(store.storage(), &ws);
             let bytes = [b"\x1b[1 q".as_slice(), bytes].concat();
@@ -217,11 +233,8 @@ mod tests {
             assert_eq!(composed.is_some(), composing, "{name}: composed");
             let planned = CursorPlan::of(&t, composed.as_ref());
             assert_eq!(drawn(&mut t, composed.as_ref()), planned.drawn(), "{name}");
-            let trail = crate::effects::trail_cursor(&t).map(crate::effects::TrailCursor::cell);
-            match follows {
-                true => assert_eq!(trail, planned.drawn(), "{name}: the trail"),
-                false => assert_ne!(trail, planned.drawn(), "{name}: the trail"),
-            }
+            let trail = planned.followed.map(crate::effects::TrailCursor::cell);
+            assert_eq!(trail, planned.drawn(), "{name}: the trail");
         }
     }
 }

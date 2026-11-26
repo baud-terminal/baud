@@ -386,6 +386,37 @@ impl Seen {
             past,
         }
     }
+
+    fn read(facts: BellFacts, rung: Rung, past: HeldPast) -> Seen {
+        Seen {
+            shown: facts.shown,
+            held: facts.held,
+            mode: facts.mode,
+            rung,
+            past,
+        }
+    }
+}
+
+/// **What a frame's bell reads of the screen**, read before the frame is
+/// drawn: both `?5` counts, the mode, and how a ring shows.
+#[derive(Clone, Copy, Debug)]
+pub struct BellFacts {
+    shown: ReverseFlips,
+    held: ReverseFlips,
+    mode: Mode,
+    kind: BellKind,
+}
+
+impl BellFacts {
+    pub fn of(term: &Term<'_>) -> BellFacts {
+        BellFacts {
+            shown: term.reverse_flips(),
+            held: term.reverse_flips_held(),
+            mode: Mode::of(term),
+            kind: BellKind::of(term),
+        }
+    }
 }
 
 /// How many flashes a `BEL` has asked for ([`Bell::ring`]): a count the
@@ -468,8 +499,14 @@ impl<T: Moment> Bell<T> {
     /// through `update` as the driver reads it. Changes nothing: a frame put
     /// off leaves the baseline where it was, so the next one asks the same
     /// question again.
+    #[cfg(any(target_os = "macos", test))]
     pub fn plan(&self, term: &Term<'_>, now: T, update: Update) -> Plan<T> {
-        let seen = Seen::of(term, self.rung, self.past);
+        self.plan_from(BellFacts::of(term), now, update)
+    }
+
+    /// The plan `Bell::plan` makes, from what the frame's plan read of the screen.
+    pub fn plan_from(&self, facts: BellFacts, now: T, update: Update) -> Plan<T> {
+        let seen = Seen::read(facts, self.rung, self.past);
         // A frame drawn through an outlived update shows what the update
         // held; any other either holds it or reads it closed, and shows only
         // the changes the clock found made past a hold's bound.
@@ -513,7 +550,7 @@ impl<T: Moment> Bell<T> {
             } else {
                 Rang::Yes
             },
-            BellKind::of(term),
+            facts.kind,
         );
         let flash = if shows.video == mode {
             VideoFlash::Off

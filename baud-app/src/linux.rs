@@ -1777,6 +1777,7 @@ impl Driver {
         }
         FramePlan {
             cursor,
+            bell: crate::bell::BellFacts::of(&self.term),
             guide: self.term.cursor_guide().unwrap_or(self.cursor_guide),
             regis_blink: self.term.regis_blink(),
             highlight,
@@ -4447,7 +4448,7 @@ impl Driver {
         let seen_at = self.window.next_shown(Instant::now());
         // The visual bell, before the margin: the flash moves it too. Kept
         // only if the frame reaches the compositor, below.
-        let bell = self.bell.plan(&self.term, seen_at, update);
+        let bell = self.bell.plan_from(frame.bell, seen_at, update);
         self.renderer.set_flash(bell.flash);
         self.renderer.set_bell_tint(bell.tint);
         let blinks = crate::caret::blinks(frame.cursor.style, self.focus, frame.cursor.drawn());
@@ -4568,9 +4569,10 @@ impl Driver {
         };
         let renderer = &self.renderer;
         self.timed.keyed(self.caret.last_key());
-        let plan = self.timed.plan(
+        let plan = self.timed.plan_following(
             seen_at,
             &self.term,
+            frame.cursor.followed,
             |r, c, style| renderer.cursor_rect(r, c, style),
             cell,
             crate::reveal::widths(crate::reveal::Scale(scale)),
@@ -5520,7 +5522,7 @@ mod tests {
 
     /// **The frame hands the plan the last key before its trail**: in the
     /// frame, `self.timed.keyed(self.caret.last_key());` comes straight
-    /// before the `self.timed.plan(` call, so an effect lights on the first
+    /// before the `self.timed.plan_following(` call, so an effect lights on the first
     /// move after a key, a paste or the wheel's keys (`trail::FOLLOWS`).
     /// Without it every effect stays dark on Linux and nothing else here
     /// fails. The planted control: the same source with the line taken out
@@ -5530,7 +5532,7 @@ mod tests {
         const SRC: &str = include_str!("linux.rs");
         // Spelled apart, so this test does not match its own source.
         let line = concat!("self.timed.keyed(", "self.caret.last_key());");
-        let call = concat!("let plan = ", "self.timed.plan(");
+        let call = concat!("let plan = ", "self.timed.plan_following(");
         let hands = |src: &str| {
             let bare: String = src.split_whitespace().collect();
             let call: String = call.split_whitespace().collect();
@@ -5896,7 +5898,7 @@ mod tests {
     #[test]
     fn present_reads_no_planning_input() {
         const SRC: &str = include_str!("linux.rs");
-        const CEILING: usize = 34;
+        const CEILING: usize = 33;
         let body = present_body(SRC);
         // Each `self.` name read, not a longer name it begins.
         let planning_reads = |code: &str| {

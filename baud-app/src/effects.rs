@@ -537,6 +537,7 @@ impl TrailCursor {
 /// drew nothing on `gg` or `ge`. A hidden cursor no program placed is not
 /// followed: the trail keeps where it last was, and one drawing fades out
 /// there (`trail.rs`).
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn trail_cursor(term: &Term<'_>) -> Option<TrailCursor> {
     if term.window_back().index() != 0 {
         return None;

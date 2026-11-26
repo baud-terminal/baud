@@ -505,15 +505,31 @@ impl Timed {
         Some(form)
     }
 
-    /// **The next frame's effects at `now`**, the macOS frame's order: the
-    /// thumb as the reveal shows it, the trail spawned where the cursor now
-    /// is and advanced, the fade, the blink phases. `rect` is the
-    /// renderer's cursor rectangle for a cell and a style; `scroll` the
-    /// thumb's frame.
+    /// [`Timed::plan_following`] with the trail following the screen's
+    /// cursor.
+    #[cfg(test)]
     pub(crate) fn plan(
         &mut self,
         now: Instant,
         term: &Term<'_>,
+        rect: impl Fn(Row, Col, CursorStyle) -> Rect,
+        cell: Cell,
+        widths: baud_render::Widths,
+    ) -> Plan {
+        let followed = crate::effects::trail_cursor(term);
+        self.plan_following(now, term, followed, rect, cell, widths)
+    }
+
+    /// **The next frame's effects at `now`**, the macOS frame's order: the
+    /// thumb as the reveal shows it, the trail spawned where the frame's
+    /// planned cursor (`followed`) now is and advanced, the fade, the blink phases. `rect` is the
+    /// renderer's cursor rectangle for a cell and a style; `scroll` the
+    /// thumb's frame.
+    pub(crate) fn plan_following(
+        &mut self,
+        now: Instant,
+        term: &Term<'_>,
+        followed: Option<crate::effects::TrailCursor>,
         rect: impl Fn(Row, Col, CursorStyle) -> Rect,
         cell: Cell,
         widths: baud_render::Widths,
@@ -550,7 +566,6 @@ impl Timed {
                 )
             });
         }
-        let followed = crate::effects::trail_cursor(term);
         let cursor_cell = followed.map(crate::effects::TrailCursor::cell);
         // A cursor the program's scroll took with its line: what the trail
         // holds of the text moves with it, and only the rest of the move
