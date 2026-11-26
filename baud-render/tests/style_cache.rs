@@ -372,7 +372,7 @@ fn the_app_syncs_and_never_resolves_the_whole_table() {
     };
     let (app, frame) = (read("../baud-app/src/app.rs"), read("src/cell_frame.rs"));
     assert!(
-        app.contains("baud_render::cell_frame::build("),
+        app.contains("baud_render::cell_frame::build_with("),
         "the app builds its cell frame through the one that syncs"
     );
     assert!(frame.contains("sync_styles("), "the app does not sync");

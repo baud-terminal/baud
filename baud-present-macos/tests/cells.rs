@@ -542,9 +542,10 @@ impl Arms<'_, '_> {
                 &mut self.renderer,
             );
         }
-        self.map.ensure(
+        self.map.ensure_with(
             t,
             view,
+            &baud_domain::FrameDamage::Whole(baud_domain::WholeWhy::Requested),
             self.styles_mem,
             &mut self.renderer,
             &mut self.candidates,
@@ -2631,9 +2632,10 @@ fn a_slide_draws_none_of_the_shells_ink_under_the_logo() {
     // over the window one line up.
     arms.renderer
         .sync_styles(&t, arms.styles_mem, &mut arms.stamp);
-    arms.map.ensure(
+    arms.map.ensure_with(
         &t,
         t.view(Rows::of_count(1)),
+        &baud_domain::FrameDamage::Whole(baud_domain::WholeWhy::Requested),
         arms.styles_mem,
         &mut arms.renderer,
         &mut arms.candidates,
@@ -4776,9 +4778,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     let cell_h = arms.renderer.metrics().cell_h;
     arms.renderer
         .sync_styles(&t, arms.styles_mem, &mut arms.stamp);
-    arms.map.ensure(
+    arms.map.ensure_with(
         &t,
         t.view(Rows::of_count(1)),
+        &baud_domain::FrameDamage::Whole(baud_domain::WholeWhy::Requested),
         arms.styles_mem,
         &mut arms.renderer,
         &mut arms.candidates,
@@ -4842,9 +4845,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         }
         arms.renderer
             .sync_styles(t, arms.styles_mem, &mut arms.stamp);
-        arms.map.ensure(
+        arms.map.ensure_with(
             t,
             t.view(Rows::of_count(1)),
+            &baud_domain::FrameDamage::Whole(baud_domain::WholeWhy::Requested),
             arms.styles_mem,
             &mut arms.renderer,
             &mut arms.candidates,
@@ -4890,9 +4894,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     }
     arms.renderer
         .sync_styles(&t, arms.styles_mem, &mut arms.stamp);
-    arms.map.ensure(
+    arms.map.ensure_with(
         &t,
         t.view(Rows::of_count(1)),
+        &baud_domain::FrameDamage::Whole(baud_domain::WholeWhy::Requested),
         arms.styles_mem,
         &mut arms.renderer,
         &mut arms.candidates,
@@ -5034,9 +5039,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     feed(&mut t, b"\x1b[6;1Harrow a -> b here");
     arms.renderer
         .sync_styles(&t, arms.styles_mem, &mut arms.stamp);
-    arms.map.ensure(
+    arms.map.ensure_with(
         &t,
         t.view(Rows::of_count(1)),
+        &baud_domain::FrameDamage::Whole(baud_domain::WholeWhy::Requested),
         arms.styles_mem,
         &mut arms.renderer,
         &mut arms.candidates,
@@ -5369,9 +5375,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     let slid_is_one_up = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
         arms.renderer
             .sync_styles(t, arms.styles_mem, &mut arms.stamp);
-        arms.map.ensure(
+        arms.map.ensure_with(
             t,
             t.view(Rows::of_count(1)),
+            &baud_domain::FrameDamage::Whole(baud_domain::WholeWhy::Requested),
             arms.styles_mem,
             &mut arms.renderer,
             &mut arms.candidates,
@@ -8690,9 +8697,10 @@ fn lights_line_slide_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     let cell_h = arms.renderer.metrics().cell_h;
     arms.renderer
         .sync_styles(t, arms.styles_mem, &mut arms.stamp);
-    arms.map.ensure(
+    arms.map.ensure_with(
         t,
         t.view(Rows::of_count(1)),
+        &baud_domain::FrameDamage::Whole(baud_domain::WholeWhy::Requested),
         arms.styles_mem,
         &mut arms.renderer,
         &mut arms.candidates,
@@ -11170,9 +11178,10 @@ fn kitty_placeholder_leaving_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         // Sliding: the cell arms the frame before, down by the pan left.
         arms.renderer
             .sync_styles(t, arms.styles_mem, &mut arms.stamp);
-        arms.map.ensure(
+        arms.map.ensure_with(
             t,
             t.view(Rows::of_count(1)),
+            &baud_domain::FrameDamage::Whole(baud_domain::WholeWhy::Requested),
             arms.styles_mem,
             &mut arms.renderer,
             &mut arms.candidates,
@@ -15974,7 +15983,7 @@ fn no_cursor_covers_an_address_on_any_arm() {
     let app = concat!(include_str!("../../baud-app/src/app.rs"));
     let frame = include_str!("../../baud-render/src/cell_frame.rs");
     assert!(
-        app.contains("baud_render::cell_frame::build(")
+        app.contains("baud_render::cell_frame::build_with(")
             && frame.contains(concat!("renderer.clear_of_", "messages(term, cursor_at)")),
         "the app's cell path takes its cursor through the rule this harness copies"
     );

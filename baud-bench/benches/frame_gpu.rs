@@ -890,7 +890,7 @@ fn main() {
                     // The struck cells lent their grey, and the frame the
                     // last's only under the same lending, as the app has it.
                     // The struck cells are the renderer's kept ones, taken
-                    // and put back as `cell_frame::build` takes them; the
+                    // and put back as `cell_frame::build_with` takes them; the
                     // copy's rows are still collected into a `Vec` each frame
                     // and lent through `Renderer::lend`, not in place as
                     // `build` lends them, so this arm's lend time carries

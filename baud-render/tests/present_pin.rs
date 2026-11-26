@@ -27,7 +27,7 @@ const METHOD: &str = "\n    }\n";
 
 /// What the frame is built with in `present`: the calls before it are the
 /// ones a driver must make.
-const BUILD: &str = "cell_frame::build(";
+const BUILD: &str = "cell_frame::build_with(";
 
 /// The code of `name`'s body in `src`, its comment lines dropped and its
 /// whitespace removed: from its signature to the first `close` after it,

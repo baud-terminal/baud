@@ -278,10 +278,11 @@ struct CellMemory {
     /// stops the terminal reading its child for the whole of the GPU's
     /// round trip, every frame.
     ///
-    /// So the frame gets its own copy of the *screen* -- not the ring, and
-    /// not the scrollback behind it -- laid out flat in screen order, which
-    /// is why the shader reads it at [`RowRot::NONE`] with a ring of
-    /// `rows`. It is 80,000 bytes at 200x50 and about 3 us of CPU, against
+    /// So the frame gets its own copy of the *screen* -- not the core's
+    /// ring, and not the scrollback behind it -- held as a ring of its own:
+    /// draw row `d` at slot `(rot + d) % ring` of the copy, so a window that
+    /// moved keeps the rows it still shows where they are and the shader
+    /// reads the copy under the frame's rotation. It is 80,000 bytes at 200x50 and about 3 us of CPU, against
     /// an 8,333 us frame at 120 Hz, and the shader reads the copy in the
     /// same GPU time as the live grid under load (`frame_gpu`).
     /// The record of which screen each set holds and the copy itself are
@@ -341,6 +342,8 @@ struct CellBuilt {
     cols: Cols,
     rows: Rows,
     used: Vec<baud_domain::RowExtent>,
+    /// The slot of the set's copy draw row 0 is at.
+    rot: RowRot,
     walked: Tally,
     moving: (usize, usize),
     stride: baud_domain::Stride,
@@ -1516,7 +1519,7 @@ impl App {
                         lent_used: Vec::new(),
                         styles,
                         styles_mem,
-                        screens: Screens::new(),
+                        screens: Screens::ringed(),
                         last: None,
                         maps: Maps {
                             buffers: [first_map, second_map],
@@ -2389,15 +2392,24 @@ impl App {
                         None => baud_render::Leaving::None,
                     };
                     let overlay = self.renderer.overlay_rows(&*self.term, b.at, leaving);
-                    let view = overlay.view(
-                        &*self.term,
-                        (
-                            &cell.copies_mem[set][..n.min(cell.copies_mem[set].len())],
-                            &b.used,
-                        ),
-                        b.stride,
-                        (b.cols, b.rows),
-                    );
+                    // The copy's rows in screen order, as the view reads them.
+                    let copy = &cell.copies_mem[set][..];
+                    let unrolled: Vec<PackedCell>;
+                    let cells = match b.rot == RowRot::NONE {
+                        true => &copy[..n.min(copy.len())],
+                        false => {
+                            let (stride, ring) = (b.stride.index(), b.ring.index().max(1));
+                            unrolled = (0..b.rows.index())
+                                .flat_map(|d| {
+                                    let at = (b.rot.index() + d) % ring * stride;
+                                    copy.get(at..at + stride).unwrap_or(&[]).iter().copied()
+                                })
+                                .collect();
+                            &unrolled[..]
+                        }
+                    };
+                    let view =
+                        overlay.view(&*self.term, (cells, &b.used), b.stride, (b.cols, b.rows));
                     self.renderer.set_trail(None);
                     self.renderer.set_cursor_glow_at(None);
                     self.renderer.place_grounds(None, None);
@@ -2432,7 +2444,7 @@ impl App {
                         styles: &cell.styles[set],
                         map: cell.maps.buffer(),
                         stride: b.stride,
-                        rotation: RowRot::NONE,
+                        rotation: b.rot,
                         ring: b.ring,
                         cursor: None,
                         cursor_drawn: cell.exceptions.cursor_drawn(),
@@ -3038,11 +3050,13 @@ impl App {
                     .as_mut()
                     .map(|b| std::mem::take(&mut b.used))
                     .unwrap_or_default();
+                let damage = self.renderer.damage(&*self.term, inputs.back);
                 let presenter = &self.presenter;
-                let built = baud_render::cell_frame::build(
+                let built = baud_render::cell_frame::build_with(
                     &mut self.renderer,
                     &*self.term,
                     seal,
+                    &damage,
                     &inputs,
                     &mut baud_render::cell_frame::CellParts {
                         map: &mut cell.maps.live,
@@ -3091,6 +3105,7 @@ impl App {
                     cols: frame.cols,
                     rows: frame.rows,
                     used,
+                    rot: frame.rot,
                     walked: frame.walked,
                     moving: frame.moving,
                     stride: self.term.stride(),
@@ -3105,16 +3120,15 @@ impl App {
                     screen: cell.screens.now(),
                 });
                 let input = CellInput {
-                    // The copy, not the core's grid: flat, in screen order,
-                    // so the shader's rotation is the identity and its ring
-                    // is the screen. Nothing here depends on which surface
+                    // The copy, not the core's grid: a ring of its own, read
+                    // under the frame's rotation. Nothing here depends on which surface
                     // is up or how far back the window is -- the view
                     // resolved both when it was copied.
                     grid: &cell.copies[set],
                     styles: &cell.styles[set],
                     map: cell.maps.buffer(),
                     stride: self.term.stride(),
-                    rotation: RowRot::NONE,
+                    rotation: frame.rot,
                     // One more row when sliding: the appended leaving row.
                     ring: frame.ring,
                     cursor,
@@ -8856,7 +8870,7 @@ mod drag_tests {
         for built in [
             "self.renderer.set_blink(",
             "Presenter::building",
-            "cell_frame::build(",
+            "cell_frame::build_with(",
             ".convert(&*self.term",
             ".render_at(",
         ] {

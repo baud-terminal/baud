@@ -1,6 +1,6 @@
 //! **What a frame costs when only the cursor's blink moved**, counted
 //! headless on both paths the app draws with: the CPU path's `render_at`,
-//! and the cell path's frame -- `baud_render::cell_frame::build`, which
+//! and the cell path's frame -- `baud_render::cell_frame::build_with`, which
 //! `App::present`'s cell arm builds it with, the copy of the screen it
 //! draws from included, built and never handed to a GPU. A 200x50 screen with every row full:
 //! Hebrew and Arabic runs, ligature pairs, combining marks, a DECDWL row and
@@ -238,7 +238,7 @@ mod checks {
     use baud_font::{Face, Px};
     use baud_present_macos::journal::{SetIx, Wheel};
     use baud_present_macos::screens::{Built, Screens};
-    use baud_render::cell_frame::{CellInputs, CellParts, build};
+    use baud_render::cell_frame::{CellInputs, CellParts, build_with};
     use baud_render::counters::{self, Counter, Counts, Site};
     use baud_render::{
         Blend, Blink, BlinkPhases, Candidate, CursorPhase, Damage, GlyphMap, HoverPaint, Instance,
@@ -781,7 +781,7 @@ mod checks {
             Cells {
                 map: GlyphMap::over(backing),
                 exceptions: Overlay::new(),
-                screens: Screens::new(),
+                screens: Screens::ringed(),
                 copies_mem: core::array::from_fn(|_| vec![PackedCell::EMPTY; (rows + 2) * stride]),
                 styles_mem: core::array::from_fn(|_| {
                     vec![Resolved::default(); t.styles().one().len()]
@@ -802,7 +802,7 @@ mod checks {
     /// **The cell path's frame as `App::present` builds it**, into `set`:
     /// the inputs `present` sets on the renderer first, then the frame
     /// itself through the function `present` builds it with
-    /// (`baud_render::cell_frame::build`). No composition, no prediction,
+    /// (`baud_render::cell_frame::build_with`). No composition, no prediction,
     /// no slide and no notice. Every call here is one `present` makes, in
     /// its order (`the_cell_driver_builds_as_present_builds`), and the
     /// frame's writes are sealed first (`Term::seal_writes`).
@@ -844,10 +844,12 @@ mod checks {
         let mut copies = cell.copies_mem.each_mut().map(|c| &mut c[..]);
         let mut styles = cell.styles_mem.each_mut().map(|c| &mut c[..]);
         let mut overlay = cell.overlay_mem.each_mut().map(|c| &mut c[..]);
-        let frame = build(
+        let damage = r.damage(t, back);
+        let frame = build_with(
             r,
             t,
             seal,
+            &damage,
             &frame_inputs,
             &mut CellParts {
                 map: &mut cell.map,
@@ -2947,7 +2949,7 @@ mod checks {
     /// **Every driver seals once a frame, before it builds** (FS-C5): the
     /// cell path's build takes the seal as an argument and seals nothing
     /// itself, so `App::present` seals once, after the link scan (which
-    /// keeps the seal it read under) and before `cell_frame::build`, and
+    /// keeps the seal it read under) and before `cell_frame::build_with`, and
     /// hands that seal in; the cell driver here does the same; and
     /// `Renderer::render_at`, which every CPU driver goes through, takes
     /// the seal as the build does and seals nothing itself. A present that
@@ -2986,7 +2988,7 @@ mod checks {
         );
         assert!(
             at(&present, "self.scan_lines()") < at(&present, "seal_writes()")
-                && at(&present, "seal_writes()") < at(&present, "cell_frame::build("),
+                && at(&present, "seal_writes()") < at(&present, "cell_frame::build_with("),
             "present seals after the link scan and before the build"
         );
         assert!(
@@ -3006,7 +3008,7 @@ mod checks {
             "the driver seals once a frame"
         );
         assert!(
-            at(&driver, "letseal=t.seal_writes();") < at(&driver, "=build("),
+            at(&driver, "letseal=t.seal_writes();") < at(&driver, "=build_with("),
             "the driver seals before it builds"
         );
         for ask in ["r.set_images(", "r.place_marks("] {
@@ -3067,12 +3069,11 @@ mod checks {
     }
 
     /// **The cell driver builds the frame as `App::present` does**: both
-    /// call `baud_render::cell_frame::build` once, every call the driver
+    /// call `baud_render::cell_frame::build_with` once, every call the driver
     /// makes before it into the renderer is one `present` makes, in
-    /// `present`'s order, and so is every call `cpu_frame` makes. And
-    /// `present` makes none of the calls `build` makes itself, its read of
-    /// the frame's damage and the calls of the `build_with` it hands the
-    /// damage to -- but the
+    /// `present`'s order, and so is every call `cpu_frame` makes. Both read
+    /// the frame's damage themselves and hand it in, `present` once; and
+    /// `present` makes none of the calls `build_with` makes itself -- but the
     /// map's generation, which the GPU's input names the map by -- so no
     /// part of the frame is built twice or built where the driver does not
     /// reach it; `draw_kept` makes the four calls it makes to redraw a kept
@@ -3118,35 +3119,38 @@ mod checks {
                 }
             }
         }
-        let built = |flat: &str| flat.matches("cell_frame::build(").count();
+        let built = |flat: &str| flat.matches("cell_frame::build_with(").count();
         assert_eq!(built(&present), 1, "present builds the frame once");
         let driver = body_of(here, "fn cell_frame(", METHOD);
         assert_eq!(
-            driver.matches("=build(").count(),
+            driver.matches("=build_with(").count(),
             1,
             "and the driver once: {driver}"
         );
-        // `build` reads the frame's damage and hands it to `build_with`,
-        // which builds the frame, so build's calls are both bodies' calls.
+        assert_eq!(
+            theirs
+                .iter()
+                .filter(|c| c.as_str() == "self.renderer.damage")
+                .count(),
+            1,
+            "present reads the frame's damage once: {theirs:?}"
+        );
+        // `build_with` builds the frame from the damage handed in, so its
+        // calls are the ones present must not make.
         let library = read("baud-render/src/cell_frame.rs");
-        let moved: std::collections::BTreeSet<String> =
-            ["pub fn build<P>(", "pub fn build_with<P>("]
-                .into_iter()
-                .flat_map(|name| {
-                    calls(
-                        &body_of(&library, name, "\n}\n"),
-                        &[
-                            ("renderer.bidi().", "self.renderer.bidi()."),
-                            ("renderer.", "self.renderer."),
-                            ("cell.map.", "cell.maps.live."),
-                            ("cell.exceptions.", "cell.exceptions."),
-                            ("screens.", "screens."),
-                        ],
-                    )
-                })
-                .collect();
+        let moved: std::collections::BTreeSet<String> = calls(
+            &body_of(&library, "pub fn build_with<P>(", "\n}\n"),
+            &[
+                ("renderer.bidi().", "self.renderer.bidi()."),
+                ("renderer.", "self.renderer."),
+                ("cell.map.", "cell.maps.live."),
+                ("cell.exceptions.", "cell.exceptions."),
+                ("screens.", "screens."),
+            ],
+        )
+        .into_iter()
+        .collect();
         for control in [
-            "self.renderer.damage",
             "screens.take_below",
             "cell.maps.live.ensure_with",
             "cell.exceptions.ensure_framed",
@@ -3164,7 +3168,7 @@ mod checks {
         assert_eq!(
             made(&present),
             ["cell.maps.live.generation"].map(String::from).into(),
-            "present makes none of build's calls"
+            "present makes none of build_with's calls"
         );
         assert_eq!(
             made(&body_of(
