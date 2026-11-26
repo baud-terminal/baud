@@ -655,9 +655,8 @@ impl CellFlags {
     ///
     /// `[[source: vt100-ug-ch3]]` Table 3-9 names the set's 32 positions,
     /// `0x5F..0x7E`, in text. None of the DEC texts read gives a codepoint, so
-    /// the 31 the table has are `[[source: foot-vt100-0]]`'s, and `0x5F`
-    /// "Blank" stays `_`: an open departure, U+0020 or U+00A0 still to be
-    /// chosen.
+    /// `0x60..0x7E` are `[[source: foot-vt100-0]]`'s 31, and `0x5F` "Blank"
+    /// is U+0020 SPACE.
     pub const GRAPHICS: CellFlags = CellFlags(2);
     pub fn is_graphics(self) -> bool {
         self.0 & CellFlags::GRAPHICS.0 != 0
@@ -1065,16 +1064,14 @@ impl PackedCell {
     /// storing the result would lose the character -- selection and copy would
     /// hand back `q` where the screen shows `─`. Both, and neither is lost.
     ///
-    /// Bytes outside `` ` ``..`~` are unchanged, and at `0x5F` that is a
-    /// departure. DEC's set replaces 32 positions, `0x5F..0x7E`, and leaves
-    /// the rest ASCII (`[[source: vt100-ug-ch3]]`: "the graphics for ASCII
-    /// codes 137 through 176 will be replaced", octal). The table holds
-    /// `[[source: foot-vt100-0]]`'s 31, so `_` stays `_` where DEC draws
-    /// "Blank". Whether Blank stores U+0020 or U+00A0 is open, and the base
-    /// here moves to `0x5F` with the answer.
+    /// DEC's set replaces 32 positions, `0x5F..0x7E`, and leaves the rest
+    /// ASCII (`[[source: vt100-ug-ch3]]`: "the graphics for ASCII codes 137
+    /// through 176 will be replaced", octal), so bytes outside `_`..`~` are
+    /// unchanged. `0x5F`, "Blank", stores U+0020 SPACE: it shows as an erased
+    /// cell and copies as a space.
     pub fn with_dec_graphics(self, b: StreamByte) -> PackedCell {
         let v = b.raw_byte();
-        let cp = match v.checked_sub(0x60) {
+        let cp = match v.checked_sub(crate::DEC_GRAPHICS_FIRST) {
             Some(i) if (i as usize) < crate::DEC_GRAPHICS.len() => {
                 Codepoint::decoded(crate::DEC_GRAPHICS[i as usize])
             }

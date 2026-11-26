@@ -2060,7 +2060,7 @@ fn each_check_the_dec_builds_make_fires() {
             "XXX(0x5F, UNDEF) \\\n\t    UNI(0x60, 0x25c6)",
             "UNI(0x5F, 0x0020) \\\n\t    UNI(0x60, 0x25c6)",
             Kind::Control,
-            "Graphics 0x5F: XTERM_DEPARTS records U+2426, xterm U+0020",
+            "Graphics 0x5F: CONFORM gives U+0020, DEC's text U+0020, xterm U+0020",
         ),
         // The national macros: a line that is no entry, an entry it cannot
         // read, a keysym with no `#define`, past Latin-1, a comment that

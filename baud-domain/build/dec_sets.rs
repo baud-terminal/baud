@@ -194,31 +194,20 @@ pub const CHARTED: [Charted; 3] = [
 ];
 
 /// The positions open until their question is answered.
-pub const OPEN: [Open; 2] = [
-    Open {
-        set: Set::Graphics,
-        byte: 0x5F,
-        why: &[
-            "DEC names it \"Blank\" (`[[source: vt100-ug-ch3]]` Table 3-9) and",
-            "gives no codepoint, and xterm's macro leaves it `UNDEF`; U+0020 or",
-            "U+00A0 is still to be chosen",
-        ],
-    },
-    Open {
-        set: Set::JisRoman,
-        byte: 0x7E,
-        why: &[
-            "Q-JIS-Roman (note AF): `[[source: vt382-rm]]` §2.4.5 names it the",
-            "\"over line\" and `[[source: dec-pplv2-pm]]` Table A-2 \"Macron\";",
-            "U+203E or U+00AF",
-        ],
-    },
-];
+pub const OPEN: [Open; 1] = [Open {
+    set: Set::JisRoman,
+    byte: 0x7E,
+    why: &[
+        "Q-JIS-Roman (note AF): `[[source: vt382-rm]]` §2.4.5 names it the",
+        "\"over line\" and `[[source: dec-pplv2-pm]]` Table A-2 \"Macron\";",
+        "U+203E or U+00AF",
+    ],
+}];
 
 /// The cells taken from xterm's macro where the macro departs from DEC's
 /// text. `named_exactly` fails unless these and [`XTERM_DEPARTS`] are
 /// exactly the cells where the macro and DEC's text differ.
-pub const CONFORM: [Conform; 4] = [
+pub const CONFORM: [Conform; 5] = [
     Conform {
         set: Set::Supplemental,
         byte: 0x5F,
@@ -256,16 +245,22 @@ pub const CONFORM: [Conform; 4] = [
             "Figure A-22 has º, as DEC Supplemental does, so the table has º",
         ],
     },
-];
-
-/// Where xterm's macro differs from a table built from DEC's text.
-pub const XTERM_DEPARTS: [Departs; 3] = [
-    Departs {
+    Conform {
         set: Set::Graphics,
         byte: 0x5F,
-        xterm: ERROR,
-        why: &["xterm's `XXX(0x5F, UNDEF)` draws the error character; 5/15 is open"],
+        dec: 0x0020,
+        why: &[
+            "the macro leaves it `UNDEF`; DEC names it \"Blank\"",
+            "(`[[source: vt100-ug-ch3]]` Table 3-9) and gives no codepoint, and",
+            "`[[source: dec-std-070]]` §3.4.1 gives SPACE \"the visual",
+            "representation of the absence of a graphic symbol\", so the table",
+            "has U+0020: a drawn Blank shows as an erased cell and copies as a space",
+        ],
     },
+];
+
+/// Where the macro differs from a table built from DEC's text.
+pub const XTERM_DEPARTS: [Departs; 2] = [
     Departs {
         set: Set::JisKatakana,
         byte: 0x7E,

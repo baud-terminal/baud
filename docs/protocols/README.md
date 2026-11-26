@@ -62,7 +62,6 @@ Each is a decision with a cost, not an oversight:
 
 Each row of [../vt-coverage.md](../vt-coverage.md) gives what baud does for
 its operation and why, and the open departures from the standards are listed
-at its end. The DEC line-drawing glyph table translates `0x60..0x7E` and
-keeps `CellFlags::GRAPHICS` on the cell. Its row is **partial**: DEC's set
-also replaces `0x5F`, and baud leaves it as `_`, an open departure whose
-codepoint is open.
+at its end. The DEC line-drawing glyph table translates the set's 32
+positions, `0x5F..0x7E`, `0x5F` "Blank" to U+0020 SPACE, and keeps
+`CellFlags::GRAPHICS` on the cell.

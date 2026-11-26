@@ -277,12 +277,13 @@ fn the_sets_baud_does_not_translate_have_no_table() {
     }
 }
 
-/// **DEC Special Graphics is xterm's 31 choices, and foot's**: the table
-/// the build compiles from `[[source: xterm-charsets]]`' macro is, codepoint
-/// for codepoint, `[[source: foot-vt100-0]]`'s `vt100_0[]`, read here from
-/// foot's source, `` ` `` through `~`. Two implementations' judgement of
-/// what DEC's named glyphs are (`[[source: vt100-ug-ch3]]` Table 3-9 gives
-/// no codepoint), and a change to either is red here.
+/// **DEC Special Graphics is two sources' 31 choices**: past Blank
+/// at `0x5F`, which is U+0020 SPACE, the table the build compiles from
+/// `[[source: xterm-charsets]]`' macro is, codepoint for codepoint,
+/// `[[source: foot-vt100-0]]`'s `vt100_0[]`, read here from that source,
+/// `` ` `` through `~`. Two implementations' judgement of what DEC's named
+/// glyphs are (`[[source: vt100-ug-ch3]]` Table 3-9 gives no codepoint), and
+/// a change to either is red here.
 ///
 /// Positive controls: foot's table is found and holds 31 characters, its
 /// first the black diamond and its last the middle dot.
@@ -299,5 +300,6 @@ fn dec_graphics_is_xterms_and_foots() {
         .collect();
     assert_eq!(foot.len(), 31, "foot's vt100_0[] holds 31");
     assert_eq!((foot[0], foot[30]), (0x25c6, 0x00b7));
-    assert_eq!(DEC_GRAPHICS.as_slice(), foot.as_slice());
+    assert_eq!(DEC_GRAPHICS[0], 0x0020, "0x5F, Blank, is a space");
+    assert_eq!(&DEC_GRAPHICS[1..], foot.as_slice());
 }

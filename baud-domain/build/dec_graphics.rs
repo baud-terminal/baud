@@ -8,9 +8,8 @@
 //! is cited as xterm's, because that is whose judgement it is; foot's
 //! `vt100_0[]` (`[[source: foot-vt100-0]]`) makes the same 31 choices,
 //! which a test holds it to. The macro leaves `0x5F`, which DEC names
-//! "Blank", `UNDEF`; which codepoint that stores is open (`OPEN` in
-//! `build/dec_sets.rs`), so the table is 31 entries and baud leaves `0x5F`
-//! as `_`.
+//! "Blank", `UNDEF`; the table stores U+0020 SPACE there (`CONFORM` in
+//! `build/dec_sets.rs`), so it is 32 entries, `0x5F..0x7E`.
 //!
 //! A pure function of its inputs: `main` reads them and writes what
 //! [`build`] returns.
@@ -20,9 +19,9 @@ use crate::xterm::{self, Digits};
 use baud_tablegen::{Check, Emit, Errors, Kind};
 use std::fmt::Write as _;
 
-/// The bytes the table covers, `` ` `` through `~`.
-pub const FIRST: u8 = 0x60;
-pub const COUNT: usize = 31;
+/// The bytes the table covers, `_` through `~`.
+pub const FIRST: u8 = 0x5F;
+pub const COUNT: usize = 32;
 
 pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Errors> {
     let mut errs = Errors::default();
@@ -32,9 +31,16 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
         return Err(errs);
     }
     let xterm = dec_sets::cells(&page);
-    // Every position the table holds is one the macro gives a codepoint.
+    // Every position the table holds is one the macro gives a codepoint,
+    // or one `CONFORM` gives DEC's.
     let table: Vec<u32> = (FIRST..=0x7E)
         .map(|b| {
+            if let Some(c) = CONFORM
+                .iter()
+                .find(|c| c.set == Set::Graphics && c.byte == b)
+            {
+                return c.dec;
+            }
             let cp = page.entries.get(&b).copied();
             errs.require(Check::from(cp.is_some_and(|cp| cp != ERROR)), || {
                 charsets.error(
@@ -51,7 +57,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
         table.len(),
         COUNT,
     );
-    // Below `` ` `` the table draws the byte: ASCII, and 5/15 open.
+    // Below `_` the table draws the byte: ASCII.
     let ours: [u32; 94] = std::array::from_fn(|i| {
         let b = u8::try_from(0x21 + i).expect("a byte");
         if b >= FIRST {
@@ -73,7 +79,7 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
     );
     let mut rs = String::from(
         "/// `[[source: xterm-charsets]]`' `map_DEC_Spec_Graphic`, indexed by\n\
-         /// `byte - 0x60`.\n",
+         /// `byte - DEC_GRAPHICS_FIRST`.\n",
     );
     dec_sets::named_docs(&mut rs, Set::Graphics);
     let _ = writeln!(rs, "pub static DEC_GRAPHICS: [u32; {COUNT}] = [");
@@ -82,6 +88,10 @@ pub fn build(read: &dyn Fn(&str) -> std::io::Result<String>) -> Result<Emit, Err
         let _ = writeln!(rs, "    0x{cp:04x}, // {b}");
     }
     rs.push_str("];\n");
+    let _ = writeln!(
+        rs,
+        "\n/// The first byte [`DEC_GRAPHICS`] translates, `_`.\npub const DEC_GRAPHICS_FIRST: u8 = 0x{FIRST:02x};"
+    );
     out.code(&rs);
     Ok(out)
 }

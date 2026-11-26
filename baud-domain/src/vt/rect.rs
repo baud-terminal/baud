@@ -617,8 +617,9 @@ impl Checksum {
 /// DEC Special Graphics backwards, codepoint to byte, for the checksum of a
 /// cell written under that set: a table built from [`DEC_GRAPHICS`] at
 /// compile time and keyed on the codepoint modulo 127, the smallest modulus
-/// that gives each of the 31 codepoints a slot of its own (the build fails if
-/// two ever share one).
+/// that gives each of the 31 glyph codepoints a slot of its own (the build
+/// fails if two ever share one). Blank, U+0020, is left out: a space written
+/// under the set stores the same cell, so both count `0x20`.
 static DEC_GRAPHICS_BYTE: [(u32, u8); 127] = dec_graphics_reversed();
 
 const fn dec_graphics_reversed() -> [(u32, u8); 127] {
@@ -626,12 +627,14 @@ const fn dec_graphics_reversed() -> [(u32, u8); 127] {
     let mut i = 0;
     while i < DEC_GRAPHICS.len() {
         let cp = DEC_GRAPHICS[i];
-        let k = (cp % 127) as usize;
-        assert!(
-            t[k].0 == 0,
-            "two DEC Special Graphics codepoints share a slot"
-        );
-        t[k] = (cp, 0x60 + i as u8);
+        if cp != 0x20 {
+            let k = (cp % 127) as usize;
+            assert!(
+                t[k].0 == 0,
+                "two DEC Special Graphics codepoints share a slot"
+            );
+            t[k] = (cp, DEC_GRAPHICS_FIRST + i as u8);
+        }
         i += 1;
     }
     t
@@ -953,13 +956,18 @@ fn dec_graphics_byte(cp: Codepoint) -> Option<u8> {
 mod tests {
     use super::*;
 
-    /// The reversed table names every byte the forward one translates, and
-    /// nothing else.
+    /// The reversed table names every byte the forward one translates to a
+    /// glyph, and nothing else: Blank, U+0020, counts as the space it stores.
     #[test]
     fn dec_graphics_reverses_to_the_byte_it_came_from() {
-        for (i, &cp) in DEC_GRAPHICS.iter().enumerate() {
-            assert_eq!(dec_graphics_byte(Codepoint(cp)), Some(0x60 + i as u8));
+        for (i, &cp) in DEC_GRAPHICS.iter().enumerate().skip(1) {
+            assert_eq!(
+                dec_graphics_byte(Codepoint(cp)),
+                Some(DEC_GRAPHICS_FIRST + i as u8)
+            );
         }
+        assert_eq!(DEC_GRAPHICS[0], 0x20, "0x5F is Blank");
+        assert_eq!(dec_graphics_byte(Codepoint(0x20)), None);
         assert_eq!(dec_graphics_byte(Codepoint(u32::from(b'A'))), None);
         assert_eq!(dec_graphics_byte(Codepoint(0)), None);
     }

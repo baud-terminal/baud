@@ -5034,6 +5034,7 @@ const UNREACHED: &[&str] = &[
     "`DCS Pc $ w ... ST`",
     "`ESC ( \" 4` `\" ?`",
     "`ESC ( % 6` `\" >` `% 2` `% =`",
+    "`ESC ( 0` / `ESC F` (VT52)",
     "`ESC ( <` / `ESC ( % 5`",
     "`ESC ( A`",
     "`ESC ( C 5 H 7 K Q 9 R f Y Z 4 = ` E 6`",

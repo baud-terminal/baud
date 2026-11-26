@@ -130,6 +130,27 @@ fn graphics_mode_marks_cells() {
     assert!(!h[0].flags.is_graphics(), "ESC G clears it");
 }
 
+/// **`ESC F` draws `0x5F` as Blank, U+0020 SPACE**, alone and in a run.
+/// `[[source: vt102-ug-ch5]]` Table 5-15 compares the line-drawing set with
+/// VT52 graphics mode, and its first row is `137 | _ | Blank | Blank`;
+/// `[[source: dec-std-070]]` Appendix A, Table 2, has `5/15 | Blank | blank`.
+#[test]
+fn graphics_mode_draws_0x5f_as_blank() {
+    let (one, _, _, _) = run(b"\x1b[?2l\x1bF_");
+    let (bulk, _, _, _) = run(b"\x1b[?2l\x1bF________");
+    for (c, at) in [(one[0], "alone")]
+        .into_iter()
+        .chain(bulk[..8].iter().map(|c| (*c, "in a run")))
+    {
+        assert_eq!(
+            c.content.as_codepoint().map(|c| c.value()),
+            Some(0x20),
+            "{at}"
+        );
+        assert!(c.flags.is_graphics(), "{at}: the cell keeps the mark");
+    }
+}
+
 /// `ESC Z` identifies. `[[source: vt510-decanm]]`: "ESC /Z Report (terminal to
 /// host)." Not a CSI and not a DCS — a third reply shape.
 #[test]

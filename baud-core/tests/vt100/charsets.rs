@@ -17,11 +17,9 @@
 //! table was "deliberately not implemented" and that the cell keeps the byte,
 //! after both stopped being true.
 //!
-//! **It is one entry short.** DEC replaces "ASCII codes 137 through 176"
-//! (octal), `0x5F..0x7E`, `0x5F` being "Blank"; xterm leaves it `UNDEF`, and
-//! foot's table and baud's start at `0x60`. Which codepoint Blank stores is an
-//! open question, so nothing here asserts what `0x5F` becomes, and nothing
-//! asserts that it stays `_` either.
+//! **It covers the whole set.** DEC replaces "ASCII codes 137 through 176"
+//! (octal), `0x5F..0x7E`, `0x5F` being "Blank", which baud stores as U+0020
+//! SPACE (`dec_graphics_blank_is_a_space_on_both_paths`).
 
 use crate::support;
 use baud_core::*;
@@ -470,21 +468,15 @@ fn single_byte_finals_survive_the_two_intermediate_path() {
     assert_eq!(charset(b"\x1b(K"), Charset::National(Nrcs::German));
 }
 
-/// **The line-drawing table covers `0x60..0x7E`, and the set is one wider.**
+/// **The line-drawing table covers the whole set, `0x5F..0x7E`.**
 ///
-/// This said the set "differs from ASCII only in `0x60..0x7E`, so 31 entries is
-/// the complete mapping rather than a useful subset", and it asserted that `_` is
-/// untouched. `[[source: vt100-ug-ch3]]` replaces "ASCII codes 137 through 176"
-/// (octal), `0x5F..0x7E`, the first of them "Blank", and so do
-/// `[[source: vt102-ug-ch5]]` Table 5-15, `[[source: dec-special-graphics]]` Table
-/// 2-4 and `[[source: dec-std-070]]` Appendix A, Table 2. `_` is out of the
-/// "outside" list below because asserting it there pinned a departure from every
-/// DEC text read as correct. What `0x5F` stores is an open question; the red test
-/// for it, on the bulk run, the per-byte path and VT52 `ESC F`, waits for that
-/// answer.
+/// `[[source: vt100-ug-ch3]]` replaces "ASCII codes 137 through 176" (octal),
+/// `0x5F..0x7E`, the first of them "Blank", and so do `[[source: vt102-ug-ch5]]`
+/// Table 5-15, `[[source: dec-special-graphics]]` Table 2-4 and
+/// `[[source: dec-std-070]]` Appendix A, Table 2.
 #[test]
 fn the_line_drawing_table_covers_the_whole_set() {
-    for byte in 0x60u8..=0x7e {
+    for byte in 0x5Fu8..=0x7e {
         let mut bytes = b"\x1b(0".to_vec();
         bytes.push(byte);
         let (g, _) = run(&bytes);
@@ -495,7 +487,7 @@ fn the_line_drawing_table_covers_the_whole_set() {
             byte as char
         );
     }
-    // And nothing below the set is touched. Not `_` (0x5F): see above.
+    // And nothing below the set is touched.
     for byte in *b"AZ09 ^" {
         let mut bytes = b"\x1b(0".to_vec();
         bytes.push(byte);
@@ -506,6 +498,32 @@ fn the_line_drawing_table_covers_the_whole_set() {
             "0x{byte:02x} is below the set's 0x5F..0x7E and is ASCII"
         );
     }
+}
+
+/// **`0x5F` is Blank, stored as U+0020 SPACE, alone and in a run**, and the
+/// cell keeps `CellFlags::GRAPHICS`. `[[source: vt100-ug-ch3]]` Table 3-9:
+/// `137 | _ | Blank`. A drawn Blank shows as an erased cell does and copies as
+/// a space.
+///
+/// A byte alone is written through `PackedCell::translate`, a run in bulk
+/// through `put_ascii_run`; the run holds Blank between two line-drawing
+/// characters and then eight of it.
+#[test]
+fn dec_graphics_blank_is_a_space_on_both_paths() {
+    let (one, _) = run(b"\x1b(0_");
+    assert_eq!(cp(one[0]), 0x20, "Blank alone");
+    assert!(one[0].flags.is_graphics(), "Blank alone keeps the mark");
+    let (bulk, _) = run(b"\x1b(0lq_qk________");
+    let got: Vec<u32> = bulk[..13].iter().map(|c| cp(*c)).collect();
+    let mut want = vec![0x250c, 0x2500, 0x20, 0x2500, 0x2510];
+    want.extend([0x20; 8]);
+    assert_eq!(got, want, "Blank in a run");
+    assert!(
+        bulk[..13].iter().all(|c| c.flags.is_graphics()),
+        "every cell of the run keeps the mark"
+    );
+    // Positive control: under ASCII `_` draws itself.
+    assert_eq!(cp(run(b"_").0[0]), u32::from(b'_'));
 }
 
 // ── national replacement sets, translated ───────────────────────────────────

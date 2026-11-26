@@ -107,8 +107,9 @@ pub fn form(
 /// the code point is drawn from: the corners and the crossing, `j` to `n`,
 /// and the tees, `t` to `w`, `+`; the horizontal line `q` `-`; the
 /// vertical line `x` `|`; and `#` for the rest. Which code point is which
-/// byte is baud's own table (`baud_domain::DEC_GRAPHICS`), the 31 xterm's
-/// `ucs2dec` maps too (`[[source: xterm-fontutils]]` 4870-4922).
+/// byte is baud's own table (`baud_domain::DEC_GRAPHICS`), whose 31 glyphs
+/// from `` ` `` `ucs2dec` maps too (`[[source: xterm-fontutils]]`
+/// 4870-4922); its Blank, U+0020, is below 256 and pastes as itself.
 fn dec_to_ascii(dec: Byte) -> Byte {
     Byte(match dec.0 {
         b'j'..=b'n' | b't'..=b'w' => b'+',
@@ -162,7 +163,7 @@ pub fn latin1(text: &str, ambiguous: AmbiguousWidth) -> Vec<u8> {
         // codes from `XTERM_PUA`, 0xEEEE (`[[source: xterm-ptyx-h]]` 380).
         let dec = baud_domain::DEC_GRAPHICS
             .iter()
-            .zip(b'`'..=b'~')
+            .zip(baud_domain::DEC_GRAPHICS_FIRST..=b'~')
             .find_map(|(&u, b)| (u == v).then_some(b));
         if let Some(b) = dec {
             out.push(dec_to_ascii(Byte(b)).0);

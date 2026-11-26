@@ -101,11 +101,10 @@ mod dec_graphics {
     //! DEC Special Graphics, compiled by `build/dec_graphics.rs` from
     //! `[[source: xterm-charsets]]`' `map_DEC_Spec_Graphic`.
     //!
-    //! Indexed by `byte - 0x60`, covering `` ` `` through `~`: the macro's 31
-    //! entries. The set is 32. DEC replaces `0x5F` as well, with "Blank"
-    //! (`[[source: vt100-ug-ch3]]` Table 3-9), and xterm leaves it `UNDEF`,
-    //! so neither does this table: an open departure, the codepoint `0x5F`
-    //! stores still to be chosen.
+    //! Indexed by `byte - DEC_GRAPHICS_FIRST`, covering `_` through `~`: the
+    //! set's 32 positions. `0x5F`, "Blank" (`[[source: vt100-ug-ch3]]` Table
+    //! 3-9), stores U+0020 SPACE, which the macro leaves `UNDEF`; the other 31
+    //! are the macro's.
     include!(concat!(env!("OUT_DIR"), "/dec_graphics.rs"));
 }
 mod dec_sets_data {

@@ -1761,7 +1761,7 @@ fn every_character_set_writes_printable_ascii_as_class_other() {
     // in place of that byte, counted from the generated tables.
     assert_eq!(
         substituted.len(),
-        269,
+        270,
         "the sets substitute a different set of codepoints now"
     );
 }

@@ -294,14 +294,14 @@ group  = "C"
 # ASCII in". `[[source: vt100-ug-ch3]]` Table 3-9 names every position in text,
 # `137 | _ | Blank` through `176 | ~ | Centered dot`, `161 | q | Horizontal line
 # - Scan 5` among them, and says the set replaces "ASCII codes 137 through 176"
-# (octal): **32 positions, `0x5F..0x7E`**, so foot's table, and baud's taken
-# from it, leaves `0x5F` untranslated. This page's Table 2-4 does draw columns
+# (octal): **32 positions, `0x5F..0x7E`**, so foot's table leaves `0x5F`
+# untranslated. This page's Table 2-4 does draw columns
 # 6 and 7 as images; of the set's 32 positions only 5/15 is text, "(BLANK)", at
 # line 2433, column 5's `x="562.5"` on row 15's `y="802.0"`.
 # What holds of the old text: **none of the DEC sources read gives a Unicode
 # codepoint**. DEC names or draws each glyph; the codepoint every
-# implementation stores is its own judgement. What baud stores at `0x5F` is an
-# open departure (docs/vt-coverage.md, the DEC Special Graphics row).
+# implementation stores is its own judgement. baud stores U+0020 SPACE at
+# `0x5F` (docs/vt-coverage.md, the DEC Special Graphics row).
 #
 # It was `gated`, with `url` at `table2-4.html` and nothing committed, though
 # the page had been fetched on 2026-08-27. That url 301s to

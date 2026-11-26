@@ -40,10 +40,10 @@ pub enum Charset {
     Uk,
     /// `0` — "DEC Special Character and Line Drawing Set, VT100."
     ///
-    /// Translated through `[[source: foot-vt100-0]]`'s 31 entries, `0x60..0x7E`,
-    /// and the cell keeps `CellFlags::GRAPHICS`. DEC's set is 32 entries and
-    /// begins at `0x5F`, "Blank" (`[[source: vt100-ug-ch3]]` Table 3-9), which
-    /// baud leaves as `_`: an open departure, the codepoint still to be chosen.
+    /// Translated over the set's 32 positions, `0x5F..0x7E`, and the cell
+    /// keeps `CellFlags::GRAPHICS`: `0x5F`, "Blank" (`[[source: vt100-ug-ch3]]`
+    /// Table 3-9), is U+0020 SPACE, and `0x60..0x7E` are
+    /// `[[source: foot-vt100-0]]`'s 31 entries.
     DecGraphics,
     /// A national replacement set, named. See [`Nrcs`].
     National(Nrcs),
