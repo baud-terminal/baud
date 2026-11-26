@@ -421,6 +421,8 @@ pub struct SurfaceStore<'b> {
     /// ([`crate::SlotIndex`]): the one surface that keeps one. Empty until
     /// [`SurfaceStore::lend_slots`], which reads it as the identity.
     alt_slots: &'b mut [crate::WindowSlot],
+    /// Whether `alt_slots` may be off the identity ([`crate::SlotState`]).
+    alt_state: crate::SlotState,
     now: WriteGen,
     epoch: SealEpoch,
     /// The pitch every surface's rows are laid out at, narrow so a
@@ -459,6 +461,7 @@ impl<'b> SurfaceStore<'b> {
                 last: WriteGen(0),
             },
             alt_slots: no_slots(),
+            alt_state: crate::SlotState::Identity,
             now: WriteGen::FIRST,
             epoch: SealEpoch::fresh(),
             pitch: u32::try_from(stride.index()).expect("a pitch past u32"),
@@ -489,7 +492,18 @@ impl<'b> SurfaceStore<'b> {
             slots.is_empty() || slots.len() == 2 * self.alt.meta.len(),
             "an index and its inverse, an entry each a row of the alternate screen"
         );
+        self.alt_state = match crate::SlotOrder::of(slots).is_identity() {
+            true => crate::SlotState::Identity,
+            false => crate::SlotState::Permuted,
+        };
         self.alt_slots = slots;
+    }
+
+    /// **Whether the alternate screen's index may be off the identity**:
+    /// [`crate::SlotState::Permuted`] from a rotation until it is put back.
+    #[inline(always)]
+    pub fn slot_state(&self) -> crate::SlotState {
+        self.alt_state
     }
 
     /// **The alternate screen's index, to read**: empty, the identity,
@@ -519,7 +533,7 @@ impl<'b> SurfaceStore<'b> {
         let status = Stamped::of(&mut self.status, now, pitch);
         let slots = match self.alt_slots.is_empty() {
             true => crate::SlotIndex::none(),
-            false => crate::SlotIndex::lend(self.alt_slots),
+            false => crate::SlotIndex::lend(self.alt_slots, &mut self.alt_state),
         };
         match up {
             Which::Primary => (prim, alt, status, slots),
@@ -943,6 +957,28 @@ impl<'a> Stamped<'a> {
         self.cells
             .copy_within(src * s + at.start..src * s + at.end, dst * s + to);
         RowMut(&mut self.cells[dst * s + to..dst * s + to + n])
+    }
+
+    /// **Row `p` stamped, nothing written**: a row the window shows at
+    /// another place, which a reader keyed by generation takes again.
+    #[inline(always)]
+    pub(super) fn restamp(&mut self, p: usize) {
+        stamp(self.meta, p, self.now);
+    }
+
+    /// **Rows `a` and `b` exchanged**, cells and marks, both stamped: what
+    /// putting an index back to the identity moves.
+    pub(super) fn swap_rows(&mut self, a: usize, b: usize) {
+        if a == b {
+            return;
+        }
+        let s = self.s();
+        let (lo, hi) = (a.min(b), a.max(b));
+        let (low, high) = self.cells.split_at_mut(hi * s);
+        low[lo * s..(lo + 1) * s].swap_with_slice(&mut high[..s]);
+        self.meta.swap(a, b);
+        stamp(self.meta, a, self.now);
+        stamp(self.meta, b, self.now);
     }
 
     /// Row `src`'s mark copied to row `dst`. Stamps `dst`.

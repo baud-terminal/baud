@@ -338,6 +338,11 @@ fn main() {
     let mut reply = vec![0u8; REPLY];
     let mut alt = vec![PackedCell::EMPTY; span.len()];
     let mut alt_used = vec![RowMeta::ZERO; rows.index()];
+    // The alternate screen's window-slot index, as `Owned` lends it: two
+    // entries a row, laid at the identity.
+    let mut alt_slots = vec![baud_domain::WindowSlot::UNSET; 2 * rows.index()];
+    let mut alt_state = baud_domain::SlotState::Identity;
+    baud_domain::SlotIndex::identity(&mut alt_slots, &mut alt_state, rows);
     let mut clusters = vec![ClusterSlot::EMPTY; NCLUSTER];
     let mut pending = vec![0u8; OSC_MAX];
     let mut title = vec![0u8; OSC_MAX];
@@ -429,6 +434,7 @@ fn main() {
                 &mut img_index,
             ),
         )
+        .with_window_slots(&mut alt_slots)
         .with_frozen(baud_domain::FrozenBuf {
             words: &mut frozen_words,
             gens: &mut frozen_gens,
@@ -480,6 +486,10 @@ fn main() {
         "  cells {cells} written ({:.1}x per byte), {} zero-width dropped",
         cells as f64 / bytes_in as f64,
         t.marks_dropped,
+    );
+    println!(
+        "  slot swaps {} putting the alternate screen in window order",
+        t.slot_swaps().index(),
     );
     if images {
         let im = t.images();

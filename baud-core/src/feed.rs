@@ -92,17 +92,39 @@ impl Term<'_> {
 
     /// **How a read that starts now reads the screen up**
     /// ([`crate::bands::SlotsUp`]): through the alternate screen's index
-    /// only when that screen is up and its index is not the identity.
+    /// when that screen is up, the store lent it one, and a region move
+    /// would turn it: the index is off the identity, or the region set
+    /// turns it ([`crate::term::Cold::region_turns_index`]). A read through
+    /// the identity that brings the screen up with such a region, or sets
+    /// one on it, stops there and feeds the rest again
+    /// (`Paint::up_through_index`), and leaving the screen puts the index
+    /// back to the identity, so a region move rotates or copies by the
+    /// same rule wherever the reads end.
     #[inline(always)]
     pub(crate) fn slots_up(&self) -> crate::bands::SlotsUp {
-        use crate::bands::SlotsUp;
         match self.cold.screen {
-            Screen::Normal => SlotsUp::Identity,
-            Screen::Alternate => match self.store.surfaces.slots().is_identity() {
-                true => SlotsUp::Identity,
-                false => SlotsUp::Indexed,
-            },
+            Screen::Normal => crate::bands::SlotsUp::Identity,
+            Screen::Alternate => self.slots_up_on_alt(),
         }
+    }
+
+    /// [`Term::slots_up`] with the alternate screen up, out of line: a read
+    /// on the primary pays one compare, and the read loop it is inlined
+    /// into keeps its registers.
+    #[inline(never)]
+    fn slots_up_on_alt(&self) -> crate::bands::SlotsUp {
+        use crate::bands::SlotsUp;
+        if !self.store.surfaces.slots().is_empty()
+            && (self.store.surfaces.slot_state() == SlotState::Permuted
+                || self.cold.region_turns_index(self.rows))
+        {
+            return SlotsUp::Indexed;
+        }
+        debug_assert!(
+            self.store.surfaces.slots().is_identity(),
+            "an alternate screen read through the identity is at the identity"
+        );
+        SlotsUp::Identity
     }
 
     #[cold]
@@ -129,18 +151,33 @@ impl Term<'_> {
             return self.feed_stripping::<M>(base, n);
         }
         self.feed_read::<Fresh, M>(base, n);
-        if self.cold.restrip == crate::term::Restrip::Held {
+        if self.cold.restrip != crate::term::Restrip::Clear {
             self.feed_restripped::<M>();
         }
     }
 
-    /// The rest a change of the strip held, parsed as the strip now says.
+    /// The rest a change of the strip held, parsed as the strip now says;
+    /// or the rest the alternate screen coming up held, fed as a read of its
+    /// own ([`crate::term::Restrip::Redispatch`]).
     #[cold]
     #[inline(never)]
     fn feed_restripped<M: crate::bands::BandMode>(&mut self) {
+        let how = self.cold.restrip;
         self.cold.restrip = crate::term::Restrip::Clear;
         if let Some(r) = self.cold.width.held.take() {
-            self.feed_stripping::<M>(r.at, r.len);
+            match how {
+                crate::term::Restrip::Redispatch => self.feed_again(r.at, r.len),
+                _ => self.feed_stripping::<M>(r.at, r.len),
+            }
+        }
+    }
+
+    /// **The rest of a read fed as a read of its own**, in the mode the
+    /// screen now up asks for ([`Term::slots_up`]).
+    #[inline(never)]
+    fn feed_again(&mut self, base: BytePos, n: ReadLen) {
+        if n.index() != 0 {
+            self.feed(base, n);
         }
     }
 
@@ -165,6 +202,14 @@ impl Term<'_> {
             left = left.less(step);
             let held = self.cold.width.held.take();
             match (self.cold.restrip, held) {
+                (crate::term::Restrip::Redispatch, held) => {
+                    self.cold.restrip = crate::term::Restrip::Clear;
+                    match held {
+                        Some(r) => self.feed_again(r.at, r.len.plus(left)),
+                        None => self.feed_again(at, left),
+                    }
+                    return;
+                }
                 (crate::term::Restrip::Held, Some(r)) => {
                     self.cold.restrip = crate::term::Restrip::Clear;
                     at = r.at;

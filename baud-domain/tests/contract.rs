@@ -2200,9 +2200,14 @@ const _: fn() -> baud_domain::Effects = <baud_domain::Effects as Default>::defau
 const _: baud_domain::WindowSlot = baud_domain::WindowSlot::UNSET;
 const _: fn(baud_domain::WindowSlot) -> usize = baud_domain::WindowSlot::index;
 // SlotIndex
-fn _slot_index<'a>(store: &'a mut [baud_domain::WindowSlot], rows: baud_domain::Rows) {
+fn _slot_index<'a>(
+    store: &'a mut [baud_domain::WindowSlot],
+    state: &'a mut baud_domain::SlotState,
+    rows: baud_domain::Rows,
+) {
     let _: baud_domain::SlotIndex<'a> = baud_domain::SlotIndex::none();
-    let mut ix: baud_domain::SlotIndex<'a> = baud_domain::SlotIndex::identity(store, rows);
+    let mut ix: baud_domain::SlotIndex<'a> = baud_domain::SlotIndex::identity(store, state, rows);
+    let _: baud_domain::SlotState = ix.state();
     let _: baud_domain::Rows = ix.len();
     let _: bool = ix.is_empty();
     let _: baud_domain::SlotOrder<'_> = ix.order();
@@ -2211,10 +2216,14 @@ fn _slot_index<'a>(store: &'a mut [baud_domain::WindowSlot], rows: baud_domain::
         baud_domain::Row::ZERO..=baud_domain::Row::ZERO,
         rows,
     );
-    ix.normalise(|_: baud_domain::WindowSlot, _: baud_domain::WindowSlot| {});
+    let _: baud_domain::Rows =
+        ix.normalise(|_: baud_domain::WindowSlot, _: baud_domain::WindowSlot| {});
 }
-fn _slot_lend(store: &mut [baud_domain::WindowSlot]) -> baud_domain::SlotIndex<'_> {
-    baud_domain::SlotIndex::lend(store)
+fn _slot_lend<'a>(
+    store: &'a mut [baud_domain::WindowSlot],
+    state: &'a mut baud_domain::SlotState,
+) -> baud_domain::SlotIndex<'a> {
+    baud_domain::SlotIndex::lend(store, state)
 }
 // SlotOrder
 fn _slot_order(store: &[baud_domain::WindowSlot]) {

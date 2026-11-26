@@ -730,3 +730,30 @@ fn the_shrunk_alternate_growth_measures_as_the_full_read() {
     let r = run(&prog, 0, None);
     assert!(r.is_ok(), "{r:?}");
 }
+
+/// **A program whose region moves on the alternate screen fall in two
+/// groupings of reads measures alike in both**, the shrunk case of
+/// `the_measure_is_chunk_invariant` (line 15 of resize_measure.proptest-regressions): the region moves
+/// rotate the index whichever read they fall in, so the ring after each
+/// resize is the same.
+///
+/// Named break: copy the first region move of a visit and rotate the
+/// rest -- the grouped reads leave another ring than the reads one atom
+/// each.
+#[test]
+fn a_region_move_on_the_alternate_screen_measures_alike_in_any_grouping() {
+    use Op::Bytes;
+    let prog = [
+        Bytes(32),
+        Bytes(8),
+        Bytes(5),
+        Bytes(2),
+        Bytes(14),
+        Bytes(14),
+        Bytes(16),
+    ];
+    let whole = run(&prog, 0, None);
+    let split = run(&prog, 0, Some(2));
+    assert!(whole.is_ok(), "{whole:?}");
+    assert_eq!(whole, split);
+}

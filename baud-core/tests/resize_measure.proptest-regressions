@@ -11,3 +11,5 @@ cc 6751693052682224db2e88dbc1558f377daac82b2d69e8c2458e5f4b479fe84b # shrinks to
 cc 80440a8805ff03f0e90a69f1dad9db99a569973d39d87fbc02e16f2426d9d344 # shrinks to (prog, depth, group) = ([Bytes(11), Bytes(13), Bytes(1), To(2, 2), Bytes(31)], 0, 1)
 cc 8c7960014a410e791bbf003cb004365cb7f0a4bc9b1a8ba651c9449e9d7836fa # shrinks to (prog, depth, group) = ([Bytes(0), Bytes(0), Bytes(2), Bytes(0), To(9, 1), Bytes(6), Bytes(0), Bytes(2), Bytes(0), To(2, 1), Bytes(0), Bytes(0), Bytes(0), Bytes(0)], 0, 1)
 cc 4bc3aeded2ca4842d0dfe797863c42007ce40c125e3e1017ce126fb8349ec768 # shrinks to (prog, depth, group) = ([Bytes(32), To(2, 1), By(2, 0), Bytes(0), Bytes(6), To(2, 1), Bytes(3), To(2, 2), Bytes(2), Bytes(1), By(0, 1), By(3, 1), Bytes(19), Bytes(10), Bytes(0)], 0, 1)
+cc e80fc780eeff292aaebf7e12eb3a88486d2e2e667e9d5c82046101eae171e1b8 # shrinks to (prog, depth, group) = ([Bytes(32), Bytes(14), Bytes(14), Bytes(24), To(2, 1)], 0, 3)
+cc e074a9f48d2ca4b0f3bd05cd59ee20d307df31c5b78fa3a1ab37b096f33a8656 # shrinks to (prog, depth, group) = ([Bytes(32), Bytes(8), Bytes(5), Bytes(2), Bytes(14), Bytes(14), Bytes(16)], 0, 2)

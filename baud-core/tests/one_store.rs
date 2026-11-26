@@ -577,12 +577,13 @@ fn rule_c(lines: &[Line]) -> Vec<String> {
 /// for every row), beside the seal's wrap. A surface's entries -- each row's
 /// mark beside its generation -- are written through a field path only where
 /// they are lent (`of`), swept (`seal`, `stamp_all`) or handed out whole
-/// after the stamp (`all_mut`): every other store reaches an entry through
+/// after the stamp (`all_mut`), or exchanged and both stamped (`swap_rows`):
+/// every other store reaches an entry through
 /// the mark `stamp` hands back. A surface's last write has one writer, the
 /// `Stamped`'s `Drop`, beside the seal's wrap and the mint's borrow of it.
 const D_WRITERS: &[(&str, &[&str])] = &[
     ("row_gen", &["stamp", "stamp_all", "seal"]),
-    ("meta", &["of", "seal", "stamp_all", "all_mut"]),
+    ("meta", &["of", "seal", "stamp_all", "all_mut", "swap_rows"]),
     ("last", &["drop", "seal", "of"]),
 ];
 

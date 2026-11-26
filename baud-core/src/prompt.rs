@@ -442,18 +442,7 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let bot = Row::from_index(cy + k);
         self.cold
             .band_moved((from, bot), by, crate::ops::Scroll::Down, self.book.top);
-        if self.past_edge() {
-            self.clear_swept();
-        }
-        let mut x = M::Cross::default();
-        self.view.insert_lines_in(
-            from,
-            n,
-            bot,
-            PackedCell::empty_with(StyleId::DEFAULT),
-            &mut x,
-        );
-        self.moved(&x);
+        let how = self.move_rows((from, bot), n, BandMove::Down, crate::ops::Opened::Default);
         if self.past_edge() {
             self.lines_moved_past_edge(from, n, bot, BandMove::Down);
         }
@@ -469,14 +458,13 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         if self.cold.placement.is_placed() {
             self.placement_band_moved(from, bot, by, BandMove::Down);
         }
-        self.cells = self
-            .cells
-            .plus((bot.index() + 1 - from.index()) * self.cols.index());
-        // The marks' rows in the band go down with it.
+        // The marks' rows in the band go down with it: a rotation carried
+        // them, kept by slot, and a copy left them for here.
         let view = &self.view;
+        let copied = how == crate::ops::Moved::Copied;
         let moved = |r: RowRot| {
             let y = view.row_of(r);
-            match (from.index()..=cy).contains(&y) {
+            match copied && (from.index()..=cy).contains(&y) {
                 true => view.slot(Row::from_index(y + k)),
                 false => r,
             }
@@ -500,6 +488,47 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             by,
         );
         self.set_row(Row::from_index(cy + k));
+    }
+
+    /// **The alternate screen's rows back in window order, the shell's marks
+    /// with them**: its index put back to the identity, each row's cells
+    /// and mark swapped home and stamped, the swaps counted in
+    /// [`crate::Term::slot_swaps`], and each mark kept by slot -- the
+    /// block's first row, the input's and the later line's -- renamed to the
+    /// slot its line is stored in now. The movers copy again from here,
+    /// until the next region move. Called with the alternate screen up and
+    /// its shell state current; through the identity, nothing moves.
+    pub(crate) fn slots_home(&mut self) {
+        if !self.view.holds_index() {
+            return;
+        }
+        let view = &self.view;
+        let shell = &self.strs.shell;
+        let block = view.row_of(shell.block.start());
+        let input = match shell.input {
+            Input::At { row, .. } => Some(view.row_of(row)),
+            _ => None,
+        };
+        let later = match shell.secondary {
+            Later::At(r) => Some(view.row_of(r)),
+            _ => None,
+        };
+        let swaps = self.view.normalise_slots();
+        self.strs.slot_swaps = Rows::of_count(self.strs.slot_swaps.index() + swaps.index());
+        let view = &self.view;
+        let home = |y: usize| view.slot(Row::from_index(y));
+        let shell = &mut self.strs.shell;
+        shell.block = PromptBlock::at(home(block));
+        if let (Input::At { col, end, .. }, Some(y)) = (shell.input, input) {
+            shell.input = Input::At {
+                row: home(y),
+                col,
+                end,
+            };
+        }
+        if let Some(y) = later {
+            shell.secondary = Later::At(home(y));
+        }
     }
 
     /// **The shell's marks go with their lines** when the rows `top..=bot`
@@ -659,7 +688,13 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         }
         let blank = self.blank();
         for k in 0..=d {
-            let at = start.advance(k, ring);
+            // **By row through an index**: a region move rotated the rows
+            // from their slots, and the block lies on the screen, where the
+            // index keeps no history behind it.
+            let at = match self.view.holds_index() {
+                true => self.view.slot(Row::from_index(cy - d + k)),
+                false => start.advance(k, ring),
+            };
             if self.past_edge() {
                 self.clear_erased_past_edge(at, blank);
             }

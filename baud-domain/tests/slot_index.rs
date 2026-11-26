@@ -14,7 +14,7 @@
 //! Named break: `normalise` resets the index without swapping rows -- the
 //! rows each place shows change, and the content check fails.
 
-use baud_domain::{Row, RowRot, Rows, SlotIndex, WindowSlot};
+use baud_domain::{Row, RowRot, Rows, SlotIndex, SlotState, WindowSlot};
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
@@ -108,7 +108,8 @@ impl Model {
 fn run(prog: &Program) -> Result<(), TestCaseError> {
     let h = prog.ring.index();
     let mut store = vec![WindowSlot::UNSET; 2 * h];
-    let mut ix = SlotIndex::identity(&mut store, prog.ring);
+    let mut state = SlotState::Identity;
+    let mut ix = SlotIndex::identity(&mut store, &mut state, prog.ring);
     let mut model = Model::new(prog.ring);
     prop_assert!(ix.order().is_identity());
     for op in &prog.ops {
@@ -132,7 +133,7 @@ fn run(prog: &Program) -> Result<(), TestCaseError> {
             Op::Normalise => {
                 let before: Vec<Row> = (0..h).map(|p| model.shown(Row::from_index(p))).collect();
                 let mut swaps = Rows::ZERO;
-                ix.normalise(|a, b| {
+                let returned = ix.normalise(|a, b| {
                     model.stored.swap(a.index(), b.index());
                     swaps = Rows::of_count(swaps.index() + 1);
                 });
@@ -143,6 +144,12 @@ fn run(prog: &Program) -> Result<(), TestCaseError> {
                 );
                 model.order = (0..h).map(Row::from_index).collect();
                 prop_assert!(ix.order().is_identity(), "normalised to the identity");
+                prop_assert_eq!(
+                    returned,
+                    swaps,
+                    "the swaps it returns are the swaps it made"
+                );
+                prop_assert_eq!(ix.state(), SlotState::Identity);
                 for (p, b) in before.iter().enumerate() {
                     prop_assert_eq!(
                         model.shown(Row::from_index(p)),
@@ -272,7 +279,8 @@ fn the_generator_reaches_every_shape() {
 fn a_straddling_rotation_moves_places_and_undoes() {
     let ring = Rows::of_count(6);
     let mut store = vec![WindowSlot::UNSET; 12];
-    let mut ix = SlotIndex::identity(&mut store, ring);
+    let mut state = SlotState::Identity;
+    let mut ix = SlotIndex::identity(&mut store, &mut state, ring);
     let at = RowRot::NONE.advance(4, ring);
     // Window rows 0..=3 at rotation 4 are places 4, 5, 0, 1.
     ix.rotate(at, Row::ZERO..=Row::from_index(3), Rows::of_count(1));
@@ -281,4 +289,31 @@ fn a_straddling_rotation_moves_places_and_undoes() {
     assert_eq!(shown, vec![1, 4, 2, 3, 5, 0]);
     ix.rotate(at, Row::ZERO..=Row::from_index(3), Rows::of_count(3));
     assert!(ix.order().is_identity());
+}
+
+/// **An index at the identity normalises with no swap and no place
+/// compared**, and a rotation marks it permuted until a normalise: a
+/// rotation and its inverse leave the order at the identity and the state
+/// permuted, and the normalise after them swaps nothing and restores it.
+///
+/// Named break: `rotate` leaves the state at the identity -- the state after
+/// the first rotation is not permuted.
+#[test]
+fn an_index_at_the_identity_normalises_with_no_swap() {
+    let ring = Rows::of_count(6);
+    let mut store = vec![WindowSlot::UNSET; 12];
+    let mut state = SlotState::Permuted;
+    let mut ix = SlotIndex::identity(&mut store, &mut state, ring);
+    assert_eq!(ix.state(), SlotState::Identity);
+    let mut handed = 0;
+    assert_eq!(ix.normalise(|_, _| handed += 1), Rows::ZERO);
+    assert_eq!(handed, 0);
+    let region = Row::ZERO..=Row::from_index(3);
+    ix.rotate(RowRot::NONE, region.clone(), Rows::of_count(1));
+    assert_eq!(ix.state(), SlotState::Permuted);
+    ix.rotate(RowRot::NONE, region, Rows::of_count(3));
+    assert!(ix.order().is_identity());
+    assert_eq!(ix.normalise(|_, _| handed += 1), Rows::ZERO);
+    assert_eq!((handed, ix.state()), (0, SlotState::Identity));
+    assert_eq!(SlotIndex::none().state(), SlotState::Identity);
 }

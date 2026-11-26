@@ -558,29 +558,52 @@ fn the_margin_bell_is_disarmed_when_its_line_moves() {
 /// **The alternate screen's lines and their state survive a visit to the
 /// primary under `?47`**, which keeps the alternate screen's rows: in,
 /// region scrolls there, out, a scroll of the primary, and back, and every
-/// row of the alternate screen is the model's, text, size and wrap.
+/// row of the alternate screen is the model's, text, size and wrap. The
+/// script's moves after the first run through the index, so the
+/// double-width line and the shell's prompt marks sit on rows the index
+/// has permuted when the screen is left; leaving swaps the rows home, and
+/// the marks, kept by slot, follow their lines.
 ///
 /// Named break: let the primary's scroll turn the alternate ring, or leave
 /// the alternate screen's rows numbered by the primary's rotation -- the
-/// alternate rows come back rotated by the primary's line feeds.
+/// alternate rows come back rotated by the primary's line feeds. Or swap
+/// the rows home on leaving and leave the marks on their slots -- the marks
+/// come back on other lines.
 #[test]
 fn the_alternate_screen_keeps_its_lines_through_a_visit_to_the_primary() {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
     support::feed(&mut t, b"\x1b[?47h");
     let mut m = drawn(&mut t, On::Alternate);
-    // The marks are the shell's, and a return under `?47` starts its state
-    // fresh: only the rows are compared here.
     for (_, bytes, apply) in &SCRIPT[..10] {
         support::feed(&mut t, bytes.as_bytes());
         apply(&mut m);
     }
+    // The prompt block's line, on a row the index has moved, made
+    // double-width: one line carries a prompt mark and a line size.
+    let y = m
+        .mark_row(Mark::Block)
+        .expect("the block's line on the screen");
+    support::feed(
+        &mut t,
+        format!("\x1b[r\x1b[{};1H\x1b[2KDW\x1b#6", y.index() + 1).as_bytes(),
+    );
+    m.lines[y.index()].text = "DW".into();
+    m.lines[y.index()].size = LineRendition::DoubleWidth;
+    agree(&t, &m, "the script, before the leave");
+    assert_eq!(t.slot_swaps(), Rows::ZERO);
     support::feed(&mut t, b"\x1b[r\x1b[?47l");
+    assert!(
+        t.slot_swaps() > Rows::ZERO,
+        "the index was off the identity at the leave"
+    );
     support::feed(
         &mut t,
         format!("\x1b[{ROWS};1H\n\n\n\x1b[2;5r\x1b[S\x1b[r").as_bytes(),
     );
     support::feed(&mut t, b"\x1b[?47h");
+    // A return under `?47` starts the shell's state fresh: the rows are
+    // compared here, the marks before the leave.
     for (y, want) in m.lines.iter().enumerate() {
         let (text, size, wrap) = seen_line(&t, Row::from_index(y));
         assert_eq!(

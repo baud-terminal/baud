@@ -138,7 +138,8 @@ impl CrossBand for OneTable {
 ///
 /// ```
 /// let mut store = [baud_domain::WindowSlot::UNSET; 8];
-/// let ix = baud_domain::SlotIndex::identity(&mut store, baud_domain::Rows::of_index(4));
+/// let mut state = baud_domain::SlotState::Identity;
+/// let ix = baud_domain::SlotIndex::identity(&mut store, &mut state, baud_domain::Rows::of_index(4));
 /// let _ = ix.order().slot(2);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -179,7 +180,8 @@ impl WindowSlot {
 ///
 /// ```
 /// let mut store = [baud_domain::WindowSlot::UNSET; 8];
-/// let mut ix = baud_domain::SlotIndex::identity(&mut store, baud_domain::Rows::of_index(4));
+/// let mut state = baud_domain::SlotState::Identity;
+/// let mut ix = baud_domain::SlotIndex::identity(&mut store, &mut state, baud_domain::Rows::of_index(4));
 /// ix.rotate(
 ///     baud_domain::RowRot::NONE,
 ///     baud_domain::Row::ZERO..=baud_domain::Row::from_index(3),
@@ -193,6 +195,20 @@ impl WindowSlot {
 pub struct SlotIndex<'a> {
     slot: &'a mut [WindowSlot],
     row_of: &'a mut [WindowSlot],
+    /// Whether the index may be off the identity, kept in the surface store
+    /// beside the index across lends; none for an index of no places.
+    state: Option<&'a mut SlotState>,
+}
+
+/// **Whether a [`SlotIndex`] may be off the identity**: [`SlotIndex::rotate`]
+/// sets it permuted and [`SlotIndex::normalise`] sets it back, so a
+/// normalise of an index at the identity is one compare and no swap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlotState {
+    /// Every place shows its own slot.
+    Identity,
+    /// A rotation has run since the identity was last laid or restored.
+    Permuted,
 }
 
 impl<'a> SlotIndex<'a> {
@@ -202,15 +218,21 @@ impl<'a> SlotIndex<'a> {
         SlotIndex {
             slot: &mut [],
             row_of: &mut [],
+            state: None,
         }
     }
 
     /// The identity over `rows` places, laid on `store`, which holds the
-    /// index and its inverse: `2 * rows` entries.
+    /// index and its inverse: `2 * rows` entries. Sets `state` to
+    /// [`SlotState::Identity`].
     ///
     /// # Panics
     /// If `store` is not `2 * rows` entries, or `rows` is past `u16`.
-    pub fn identity(store: &'a mut [WindowSlot], rows: Rows) -> SlotIndex<'a> {
+    pub fn identity(
+        store: &'a mut [WindowSlot],
+        state: &'a mut SlotState,
+        rows: Rows,
+    ) -> SlotIndex<'a> {
         let h = rows.index();
         assert!(
             store.len() == 2 * h,
@@ -221,21 +243,44 @@ impl<'a> SlotIndex<'a> {
             *s = WindowSlot::at(p);
             *q = WindowSlot::at(p);
         }
-        SlotIndex { slot, row_of }
+        *state = SlotState::Identity;
+        SlotIndex {
+            slot,
+            row_of,
+            state: Some(state),
+        }
     }
 
     /// The index an earlier [`SlotIndex::identity`] laid on `store`, lent
-    /// again as it was left.
+    /// again as it was left, with the `state` it was left in.
     ///
     /// # Panics
     /// If `store` has an odd length.
-    pub fn lend(store: &'a mut [WindowSlot]) -> SlotIndex<'a> {
+    pub fn lend(store: &'a mut [WindowSlot], state: &'a mut SlotState) -> SlotIndex<'a> {
         assert!(store.len() % 2 == 0, "an index and its inverse");
         let h = store.len() / 2;
         let (slot, row_of) = store.split_at_mut(h);
-        let ix = SlotIndex { slot, row_of };
+        let ix = SlotIndex {
+            slot,
+            row_of,
+            state: Some(state),
+        };
         debug_assert!(ix.order().is_permutation(), "a lent index is a permutation");
+        debug_assert!(
+            ix.state() == SlotState::Permuted || ix.order().is_identity(),
+            "an index lent at the identity is the identity"
+        );
         ix
+    }
+
+    /// Whether it may be off the identity. An index of no places is at the
+    /// identity.
+    #[inline]
+    pub fn state(&self) -> SlotState {
+        self.state
+            .as_deref()
+            .copied()
+            .unwrap_or(SlotState::Identity)
     }
 
     /// Its places: the ring's rows it orders.
@@ -302,13 +347,21 @@ impl<'a> SlotIndex<'a> {
             let p = place(i);
             self.row_of[self.slot[p].index()] = WindowSlot::at(p);
         }
+        if let Some(state) = self.state.as_deref_mut() {
+            *state = SlotState::Permuted;
+        }
     }
 
     /// **The identity again, the rows following their places**: each pair
     /// of physical rows whose contents the caller swaps is handed to `swap`,
     /// in order, so that afterwards place `p`'s row is stored in physical
-    /// row `p`. At most `H - 1` swaps.
-    pub fn normalise(&mut self, mut swap: impl FnMut(WindowSlot, WindowSlot)) {
+    /// row `p`. At most `H - 1` swaps, and at [`SlotState::Identity`] none,
+    /// with no place compared. Returns the swaps handed to `swap`.
+    pub fn normalise(&mut self, mut swap: impl FnMut(WindowSlot, WindowSlot)) -> Rows {
+        if self.state() == SlotState::Identity {
+            return Rows::ZERO;
+        }
+        let mut swaps = Rows::ZERO;
         for p in 0..self.slot.len() {
             let s = self.slot[p];
             if s.index() == p {
@@ -319,12 +372,17 @@ impl<'a> SlotIndex<'a> {
             // `q` lies past it.
             let here = WindowSlot::at(p);
             swap(here, s);
+            swaps = Rows::of_count(swaps.index() + 1);
             let q = self.row_of[p];
             self.slot[q.index()] = s;
             self.row_of[s.index()] = q;
             self.slot[p] = here;
             self.row_of[p] = here;
         }
+        if let Some(state) = self.state.as_deref_mut() {
+            *state = SlotState::Identity;
+        }
+        swaps
     }
 }
 
@@ -436,6 +494,10 @@ pub(crate) mod sealed {
 
         /// Proof the surface keeps no index, when it keeps none.
         fn unindexed(lent: &Self::Lent<'_>) -> Option<Identity>;
+
+        /// The index, to change: none through the identity, or for a
+        /// surface that keeps none.
+        fn index_mut<'s, 'a: 's>(lent: &'s mut Self::Lent<'a>) -> Option<&'s mut SlotIndex<'a>>;
     }
 }
 
@@ -520,6 +582,11 @@ impl sealed::Lends for Identity {
     fn unindexed(i: &Identity) -> Option<Identity> {
         Some(*i)
     }
+
+    #[inline(always)]
+    fn index_mut<'s, 'a: 's>(_: &'s mut Identity) -> Option<&'s mut SlotIndex<'a>> {
+        None
+    }
 }
 
 impl sealed::Lends for Indexed {
@@ -548,5 +615,10 @@ impl sealed::Lends for Indexed {
     #[inline(always)]
     fn unindexed(lent: &SlotIndex<'_>) -> Option<Identity> {
         lent.is_empty().then_some(Identity(()))
+    }
+
+    #[inline(always)]
+    fn index_mut<'s, 'a: 's>(lent: &'s mut SlotIndex<'a>) -> Option<&'s mut SlotIndex<'a>> {
+        (!lent.is_empty()).then_some(lent)
     }
 }

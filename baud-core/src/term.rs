@@ -913,15 +913,36 @@ impl Cold {
         modes.apply(ModeBit::CursorKeys, s.cursor_keys == ModeChange::Set);
         modes.apply(ModeBit::LineFeedNewLine, s.new_line == ModeChange::Set);
     }
+
+    /// **Whether a region move on the alternate screen turns its index**,
+    /// with `rows` on the screen: a region that is not the whole screen,
+    /// and not a top region with fewer rows under it than in it, which the
+    /// ring's rotation and repair move. With such a region set, or the
+    /// index already off the identity, every region move on the alternate
+    /// screen rotates the index; with neither, every one copies. Read at a
+    /// read's start ([`Term::slots_up`]) and at each move, so the choice is
+    /// the same whichever read a move falls in.
+    #[inline(always)]
+    pub(crate) fn region_turns_index(&self, rows: Rows) -> bool {
+        let (top, bot) = (self.top.index(), self.bot.index());
+        let last = rows.index().saturating_sub(1);
+        top <= bot && !(top == 0 && (bot >= last || last - bot < bot + 1))
+    }
 }
 
-/// Whether the rest of a read waits on the eighth-bit strip.
+/// Whether the rest of a read waits on the eighth-bit strip, or on the
+/// alternate screen's index.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Restrip {
     Clear,
     /// A control changed whether received bytes are stripped, and held the
     /// rest of the read (`Paint::restrip_from`).
     Held,
+    /// A read through the identity brought up the alternate screen with a
+    /// region that turns its index, or set one there, and held the rest of
+    /// the read to be fed as a read of its own, through the screen's index
+    /// (`Paint::up_through_index`).
+    Redispatch,
 }
 
 /// The state a control sequence changes that the write loop does not read.
@@ -2962,12 +2983,30 @@ impl<'b> Term<'b> {
         self.resized(ws, Some(told), Fit::Recut)
     }
 
+    /// **The alternate screen's rows follow its index**: a resize moves
+    /// rows in ring order, so the ring is laid in window order before it,
+    /// and the index stays at the identity until the next region move.
+    fn normalise_alternate(&mut self) {
+        if self.cold.screen != Screen::Alternate {
+            return;
+        }
+        struct Normalise;
+        impl PaintJob for Normalise {
+            type Out = ();
+            fn run<M: crate::bands::BandMode>(self, p: &mut crate::paint::Paint<'_, '_, M>) {
+                p.slots_home();
+            }
+        }
+        self.outside_read(Normalise);
+    }
+
     fn resized(
         &mut self,
         ws: &WinSize,
         told: Option<&mut dyn FnMut(crate::record::LineRecut)>,
         fit: Fit,
     ) -> (Resized, crate::record::Following) {
+        self.normalise_alternate();
         let (want_cols, want_rows) = ws.geometry();
         let cap = self.store.row_capacity();
         let cols = want_cols.clamp(MAX_COLS).clamp(self.stride.index());
@@ -5705,6 +5744,16 @@ impl<'b> Term<'b> {
     /// is about.
     pub fn amplification(&self) -> (usize, usize) {
         (self.bytes_in, self.cells_written)
+    }
+
+    /// **Row swaps that put the alternate screen back in window order**,
+    /// beside [`Term::amplification`]'s cells: each swap exchanges two rows
+    /// of cells and their marks. The alternate screen's index goes back to
+    /// the identity when the screen is left and before a resize on it, at
+    /// most a swap a row, and with none when no region move has turned it
+    /// since.
+    pub fn slot_swaps(&self) -> Rows {
+        self.store.strs.slot_swaps
     }
 
     /// **The primary's past-edge bookkeeping against every cell of its

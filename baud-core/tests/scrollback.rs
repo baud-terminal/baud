@@ -199,21 +199,25 @@ fn the_region_count_moves_only_when_a_region_advances_the_ring() {
         support::feed(t, b"\x1b[S");
         assert_ne!(t.region_scrolls(), once, "and again for SU");
         let twice = t.region_scrolls();
-        // A short region and a tall one on the alternate screen: the short
-        // one copies there and does not move the count; the tall one
-        // rotates, and does.
+        // A short region on the alternate screen turns its index, in the
+        // read that sets it and after: no ring advances, and the count
+        // stays.
         support::feed(t, b"\x1b[r\x1b[?1049h\x1b[1;3r\x1b[3;1H\n\n\x1b[S");
         assert_eq!(
             t.region_scrolls(),
             twice,
-            "a short region on the alternate screen copies"
+            "a region moved through the index advances no ring"
         );
+        // A tall one rotates the ring there, with the index off the
+        // identity as with it at the identity, and the count moves.
         support::feed(t, b"\x1b[1;40r\x1b[40;1H\n");
+        let thrice = t.region_scrolls();
         assert_ne!(
-            t.region_scrolls(),
-            twice,
-            "a tall one rotates there, and the rows under it stayed"
+            thrice, twice,
+            "a tall one rotates the ring there, and the rows under it stayed"
         );
+        support::feed(t, b"\x1b[40;1H\n");
+        assert_ne!(t.region_scrolls(), thrice, "and in the read after");
     });
 }
 
@@ -246,8 +250,8 @@ fn the_wipe_count_moves_on_each_selective_erase_of_the_saved_lines() {
 
 /// **The row count moves on every move of rows that advances no ring, and
 /// on nothing that does.** A region in the middle, or a short top region
-/// under side margins or on the alternate screen, scrolls by copying its
-/// rows; `SD` and `RI` copy in any region smaller than the screen; `IL` and
+/// under side margins or on the alternate screen, moves its rows, by a copy
+/// or, on the alternate screen, by turning its index; `SD` and `RI` copy in any region smaller than the screen; `IL` and
 /// `DL` copy wherever they act. Each leaves the rings where they were, so
 /// nothing else across a read says the text on those rows moved. The whole
 /// screen scrolling, and a top region rotating, advance a ring and say so
@@ -300,20 +304,33 @@ fn the_row_count_moves_when_rows_move_and_no_ring_does() {
     });
 }
 
-/// **On the alternate screen a short top region still copies**, because
-/// nothing there is kept and the copy moves the region's rows where the
-/// rotation would move every row under it. Both render the same screen, so
-/// the cell count is the only thing that can tell them apart: one `SU` of a
-/// three-row region writes the region, three rows.
+/// **On the alternate screen a short top region turns its index**, in the
+/// read that sets it as in any read after, because nothing there is kept
+/// and the ring's rotation would move every row under it. The ring, a copy
+/// and the index render the same screen, so the cell count is the only
+/// thing that can tell them apart: one `SU` of a three-row region of full
+/// rows writes the one row it opens, where a copy writes the region's
+/// three.
+///
+/// Named break: copy a region move in a read through the identity --
+/// the `SU` writes three rows, not one.
 #[test]
-fn the_alternate_screen_copies_a_short_top_region() {
+fn the_alternate_screen_turns_the_index_for_a_short_top_region() {
     support::with_corpus(|t| {
-        support::feed(t, b"\x1b[?1049h\x1b[1;3r");
         let cols = t.geometry().0.index();
+        let full: Vec<u8> = (0..3)
+            .flat_map(|y| {
+                let mut b = format!("\x1b[{};1H", y + 1).into_bytes();
+                b.extend(std::iter::repeat_n(b'x', cols));
+                b
+            })
+            .collect();
+        support::feed(t, b"\x1b[?1049h");
+        support::feed(t, &full);
         let (_, before) = t.amplification();
-        support::feed(t, b"\x1b[S");
+        support::feed(t, b"\x1b[1;3r\x1b[S");
         let (_, after) = t.amplification();
-        assert_eq!(after - before, 3 * cols);
+        assert_eq!(after - before, cols);
     });
 }
 

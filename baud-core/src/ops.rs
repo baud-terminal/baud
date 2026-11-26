@@ -48,6 +48,22 @@ pub(crate) enum AltSwitch {
     ClearOnExit,
 }
 
+/// **What a row a region move opens is blanked with**: the current blank,
+/// in the row's band, or the default rendition's.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Opened {
+    Current,
+    Default,
+}
+
+/// **How a region's rows moved**: rotated in the alternate screen's index,
+/// nothing copied, or copied row by row.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Moved {
+    Rotated,
+    Copied,
+}
+
 /// Whether a synchronised update (`?2026`) is open, for where a `?5` change is
 /// counted: a frame could show one made while it is released, and the
 /// application asked for one made while it is held not to be seen.
@@ -1274,19 +1290,19 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         // copied region scrolls a rep against zero everywhere else.
         #[cfg(not(feature = "ceiling-no-region-copy"))]
         {
-            if self.past_edge() {
-                self.clear_swept();
-            }
-            let b = self.blank();
-            let mut x = M::Cross::default();
-            self.view.delete_lines_in(top, n, bot, b, &mut x);
-            self.moved(&x);
+            self.move_lines((top, bot), n, BandMove::Up, Opened::Current);
             if self.past_edge() {
                 self.lines_moved_past_edge(top, n, bot, BandMove::Up);
             }
         }
-        let rot = self.view.rotation();
-        self.marks_moved(rot, (top, bot), Rows::of_count(k), BandMove::Up, Rows::ZERO);
+        #[cfg(feature = "ceiling-no-region-copy")]
+        {
+            let rot = self.view.rotation();
+            self.marks_moved(rot, (top, bot), Rows::of_count(k), BandMove::Up, Rows::ZERO);
+            self.cells = self
+                .cells
+                .plus((bot.index() + 1 - top.index()) * self.cols.index());
+        }
         if self.images.any_placed() {
             self.band_images_moved(top, bot, Rows::of_count(k), BandMove::Up);
         }
@@ -1300,13 +1316,81 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             self.placement_band_moved(top, bot, Rows::of_count(k), BandMove::Up);
         }
         self.path_rows(Row::from_index(bot.index() + 1 - k), bot);
-        // **The whole region, not `k` rows.** `delete_lines_in` moves every
-        // row inside the region and blanks `k`; counting only the blanks
-        // undercounted the copying path by the height of the region, which is
-        // exactly the traffic the rotation above avoids.
-        self.cells = self
-            .cells
-            .plus((bot.index() + 1 - top.index()) * self.cols.index());
+    }
+
+    /// **Rows `top..=bot` moved `n` rows `way`**, the rows the move opens
+    /// blank. On an alternate screen read through its index, with a region
+    /// set that turns it or the index already off the identity
+    /// ([`crate::term::Cold::region_turns_index`]), the rows rotate in the
+    /// index: no row is copied, each opened row is blanked to its extent,
+    /// and the shell's marks, kept by slot, stay on their lines. Anywhere
+    /// else the rows are copied at full width and every row of the region
+    /// is counted written; a read through the identity on the alternate
+    /// screen meets neither condition. The shell's marks go with their
+    /// lines either way.
+    fn move_lines(&mut self, (top, bot): (Row, Row), n: Count, way: BandMove, opened: Opened) {
+        let k = n.at_least_one().min(bot.index() + 1 - top.index());
+        if self.move_rows((top, bot), n, way, opened) == Moved::Copied {
+            let rot = self.view.rotation();
+            self.marks_moved(rot, (top, bot), Rows::of_count(k), way, Rows::ZERO);
+        }
+    }
+
+    /// [`Paint::move_lines`] without the shell's marks: how the rows moved.
+    /// A rotation carries a mark kept by slot with its line; a copy leaves
+    /// it on the slot, for the caller to move.
+    pub(crate) fn move_rows(
+        &mut self,
+        (top, bot): (Row, Row),
+        n: Count,
+        way: BandMove,
+        opened: Opened,
+    ) -> Moved {
+        let h = bot.index() + 1 - top.index();
+        let k = n.at_least_one().min(h);
+        if self.past_edge() {
+            self.clear_swept();
+        }
+        if self.cold.screen == Screen::Alternate
+            && (self.cold.region_turns_index(self.rows) || self.view.slots_permuted())
+        {
+            let up = match way {
+                BandMove::Up => k,
+                BandMove::Down => h - k,
+            };
+            if self.view.rotate_up_in(top, bot, Rows::of_count(up)) {
+                let first = match way {
+                    BandMove::Up => bot.index() + 1 - k,
+                    BandMove::Down => top.index(),
+                };
+                for y in first..first + k {
+                    let r = Row::from_index(y);
+                    match opened {
+                        Opened::Current => self.fill_row_counted(r),
+                        Opened::Default => {
+                            let cell = PackedCell::empty_with(StyleId::DEFAULT);
+                            let w = self.view.fill_row(r, cell);
+                            self.cells = self.cells.plus(w.index());
+                        }
+                    }
+                }
+                return Moved::Rotated;
+            }
+        }
+        let b = match opened {
+            Opened::Current => self.blank(),
+            Opened::Default => PackedCell::empty_with(StyleId::DEFAULT),
+        };
+        let mut x = M::Cross::default();
+        match way {
+            BandMove::Up => self.view.delete_lines_in(top, n, bot, b, &mut x),
+            BandMove::Down => self.view.insert_lines_in(top, n, bot, b, &mut x),
+        }
+        self.moved(&x);
+        // **The whole region, not `k` rows**: the copy moves every row
+        // inside the region and blanks `k`.
+        self.cells = self.cells.plus(h * self.cols.index());
+        Moved::Copied
     }
 
     /// **The margin bell armed on a row under a top region about to scroll
@@ -1698,24 +1782,10 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         }
         self.cold
             .band_moved((top, bot), Rows::of_count(k), Scroll::Down, self.book.top);
-        if self.past_edge() {
-            self.clear_swept();
-        }
-        let b = self.blank();
-        let mut x = M::Cross::default();
-        self.view.insert_lines_in(top, n, bot, b, &mut x);
-        self.moved(&x);
+        self.move_lines((top, bot), n, BandMove::Down, Opened::Current);
         if self.past_edge() {
             self.lines_moved_past_edge(top, n, bot, BandMove::Down);
         }
-        let rot = self.view.rotation();
-        self.marks_moved(
-            rot,
-            (top, bot),
-            Rows::of_count(k),
-            BandMove::Down,
-            Rows::ZERO,
-        );
         if self.images.any_placed() {
             self.band_images_moved(top, bot, Rows::of_count(k), BandMove::Down);
         }
@@ -1729,9 +1799,6 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             self.placement_band_moved(top, bot, Rows::of_count(k), BandMove::Down);
         }
         self.path_rows(top, Row::from_index(top.index() + k - 1));
-        self.cells = self
-            .cells
-            .plus((bot.index() + 1 - top.index()) * self.cols.index());
     }
 
     /// DECSTBM. **A region needs at least two rows**, and setting one homes
@@ -1860,22 +1927,8 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
         self.cold
             .lines_inserted((at, bot), Rows::of_count(k), self.book.top);
-        if self.past_edge() {
-            self.clear_swept();
-        }
-        let b = self.blank();
-        let mut x = M::Cross::default();
-        self.view.insert_lines_in(at, n, bot, b, &mut x);
-        self.moved(&x);
+        self.move_lines((at, bot), n, BandMove::Down, Opened::Current);
         self.lines_bounded(at, bot, Rows::of_count(k), BandMove::Down);
-        let rot = self.view.rotation();
-        self.marks_moved(
-            rot,
-            (at, bot),
-            Rows::of_count(k),
-            BandMove::Down,
-            Rows::ZERO,
-        );
         self.path_rows(at, Row::from_index(at.index() + k - 1));
         if self.past_edge() {
             self.lines_moved_past_edge(at, n, bot, BandMove::Down);
@@ -1892,11 +1945,6 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         if self.cold.placement.is_placed() {
             self.placement_band_moved(at, bot, Rows::of_count(k), BandMove::Down);
         }
-        // Every row from the cursor's line to the bottom margin: the moved
-        // rows and the `k` opened ones are each written at full width.
-        self.cells = self
-            .cells
-            .plus((bot.index() + 1 - at.index()) * self.cols.index());
         self.row_changed_to(self.cy);
     }
 
@@ -1970,16 +2018,8 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
         self.cold
             .lines_deleted((at, bot), Rows::of_count(k), self.book.top);
-        if self.past_edge() {
-            self.clear_swept();
-        }
-        let b = self.blank();
-        let mut x = M::Cross::default();
-        self.view.delete_lines_in(at, n, bot, b, &mut x);
-        self.moved(&x);
+        self.move_lines((at, bot), n, BandMove::Up, Opened::Current);
         self.lines_bounded(at, bot, Rows::of_count(k), BandMove::Up);
-        let rot = self.view.rotation();
-        self.marks_moved(rot, (at, bot), Rows::of_count(k), BandMove::Up, Rows::ZERO);
         self.path_rows(Row::from_index(bot.index() + 1 - k), bot);
         if self.past_edge() {
             self.lines_moved_past_edge(at, n, bot, BandMove::Up);
@@ -1996,11 +2036,6 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         if self.cold.placement.is_placed() {
             self.placement_band_moved(at, bot, Rows::of_count(k), BandMove::Up);
         }
-        // Every row from the cursor's line to the bottom margin: the moved
-        // rows and the `k` opened ones are each written at full width.
-        self.cells = self
-            .cells
-            .plus((bot.index() + 1 - at.index()) * self.cols.index());
         self.row_changed_to(self.cy);
     }
 
@@ -5153,8 +5188,14 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             | PrivateMode::AltScreenClearing
             | PrivateMode::SaveCursor
                 if !self.cold.resources.is_set(Resource::AltScreenAllowed) => {}
-            PrivateMode::AltScreen => self.set_alt_screen(change, AltSwitch::SaveAndClear),
-            PrivateMode::AltScreenClearing => self.set_alt_screen(change, AltSwitch::ClearOnExit),
+            PrivateMode::AltScreen => {
+                self.set_alt_screen(change, AltSwitch::SaveAndClear);
+                self.up_through_index(node);
+            }
+            PrivateMode::AltScreenClearing => {
+                self.set_alt_screen(change, AltSwitch::ClearOnExit);
+                self.up_through_index(node);
+            }
             // **`?1048` is DECSC and DECRC**, "Save cursor as in DECSC" and
             // "Restore cursor as in DECRC" (`[[source: ctlseqs]]`), the shown
             // screen's slot `ESC 7` and `ESC 8` use, as xterm's `CursorSave`
@@ -5167,7 +5208,10 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
             // the alternate screen shows what it held when it was last left.
             // It was routed nowhere while `docs/vt-coverage.md` called it
             // done, and its one test passed on a no-op.
-            PrivateMode::AltScreenLegacy => self.set_alt_screen(change, AltSwitch::Bare),
+            PrivateMode::AltScreenLegacy => {
+                self.set_alt_screen(change, AltSwitch::Bare);
+                self.up_through_index(node);
+            }
             // The Sixel modes, recorded only while DA lists Sixel
             // ([`Paint::sixel_claim`]): `sixel_end` reads `?80` and `?8452`,
             // and `Act::SixelStart` `?80` and `?1070`.
@@ -5444,6 +5488,9 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                 // stays the sentinel, as `goto` places nothing; a placed
                 // cursor keeps its tag.
                 if how == AltSwitch::SaveAndClear {
+                    // A screen erased whole: its index is the identity
+                    // again, no row moved.
+                    self.view.reset_slots();
                     self.view.reset_rot(&mut OneTable);
                     self.clear_screen();
                     if self.any_frozen() {
@@ -5507,6 +5554,13 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
                 if self.strs.print.areas.held() {
                     self.strs.print.areas.forget_screen(ImageScreen::Alternate);
                 }
+                // **The alternate screen's rows follow its index first**,
+                // with the shell's marks it keeps by slot, so it is parked
+                // at the identity: a read on the primary holds no index, and
+                // one that switches back under `?47` reads the parked rows
+                // in ring order. At most a row swap a row of the screen,
+                // once a visit, and none when no region move turned it.
+                self.slots_home();
                 self.cold.screen = Screen::Normal;
                 self.cold.epoch = self.cold.epoch.next();
                 core::mem::swap(&mut self.cold.saved, &mut self.cold.saved_other);
@@ -6226,6 +6280,26 @@ impl<M: crate::bands::BandMode> Paint<'_, '_, M> {
         };
         if let Some(c1) = c1 {
             self.cold.replies = self.cold.replies.with_c1(c1);
+        }
+    }
+
+    /// **The alternate screen up, in a read through the identity, with a
+    /// region that turns its index holds the rest of the read**
+    /// ([`crate::term::Cold::region_turns_index`]), which `Term::feed` feeds
+    /// again as a read of its own, through the screen's index when the
+    /// store lent one. Called once the screen comes up and once a region is
+    /// set, so a region move rotates or copies by the same rule whichever
+    /// read it falls in. Nothing held in a read through the index, with the
+    /// primary up, or with a region that turns no index.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn up_through_index(&mut self, node: &mut crate::graph::Node) {
+        if self.cold.screen == Screen::Alternate
+            && !self.view.holds_index()
+            && self.cold.region_turns_index(self.rows)
+        {
+            self.hold_read(node);
+            self.cold.restrip = crate::term::Restrip::Redispatch;
         }
     }
 

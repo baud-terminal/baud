@@ -5,7 +5,7 @@ mod reflow;
 mod store;
 pub use cross::{
     Band, CrossBand, Identity, Indexed, OneTable, PhysRow, SlotIndex, SlotMode, SlotOrder,
-    WindowSlot,
+    SlotState, WindowSlot,
 };
 pub use reflow::{Follow, Recut, Reflowed};
 pub use store::*;
@@ -1011,6 +1011,65 @@ impl<'a, S: SlotMode> View<'a, S> {
         let ring = self.ring.index();
         let p = S::position(&self.slots, s.index());
         (p + ring - self.rot.index()) % ring
+    }
+
+    /// **Window rows `top..=bottom` rotated up by `by` through the index**,
+    /// no cell copied: the row `by` below the top shows at the top, and the
+    /// rows that left the top show at the bottom, each with its cells and
+    /// its mark. Every slot the window shows at another place is stamped,
+    /// so a reader keyed by generation sees the rows a copy would have
+    /// written. `false`, and nothing done, through the identity or on a
+    /// surface that keeps no index: the caller copies the rows.
+    pub fn rotate_up_in(&mut self, top: Row, bottom: Row, by: Rows) -> bool {
+        let bot = bottom.index().min(self.rows.index() - 1);
+        let Some(ix) = S::index_mut(&mut self.slots) else {
+            return false;
+        };
+        if top.index() > bot {
+            return true;
+        }
+        let h = bot + 1 - top.index();
+        if by.index().is_multiple_of(h) {
+            return true;
+        }
+        ix.rotate(self.rot, top..=Row::from_index(bot), by);
+        for y in top.index()..=bot {
+            let p = self.phys(Row::from_index(y));
+            self.store.restamp(p);
+        }
+        true
+    }
+
+    /// **The index put back to the identity, the rows following it**: each
+    /// row stored where its place says, cells and marks swapped into place
+    /// and stamped. Returns the row swaps: none through the identity, and
+    /// none for an index at [`SlotState::Identity`].
+    pub fn normalise_slots(&mut self) -> Rows {
+        let store = &mut self.store;
+        match S::index_mut(&mut self.slots) {
+            Some(ix) => ix.normalise(|a, b| store.swap_rows(a.index(), b.index())),
+            None => Rows::ZERO,
+        }
+    }
+
+    /// **The index put back to the identity, no row moved**: for a surface
+    /// about to be erased whole, whose rows' order no longer matters.
+    pub fn reset_slots(&mut self) {
+        if let Some(ix) = S::index_mut(&mut self.slots) {
+            let _ = ix.normalise(|_, _| {});
+        }
+    }
+
+    /// **Whether the index this view holds is off the identity**: a
+    /// rotation has run since it was laid or put back. `false` through the
+    /// identity.
+    pub fn slots_permuted(&mut self) -> bool {
+        S::index_mut(&mut self.slots).is_some_and(|ix| ix.state() == SlotState::Permuted)
+    }
+
+    /// Whether this view reads its rows through an index it holds.
+    pub fn holds_index(&self) -> bool {
+        self.unindexed().is_none()
     }
 
     /// The order its ring is read in.

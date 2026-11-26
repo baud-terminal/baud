@@ -537,6 +537,9 @@ pub struct StrBuf<'b> {
     /// `clip_area` is: only a mark and a resize reach them.
     pub(crate) shell: crate::prompt::Shell,
     pub(crate) shell_other: crate::prompt::Shell,
+    /// Row swaps that put the alternate screen's index back to the
+    /// identity, on leaving it or before a resize: [`crate::Term::slot_swaps`].
+    pub(crate) slot_swaps: baud_domain::Rows,
     /// The prompts opened on the primary ([`crate::Term::prompts_opened`]):
     /// beside the marks' state, not in either screen's, because `?1049`
     /// swaps those and this is the primary's whichever is up.
@@ -680,6 +683,7 @@ impl<'b> StrBuf<'b> {
             color_modes: ColorModes::NONE,
             shell: crate::prompt::Shell::FRESH,
             shell_other: crate::prompt::Shell::FRESH,
+            slot_swaps: baud_domain::Rows::ZERO,
             prompts_opened: crate::prompt::PromptsOpened::NONE,
             prompt_at_bottom: PromptAtBottom::Off,
             prompts: PromptLog::new(&mut []),
@@ -919,7 +923,8 @@ impl Owned {
             alt_used: vec![RowMeta::ZERO; rows.index()],
             alt_slots: {
                 let mut s = vec![baud_domain::WindowSlot::UNSET; 2 * rows.index()];
-                baud_domain::SlotIndex::identity(&mut s, rows);
+                let mut state = baud_domain::SlotState::Identity;
+                baud_domain::SlotIndex::identity(&mut s, &mut state, rows);
                 s
             },
             // The status line's row, at the pitch: the widest the main
@@ -1178,6 +1183,7 @@ impl Owned {
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
+                slot_swaps: baud_domain::Rows::ZERO,
                 prompts_opened: crate::prompt::PromptsOpened::NONE,
                 prompt_at_bottom: PromptAtBottom::Off,
                 prompts: PromptLog::new(&mut self.prompts),
@@ -1287,6 +1293,7 @@ impl Owned {
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
+                slot_swaps: baud_domain::Rows::ZERO,
                 prompts_opened: crate::prompt::PromptsOpened::NONE,
                 prompt_at_bottom: PromptAtBottom::Off,
                 prompts: PromptLog::new(&mut self.prompts),
@@ -2064,17 +2071,19 @@ impl<'b> Storage<'b> {
         self
     }
 
-    /// **The alternate screen's window-slot index**, lent: two entries a
-    /// row of its ring, laid by [`baud_domain::SlotIndex::identity`]. A
-    /// store lent none reads the alternate screen in ring order.
+    /// **Lend the alternate screen its window-slot index**: `2 * rows`
+    /// entries for a screen of `rows` rows -- the index and its inverse, an
+    /// entry each a row of the alternate screen's ring, which is the alt
+    /// buffer's rows -- laid first by [`baud_domain::SlotIndex::identity`].
+    /// `Owned` lends `2 * rows`. With an index, a region move on the
+    /// alternate screen after the first of a visit rotates the index and
+    /// writes only the rows it opens; a storage lent none reads the
+    /// alternate screen in ring order and copies every row a region move
+    /// keeps.
     ///
     /// # Panics
     /// If `slots` is not two entries a row of the alternate screen.
-    #[cfg(feature = "alloc")]
-    pub(crate) fn with_window_slots(
-        mut self,
-        slots: &'b mut [baud_domain::WindowSlot],
-    ) -> Storage<'b> {
+    pub fn with_window_slots(mut self, slots: &'b mut [baud_domain::WindowSlot]) -> Storage<'b> {
         self.surfaces.lend_slots(slots);
         self
     }

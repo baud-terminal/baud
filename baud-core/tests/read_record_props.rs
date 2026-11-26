@@ -378,3 +378,59 @@ fn a_move_cleared_with_the_alternate_screen_leaves_no_chain_onto_a_copy() {
     );
     assert_eq!(rec.cleared(), Cleared::Alternate, "the control: {rec:?}");
 }
+
+/// The two shrunk cases of `the_record_does_not_depend_on_how_the_read_arrived`
+/// (lines 18 and 19 of read_record_props.proptest-regressions), each fed whole and a byte at a time.
+fn the_record_is_the_same_bytewise(bytes: &[u8], cuts: &[usize]) {
+    let reads = reads(bytes, cuts);
+    let whole: Vec<ReadRecord> = whole(&reads).into_iter().map(|(r, _)| r).collect();
+    let bytewise: Vec<ReadRecord> = bytewise(&reads).into_iter().map(|(r, _)| r).collect();
+    assert_eq!(whole, bytewise);
+}
+
+/// **A region move on the alternate screen names the same lines whether
+/// its read arrives whole or a byte at a time**: `CSI 0;5 r` on the primary,
+/// `?1047h`, `RI` at the region's top and `SU 4` on the alternate screen,
+/// then `?1049l`, `DL` on the primary and shifts around wide text -- line
+/// 18 of the regression file.
+///
+/// Named break: copy the first region move of a visit and rotate the
+/// rest -- the byte-a-read run rotates where the whole read copied, and
+/// the records name other lines.
+#[test]
+fn a_region_move_after_the_alternate_screen_comes_up_records_alike_bytewise() {
+    the_record_is_the_same_bytewise(
+        &[
+            27, 91, 48, 59, 53, 114, 27, 91, 63, 49, 48, 52, 55, 104, 27, 77, 27, 91, 52, 83, 27,
+            91, 55, 68, 27, 91, 63, 49, 48, 52, 57, 108, 27, 91, 48, 65, 27, 91, 49, 77, 27, 91,
+            27, 91, 63, 52, 53, 104, 27, 91, 52, 68, 27, 91, 48, 32, 64, 230, 188, 162, 229, 173,
+            151, 27, 91, 48, 32, 65, 27, 93, 55, 59, 102, 105, 108, 101, 58, 47, 47, 47, 116, 109,
+            112, 7,
+        ],
+        &[],
+    );
+}
+
+/// **The prompt's block moved by `IL` on the alternate screen records
+/// alike bytewise**: `?47h`, a prompt mark, `IL 1`, a second mark with a
+/// redraw, and `?1045h` -- line 19 of the regression file, cut at byte 26; and the same
+/// with `CSI 2;6 r` after `?47h`, so the `IL` turns the index.
+///
+/// Named break: erase the prompt's block by consecutive slots
+/// (`Paint::replace_prompt_block`) -- through a turned index the erase
+/// lands on other rows, and the records differ.
+#[test]
+fn a_prompt_block_moved_on_the_alternate_screen_records_alike_bytewise() {
+    let seed: &[u8] = &[
+        27, 91, 63, 52, 55, 104, 27, 91, 51, 66, 27, 93, 49, 51, 51, 59, 80, 59, 107, 61, 115, 7,
+        27, 91, 49, 76, 27, 93, 49, 51, 51, 59, 65, 59, 114, 101, 100, 114, 97, 119, 61, 49, 7,
+        116, 101, 120, 116, 12, 27, 91, 63, 49, 48, 52, 53, 104, 27, 91, 52, 59, 49, 59, 52, 59,
+        53, 59, 49, 36, 116, 27, 91, 50, 68, 27, 80, 113, 35, 48, 59, 50, 59, 49, 48, 48, 59, 48,
+        59, 48, 35, 48, 126, 126, 126, 126, 45, 126, 126, 27, 92,
+    ];
+    the_record_is_the_same_bytewise(seed, &[26]);
+    let mut turned = seed[..6].to_vec();
+    turned.extend_from_slice(b"\x1b[2;6r");
+    turned.extend_from_slice(&seed[6..]);
+    the_record_is_the_same_bytewise(&turned, &[32]);
+}

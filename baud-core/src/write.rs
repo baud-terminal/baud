@@ -2469,7 +2469,10 @@ fn csi_dispatch<M: crate::bands::BandMode>(
         DomCsi::String(e) => p.string_edge(e),
         DomCsi::ScrollLeft(c) => p.scroll_columns(c, ColumnShift::Delete),
         DomCsi::ScrollRight(c) => p.scroll_columns(c, ColumnShift::Insert),
-        DomCsi::SetScrollRegion { top, bottom } => p.set_scroll_region(top, bottom),
+        DomCsi::SetScrollRegion { top, bottom } => {
+            p.set_scroll_region(top, bottom);
+            p.up_through_index(node);
+        }
         DomCsi::Sgr => p.apply_sgr(csi),
         DomCsi::SaveCursor => p.cold.saved = Some(p.save()),
         DomCsi::RestoreCursor => {

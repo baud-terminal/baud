@@ -43,6 +43,7 @@ struct Lent {
     reply: Vec<u8>,
     alt: Vec<PackedCell>,
     alt_used: Vec<RowMeta>,
+    alt_slots: Vec<baud_domain::WindowSlot>,
     clusters: Vec<ClusterSlot>,
     pending: Vec<u8>,
     title: Vec<u8>,
@@ -112,6 +113,12 @@ impl Lent {
             reply: vec![0; REPLY],
             alt: vec![PackedCell::EMPTY; span],
             alt_used: vec![RowMeta::ZERO; rows.index()],
+            alt_slots: {
+                let mut s = vec![baud_domain::WindowSlot::UNSET; 2 * rows.index()];
+                let mut state = baud_domain::SlotState::Identity;
+                baud_domain::SlotIndex::identity(&mut s, &mut state, rows);
+                s
+            },
             clusters: vec![ClusterSlot::EMPTY; NCLUSTER],
             pending: vec![0; OSC_MAX],
             title: vec![0; OSC_MAX],
@@ -188,6 +195,7 @@ impl Lent {
             ),
         )
         .with_status_line(StatusBuf::new(&mut self.status, &mut self.status_used))
+        .with_window_slots(&mut self.alt_slots)
         .with_frozen(FrozenBuf {
             words: &mut self.words,
             gens: &mut self.gens,
@@ -1093,4 +1101,38 @@ fn a_screen_coming_back_fills_the_table_without_refusing() {
     ];
     let c = differential(&tall, Depth::of(100), &steps).past_the_table();
     assert!(c.rows_thawed >= 9, "the control: rows came back: {c:?}");
+}
+
+/// **A storage built by hand rotates the alternate screen's region moves
+/// once it lends the window-slot index**, as `Owned` does: at 200x50, after
+/// a visit's first region move, an `SU` in a 24-row top region writes the
+/// one row it opens, 200 cells, and none of the 23 rows it keeps. The same
+/// storage lent no index copies every row of the region, 4,800 cells.
+///
+/// Named break: `Storage::with_window_slots` left uncalled, or lending
+/// nothing -- the lent arm writes 4,800 cells, as the unindexed one does.
+#[test]
+fn a_storage_built_by_hand_lends_the_alternate_screen_its_index() {
+    const BIG: WinSize = WinSize {
+        ws_row: 50,
+        ws_col: 200,
+    };
+    let scroll = |lent: &mut Lent| {
+        let mut t = lent.term(&BIG);
+        let mut b = b"\x1b[?1049h".to_vec();
+        for y in 0..50 {
+            b.extend_from_slice(format!("\x1b[{};1H{}", y + 1, "x".repeat(200)).as_bytes());
+        }
+        // A region move through the index, then the one measured.
+        b.extend_from_slice(b"\x1b[1;24r\x1b[S");
+        feed(&mut t, &b);
+        let before = t.amplification().1;
+        feed(&mut t, b"\x1b[S");
+        t.amplification().1 - before
+    };
+    let mut lent = Lent::new(&BIG, Depth::of(200), NSTYLE, Pool::None);
+    assert_eq!(scroll(&mut lent), 200, "lent an index: the opened row only");
+    let mut none = Lent::new(&BIG, Depth::of(200), NSTYLE, Pool::None);
+    none.alt_slots.clear();
+    assert_eq!(scroll(&mut none), 24 * 200, "lent none: the region copied");
 }
