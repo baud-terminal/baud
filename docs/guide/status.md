@@ -85,10 +85,10 @@ and each one known is listed under
 
 Every speed and latency figure was taken on one Mac, an Apple M5 Max, or on
 one PC, an AMD Ryzen Threadripper 9980X running Linux. On Linux, the
-throughput through a pty is quotable with baud drawing on the CPU and
-indicative with it drawing on the GPU, because the build measured does not
-count, at exit, the frames drawn on the GPU
-([MEASUREMENTS.md](../../MEASUREMENTS.md#six-terminals-through-a-pty-both-drawing-arms-linux-x86_64-2026-11-18)).
+throughput through a pty is quotable with baud drawing on the GPU and on
+the CPU, at `8e404c38` on 2026-11-24, where each run counts at exit where
+its frames were drawn
+([MEASUREMENTS.md](../../MEASUREMENTS.md#six-terminals-through-a-pty-both-drawing-arms-linux-x86_64-2026-11-24)).
 [Performance](performance.md) says what was measured and how.
 
 ## Getting it

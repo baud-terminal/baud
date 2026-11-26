@@ -430,7 +430,111 @@ frame on cat-cjk; that is not re-checked here. wezterm was a nix build of an
 unstable branch (a kitty-image PR), ghostty the 1.3.1 app bundle, alacritty and
 kitty nix packages, each configured only for geometry and font.
 
+## Six terminals through a pty, both drawing arms, Linux x86_64, 2026-11-24
+
+AMD Ryzen Threadripper 9980X, Linux 7.2.6, NixOS. baud at `8e404c38`, where
+Linux draws on the GPU arm (Vulkan) first and on the CPU arm under it, built
+three times from `git archive` of that commit at one path, the three binaries
+byte-identical, so each of baud's arms ran beside an A/A copy of itself. At
+that commit each launch on the GPU arm names its device and counts, at exit,
+the frames it showed on the device and the frames it drew on the CPU
+(`0b329eab`). foot 1.28.0, alacritty 0.17.0, kitty 0.50.0, ghostty 1.4.0 and
+wezterm 0-unstable-2026-11-08 are nixpkgs d5cc6833's distribution builds.
+
+baud ran on each of its two drawing arms: the GPU arm, its default on
+Linux, and the CPU arm, with `BAUD_GPU=off`. The harness (`9f0eb7e8`, not in this repository)
+opens each terminal at 200x50 under sway 1.12, replays each of four
+recordings through a pty, and times each run to the terminal's answer to a
+cursor report asked after the last byte. It counts the frames each terminal
+submits in the timed part from that terminal's own Wayland connection, and
+takes hardware counters around the timed part only. Six rounds, the arms
+shuffled each round, round 1 dropped: each rate is the median of rounds 2-6,
+MB/s, with [range] for baud's two arms and ghostty. Frames a MB is the lowest
+and highest of the four recordings, given for baud's two arms, ghostty,
+alacritty and foot. baud's figures are its base copy's.
+
+Every run passed the harness's checks: each launch complete, at 200x50 and
+the terminal it claims, each answering the cursor report, every arm ending a
+recording at the same cursor, the bytes replayed, the screens of baud's
+change copy the same pixel for pixel as its base copy's, every terminal's
+frames counted, and each of baud's launches ending with its count of where
+its frames were drawn. Every baud A/A pair overlaps, on both arms and in
+both modes.
+
+Where baud drew, from the counts at exit, over each copy's 24 launches:
+
+* **the GPU arm** named the AMD Radeon RX 9070 XT (RADV GFX1201) on every
+  launch. As shipped each copy showed 1,610-1,634 frames on the device and
+  drew 48-66 on the CPU; in equal mode, 728-738 on the device and 24-28 on
+  the CPU. Every frame drawn on the CPU was drawn while the device's
+  pipelines were being built;
+* **the CPU arm** drew every frame on the CPU and none on the device.
+
+Two modes:
+
+* **as shipped**: each terminal at its own font, size, scrollback and effects;
+  baud with `padding = 0` and `activity_lights = "off"`;
+* **equal**: DejaVu Sans Mono 13 on every terminal, foot's and alacritty's
+  line set to baud's 20 px, checked as the same face and a cell within 1 px of
+  baud's on every terminal.
+
+**As shipped, MB/s:**
+
+| terminal | cat-scroll | cat-cjk | git-log | less-pager | frames a MB |
+|---|---|---|---|---|---|
+| baud, GPU arm | 93.7 [85.8-105.4] | 111.3 [102.0-115.2] | 116.8 [111.8-130.9] | 98.7 [97.7-109.9] | 0.61-0.74 |
+| baud, CPU arm | 76.9 [72.0-83.5] | 81.8 [80.9-90.5] | 87.2 [83.0-97.1] | 91.9 [83.0-97.3] | 0.55-0.89 |
+| ghostty 1.4.0 | 96.3 [53.1-109.6] | 141.0 [129.5-159.6] | 118.7 [116.7-133.4] | 103.6 [102.4-121.2] | 0.45-0.71 |
+| alacritty 0.17.0 | 96.9 | 123.4 | 112.3 | 98.9 | 0.55-0.71 |
+| foot 1.28.0 | 102.2 | 119.8 | 118.9 | 49.1 | 0.55-1.34 |
+| kitty 0.50.0 | 94.1 | 101.6 | 116.4 | 106.0 | |
+| wezterm | 28.8 | 36.7 | 30.0 | 22.0 | |
+
+**Equal, MB/s:**
+
+| terminal | cat-scroll | cat-cjk | git-log | less-pager | frames a MB |
+|---|---|---|---|---|---|
+| baud, GPU arm | 99.9 [90.8-104.5] | 109.7 [101.7-111.5] | 125.1 [116.1-131.8] | 109.0 [100.7-112.1] | 0.56-0.68 |
+| baud, CPU arm | 85.3 [76.2-86.9] | 94.6 [88.4-98.8] | 110.6 [99.7-112.0] | 99.1 [90.4-101.8] | 0.60-0.79 |
+| ghostty 1.4.0 | 103.5 [94.7-111.2] | 155.1 [137.3-178.2] | 136.8 [121.8-141.3] | 117.7 [106.3-122.4] | 0.42-0.66 |
+| alacritty 0.17.0 | 95.4 | 156.7 | 126.7 | 111.3 | 0.45-0.71 |
+| foot 1.28.0 | 104.2 | 118.6 | 127.2 | 55.0 | 0.53-1.21 |
+| kitty 0.50.0 | 96.7 | 103.6 | 124.4 | 107.0 | |
+| wezterm | 30.9 | 3.2 [3.0-3.4] | 30.9 | 23.7 | |
+
+* **Both arms' figures are valid and quotable**, with the frames each
+  terminal submitted beside every rate.
+* **The GPU arm is ahead of the CPU arm on all four recordings as shipped,
+  ranges apart**, and on three in equal mode; on less-pager in equal mode
+  the two ranges overlap.
+* **As shipped, the GPU arm is level with ghostty on cat-scroll, git-log
+  and less-pager** (ranges overlap) **and behind it on cat-cjk, 1.27x**,
+  ranges apart. On cat-cjk foot is ahead of it too, 1.08x; it is ahead of
+  foot on less-pager, 2.0x, and of wezterm on all four.
+* **At equal face and cell, the GPU arm is level with ghostty on cat-scroll,
+  git-log and less-pager, and behind it on cat-cjk, 1.41x**, ranges apart;
+  on cat-cjk alacritty is ahead of it too, 1.43x, and foot, 1.08x.
+* **The CPU arm, as shipped, is level with ghostty on cat-scroll and behind
+  it on the other three**, ranges apart: 1.13x on less-pager, 1.36x on
+  git-log and 1.72x on cat-cjk. At equal face and cell it is behind ghostty
+  on all four, 1.19x-1.64x.
+
+**Would have proven it wrong:** a terminal at another grid or ending at
+another cursor, a baud build whose screen differs from another's, a baud
+A/A pair whose ranges do not overlap, a terminal whose frames went
+uncounted, or a GPU-arm launch whose frames after its pipelines were built
+were drawn on the CPU. None of these happened.
+
+**Limits:** one host, one GPU, one compositor, four recordings. This is the
+whole application through a pty; the parser and screen model alone, in
+memory, are the
+[Linux in-memory comparison](#against-other-implementations-on-real-capture-linux-x86_64-2026-11-15).
+
 ## Six terminals through a pty, both drawing arms, Linux x86_64, 2026-11-18
+
+**Superseded** by
+[Six terminals through a pty, both drawing arms, Linux x86_64, 2026-11-24](#six-terminals-through-a-pty-both-drawing-arms-linux-x86_64-2026-11-24); this
+section stays as the record of its own run.
 
 AMD Ryzen Threadripper 9980X, Linux 7.2.6, NixOS. baud at `9262e704`, where
 Linux draws on the GPU arm (Vulkan) first and on the CPU arm under it, built

@@ -198,16 +198,6 @@ alacritty: term\_term\_mod.rs. Alacritty contributors (Apache-2.0/MIT), 2026, gi
 - **Copy:** not committed; cited by URL and sha256
 - **Cited in:** `baud-difftest/tests/alacritty.rs`
 
-<a id="alacritty-vte-ansi"></a>
-### alacritty-vte-ansi
-
-vte 0.15.0 (the crate alacritty and baud-difftest link), src/ansi.rs -- StandardCharset::map. The Alacritty Project, 2025, vte crate.
-
-- **URL:** <https://raw.githubusercontent.com/alacritty/vte/v0.15.0/src/ansi.rs>
-- **sha256:** `2ce81d9282575b0f79d7a127463c177d966d1da13eea32d5ecbc0dc35f392b13` (83726 bytes)
-- **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `docs/vt-coverage.md`
-
 <a id="alacritty-vte-sgr"></a>
 ### alacritty-vte-sgr
 
@@ -1910,7 +1900,7 @@ XTerm Control Sequences. Edward Moy, Stephen Gildea, Thomas Dickey, 2026, invisi
 - **URL:** <https://invisible-island.net/xterm/ctlseqs/ctlseqs.txt>
 - **sha256:** `364c1c1987c85b1c1135e57a93e9008054f46d09a338de8dcc66ea9a7c613709` (164037 bytes)
 - **Copy:** [docs/research/sources/xterm-ctlseqs.txt](research/sources/xterm-ctlseqs.txt)
-- **Cited in:** `SECURITY.md`, `baud-app/src/app.rs`, `baud-app/src/bell.rs`, `baud-app/src/clip.rs`, `baud-app/src/gesture.rs`, `baud-app/src/hide.rs`, `baud-app/src/hostlog.rs`, `baud-app/src/keep.rs`, `baud-app/src/pointer.rs`, `baud-app/src/readline.rs`, `baud-app/src/reveal.rs`, `baud-app/src/seat.rs`, `baud-app/src/undrawn.rs`, `baud-app/src/wheel.rs`, `baud-app/src/winops.rs`, `baud-core/src/clip.rs`, `baud-core/src/dcs.rs`, `baud-core/src/font.rs`, `baud-core/src/graph.rs`, `baud-core/src/logging.rs`, `baud-core/src/margin.rs`, `baud-core/src/ops.rs`, `baud-core/src/osc.rs`, `baud-core/src/page.rs`, `baud-core/src/sixel.rs`, `baud-core/src/stack.rs`, `baud-core/src/storage.rs`, `baud-core/src/term.rs`, `baud-core/src/vt52.rs`, `baud-core/src/window.rs`, `baud-core/src/write.rs`, `baud-core/tests/alt_buffer_modes.rs`, `baud-core/tests/bell_volume.rs`, `baud-core/tests/checksum_extension.rs`, `baud-core/tests/clipboard.rs`, `baud-core/tests/color_stack.rs`, `baud-core/tests/conformance/main.rs`, `baud-core/tests/conformance/spec_inventory.rs`, `baud-core/tests/control_strings.rs`, `baud-core/tests/coverage.rs`, `baud-core/tests/csi_decline.rs`, `baud-core/tests/decid.rs`, `baud-core/tests/encoding/latin1.rs`, `baud-core/tests/encoding/width.rs`, `baud-core/tests/host_logging.rs`, `baud-core/tests/image_geometry.rs`, `baud-core/tests/key_encode.rs`, `baud-core/tests/key_modifiers.rs`, `baud-core/tests/keyboard_lights.rs`, `baud-core/tests/keyboard_modes.rs`, `baud-core/tests/kitten_detects_the_da.rs`, `baud-core/tests/kitty_keyboard.rs`, `baud-core/tests/memory_lock.rs`, `baud-core/tests/more_fix.rs`, `baud-core/tests/other_keys.rs`, `baud-core/tests/reply_room.rs`, `baud-core/tests/saved_cursor_per_screen.rs`, `baud-core/tests/scrollbar_mode.rs`, `baud-core/tests/sgr/ideogram.rs`, `baud-core/tests/sgr/rep_align.rs`, `baud-core/tests/sgr/subparams.rs`, `baud-core/tests/sixel.rs`, `baud-core/tests/sixel_modes.rs`, `baud-core/tests/title_modes.rs`, `baud-core/tests/vt100/c0.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-core/tests/vt100/cursor.rs`, `baud-core/tests/vt100/mode_lists.rs`, `baud-core/tests/vt100/modes.rs`, `baud-core/tests/vt100/private_modes.rs`, `baud-core/tests/vt100/save_params.rs`, `baud-core/tests/vt100/scrolling.rs`, `baud-core/tests/vt100/tabs.rs`, `baud-core/tests/vt220/dcs.rs`, `baud-core/tests/vt220/decrqm_cursor_style.rs`, `baud-core/tests/vt220/replies.rs`, `baud-core/tests/vt220/shifts.rs`, `baud-core/tests/vt420/origin.rs`, `baud-core/tests/vt420/reports.rs`, `baud-core/tests/window_ops.rs`, `baud-core/tests/window_reports.rs`, `baud-core/tests/x_property.rs`, `baud-core/tests/xterm/alt_screen.rs`, `baud-core/tests/xterm/bell_modes.rs`, `baud-core/tests/xterm/column_mode.rs`, `baud-core/tests/xterm/erase_saved_lines.rs`, `baud-core/tests/xterm/focus.rs`, `baud-core/tests/xterm/font.rs`, `baud-core/tests/xterm/highlight.rs`, `baud-core/tests/xterm/keypad_version.rs`, `baud-core/tests/xterm/mouse.rs`, `baud-core/tests/xterm/osc.rs`, `baud-core/tests/xterm/pointer_mode.rs`, `baud-core/tests/xterm/save_restore_modes.rs`, `baud-core/tests/xterm/soft_reset_scope.rs`, `baud-core/tests/xterm/tcap.rs`, `baud-core/tests/xterm/xres.rs`, `baud-core/tests/xterm_keyboards.rs`, `baud-core/tests/xterm_resources.rs`, `baud-domain/build/iso96.rs`, `baud-domain/src/base64.rs`, `baud-domain/src/decode.rs`, `baud-domain/src/input.rs`, `baud-domain/src/sixel.rs`, `baud-domain/src/sniff.rs`, `baud-domain/src/style.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/src/vt/clipboard.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/dcs.rs`, `baud-domain/src/vt/esc.rs`, `baud-domain/src/vt/font_ops.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/locator.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/mouse.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/print.rs`, `baud-domain/src/vt/rect.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/sgr.rs`, `baud-domain/src/vt/stack.rs`, `baud-domain/src/vt/tcap.rs`, `baud-domain/src/vt/window.rs`, `baud-domain/src/vt/xres.rs`, `baud-domain/tests/input.rs`, `baud-domain/tests/kitty.rs`, `baud-domain/tests/osc52.rs`, `baud-domain/tests/reports.rs`, `baud-domain/tests/xtwinops.rs`, `baud-present-macos/src/clipboard.rs`, `baud-render/tests/highlight_colours.rs`, `baud-sfte-difftest/patches/0001-bel-terminates-an-osc-only.md`, `baud-sfte-difftest/tests/sfte.rs`, `docs/README.md`, `docs/input-coverage.md`, `docs/protocols/vt100.md`, `docs/protocols/vt220.md`, `docs/protocols/vt52.md`, `docs/protocols/xterm.md`, `docs/vt-coverage.md`, `xtask/src/pdf_search.rs`
+- **Cited in:** `SECURITY.md`, `baud-app/src/app.rs`, `baud-app/src/bell.rs`, `baud-app/src/clip.rs`, `baud-app/src/config.rs`, `baud-app/src/gesture.rs`, `baud-app/src/hide.rs`, `baud-app/src/hostlog.rs`, `baud-app/src/keep.rs`, `baud-app/src/pointer.rs`, `baud-app/src/readline.rs`, `baud-app/src/reveal.rs`, `baud-app/src/seat.rs`, `baud-app/src/undrawn.rs`, `baud-app/src/wheel.rs`, `baud-app/src/winops.rs`, `baud-core/src/clip.rs`, `baud-core/src/dcs.rs`, `baud-core/src/font.rs`, `baud-core/src/graph.rs`, `baud-core/src/logging.rs`, `baud-core/src/margin.rs`, `baud-core/src/ops.rs`, `baud-core/src/osc.rs`, `baud-core/src/page.rs`, `baud-core/src/sixel.rs`, `baud-core/src/stack.rs`, `baud-core/src/storage.rs`, `baud-core/src/term.rs`, `baud-core/src/vt52.rs`, `baud-core/src/window.rs`, `baud-core/src/write.rs`, `baud-core/tests/alt_buffer_modes.rs`, `baud-core/tests/bell_volume.rs`, `baud-core/tests/checksum_extension.rs`, `baud-core/tests/clipboard.rs`, `baud-core/tests/color_stack.rs`, `baud-core/tests/conformance/main.rs`, `baud-core/tests/conformance/spec_inventory.rs`, `baud-core/tests/control_strings.rs`, `baud-core/tests/coverage.rs`, `baud-core/tests/csi_decline.rs`, `baud-core/tests/decid.rs`, `baud-core/tests/encoding/latin1.rs`, `baud-core/tests/encoding/width.rs`, `baud-core/tests/host_logging.rs`, `baud-core/tests/image_geometry.rs`, `baud-core/tests/key_encode.rs`, `baud-core/tests/key_modifiers.rs`, `baud-core/tests/keyboard_lights.rs`, `baud-core/tests/keyboard_modes.rs`, `baud-core/tests/kitten_detects_the_da.rs`, `baud-core/tests/kitty_keyboard.rs`, `baud-core/tests/memory_lock.rs`, `baud-core/tests/more_fix.rs`, `baud-core/tests/other_keys.rs`, `baud-core/tests/reply_room.rs`, `baud-core/tests/saved_cursor_per_screen.rs`, `baud-core/tests/scrollbar_mode.rs`, `baud-core/tests/sgr/ideogram.rs`, `baud-core/tests/sgr/rep_align.rs`, `baud-core/tests/sgr/subparams.rs`, `baud-core/tests/sixel.rs`, `baud-core/tests/sixel_modes.rs`, `baud-core/tests/title_modes.rs`, `baud-core/tests/vt100/c0.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-core/tests/vt100/cursor.rs`, `baud-core/tests/vt100/mode_lists.rs`, `baud-core/tests/vt100/modes.rs`, `baud-core/tests/vt100/private_modes.rs`, `baud-core/tests/vt100/save_params.rs`, `baud-core/tests/vt100/scrolling.rs`, `baud-core/tests/vt100/tabs.rs`, `baud-core/tests/vt220/dcs.rs`, `baud-core/tests/vt220/decrqm_cursor_style.rs`, `baud-core/tests/vt220/replies.rs`, `baud-core/tests/vt220/shifts.rs`, `baud-core/tests/vt420/origin.rs`, `baud-core/tests/vt420/reports.rs`, `baud-core/tests/window_ops.rs`, `baud-core/tests/window_reports.rs`, `baud-core/tests/x_property.rs`, `baud-core/tests/xterm/alt_screen.rs`, `baud-core/tests/xterm/bell_modes.rs`, `baud-core/tests/xterm/column_mode.rs`, `baud-core/tests/xterm/erase_saved_lines.rs`, `baud-core/tests/xterm/focus.rs`, `baud-core/tests/xterm/font.rs`, `baud-core/tests/xterm/highlight.rs`, `baud-core/tests/xterm/keypad_version.rs`, `baud-core/tests/xterm/mouse.rs`, `baud-core/tests/xterm/osc.rs`, `baud-core/tests/xterm/pointer_mode.rs`, `baud-core/tests/xterm/save_restore_modes.rs`, `baud-core/tests/xterm/soft_reset_scope.rs`, `baud-core/tests/xterm/tcap.rs`, `baud-core/tests/xterm/xres.rs`, `baud-core/tests/xterm_keyboards.rs`, `baud-core/tests/xterm_resources.rs`, `baud-domain/build/iso96.rs`, `baud-domain/src/base64.rs`, `baud-domain/src/decode.rs`, `baud-domain/src/input.rs`, `baud-domain/src/sixel.rs`, `baud-domain/src/sniff.rs`, `baud-domain/src/style.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/src/vt/clipboard.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/dcs.rs`, `baud-domain/src/vt/esc.rs`, `baud-domain/src/vt/font_ops.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/locator.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/mouse.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/print.rs`, `baud-domain/src/vt/rect.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/sgr.rs`, `baud-domain/src/vt/stack.rs`, `baud-domain/src/vt/tcap.rs`, `baud-domain/src/vt/window.rs`, `baud-domain/src/vt/xres.rs`, `baud-domain/tests/input.rs`, `baud-domain/tests/kitty.rs`, `baud-domain/tests/osc52.rs`, `baud-domain/tests/reports.rs`, `baud-domain/tests/xtwinops.rs`, `baud-present-macos/src/clipboard.rs`, `baud-render/tests/highlight_colours.rs`, `baud-sfte-difftest/patches/0001-bel-terminates-an-osc-only.md`, `baud-sfte-difftest/tests/sfte.rs`, `docs/README.md`, `docs/input-coverage.md`, `docs/protocols/vt100.md`, `docs/protocols/vt220.md`, `docs/protocols/vt52.md`, `docs/protocols/xterm.md`, `docs/vt-coverage.md`, `xtask/src/pdf_search.rs`
 
 <a id="darwin-mmap-2"></a>
 ### darwin-mmap-2
@@ -1931,7 +1921,7 @@ D-Bus Specification 0.43 (dbus 1.16.2, doc/dbus-specification.xml) -- marshallin
 - **sha256:** `ea56234bc02a4a8080c8a07908d3af8f443ccb22b63fd575062ac3ec9bc2e7dc` (348639 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-21
-- **Cited in:** `baud-app/src/bus.rs`, `baud-domain/src/dbus.rs`, `baud-domain/src/dbus/auth.rs`, `baud-domain/src/dbus/awaiting.rs`, `baud-domain/src/dbus/body.rs`, `baud-domain/src/dbus/bus.rs`, `baud-domain/src/dbus/decode.rs`, `baud-domain/src/dbus/header.rs`, `baud-domain/src/dbus/name.rs`, `baud-domain/src/dbus/notify.rs`, `baud-domain/src/dbus/sig.rs`, `baud-domain/src/dbus/value.rs`, `baud-domain/tests/dbus_auth.rs`, `baud-domain/tests/dbus_awaiting.rs`, `baud-domain/tests/dbus_decode.rs`, `baud-domain/tests/dbus_encode.rs`, `baud-domain/tests/dbus_name.rs`, `baud-domain/tests/dbus_oracle.rs`, `baud-domain/tests/dbus_owner.rs`, `baud-domain/tests/dbus_sig.rs`
+- **Cited in:** `baud-app/src/bus.rs`, `baud-domain/src/dbus.rs`, `baud-domain/src/dbus/auth.rs`, `baud-domain/src/dbus/awaiting.rs`, `baud-domain/src/dbus/body.rs`, `baud-domain/src/dbus/bus.rs`, `baud-domain/src/dbus/decode.rs`, `baud-domain/src/dbus/header.rs`, `baud-domain/src/dbus/name.rs`, `baud-domain/src/dbus/notify.rs`, `baud-domain/src/dbus/sig.rs`, `baud-domain/src/dbus/value.rs`, `baud-domain/tests/dbus_auth.rs`, `baud-domain/tests/dbus_awaiting.rs`, `baud-domain/tests/dbus_decode.rs`, `baud-domain/tests/dbus_encode.rs`, `baud-domain/tests/dbus_name.rs`, `baud-domain/tests/dbus_oracle.rs`, `baud-domain/tests/dbus_owner.rs`, `baud-domain/tests/dbus_sig.rs`, `baud-domain/tests/dbus_variant.rs`
 
 <a id="dcp-data"></a>
 ### dcp-data
@@ -1996,7 +1986,7 @@ DEC STD 070, Video Systems Reference Manual, EL-SM070-00. Digital Equipment Corp
 - **sha256:** `d30c2ace1cebdd5a28454177d4d9610d9661110bbeb4b97773259313042962f2` (74264381 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-10-15
-- **Cited in:** `baud-app/src/bell.rs`, `baud-app/src/gesture.rs`, `baud-app/src/host.rs`, `baud-app/src/line_lamps.rs`, `baud-app/src/print.rs`, `baud-app/src/reads.rs`, `baud-app/src/regis_font.rs`, `baud-app/src/title.rs`, `baud-app/src/winops.rs`, `baud-app/tests/event_rig.rs`, `baud-core/src/aligned.rs`, `baud-core/src/bounds.rs`, `baud-core/src/component.rs`, `baud-core/src/dcs.rs`, `baud-core/src/editing.rs`, `baud-core/src/feed.rs`, `baud-core/src/fence_rows.rs`, `baud-core/src/freeze.rs`, `baud-core/src/graph.rs`, `baud-core/src/hardcopy.rs`, `baud-core/src/leftward.rs`, `baud-core/src/locator.rs`, `baud-core/src/margin.rs`, `baud-core/src/ops.rs`, `baud-core/src/osc.rs`, `baud-core/src/page.rs`, `baud-core/src/paint.rs`, `baud-core/src/presentation.rs`, `baud-core/src/print.rs`, `baud-core/src/query.rs`, `baud-core/src/rect.rs`, `baud-core/src/regis.rs`, `baud-core/src/shift.rs`, `baud-core/src/sixel.rs`, `baud-core/src/status.rs`, `baud-core/src/term.rs`, `baud-core/src/tsr.rs`, `baud-core/src/vt52.rs`, `baud-core/src/write.rs`, `baud-core/tests/backward_moves.rs`, `baud-core/tests/banded_churn.rs`, `baud-core/tests/bell_volume.rs`, `baud-core/tests/character_editing.rs`, `baud-core/tests/checksum_extension.rs`, `baud-core/tests/clipboard.rs`, `baud-core/tests/conformance/enumerated.rs`, `baud-core/tests/conformance_level.rs`, `baud-core/tests/control_strings.rs`, `baud-core/tests/csi_decline.rs`, `baud-core/tests/cursor_right_to_left.rs`, `baud-core/tests/decid.rs`, `baud-core/tests/decrc_unsaved.rs`, `baud-core/tests/device_component.rs`, `baud-core/tests/encoding/latin1.rs`, `baud-core/tests/encoding/utf8.rs`, `baud-core/tests/frozen.rs`, `baud-core/tests/frozen_properties.rs`, `baud-core/tests/graphics_clears.rs`, `baud-core/tests/graphics_erase.rs`, `baud-core/tests/graphics_margins.rs`, `baud-core/tests/hardcopy.rs`, `baud-core/tests/host_logging.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/line_bounds.rs`, `baud-core/tests/line_rendition.rs`, `baud-core/tests/locator.rs`, `baud-core/tests/margin_pin.rs`, `baud-core/tests/outside_rows.rs`, `baud-core/tests/page_functions.rs`, `baud-core/tests/pending_wrap.rs`, `baud-core/tests/presentation_variants.rs`, `baud-core/tests/printing.rs`, `baud-core/tests/read_record.rs`, `baud-core/tests/region_line_state.rs`, `baud-core/tests/regis.rs`, `baud-core/tests/regis_input.rs`, `baud-core/tests/regis_screen.rs`, `baud-core/tests/reverse_osc.rs`, `baud-core/tests/set_up.rs`, `baud-core/tests/sixel.rs`, `baud-core/tests/sixel_fill.rs`, `baud-core/tests/sixel_modes.rs`, `baud-core/tests/sixel_reuse.rs`, `baud-core/tests/sixel_stream.rs`, `baud-core/tests/string_controls.rs`, `baud-core/tests/style_sweep.rs`, `baud-core/tests/style_table.rs`, `baud-core/tests/substitute_mark.rs`, `baud-core/tests/tab_waits.rs`, `baud-core/tests/text.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-core/tests/vt100/cursor.rs`, `baud-core/tests/vt100/cuu_cud.rs`, `baud-core/tests/vt100/erase.rs`, `baud-core/tests/vt100/erase_qualified.rs`, `baud-core/tests/vt100/irm.rs`, `baud-core/tests/vt100/save_params.rs`, `baud-core/tests/vt100/scroll_columns.rs`, `baud-core/tests/vt100/scrolling.rs`, `baud-core/tests/vt220/dcs.rs`, `baud-core/tests/vt220/selective_erase.rs`, `baud-core/tests/vt220/shifts.rs`, `baud-core/tests/vt420/corner.rs`, `baud-core/tests/vt420/decaln.rs`, `baud-core/tests/vt420/erase_colour.rs`, `baud-core/tests/vt420/index_columns.rs`, `baud-core/tests/vt420/line_starts.rs`, `baud-core/tests/vt420/locator.rs`, `baud-core/tests/vt420/origin.rs`, `baud-core/tests/vt420/presentation.rs`, `baud-core/tests/vt420/rect_ops.rs`, `baud-core/tests/vt420/rect_scroll.rs`, `baud-core/tests/vt420/reports.rs`, `baud-core/tests/vt420/side_margins.rs`, `baud-core/tests/vt420/state_reports.rs`, `baud-core/tests/vt420/status_line.rs`, `baud-core/tests/vt420/tab_backspace.rs`, `baud-core/tests/vt420/upss.rs`, `baud-core/tests/vt52/sequences.rs`, `baud-core/tests/vttest_double_size.rs`, `baud-core/tests/wide_last_column.rs`, `baud-core/tests/working_directory.rs`, `baud-core/tests/xterm/column_mode.rs`, `baud-core/tests/xterm/erase_saved_lines.rs`, `baud-core/tests/xterm/hyperlinks.rs`, `baud-core/tests/xterm/soft_reset_scope.rs`, `baud-difftest/tests/alacritty.rs`, `baud-domain/build/dec_sets.rs`, `baud-domain/build/iso96.rs`, `baud-domain/src/cell.rs`, `baud-domain/src/decode.rs`, `baud-domain/src/frozen.rs`, `baud-domain/src/grid.rs`, `baud-domain/src/grid/reflow.rs`, `baud-domain/src/image.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/nrcs_data.rs`, `baud-domain/src/quantity.rs`, `baud-domain/src/regis/cursor.rs`, `baud-domain/src/regis/mod.rs`, `baud-domain/src/regis/num.rs`, `baud-domain/src/sixel.rs`, `baud-domain/src/store.rs`, `baud-domain/src/style.rs`, `baud-domain/src/substitute.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/src/vt/crm.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/dcs.rs`, `baud-domain/src/vt/esc.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/level.rs`, `baud-domain/src/vt/locator.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/param.rs`, `baud-domain/src/vt/presentation.rs`, `baud-domain/src/vt/print.rs`, `baud-domain/src/vt/rect.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/tsr.rs`, `baud-domain/tests/conformance_levels.rs`, `baud-domain/tests/dec_sets.rs`, `baud-domain/tests/nrcs_dec.rs`, `baud-domain/tests/regis_walk.rs`, `baud-domain/tests/reports.rs`, `baud-domain/tests/sixel_decode.rs`, `baud-domain/tests/sixel_dump.rs`, `baud-domain/tests/video.rs`, `baud-font/src/raster.rs`, `baud-present-macos/tests/cells.rs`, `baud-present-vulkan/tests/scenes_bidi.rs`, `baud-render/src/atlas.rs`, `baud-render/src/bell.rs`, `baud-render/src/bidi.rs`, `baud-render/src/color.rs`, `baud-render/src/frozen.rs`, `baud-render/src/lights.rs`, `baud-render/src/overlay.rs`, `baud-render/src/print.rs`, `baud-render/src/renderer.rs`, `baud-render/src/select.rs`, `baud-render/tests/bidi_order.rs`, `baud-render/tests/composition.rs`, `baud-render/tests/frozen_cpu.rs`, `baud-render/tests/frozen_pictures.rs`, `baud-render/tests/frozen_rows.rs`, `baud-render/tests/frozen_words.rs`, `baud-render/tests/kitty_placeholder.rs`, `baud-render/tests/line_rendition.rs`, `baud-render/tests/reverse_raise.rs`, `baud-render/tests/reverse_video.rs`, `baud-render/tests/status_line.rs`, `baud-render/tests/status_line_direction.rs`, `baud-sfte-difftest/tests/sfte.rs`, `bench-others/ghostty-oracle/src/main.rs`, `docs/input-coverage.md`, `docs/protocols/vt52.md`, `docs/vt-coverage.md`
+- **Cited in:** `baud-app/src/bell.rs`, `baud-app/src/gesture.rs`, `baud-app/src/host.rs`, `baud-app/src/line_lamps.rs`, `baud-app/src/print.rs`, `baud-app/src/reads.rs`, `baud-app/src/regis_font.rs`, `baud-app/src/title.rs`, `baud-app/src/winops.rs`, `baud-app/tests/event_rig.rs`, `baud-core/src/aligned.rs`, `baud-core/src/bounds.rs`, `baud-core/src/component.rs`, `baud-core/src/dcs.rs`, `baud-core/src/editing.rs`, `baud-core/src/feed.rs`, `baud-core/src/fence_rows.rs`, `baud-core/src/freeze.rs`, `baud-core/src/graph.rs`, `baud-core/src/hardcopy.rs`, `baud-core/src/leftward.rs`, `baud-core/src/locator.rs`, `baud-core/src/margin.rs`, `baud-core/src/ops.rs`, `baud-core/src/osc.rs`, `baud-core/src/page.rs`, `baud-core/src/paint.rs`, `baud-core/src/presentation.rs`, `baud-core/src/print.rs`, `baud-core/src/query.rs`, `baud-core/src/rect.rs`, `baud-core/src/regis.rs`, `baud-core/src/shift.rs`, `baud-core/src/sixel.rs`, `baud-core/src/status.rs`, `baud-core/src/term.rs`, `baud-core/src/tsr.rs`, `baud-core/src/vt52.rs`, `baud-core/src/write.rs`, `baud-core/tests/backward_moves.rs`, `baud-core/tests/banded_churn.rs`, `baud-core/tests/bell_volume.rs`, `baud-core/tests/character_editing.rs`, `baud-core/tests/checksum_extension.rs`, `baud-core/tests/clipboard.rs`, `baud-core/tests/conformance/enumerated.rs`, `baud-core/tests/conformance_level.rs`, `baud-core/tests/control_strings.rs`, `baud-core/tests/csi_decline.rs`, `baud-core/tests/cursor_right_to_left.rs`, `baud-core/tests/decid.rs`, `baud-core/tests/decrc_unsaved.rs`, `baud-core/tests/device_component.rs`, `baud-core/tests/encoding/latin1.rs`, `baud-core/tests/encoding/utf8.rs`, `baud-core/tests/frozen.rs`, `baud-core/tests/frozen_properties.rs`, `baud-core/tests/graphics_clears.rs`, `baud-core/tests/graphics_erase.rs`, `baud-core/tests/graphics_margins.rs`, `baud-core/tests/hardcopy.rs`, `baud-core/tests/host_logging.rs`, `baud-core/tests/kitty_graphics.rs`, `baud-core/tests/line_bounds.rs`, `baud-core/tests/line_rendition.rs`, `baud-core/tests/locator.rs`, `baud-core/tests/margin_pin.rs`, `baud-core/tests/outside_rows.rs`, `baud-core/tests/page_functions.rs`, `baud-core/tests/pending_wrap.rs`, `baud-core/tests/presentation_variants.rs`, `baud-core/tests/printing.rs`, `baud-core/tests/read_record.rs`, `baud-core/tests/region_line_state.rs`, `baud-core/tests/regis.rs`, `baud-core/tests/regis_input.rs`, `baud-core/tests/regis_screen.rs`, `baud-core/tests/reverse_osc.rs`, `baud-core/tests/set_up.rs`, `baud-core/tests/sixel.rs`, `baud-core/tests/sixel_fill.rs`, `baud-core/tests/sixel_modes.rs`, `baud-core/tests/sixel_reuse.rs`, `baud-core/tests/sixel_stream.rs`, `baud-core/tests/string_controls.rs`, `baud-core/tests/style_sweep.rs`, `baud-core/tests/style_table.rs`, `baud-core/tests/substitute_mark.rs`, `baud-core/tests/tab_waits.rs`, `baud-core/tests/text.rs`, `baud-core/tests/vt100/charsets.rs`, `baud-core/tests/vt100/cursor.rs`, `baud-core/tests/vt100/cuu_cud.rs`, `baud-core/tests/vt100/erase.rs`, `baud-core/tests/vt100/erase_qualified.rs`, `baud-core/tests/vt100/irm.rs`, `baud-core/tests/vt100/save_params.rs`, `baud-core/tests/vt100/scroll_columns.rs`, `baud-core/tests/vt100/scrolling.rs`, `baud-core/tests/vt220/dcs.rs`, `baud-core/tests/vt220/selective_erase.rs`, `baud-core/tests/vt220/shifts.rs`, `baud-core/tests/vt420/corner.rs`, `baud-core/tests/vt420/decaln.rs`, `baud-core/tests/vt420/erase_colour.rs`, `baud-core/tests/vt420/index_columns.rs`, `baud-core/tests/vt420/line_starts.rs`, `baud-core/tests/vt420/locator.rs`, `baud-core/tests/vt420/origin.rs`, `baud-core/tests/vt420/presentation.rs`, `baud-core/tests/vt420/rect_ops.rs`, `baud-core/tests/vt420/rect_scroll.rs`, `baud-core/tests/vt420/reports.rs`, `baud-core/tests/vt420/side_margins.rs`, `baud-core/tests/vt420/state_reports.rs`, `baud-core/tests/vt420/status_line.rs`, `baud-core/tests/vt420/tab_backspace.rs`, `baud-core/tests/vt420/upss.rs`, `baud-core/tests/vt52/sequences.rs`, `baud-core/tests/vttest_double_size.rs`, `baud-core/tests/wide_last_column.rs`, `baud-core/tests/working_directory.rs`, `baud-core/tests/xterm/column_mode.rs`, `baud-core/tests/xterm/erase_saved_lines.rs`, `baud-core/tests/xterm/hyperlinks.rs`, `baud-core/tests/xterm/soft_reset_scope.rs`, `baud-difftest/tests/alacritty.rs`, `baud-domain/build/dec_sets.rs`, `baud-domain/build/iso96.rs`, `baud-domain/src/cell.rs`, `baud-domain/src/decode.rs`, `baud-domain/src/frozen.rs`, `baud-domain/src/grid.rs`, `baud-domain/src/grid/reflow.rs`, `baud-domain/src/image.rs`, `baud-domain/src/lib.rs`, `baud-domain/src/nrcs_data.rs`, `baud-domain/src/quantity.rs`, `baud-domain/src/regis/cursor.rs`, `baud-domain/src/regis/mod.rs`, `baud-domain/src/regis/num.rs`, `baud-domain/src/sixel.rs`, `baud-domain/src/store.rs`, `baud-domain/src/style.rs`, `baud-domain/src/substitute.rs`, `baud-domain/src/vt/charset.rs`, `baud-domain/src/vt/crm.rs`, `baud-domain/src/vt/csi.rs`, `baud-domain/src/vt/dcs.rs`, `baud-domain/src/vt/esc.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/level.rs`, `baud-domain/src/vt/locator.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/param.rs`, `baud-domain/src/vt/presentation.rs`, `baud-domain/src/vt/print.rs`, `baud-domain/src/vt/rect.rs`, `baud-domain/src/vt/report.rs`, `baud-domain/src/vt/tsr.rs`, `baud-domain/tests/conformance_levels.rs`, `baud-domain/tests/dec_sets.rs`, `baud-domain/tests/nrcs_dec.rs`, `baud-domain/tests/regis_walk.rs`, `baud-domain/tests/reports.rs`, `baud-domain/tests/sixel_decode.rs`, `baud-domain/tests/sixel_dump.rs`, `baud-domain/tests/video.rs`, `baud-font/src/raster.rs`, `baud-present-macos/tests/cells.rs`, `baud-present-vulkan/tests/scenes_bidi.rs`, `baud-render/src/atlas.rs`, `baud-render/src/bell.rs`, `baud-render/src/bidi.rs`, `baud-render/src/color.rs`, `baud-render/src/frozen.rs`, `baud-render/src/lights.rs`, `baud-render/src/overlay.rs`, `baud-render/src/print.rs`, `baud-render/src/renderer.rs`, `baud-render/src/select.rs`, `baud-render/tests/bidi_order.rs`, `baud-render/tests/composition.rs`, `baud-render/tests/frozen_cpu.rs`, `baud-render/tests/frozen_pictures.rs`, `baud-render/tests/frozen_rows.rs`, `baud-render/tests/frozen_words.rs`, `baud-render/tests/kitty_placeholder.rs`, `baud-render/tests/lent_ring.rs`, `baud-render/tests/line_rendition.rs`, `baud-render/tests/reverse_raise.rs`, `baud-render/tests/reverse_video.rs`, `baud-render/tests/status_line.rs`, `baud-render/tests/status_line_direction.rs`, `baud-sfte-difftest/tests/sfte.rs`, `bench-others/ghostty-oracle/src/main.rs`, `docs/input-coverage.md`, `docs/protocols/vt52.md`, `docs/vt-coverage.md`
 
 <a id="dyld-1042-1-loader"></a>
 ### dyld-1042-1-loader
@@ -2738,7 +2728,7 @@ foot 2705e36, osc.c -- OSC 0/1/2, osc\_set\_pwd (file scheme and hostname\_is\_l
 - **URL:** <https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/osc.c>
 - **sha256:** `1da9ac70169898b99ffaad8a0db32b577eda504c63d129a60fc447155fe8f315` (49852 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-present-wayland/src/window.rs`, `docs/vt-coverage.md`
+- **Cited in:** `baud-present-wayland/src/window.rs`
 
 <a id="foot-2705e36-render"></a>
 ### foot-2705e36-render
@@ -5118,17 +5108,6 @@ kitty v0.49.2, kittens/notify/main.go -- f=, t= and n= written with base64.StdEn
 - **Copy:** not committed; cited by URL and sha256
 - **Cited in:** `baud-domain/src/vt/notify.rs`
 
-<a id="kitty-0-43-1-wl-window"></a>
-### kitty-0-43-1-wl-window
-
-kitty 0.43.1, glfw/wl\_window.c -- the clipboard set with the latest serial received, focused or not (2655-2676). Kovid Goyal and the GLFW authors (zlib), 2026, kovidgoyal/kitty @ v0.43.1.
-
-- **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/v0.43.1/glfw/wl_window.c>
-- **sha256:** `76c3ce2990b9f7d1f20d20978eb9f602ed4a743419a1547117cb88d3f6b51870` (120492 bytes)
-- **Copy:** not committed; cited by URL and sha256
-- **Read:** 2026-10-21
-- **Cited in:** `docs/vt-coverage.md`
-
 <a id="kitty-1e1486e-background-slang"></a>
 ### kitty-1e1486e-background-slang
 
@@ -5169,17 +5148,6 @@ kitty 6d5d0c4, kitty/animation.h -- EASE\_IN\_OUT is cubic-bezier 0.42, 0, 0.58,
 - **sha256:** `ff852a8fe35d30fdefe3e9cc3983f3abf675d348d355a15538fcd4a9c1ed36e8` (1141 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Cited in:** `baud-render/src/bell.rs`, `docs/vt-coverage.md`
-
-<a id="kitty-6d5d0c4-clipboard-py"></a>
-### kitty-6d5d0c4-clipboard-py
-
-kitty 6d5d0c4, clipboard.py -- OSC 52's empty Pc read as s0 (498), s and c the clipboard, p the primary (85-90). Kovid Goyal (GPL-3.0), 2026, kitty, github.com/kovidgoyal/kitty @ 6d5d0c4.
-
-- **URL:** <https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/clipboard.py>
-- **sha256:** `d0e4f51f9166ef7614758490ea22808195d01a7acc0205823e62031af9d1dde8` (29152 bytes)
-- **Copy:** not committed; cited by URL and sha256
-- **Read:** 2026-10-20
-- **Cited in:** `docs/vt-coverage.md`
 
 <a id="kitty-6d5d0c4-color-stack"></a>
 ### kitty-6d5d0c4-color-stack
@@ -8118,7 +8086,7 @@ PDF Reference, third edition: Adobe Portable Document Format Version 1.4. Adobe 
 - **URL:** <https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.4.pdf>
 - **sha256:** `82274239cad9924434a2a4eaccc3b3c8ca2690472422cd96bf38ed14a69c0207` (9379963 bytes)
 - **Copy:** not committed; cited by URL and sha256
-- **Cited in:** `baud-render/src/print_pdf.rs`, `xtask/src/md5.rs`, `xtask/src/pdf.rs`
+- **Cited in:** `baud-domain/src/vt/print.rs`, `baud-render/src/print_pdf.rs`, `xtask/src/md5.rs`, `xtask/src/pdf.rs`
 
 <a id="posix-exec"></a>
 ### posix-exec
@@ -8794,17 +8762,6 @@ SMIL Animation -- calcMode 'discrete' 'will jump from one value to the next with
 - **Copy:** not committed; cited by URL and sha256
 - **Cited in:** `baud-app/src/logo_film.rs`, `tools/baud-pictures/src/logo.rs`
 
-<a id="smithay-clipboard-0-7-2-state"></a>
-### smithay-clipboard-0-7-2-state
-
-smithay-clipboard 0.7.2, src/state.rs -- store\_selection refuses while the seat lacks keyboard focus (110-140); the latest serial is the enter's or a key's (520-540). the Smithay contributors (MIT), 2026, Smithay/smithay-clipboard @ v0.7.2, alacritty's Wayland clipboard.
-
-- **URL:** <https://raw.githubusercontent.com/Smithay/smithay-clipboard/v0.7.2/src/state.rs>
-- **sha256:** `d24c62f5103526311e41b8a6b3e6bd22f10a7cef90a8a01195a4d3cb852915ca` (20216 bytes)
-- **Copy:** not committed; cited by URL and sha256
-- **Read:** 2026-10-21
-- **Cited in:** `docs/vt-coverage.md`
-
 <a id="spdx-0-13-6-crate"></a>
 ### spdx-0-13-6-crate
 
@@ -9132,17 +9089,6 @@ tinted-theming home 38fdf7d, styling.md v0.4.2 -- the base16 slot to ANSI 0-21 t
 - **sha256:** `ba027cc4a8ebc15a30c6d4d0a13aa4d53eb2e5809bbfb7530d62b52fa6846975` (7213 bytes)
 - **Copy:** [docs/research/sources/tinted-home-styling.md](research/sources/tinted-home-styling.md)
 - **Cited in:** `baud-domain/src/themefile.rs`
-
-<a id="tmux-3-5a-window-copy"></a>
-### tmux-3-5a-window-copy
-
-tmux 3.5a, window-copy.c -- copy mode sends OSC 52 with an empty Pc (4736, 4810). Nicholas Marriott and the tmux contributors (ISC), 2024, tmux, tag 3.5a.
-
-- **URL:** <https://raw.githubusercontent.com/tmux/tmux/3.5a/window-copy.c>
-- **sha256:** `79de54e6ffddb3b80d687ece7d851b55cdbabf314e347c142c70dc214a02756c` (151014 bytes)
-- **Copy:** not committed; cited by URL and sha256
-- **Read:** 2026-10-20
-- **Cited in:** `docs/vt-coverage.md`
 
 <a id="tmux-input-c"></a>
 ### tmux-input-c
@@ -12038,6 +11984,7 @@ xdg-foreign-unstable-v2 -- zxdg\_exporter\_v2.export\_toplevel, and the exported
 - **sha256:** `625d83fbb068f48e69e739eafde507f10cdfe7480146f3ac10af9a2ddf551c80` (9206 bytes)
 - **Copy:** [docs/research/sources/xdg-foreign-unstable-v2.xml](research/sources/xdg-foreign-unstable-v2.xml)
 - **Read:** 2026-11-16
+- **Cited in:** `baud-domain/src/foreign.rs`, `baud-domain/tests/foreign.rs`
 
 <a id="xdg-open-1"></a>
 ### xdg-open-1
@@ -12059,7 +12006,7 @@ xdg-desktop-portal ee298d1, data/org.freedesktop.portal.Print.xml -- version 4: 
 - **sha256:** `6b9e2ba951cab511bb8af5b1ee6d9eed117cc6542718c95f6596869de7295497` (10146 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-16
-- **Cited in:** `baud-app/src/bus.rs`, `baud-app/src/linux.rs`
+- **Cited in:** `baud-app/src/bus.rs`, `baud-app/src/linux.rs`, `baud-domain/src/dbus/portal.rs`, `baud-domain/src/vt/print.rs`, `baud-domain/tests/dbus_portal.rs`
 
 <a id="xdg-portal-request"></a>
 ### xdg-portal-request
@@ -12070,7 +12017,7 @@ xdg-desktop-portal ee298d1, data/org.freedesktop.portal.Request.xml -- the Reque
 - **sha256:** `fb6ce15cb23073a3d1f5ec6bd297a60edc3cb93f1a094c2bdd732fc93f736a8d` (3003 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-16
-- **Cited in:** `baud-app/src/bus.rs`
+- **Cited in:** `baud-app/src/bus.rs`, `baud-domain/src/dbus/portal.rs`
 
 <a id="xdg-portal-settings-v2"></a>
 ### xdg-portal-settings-v2
@@ -12091,7 +12038,7 @@ xdg-desktop-portal ee298d1, doc/window-identifiers.rst -- under Wayland a parent
 - **sha256:** `ea202f5205360da57dc9fb5e598eae3741bbe3328c6aab17279d1b68fdab8881` (1083 bytes)
 - **Copy:** not committed; cited by URL and sha256
 - **Read:** 2026-11-16
-- **Cited in:** `baud-present-wayland/src/window.rs`
+- **Cited in:** `baud-domain/src/dbus/portal.rs`, `baud-domain/tests/foreign.rs`, `baud-present-wayland/src/window.rs`
 
 <a id="xdg-system-bell-v1"></a>
 ### xdg-system-bell-v1
@@ -12730,7 +12677,7 @@ xterm patch #411, xterm.man -- allowTitleOps, allowWindowOps, disallowedWindowOp
 - **URL:** <https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xterm.man>
 - **sha256:** `6d3bdddbf3f8e26937276eaf19355372413e075851dad132f2b441e77fc40800` (333772 bytes)
 - **Copy:** [docs/research/sources/xterm-xterm.man](research/sources/xterm-xterm.man)
-- **Cited in:** `baud-app/src/bell.rs`, `baud-app/src/clip.rs`, `baud-app/src/hide.rs`, `baud-app/src/keep.rs`, `baud-app/src/paste.rs`, `baud-app/src/seat.rs`, `baud-bench/tests/bell_flashes.rs`, `baud-core/src/ops.rs`, `baud-core/src/rect.rs`, `baud-core/tests/checksum_extension.rs`, `baud-core/tests/encoding/width.rs`, `baud-core/tests/key_modifiers.rs`, `baud-core/tests/more_fix.rs`, `baud-core/tests/row_watch.rs`, `baud-core/tests/xterm/pointer_mode.rs`, `baud-domain/src/themefile/detect.rs`, `baud-domain/src/vt/clipboard.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/mouse.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/window.rs`, `baud-present-wayland/src/keys.rs`, `baud-present-wayland/src/pointer.rs`, `baud-render/src/bell.rs`, `baud-render/tests/special_colors.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
+- **Cited in:** `baud-app/src/bell.rs`, `baud-app/src/hide.rs`, `baud-app/src/keep.rs`, `baud-app/src/paste.rs`, `baud-app/src/seat.rs`, `baud-bench/tests/bell_flashes.rs`, `baud-core/src/ops.rs`, `baud-core/src/rect.rs`, `baud-core/tests/checksum_extension.rs`, `baud-core/tests/encoding/width.rs`, `baud-core/tests/key_modifiers.rs`, `baud-core/tests/more_fix.rs`, `baud-core/tests/row_watch.rs`, `baud-core/tests/xterm/pointer_mode.rs`, `baud-domain/src/themefile/detect.rs`, `baud-domain/src/vt/clipboard.rs`, `baud-domain/src/vt/key.rs`, `baud-domain/src/vt/key/keyboards.rs`, `baud-domain/src/vt/mode.rs`, `baud-domain/src/vt/mouse.rs`, `baud-domain/src/vt/osc.rs`, `baud-domain/src/vt/window.rs`, `baud-present-wayland/src/keys.rs`, `baud-present-wayland/src/pointer.rs`, `baud-render/src/bell.rs`, `baud-render/tests/special_colors.rs`, `docs/input-coverage.md`, `docs/vt-coverage.md`
 
 <a id="xterm-misc"></a>
 ### xterm-misc
