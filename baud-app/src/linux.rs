@@ -5800,4 +5800,104 @@ mod tests {
             }
         }
     }
+
+    /// **Effect pacing weighs the fireworks over a trail, and never a
+    /// ghost's sweep**: through a real renderer, a quad trail alone is paced
+    /// as that trail; with the fireworks lit over it the frame is paced as
+    /// the fireworks; and a ghost's sweep, drawn as one plain fill, is not
+    /// paced at all.
+    #[test]
+    fn effect_pacing_weighs_the_fireworks_over_a_trail_and_not_a_ghost_sweep() {
+        use crate::config::CursorTrail;
+        use crate::pacer::Paced;
+        use baud_core::{BytePos, ReadLen};
+        use baud_domain::{Col, Row};
+        use baud_render::fireworks::{BAUD, Form, HOLD, ORIGINS, Show};
+        use baud_render::{
+            Kind, Pt, Segment, Shape, Smear, Stack, Strength, Theme, Trail, TrailLook,
+        };
+        let ws = WinSize {
+            ws_col: 30,
+            ws_row: 10,
+        };
+        let faces = [baud_font::Face::parse(crate::embedded::REGULAR.bytes).expect("the face")];
+        let mut store = Owned::new(&ws);
+        let mut t = Term::new(store.storage(), &ws);
+        let text = b"row one\r\nrow two";
+        t.write_at(BytePos::ZERO, text);
+        t.feed(BytePos::ZERO, ReadLen::from_index(text.len()));
+        let (cols, rows) = t.geometry();
+        let renderer = || {
+            let mut r = Renderer::new(
+                Stack::new(&faces).expect("a stack"),
+                PxSize::of(14.0).expect("a size"),
+                Theme::dark(),
+                Blend::Native,
+                cols,
+                rows,
+            )
+            .expect("cell metrics");
+            r.fit(&t);
+            r
+        };
+        let kinds = |r: &Renderer<'_, '_>| r.trail().iter().map(|i| i.kind).collect::<Vec<_>>();
+
+        let mut r = renderer();
+        let style = baud_core::CursorStyle::SteadyBlock;
+        let rect = |r: &Renderer<'_, '_>, row: usize, col: usize| {
+            r.cursor_rect(Row::from_index(row), Col::at_index(col), style)
+        };
+        let hole = rect(&r, 1, 7);
+        let quad = Smear {
+            corners: Segment::new(rect(&r, 6, 20).corners(), hole).at(0.05),
+            hole,
+            shape: Shape::Quad,
+            strength: Strength::Full,
+            opacity: Smear::OPAQUE,
+        };
+        r.set_trail(Some(TrailLook::Smear(quad)));
+        assert_eq!(kinds(&r), [Kind::Quad], "the quad trail is drawn");
+        assert_eq!(
+            paced(&r, CursorTrail::Quad),
+            Some(Paced::Trail(CursorTrail::Quad)),
+            "a quad trail alone is paced as the trail"
+        );
+        let at = Pt { x: 60.0, y: 40.0 };
+        r.set_fireworks(&[Show {
+            age: 1.0 / 6.0,
+            hold: HOLD,
+            origins: [at; ORIGINS],
+            hole: at,
+            scale: 1.0,
+            seed: baud_render::effect::Seed(41),
+            look: BAUD,
+            form: Form::Moving,
+        }]);
+        assert!(
+            !r.trail().is_empty() && kinds(&r).iter().all(|&k| k == Kind::Particle),
+            "the fireworks hold the effect's slot: {:?}",
+            kinds(&r)
+        );
+        assert_eq!(
+            paced(&r, CursorTrail::Quad),
+            Some(Paced::Fireworks),
+            "the fireworks over a quad trail are paced as the fireworks"
+        );
+
+        let mut r = renderer();
+        r.set_trail(Some(TrailLook::Ghost(Trail {
+            from: (Row::from_index(6), Col::at_index(20)),
+            to: (Row::from_index(1), Col::at_index(7)),
+            progress: 0.5,
+            origin_dy: 0.0,
+            lift: baud_font::Px::of(0),
+            strength: Strength::Full,
+        })));
+        assert_eq!(kinds(&r), [Kind::Solid], "the ghost's sweep is drawn");
+        assert_eq!(
+            paced(&r, CursorTrail::Ghost),
+            None,
+            "a ghost's sweep is not paced"
+        );
+    }
 }
