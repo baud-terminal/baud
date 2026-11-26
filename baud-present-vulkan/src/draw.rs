@@ -14,6 +14,7 @@ use crate::sheets::Sheets;
 use ash::vk;
 use baud_present_wayland::Px;
 use baud_render::Instance;
+use std::mem::MaybeUninit;
 
 /// How a texture's texels are laid out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,12 +25,25 @@ pub enum Texel {
     Argb,
 }
 
+/// **A count of bytes in the CPU's memory**: a staging buffer's length,
+/// a texel's size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HostBytes(pub(crate) usize);
+
 impl Texel {
     fn format(self) -> vk::Format {
         match self {
             Texel::Coverage => vk::Format::R8_UNORM,
             Texel::Argb => vk::Format::B8G8R8A8_UNORM,
         }
+    }
+
+    /// The bytes a texel takes.
+    pub(crate) fn size(self) -> HostBytes {
+        HostBytes(match self {
+            Texel::Coverage => 1,
+            Texel::Argb => 4,
+        })
     }
 }
 
@@ -100,24 +114,40 @@ impl Gpu {
     /// A host-visible buffer holding `bytes` (at least four, as an empty
     /// buffer is not one Vulkan makes). A failure at any step destroys what
     /// the steps before it made ([`Gpu::bound`]).
-    #[allow(unsafe_code)]
     pub(crate) fn buffer(
         &self,
         bytes: &[u8],
         usage: vk::BufferUsageFlags,
     ) -> Result<Buffer, Failed> {
-        let size = vk::DeviceSize::try_from(bytes.len()).map_err(|_| Failed::NoMemoryType)?;
+        self.filled(HostBytes(bytes.len()), usage, |m| {
+            m.write_copy_of_slice(bytes);
+        })
+    }
+
+    /// **A host-visible buffer of `len` bytes that `fill` writes** through
+    /// its mapping, in place: the bytes reach the buffer with no copy
+    /// between. What `fill` leaves unwritten is undefined. A failure at any
+    /// step destroys what the steps before it made ([`Gpu::bound`]).
+    #[allow(unsafe_code)]
+    pub(crate) fn filled(
+        &self,
+        len: HostBytes,
+        usage: vk::BufferUsageFlags,
+        fill: impl FnOnce(&mut [MaybeUninit<u8>]),
+    ) -> Result<Buffer, Failed> {
+        let HostBytes(len) = len;
+        let size = vk::DeviceSize::try_from(len).map_err(|_| Failed::NoMemoryType)?;
         let (made, at) = self.bound(size, usage, PROPS_HOST)?;
         let Some(at) = at else {
             self.drop_buffer(made);
             return Err(Failed::NoMemoryType);
         };
-        // SAFETY: the mapping is the whole memory, at least `bytes` long,
-        // host-coherent, and unmapped before any submission reads it.
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), at, bytes.len());
-            self.device.unmap_memory(made.memory);
-        }
+        // SAFETY: the mapping is the whole memory, at least `len` long,
+        // host-coherent, written by nothing else, and unmapped before any
+        // submission reads it; its bytes are taken as uninitialised.
+        fill(unsafe { std::slice::from_raw_parts_mut(at.cast::<MaybeUninit<u8>>(), len) });
+        // SAFETY: mapped by `bound`, and the slice above is gone.
+        unsafe { self.device.unmap_memory(made.memory) };
         Ok(made)
     }
 

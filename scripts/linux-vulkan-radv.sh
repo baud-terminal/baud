@@ -50,6 +50,7 @@ expect=(
   the_fireworks_match_the_cpu_path_on_radv
   every_cell_pipeline_builds_on_radv
   the_sheets_persist_and_a_glyph_is_copied_as_its_rectangle_on_radv
+  a_colour_sheet_goes_through_staging_written_once_on_radv
   lent_memory_is_read_as_owed_on_radv
   bg_fragment_stores_every_channel_at_every_alpha_as_the_cpu_on_radv
   a_page_at_a_tie_is_stored_as_the_cpu_on_both_paths_on_radv

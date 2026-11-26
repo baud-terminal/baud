@@ -7,18 +7,22 @@
 //! rectangle it was written in ([`Sheets::bring`], from
 //! `Atlas::take_dirty`), recorded in the next frame's command buffer ahead
 //! of its draws, behind a barrier from the fragment reads of the frames
-//! before. The atlas never moves or frees a slot within a sheet, so such a
+//! before. The rectangle's rows are written once, from the atlas's own
+//! texels straight into the copy's staging buffer, row after row with no
+//! padding; the colour sheet's words become their little-endian bytes on
+//! the way. The atlas never moves or frees a slot within a sheet, so such a
 //! copy fills only texels no rectangle has named, and no frame samples a
 //! texel a copy writes. A sheet the atlas replaces (grown, or reset) is a
 //! new image taken whole, and the old one is destroyed once the frame
 //! after it has finished, never copied into.
 
-use crate::draw::{Buffer, Texel, Texels, Texture};
+use crate::draw::{Buffer, HostBytes, Texel, Texels, Texture};
 use crate::frame::{Failed, Gpu};
 use ash::vk;
 use baud_present_wayland::Px;
 use baud_render::{Atlas, Replaced, TexRect};
 use std::cell::{Cell, RefCell};
+use std::mem::MaybeUninit;
 
 /// Which of the two sheets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +36,17 @@ pub enum Which {
 /// Texels copied to the sheets, counted when a frame records the copy.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Copied(pub u64);
+
+/// **What the sheets' uploads wrote on the CPU** ([`Sheets::uploads`]):
+/// the bytes copied into a vector on the way to staging, and the bytes
+/// written to staging. No upload makes a vector, so `into_vec` stays zero;
+/// it is what a test holds that to.
+#[cfg(feature = "test-hooks")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Uploads {
+    pub into_vec: u64,
+    pub staged: u64,
+}
 
 /// Whether an image has been written since it was made: its first copy
 /// takes it from `UNDEFINED`, every later one from the layout it is read in.
@@ -48,6 +63,95 @@ struct Sheet {
     height: Px,
     texel: Texel,
     fresh: Cell<Fresh>,
+}
+
+/// **Where a sheet's texels are read from, in place**: bytes as the
+/// texel lays them out, or `0xAARRGGBB` words, staged as their
+/// little-endian bytes.
+#[derive(Clone, Copy)]
+enum Plane<'a> {
+    Bytes(&'a [u8]),
+    Words(&'a [u32]),
+}
+
+/// **A rectangle of a plane** `stride` texels wide: its texel, its
+/// top-left in the plane and its size.
+#[derive(Clone, Copy)]
+struct Cut<'a> {
+    plane: Plane<'a>,
+    texel: Texel,
+    stride: Px,
+    x: Px,
+    y: Px,
+    width: Px,
+    height: Px,
+}
+
+impl<'a> Cut<'a> {
+    /// `t`, whole.
+    fn whole(t: &Texels<'a>) -> Cut<'a> {
+        Cut {
+            plane: Plane::Bytes(t.bytes),
+            texel: t.texel,
+            stride: t.width,
+            x: Px(0),
+            y: Px(0),
+            width: t.width,
+            height: t.height,
+        }
+    }
+
+    /// The rectangle `r` of this one's plane.
+    fn at(self, r: TexRect) -> Cut<'a> {
+        Cut {
+            x: Px(u32::from(r.x.0)),
+            y: Px(u32::from(r.y.0)),
+            width: Px(u32::from(r.w.0)),
+            height: Px(u32::from(r.h.0)),
+            ..self
+        }
+    }
+
+    /// The bytes it stages.
+    fn len(&self) -> HostBytes {
+        let n = |p: Px| usize::try_from(p.0).unwrap_or(0);
+        HostBytes(n(self.width) * n(self.height) * self.texel.size().0)
+    }
+
+    /// **Its rows, one after another with no padding, written to `out`**,
+    /// [`Cut::len`] bytes; a row the plane does not hold is written clear,
+    /// so no staging byte goes to the device unwritten.
+    fn write(&self, out: &mut [MaybeUninit<u8>]) {
+        let n = |p: Px| usize::try_from(p.0).unwrap_or(0);
+        let HostBytes(bpp) = self.texel.size();
+        let w = n(self.width);
+        let Some(row) = core::num::NonZeroUsize::new(w * bpp) else {
+            return;
+        };
+        for (r, dst) in out.chunks_exact_mut(row.get()).enumerate() {
+            let from = (n(self.y) + r) * n(self.stride) + n(self.x);
+            match self.plane {
+                Plane::Bytes(b) => match b.get(from * bpp..from * bpp + row.get()) {
+                    Some(src) => {
+                        dst.write_copy_of_slice(src);
+                    }
+                    None => {
+                        dst.fill(MaybeUninit::new(0));
+                    }
+                },
+                Plane::Words(ws) => match ws.get(from..from + w) {
+                    Some(src) => {
+                        for (d, word) in dst.as_chunks_mut::<4>().0.iter_mut().zip(src) {
+                            *d = word.to_le_bytes().map(MaybeUninit::new);
+                        }
+                    }
+                    None => {
+                        dst.fill(MaybeUninit::new(0));
+                    }
+                },
+            }
+        }
+    }
 }
 
 /// A copy owed to a sheet: the texels in a staging buffer and where they go.
@@ -72,6 +176,8 @@ pub struct Sheets {
     /// Images replaced, destroyed once the frame after has finished.
     retired: RefCell<Vec<Texture>>,
     copied: Cell<Copied>,
+    #[cfg(feature = "test-hooks")]
+    uploads: Cell<Uploads>,
 }
 
 impl Gpu {
@@ -138,6 +244,8 @@ impl Gpu {
             recorded: RefCell::default(),
             retired: RefCell::default(),
             copied: Cell::default(),
+            #[cfg(feature = "test-hooks")]
+            uploads: Cell::default(),
         };
         let copied = sheets
             .copy(self, Which::Mask, (Px(0), Px(0)), &one(Texel::Coverage))
@@ -180,7 +288,12 @@ impl Sheets {
     /// **A sheet replaced by `t`, whole**: a new image of `t`'s size, its
     /// texels owed to it, the old image retired.
     pub fn replace(&mut self, gpu: &Gpu, which: Which, t: &Texels<'_>) -> Result<(), Failed> {
-        let new = gpu.sheet(t.texel, t.width, t.height)?;
+        self.renew(gpu, which, Cut::whole(t))
+    }
+
+    /// **A sheet replaced by `whole`'s texels**, as [`Sheets::replace`].
+    fn renew(&mut self, gpu: &Gpu, which: Which, whole: Cut<'_>) -> Result<(), Failed> {
+        let new = gpu.sheet(whole.texel, whole.width, whole.height)?;
         let old = std::mem::replace(self.get_mut(which), new);
         // Copies owed to the old image go with it.
         let (gone, kept): (Vec<_>, Vec<_>) = self
@@ -193,7 +306,7 @@ impl Sheets {
             gpu.drop_buffer(p.staging);
         }
         self.retired.get_mut().push(old.texture);
-        self.copy(gpu, which, (Px(0), Px(0)), t)
+        self.stage(gpu, which, (Px(0), Px(0)), &whole)
     }
 
     /// **`t`'s texels owed to a sheet at `at`**, copied by the next frame.
@@ -204,20 +317,34 @@ impl Sheets {
         at: (Px, Px),
         t: &Texels<'_>,
     ) -> Result<(), Failed> {
+        self.stage(gpu, which, at, &Cut::whole(t))
+    }
+
+    /// **`cut`'s texels owed to a sheet at `at`**, written once, straight
+    /// into the copy's staging buffer.
+    fn stage(
+        &mut self,
+        gpu: &Gpu,
+        which: Which,
+        at: (Px, Px),
+        cut: &Cut<'_>,
+    ) -> Result<(), Failed> {
         let sheet = self.get(which);
-        if t.texel != sheet.texel
-            || at.0.0.saturating_add(t.width.0) > sheet.width.0
-            || at.1.0.saturating_add(t.height.0) > sheet.height.0
+        if cut.texel != sheet.texel
+            || at.0.0.saturating_add(cut.width.0) > sheet.width.0
+            || at.1.0.saturating_add(cut.height.0) > sheet.height.0
         {
             return Err(Failed::Outside);
         }
-        let staging = gpu.buffer(t.bytes, vk::BufferUsageFlags::TRANSFER_SRC)?;
+        let len = cut.len();
+        let staging = gpu.filled(len, vk::BufferUsageFlags::TRANSFER_SRC, |m| cut.write(m))?;
+        self.counted(len);
         self.pending.get_mut().push(Pending {
             staging,
             which,
             at,
-            width: t.width,
-            height: t.height,
+            width: cut.width,
+            height: cut.height,
         });
         Ok(())
     }
@@ -229,48 +356,37 @@ impl Sheets {
         let (dirty, mask_replaced, color_replaced) = atlas.take_dirty();
         let side = Px(atlas.side().value());
         let cside = Px(atlas.color_side().value());
-        let mask = Texels {
+        let mask = Cut {
+            plane: Plane::Bytes(atlas.pixels()),
+            texel: Texel::Coverage,
+            stride: side,
+            x: Px(0),
+            y: Px(0),
             width: side,
             height: side,
-            texel: Texel::Coverage,
-            bytes: atlas.pixels(),
         };
-        // The colour sheet's bytes, made only when it owes a copy: a frame
-        // with no new colour glyph makes none.
-        let color_owes = color_replaced == Replaced::Yes
-            || self.color.width != cside
-            || self.color.height != cside
-            || dirty.color.is_some();
-        let argb: Vec<u8> = match color_owes {
-            true => atlas.argb().iter().flat_map(|w| w.to_le_bytes()).collect(),
-            false => Vec::new(),
-        };
-        let color = Texels {
+        let color = Cut {
+            plane: Plane::Words(atlas.argb()),
+            texel: Texel::Argb,
+            stride: cside,
+            x: Px(0),
+            y: Px(0),
             width: cside,
             height: cside,
-            texel: Texel::Argb,
-            bytes: &argb,
         };
         for (which, whole, replaced, rect) in [
-            (Which::Mask, &mask, mask_replaced, dirty.mask),
-            (Which::Color, &color, color_replaced, dirty.color),
+            (Which::Mask, mask, mask_replaced, dirty.mask),
+            (Which::Color, color, color_replaced, dirty.color),
         ] {
             let s = self.get(which);
             if replaced == Replaced::Yes || s.width != whole.width || s.height != whole.height {
-                self.replace(gpu, which, whole)?;
+                self.renew(gpu, which, whole)?;
             } else if let Some(r) = rect {
-                let cut = cut(whole, r);
-                let part = Texels {
-                    width: Px(u32::from(r.w.0)),
-                    height: Px(u32::from(r.h.0)),
-                    texel: whole.texel,
-                    bytes: &cut,
-                };
-                self.copy(
+                self.stage(
                     gpu,
                     which,
                     (Px(u32::from(r.x.0)), Px(u32::from(r.y.0))),
-                    &part,
+                    &whole.at(r),
                 )?;
             }
         }
@@ -400,6 +516,24 @@ impl Sheets {
         }
     }
 
+    /// Every byte the uploads copied into a vector and wrote to staging.
+    #[cfg(feature = "test-hooks")]
+    pub fn uploads(&self) -> Uploads {
+        self.uploads.get()
+    }
+
+    /// `staged` bytes written to staging, counted under `test-hooks`.
+    fn counted(&self, staged: HostBytes) {
+        #[cfg(feature = "test-hooks")]
+        {
+            let mut u = self.uploads.get();
+            u.staged += u64::try_from(staged.0).unwrap_or(u64::MAX);
+            self.uploads.set(u);
+        }
+        #[cfg(not(feature = "test-hooks"))]
+        let _ = staged;
+    }
+
     /// Every texel a frame has copied to a sheet.
     pub fn copied(&self) -> Copied {
         self.copied.get()
@@ -422,18 +556,34 @@ impl Sheets {
     }
 }
 
-/// The texels of `r` cut out of `whole`, row after row with no padding.
-fn cut(whole: &Texels<'_>, r: TexRect) -> Vec<u8> {
-    let bpp = match whole.texel {
-        Texel::Coverage => 1,
-        Texel::Argb => 4,
-    };
-    let stride = usize::try_from(whole.width.0).unwrap_or(0) * bpp;
-    let (x, y) = (usize::from(r.x.0) * bpp, usize::from(r.y.0));
-    let w = usize::from(r.w.0) * bpp;
-    let mut out = Vec::with_capacity(w * usize::from(r.h.0));
-    for row in y..y + usize::from(r.h.0) {
-        out.extend_from_slice(&whole.bytes[row * stride + x..row * stride + x + w]);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **A row the plane does not hold is staged clear**: a 2x3 coverage
+    /// plane cut as 2x4 writes its three rows and a fourth of zeros over
+    /// whatever the staging memory held. Named break: the missing row left
+    /// as it was, so stale memory went to the device.
+    #[test]
+    #[allow(unsafe_code)]
+    fn a_row_the_plane_lacks_is_staged_clear() {
+        let bytes = [1u8, 2, 3, 4, 5, 6];
+        let t = Texels {
+            width: Px(2),
+            height: Px(3),
+            texel: Texel::Coverage,
+            bytes: &bytes,
+        };
+        let cut = Cut {
+            height: Px(4),
+            ..Cut::whole(&t)
+        };
+        let mut out = [MaybeUninit::new(0xAAu8); 8];
+        cut.write(&mut out);
+        let got = out.map(|b| {
+            // SAFETY: every byte was initialised before the write.
+            unsafe { b.assume_init() }
+        });
+        assert_eq!(got, [1, 2, 3, 4, 5, 6, 0, 0]);
     }
-    out
 }

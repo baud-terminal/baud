@@ -11,12 +11,13 @@
 mod common;
 
 use baud_domain::Codepoint;
+use baud_font::{Face, Phase, Scale};
 use baud_present_vulkan::draw::{Pass, Records, Scene, Texel, Texels};
 use baud_present_vulkan::frame::{Gpu, Premultiplied};
 use baud_present_vulkan::pipeline::Pipelines;
-use baud_present_vulkan::sheets::{Copied, Sheets};
+use baud_present_vulkan::sheets::{Copied, Sheets, Uploads};
 use baud_present_wayland::Px;
-use baud_render::{Atlas, PxSize, SizeKey, Slot};
+use baud_render::{Atlas, FaceIx, Kind, PxSize, SizeKey, Slot};
 use common::record;
 
 const W: u32 = 64;
@@ -39,6 +40,23 @@ fn glyph(atlas: &mut Atlas, cp: u32) -> Slot {
         .expect("a box-drawing mask")
 }
 
+/// **The emoji of the committed colour subset**, slotted at 12 pixels
+/// on the colour sheet, the first `n` its `cmap` maps.
+fn emoji(atlas: &mut Atlas, face: &Face<'_>, n: usize) -> Vec<Slot> {
+    let scale = Scale::of(12.0, face.units_per_em());
+    (0x80..=0x10FFFF)
+        .filter_map(|cp| Codepoint::new(cp).and_then(|c| face.glyph(c)))
+        .take(n)
+        .map(|g| {
+            let s = atlas
+                .slot(face, FaceIx::PRIMARY, g, scale, Phase::ZERO)
+                .expect("an emoji's slot");
+            assert_eq!(s.kind, Kind::Color, "an emoji is a colour glyph");
+            s
+        })
+        .collect()
+}
+
 /// **A frame of `slots`, each drawn white at its own place over black**,
 /// read back: each glyph at x = 16 a slot, y = 0, at its atlas size.
 fn frame(
@@ -57,7 +75,13 @@ fn frame(
             (16 * i, 0),
             (s.w.0, s.h.0),
             (s.x.0, s.y.0),
-            (WHITE, 0),
+            (
+                WHITE,
+                match s.kind {
+                    Kind::Color => 1,
+                    _ => 0,
+                },
+            ),
         ));
     }
     // A black background a cell, the grid over the whole target.
@@ -98,23 +122,47 @@ fn frame(
     got
 }
 
-/// What [`frame`] draws: each slot's coverage as grey over black, from
-/// the atlas's own texels, and black elsewhere.
-fn want(atlas: &Atlas, slots: &[Slot]) -> Vec<u32> {
+/// What [`frame`] draws: each mask slot's coverage as grey over black and
+/// each colour slot's opaque texels, from the atlas's own texels, and
+/// black elsewhere; a colour texel blended over the black is left out
+/// (`None`), its rounding the scenes' to check.
+fn want(atlas: &Atlas, slots: &[Slot]) -> Vec<Option<u32>> {
     let side = usize::try_from(atlas.side().value()).expect("a side");
-    let mut out = vec![BLACK; usize::try_from(W * H).expect("a size")];
+    let cside = usize::try_from(atlas.color_side().value()).expect("a side");
+    let mut out = vec![Some(BLACK); usize::try_from(W * H).expect("a size")];
     let width = usize::try_from(W).expect("a width");
     for (i, s) in slots.iter().enumerate() {
         for y in 0..usize::from(s.h.0) {
             for x in 0..usize::from(s.w.0) {
-                let c = u32::from(
-                    atlas.pixels()[(usize::from(s.y.0) + y) * side + usize::from(s.x.0) + x],
-                );
-                out[y * width + 16 * i + x] = BLACK | c << 16 | c << 8 | c;
+                out[y * width + 16 * i + x] = match s.kind {
+                    Kind::Color => Some(
+                        atlas.argb()[(usize::from(s.y.0) + y) * cside + usize::from(s.x.0) + x],
+                    )
+                    .filter(|p| p >> 24 == 0xFF),
+                    _ => {
+                        let c = u32::from(
+                            atlas.pixels()
+                                [(usize::from(s.y.0) + y) * side + usize::from(s.x.0) + x],
+                        );
+                        Some(BLACK | c << 16 | c << 8 | c)
+                    }
+                };
             }
         }
     }
     out
+}
+
+/// **`got` is what `want` holds**, at every pixel it names.
+fn drawn(got: &[u32], want: &[Option<u32>], what: &str) {
+    assert_eq!(got.len(), want.len(), "{what}: the frame's size");
+    let wrong: Vec<(usize, u32, u32)> = got
+        .iter()
+        .zip(want)
+        .enumerate()
+        .filter_map(|(i, (&g, w))| w.filter(|&w| w != g).map(|w| (i, g, w)))
+        .collect();
+    assert!(wrong.is_empty(), "{what}: (pixel, got, want) {wrong:x?}");
 }
 
 fn persists_and_copies_a_rectangle(gpu: &Gpu) {
@@ -127,10 +175,10 @@ fn persists_and_copies_a_rectangle(gpu: &Gpu) {
     sheets.bring(gpu, &mut atlas).expect("brought up");
     let before = sheets.copied();
     let got = frame(gpu, &mut pipes, &sheets, &atlas, &[across]);
-    assert_eq!(
-        got,
-        want(&atlas, &[across]),
-        "the first glyph samples as drawn"
+    drawn(
+        &got,
+        &want(&atlas, &[across]),
+        "the first glyph samples as drawn",
     );
     let side = u64::from(atlas.side().value());
     let cside = u64::from(atlas.color_side().value());
@@ -144,10 +192,10 @@ fn persists_and_copies_a_rectangle(gpu: &Gpu) {
     sheets.bring(gpu, &mut atlas).expect("brought up");
     let before = sheets.copied();
     let got = frame(gpu, &mut pipes, &sheets, &atlas, &[across, down]);
-    assert_eq!(
-        got,
-        want(&atlas, &[across, down]),
-        "the second glyph lands where the atlas put it, and the first is as it was"
+    drawn(
+        &got,
+        &want(&atlas, &[across, down]),
+        "the second glyph lands where the atlas put it, and the first is as it was",
     );
     assert_eq!(
         sheets.copied().0 - before.0,
@@ -170,10 +218,10 @@ fn persists_and_copies_a_rectangle(gpu: &Gpu) {
     let before = sheets.copied();
     let side = u64::from(atlas.side().value());
     let got = frame(gpu, &mut pipes, &sheets, &atlas, &[again]);
-    assert_eq!(
-        got,
-        want(&atlas, &[again]),
-        "a replaced sheet samples its new glyph"
+    drawn(
+        &got,
+        &want(&atlas, &[again]),
+        "a replaced sheet samples its new glyph",
     );
     assert!(
         sheets.copied().0 - before.0 >= side * side,
@@ -192,6 +240,91 @@ fn the_sheets_persist_and_a_glyph_is_copied_as_its_rectangle_on_lavapipe() {
 #[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
 fn the_sheets_persist_and_a_glyph_is_copied_as_its_rectangle_on_radv() {
     persists_and_copies_a_rectangle(&common::radv());
+}
+
+/// **A colour glyph goes through staging written once**: no byte of the
+/// sheet is copied into a vector on the way, a new sheet stages its
+/// texels and a glyph after it its own rectangle's, and both sample as
+/// drawn.
+fn stages_a_colour_sheet_once(gpu: &Gpu) {
+    let mut pipes = Pipelines::new(gpu).expect("the pipelines");
+    let curves: Vec<u8> = (0..=255u8).collect();
+    let mut sheets = gpu.sheets(&curves).expect("the sheets");
+    let mut atlas = Atlas::new();
+    atlas.at(SizeKey::of(PxSize::of(14.0).expect("a size")));
+    let noto = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../baud-font/tests/fonts/NotoColorEmoji-subset.ttf"
+    ))
+    .expect("the colour subset");
+    let face = Face::parse(&noto).expect("a face");
+    let first = emoji(&mut atlas, &face, 1)[0];
+    let before = sheets.uploads();
+    sheets.bring(gpu, &mut atlas).expect("brought up");
+    let after = sheets.uploads();
+    let side = u64::from(atlas.side().value());
+    let cside = u64::from(atlas.color_side().value());
+    assert_eq!(
+        Uploads {
+            into_vec: after.into_vec - before.into_vec,
+            staged: after.staged - before.staged,
+        },
+        Uploads {
+            into_vec: 0,
+            staged: side * side + cside * cside * 4,
+        },
+        "a new atlas is staged whole, both sheets, and copied into no vector"
+    );
+    let got = frame(gpu, &mut pipes, &sheets, &atlas, &[first]);
+    drawn(
+        &got,
+        &want(&atlas, &[first]),
+        "the colour glyph samples as drawn",
+    );
+
+    let second = emoji(&mut atlas, &face, 2)[1];
+    let opaque = want(&atlas, &[first, second])
+        .iter()
+        .zip(0..)
+        .filter(|(w, i)| w.is_some_and(|w| w != BLACK) && i % W >= 16)
+        .count();
+    assert!(
+        opaque > 0,
+        "the second emoji has opaque texels to read back"
+    );
+    let before = sheets.uploads();
+    sheets.bring(gpu, &mut atlas).expect("brought up");
+    let after = sheets.uploads();
+    assert_eq!(
+        Uploads {
+            into_vec: after.into_vec - before.into_vec,
+            staged: after.staged - before.staged,
+        },
+        Uploads {
+            into_vec: 0,
+            staged: u64::from(second.w.0) * u64::from(second.h.0) * 4,
+        },
+        "a colour glyph stages its own rectangle, copied into no vector"
+    );
+    let got = frame(gpu, &mut pipes, &sheets, &atlas, &[first, second]);
+    drawn(
+        &got,
+        &want(&atlas, &[first, second]),
+        "the second colour glyph lands where the atlas put it, and the first is as it was",
+    );
+    sheets.destroy(gpu);
+    pipes.destroy();
+}
+
+#[test]
+fn a_colour_sheet_goes_through_staging_written_once_on_lavapipe() {
+    stages_a_colour_sheet_once(&common::lavapipe());
+}
+
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn a_colour_sheet_goes_through_staging_written_once_on_radv() {
+    stages_a_colour_sheet_once(&common::radv());
 }
 
 #[test]
