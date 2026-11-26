@@ -1386,7 +1386,6 @@ struct Cells<'m> {
     candidates: Vec<Candidate>,
     records: Vec<Instance>,
     grounds: Vec<Instance>,
-    lent_cells: Vec<PackedCell>,
     lent_used: Vec<RowExtent>,
     used: Vec<RowExtent>,
 }
@@ -1406,7 +1405,6 @@ impl<'m> Cells<'m> {
             candidates: Vec::new(),
             records: Vec::new(),
             grounds: Vec::new(),
-            lent_cells: Vec::new(),
             lent_used: Vec::new(),
             used: Vec::new(),
         }
@@ -1414,7 +1412,7 @@ impl<'m> Cells<'m> {
 }
 
 /// **What a cell frame draws a struck link with**: the lent view's cells,
-/// which the walk and the overlay read each cell's id from, the slots
+/// read from the set's copy in screen order through its ring, which the walk and the overlay read each cell's id from, the slots
 /// lent and left short, and the solids it keeps for the links
 /// ([`kept_solids`]).
 #[derive(PartialEq, Debug)]
@@ -1461,7 +1459,7 @@ fn cell_frame(
     let mut styles = cell.styles_mem.each_mut().map(|c| &mut c[..]);
     let mut overlay = cell.overlay_mem.each_mut().map(|c| &mut c[..]);
     let damage = r.damage(t, inputs.back);
-    build_with(
+    let f = build_with(
         r,
         t,
         seal,
@@ -1479,16 +1477,21 @@ fn cell_frame(
             candidates: &mut cell.candidates,
             records: &mut cell.records,
             grounds: &mut cell.grounds,
-            lent_cells: &mut cell.lent_cells,
             lent_used: &mut cell.lent_used,
         },
         &mut cell.used,
         || Some(at),
     )
     .expect("the set is free");
-    let n = ROWS * t.stride().index();
+    let stride = t.stride().index();
+    let copy = &cell.copies_mem[at.0];
     LentDrawn {
-        cells: cell.lent_cells.get(..n).unwrap_or_default().to_vec(),
+        cells: (0..ROWS)
+            .flat_map(|d| {
+                let s = f.rot.advance(d, f.ring).index() * stride;
+                copy[s..s + stride].iter().copied()
+            })
+            .collect(),
         lent: cell.lent[at.0].lent(),
         short: cell.lent[at.0].short(),
         solids: kept_solids(r),

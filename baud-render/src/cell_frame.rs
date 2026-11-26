@@ -60,7 +60,6 @@ pub struct CellParts<'a, 'g, 'm> {
     pub candidates: &'a mut Vec<Candidate>,
     pub records: &'a mut Vec<Instance>,
     pub grounds: &'a mut Vec<Instance>,
-    pub lent_cells: &'a mut Vec<PackedCell>,
     pub lent_used: &'a mut Vec<RowExtent>,
 }
 
@@ -543,6 +542,19 @@ where
             renderer,
         );
     }
+    // **The config's notice row, after the status line's**:
+    // blank cells, whose default background the shader draws,
+    // under the notice's field drawn with baud's own overlays
+    // below (`Renderer::veils_onto`). No slide runs while it is
+    // shown (`below_grid`). Filled on every frame, the copy of
+    // the screen skipped or not: a set that holds the screen may
+    // not hold the notice's row. Outside the rows the view reads.
+    if noticed == 1 {
+        let at = ring.slot(Row::from_index(vrows + lined)).index() * stride;
+        if let Some(row) = cell.copies_mem[set].get_mut(at..at + vcols) {
+            row.fill(PackedCell::EMPTY);
+        }
+    }
     // **The set's rows in the overlay's order** (`Renderer::overlay_rows`).
     let overlay = renderer.overlay_rows(term, at, leaving);
     // The copy the walk reads: the set's, where its lending rewrote ids or
@@ -552,18 +564,14 @@ where
     let view = match (&lend, own) {
         (crate::Lend::Nothing, false) => view,
         _ => {
-            cell.lent_cells.clear();
-            for y in 0..vrows {
-                let at = ring.slot(Row::from_index(y)).index() * stride;
-                cell.lent_cells
-                    .extend_from_slice(&cell.copies_mem[set][at..at + stride]);
-            }
-            crate::counters::add(
-                crate::counters::Counter::CellsCopied,
-                crate::counters::Site::Lent,
-                Tally::of(vrows * stride),
-            );
+            // **The set's copy read where it lies**, row `d` at slot
+            // `(head + d) % ring`, its lent ids rewritten in place: no
+            // row is copied to lay the window out in screen order. Each
+            // row's mark at the same slot.
+            let lent_ring = Rows::of_index(ring.rows().index().max(vrows));
             cell.lent_used.clear();
+            cell.lent_used
+                .resize(lent_ring.index(), RowExtent::default());
             for y in 0..vrows {
                 let r = Row::from_index(y);
                 let mut e = baud_domain::RowExtent::of(vcols)
@@ -571,24 +579,25 @@ where
                 if view.wrapped(r) == baud_domain::Wrap::Continues {
                     e = e.wrapping(vcols);
                 }
-                cell.lent_used.push(e);
+                cell.lent_used[ring.slot(r).index()] = e;
             }
+            let cells = &cell.copies_mem[set][..];
             match own {
                 true => overlay.view(
                     term,
-                    (cell.lent_cells, cell.lent_used),
+                    (cells, cell.lent_used),
                     term.stride(),
                     (view.cols(), view.rows()),
-                    (view.rows(), RowRot::NONE),
+                    (lent_ring, ring.head()),
                 ),
                 false => baud_domain::Viewport::new(
-                    cell.lent_cells,
+                    cells,
                     cell.lent_used,
                     term.stride(),
                     view.cols(),
                     view.rows(),
-                    view.rows(),
-                    RowRot::NONE,
+                    lent_ring,
+                    ring.head(),
                     crate::frozen::live_table(term),
                 ),
             }
@@ -664,19 +673,6 @@ where
     // as empty, as the instance path blanks their cells.
     renderer.place_links(term, &view);
     let cursor = cursor_at.filter(|&(_, _, style)| renderer.cursor_drawn(style));
-    // **The config's notice row, after the status line's**:
-    // blank cells, whose default background the shader draws,
-    // under the notice's field drawn with baud's own overlays
-    // below (`Renderer::veils_onto`). No slide runs while it is
-    // shown (`below_grid`). Filled on every frame, the copy of
-    // the screen skipped or not: a set that holds the screen may
-    // not hold the notice's row.
-    if noticed == 1 {
-        let at = ring.slot(Row::from_index(vrows + lined)).index() * stride;
-        if let Some(row) = cell.copies_mem[set].get_mut(at..at + vcols) {
-            row.fill(PackedCell::EMPTY);
-        }
-    }
     cell.exceptions.ensure_framed(
         &Scene {
             term,

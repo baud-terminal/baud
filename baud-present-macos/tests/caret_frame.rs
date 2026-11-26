@@ -769,7 +769,6 @@ mod checks {
         candidates: Vec<Candidate>,
         records: Vec<Instance>,
         grounds: Vec<Instance>,
-        lent_cells: Vec<PackedCell>,
         lent_used: Vec<baud_domain::RowExtent>,
         used: Vec<baud_domain::RowExtent>,
     }
@@ -792,7 +791,6 @@ mod checks {
                 candidates: Vec::new(),
                 records: Vec::new(),
                 grounds: Vec::new(),
-                lent_cells: Vec::new(),
                 lent_used: Vec::new(),
                 used: Vec::new(),
             }
@@ -863,7 +861,6 @@ mod checks {
                 candidates: &mut cell.candidates,
                 records: &mut cell.records,
                 grounds: &mut cell.grounds,
-                lent_cells: &mut cell.lent_cells,
                 lent_used: &mut cell.lent_used,
             },
             &mut cell.used,
@@ -2360,16 +2357,17 @@ mod checks {
     /// link's text reads `[link] missing_color` at
     /// `baud_render::MISSING_CONTRAST` and is drawn in a slot lent to it.
     /// On C0's own page, dimmed over the window's material, no colour
-    /// reads, so nothing is lent there and the lent view is never copied.
+    /// reads, so nothing is lent there.
     /// Each path's caret frames on the slot arm are printed beside the
     /// same frames with no link struck: the cells copied and compared by
     /// site -- the lent view's copy at `Site::Lent` among them -- the link
     /// records placed and the allocations, none asserted.
     ///
     /// The controls, asserted: on the cell path, every frame on the slot
-    /// arm lends the struck link a slot, is short of none and copies the
-    /// lent view, counted at `Site::Lent`; with no link struck, or on C0's
-    /// page, a frame lends nothing and copies nothing there. On the CPU
+    /// arm lends the struck link a slot and is short of none, and no frame
+    /// copies the lent view, counted at `Site::Lent`: the walk reads the
+    /// set's copy where it lies; with no link struck, or on C0's page, a
+    /// frame lends nothing. On the CPU
     /// path, the struck link drawn in `missing_color` is drawn otherwise
     /// than under `"none"` on the opaque page, and alike on C0's: the
     /// colour reads, which is what the CPU path lends its text.
@@ -2399,8 +2397,8 @@ mod checks {
                 "the control: cell frame {k} lends the struck link a slot, none short"
             );
             assert!(
-                lent_copied(s) > 0,
-                "the control: cell frame {k} copies the lent view, counted at {}",
+                lent_copied(s) == 0,
+                "cell frame {k} reads the lent view in place, nothing counted at {}",
                 Site::Lent.name()
             );
             assert!(

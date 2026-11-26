@@ -306,9 +306,8 @@ struct CellMemory {
     /// its copy draws through slots no other row of the frame names, given
     /// back before the set is built again.
     lent: Vec<baud_render::Lent>,
-    /// The lent frame's copy as a view, for the walk and the overlay, which
-    /// read each cell's id in the same table the shader does.
-    lent_cells: Vec<PackedCell>,
+    /// The lent frame's marks, at the slots of its set's ring, for the view
+    /// the walk and the overlay read the set's copy through.
     lent_used: Vec<baud_domain::RowExtent>,
     /// **Two, ping-ponged on a rescale, and not a set a frame.** Rotating
     /// per frame would be three caches each seeing every third frame and
@@ -1515,7 +1514,6 @@ impl App {
                         lent: (0..styles_mem.len())
                             .map(|_| baud_render::Lent::default())
                             .collect(),
-                        lent_cells: Vec::new(),
                         lent_used: Vec::new(),
                         styles,
                         styles_mem,
@@ -3061,7 +3059,6 @@ impl App {
                         candidates: &mut cell.candidates,
                         records: &mut cell.records,
                         grounds: &mut cell.grounds,
-                        lent_cells: &mut cell.lent_cells,
                         lent_used: &mut cell.lent_used,
                     },
                     &mut used,

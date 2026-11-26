@@ -8,7 +8,7 @@
 //! write that must move it, and read moving by the number it should, with
 //! the zero beside it on the frame after, nothing written. The pairs fed
 //! by the harness's own controls, or here and by `src/screens.rs`'s
-//! tests, and the three no source counts at all, are listed in [`FED`]
+//! tests, and the four no source counts at all, are listed in [`FED`]
 //! and [`GUARDS`];
 //! [`the_sites_a_caret_frame_is_counted_at_zero_are_each_fed_or_count_nothing`]
 //! reads them from the sources, and
@@ -374,7 +374,7 @@ fn counted(src: &str, into: &mut std::collections::BTreeSet<(String, String)>) -
 /// nothing**, read from `src`'s calls ([`counted`]): the pairs
 /// `caret_frame.rs` asserts zero on caret frames are each counted
 /// somewhere, and each is fed by a check that reads it moving ([`FED`],
-/// with the check), and the three it asserts zero that no source counts
+/// with the check), and the four it asserts zero that no source counts
 /// ([`GUARDS`]) are counted nowhere, so their zeros are guards that a
 /// count does not come back there. The three pairs fed by a control on
 /// their counter's total ([`TOTALS`]) are each counted at their one site.
@@ -427,7 +427,7 @@ fn the_sites_a_caret_frame_is_counted_at_zero_are_each_fed_or_count_nothing() {
 /// **Each pair of a counter and a site a caret frame is asserted zero at,
 /// and what feeds it**: a check here, one of `src/screens.rs`'s, or one of
 /// the harness's (`caret_frame's <check>`), with which of its counts.
-const FED: [(&str, &str, &str); 15] = [
+const FED: [(&str, &str, &str); 14] = [
     (
         "CellsCompared",
         "Screens",
@@ -486,11 +486,6 @@ const FED: [(&str, &str, &str); 15] = [
         "a_written_row_is_the_row_copied_again_in_drawn_order",
     ),
     (
-        "CellsCopied",
-        "Lent",
-        "caret_frame's a_struck_link_lent_a_slot_counts_what_its_caret_frames_cost, its control",
-    ),
-    (
         "LinkInstancesBuilt",
         "Links",
         "caret_frame's a_caret_frame_places_no_link_record, its control on the first frames",
@@ -512,11 +507,13 @@ const FED: [(&str, &str, &str); 15] = [
 /// guards that a count does not come back there, not checks a frame can
 /// fail. The re-cut compares and copies no cell (it keeps a display by
 /// the rows' generations, `GensRead`), and the bidirectional layout
-/// compares none (it keeps a paragraph the same way).
-const GUARDS: [(&str, &str); 3] = [
+/// compares none (it keeps a paragraph the same way). A lending copies
+/// no cell: the walk reads the set's copy where it lies.
+const GUARDS: [(&str, &str); 4] = [
     ("CellsCompared", "Rebreak"),
     ("CellsCopied", "Rebreak"),
     ("CellsCompared", "Layout"),
+    ("CellsCopied", "Lent"),
 ];
 
 /// **The pairs of [`FED`] whose control reads their counter's total** over

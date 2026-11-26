@@ -50,7 +50,7 @@
 
 use crate::common::{Bar, Cover, Rounding, Tie, Ties, assert_frame_covered};
 use baud_core::Term;
-use baud_domain::{BytePos, Codepoint, Col, PackedCell, ReadLen, Row, RowExtent, Rows, WinSize};
+use baud_domain::{BytePos, Codepoint, Col, ReadLen, Row, RowExtent, Rows, WinSize};
 use baud_font::Px as FontPx;
 use baud_present_vulkan::cells::{
     CellDraw, CellDrawn, CellMemory, CellSizes, CellSlices, Finish, MapSide,
@@ -282,7 +282,6 @@ pub struct Arms<'g, 'f, 'a> {
     candidates: Vec<Candidate>,
     records: Vec<Instance>,
     grounds: Vec<Instance>,
-    lent_cells: Vec<PackedCell>,
     lent_used: Vec<RowExtent>,
     used: Vec<RowExtent>,
     frame: Option<CellFrame>,
@@ -327,7 +326,6 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
             candidates: Vec::new(),
             records: Vec::new(),
             grounds: Vec::new(),
-            lent_cells: Vec::new(),
             lent_used: Vec::new(),
             used: Vec::new(),
             frame: None,
@@ -413,7 +411,6 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
                 candidates: &mut self.candidates,
                 records: &mut self.records,
                 grounds: &mut self.grounds,
-                lent_cells: &mut self.lent_cells,
                 lent_used: &mut self.lent_used,
             },
             &mut self.used,

@@ -768,7 +768,7 @@ fn main() {
                 // struck, its text grey through slots each set's table
                 // lends, as the app lends them (`baud_render::Lent`).
                 let mut lents: Vec<Lent> = (0..Wheel::SETS).map(|_| Lent::default()).collect();
-                let (mut lent_cells, mut lent_used) = (Vec::new(), Vec::new());
+                let mut lent_used = Vec::new();
                 let (mut walks, mut idle_walks, mut struck_cells) = (0usize, 0usize, 0usize);
                 let (mut windows, mut window_misses) = (Tally::default(), Tally::default());
                 let (mut committed, mut busy, mut copies) = (0usize, 0usize, 0usize);
@@ -938,9 +938,6 @@ fn main() {
                     let view = match lend {
                         Lend::Nothing => view,
                         _ => {
-                            let st = t.stride().index();
-                            lent_cells.clear();
-                            lent_cells.extend_from_slice(&m.copies_mem[si][..vrows * st]);
                             lent_used.clear();
                             for y in 0..vrows {
                                 let row = Row::from_index(y);
@@ -952,7 +949,7 @@ fn main() {
                                 lent_used.push(e);
                             }
                             baud_domain::Viewport::new(
-                                &lent_cells,
+                                &m.copies_mem[si][..],
                                 &lent_used,
                                 t.stride(),
                                 view.cols(),

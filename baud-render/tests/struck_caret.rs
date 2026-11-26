@@ -358,7 +358,6 @@ struct Cells<'m> {
     candidates: Vec<Candidate>,
     records: Vec<Instance>,
     grounds: Vec<Instance>,
-    lent_cells: Vec<PackedCell>,
     lent_used: Vec<RowExtent>,
     used: Vec<RowExtent>,
 }
@@ -379,7 +378,6 @@ impl<'m> Cells<'m> {
             candidates: Vec::new(),
             records: Vec::new(),
             grounds: Vec::new(),
-            lent_cells: Vec::new(),
             lent_used: Vec::new(),
             used: Vec::new(),
         }
@@ -441,7 +439,6 @@ fn cell_frame(
             candidates: &mut cell.candidates,
             records: &mut cell.records,
             grounds: &mut cell.grounds,
-            lent_cells: &mut cell.lent_cells,
             lent_used: &mut cell.lent_used,
         },
         &mut cell.used,
