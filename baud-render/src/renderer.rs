@@ -3888,6 +3888,11 @@ pub struct ImagePlacement {
     pub w: u16,
     /// The image height in device pixels.
     pub h: u16,
+    /// **The screen x and y of its drawn rectangle's top-left**, device
+    /// pixels, signed: where `draw.dest` starts, of which `x` and `y` are
+    /// the visible part's. What the cells a placement covers are counted
+    /// from (`crate::picture_ranges`).
+    pub at: (i32, i32),
     /// Whether any of its pixels is partly transparent: the CPU path then
     /// blends it, and blits it only into the rows it repaints, never over
     /// its own last blit.
@@ -4677,6 +4682,10 @@ pub struct Renderer<'f, 'a> {
     image_places: Vec<ImagePlacement>,
     /// [`Renderer::image_places`] by the rows each covers, built with it.
     place_rows: PlaceRows,
+    /// What the picture under each text cell spans, a table a placement
+    /// under the text, built with the placements and kept while each holds
+    /// (`crate::picture_ranges`).
+    picture_ranges: crate::picture_ranges::PictureRanges,
     /// Each placement's nearest-neighbour tables, at its [`MapAt`]: the
     /// texel x of every visible drawn column, then the texel y of every
     /// visible drawn row, from `baud_domain::ImageDraw::nearest`. Built
@@ -5186,6 +5195,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             flash: VideoFlash::default(),
             image_places: Vec::new(),
             place_rows: PlaceRows::default(),
+            picture_ranges: crate::picture_ranges::PictureRanges::default(),
             image_maps: Vec::new(),
             virtual_at: Vec::new(),
             last_image_places: Vec::new(),
@@ -10423,6 +10433,24 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.image_places
             .sort_by_key(|p| (p.z, p.tie.raw(), p.born, p.serial));
         self.place_rows.built = Built::Stale;
+        // What the picture under each text cell spans, from the pixels the
+        // placements draw over the page as this frame shows it.
+        let page = self
+            .theme
+            .defaults(Video::Normal, |d| term.dynamic_color(d))
+            .1
+            .with_alpha(Chan::from_u8(0xFF));
+        let under = match self.page() {
+            Page::Opaque => crate::picture_ranges::Under::Opaque(page),
+            Page::Glass => crate::picture_ranges::Under::Glass {
+                page,
+                alpha: self.theme.bg_alpha,
+                backdrop: self.theme.backdrop,
+            },
+        };
+        let cell = (self.metrics.cell_w.value(), self.metrics.cell_h.value());
+        self.picture_ranges
+            .update(&imgs, &self.image_places, cell, under);
         // Drop snapshots of images no longer on screen, so an image scrolled off
         // the top does not hold its pixels until the next epoch change -- which
         // on a terminal showing one image is forever. The clear-every-frame
@@ -10647,6 +10675,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         crate::counters::add(Counter::ImageTablesBuilt, Site::Images, Tally::of(1));
         let (src, dest) = (draw.src, draw.dest);
         let clamp16 = |v: i64| v.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16;
+        let clamp32 = |v: i64| i32::try_from(v).unwrap_or(if v < 0 { i32::MIN } else { i32::MAX });
         let side = |v: i64| u16::try_from(v).unwrap_or(u16::MAX);
         let texel = |v: u32| ImagePx::of(u16::try_from(v).unwrap_or(u16::MAX));
         let at = MapAt(self.image_maps.len());
@@ -10687,6 +10716,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             y: clamp16(y0 + j0),
             w: side(i1 - i0),
             h: side(j1 - j0),
+            at: (clamp32(x0), clamp32(y0)),
             alpha,
             z,
             layer: ImageLayer::of(z),
@@ -10803,6 +10833,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The visible image placements this frame, in device-pixel screen rects.
     pub fn image_placements(&self) -> &[ImagePlacement] {
         &self.image_places
+    }
+
+    /// **What the pictures under the text span behind cell `col` of row
+    /// `r`**, on the default page: the luminance range, which text drawn
+    /// straight on the picture reads against, and the channel range, which
+    /// text over a plate of the page reads against
+    /// (`crate::picture_ranges`). None where no picture under the text is
+    /// behind the cell.
+    pub fn picture_behind(&self, r: Row, col: Col) -> Option<(crate::Backdrop, crate::Backdrop)> {
+        let band = self.band(r);
+        let cw = i64::from(self.metrics.cell_w.value());
+        let x = i64::try_from(col.index()).unwrap_or(i64::MAX) * cw;
+        let rect = crate::picture_ranges::PxBox {
+            x: (x, x + cw),
+            y: (i64::from(band.top.value()), i64::from(band.bottom.value())),
+        };
+        self.picture_ranges.behind(&self.image_places, rect)
     }
 
     /// Each referenced image's straight pixels, for a GPU to upload once.
@@ -17601,6 +17648,7 @@ mod place_diff {
                 y: i16::try_from(n % 7 * 9).unwrap() - 9,
                 w: 8,
                 h: u16::try_from(n % 4 * 7 + 1).unwrap(),
+                at: (0, 0),
                 alpha: match n % 4 {
                     0 => ImageAlpha::Partial,
                     _ => ImageAlpha::OpaqueOrClear,

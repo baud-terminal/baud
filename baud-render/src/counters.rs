@@ -2,6 +2,7 @@
 //! copied and converted, the rows it laid out for their direction, the
 //! cells the overlay built records for, the cells scanned for pictures, the
 //! link records placed, the image tables built and pixels blitted, the
+//! tables of what a picture under the text spans built, the
 //! instances tallied for the frame's totals, and the displays the re-cut
 //! laid out and the rows' generations it read.
 //!
@@ -79,11 +80,15 @@ pub enum Counter {
     /// Rows taken from the terminal into a copy of the window: the CPU
     /// path's at the convert, and a set's at the cell path's copy.
     RowsTaken,
+    /// Tables of what the picture under each text cell spans, built for
+    /// a placement under the text whose key or pixels moved
+    /// (`crate::picture_ranges`).
+    PictureRangesBuilt,
 }
 
 impl Counter {
     /// Every counter, in the order a harness prints them.
-    pub const ALL: [Counter; 13] = [
+    pub const ALL: [Counter; 14] = [
         Counter::CellsCompared,
         Counter::CellsCopied,
         Counter::CellsConverted,
@@ -97,6 +102,7 @@ impl Counter {
         Counter::GensRead,
         Counter::ImagePixelsBlitted,
         Counter::RowsTaken,
+        Counter::PictureRangesBuilt,
     ];
 
     /// The counter's name, as a harness prints it.
@@ -115,6 +121,7 @@ impl Counter {
             Counter::GensRead => "gens_read",
             Counter::ImagePixelsBlitted => "image_pixels_blitted",
             Counter::RowsTaken => "rows_taken",
+            Counter::PictureRangesBuilt => "picture_ranges_built",
         }
     }
 
@@ -138,6 +145,7 @@ impl Counter {
             Counter::GensRead => Slot(10),
             Counter::ImagePixelsBlitted => Slot(11),
             Counter::RowsTaken => Slot(12),
+            Counter::PictureRangesBuilt => Slot(13),
         }
     }
 }

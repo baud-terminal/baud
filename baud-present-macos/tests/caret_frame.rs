@@ -1048,6 +1048,18 @@ mod checks {
                     assert_eq!(cell_sum(c), 0, "the cell path blits no image");
                     continue;
                 }
+                // The kitty image and the Sixel are both over the text, so
+                // neither path builds what a picture under it spans:
+                // `baud-render/tests/picture_ranges.rs` feeds it.
+                Counter::PictureRangesBuilt => {
+                    assert_eq!(on_cpu, 0, "no picture is under the text on the CPU path");
+                    assert_eq!(
+                        cell_sum(c),
+                        0,
+                        "no picture is under the text on the cell path"
+                    );
+                    continue;
+                }
                 _ => assert!(on_cpu > 0, "the CPU path's full frame moves {}", c.name()),
             }
             assert!(

@@ -104,6 +104,7 @@ pub mod orb;
 mod overlay;
 mod per_row;
 mod picture;
+mod picture_ranges;
 pub mod plasma;
 pub mod print;
 pub mod print_pdf;

@@ -531,7 +531,7 @@ const TOTALS: [(&str, &str); 3] = [
 
 /// **Named in the harness, and in no pair a caret frame is asserted zero
 /// at**, each with why it is named there.
-const NAMED: [(&str, &str); 3] = [
+const NAMED: [(&str, &str); 4] = [
     (
         "Site::ALL",
         "every site, walked to print what each compared and copied",
@@ -545,6 +545,11 @@ const NAMED: [(&str, &str); 3] = [
         "the overlay's cells: read moving on the cell path's first frames, and zero on the \
          CPU path's full frame, which builds no overlay; no caret frame is asserted zero at \
          it until FS-C1, which adds its pair to `FED` and takes it out of this list",
+    ),
+    (
+        "Counter::PictureRangesBuilt",
+        "the range tables of pictures under the text: read zero on both paths' full frames, \
+         whose images are over the text; `tests/picture_ranges.rs` reads it moving and still",
     ),
 ];
 

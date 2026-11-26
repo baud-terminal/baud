@@ -158,3 +158,53 @@ pub fn replay_final(data: &[u8], f: impl FnOnce(&mut Term<'_>)) {
     }
     f(&mut t)
 }
+
+const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// `data` in base64, padded.
+pub fn b64(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for q in data.chunks(3) {
+        let mut b = [0u8; 3];
+        b[..q.len()].copy_from_slice(q);
+        let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+        for k in 0..4 {
+            match k <= q.len() {
+                true => out.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]),
+                false => out.push(b'='),
+            }
+        }
+    }
+    out
+}
+
+/// A kitty graphics command, `ctrl` and `payload` in base64, in chunks of
+/// 4096 encoded bytes (`m=1` on every chunk but the last).
+pub fn kitty(ctrl: &str, payload: &[u8]) -> Vec<u8> {
+    let data = b64(payload);
+    let mut v = Vec::new();
+    let chunks: Vec<&[u8]> = match data.is_empty() {
+        true => vec![&[][..]],
+        false => data.chunks(4096).collect(),
+    };
+    for (i, chunk) in chunks.iter().enumerate() {
+        let more = u8::from(i + 1 < chunks.len());
+        v.extend_from_slice(b"\x1b_G");
+        match i {
+            0 => v.extend_from_slice(format!("{ctrl},m={more}").as_bytes()),
+            _ => v.extend_from_slice(format!("m={more}").as_bytes()),
+        }
+        if !chunk.is_empty() {
+            v.push(b';');
+            v.extend_from_slice(chunk);
+        }
+        v.extend_from_slice(b"\x1b\\");
+    }
+    v
+}
+
+/// `bytes` fed to the terminal.
+pub fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+    t.write_at(BytePos::ZERO, bytes);
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+}

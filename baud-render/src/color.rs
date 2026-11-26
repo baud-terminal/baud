@@ -417,6 +417,103 @@ impl Backdrop {
             light: Chan::from_u8(235),
         }
     }
+
+    /// The greys from `dark` to `light`, the two put in order when given
+    /// the other way round.
+    pub(crate) fn between(dark: Chan, light: Chan) -> Backdrop {
+        match dark.get() <= light.get() {
+            true => Backdrop { dark, light },
+            false => Backdrop {
+                dark: light,
+                light: dark,
+            },
+        }
+    }
+
+    /// **The greys that hold every luminance from `dark` to `light`**,
+    /// rounded outward: the lightest grey whose linear light is at most
+    /// `dark`, and the darkest whose linear light is at least `light`. A
+    /// grey's WCAG luminance is its linear channel, the three weights
+    /// summing to one (`[[source: wcag22]]`), so text that reads against
+    /// both greys reads against every colour of a luminance between them.
+    pub(crate) fn spanning(dark: f64, light: f64) -> Backdrop {
+        Backdrop::between(Linear(dark).encode_down(), Linear(light).encode_up())
+    }
+
+    /// The darker of the two darkest greys to the lighter of the two
+    /// lightest: everything either spans.
+    pub(crate) fn union(self, other: Backdrop) -> Backdrop {
+        Backdrop {
+            dark: Chan::from_u8(self.dark.get().min(other.dark.get())),
+            light: Chan::from_u8(self.light.get().max(other.light.get())),
+        }
+    }
+
+    /// The darkest grey.
+    pub fn dark(self) -> Chan {
+        self.dark
+    }
+
+    /// The lightest grey.
+    pub fn light(self) -> Chan {
+        self.light
+    }
+}
+
+/// **What the pixels behind one cell of a picture span**, gathered a pixel
+/// at a time as each is composited: the least and the greatest WCAG
+/// luminance among them, and the least and the greatest of their channels.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Spread {
+    lum: (f64, f64),
+    chan: (u8, u8),
+}
+
+impl Spread {
+    /// Nothing gathered yet.
+    pub(crate) const EMPTY: Spread = Spread {
+        lum: (f64::INFINITY, f64::NEG_INFINITY),
+        chan: (u8::MAX, u8::MIN),
+    };
+
+    /// `c`, its channels as an opaque colour, gathered.
+    pub(crate) fn add(&mut self, c: Argb) {
+        let y = Lum::of(c).0;
+        let [_, r, g, b] = c.channels();
+        self.lum = (self.lum.0.min(y), self.lum.1.max(y));
+        self.chan = (
+            self.chan.0.min(r.min(g).min(b)),
+            self.chan.1.max(r.max(g).max(b)),
+        );
+    }
+
+    /// Whether nothing was gathered.
+    fn is_empty(self) -> bool {
+        self.chan.0 > self.chan.1
+    }
+
+    /// **The luminance range, as greys** ([`Backdrop::spanning`]): what
+    /// text drawn straight on the pixels reads against. Black to white
+    /// when nothing was gathered.
+    pub(crate) fn luminance(self) -> Backdrop {
+        match self.is_empty() {
+            true => Backdrop::any(),
+            false => Backdrop::spanning(self.lum.0, self.lum.1),
+        }
+    }
+
+    /// **The channel range, as greys**: every channel of every pixel lies
+    /// between the two, so the page laid over any of the pixels at an
+    /// alpha, a channel at a time ([`Argb::mix`], which rises with the
+    /// colour under it), lands between the page laid over the two greys --
+    /// what text over a plate reads against. Black to white when nothing
+    /// was gathered.
+    pub(crate) fn channels(self) -> Backdrop {
+        match self.is_empty() {
+            true => Backdrop::any(),
+            false => Backdrop::between(Chan::from_u8(self.chan.0), Chan::from_u8(self.chan.1)),
+        }
+    }
 }
 
 /// What can be behind text, as the darkest and the lightest luminance of
@@ -1808,8 +1905,80 @@ pub fn xterm_palette() -> [Argb; 256] {
 
 #[cfg(test)]
 mod tests {
-    use super::Argb;
+    use super::{Argb, Backdrop, Linear, Lum, Spread};
     use baud_domain::{Chan, Pixel};
+
+    /// **A luminance range is held by the greys just outside it**
+    /// (`Backdrop::spanning`): the dark grey's linear light is at most the
+    /// range's least luminance and the light grey's at least its greatest,
+    /// and each is tight -- the next grey inward breaks its bound. Over
+    /// every pair of grey codes, their midpoints and the ranges a set of
+    /// colours spans (`Spread::luminance`), each colour then read between
+    /// the two greys by WCAG luminance. `Backdrop::between` puts its two
+    /// greys in order.
+    #[test]
+    fn a_luminance_range_is_held_by_the_greys_just_outside_it() {
+        let lin = |v: u8| Linear::of(Chan::from_u8(v)).0;
+        let check = |lo: f64, hi: f64| {
+            let b = Backdrop::spanning(lo, hi);
+            let (d, l) = (b.dark().get(), b.light().get());
+            assert!(
+                lin(d) <= lo,
+                "{lo}..{hi}: the dark grey {d} is not above {lo}"
+            );
+            assert!(
+                lin(l) >= hi,
+                "{lo}..{hi}: the light grey {l} is not below {hi}"
+            );
+            if d < u8::MAX {
+                assert!(
+                    lin(d + 1) > lo,
+                    "{lo}..{hi}: the dark grey {d} is the lightest"
+                );
+            }
+            if l > 0 {
+                assert!(
+                    lin(l - 1) < hi,
+                    "{lo}..{hi}: the light grey {l} is the darkest"
+                );
+            }
+        };
+        for x in 0..=255u8 {
+            for y in x..=255u8 {
+                check(lin(x), lin(y));
+                let mid = |v: u8| (lin(v) + lin(v.saturating_add(1))) / 2.0;
+                check(mid(x), mid(y).max(mid(x)));
+            }
+        }
+        let mut seed = 0x2545_f491_u32;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        for _ in 0..2000 {
+            let colours: Vec<Argb> = (0..1 + next() % 6)
+                .map(|_| Argb(next() | 0xFF00_0000))
+                .collect();
+            let mut s = Spread::EMPTY;
+            for &c in &colours {
+                s.add(c);
+            }
+            let b = s.luminance();
+            let grey = |v: Chan| Lum::of(Argb::rgb(v, v, v)).0;
+            for c in colours {
+                let y = Lum::of(c).0;
+                assert!(
+                    grey(b.dark()) <= y + 1e-12 && y <= grey(b.light()) + 1e-12,
+                    "{c:x?} in {b:?}"
+                );
+            }
+        }
+        let (a, z) = (Chan::from_u8(200), Chan::from_u8(10));
+        assert_eq!(Backdrop::between(a, z), Backdrop::between(z, a));
+        assert_eq!(Backdrop::between(a, z).dark(), z, "the darker first");
+    }
 
     /// **One faint mix on both sides of the crate line**: what a ReGIS
     /// page's faint phase paints in the core (`Pixel::faint_on`) is what
