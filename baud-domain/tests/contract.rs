@@ -1141,6 +1141,24 @@ const _: fn(
         baud_domain::dbus::Variant<'static>,
     >,
 ) -> baud_domain::dbus::PageSetup = baud_domain::dbus::PageSetup::read;
+// Export, ExportToplevel, SurfaceHandle, HandleRefused, dbus::ParentWindow
+const _: fn() -> baud_domain::Export = baud_domain::Export::new;
+const _: fn(&mut baud_domain::Export) -> Option<baud_domain::ExportToplevel> =
+    baud_domain::Export::ask;
+const _: for<'a, 'b> fn(
+    &'a mut baud_domain::Export,
+    &'b str,
+) -> Result<&'a baud_domain::SurfaceHandle, baud_domain::HandleRefused> =
+    baud_domain::Export::handle;
+const _: for<'a> fn(&'a baud_domain::Export) -> baud_domain::dbus::ParentWindow<'a> =
+    baud_domain::Export::parent;
+const _: for<'a> fn(&'a baud_domain::SurfaceHandle) -> &'a str = baud_domain::SurfaceHandle::as_str;
+const _: baud_domain::HandleRefused = baud_domain::HandleRefused::NotAsked;
+const _: baud_domain::HandleRefused = baud_domain::HandleRefused::Again;
+const _: baud_domain::HandleRefused = baud_domain::HandleRefused::Empty;
+const _: baud_domain::dbus::ParentWindow<'static> = baud_domain::dbus::ParentWindow::Unnamed;
+const _: fn(&'static baud_domain::SurfaceHandle) -> baud_domain::dbus::ParentWindow<'static> =
+    baud_domain::dbus::ParentWindow::Wayland;
 const _: fn(f64) -> Option<baud_domain::PaperMm> = baud_domain::PaperMm::of;
 const _: fn(baud_domain::PaperMm) -> baud_domain::PaperPt = baud_domain::PaperMm::to_pt;
 // dbus::Sig
@@ -2071,6 +2089,8 @@ const _: fn(
 ) -> baud_domain::NoticeAliveStep = baud_domain::notice_alive_step;
 /// Each type that holds a rule, and the error code its witness expects.
 const WITNESSED: &[(&str, &str)] = &[
+    ("ExportToplevel", "E0451"),
+    ("SurfaceHandle", "E0451"),
     ("NoticeToken", "E0451"),
     ("NoticeLiveIdx", "E0423"),
     ("NonZeroMillis", "E0080"),

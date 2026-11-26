@@ -40,11 +40,13 @@ use crate::pointer::{
 use crate::scale::{self, BufferScale, Mapped, Told, Viewport};
 use crate::shm::{Bytes, Pool, Px};
 use crate::timing::{ClockId, Presentation, Stamp, Unseen};
+use baud_domain::dbus::ParentWindow;
 use baud_domain::{
     AskServerSide, DecorationMode, EventMillis, Focus, HebrewLayout, KeyEvent, KeyEventKind,
     LocatorDevice, ManagerVersion, Modifiers, Negotiation, ROW_LANES, Toplevel, XdgToken,
     premultiply, premultiply_row,
 };
+use baud_domain::{Export, HandleRefused};
 use baud_wayland::{
     Arg, Connection, Event as Wire, Fixed, Handler, Interface, ObjectId, Opcode, Read, Sender,
     protocol,
@@ -244,6 +246,15 @@ pub enum ConfigureBounds {
     /// Below version 4, or nothing bound yet: it never comes.
     #[default]
     Never,
+}
+
+/// The first `handle` event the window's export refused: none, held
+/// until read, or read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExportRefusal {
+    Clear,
+    Held(HandleRefused),
+    Told,
 }
 
 /// **The window's frames as the compositor accounted for them**: each
@@ -659,9 +670,13 @@ pub struct Window {
     serial: Option<u32>,
     /// The activation token asked for and not yet come ([`Window::activate`]).
     token: Option<ObjectId>,
-    /// The window's export: asked for, and its handle once it comes
-    /// ([`Window::export`]).
-    export: Option<(ObjectId, Option<String>)>,
+    /// The window's export and its handle once it comes
+    /// ([`Window::export`]), and the export's object once asked.
+    export: Export,
+    exported: Option<ObjectId>,
+    /// The first `handle` event the export refused, until it is read
+    /// ([`Window::export_refused`]).
+    export_refused: ExportRefusal,
     clip: Clip,
     events: VecDeque<Event>,
 }
@@ -766,7 +781,9 @@ impl Window {
             ime: TextInput::default(),
             serial: None,
             token: None,
-            export: None,
+            export: Export::new(),
+            exported: None,
+            export_refused: ExportRefusal::Clear,
             clip: Clip::default(),
             events: VecDeque::new(),
         })
@@ -2364,9 +2381,10 @@ impl Window {
     /// `xdg-foreign-unstable-v2`: `export_toplevel` on the window's surface,
     /// once; the handle comes as an event ([`Window::exported`]).
     pub fn export(&mut self, s: &mut Sender<'_>) {
-        let (Some(exporter), Some(surface), None) =
-            (self.globals.exporter, self.surface, &self.export)
-        else {
+        let (Some(exporter), Some(surface)) = (self.globals.exporter, self.surface) else {
+            return;
+        };
+        let Some(_ask) = self.export.ask() else {
             return;
         };
         let exported = s.new_id(&protocol::zxdg_exported_v2::INTERFACE);
@@ -2375,15 +2393,27 @@ impl Window {
             Opcode(protocol::zxdg_exporter_v2::request::EXPORT_TOPLEVEL),
             &[Arg::NewId(exported), Arg::Object(surface)],
         );
-        self.export = Some((exported, None));
+        self.exported = Some(exported);
     }
 
-    /// The handle the export gave, "an exported surface handle" another
-    /// client passes on, as a print portal's dialog is parented by it
-    /// (`[[source: xdg-portal-window-identifiers]]`); `None` before it comes
-    /// and where the compositor offers no exporter.
-    pub fn exported(&self) -> Option<&str> {
-        self.export.as_ref()?.1.as_deref()
+    /// The parent window a print portal's dialog is given, named by the
+    /// handle the export gave, "an exported surface handle" another client
+    /// passes on (`[[source: xdg-portal-window-identifiers]]`); unnamed
+    /// before it comes and where the compositor offers no exporter.
+    pub fn exported(&self) -> ParentWindow<'_> {
+        self.export.parent()
+    }
+
+    /// **The first `handle` event the export refused**, once: a later
+    /// refusal is not held, and a read after the first returns `None`.
+    pub fn export_refused(&mut self) -> Option<HandleRefused> {
+        match self.export_refused {
+            ExportRefusal::Held(why) => {
+                self.export_refused = ExportRefusal::Told;
+                Some(why)
+            }
+            ExportRefusal::Clear | ExportRefusal::Told => None,
+        }
     }
 
     /// **Activate the window with a token another client gave**: the one a
@@ -3391,11 +3421,17 @@ impl Handler for Window {
                     self.unseen = None;
                 }
             }
-            // The window's export: its handle, kept for another client.
-            (protocol::zxdg_exported_v2::on::HANDLE, [Read::Str(Some(handle))])
-                if self.export.as_ref().is_some_and(|(id, _)| *id == ev.object) =>
+            // The window's export: its handle, kept for another client,
+            // and the first refusal held for the reader.
+            (protocol::zxdg_exported_v2::on::HANDLE, [Read::Str(handle)])
+                if self.exported == Some(ev.object) =>
             {
-                self.export = Some((ev.object, Some(handle.to_string())));
+                if let (Err(why), ExportRefusal::Clear) = (
+                    self.export.handle(handle.unwrap_or_default()),
+                    self.export_refused,
+                ) {
+                    self.export_refused = ExportRefusal::Held(why);
+                }
             }
             // The token asked for: `activate` with it, and the token's
             // object let go -- "The received token stays valid".

@@ -676,7 +676,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     }
     // **The window exported** (`xdg-foreign-unstable-v2`), so a print
     // portal's dialog opens on it: its handle comes with the next events
-    // and names the dialog's parent (`print_parent`).
+    // and names the dialog's parent (`Window::exported`).
     window.export(&mut conn.sender());
     startup_mark("wayland");
     let geom = host_geometry();
@@ -1430,6 +1430,11 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                 d.pending = Pending::Dirty;
                 d.frame_for = FrameFor::Moment;
             }
+        }
+        // The window's export refused a handle: said once, as the
+        // presenter holds only the first.
+        if let Some(why) = d.window.export_refused() {
+            crate::info!("print: the window's export refused a handle: {why:?}");
         }
         while let Some(e) = d.window.next_event() {
             match e {
@@ -2714,9 +2719,9 @@ impl Driver {
         let window =
             crate::title::window_title(self.term.title(), self.term.title_encoding(), &fallback);
         let title = crate::print::job_title(&window, job.cut, Default::default());
-        let parent = print_parent(self.window.exported());
-        crate::info!("print: the dialog, its parent {parent:?}");
-        let ended = bus.prepare_print(&parent, &title);
+        let parent = self.window.exported();
+        crate::info!("print: the dialog, its parent {:?}", parent.to_string());
+        let ended = bus.prepare_print(parent, &title);
         self.print_dialog = PrintDialog::Asked { job, title };
         if let Some(h) = ended {
             self.heard(h);
@@ -2756,9 +2761,8 @@ impl Driver {
                 return self.print_next();
             }
         };
-        let parent = print_parent(self.window.exported());
         let sent = match self.bus.as_mut() {
-            Some(b) => b.print(&parent, &title, file, token),
+            Some(b) => b.print(self.window.exported(), &title, file, token),
             None => Err("no session bus".into()),
         };
         match sent {
@@ -4944,14 +4948,6 @@ fn print_faces(
     let mut bold = with(|r| matches!(r, FaceRole::Style(FaceStyle::Bold)));
     bold.extend(plain.iter().cloned());
     (plain, bold)
-}
-
-/// **The print dialog's parent window**, as the portal names one under
-/// Wayland, `wayland:` and the window's exported handle (`[[source:
-/// xdg-portal-window-identifiers]]`); none, `""`, before the handle comes or
-/// where the compositor offers no export.
-fn print_parent(handle: Option<&str>) -> String {
-    handle.map_or_else(String::new, |h| format!("wayland:{h}"))
 }
 
 /// **A document the portal reads**: written to a file in the runtime

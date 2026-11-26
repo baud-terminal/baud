@@ -74,9 +74,9 @@ use baud_domain::dbus::{
     ADD_MATCH, Array, AuthSent, AuthStep, Body, Boolean, BusName, Byte, Bytes, CLOSE_NOTIFICATION,
     Connection, Dict, Double, Emit, EncodeError, Encoded, FdAnswer, FdIndex, FdoNotify, FdsAgreed,
     GET_CAPABILITIES, Handle, HandleToken, Handshake, HolderChange, I32, ImageData, Inbound,
-    InterfaceName, MemberName, MethodCall, NOTIFY, Negotiating, NoFds, ObjectPath, Peer,
-    PortalResponse, RequestPath, ResponseCode, Return, Signal, Str, Trusted, U32, UnixFd, Variant,
-    auth_line,
+    InterfaceName, MemberName, MethodCall, NOTIFY, Negotiating, NoFds, ObjectPath, ParentWindow,
+    Peer, PortalResponse, RequestPath, ResponseCode, Return, Signal, Str, Trusted, U32, UnixFd,
+    Variant, auth_line,
 };
 
 /// The portal's `color-scheme`.
@@ -1636,9 +1636,10 @@ impl Session {
             Link::Sent(_) | Link::Negotiating(_) | Link::Failed => return None,
         };
         Some(match (self.prepare_after_hello.take(), kept) {
-            (Some((parent, title)), Ok(())) => {
-                self.prepare_print(&parent, &title).into_iter().collect()
-            }
+            (Some((parent, title)), Ok(())) => self
+                .prepare_print_named(&parent, &title)
+                .into_iter()
+                .collect(),
             (Some(_), Err(e)) => vec![Heard::PrintEnded(PrintEnd::Failed(format!(
                 "the bus gave no unique name: {e}"
             )))],
@@ -1695,11 +1696,17 @@ impl Session {
         rule
     }
 
-    /// **The print dialog**, titled `title`: `PreparePrint` with nothing
-    /// preset, offering PDF to print to a file, as that is what the job
-    /// becomes. Before `Hello`'s reply it waits for it. The exchange's
-    /// end, and why, where it cannot be asked.
-    pub(crate) fn prepare_print(&mut self, parent: &str, title: &str) -> Option<Heard> {
+    /// **The print dialog**, titled `title` and opened on `parent`:
+    /// `PreparePrint` with nothing preset, offering PDF to print to a file,
+    /// as that is what the job becomes. Before `Hello`'s reply it waits for
+    /// it. The exchange's end, and why, where it cannot be asked.
+    pub(crate) fn prepare_print(&mut self, parent: ParentWindow<'_>, title: &str) -> Option<Heard> {
+        self.prepare_print_named(&parent.to_string(), title)
+    }
+
+    /// [`Session::prepare_print`] with the parent's text, as it is kept
+    /// across `Hello`'s reply.
+    fn prepare_print_named(&mut self, parent: &str, title: &str) -> Option<Heard> {
         if self.unique().is_none() {
             self.prepare_after_hello = Some((parent.to_owned(), title.to_owned()));
             return None;
@@ -1762,7 +1769,7 @@ impl Session {
     /// is not a D-Bus string.
     pub(crate) fn print(
         &mut self,
-        parent: &str,
+        parent: ParentWindow<'_>,
         title: &str,
         pdf: OwnedFd,
         token: PrintToken,
@@ -1770,7 +1777,8 @@ impl Session {
         if !matches!(self.link, Link::Fds(_)) {
             return Err("the session bus does not pass files".into());
         }
-        let (Ok(parent), Ok(title)) = (Str::parse(parent), Str::parse(title)) else {
+        let parent = parent.to_string();
+        let (Ok(parent), Ok(title)) = (Str::parse(&parent), Str::parse(title)) else {
             return Err("a parent window or title that is not a D-Bus string".into());
         };
         let (handle, predicted) = self.next_request()?;
@@ -2235,7 +2243,7 @@ impl Bus {
 
     #[cfg(target_os = "linux")]
     /// The print dialog.
-    pub(crate) fn prepare_print(&mut self, parent: &str, title: &str) -> Option<Heard> {
+    pub(crate) fn prepare_print(&mut self, parent: ParentWindow<'_>, title: &str) -> Option<Heard> {
         let ended = self.session.prepare_print(parent, title);
         let _ = self.flush();
         ended
@@ -2246,7 +2254,7 @@ impl Bus {
     /// cannot be sent.
     pub(crate) fn print(
         &mut self,
-        parent: &str,
+        parent: ParentWindow<'_>,
         title: &str,
         pdf: OwnedFd,
         token: PrintToken,
@@ -3708,7 +3716,8 @@ mod tests {
         let mut s = with_portal();
         let n = s.outgoing().len();
         s.sent(Len(n));
-        s.prepare_print("wayland:h-1", "baud \u{2014} print");
+        let export = exported("h-1");
+        s.prepare_print(export.parent(), "baud \u{2014} print");
         let out = s.outgoing().to_vec();
         let at = |needle: &[u8]| out.windows(needle.len()).position(|w| w == needle);
         let rule = at(PATH_1.as_bytes()).expect("the match names the path");
@@ -3742,7 +3751,7 @@ mod tests {
     #[test]
     fn a_dialog_asked_for_before_the_name_waits_for_it() {
         let mut s = ready();
-        s.prepare_print("", "t");
+        s.prepare_print(ParentWindow::Unnamed, "t");
         assert!(!s.outgoing().windows(12).any(|w| w == b"PreparePrint"));
         let mut b = Writer::default();
         b.string(":1.42");
@@ -3762,13 +3771,18 @@ mod tests {
     fn the_document_prints_with_the_dialog_s_token() {
         let path_2 = "/org/freedesktop/portal/desktop/request/1_42/baud_2";
         let mut s = with_portal();
-        s.prepare_print("", "t");
+        s.prepare_print(ParentWindow::Unnamed, "t");
         s.received(&response(PATH_1, Word(0), Some(Word(7))));
         let n = s.outgoing().len();
         s.sent(Len(n));
         let pdf = std::fs::File::open("/dev/null").unwrap();
         assert_eq!(
-            s.print("wayland:h-1", "t", pdf.into(), PrintToken(Word(7))),
+            s.print(
+                exported("h-1").parent(),
+                "t",
+                pdf.into(),
+                PrintToken(Word(7))
+            ),
             Ok(())
         );
         let (bytes, fds) = s.next_send();
@@ -3789,14 +3803,14 @@ mod tests {
         );
 
         let mut c = with_portal();
-        c.prepare_print("", "t");
+        c.prepare_print(ParentWindow::Unnamed, "t");
         assert_eq!(
             c.received(&response(PATH_1, Word(1), None)),
             [Heard::PrintEnded(PrintEnd::Cancelled)]
         );
 
         let mut e = with_portal();
-        e.prepare_print("", "t");
+        e.prepare_print(ParentWindow::Unnamed, "t");
         let serial = last_serial(&e);
         let n = e.outgoing().len();
         e.sent(Len(n));
@@ -3861,7 +3875,7 @@ mod tests {
     fn a_moved_handle_is_followed() {
         let moved = "/org/freedesktop/portal/desktop/request/1_42/elsewhere";
         let mut s = with_portal();
-        s.prepare_print("", "t");
+        s.prepare_print(ParentWindow::Unnamed, "t");
         let serial = last_serial(&s);
         let n = s.outgoing().len();
         s.sent(Len(n));
@@ -3898,7 +3912,7 @@ mod tests {
     fn an_ended_or_unknown_response_fails_and_the_unknown_is_counted() {
         for (code, counted) in [(2, UnknownCodes(0)), (7, UnknownCodes(1))] {
             let mut s = with_portal();
-            s.prepare_print("", "t");
+            s.prepare_print(ParentWindow::Unnamed, "t");
             let h = s.received(&response(PATH_1, Word(code), Some(Word(1))));
             let [Heard::PrintEnded(PrintEnd::Failed(e))] = h.as_slice() else {
                 panic!("{code}: {h:?}");
@@ -3959,6 +3973,14 @@ mod tests {
         with_sender(&signal, "org.freedesktop.DBus")
     }
 
+    /// An export that has its handle, `h`.
+    fn exported(h: &str) -> baud_domain::Export {
+        let mut e = baud_domain::Export::new();
+        let _ = e.ask();
+        let _ = e.handle(h);
+        e
+    }
+
     /// A session named `:1.42` whose print portal answered its `version`
     /// from `:1.9`, which holds the portal's name; what it sent, sent.
     fn with_portal() -> Session {
@@ -4003,7 +4025,7 @@ mod tests {
     #[test]
     fn a_page_setup_past_the_text_lays_out_on_a4() {
         let mut s = with_portal();
-        s.prepare_print("", "t");
+        s.prepare_print(ParentWindow::Unnamed, "t");
         let bad = setup_response(
             PATH_1,
             Word(0),
@@ -4027,7 +4049,7 @@ mod tests {
     #[test]
     fn a_response_from_another_connection_ends_nothing() {
         let mut s = with_portal();
-        s.prepare_print("", "t");
+        s.prepare_print(ParentWindow::Unnamed, "t");
         let h = s.received(&response_from(":1.66", PATH_1, Word(0), Some(Word(7))));
         assert!(
             !h.iter()
@@ -4055,7 +4077,7 @@ mod tests {
     fn after_the_portal_changes_hands_the_old_holder_s_response_ends_nothing() {
         let mut s = with_portal();
         assert_eq!(s.received(&portal_changed_hands(":1.9", ":1.10")), []);
-        s.prepare_print("", "t");
+        s.prepare_print(ParentWindow::Unnamed, "t");
         let serial = last_serial(&s);
         let mut path = Writer::default();
         path.string(PATH_1);
@@ -4082,7 +4104,7 @@ mod tests {
     fn a_change_of_hands_while_the_dialog_is_open_ends_it() {
         for (new, said) in [(":1.10", ":1.10"), ("", "released")] {
             let mut s = with_portal();
-            s.prepare_print("", "t");
+            s.prepare_print(ParentWindow::Unnamed, "t");
             let n = s.outgoing().len();
             s.sent(Len(n));
             let h = s.received(&portal_changed_hands(":1.9", new));
@@ -4108,7 +4130,7 @@ mod tests {
     #[test]
     fn the_response_match_names_the_portal_as_sender() {
         let mut s = named();
-        s.prepare_print("", "t");
+        s.prepare_print(ParentWindow::Unnamed, "t");
         let rule = format!(
             "type='signal',sender='org.freedesktop.portal.Desktop',interface='org.freedesktop.portal.Request',member='Response',path='{PATH_1}'"
         );

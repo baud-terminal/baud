@@ -2300,13 +2300,16 @@ fn the_window_is_activated_with_a_token_it_asks_for_or_is_given() {
 
 /// **The window is exported through `xdg-foreign-unstable-v2`**:
 /// `export_toplevel` with the window's surface, once, and the handle its
-/// `handle` event brings kept; and without the exporter nothing is sent and
-/// there is no handle.
+/// `handle` event brings kept and naming the dialog's parent; a second
+/// handle is refused, and the refusal read once; and without the exporter
+/// nothing is sent and the parent is unnamed.
 #[test]
 fn the_window_is_exported_for_another_client_to_name() {
+    use baud_domain::HandleRefused;
+    use baud_domain::dbus::ParentWindow;
     let (mut conn, mut server, mut w, bound) = session_with(&[("zxdg_exporter_v2", 1)]);
     let exporter = bound[0];
-    assert_eq!(w.exported(), None);
+    assert_eq!(w.exported(), ParentWindow::Unnamed);
     w.export(&mut conn.sender());
     conn.flush().unwrap();
     let r = server.expect("zxdg_exporter_v2", "export_toplevel");
@@ -2315,7 +2318,11 @@ fn the_window_is_exported_for_another_client_to_name() {
         panic!("{:?}", r.args)
     };
     assert_ne!(*surface, ObjectId::NULL, "the window's surface");
-    assert_eq!(w.exported(), None, "not before the handle comes");
+    assert_eq!(
+        w.exported(),
+        ParentWindow::Unnamed,
+        "not before the handle comes"
+    );
     // Once: a second export sends nothing -- the next request is the title.
     w.export(&mut conn.sender());
     w.set_title(&mut conn.sender(), "between");
@@ -2328,14 +2335,35 @@ fn the_window_is_exported_for_another_client_to_name() {
         &[Arg::Str(Some("h-1"))],
     );
     pump(&mut conn, &mut w);
-    assert_eq!(w.exported(), Some("h-1"));
+    assert_eq!(w.exported().to_string(), "wayland:h-1");
+    assert_eq!(w.export_refused(), None, "a good handle is not refused");
+    // A second handle keeps the first, and its refusal is read once; a
+    // later refusal is not held over it.
+    server.send(
+        *exported,
+        "zxdg_exported_v2",
+        "handle",
+        &[Arg::Str(Some("h-2"))],
+    );
+    pump(&mut conn, &mut w);
+    server.send(
+        *exported,
+        "zxdg_exported_v2",
+        "handle",
+        &[Arg::Str(Some(""))],
+    );
+    pump(&mut conn, &mut w);
+    assert_eq!(w.exported().to_string(), "wayland:h-1");
+    assert_eq!(w.export_refused(), Some(HandleRefused::Again));
+    assert_eq!(w.export_refused(), None, "once");
 
     let (mut conn, mut server, mut w, _) = session_with(&[]);
     w.export(&mut conn.sender());
     w.set_title(&mut conn.sender(), "after");
     conn.flush().unwrap();
     server.expect("xdg_toplevel", "set_title");
-    assert_eq!(w.exported(), None);
+    assert_eq!(w.exported(), ParentWindow::Unnamed);
+    assert_eq!(w.export_refused(), None);
 }
 /// **A frame's length is the gap between frame callbacks** where no
 /// presentation feedback says a refresh: none before two callbacks, the

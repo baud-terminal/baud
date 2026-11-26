@@ -298,6 +298,31 @@ impl<'a> PortalResponse<'a> {
     }
 }
 
+/// **The parent window a portal dialog opens on**
+/// (`[[source: xdg-portal-window-identifiers]]`): "under Wayland" it has
+/// "the form `wayland:<HANDLE>`" with the window's exported surface handle,
+/// and "if you don't have a suitable handle, just pass an empty string".
+/// Its text is its `Display`. A handle comes only from the window's
+/// export ([`crate::Export::parent`]), so no other text names a parent.
+#[cfg(feature = "alloc")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParentWindow<'a> {
+    /// No handle: the empty string.
+    Unnamed,
+    /// The window's exported surface handle.
+    Wayland(&'a crate::SurfaceHandle),
+}
+
+#[cfg(feature = "alloc")]
+impl fmt::Display for ParentWindow<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParentWindow::Unnamed => Ok(()),
+            ParentWindow::Wayland(h) => write!(f, "wayland:{}", h.as_str()),
+        }
+    }
+}
+
 /// A page setup's paper and margins (`[[source: xdg-portal-print]]`:
 /// `Width`, `Height` and `Margin*` are `d`, "in millimeters"). A key that is
 /// absent, of another type, not finite or below zero is `None`, and so is a

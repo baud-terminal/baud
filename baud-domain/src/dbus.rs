@@ -74,6 +74,8 @@ pub use name::{
     Str,
 };
 pub use notify::{ADD_MATCH, CLOSE_NOTIFICATION, FdoNotify, GET_CAPABILITIES, NOTIFY};
+#[cfg(feature = "alloc")]
+pub use portal::ParentWindow;
 pub use portal::{
     Handle, HandleToken, PORTAL, PORTAL_PATH, PRINT, PageSetup, PortalResponse, REQUEST, RESPONSE,
     RequestPath, ResponseCode,

@@ -123,6 +123,8 @@ mod decode;
 mod decoration;
 mod expression;
 mod font;
+#[cfg(feature = "alloc")]
+mod foreign;
 mod frame;
 mod frozen;
 pub mod gif;
@@ -291,6 +293,8 @@ pub use decode::*;
 pub use decoration::*;
 pub use expression::*;
 pub use font::*;
+#[cfg(feature = "alloc")]
+pub use foreign::*;
 pub use frame::*;
 pub use frozen::*;
 pub use grapheme::*;
