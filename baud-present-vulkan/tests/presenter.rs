@@ -10,15 +10,19 @@ mod scenes;
 use baud_core::{Owned, Term};
 use baud_domain::{Rows, WinSize};
 use baud_font::Face;
+use baud_present_vulkan::cells::Landing;
 use baud_present_vulkan::damage::TargetIx;
 use baud_present_vulkan::frame::Gpu;
 use baud_present_vulkan::pipeline::Built;
-use baud_present_vulkan::present::{Cpu, Frame, Inputs, Presenter, Remade};
+use baud_present_vulkan::present::{Cpu, Frame, Inputs, Owes, Presenter, Remade};
+use baud_present_vulkan::sys::{Readable, readable};
+use baud_present_vulkan::vk::Has;
 use baud_present_wayland::{Changed, DmabufShown, Px};
 use baud_render::{Renderer, Stack, Theme};
-use common::{lavapipe, radv};
+use common::{lavapipe, radv, radv_explicit};
 use scenes::{feed, jetbrains_mono};
 use std::io::Read;
+use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
@@ -38,10 +42,24 @@ const NONE: Inputs<'static> = Inputs {
     predictions: &[],
 };
 
-/// The frame `term` makes through `r`, sealed as the driver seals it.
+/// The frame `term` makes through `r`, sealed as the driver seals it, and
+/// landed: what a test reads of it -- its pixels, its times, its acquire
+/// point -- is the finished frame's.
 fn frame(gpu: &Gpu, p: &mut Presenter, r: &mut Renderer<'_, '_>, t: &mut Term<'_>) -> Frame {
     let seal = t.seal_writes();
-    p.frame(gpu, r, t, seal, &NONE).expect("a frame")
+    let f = p.frame(gpu, r, t, seal, &NONE).expect("a frame");
+    land(gpu, p);
+    f
+}
+
+/// **The frame in flight met**, as the loop meets it: once its end is
+/// readable, within a bound a held queue never reaches.
+fn land(gpu: &Gpu, p: &mut Presenter) {
+    let until = Instant::now() + Duration::from_secs(60);
+    while p.land(gpu).expect("landed") == Landing::Flying {
+        assert!(Instant::now() < until, "the frame in flight never landed");
+        std::thread::sleep(Duration::from_millis(1));
+    }
 }
 
 /// The whole frame's size, the targets' size.
@@ -397,45 +415,6 @@ fn a_resize_waits_no_more_than_a_steady_frame() {
     p.destroy(&gpu);
 }
 
-/// The AMD GPU, its frames synchronised explicitly.
-fn radv_explicit() -> Gpu {
-    use baud_present_vulkan::choose::{Kind, SyncObj, choose};
-    use baud_present_vulkan::vk::Vulkan;
-    use baud_present_wayland::dmabuf::{
-        Count, Feedback, Format, Fourcc, Modifier, Tranche, TrancheFlags,
-    };
-    let vulkan = Vulkan::open().expect("libvulkan");
-    let (physical, gpu, render) = vulkan
-        .candidates()
-        .into_iter()
-        .find_map(|(pd, c)| match c.kind {
-            Kind::Gpu {
-                render: Some(r), ..
-            } => Some((pd, c, r)),
-            _ => None,
-        })
-        .expect("a GPU with a render node");
-    let offered = Feedback {
-        main: Some(render.dev()),
-        tranches: vec![Tranche {
-            device: Some(render.dev()),
-            flags: TrancheFlags(0),
-            formats: vec![Format {
-                fourcc: Fourcc::ARGB8888,
-                modifier: Modifier::LINEAR,
-            }],
-        }],
-        unknown_indices: Count(0),
-    };
-    let choice = choose(core::slice::from_ref(&gpu), &offered, SyncObj::Offered).expect("the GPU");
-    assert_eq!(
-        choice.sync,
-        baud_present_vulkan::choose::Sync::Explicit,
-        "the premise: explicit sync"
-    );
-    Gpu::new(vulkan, physical, choice).expect("a device")
-}
-
 /// **A target shown with points is the compositor's until its release
 /// point**, on RADV with explicit sync: its frame's acquire point is
 /// signalled, both targets shown hold the third frame owed, and the first
@@ -459,10 +438,7 @@ fn a_target_shown_with_points_is_free_at_its_release_point_on_radv() {
             frame(&gpu, &mut p, &mut r, &mut t),
             Frame::Drew(TargetIx(k))
         );
-        let (acquire, release) = p
-            .points(&gpu, TargetIx(k))
-            .expect("signalled")
-            .expect("explicit points");
+        let (acquire, release) = p.points(TargetIx(k)).expect("explicit points");
         let (_, tl) = p.target(TargetIx(k)).expect("a target");
         let tl = tl.expect("a timeline");
         assert_eq!(
@@ -872,4 +848,103 @@ fn a_resize_storm_holds_two_targets_and_fails_nothing() {
     }
     p.destroy(&gpu);
     assert_eq!(gpu.targets_live(), Live(0));
+}
+
+/// **A frame drawn with its landing held**, `p.frame` called directly: it
+/// stays in flight until [`Gpu::release_landings`], however fast the device
+/// draws it.
+fn frame_held(gpu: &Gpu, p: &mut Presenter, r: &mut Renderer<'_, '_>, t: &mut Term<'_>) -> Frame {
+    let seal = t.seal_writes();
+    gpu.hold_landings();
+    p.frame(gpu, r, t, seal, &NONE).expect("a frame")
+}
+
+/// **Until `fd` is readable**, within a bound.
+fn until_readable(fd: impl Fn() -> Option<std::os::fd::OwnedFd>) {
+    let until = Instant::now() + Duration::from_secs(60);
+    loop {
+        let f = fd().expect("an end to wait for");
+        if readable(f.as_fd()) == Readable::Yes {
+            return;
+        }
+        assert!(Instant::now() < until, "the end never turned readable");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// **A frame asked for while the one before flies is busy and never
+/// waits**, on RADV with explicit sync: a frame drawn with its landing held
+/// returns in flight, its end a descriptor not yet readable; the next
+/// answers busy, counted, drawing nothing; released, the end turns
+/// readable, the frame lands, the busy frame is owed, and the next is
+/// drawn. Named break: a frame that waits on its fence has landed by the
+/// time it returns.
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn a_frame_asked_while_one_flies_is_busy_and_never_waits_on_radv() {
+    let gpu = radv_explicit();
+    assert_eq!(
+        gpu.sync_fd,
+        Has::Yes,
+        "the premise: a frame's end is a sync file"
+    );
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = warm(&gpu, &mut r, &mut t);
+    feed(&mut t, b"one");
+    let f = frame_held(&gpu, &mut p, &mut r, &mut t);
+    assert!(matches!(f, Frame::Drew(_)), "drawn: {f:?}");
+    assert_eq!(p.land(&gpu), Ok(Landing::Flying), "returned in flight");
+    let end = p.done_fd().expect("its end as a descriptor");
+    assert_eq!(readable(end), Readable::No, "not finished while held");
+    feed(&mut t, b"two");
+    let seal = t.seal_writes();
+    assert_eq!(p.frame(&gpu, &mut r, &t, seal, &NONE), Ok(Frame::Busy));
+    assert_eq!(p.counts().busy.0, 1, "counted");
+    gpu.release_landings();
+    until_readable(|| {
+        p.done_fd()
+            .map(|fd| fd.try_clone_to_owned().expect("a copy"))
+    });
+    // The end turned readable; the fence it stands for is met next.
+    land(&gpu, &mut p);
+    assert_eq!(p.land(&gpu), Ok(Landing::Idle), "landed");
+    assert_eq!(p.owed_on_landing(), Owes::Frame, "the busy frame is owed");
+    assert!(matches!(
+        frame(&gpu, &mut p, &mut r, &mut t),
+        Frame::Drew(_)
+    ));
+    p.destroy(&gpu);
+}
+
+/// **The acquire point is the frame's own submission's to signal**, on
+/// RADV with explicit sync: once the frame has landed, its acquire point is
+/// reached before the driver takes the points to show it with. Named
+/// break: the acquire point signalled from the CPU when the points are
+/// taken, which the compositor can be told before the GPU has drawn.
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn the_acquire_point_is_the_gpus_to_signal_on_radv() {
+    let gpu = radv_explicit();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = warm(&gpu, &mut r, &mut t);
+    feed(&mut t, b"x");
+    let Frame::Drew(k) = frame(&gpu, &mut p, &mut r, &mut t) else {
+        panic!("drawn")
+    };
+    let (_, tl) = p.target(k).expect("a target");
+    let reached = gpu.reached(tl.expect("a timeline")).expect("its value");
+    let (acquire, _) = p.points(k).expect("explicit points");
+    assert_eq!(
+        reached, acquire,
+        "reached by the GPU before the points were taken"
+    );
+    p.destroy(&gpu);
 }

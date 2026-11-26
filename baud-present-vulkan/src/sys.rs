@@ -72,3 +72,52 @@ pub fn is_syncobj(render: Node, fd: BorrowedFd<'_>) -> bool {
     }
     ok
 }
+
+/// `struct pollfd`: the descriptor, the events asked for and those found.
+#[repr(C)]
+struct PollFd {
+    fd: i32,
+    events: i16,
+    revents: i16,
+}
+
+/// `POLLIN`: there is data to read, or a sync file has signalled.
+const POLLIN: i16 = 1;
+
+/// `nfds_t`: how many `pollfd`s.
+#[repr(transparent)]
+struct Nfds(u64);
+
+/// A wait in milliseconds, `0` for none; or what `poll` answered: the
+/// descriptors ready, or `-1`.
+#[repr(transparent)]
+struct Int(i32);
+
+#[allow(unsafe_code)]
+unsafe extern "C" {
+    fn poll(fds: *mut PollFd, nfds: Nfds, timeout: Int) -> Int;
+}
+
+/// Whether a descriptor is readable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Readable {
+    Yes,
+    No,
+}
+
+/// **Whether `fd` is readable now**, asked of `poll` with no wait: a sync
+/// file is once the work it stands for has finished.
+#[allow(unsafe_code)]
+pub fn readable(fd: BorrowedFd<'_>) -> Readable {
+    let mut p = PollFd {
+        fd: fd.as_raw_fd(),
+        events: POLLIN,
+        revents: 0,
+    };
+    // SAFETY: one `pollfd` that lives through the call, and no wait.
+    let n = unsafe { poll(&mut p, Nfds(1), Int(0)) };
+    match n.0 > 0 && p.revents & POLLIN != 0 {
+        true => Readable::Yes,
+        false => Readable::No,
+    }
+}

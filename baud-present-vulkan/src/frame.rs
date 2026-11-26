@@ -45,6 +45,10 @@ pub struct Gpu {
     waits: std::cell::Cell<Waits>,
     /// What the device can time a frame with (`timing.rs`).
     pub clock: crate::timing::Clock,
+    /// Whether a frame's end can be handed out as a sync file, so the loop
+    /// polls for it rather than waits ([`Gpu::sync_file`]).
+    pub sync_fd: crate::vk::Has,
+    semaphore_fd: Option<ash::khr::external_semaphore_fd::Device>,
     /// The failures the crate's tests force, and the targets alive.
     #[cfg(any(test, feature = "test-hooks"))]
     pub(crate) hooks: crate::hooks::Hooks,
@@ -82,7 +86,7 @@ pub(crate) struct QueueFamily(pub(crate) u32);
 
 /// A timeline semaphore and its exported fd.
 pub struct Timeline {
-    semaphore: vk::Semaphore,
+    pub(crate) semaphore: vk::Semaphore,
     pub fd: OwnedFd,
 }
 
@@ -106,6 +110,25 @@ pub(crate) struct Recorder {
     fence: vk::Fence,
 }
 
+/// What a submission signals beside its fence ([`Gpu::submit`]).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Signals {
+    /// A binary semaphore its end is handed out through ([`Gpu::sync_file`]).
+    pub done: Option<vk::Semaphore>,
+    /// A target's timeline and the acquire point the compositor waits on.
+    pub acquire: Option<(vk::Semaphore, Point)>,
+}
+
+/// **A submitted frame has finished**, as its fence said: made only by
+/// [`Gpu::landed`] and [`Gpu::wait`], and what moves a frame in flight
+/// back to idle, so nothing the frame reads is written or freed before.
+///
+/// ```compile_fail
+/// let done = baud_present_vulkan::frame::Done(());
+/// ```
+#[derive(Debug)]
+pub struct Done(());
+
 /// Why the GPU path could not be made.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failed {
@@ -116,6 +139,8 @@ pub enum Failed {
     Spirv,
     /// A copy to a sheet that does not fit it, or of another texel.
     Outside,
+    /// A frame's end asked for as a sync file on a device that has none.
+    NoSyncFile,
 }
 
 /// **What a [`Failed`] means to a caller deciding what to do next.**
@@ -188,15 +213,18 @@ impl Gpu {
         let family = QueueFamily(u32::try_from(index).map_err(|_| Failed::NoGraphicsQueue)?);
         let mut names: Vec<*const core::ffi::c_char> =
             REQUIRED.iter().map(|n| n.as_ptr()).collect();
-        if choice.sync == Sync::Explicit {
+        // A frame's end handed out as a sync file, where the device can.
+        let sync_fd = vulkan.exports_sync_fd(physical);
+        if choice.sync == Sync::Explicit || sync_fd == crate::vk::Has::Yes {
             names.push(SEMAPHORE_FD.as_ptr());
         }
         let priority = [1.0f32];
         let queues = [vk::DeviceQueueCreateInfo::default()
             .queue_family_index(family.0)
             .queue_priorities(&priority)];
-        let mut v12 = vk::PhysicalDeviceVulkan12Features::default()
-            .timeline_semaphore(choice.sync == Sync::Explicit);
+        // Timelines carry a frame's acquire point, and every 1.2 device
+        // has them.
+        let mut v12 = vk::PhysicalDeviceVulkan12Features::default().timeline_semaphore(true);
         // The plasma's `multiply` blends by a second source where the device
         // offers it, and in two passes where it does not (`Multiply`).
         // SAFETY: a physical device of this instance.
@@ -239,6 +267,8 @@ impl Gpu {
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
         // SAFETY: a device just made.
         let pool = unsafe { device.create_command_pool(&pool_info, None) }?;
+        let semaphore_fd = (sync_fd == crate::vk::Has::Yes)
+            .then(|| ash::khr::external_semaphore_fd::Device::new(&vulkan.instance, &device));
         Ok(Gpu {
             vulkan,
             physical,
@@ -249,6 +279,8 @@ impl Gpu {
             choice,
             multiply,
             clock,
+            sync_fd,
+            semaphore_fd,
             #[cfg(any(test, feature = "test-hooks"))]
             waits: std::cell::Cell::new(Waits(0)),
             #[cfg(any(test, feature = "test-hooks"))]
@@ -474,8 +506,9 @@ impl Gpu {
     /// Destroy `tl`. Its fd is closed when dropped.
     #[allow(unsafe_code)]
     pub fn drop_timeline(&self, tl: Timeline) {
-        // SAFETY: no pending submission signals it: every submission is
-        // waited for on the CPU before the call that made it returns.
+        // SAFETY: no pending submission signals it: the presenter drops a
+        // timeline only once the frame in flight has landed, and `clear`
+        // waits for its own.
         unsafe { self.device.destroy_semaphore(tl.semaphore, None) };
     }
 
@@ -728,19 +761,23 @@ impl Gpu {
         Ok(Recorder { cb, fence })
     }
 
-    /// **[`Gpu::submit_and_wait`] through `r`'s buffer and fence**, reset and
-    /// reused: a frame that makes no command buffer and no fence.
+    /// **A frame recorded with `record` into `r`'s buffer and submitted
+    /// under `r`'s fence**, signalling `signals` beside it, and not waited
+    /// for: the frame's end is [`Gpu::landed`]'s or [`Gpu::wait`]'s to
+    /// say. `r` is idle -- the frame submitted through it before has
+    /// landed -- and nothing is allocated.
     #[allow(unsafe_code)]
-    pub(crate) fn submit_reusing(
+    pub(crate) fn submit(
         &self,
         r: &Recorder,
         record: impl FnOnce(vk::CommandBuffer),
+        signals: Signals,
     ) -> Result<(), Failed> {
         let d = &self.device;
         let begin = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-        // SAFETY: the buffer and fence are idle: every submission through
-        // them is waited for before this returns.
+        // SAFETY: the buffer and fence are idle: the submission through
+        // them before has landed.
         unsafe {
             d.reset_command_buffer(r.cb, vk::CommandBufferResetFlags::empty())?;
             d.reset_fences(&[r.fence])?;
@@ -748,20 +785,98 @@ impl Gpu {
         }
         record(r.cb);
         let cbs = [r.cb];
-        let submit = [vk::SubmitInfo::default().command_buffers(&cbs)];
+        // A binary semaphore's value is ignored, a timeline's is the point.
+        let mut sems = [vk::Semaphore::null(); 2];
+        let mut values = [0_u64; 2];
+        let mut n = 0;
+        if let Some(s) = signals.done {
+            sems[n] = s;
+            n += 1;
+        }
+        if let Some((s, p)) = signals.acquire {
+            (sems[n], values[n]) = (s, p.0);
+            n += 1;
+        }
+        let mut timeline =
+            vk::TimelineSemaphoreSubmitInfo::default().signal_semaphore_values(&values[..n]);
+        let submit = [vk::SubmitInfo::default()
+            .command_buffers(&cbs)
+            .signal_semaphores(&sems[..n])
+            .push_next(&mut timeline)];
         self.call()?;
-        // SAFETY: the buffer is recorded and the fence unsignalled.
+        // SAFETY: the buffer is recorded and the fence unsignalled; each
+        // semaphore is this device's and alive until the frame lands.
         unsafe {
             d.end_command_buffer(r.cb)?;
             d.queue_submit(self.queue, &submit, r.fence)?;
-            d.wait_for_fences(&[r.fence], true, u64::MAX)?;
         }
-        self.waited();
         Ok(())
     }
 
+    /// **Whether the frame submitted through `r` has finished**, asked of
+    /// its fence without waiting: [`Done`] once it has.
+    #[allow(unsafe_code)]
+    pub(crate) fn landed(&self, r: &Recorder) -> Result<Option<Done>, Failed> {
+        #[cfg(feature = "test-hooks")]
+        if self.hooks.landing_held() == crate::vk::Has::Yes {
+            return Ok(None);
+        }
+        // SAFETY: a fence of this device.
+        match unsafe { self.device.get_fence_status(r.fence) }? {
+            true => Ok(Some(Done(()))),
+            false => Ok(None),
+        }
+    }
+
+    /// **The frame submitted through `r`, waited for on the CPU**: for a
+    /// device whose frames cannot be polled, and the crate's own drawing
+    /// outside the presenter.
+    #[allow(unsafe_code)]
+    pub(crate) fn wait(&self, r: &Recorder) -> Result<Done, Failed> {
+        // SAFETY: a fence of this device, submitted.
+        unsafe { self.device.wait_for_fences(&[r.fence], true, u64::MAX) }?;
+        self.waited();
+        Ok(Done(()))
+    }
+
+    /// **A binary semaphore a frame signals**, exportable as a sync file
+    /// ([`Gpu::sync_file`]).
+    #[allow(unsafe_code)]
+    pub(crate) fn sync_semaphore(&self) -> Result<vk::Semaphore, Failed> {
+        let mut export = vk::ExportSemaphoreCreateInfo::default()
+            .handle_types(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD);
+        let info = vk::SemaphoreCreateInfo::default().push_next(&mut export);
+        // SAFETY: a device of this struct, and a chain alive through the call.
+        Ok(unsafe { self.device.create_semaphore(&info, None) }?)
+    }
+
+    /// **The pending signal of `sem` as a sync file**, readable once the
+    /// frame that signals it has finished: `None` where it already has,
+    /// the `-1` an implementation may hand back for a signalled semaphore
+    /// (`[[source: vulkan-synchronization]]`). The export has a wait's
+    /// effect on `sem`, which is unsignalled again for the next frame.
+    #[allow(unsafe_code)]
+    pub(crate) fn sync_file(&self, sem: vk::Semaphore) -> Result<Option<OwnedFd>, Failed> {
+        let Some(ext) = &self.semaphore_fd else {
+            return Err(Failed::NoSyncFile);
+        };
+        let info = vk::SemaphoreGetFdInfoKHR::default()
+            .semaphore(sem)
+            .handle_type(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD);
+        // SAFETY: a semaphore of this device whose signal was submitted.
+        let raw = unsafe { ext.get_semaphore_fd(&info) }?;
+        // SAFETY: the call hands over a new descriptor the caller owns.
+        let fd = (raw >= 0).then(|| unsafe { OwnedFd::from_raw_fd(raw) });
+        // A held landing hands out the test's descriptor in its place.
+        #[cfg(feature = "test-hooks")]
+        if let Some(held) = self.hooks.landing_fd() {
+            return Ok(Some(held));
+        }
+        Ok(fd)
+    }
+
     /// `r`'s buffer and fence freed; nothing submitted through it is
-    /// pending, as every submission is waited for.
+    /// pending: the frame through it has landed, or the device is idle.
     #[allow(unsafe_code)]
     pub(crate) fn drop_recorder(&self, r: Recorder) {
         // SAFETY: idle, as above.
@@ -817,8 +932,9 @@ impl Gpu {
     /// Destroy `t`: its image and memory. Its fd is closed when dropped.
     #[allow(unsafe_code)]
     pub fn drop_target(&self, t: Target) {
-        // SAFETY: no pending submission uses the target: every submission
-        // is waited for on the CPU before the call that made it returns.
+        // SAFETY: no pending submission uses the target: the presenter
+        // drops a target only once the frame in flight has landed, and
+        // `clear` waits for its own.
         unsafe {
             self.device.destroy_image(t.image, None);
             self.device.free_memory(t.memory, None);
@@ -860,12 +976,28 @@ impl Gpu {
     pub fn targets_live(&self) -> crate::hooks::Live {
         self.hooks.live()
     }
+
+    /// **Frames from now land only at [`Gpu::release_landings`]**, as a
+    /// slow GPU would keep them: their fence reads unfinished and their end
+    /// is a descriptor that turns readable at the release, so a test holds
+    /// a frame in flight however fast the device draws it.
+    #[cfg(feature = "test-hooks")]
+    pub fn hold_landings(&self) {
+        self.hooks.hold_landings();
+    }
+
+    /// **The held frames land**: their end turns readable.
+    #[cfg(feature = "test-hooks")]
+    pub fn release_landings(&self) {
+        self.hooks.release_landings();
+    }
 }
 
 impl Drop for Gpu {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
-        // SAFETY: every submission waited; the pool and device are ours.
+        // SAFETY: every frame has landed or the device is idle now; the
+        // pool and device are ours.
         unsafe {
             let _ = self.device.device_wait_idle();
             self.device.destroy_command_pool(self.pool, None);

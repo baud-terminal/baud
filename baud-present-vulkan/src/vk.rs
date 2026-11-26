@@ -264,6 +264,31 @@ impl Vulkan {
             .external_semaphore_features
             .contains(vk::ExternalSemaphoreFeatureFlags::EXPORTABLE)
     }
+
+    /// **Whether a frame's end can be handed out as a sync file**: the
+    /// device has `VK_KHR_external_semaphore_fd` and a binary semaphore
+    /// exports as `SYNC_FD` (`[[source: vulkan-synchronization]]`).
+    #[allow(unsafe_code)]
+    pub(crate) fn exports_sync_fd(&self, pd: vk::PhysicalDevice) -> Has {
+        if !self.has(pd, SEMAPHORE_FD) {
+            return Has::No;
+        }
+        let info = vk::PhysicalDeviceExternalSemaphoreInfo::default()
+            .handle_type(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD);
+        let mut props = vk::ExternalSemaphoreProperties::default();
+        // SAFETY: a physical device of this instance and a plain struct.
+        unsafe {
+            self.instance
+                .get_physical_device_external_semaphore_properties(pd, &info, &mut props)
+        };
+        match props
+            .external_semaphore_features
+            .contains(vk::ExternalSemaphoreFeatureFlags::EXPORTABLE)
+        {
+            true => Has::Yes,
+            false => Has::No,
+        }
+    }
 }
 
 /// **One device's row of the vendor matrix** (`tests/vendors.rs`): its driver, what

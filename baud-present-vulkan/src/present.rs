@@ -19,10 +19,17 @@
 //! of a frame shown without points ([`Presenter::released`]), or its release
 //! point reached for one shown with points.
 //!
+//! **One frame flies at a time** ([`Frame::Busy`]): where the target has a
+//! timeline, the frame's own submission signals its acquire point, nothing
+//! waits for it, and its end is a sync file the loop polls
+//! ([`Presenter::done_fd`]); a frame asked for meanwhile is owed and drawn
+//! once it lands ([`Presenter::land`]). Without points a frame is finished
+//! before it is shown.
+//!
 //! The driver passes no smooth scroll: no pan and no leaving row
 //! ([`Inputs`]).
 
-use crate::cells::{CellDraw, CellMemory, CellSizes, CellSlices, MapSide};
+use crate::cells::{CellDraw, CellMemory, CellSizes, CellSlices, End, Finish, Landing, MapSide};
 use crate::damage::{TARGETS, TargetIx};
 use crate::frame::{Failed, Gpu, Target, Timeline};
 use crate::lend::Elems;
@@ -70,6 +77,9 @@ pub enum Frame {
     Drew(TargetIx),
     /// No target is free: nothing drawn, the rows owed.
     Owed,
+    /// The frame before is still in flight: nothing drawn, the rows owed,
+    /// and the frame drawn when it lands ([`Presenter::land`]).
+    Busy,
     /// The CPU arm draws it.
     Cpu(Cpu),
 }
@@ -79,9 +89,18 @@ pub enum Frame {
 pub struct Counts {
     pub drew: Skipped,
     pub owed: Skipped,
+    pub busy: Skipped,
     pub building: Skipped,
     pub images: Skipped,
     pub trail: Skipped,
+}
+
+/// **Whether a frame was asked for while the one before flew**, so its
+/// landing owes the loop a frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Owes {
+    Frame,
+    Nothing,
 }
 
 /// **What a frame is built from beyond the terminal and the renderer**: the
@@ -115,6 +134,9 @@ struct Slot {
     holder: Holder,
     /// The last point signalled or waited on this target's timeline.
     point: Point,
+    /// The acquire point the frame drawn into it signals, and the release
+    /// point after it, until the frame is shown ([`Presenter::points`]).
+    points: Option<(Point, Point)>,
 }
 
 /// **The GPU arm's state**: the cell path's memory and its frame's parts,
@@ -138,11 +160,18 @@ pub struct Presenter {
     slots: Vec<Slot>,
     next: TargetIx,
     counts: Counts,
-    /// What the last frame drawn cost, from its target in hand to its
-    /// fence, the wait included: what effect pacing weighs.
+    /// What the last frame landed cost: the CPU's part, from its target in
+    /// hand to its submission, and the GPU's pass (`timing.rs`), or with a
+    /// wait from target to fence. What effect pacing weighs.
     cost: std::time::Duration,
-    /// Whether the last frame drawn's build drew into the atlas.
+    /// Whether the last frame landed's build drew into the atlas.
     cold: baud_render::Cold,
+    /// The CPU's part of the frame in flight.
+    cpu_cost: std::time::Duration,
+    /// Whether the frame in flight's build drew into the atlas.
+    cpu_cold: baud_render::Cold,
+    /// Whether a frame was asked for while the one in flight flew.
+    owes: Owes,
 }
 
 impl Presenter {
@@ -185,6 +214,9 @@ impl Presenter {
             counts: Counts::default(),
             cost: std::time::Duration::ZERO,
             cold: baud_render::Cold::No,
+            cpu_cost: std::time::Duration::ZERO,
+            cpu_cold: baud_render::Cold::No,
+            owes: Owes::Nothing,
         })
     }
 
@@ -199,6 +231,12 @@ impl Presenter {
                 .all(|s| (s.target.width, s.target.height) == size)
         {
             return Ok(Remade::No);
+        }
+        // A target the frame in flight draws into stays until it lands.
+        if self.land(gpu)? == Landing::Flying {
+            self.counts.busy.0 += 1;
+            self.owes = Owes::Frame;
+            return Ok(Remade::Busy);
         }
         self.drop_slots(gpu);
         // Both targets or none: a failure part way drops what was made.
@@ -230,6 +268,7 @@ impl Presenter {
                 timeline,
                 holder: Holder::Us,
                 point: Point(0),
+                points: None,
             });
         }
         Ok(())
@@ -254,6 +293,13 @@ impl Presenter {
         seal: Seal,
         inputs: &Inputs<'_>,
     ) -> Result<Frame, Failed> {
+        // One frame flies at a time: nothing the one in flight reads is
+        // written, and asked meanwhile, a frame is owed and never waited for.
+        if self.land(gpu)? == Landing::Flying {
+            self.counts.busy.0 += 1;
+            self.owes = Owes::Frame;
+            return Ok(Frame::Busy);
+        }
         let building = CELL_PIPES
             .iter()
             .filter(|(f, b)| self.pipes.ready(*f, *b).is_none())
@@ -383,6 +429,23 @@ impl Presenter {
             map_gen: self.map.generation(),
         };
         let slot = &mut self.slots[k.0];
+        // The acquire point is the frame's own submission's to signal, so
+        // the compositor reads the target once the GPU has drawn it; the
+        // release point is the one after.
+        let points = slot
+            .timeline
+            .as_ref()
+            .map(|tl| (tl, Point(slot.point.0 + 1)));
+        // In flight only where the compositor waits on the GPU itself, at
+        // the acquire point; without points the frame is finished before it
+        // is shown.
+        let finish = Finish {
+            end: match points {
+                Some(_) => End::Fly,
+                None => End::Wait,
+            },
+            acquire: points,
+        };
         gpu.draw_cells(
             &mut self.pipes,
             &mut self.mem,
@@ -390,10 +453,19 @@ impl Presenter {
             renderer,
             &input,
             &slot.target,
+            finish,
         )?;
+        if let Some((_, acquire)) = points {
+            slot.point = Point(acquire.0 + 1);
+            slot.points = Some((acquire, slot.point));
+        }
         slot.holder = Holder::Drawn;
-        self.cost = started.elapsed();
-        self.cold = frame.cold;
+        self.cpu_cost = started.elapsed();
+        self.cpu_cold = frame.cold;
+        // A frame met before `draw_cells` returned costs what it took.
+        if self.mem.in_flight() == Landing::Idle {
+            (self.cost, self.cold) = (self.cpu_cost, self.cpu_cold);
+        }
         self.next = TargetIx((k.0 + 1) % TARGETS);
         self.counts.drew.0 += 1;
         Ok(Frame::Drew(k))
@@ -433,6 +505,30 @@ impl Presenter {
         );
     }
 
+    /// **The frame in flight, met if it has finished** (`CellMemory::land`):
+    /// its cost then the CPU's part and the GPU's pass. What the loop calls
+    /// when [`Presenter::done_fd`] turns readable, and each frame first.
+    pub fn land(&mut self, gpu: &Gpu) -> Result<Landing, Failed> {
+        let landing = self.mem.land(gpu, &self.sheets)?;
+        if landing == Landing::Landed {
+            self.cost = self.cpu_cost + self.mem.times.pass;
+            self.cold = self.cpu_cold;
+        }
+        Ok(landing)
+    }
+
+    /// **Whether a frame asked for while the one before flew is owed**, read
+    /// once the frame in flight has landed, and cleared.
+    pub fn owed_on_landing(&mut self) -> Owes {
+        core::mem::replace(&mut self.owes, Owes::Nothing)
+    }
+
+    /// The frame in flight's end, readable once it has finished: for the
+    /// loop to poll beside the pipeline builds' ([`Presenter::ready_fd`]).
+    pub fn done_fd(&self) -> Option<BorrowedFd<'_>> {
+        self.mem.done_fd()
+    }
+
     /// **A free target**, the one after the last drawn first: one the
     /// compositor released, or whose release point is reached.
     fn free(&mut self, gpu: &Gpu) -> Result<Option<TargetIx>, Failed> {
@@ -452,20 +548,11 @@ impl Presenter {
     }
 
     /// **The points target `k`'s frame is shown with**, where frames are
-    /// synchronised explicitly: its acquire point signalled now -- the
-    /// frame is finished, waited for on the CPU -- and its release point
-    /// the one after.
-    pub fn points(&mut self, gpu: &Gpu, k: TargetIx) -> Result<Option<(Point, Point)>, Failed> {
-        let Some(s) = self.slots.get_mut(k.0) else {
-            return Ok(None);
-        };
-        let Some(tl) = s.timeline.as_ref() else {
-            return Ok(None);
-        };
-        let acquire = Point(s.point.0 + 1);
-        gpu.signal(tl, acquire)?;
-        s.point = Point(acquire.0 + 1);
-        Ok(Some((acquire, s.point)))
+    /// synchronised explicitly: its acquire point, which the frame's own
+    /// submission signals once the GPU has drawn it, and its release point
+    /// the one after. Taken once, by the present that shows it.
+    pub fn points(&mut self, k: TargetIx) -> Option<(Point, Point)> {
+        self.slots.get_mut(k.0)?.points.take()
     }
 
     /// **The rows the frame drawn last changed**, for `present_dmabuf`.
@@ -525,14 +612,14 @@ impl Presenter {
         self.mem.times
     }
 
-    /// **What the last frame drawn cost**: from its target in hand to its
-    /// fence, the wait on it included.
+    /// **What the last frame landed cost**: the CPU's part and the GPU's
+    /// pass, or with a wait from its target in hand to its fence.
     pub fn cost(&self) -> std::time::Duration {
         self.cost
     }
 
-    /// **Whether the last frame drawn's build drew into the atlas**: a cold
-    /// build, whose cost is the atlas's.
+    /// **Whether the last frame landed's build drew into the atlas**: a
+    /// cold build, whose cost is the atlas's.
     pub fn cold(&self) -> baud_render::Cold {
         self.cold
     }
@@ -561,8 +648,11 @@ impl Presenter {
         }
     }
 
-    /// Everything destroyed, the device idle.
+    /// Everything destroyed, the frame in flight met first and the device
+    /// idle.
     pub fn destroy(mut self, gpu: &Gpu) {
+        // Teardown waits for the frame in flight: it is off the frame path.
+        let _ = self.mem.settle(gpu, &self.sheets);
         self.drop_slots(gpu);
         self.mem.destroy(gpu);
         self.sheets.destroy(gpu);
@@ -575,4 +665,7 @@ impl Presenter {
 pub enum Remade {
     Yes,
     No,
+    /// Not remade yet: the frame in flight draws into one of them, and a
+    /// frame is owed when it lands.
+    Busy,
 }

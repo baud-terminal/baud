@@ -20,7 +20,7 @@
 use crate::chrome::{Chrome, View, scissor};
 use crate::damage::{self, BANDS, Stale, TARGETS, TargetIx};
 use crate::draw::Buffer;
-use crate::frame::{Failed, Gpu, Recorder, Target};
+use crate::frame::{Done, Failed, Gpu, Recorder, Signals, Target, Timeline};
 use crate::lend::{Arm, Elems, Lent, Uploaded};
 use crate::pipeline::{Blend, Fragment, Fx, Pipelines, Skipped};
 use crate::sheets::Sheets;
@@ -29,6 +29,7 @@ use ash::vk;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, RowRot, Rows, Stride};
 use baud_font::Px as FontPx;
+use baud_present_wayland::dmabuf::Point;
 use baud_present_wayland::{Changed, Px, Strip as Damaged};
 use baud_render::cell_frame::{CU_NAMES, CU_WORDS};
 use baud_render::screens::{SETS, ScreenGen, SetIx};
@@ -37,6 +38,7 @@ use baud_render::{
     Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, Reach, Redraw, Region, Renderer,
     Resolved, RowSet, StyleStamp, Tally,
 };
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
 /// The shape pass's slots a cell, `SHAPE_SLOTS` in `cells.glsl`.
 pub const SHAPES_PER_CELL: usize = 27;
@@ -109,6 +111,59 @@ impl MapSide {
             MapSide::Second => second,
         }
     }
+}
+
+/// **How [`Gpu::draw_cells`] meets a frame's end**, and the acquire point
+/// its submission signals for the compositor, where the target has a
+/// timeline.
+#[derive(Clone, Copy)]
+pub struct Finish<'a> {
+    pub end: End,
+    pub acquire: Option<(&'a Timeline, Point)>,
+}
+
+impl Finish<'_> {
+    /// Waited for on the CPU, with no acquire point.
+    pub const WAIT: Finish<'static> = Finish {
+        end: End::Wait,
+        acquire: None,
+    };
+}
+
+/// Where a frame's end is met.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum End {
+    /// Waited for on the CPU before `draw_cells` returns.
+    Wait,
+    /// Left in flight, its end handed out as a sync file the loop polls
+    /// ([`CellMemory::done_fd`]) and met by [`CellMemory::land`]; waited
+    /// for where the device hands out none.
+    Fly,
+}
+
+/// **Whether a frame is in flight**: its buffer, fence, queries, staging
+/// and the memory its sets lend are the GPU's until it lands, which only a
+/// [`Done`] says.
+enum Flight {
+    Idle,
+    InFlight {
+        /// Readable once the frame has finished; none where it had
+        /// finished by the time it was asked for.
+        done: Option<OwnedFd>,
+        /// The trail draws it timed (`timing.rs`).
+        draws: crate::timing::Draws,
+    },
+}
+
+/// What [`CellMemory::land`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Landing {
+    /// No frame was in flight.
+    Idle,
+    /// The frame in flight has not finished.
+    Flying,
+    /// The frame in flight finished, and its parts are free again.
+    Landed,
 }
 
 /// **What the cell memory is sized for**: the provisioned grid, the pitch
@@ -209,6 +264,11 @@ pub struct CellMemory {
     /// The command buffer and fence every frame is recorded and waited
     /// through, made once.
     recorder: Recorder,
+    /// The binary semaphore a frame in flight signals, its end handed out
+    /// as a sync file; none where the device hands out none.
+    sync: Option<vk::Semaphore>,
+    /// Whether a frame is in flight.
+    flight: Flight,
     /// The queries a frame times itself with: timestamps where the queue
     /// family keeps them, fragment counts where pipeline statistics are on
     /// (`timing.rs`).
@@ -629,6 +689,11 @@ impl CellMemory {
             slices.overlay.push(&mut overlay_mem[..overlay_bytes]);
         }
         let recorder = gpu.recorder()?;
+        // What a frame signals for its end to be handed out as a sync file.
+        let sync = match gpu.sync_fd {
+            Has::Yes => Some(gpu.sync_semaphore()?),
+            Has::No => None,
+        };
         let pool_of = |ty: vk::QueryType, n: usize, stats: vk::QueryPipelineStatisticFlags| {
             let info = vk::QueryPoolCreateInfo::default()
                 .query_type(ty)
@@ -665,6 +730,8 @@ impl CellMemory {
                 images_skipped: Skipped::default(),
                 trail_skipped: Skipped::default(),
                 recorder,
+                sync,
+                flight: Flight::Idle,
                 stamps,
                 fragments,
                 times: crate::timing::GpuTimes::default(),
@@ -726,6 +793,10 @@ impl CellMemory {
             m.destroy(gpu);
         }
         gpu.drop_recorder(self.recorder);
+        if let Some(s) = self.sync {
+            // SAFETY: the device is idle; no frame signals it again.
+            unsafe { gpu.device.destroy_semaphore(s, None) };
+        }
         for pool in [self.stamps, self.fragments].into_iter().flatten() {
             // SAFETY: the device is idle; no frame writes the pool again.
             unsafe { gpu.device.destroy_query_pool(pool, None) };
@@ -779,6 +850,60 @@ impl CellMemory {
     /// and the next GPU frame into each draws them.
     pub fn drawn_elsewhere(&mut self, changed: Redraw) {
         self.stale.elsewhere(changed);
+    }
+
+    /// **The frame in flight, met if it has finished**: asked of its fence
+    /// without waiting, and once it has, its times read and its staging
+    /// freed, the memory and the recorder free for the next.
+    pub fn land(&mut self, gpu: &Gpu, sheets: &Sheets) -> Result<Landing, Failed> {
+        let Flight::InFlight { draws, .. } = self.flight else {
+            return Ok(Landing::Idle);
+        };
+        match gpu.landed(&self.recorder)? {
+            Some(done) => {
+                self.landed(gpu, sheets, done, draws);
+                Ok(Landing::Landed)
+            }
+            None => Ok(Landing::Flying),
+        }
+    }
+
+    /// **The frame in flight, waited for on the CPU**: for teardown, and
+    /// for a frame drawn outside the presenter while one flies.
+    pub fn settle(&mut self, gpu: &Gpu, sheets: &Sheets) -> Result<(), Failed> {
+        let Flight::InFlight { draws, .. } = self.flight else {
+            return Ok(());
+        };
+        let done = gpu.wait(&self.recorder)?;
+        self.landed(gpu, sheets, done, draws);
+        Ok(())
+    }
+
+    /// **A frame finished, as `done` says**: what it cost the GPU read,
+    /// the staging its copies came from freed, and its sync file closed.
+    fn landed(&mut self, gpu: &Gpu, sheets: &Sheets, done: Done, draws: crate::timing::Draws) {
+        let _ = done;
+        self.times = self.read_times(gpu, draws);
+        sheets.finished(gpu);
+        self.flight = Flight::Idle;
+    }
+
+    /// **The frame in flight's end as a descriptor**, readable once it has
+    /// finished, for the loop's poll; none while no frame flies or once it
+    /// had finished by the time it was asked for.
+    pub fn done_fd(&self) -> Option<BorrowedFd<'_>> {
+        match &self.flight {
+            Flight::InFlight { done: Some(fd), .. } => Some(fd.as_fd()),
+            _ => None,
+        }
+    }
+
+    /// Whether a frame is in flight.
+    pub fn in_flight(&self) -> Landing {
+        match self.flight {
+            Flight::Idle => Landing::Idle,
+            Flight::InFlight { .. } => Landing::Flying,
+        }
     }
 
     /// **What the frame just waited for cost the GPU**, from the queries it
@@ -1143,7 +1268,7 @@ impl Gpu {
     /// Images are not drawn and are counted in
     /// [`CellMemory::images_skipped`]; an effect trail's records are not
     /// drawn and are counted in [`CellMemory::trail_skipped`].
-    #[allow(unsafe_code, clippy::too_many_lines)]
+    #[allow(unsafe_code, clippy::too_many_lines, clippy::too_many_arguments)]
     pub fn draw_cells(
         &self,
         pipes: &mut Pipelines,
@@ -1152,12 +1277,17 @@ impl Gpu {
         renderer: &mut Renderer<'_, '_>,
         input: &CellDraw<'_>,
         t: &Target,
+        finish: Finish<'_>,
     ) -> Result<CellDrawn, Failed> {
         let d = &self.device;
         let set = input.set.0;
         if set >= mem.sets.len() {
             return Err(Failed::Outside);
         }
+        // Nothing the frame before reads is written while it flies: a
+        // caller that draws meanwhile waits for it here, which the
+        // presenter never does (`Presenter::frame` answers busy).
+        mem.settle(self, sheets)?;
         let (cols, rows) = renderer.grid();
         let slide_rows = usize::from(input.slide.is_some());
         let draw_rows = rows.index().saturating_add(slide_rows);
@@ -1567,270 +1697,290 @@ impl Gpu {
         // The trail draws timed so far this frame (`timing.rs`).
         let timed = core::cell::Cell::new(0usize);
         let (stamps, fragments) = (mem.stamps, mem.fragments);
-        let submitted = self.submit_reusing(&mem.recorder, |cb| {
-            // SAFETY: the pools are this device's, reset outside a render
-            // pass before any query in them is written.
-            unsafe {
-                if let Some(p) = stamps {
-                    d.cmd_reset_query_pool(cb, p, 0, n32(Elems(crate::timing::STAMPS)).0);
-                    d.cmd_write_timestamp(cb, vk::PipelineStageFlags::TOP_OF_PIPE, p, 0);
-                }
-                if let Some(p) = fragments {
-                    d.cmd_reset_query_pool(cb, p, 0, n32(Elems(crate::timing::EFFECT_SLOTS)).0);
-                }
-            }
-            sheets.record(d, cb);
-            let s = &mut mem.sets[set];
-            s.grid.record(d, cb);
-            s.styles.record(d, cb);
-            s.overlay.record(d, cb);
-            s.cu.record(d, cb);
-            s.seg_base.record(d, cb);
-            input.map.1.of(&mut mem.maps).record(d, cb);
-            // A grid with no width or height draws nothing: Vulkan takes no
-            // empty viewport.
-            let drawable = boxed.grid.w > 0.0 && boxed.grid.h > 0.0;
-            // The cell passes' bindings and part, then one instanced draw.
-            let cell = |pipe: vk::Pipeline, part: Part, n: Instances, first: Instances| {
-                if !drawable || n.0 == 0 {
-                    return;
-                }
-                // SAFETY: every handle is alive until the wait ends; the
-                // sets match the cell layout, the push constant its range.
+        let flies = finish.end == End::Fly && mem.sync.is_some();
+        let signals = Signals {
+            done: mem.sync.filter(|_| flies),
+            acquire: finish.acquire.map(|(tl, p)| (tl.semaphore, p)),
+        };
+        let submitted = self.submit(
+            &mem.recorder,
+            |cb| {
+                // SAFETY: the pools are this device's, reset outside a render
+                // pass before any query in them is written.
                 unsafe {
-                    d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, pipe);
-                    d.cmd_bind_descriptor_sets(
-                        cb,
-                        vk::PipelineBindPoint::GRAPHICS,
-                        cell_layout,
-                        0,
-                        &cell_sets,
-                        &[],
-                    );
-                    d.cmd_push_constants(
-                        cb,
-                        cell_layout,
-                        vk::ShaderStageFlags::VERTEX,
-                        0,
-                        &part.0.to_le_bytes(),
-                    );
-                    d.cmd_draw(cb, 4, n.0, 0, first.0);
+                    if let Some(p) = stamps {
+                        d.cmd_reset_query_pool(cb, p, 0, n32(Elems(crate::timing::STAMPS)).0);
+                        d.cmd_write_timestamp(cb, vk::PipelineStageFlags::TOP_OF_PIPE, p, 0);
+                    }
+                    if let Some(p) = fragments {
+                        d.cmd_reset_query_pool(cb, p, 0, n32(Elems(crate::timing::EFFECT_SLOTS)).0);
+                    }
                 }
-            };
-            // Records `from..to` by the instance pipeline under uniform
-            // slot `k`; the trail's among them left undrawn and counted.
-            let mut records = |k: usize, from: usize, to: usize| {
-                if !drawable {
-                    return;
-                }
-                let run = |f: usize, e: usize| {
-                    if e <= f {
+                sheets.record(d, cb);
+                let s = &mut mem.sets[set];
+                s.grid.record(d, cb);
+                s.styles.record(d, cb);
+                s.overlay.record(d, cb);
+                s.cu.record(d, cb);
+                s.seg_base.record(d, cb);
+                input.map.1.of(&mut mem.maps).record(d, cb);
+                // A grid with no width or height draws nothing: Vulkan takes no
+                // empty viewport.
+                let drawable = boxed.grid.w > 0.0 && boxed.grid.h > 0.0;
+                // The cell passes' bindings and part, then one instanced draw.
+                let cell = |pipe: vk::Pipeline, part: Part, n: Instances, first: Instances| {
+                    if !drawable || n.0 == 0 {
                         return;
                     }
-                    // SAFETY: as above; the sets match the instance layout,
-                    // and the records `f..e` lie inside the buffer.
+                    // SAFETY: every handle is alive until the wait ends; the
+                    // sets match the cell layout, the push constant its range.
                     unsafe {
-                        d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, records_pipe);
+                        d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, pipe);
                         d.cmd_bind_descriptor_sets(
                             cb,
                             vk::PipelineBindPoint::GRAPHICS,
-                            inst_layout,
+                            cell_layout,
                             0,
-                            &inst_sets[k],
+                            &cell_sets,
                             &[],
                         );
-                        d.cmd_draw(cb, 4, n32(Elems(e - f)).0, 0, n32(Elems(f)).0);
+                        d.cmd_push_constants(
+                            cb,
+                            cell_layout,
+                            vk::ShaderStageFlags::VERTEX,
+                            0,
+                            &part.0.to_le_bytes(),
+                        );
+                        d.cmd_draw(cb, 4, n.0, 0, first.0);
                     }
                 };
-                match trail {
-                    Some((a, b)) if a < to && a >= from => {
-                        let b = b.min(to);
-                        run(from, a);
-                        match &trail_pipes {
-                            // SAFETY: as above; the sets match the instance
-                            // layout, set 2 the trail's uniform, and the
-                            // records `a..b` lie inside the buffer.
-                            Some(passes) => unsafe {
-                                // The draws timed by a pair of stamps, and
-                                // counted, up to `EFFECT_SLOTS` a frame.
-                                let slot = timed.get();
-                                let at = n32(Elems(slot)).0;
-                                let timing = slot < crate::timing::EFFECT_SLOTS;
-                                if timing {
-                                    if let Some(q) = stamps {
-                                        d.cmd_write_timestamp(
-                                            cb,
-                                            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-                                            q,
-                                            2 + 2 * at,
-                                        );
-                                    }
-                                    if let Some(q) = fragments {
-                                        d.cmd_begin_query(
-                                            cb,
-                                            q,
-                                            at,
-                                            vk::QueryControlFlags::empty(),
-                                        );
-                                    }
-                                }
-                                for &p in passes {
-                                    d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, p);
-                                    d.cmd_bind_descriptor_sets(
-                                        cb,
-                                        vk::PipelineBindPoint::GRAPHICS,
-                                        inst_layout,
-                                        0,
-                                        &inst_sets[k],
-                                        &[],
-                                    );
-                                    d.cmd_bind_descriptor_sets(
-                                        cb,
-                                        vk::PipelineBindPoint::GRAPHICS,
-                                        inst_layout,
-                                        2,
-                                        &fx_set,
-                                        &[],
-                                    );
-                                    d.cmd_draw(cb, 4, n32(Elems(b - a)).0, 0, n32(Elems(a)).0);
-                                }
-                                if timing {
-                                    if let Some(q) = fragments {
-                                        d.cmd_end_query(cb, q, at);
-                                    }
-                                    if let Some(q) = stamps {
-                                        d.cmd_write_timestamp(
-                                            cb,
-                                            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-                                            q,
-                                            3 + 2 * at,
-                                        );
-                                    }
-                                    timed.set(slot + 1);
-                                }
-                            },
-                            None => skipped += u64::try_from(b - a).unwrap_or(0),
+                // Records `from..to` by the instance pipeline under uniform
+                // slot `k`; the trail's among them left undrawn and counted.
+                let mut records = |k: usize, from: usize, to: usize| {
+                    if !drawable {
+                        return;
+                    }
+                    let run = |f: usize, e: usize| {
+                        if e <= f {
+                            return;
                         }
-                        run(b, to);
+                        // SAFETY: as above; the sets match the instance layout,
+                        // and the records `f..e` lie inside the buffer.
+                        unsafe {
+                            d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, records_pipe);
+                            d.cmd_bind_descriptor_sets(
+                                cb,
+                                vk::PipelineBindPoint::GRAPHICS,
+                                inst_layout,
+                                0,
+                                &inst_sets[k],
+                                &[],
+                            );
+                            d.cmd_draw(cb, 4, n32(Elems(e - f)).0, 0, n32(Elems(f)).0);
+                        }
+                    };
+                    match trail {
+                        Some((a, b)) if a < to && a >= from => {
+                            let b = b.min(to);
+                            run(from, a);
+                            match &trail_pipes {
+                                // SAFETY: as above; the sets match the instance
+                                // layout, set 2 the trail's uniform, and the
+                                // records `a..b` lie inside the buffer.
+                                Some(passes) => unsafe {
+                                    // The draws timed by a pair of stamps, and
+                                    // counted, up to `EFFECT_SLOTS` a frame.
+                                    let slot = timed.get();
+                                    let at = n32(Elems(slot)).0;
+                                    let timing = slot < crate::timing::EFFECT_SLOTS;
+                                    if timing {
+                                        if let Some(q) = stamps {
+                                            d.cmd_write_timestamp(
+                                                cb,
+                                                vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                                                q,
+                                                2 + 2 * at,
+                                            );
+                                        }
+                                        if let Some(q) = fragments {
+                                            d.cmd_begin_query(
+                                                cb,
+                                                q,
+                                                at,
+                                                vk::QueryControlFlags::empty(),
+                                            );
+                                        }
+                                    }
+                                    for &p in passes {
+                                        d.cmd_bind_pipeline(cb, vk::PipelineBindPoint::GRAPHICS, p);
+                                        d.cmd_bind_descriptor_sets(
+                                            cb,
+                                            vk::PipelineBindPoint::GRAPHICS,
+                                            inst_layout,
+                                            0,
+                                            &inst_sets[k],
+                                            &[],
+                                        );
+                                        d.cmd_bind_descriptor_sets(
+                                            cb,
+                                            vk::PipelineBindPoint::GRAPHICS,
+                                            inst_layout,
+                                            2,
+                                            &fx_set,
+                                            &[],
+                                        );
+                                        d.cmd_draw(cb, 4, n32(Elems(b - a)).0, 0, n32(Elems(a)).0);
+                                    }
+                                    if timing {
+                                        if let Some(q) = fragments {
+                                            d.cmd_end_query(cb, q, at);
+                                        }
+                                        if let Some(q) = stamps {
+                                            d.cmd_write_timestamp(
+                                                cb,
+                                                vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                                                q,
+                                                3 + 2 * at,
+                                            );
+                                        }
+                                        timed.set(slot + 1);
+                                    }
+                                },
+                                None => skipped += u64::try_from(b - a).unwrap_or(0),
+                            }
+                            run(b, to);
+                        }
+                        _ => run(from, to),
                     }
-                    _ => run(from, to),
-                }
-            };
-            // SAFETY: the barriers name the target and this queue's family;
-            // every handle is alive until the wait ends.
-            unsafe {
-                d.cmd_pipeline_barrier(
-                    cb,
-                    vk::PipelineStageFlags::TOP_OF_PIPE,
-                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[to_colour],
-                );
-                d.cmd_begin_render_pass(cb, &begin, vk::SubpassContents::INLINE);
-                if drawn == Redraw::Whole {
-                    d.cmd_clear_attachments(cb, &clear_att, &clear_rect);
-                }
-            }
-            for clip in clips {
-                // The rows a pass's instances cover, `per` a row: every
-                // draw row, or the band's and those reaching it.
-                let (cut, rows) = match *clip {
-                    Clip::Whole => (whole_rect, (0, draw_rows)),
-                    Clip::Band { from, to, rect } => (rect, (from.0, to.0)),
                 };
-                let span = |per: usize| {
-                    (
-                        n32(Elems(per.saturating_mul(rows.1 - rows.0))),
-                        n32(Elems(per.saturating_mul(rows.0))),
-                    )
-                };
-                let (cells, first) = span(ncols);
-                // SAFETY: as above.
+                // SAFETY: the barriers name the target and this queue's family;
+                // every handle is alive until the wait ends.
                 unsafe {
-                    if drawable {
-                        d.cmd_set_viewport(cb, 0, &[boxed.grid.vk()]);
+                    d.cmd_pipeline_barrier(
+                        cb,
+                        vk::PipelineStageFlags::TOP_OF_PIPE,
+                        vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                        vk::DependencyFlags::empty(),
+                        &[],
+                        &[],
+                        &[to_colour],
+                    );
+                    d.cmd_begin_render_pass(cb, &begin, vk::SubpassContents::INLINE);
+                    if drawn == Redraw::Whole {
+                        d.cmd_clear_attachments(cb, &clear_att, &clear_rect);
                     }
-                    d.cmd_set_scissor(cb, 0, &[cut]);
                 }
-                // The backgrounds.
-                cell(bg_pipe, GROUND_EVERY, cells, first);
-                // The grounds over them, under the glyphs; the glyphs inside
-                // their rows.
-                records(0, 0, g);
-                cell(glyph_pipe, PART_INSIDE, cells, first);
-                // The records inside their rows, then the decorations.
-                records(0, g, under);
-                match shape_draw {
-                    ShapeDraw::Every => {
-                        let (n, at) = span(ncols.saturating_mul(SHAPES_PER_CELL));
-                        cell(shape_pipe, GROUND_EVERY, n, at);
-                    }
-                    // The cursor's slot alone, held to a band by its
-                    // scissor as the whole pass would be.
-                    ShapeDraw::Cursor(at) => cell(shape_pipe, GROUND_EVERY, Instances(1), n32(at)),
-                    ShapeDraw::Nothing => {}
-                }
-                // The hollow cursor over the decorations: its four sides.
-                if let Some(hollow) = hollow {
-                    cell(hollow, GROUND_EVERY, Instances(4), Instances(0));
-                }
-                // The parts of glyphs above their rows.
-                if above_draws {
-                    cell(glyph_pipe, PART_ABOVE, cells, first);
-                }
-                // The rest of the records, then baud's own overlays.
-                records(0, under, content);
-                records(0, content, n);
-                // The strips, each in its own viewport and scissor: outside
-                // every band, and kept as the target holds them.
-                if !matches!(clip, Clip::Whole) {
-                    continue;
-                }
-                for (k, st) in strips.iter().enumerate() {
-                    if !st.drawn() {
-                        continue;
-                    }
-                    let cut = st.scissor(target_size);
+                for clip in clips {
+                    // The rows a pass's instances cover, `per` a row: every
+                    // draw row, or the band's and those reaching it.
+                    let (cut, rows) = match *clip {
+                        Clip::Whole => (whole_rect, (0, draw_rows)),
+                        Clip::Band { from, to, rect } => (rect, (from.0, to.0)),
+                    };
+                    let span = |per: usize| {
+                        (
+                            n32(Elems(per.saturating_mul(rows.1 - rows.0))),
+                            n32(Elems(per.saturating_mul(rows.0))),
+                        )
+                    };
+                    let (cells, first) = span(ncols);
                     // SAFETY: as above.
                     unsafe {
-                        d.cmd_set_viewport(cb, 0, &[st.view.vk()]);
+                        if drawable {
+                            d.cmd_set_viewport(cb, 0, &[boxed.grid.vk()]);
+                        }
                         d.cmd_set_scissor(cb, 0, &[cut]);
                     }
-                    records(k + 1, st.from.0, st.to.0);
+                    // The backgrounds.
+                    cell(bg_pipe, GROUND_EVERY, cells, first);
+                    // The grounds over them, under the glyphs; the glyphs inside
+                    // their rows.
+                    records(0, 0, g);
+                    cell(glyph_pipe, PART_INSIDE, cells, first);
+                    // The records inside their rows, then the decorations.
+                    records(0, g, under);
+                    match shape_draw {
+                        ShapeDraw::Every => {
+                            let (n, at) = span(ncols.saturating_mul(SHAPES_PER_CELL));
+                            cell(shape_pipe, GROUND_EVERY, n, at);
+                        }
+                        // The cursor's slot alone, held to a band by its
+                        // scissor as the whole pass would be.
+                        ShapeDraw::Cursor(at) => {
+                            cell(shape_pipe, GROUND_EVERY, Instances(1), n32(at))
+                        }
+                        ShapeDraw::Nothing => {}
+                    }
+                    // The hollow cursor over the decorations: its four sides.
+                    if let Some(hollow) = hollow {
+                        cell(hollow, GROUND_EVERY, Instances(4), Instances(0));
+                    }
+                    // The parts of glyphs above their rows.
+                    if above_draws {
+                        cell(glyph_pipe, PART_ABOVE, cells, first);
+                    }
+                    // The rest of the records, then baud's own overlays.
+                    records(0, under, content);
+                    records(0, content, n);
+                    // The strips, each in its own viewport and scissor: outside
+                    // every band, and kept as the target holds them.
+                    if !matches!(clip, Clip::Whole) {
+                        continue;
+                    }
+                    for (k, st) in strips.iter().enumerate() {
+                        if !st.drawn() {
+                            continue;
+                        }
+                        let cut = st.scissor(target_size);
+                        // SAFETY: as above.
+                        unsafe {
+                            d.cmd_set_viewport(cb, 0, &[st.view.vk()]);
+                            d.cmd_set_scissor(cb, 0, &[cut]);
+                        }
+                        records(k + 1, st.from.0, st.to.0);
+                    }
                 }
-            }
-            // SAFETY: as above.
-            unsafe {
-                d.cmd_end_render_pass(cb);
-                if let Some(p) = stamps {
-                    d.cmd_write_timestamp(cb, vk::PipelineStageFlags::BOTTOM_OF_PIPE, p, 1);
+                // SAFETY: as above.
+                unsafe {
+                    d.cmd_end_render_pass(cb);
+                    if let Some(p) = stamps {
+                        d.cmd_write_timestamp(cb, vk::PipelineStageFlags::BOTTOM_OF_PIPE, p, 1);
+                    }
+                    d.cmd_pipeline_barrier(
+                        cb,
+                        vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                        vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                        vk::DependencyFlags::empty(),
+                        &[],
+                        &[],
+                        &[release],
+                    );
                 }
-                d.cmd_pipeline_barrier(
-                    cb,
-                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-                    vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[release],
-                );
-            }
-        });
+            },
+            signals,
+        );
         mem.trail_skipped.0 += skipped;
-        // What the frame cost the GPU, read now its fence has passed.
-        if submitted.is_ok() {
-            mem.times = mem.read_times(self, crate::timing::Draws(timed.get()));
-        }
-        sheets.finished(self);
         // A frame that failed leaves its target holding nothing; the frame
-        // drawn last is still the one before it.
+        // drawn last is still the one before it. Its copies were never
+        // submitted, so their staging goes now.
         if let Err(e) = submitted {
+            sheets.finished(self);
             if let Some(k) = ix {
                 mem.stale.forget(k);
             }
             return Err(e);
+        }
+        let draws = crate::timing::Draws(timed.get());
+        mem.flight = Flight::InFlight { done: None, draws };
+        // In flight with its end as a sync file, or met here: on a device
+        // that hands out none, or when the export fails, by a wait.
+        let done = match (flies, mem.sync) {
+            (true, Some(s)) => self.sync_file(s),
+            _ => Err(Failed::NoSyncFile),
+        };
+        match done {
+            Ok(fd) => mem.flight = Flight::InFlight { done: fd, draws },
+            Err(_) => mem.settle(self, sheets)?,
         }
         let drawn = match ix {
             Some(k) => mem.stale.drew(k, changed),

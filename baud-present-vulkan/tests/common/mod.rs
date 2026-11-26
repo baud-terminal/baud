@@ -403,3 +403,42 @@ pub fn sheets(
         .expect("the colour sheet");
     sheets
 }
+
+/// The AMD GPU, its frames synchronised explicitly.
+pub fn radv_explicit() -> Gpu {
+    use baud_present_vulkan::choose::{Kind, SyncObj, choose};
+    use baud_present_vulkan::vk::Vulkan;
+    use baud_present_wayland::dmabuf::{
+        Count, Feedback, Format, Fourcc, Modifier, Tranche, TrancheFlags,
+    };
+    let vulkan = Vulkan::open().expect("libvulkan");
+    let (physical, gpu, render) = vulkan
+        .candidates()
+        .into_iter()
+        .find_map(|(pd, c)| match c.kind {
+            Kind::Gpu {
+                render: Some(r), ..
+            } => Some((pd, c, r)),
+            _ => None,
+        })
+        .expect("a GPU with a render node");
+    let offered = Feedback {
+        main: Some(render.dev()),
+        tranches: vec![Tranche {
+            device: Some(render.dev()),
+            flags: TrancheFlags(0),
+            formats: vec![Format {
+                fourcc: Fourcc::ARGB8888,
+                modifier: Modifier::LINEAR,
+            }],
+        }],
+        unknown_indices: Count(0),
+    };
+    let choice = choose(core::slice::from_ref(&gpu), &offered, SyncObj::Offered).expect("the GPU");
+    assert_eq!(
+        choice.sync,
+        baud_present_vulkan::choose::Sync::Explicit,
+        "the premise: explicit sync"
+    );
+    Gpu::new(vulkan, physical, choice).expect("a device")
+}

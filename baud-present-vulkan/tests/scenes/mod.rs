@@ -52,7 +52,9 @@ use crate::common::{Bar, Cover, Rounding, Tie, Ties, assert_frame_covered};
 use baud_core::Term;
 use baud_domain::{BytePos, Codepoint, Col, PackedCell, ReadLen, Row, RowExtent, Rows, WinSize};
 use baud_font::Px as FontPx;
-use baud_present_vulkan::cells::{CellDraw, CellDrawn, CellMemory, CellSizes, CellSlices, MapSide};
+use baud_present_vulkan::cells::{
+    CellDraw, CellDrawn, CellMemory, CellSizes, CellSlices, Finish, MapSide,
+};
 use baud_present_vulkan::chrome::Chrome;
 use baud_present_vulkan::draw::{Framing, Pass, Records, Scene, Texel, Texels};
 use baud_present_vulkan::frame::{Gpu, Target};
@@ -227,6 +229,7 @@ impl Drawing<'_, '_, '_> {
                 self.renderer,
                 input,
                 target,
+                Finish::WAIT,
             )
             .expect("a drawn cell frame")
     }

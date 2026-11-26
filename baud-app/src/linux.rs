@@ -1229,6 +1229,12 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             transfers.push((fd, crate::pty::Interest::Read));
             transfers.len() - 1
         });
+        // The GPU arm's frame in flight: its end, readable once finished,
+        // frees what it reads and owes a frame asked for meanwhile.
+        let flown = d.gpu.done_fd().map(|fd| {
+            transfers.push((fd, crate::pty::Interest::Read));
+            transfers.len() - 1
+        });
         // The master until it hangs up, after which it would answer every
         // wait at once (`Pty::polled_master`).
         let waited = wait(
@@ -1331,6 +1337,12 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         // A GPU pipeline built: the frame it held back is owed, though
         // nothing else changed.
         if built.and_then(|i| extra.get(i).copied()) == Some(Ready::Readable) && d.gpu.woken() {
+            d.pending = Pending::Dirty;
+        }
+        // The GPU arm's frame landed: a frame asked for while it flew is owed.
+        if flown.and_then(|i| extra.get(i).copied()) == Some(Ready::Readable)
+            && d.gpu.landed() == baud_present_vulkan::present::Owes::Frame
+        {
             d.pending = Pending::Dirty;
         }
         // The child's end, by its pidfd, or with none the one more look the

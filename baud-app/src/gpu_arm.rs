@@ -20,10 +20,11 @@
 
 use crate::gpu_fallback::{Due, Failure, Fallback, Next, Restarts, Size, smaller};
 use baud_core::{Seal, Term};
+use baud_present_vulkan::cells::Landing;
 use baud_present_vulkan::choose::{Refusal, SyncObj, choose};
 use baud_present_vulkan::damage::{TARGETS, TargetIx};
 use baud_present_vulkan::frame::{Failed, Gpu, Kind};
-use baud_present_vulkan::present::{Cpu, Frame, Inputs, Presenter, Remade};
+use baud_present_vulkan::present::{Cpu, Frame, Inputs, Owes, Presenter, Remade};
 use baud_present_vulkan::reported::Reported;
 use baud_present_vulkan::vk::Vulkan;
 use baud_present_wayland::dmabuf::{Answer, Dmabuf, Imported, Params, Points, Timeline};
@@ -575,6 +576,27 @@ impl GpuArm {
             _ => false,
         }
     }
+
+    /// The descriptor the frame in flight's end makes readable.
+    pub fn done_fd(&self) -> Option<BorrowedFd<'_>> {
+        match &self.state {
+            State::On(on) => on.presenter.done_fd(),
+            _ => None,
+        }
+    }
+
+    /// **The frame in flight has finished**: met, and whether a frame asked
+    /// for meanwhile is owed. A failure to meet it is the next frame's to
+    /// find, which turns the arm off as any failed frame does.
+    pub fn landed(&mut self) -> Owes {
+        let State::On(on) = &mut self.state else {
+            return Owes::Nothing;
+        };
+        match on.presenter.land(&on.gpu) {
+            Ok(Landing::Landed) => on.presenter.owed_on_landing(),
+            _ => Owes::Nothing,
+        }
+    }
 }
 
 impl On {
@@ -589,8 +611,11 @@ impl On {
         let Some(size) = window.buffer_size() else {
             return Ok(Arm::Cpu(Why::Sizeless));
         };
-        if self.presenter.fit(&self.gpu, size).map_err(Off::Fitting)? == Remade::Yes {
-            self.import(window, s)?;
+        match self.presenter.fit(&self.gpu, size).map_err(Off::Fitting)? {
+            Remade::Yes => self.import(window, s)?,
+            Remade::No => {}
+            // The frame in flight lands first, and the frame is owed.
+            Remade::Busy => return Ok(Arm::Owed),
         }
         // The compositor's answers to the buffers asked for: a refusal turns
         // the arm off, and until both are made the frames are the CPU's.
@@ -623,13 +648,10 @@ impl On {
             .map_err(Off::Failed)?
         {
             Frame::Drew(k) => k,
-            Frame::Owed => return Ok(Arm::Owed),
+            Frame::Owed | Frame::Busy => return Ok(Arm::Owed),
             Frame::Cpu(cpu) => return Ok(Arm::Cpu(Why::of(cpu))),
         };
-        let points = match (
-            self.presenter.points(&self.gpu, k).map_err(Off::Failed)?,
-            self.timelines[k.0],
-        ) {
+        let points = match (self.presenter.points(k), self.timelines[k.0]) {
             (Some((acquire, release)), Some(tl)) => Some(Points {
                 acquire: (tl, acquire),
                 release: (tl, release),
