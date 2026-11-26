@@ -41,7 +41,7 @@ use crate::cells::{
 };
 use crate::damage::{TARGETS, TargetIx};
 use crate::frame::{Failed, Gpu, Target, Timeline};
-use crate::lend::Elems;
+use crate::lend::{Arm, Elems};
 use crate::pipeline::{Blend as PipeBlend, Fragment, Fx, Pipelines, Skipped};
 use crate::sheets::Sheets;
 use baud_core::{Seal, Term};
@@ -808,6 +808,12 @@ impl Presenter {
     /// The pipelines, for a test to hold their builds.
     pub fn pipes(&self) -> &Pipelines {
         &self.pipes
+    }
+
+    /// **The arm its cell memory was made on**, from the device's heaps at
+    /// the size of its terminal's copies.
+    pub fn arm(&self) -> Arm {
+        self.mem.arm()
     }
 
     fn drop_slots(&mut self, gpu: &Gpu) {

@@ -8,6 +8,13 @@
 //! [`CellMemory::new`] forced to fail in turn, on each arm, and every
 //! device object made before it destroyed when it returns; the same of the
 //! sheets, of a presenter, and of a frame read back.
+//!
+//! **A 4K screen's copies are lent on the machine's committed arm**: the arm
+//! is a fact about the machine -- its GPU, and the firmware that sets how
+//! much of the GPU's memory the CPU sees -- so it is committed per GPU and
+//! memory class in `tests/machines/<vendor>-<device>-<class>.txt`, keyed by
+//! the GPU's PCI vendor and device ids and the class [`memory_class`] names,
+//! and a presenter's arm at 4K is held to it on RADV.
 
 #![cfg(target_os = "linux")]
 
@@ -25,6 +32,7 @@ use baud_present_vulkan::present::Presenter;
 use baud_present_vulkan::vk::Has;
 use baud_present_wayland::Px;
 use baud_render::screens::SETS;
+use std::path::{Path, PathBuf};
 
 /// Rows of eight words.
 const COLS: usize = 8;
@@ -378,4 +386,241 @@ fn a_read_that_fails_part_way_leaves_nothing_on_lavapipe() {
 #[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
 fn a_read_that_fails_part_way_leaves_nothing_on_radv() {
     read_fails_whole(&common::radv());
+}
+
+/// The largest 4K shape: 3840x2160 at an eight by sixteen cell, less a
+/// margin.
+const FOUR_K: WinSize = WinSize {
+    ws_col: 478,
+    ws_row: 135,
+};
+
+fn arm_word(arm: Arm) -> &'static str {
+    match arm {
+        Arm::InPlace => "in place",
+        Arm::Staging => "staging",
+    }
+}
+
+/// **The arm a machine's file commits**: its one line, `arm: in place` or
+/// `arm: staging`; anything else is no arm.
+fn committed(text: &str) -> Option<Arm> {
+    match text.lines().collect::<Vec<_>>()[..] {
+        ["arm: in place"] => Some(Arm::InPlace),
+        ["arm: staging"] => Some(Arm::Staging),
+        _ => None,
+    }
+}
+
+/// **Whether `live`, the arm `device` took, is the arm committed at
+/// `path`**, whose text is `text` where the file exists. A machine with no
+/// file, or a file that is not one arm line, fails naming the file to
+/// commit; a different arm fails naming both.
+fn judged(path: &Path, text: Option<&str>, device: &str, live: Arm) -> Result<(), String> {
+    let add = format!(
+        "commit {} holding one line, `arm: in place` or `arm: staging`: the arm {device}'s \
+         memory on this machine is to take for a 4K screen's copies, from its memory types",
+        path.display()
+    );
+    match text.map(committed) {
+        None => Err(format!(
+            "no arm is committed for this GPU and memory class: {add} (it took {})",
+            arm_word(live)
+        )),
+        Some(None) => Err(format!("{} is not one arm line: {add}", path.display())),
+        Some(Some(want)) if want == live => Ok(()),
+        Some(Some(want)) => Err(format!(
+            "{device} took {} where {} commits {}",
+            arm_word(live),
+            path.display(),
+            arm_word(want)
+        )),
+    }
+}
+
+/// MiB, in bytes.
+const MIB: vk::DeviceSize = 1 << 20;
+
+/// **How much of the GPU's own memory the CPU sees, as a word**: `unified`
+/// where the GPU has no memory of its own (an integrated GPU, or the CPU
+/// itself); otherwise from the largest device-local heap with a memory type
+/// that is device-local and host-visible -- `bar-full` where that heap is
+/// as large as the largest device-local heap (a resizable BAR: the CPU sees
+/// all of it), `bar-<n>m` where it is a window of n MiB (a fixed BAR,
+/// commonly 256), and `bar-none` where no such type exists. The window's
+/// size is named rather than "small" so that two windows never share a
+/// file. The firmware's BAR is what moves one GPU's memory types between
+/// machines, and the arm depends on those types.
+fn memory_class(
+    kind: vk::PhysicalDeviceType,
+    props: &vk::PhysicalDeviceMemoryProperties,
+) -> String {
+    if kind == vk::PhysicalDeviceType::INTEGRATED_GPU || kind == vk::PhysicalDeviceType::CPU {
+        return "unified".to_owned();
+    }
+    let heaps = &props.memory_heaps[..usize::try_from(props.memory_heap_count)
+        .unwrap_or(0)
+        .min(props.memory_heaps.len())];
+    let types = &props.memory_types[..usize::try_from(props.memory_type_count)
+        .unwrap_or(0)
+        .min(props.memory_types.len())];
+    let local = heaps
+        .iter()
+        .filter(|h| h.flags.contains(vk::MemoryHeapFlags::DEVICE_LOCAL))
+        .map(|h| h.size)
+        .max()
+        .unwrap_or(0);
+    let mapped = vk::MemoryPropertyFlags::DEVICE_LOCAL | vk::MemoryPropertyFlags::HOST_VISIBLE;
+    let seen = types
+        .iter()
+        .filter(|t| t.property_flags.contains(mapped))
+        .filter_map(|t| heaps.get(usize::try_from(t.heap_index).ok()?))
+        .map(|h| h.size)
+        .max();
+    match seen {
+        None => "bar-none".to_owned(),
+        Some(n) if n >= local => "bar-full".to_owned(),
+        Some(n) => format!("bar-{}m", n / MIB),
+    }
+}
+
+/// **This machine's file, and the device's name**: the GPU's PCI vendor
+/// and device ids, in hex, and its [`memory_class`].
+#[allow(unsafe_code)]
+fn machine_file(gpu: &Gpu) -> (PathBuf, String) {
+    // SAFETY: a physical device of this instance.
+    let (p, mem) = unsafe {
+        let i = &gpu.vulkan.instance;
+        (
+            i.get_physical_device_properties(gpu.physical),
+            i.get_physical_device_memory_properties(gpu.physical),
+        )
+    };
+    let name = p
+        .device_name_as_c_str()
+        .map(|c| c.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let file = format!(
+        "{:04x}-{:04x}-{}.txt",
+        p.vendor_id,
+        p.device_id,
+        memory_class(p.device_type, &mem)
+    );
+    (
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/machines")
+            .join(file),
+        name,
+    )
+}
+
+/// Memory of `heaps`, each `(bytes, device-local)`, and `types`, each
+/// `(heap, device-local and host-visible)`.
+fn memory(
+    heaps: &[(vk::DeviceSize, bool)],
+    types: &[(u32, bool)],
+) -> vk::PhysicalDeviceMemoryProperties {
+    let mut p = vk::PhysicalDeviceMemoryProperties::default();
+    for (i, &(size, local)) in heaps.iter().enumerate() {
+        p.memory_heaps[i] = vk::MemoryHeap {
+            size,
+            flags: match local {
+                true => vk::MemoryHeapFlags::DEVICE_LOCAL,
+                false => vk::MemoryHeapFlags::empty(),
+            },
+        };
+    }
+    for (i, &(heap, mapped)) in types.iter().enumerate() {
+        p.memory_types[i] = vk::MemoryType {
+            heap_index: heap,
+            property_flags: match mapped {
+                true => {
+                    vk::MemoryPropertyFlags::DEVICE_LOCAL | vk::MemoryPropertyFlags::HOST_VISIBLE
+                }
+                false => vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            },
+        };
+    }
+    p.memory_heap_count = u32::try_from(heaps.len()).expect("heaps");
+    p.memory_type_count = u32::try_from(types.len()).expect("types");
+    p
+}
+
+/// **A memory class names how much of the GPU's memory the CPU sees**:
+/// all of a 16 GiB heap is `bar-full`, a 256 MiB window beside it is
+/// `bar-256m`, no mapped local type is `bar-none`, and an integrated GPU
+/// or the CPU is `unified` whatever its heaps.
+#[test]
+fn a_memory_class_names_how_much_of_the_gpu_s_memory_the_cpu_sees() {
+    let discrete = vk::PhysicalDeviceType::DISCRETE_GPU;
+    let vram = 16 << 30;
+    let host = (32 << 30, false);
+    let full = memory(&[(vram, true), host], &[(0, false), (0, true)]);
+    let window = memory(
+        &[(vram, true), host, (256 * MIB, true)],
+        &[(0, false), (2, true)],
+    );
+    let none = memory(&[(vram, true), host], &[(0, false)]);
+    assert_eq!(memory_class(discrete, &full), "bar-full");
+    assert_eq!(memory_class(discrete, &window), "bar-256m");
+    assert_eq!(memory_class(discrete, &none), "bar-none");
+    for kind in [
+        vk::PhysicalDeviceType::INTEGRATED_GPU,
+        vk::PhysicalDeviceType::CPU,
+    ] {
+        assert_eq!(memory_class(kind, &window), "unified");
+    }
+}
+
+/// **A machine's arm passes only as its committed line**: the arm
+/// committed passes; the other arm, a file that is not one arm line, and no
+/// file at all each fail, the last two naming the file to commit.
+#[test]
+fn a_machine_s_arm_passes_only_as_its_committed_line() {
+    let path = Path::new("tests/machines/1002-7550-bar-full.txt");
+    let device = "a GPU";
+    for (arm, other) in [(Arm::Staging, Arm::InPlace), (Arm::InPlace, Arm::Staging)] {
+        let line = format!("arm: {}\n", arm_word(arm));
+        assert_eq!(judged(path, Some(&line), device, arm), Ok(()), "{line}");
+        let wrong = judged(path, Some(&line), device, other).expect_err("the other arm");
+        assert!(wrong.contains("commits"), "{wrong}");
+    }
+    for text in [
+        None,
+        Some(""),
+        Some("arm: cached\n"),
+        Some("arm: staging\narm: staging\n"),
+    ] {
+        let e = judged(path, text, device, Arm::Staging).expect_err("no arm committed");
+        assert!(
+            e.contains("commit tests/machines/1002-7550-bar-full.txt"),
+            "{e}"
+        );
+    }
+}
+
+/// **A 4K screen's copies are lent on this machine's committed arm**: a
+/// presenter for [`FOUR_K`] is made, and the arm its cell memory took is
+/// the one `tests/machines/` commits for this GPU and memory class. The arm is
+/// read from the presenter, never from the memory properties the choice
+/// reads. An RX 9070 XT under RADV stages: its device-local memory the CPU
+/// sees is uncached. Another machine -- an integrated GPU on unified
+/// memory, say -- adds its file when this fails there naming it, with the
+/// arm its memory is to take read from the device's memory types: `arm: in
+/// place` where some device-local type is host-visible, coherent and cached.
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn a_4k_screen_s_copies_are_lent_on_the_machine_s_committed_arm_on_radv() {
+    let gpu = common::radv();
+    let (path, device) = machine_file(&gpu);
+    let mut owned = Owned::new(&FOUR_K);
+    let t = Term::new(owned.storage(), &FOUR_K);
+    let p = Presenter::new(&gpu, &t).expect("a presenter at 4K");
+    let live = p.arm();
+    p.destroy(&gpu);
+    let text = std::fs::read_to_string(&path).ok();
+    eprintln!("{device}: {} at 4K, {}", arm_word(live), path.display());
+    if let Err(e) = judged(&path, text.as_deref(), &device, live) {
+        panic!("{e}");
+    }
 }
