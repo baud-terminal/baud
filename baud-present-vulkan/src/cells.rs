@@ -1021,8 +1021,8 @@ impl CellMemory {
     }
 
     /// **A target no frame will draw into again**, its view and framebuffer
-    /// destroyed: called before the target is. Every frame is waited for, so
-    /// none uses them.
+    /// destroyed: called before the target is, once the frame in flight has
+    /// landed, so none uses them.
     #[allow(unsafe_code)]
     pub fn forget(&mut self, gpu: &Gpu, t: &Target) {
         if let Some(at) = self.targets.iter().position(|h| h.image == t.image) {

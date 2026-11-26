@@ -352,7 +352,7 @@ fn on_line(sync: baud_present_vulkan::choose::Sync, flies: Flies) -> String {
         }
         Flies::Waits(present::Why::FenceRefused) => "frames wait: the targets refuse a sync file",
     };
-    format!("gpu: frames drawn on the device the compositor names, {sync} sync; {flies}")
+    format!("gpu sync: {sync} sync; {flies}")
 }
 
 /// **The on line, when it says something not yet logged**: whether frames
@@ -1014,10 +1014,7 @@ mod tests {
         ];
         for (sync, flies, says) in lines {
             let line = on_line(sync, flies);
-            assert!(
-                line.starts_with("gpu: frames drawn on the device the compositor names"),
-                "{line}"
-            );
+            assert!(line.starts_with("gpu sync: "), "{line}");
             assert!(line.ends_with(says), "{sync:?} {flies:?}: {line}");
         }
     }
