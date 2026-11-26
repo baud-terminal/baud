@@ -366,3 +366,19 @@ fn every_preview_in_a_yazi_walk_is_the_buffered_decoders_image() {
         assert_eq!(got, WANT, "chunk {chunk}");
     }
 }
+
+/// **A placement moves the count a renderer reads**, beside the image's
+/// generation.
+#[test]
+fn placing_an_image_moves_placed() {
+    let ws = support::CORPUS;
+    let mut owned = Owned::new(&ws).with_images(walk_budget());
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_cell_size(ImagePx::of(CELL.0), ImagePx::of(CELL.1));
+    let before = t.images().placed();
+    // `P1 = 9` and a `1;1` raster are 1:1: one band, ten pixels wide.
+    feed_cut(&mut t, b"\x1bP9;1q\"1;1;10;6#1;2;100;0;0#1!10~\x1b\\", &[]);
+    assert_eq!(t.images().images_refused, 0, "nothing refused");
+    assert_eq!(t.images().placements().count(), 1, "the sixel is placed");
+    assert_ne!(t.images().placed(), before, "the placement is counted");
+}

@@ -557,3 +557,27 @@ fn the_terminal_s_epoch_moves_on_a_reset_and_on_a_sweep_that_frees() {
     assert!(t.cluster_sweeps().freed > 0);
     assert_ne!(t.cluster_epoch(), e1, "a sweep that freed");
 }
+
+/// **An intern that fills a slot moves the count a renderer reads**, and one
+/// that finds its cluster already held does not; the epoch moves for
+/// neither.
+#[test]
+fn an_intern_moves_cluster_writes_and_a_hit_does_not() {
+    support::with_corpus(|t| {
+        let (w0, e0) = (t.cluster_writes(), t.cluster_epoch());
+        support::feed(t, "\u{444}\u{335} ".as_bytes());
+        let w1 = t.cluster_writes();
+        assert_ne!(w1, w0, "a new cluster is written into a slot");
+        support::feed(t, "\u{444}\u{335} ".as_bytes());
+        assert_eq!(
+            t.cluster_writes(),
+            w1,
+            "the same cluster again writes nothing"
+        );
+        assert_eq!(
+            t.cluster_epoch(),
+            e0,
+            "no slot was given to another cluster"
+        );
+    });
+}

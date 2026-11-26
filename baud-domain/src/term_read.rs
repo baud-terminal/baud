@@ -18,14 +18,14 @@
 
 use crate::{
     AmbiguousWidth, Band, BandsView, BidiDirection, BidiSupport, Chan, ClusterCells, ClusterEpoch,
-    Col, ColorEpoch, ColorModes, Cols, Content, CopyDirection, CursorStyle, DynamicColor, Found,
-    HistoryErasures, HistoryWipes, ImageAge, ImageGen, ImageId, ImageOrigin, ImageSince,
-    ImageStore, ImageView, KittyId, KittyNumber, KittyPlacement, KittyRoot, KittyVirtual, LineIdx,
-    Needle, PackedCell, PaintRole, PlaceholderCell, PlaceholderRuns, PlacementId, PlacementSlot,
-    ProgramPaint, PromptMark, Reclaims, Resets, Row, RowGens, RowStyles, Rows, Screen, ScreenEpoch,
-    Seal, SearchLines, SpecialColor, StatusGen, StatusLine, Stride, StringEntry, StringId,
-    StyleWord, StyleWrites, SurfaceLine, TableSerial, UnicodeWidths, Video, Viewport, Vs16Width,
-    WrapPending, Written, Zone,
+    ClusterWrites, Col, ColorEpoch, ColorModes, Cols, Content, CopyDirection, CursorStyle,
+    DynamicColor, Found, HistoryErasures, HistoryWipes, ImageAge, ImageGen, ImageId, ImageOrigin,
+    ImagePlaced, ImageSince, ImageStore, ImageView, KittyId, KittyNumber, KittyPlacement,
+    KittyRoot, KittyVirtual, LineIdx, Needle, PackedCell, PaintRole, PlaceholderCell,
+    PlaceholderRuns, PlacementId, PlacementSlot, ProgramPaint, PromptMark, Reclaims, Resets, Row,
+    RowGens, RowStyles, Rows, Screen, ScreenEpoch, Seal, SearchLines, SpecialColor, StatusGen,
+    StatusLine, Stride, StringEntry, StringId, StyleWord, StyleWrites, SurfaceLine, TableSerial,
+    UnicodeWidths, Video, Viewport, Vs16Width, WrapPending, Written, Zone,
 };
 
 /// **A terminal, read**: the reads a renderer makes of a terminal, each
@@ -160,6 +160,8 @@ pub trait TermRead {
     /// Moves whenever a cluster slot may have been given to another
     /// cluster.
     fn cluster_epoch(&self) -> ClusterEpoch;
+    /// Moves on every cluster written into a slot ([`ClusterWrites`]).
+    fn cluster_writes(&self) -> ClusterWrites;
     /// Moves when a colour a rendition resolves through changes.
     fn color_epoch(&self) -> ColorEpoch;
     /// How many writes the rendition table has taken.
@@ -292,6 +294,8 @@ pub trait TermRead {
 pub trait ImageRead {
     /// The store's generation: it moves on every change a frame draws.
     fn generation(&self) -> ImageGen;
+    /// Moves on every placement made ([`ImagePlaced`]).
+    fn placed(&self) -> ImagePlaced;
     /// What became of image `id`, born at `born`, after generation
     /// `then`.
     fn image_since(&self, id: ImageId, born: ImageAge, then: ImageGen) -> ImageSince;
@@ -310,6 +314,9 @@ pub trait ImageRead {
 impl ImageRead for &ImageStore<'_> {
     fn generation(&self) -> ImageGen {
         ImageStore::generation(self)
+    }
+    fn placed(&self) -> ImagePlaced {
+        ImageStore::placed(self)
     }
     fn image_since(&self, id: ImageId, born: ImageAge, then: ImageGen) -> ImageSince {
         ImageStore::since(self, id, born, then)

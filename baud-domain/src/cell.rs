@@ -1237,6 +1237,106 @@ impl ClusterSlot {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct ClusterEpoch(u32);
 
+/// **How many clusters a store has written into its slots**: moves on every
+/// intern that fills a slot, where [`ClusterEpoch`] moves only when a slot
+/// may name another cluster. A reader holding a copy of the slots copies
+/// them again when it reads a count other than the one it holds. Compared
+/// for equality only.
+///
+/// Named break: a `Sub` impl added -- a count can be lowered, and this
+/// witness compiles:
+///
+/// ```compile_fail,E0369
+/// let a = baud_domain::ClusterWrites::ZERO;
+/// let _ = a - a;
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct ClusterWrites(u32);
+
+impl ClusterWrites {
+    /// A store that has written no cluster.
+    pub const ZERO: ClusterWrites = ClusterWrites(0);
+
+    /// The count after this one: a cluster written.
+    #[must_use]
+    pub const fn next(self) -> ClusterWrites {
+        ClusterWrites(self.0.wrapping_add(1))
+    }
+}
+
+/// **A cluster store's slots, read**: the reads a renderer makes of a
+/// cell's cluster, over a store's slots or a reader's own copy of them.
+/// Only the crate builds one, so a view reads slots a store filled.
+///
+/// Named break: the constructor made `pub` -- a view can be built over
+/// slots no store filled, and this witness compiles:
+///
+/// ```compile_fail,E0624
+/// let _ = baud_domain::ClusterSlots::over(&[]);
+/// ```
+#[derive(Clone, Copy)]
+pub struct ClusterSlots<'a> {
+    slots: &'a [ClusterSlot],
+}
+
+impl<'a> ClusterSlots<'a> {
+    /// A view over `slots`, at most [`ClusterStore::SLOTS_MAX`] of them.
+    #[inline]
+    pub(crate) fn over(slots: &'a [ClusterSlot]) -> ClusterSlots<'a> {
+        ClusterSlots {
+            slots: &slots[..slots.len().min(ClusterStore::SLOTS_MAX)],
+        }
+    }
+
+    /// The slot `content` names, if it names one that holds a cluster: one
+    /// of the store's, or a named sequence's node's (`sequence.rs`), which
+    /// the binary holds and no store does.
+    #[inline]
+    pub fn get(&self, content: Content) -> Option<&'a ClusterSlot> {
+        let i = content.cluster_id()?.index().checked_sub(1)?;
+        if i >= self.slots.len() {
+            return crate::sequence::slot(content);
+        }
+        let s = self.slots.get(i)?;
+        match s.is_empty() {
+            true => None,
+            false => Some(s),
+        }
+    }
+
+    /// The character a cell shows as its base: the slot's for a cell that
+    /// names one, else the cell's own content.
+    ///
+    /// A placeholder word ([`Content::placeholder`]) reads as U+10EEEE.
+    /// A codepoint or a reserved state, below the cluster range, is its own
+    /// base, answered by one compare before the slot and the placeholder
+    /// are asked: a renderer asks this of every cell it draws.
+    #[inline]
+    pub fn base_of(&self, content: Content) -> Content {
+        if content.0 < Content::CLUSTERS {
+            return content;
+        }
+        match self.get(content) {
+            Some(s) => s.base,
+            None => match content.placeholder_marks() {
+                Some(_) => Content(crate::placeholder::PLACEHOLDER),
+                None => content,
+            },
+        }
+    }
+
+    /// The codepoints attached after `content`'s base: its slot's, or a
+    /// placeholder word's diacritics, or none.
+    #[inline]
+    pub fn marks_of(&self, content: Content) -> Marks<'a> {
+        match (self.get(content), content.placeholder_marks()) {
+            (Some(s), _) => Marks::Slot(s.cps[..s.len as usize].iter()),
+            (None, Some(m)) => Marks::Placeholder(m, 0),
+            (None, None) => Marks::Slot([].iter()),
+        }
+    }
+}
+
 /// What a store's sweeps have done: how many ran, and how many slots they
 /// freed, summed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -1369,6 +1469,8 @@ pub struct ClusterStore<'b> {
     filled: usize,
     epoch: ClusterEpoch,
     swept: ClusterSweeps,
+    /// Clusters written into a slot ([`ClusterWrites`]).
+    writes: ClusterWrites,
 }
 
 impl<'b> ClusterStore<'b> {
@@ -1398,6 +1500,7 @@ impl<'b> ClusterStore<'b> {
             filled,
             epoch: ClusterEpoch::default(),
             swept: ClusterSweeps::default(),
+            writes: ClusterWrites::ZERO,
         }
     }
 
@@ -1415,49 +1518,25 @@ impl<'b> ClusterStore<'b> {
         self.slots.len().min(ClusterStore::SLOTS_MAX)
     }
 
-    /// The slot `content` names, if it names one that holds a cluster: one
-    /// of the store's, or a named sequence's node's (`sequence.rs`), which
-    /// the binary holds and no store does.
+    /// The slots, read ([`ClusterSlots`]).
+    #[inline]
+    pub fn view(&self) -> ClusterSlots<'_> {
+        ClusterSlots::over(self.slots)
+    }
+
+    /// See [`ClusterSlots::get`].
     pub fn get(&self, content: Content) -> Option<&ClusterSlot> {
-        let i = content.cluster_id()?.index().checked_sub(1)?;
-        if i >= self.len() {
-            return crate::sequence::slot(content);
-        }
-        let s = self.slots.get(i)?;
-        match s.is_empty() {
-            true => None,
-            false => Some(s),
-        }
+        self.view().get(content)
     }
 
-    /// The character a cell shows as its base: the slot's for a cell that
-    /// names one, else the cell's own content.
-    ///
-    /// A placeholder word ([`Content::placeholder`]) reads as U+10EEEE.
-    /// A codepoint or a reserved state, below the cluster range, is its own
-    /// base, answered by one compare before the slot and the placeholder
-    /// are asked: a renderer asks this of every cell it draws.
+    /// See [`ClusterSlots::base_of`].
     pub fn base_of(&self, content: Content) -> Content {
-        if content.0 < Content::CLUSTERS {
-            return content;
-        }
-        match self.get(content) {
-            Some(s) => s.base,
-            None => match content.placeholder_marks() {
-                Some(_) => Content(crate::placeholder::PLACEHOLDER),
-                None => content,
-            },
-        }
+        self.view().base_of(content)
     }
 
-    /// The codepoints attached after `content`'s base: its slot's, or a
-    /// placeholder word's diacritics, or none.
+    /// See [`ClusterSlots::marks_of`].
     pub fn marks_of(&self, content: Content) -> Marks<'_> {
-        match (self.get(content), content.placeholder_marks()) {
-            (Some(s), _) => Marks::Slot(s.cps[..s.len as usize].iter()),
-            (None, Some(m)) => Marks::Placeholder(m, 0),
-            (None, None) => Marks::Slot([].iter()),
-        }
+        self.view().marks_of(content)
     }
 
     /// **The cluster `cp` makes of a cell with content `content`, when it is
@@ -1541,6 +1620,7 @@ impl<'b> ClusterStore<'b> {
         s.cps[..cps.len()].copy_from_slice(cps);
         self.slots[i] = s;
         self.filled += 1;
+        self.writes = self.writes.next();
         Ok(ClusterId::from_index(i + 1))
     }
 
@@ -1608,6 +1688,11 @@ impl<'b> ClusterStore<'b> {
         self.epoch
     }
 
+    /// See [`ClusterWrites`].
+    pub fn writes(&self) -> ClusterWrites {
+        self.writes
+    }
+
     /// See [`ClusterSweeps`].
     pub fn sweeps(&self) -> ClusterSweeps {
         self.swept
@@ -1621,5 +1706,39 @@ impl<'b> ClusterStore<'b> {
         self.since = ClusterStore::DUE;
         self.filled = 0;
         self.epoch = ClusterEpoch(self.epoch.0.wrapping_add(1));
+    }
+}
+
+#[cfg(test)]
+mod cluster_slots {
+    use super::*;
+
+    /// **A view over a reader's own copy of the slots reads a cell's
+    /// cluster as the store does**, and the store's count moves for an
+    /// intern that fills a slot and not for one that finds its cluster.
+    #[test]
+    fn a_view_over_a_copy_of_the_slots_reads_as_the_store() {
+        let base = Content::codepoint(Codepoint::new(0x444).expect("a codepoint"));
+        let mut slots = [ClusterSlot::EMPTY; 16];
+        let cell = {
+            let mut s = ClusterStore::new(&mut slots);
+            let w0 = s.writes();
+            let id = s.intern(base, &[0x335]);
+            let w1 = s.writes();
+            assert_ne!(w0, w1, "an intern that fills a slot moves the count");
+            assert_eq!(s.intern(base, &[0x335]), id);
+            assert_eq!(
+                s.writes(),
+                w1,
+                "an intern that finds its cluster writes nothing"
+            );
+            let cell = Content::cluster(id);
+            assert_eq!(s.base_of(cell), base);
+            cell
+        };
+        let copy = slots;
+        let view = ClusterSlots::over(&copy);
+        assert_eq!(view.base_of(cell), base, "the copy reads the cell's base");
+        assert_eq!(view.marks_of(cell).count(), 1, "and its one mark");
     }
 }

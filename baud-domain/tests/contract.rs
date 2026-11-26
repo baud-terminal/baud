@@ -346,6 +346,7 @@ const _: fn() = || {
 #[allow(dead_code)]
 fn image_read<I: baud_domain::ImageRead + 'static>(i: &I) {
     let _: for<'a> fn(&'a I) -> baud_domain::ImageGen = I::generation;
+    let _: for<'a> fn(&'a I) -> baud_domain::ImagePlaced = I::placed;
     let _: for<'a> fn(
         &'a I,
         baud_domain::ImageId,
@@ -857,6 +858,7 @@ fn term_read<T: baud_domain::TermRead + 'static>() {
     let _: for<'a> fn(&'a T) -> HistoryErasures = T::history_erasures;
     let _: for<'a> fn(&'a T) -> HistoryWipes = T::history_wipes;
     let _: for<'a> fn(&'a T) -> ClusterEpoch = T::cluster_epoch;
+    let _: for<'a> fn(&'a T) -> ClusterWrites = T::cluster_writes;
     let _: for<'a> fn(&'a T) -> ColorEpoch = T::color_epoch;
     let _: for<'a> fn(&'a T) -> StyleWrites = T::style_writes;
     let _: for<'a> fn(&'a T) -> TableSerial = T::style_table;
@@ -2129,6 +2131,11 @@ const _: fn(baud_domain::ScrollWindow) -> baud_domain::ScrollbarPlan =
 const _: baud_domain::Carry = baud_domain::Carry::Up(baud_domain::Rows::ZERO);
 const _: baud_domain::Carry = baud_domain::Carry::Down(baud_domain::Rows::ZERO);
 const _: fn(baud_domain::Carry, baud_domain::Row) -> baud_domain::Row = baud_domain::Carry::row;
+const _: fn(baud_domain::ClusterWrites) -> baud_domain::ClusterWrites =
+    baud_domain::ClusterWrites::next;
+const _: baud_domain::ClusterWrites = baud_domain::ClusterWrites::ZERO;
+const _: fn(baud_domain::ImagePlaced) -> baud_domain::ImagePlaced = baud_domain::ImagePlaced::next;
+const _: baud_domain::ImagePlaced = baud_domain::ImagePlaced::ZERO;
 const _: fn(
     baud_domain::Cols,
     baud_domain::Rows,
@@ -2191,6 +2198,9 @@ const _: fn() -> baud_domain::Effects = <baud_domain::Effects as Default>::defau
 
 /// Each type that holds a rule, and the error code its witness expects.
 const WITNESSED: &[(&str, &str)] = &[
+    ("ClusterWrites", "E0369"),
+    ("ImagePlaced", "E0369"),
+    ("ClusterSlots", "E0624"),
     ("ExportToplevel", "E0451"),
     ("SurfaceHandle", "E0451"),
     ("NoticeToken", "E0451"),

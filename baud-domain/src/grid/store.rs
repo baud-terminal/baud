@@ -280,10 +280,40 @@ impl WindowAt {
 pub struct RowGens<'t> {
     at: WindowAt,
     epoch: SealEpoch,
-    meta: &'t [RowMeta],
+    meta: RowMetas<'t>,
+}
+
+/// **Where a [`RowGens`]' generations are read from**: the store's plane,
+/// by the window's physical rows, or a reader's own copy, by the copy's own
+/// ring. One match a row read.
+#[derive(Clone, Copy)]
+enum RowMetas<'t> {
+    Stored(&'t [RowMeta]),
+    #[cfg_attr(not(test), allow(dead_code))]
+    Lent {
+        meta: &'t [RowMeta],
+        top: RowRot,
+        ring: Rows,
+    },
 }
 
 impl RowGens<'_> {
+    /// **These generations, read from a reader's own copy**: `meta` laid
+    /// out in the copy's own ring of `ring` rows, window row 0 at `top`.
+    /// The window and the epoch stay the store's, so a reader comparing
+    /// windows to find a scroll compares the store's.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "built by the render view's fill")
+    )]
+    pub(crate) fn lent<'v>(&self, meta: &'v [RowMeta], top: RowRot, ring: Rows) -> RowGens<'v> {
+        RowGens {
+            at: self.at,
+            epoch: self.epoch,
+            meta: RowMetas::Lent { meta, top, ring },
+        }
+    }
+
     /// The window these are the rows of.
     pub fn window(&self) -> WindowAt {
         self.at
@@ -296,8 +326,11 @@ impl RowGens<'_> {
         if kept.epoch != self.epoch || y.index() >= self.at.rows.index() {
             return true;
         }
-        let p = self.at.at(y).p.index();
-        self.meta.get(p).is_none_or(|m| m.row_gen.0 > kept.closed.0)
+        let (meta, p) = match self.meta {
+            RowMetas::Stored(m) => (m, self.at.at(y).p.index()),
+            RowMetas::Lent { meta, top, ring } => (meta, top.advance(y.index(), ring).index()),
+        };
+        meta.get(p).is_none_or(|m| m.row_gen.0 > kept.closed.0)
     }
 }
 
@@ -551,7 +584,7 @@ impl<'b> SurfaceStore<'b> {
         RowGens {
             at,
             epoch: self.epoch,
-            meta: self.plane(at.screen).meta,
+            meta: RowMetas::Stored(self.plane(at.screen).meta),
         }
     }
 
@@ -1280,5 +1313,48 @@ mod tests {
         let mut v = view(s.stamped(Which::Primary));
         v.set_geometry(Cols::of_index(4), Rows::of_index(2));
         v.set_geometry(Cols::of_index(5), Rows::of_index(2));
+    }
+}
+
+#[cfg(test)]
+mod lent {
+    use super::*;
+
+    fn meta(g: u32) -> RowMeta {
+        RowMeta {
+            row_gen: RowGen(g),
+            ..RowMeta::ZERO
+        }
+    }
+
+    /// **A lent form reads each window row in the copy's own ring**, and
+    /// keeps the store's window.
+    #[test]
+    fn a_lent_row_gens_reads_each_row_in_the_copys_own_ring() {
+        let ring = Rows::of_count(4);
+        let at = WindowAt {
+            screen: Which::Primary,
+            top: RowRot::NONE.advance(2, ring),
+            ring,
+            rows: Rows::of_count(2),
+        };
+        let epoch = SealEpoch::fresh();
+        let plane = [meta(9), meta(1), meta(1), meta(9)];
+        let held = RowGens {
+            at,
+            epoch,
+            meta: RowMetas::Stored(&plane),
+        };
+        let copy = [meta(1), meta(9)];
+        let lent = held.lent(&copy, RowRot::NONE, Rows::of_count(2));
+        let kept = Seal {
+            closed: WriteGen(5),
+            epoch,
+        };
+        let y1 = Row::ZERO.next(at.rows).expect("a second row");
+        assert_eq!(lent.window().top.index(), at.top.index());
+        assert!(!held.after(Row::ZERO, &kept) && held.after(y1, &kept));
+        assert!(!lent.after(Row::ZERO, &kept), "row 0 is the copy's place 0");
+        assert!(lent.after(y1, &kept), "row 1 is the copy's place 1");
     }
 }

@@ -115,6 +115,10 @@ impl<'b> TermRead for Term<'b> {
         Term::cluster_epoch(self)
     }
 
+    fn cluster_writes(&self) -> baud_domain::ClusterWrites {
+        Term::cluster_writes(self)
+    }
+
     fn color_epoch(&self) -> ColorEpoch {
         Term::color_epoch(self)
     }

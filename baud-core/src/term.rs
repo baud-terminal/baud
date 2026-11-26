@@ -6701,6 +6701,11 @@ impl<'b> Term<'b> {
         self.store.clusters.epoch()
     }
 
+    /// See [`baud_domain::ClusterWrites`].
+    pub fn cluster_writes(&self) -> baud_domain::ClusterWrites {
+        self.store.clusters.writes()
+    }
+
     /// How many sweeps the cluster store has run and how many slots they
     /// freed, summed: the reclaim [`Term::marks_dropped`] is the other side
     /// of.

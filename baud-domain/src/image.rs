@@ -427,6 +427,33 @@ impl ImageGen {
     }
 }
 
+/// **How many placements a store has made**: moves on every
+/// [`ImageStore::place`], and so on every kitty graphics and ReGIS placement, which
+/// place through it, where [`ImageGen`] moves on a change to the pixels. A
+/// reader holding a copy of the placements copies them again when it reads
+/// a count other than the one it holds. Compared for equality only.
+///
+/// Named break: an `Add` impl added -- two counts sum to one no store
+/// made, and this witness compiles:
+///
+/// ```compile_fail,E0369
+/// let a = baud_domain::ImagePlaced::ZERO;
+/// let _ = a + a;
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct ImagePlaced(u32);
+
+impl ImagePlaced {
+    /// A store that has placed nothing.
+    pub const ZERO: ImagePlaced = ImagePlaced(0);
+
+    /// The count after this one: a placement made.
+    #[must_use]
+    pub const fn next(self) -> ImagePlaced {
+        ImagePlaced(self.0.wrapping_add(1))
+    }
+}
+
 /// **Whether an image still shows the pixels it showed at an epoch**
 /// ([`ImageStore::since`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1800,6 +1827,8 @@ pub struct ImageStore<'b> {
     /// texture cache keyed on it drops a texture whose image was freed and
     /// its id reused. See [`ImageGen`].
     epoch: ImageGen,
+    /// Placements made ([`ImagePlaced`]).
+    placings: ImagePlaced,
     /// The age the last image stored took ([`ImageAge`]).
     stored: ImageAge,
     /// How many placements are live: the O(1) gate so the per-write
@@ -1948,6 +1977,7 @@ impl<'b> ImageStore<'b> {
             sixels_filled: 0,
             sixel_grids_fixed: 0,
             epoch: ImageGen::ZERO,
+            placings: ImagePlaced::ZERO,
             stored: ImageAge::ZERO,
             placed: 0,
             placed_on: [0; 2],
@@ -2182,6 +2212,11 @@ impl<'b> ImageStore<'b> {
     /// an image being freed and its slot reused.
     pub fn generation(&self) -> ImageGen {
         self.epoch
+    }
+
+    /// See [`ImagePlaced`].
+    pub fn placed(&self) -> ImagePlaced {
+        self.placings
     }
 
     /// **Whether image `id`, stored at `born`, still shows the pixels it
@@ -3553,6 +3588,7 @@ impl<'b> ImageStore<'b> {
             kitty: KittyPlace::NONE,
         };
         self.slots[i].placements = Count::of(self.slots[i].placements.index() + 1);
+        self.placings = self.placings.next();
         self.placed += 1;
         self.placed_on[screen.slot()] += 1;
         self.live = self.live.max(p + 1);
