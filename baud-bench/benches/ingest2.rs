@@ -84,7 +84,12 @@ fn stride_arm(ws: &WinSize) -> Stride {
 }
 
 fn main() {
-    baud_bench::warm::refuse_while_warm();
+    let measures = baud_bench::warm::measures_or_refuse();
+    if measures == baud_bench::warm::Measures::Time {
+        baud_bench::warm::refuse_while_warm();
+    } else {
+        baud_bench::warm::refuse_while_counting(&[]);
+    }
     let mut args = baud_bench::args();
     let which = args.next().unwrap_or_else(|| "cat-cjk".into());
     let reps: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(20);
@@ -456,10 +461,16 @@ fn main() {
     rates.sort_by(|a, b| a.partial_cmp(b).expect("no NaN: every rep took time"));
     let (lo, med, hi) = (rates[0], rates[rates.len() / 2], rates[rates.len() - 1]);
     let (bytes_in, cells) = t.amplification();
-    println!(
-        "{which} new: {med:.1} MB/s [{lo:.1}-{hi:.1}] over {reps} reps, {fed} bytes, {}",
-        power_source()
-    );
+    // A counting run gives no figure on the clock.
+    match measures.figure(|| {
+        format!(
+            "{which} new: {med:.1} MB/s [{lo:.1}-{hi:.1}] over {reps} reps, {fed} bytes, {}",
+            power_source()
+        )
+    }) {
+        Some(line) => println!("{line}"),
+        None => println!("{which} new: counted over {reps} reps, {fed} bytes"),
+    }
     println!(
         "  cells {cells} written ({:.1}x per byte), {} zero-width dropped",
         cells as f64 / bytes_in as f64,

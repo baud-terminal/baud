@@ -431,8 +431,25 @@ const YES_LINE: &[u8] = b"y\r\n";
 /// The lines `yes-<k>` writes: a 50-row screen filled, then 150 more.
 const YES_LINES: usize = 200;
 
+/// The variables that ask for a time alone, which a counting run refuses.
+const FRAME_TIMES: [&str; 8] = [
+    "FRAME_BLINK",
+    "FRAME_TRAIL",
+    "FRAME_IMAGE",
+    "FRAME_GIF",
+    "FRAME_ICAT",
+    "FRAME_PERCELL",
+    "FRAME_RESCALE",
+    "FRAME_ZOOM",
+];
+
 fn main() {
-    baud_bench::warm::refuse_while_warm();
+    let measures = baud_bench::warm::measures_or_refuse();
+    if measures == baud_bench::warm::Measures::Time {
+        baud_bench::warm::refuse_while_warm();
+    } else {
+        baud_bench::warm::refuse_while_counting(&FRAME_TIMES);
+    }
     // Every renderer map keyed by one fixed seed, so a run repeats its probes
     // and a counter gate reads the same instructions twice
     // (`baud_render::fix_hash_seed`). Before the first map is made.
@@ -1529,14 +1546,20 @@ fn main() {
     let a = r.atlas_stats();
     let (raster, coloured, grown) = (a.rasterised.value(), a.coloured.value(), a.grown.value());
     let c = r.cache_stats();
+    // A counting run gives no figure on the clock: its time columns read `-`.
+    let us = |d: Duration| {
+        measures
+            .figure(|| format!("{:.1}", d.as_secs_f64() * 1e6 / frames as f64))
+            .unwrap_or_else(|| "-".into())
+    };
     let hit = 100.0 * c.hits.value() as f64 / (c.hits.value() + c.misses.value()).max(1) as f64;
     println!(
-        "{:<12} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7.1}% {:>8} {:>8} {:>8} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>8} {:>7} {:>7}",
+        "{:<12} {:>7} {:>9} {:>9} {:>9} {:>8.1} {:>9.1} {:>7.1}% {:>8} {:>8} {:>8} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>8} {:>7} {:>7}",
         which,
         frames,
-        total.as_secs_f64() * 1e6 / frames as f64,
-        convert.as_secs_f64() * 1e6 / frames as f64,
-        paint.as_secs_f64() * 1e6 / frames as f64,
+        us(total),
+        us(convert),
+        us(paint),
         rows as f64 / frames as f64,
         inst as f64 / frames as f64,
         hit,
@@ -1561,8 +1584,8 @@ fn main() {
     ) {
         let per = |n: usize| n as f64 / frames as f64;
         println!(
-            "  links scan {:.1} us/frame; rows {:.1} compared {:.1} cells {:.0} candidates {:.2} added {:.2} a frame; most in one frame rows {} cells {} candidates {}, on screen {}; {} frames read nothing; pointer reads {}",
-            scan_time.as_secs_f64() * 1e6 / frames as f64,
+            "  links scan {} us/frame; rows {:.1} compared {:.1} cells {:.0} candidates {:.2} added {:.2} a frame; most in one frame rows {} cells {} candidates {}, on screen {}; {} frames read nothing; pointer reads {}",
+            us(scan_time),
             per(scans.rows),
             compared.value() as f64 / frames as f64,
             per(scans.cells),
@@ -1608,13 +1631,18 @@ fn main() {
         let k = ((sorted.len() - 1) * per + 50) / 100;
         sorted[k].as_secs_f64() * 1e6
     };
-    println!(
-        "  frame p50 {:.1} p95 {:.1} p99 {:.1} max {:.1} us",
-        at(50),
-        at(95),
-        at(99),
-        at(100)
-    );
+    let percentiles = || {
+        format!(
+            "  frame p50 {:.1} p95 {:.1} p99 {:.1} max {:.1} us",
+            at(50),
+            at(95),
+            at(99),
+            at(100)
+        )
+    };
+    if let Some(line) = measures.figure(percentiles) {
+        println!("{line}");
+    }
     if cfg!(feature = "count-allocs") {
         let half = &allocs[allocs.len() / 2..];
         println!(

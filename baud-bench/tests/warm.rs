@@ -2,13 +2,18 @@
 //! (`baud_bench::warm`): a measurement refuses beside an unpaused watcher or
 //! build and runs once it is paused, a pause stops the whole build or says it
 //! did not, every measuring `main` asks, and the watcher builds exactly what
-//! `devenv test` builds.
+//! `devenv test` builds. A pinned measurement is judged by the load on its
+//! own cores and the GPU alone, over a machine given as text.
 
+use std::cell::RefCell;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use baud_bench::warm::{self, PAUSE, Pid, Warm};
+use baud_bench::warm::{
+    self, Busy, BusyPct, CoreSet, Cpu, Machine, PAUSE, Pid, Placement, Read, Verdict, Warm,
+};
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -617,4 +622,465 @@ fn a_paused_watch_folder_lets_a_measurement_run() {
 #[test]
 fn no_watch_folder_named_is_no_refusal() {
     assert_eq!(warm::watch_refusal(None), None);
+}
+
+/// The set a CPU list names.
+fn cores(list: &str) -> CoreSet {
+    warm::cpu_list(list).unwrap_or_else(|e| panic!("{list}: {e}"))
+}
+
+/// A CPU list reads as taskset and the kernel write it, and prints back the
+/// same way.
+#[test]
+fn a_cpu_list_reads_as_the_kernel_writes_it() {
+    let set = warm::cpu_list("0-3,8,10-11\n").expect("a list");
+    let each: CoreSet = [0, 1, 2, 3, 8, 10, 11].map(Cpu).into_iter().collect();
+    assert_eq!(set, each);
+    assert_eq!(set.to_string(), "0-3,8,10-11");
+    assert_eq!(
+        warm::cpu_list("57").unwrap(),
+        [Cpu(57)].into_iter().collect()
+    );
+    assert_eq!(cores("57,121").to_string(), "57,121");
+    for bad in ["", "3-1", "a", "1,,2", "1-", "-4"] {
+        assert!(warm::cpu_list(bad).is_err(), "{bad:?} read as a list");
+    }
+    // The affinity is the status file's `Cpus_allowed_list` line.
+    let status =
+        "Name:\tbench\nCpus_allowed:\t0300\nCpus_allowed_list:\t56-57\nMems_allowed_list:\t0\n";
+    assert_eq!(warm::allowed(status).unwrap(), cores("56-57"));
+    assert!(warm::allowed("Name:\tbench\n").is_err());
+}
+
+/// A measurement is pinned when its affinity leaves out an online CPU, and
+/// its cores are then the online CPUs it may run on.
+#[test]
+fn a_measurement_is_pinned_when_its_affinity_leaves_out_an_online_cpu() {
+    let online = cores("0-3");
+    assert_eq!(warm::placement(&online, &online), Placement::Unpinned);
+    assert_eq!(warm::placement(&cores("0-5"), &online), Placement::Unpinned);
+    assert_eq!(
+        warm::placement(&cores("2,5"), &online),
+        Placement::Pinned(cores("2"))
+    );
+}
+
+/// A core's SMT siblings share it, so they are the measurement's too; a
+/// topology file that is absent or cannot be read is named, never passed.
+#[test]
+fn own_cores_take_their_smt_siblings() {
+    let topology = |cpu: Cpu| match cpu {
+        Cpu(57) => Read::Text("57,121\n".into()),
+        Cpu(58) => Read::Text("58-59\n".into()),
+        Cpu(60) => Read::Absent,
+        _ => Read::Unreadable("Permission denied".into()),
+    };
+    assert_eq!(
+        warm::siblings(&cores("57-58"), topology).unwrap(),
+        cores("57-59,121")
+    );
+    let absent = warm::siblings(&cores("60"), topology).unwrap_err();
+    assert!(
+        absent.contains("/sys/devices/system/cpu/cpu60/topology/thread_siblings_list"),
+        "{absent}"
+    );
+    let unreadable = warm::siblings(&cores("61"), topology).unwrap_err();
+    assert!(unreadable.contains("cpu61/topology"), "{unreadable}");
+    assert!(unreadable.contains("Permission denied"), "{unreadable}");
+}
+
+const STAT_BEFORE: &str = "\
+cpu  1000 0 1000 8000 0 0 0 0 0 0
+cpu0 100 0 100 800 0 0 0 0 0 0
+cpu57 0 0 0 1000 0 0 0 0 0 0
+cpu121 0 0 0 1000 0 0 0 0 0 0
+cpu122 0 0 0 1000 0 0 0 0 0 0
+intr 1 2 3
+";
+
+const STAT_AFTER: &str = "\
+cpu  2000 0 1000 8000 0 0 0 0 0 0
+cpu0 200 0 100 800 0 0 0 0 0 0
+cpu57 90 0 8 1000 2 0 0 0 0 0
+cpu121 4 0 0 1090 6 0 0 0 0 0
+cpu122 0 0 0 1000 0 0 0 0 0 0
+intr 4 5 6
+";
+
+/// Busy is the share of a core's ticks that are neither idle nor iowait
+/// between two reads of /proc/stat, as the harness's quiet check counts it.
+#[test]
+fn busy_is_the_share_of_ticks_neither_idle_nor_iowait() {
+    let max = BusyPct(5.0);
+    // cpu57: 100 ticks, 2 of them iowait: 98%. cpu121: 100 ticks, 96 idle or
+    // iowait: 4%, under the line. cpu122 did not tick: 0%. cpu0 is busy and
+    // not the measurement's.
+    assert_eq!(
+        warm::busy(STAT_BEFORE, STAT_AFTER, &cores("57,121-122"), max).unwrap(),
+        [Busy {
+            cpu: Cpu(57),
+            pct: BusyPct(98.0)
+        }]
+    );
+    assert_eq!(
+        warm::busy(STAT_BEFORE, STAT_AFTER, &cores("121"), BusyPct(4.0)).unwrap(),
+        [Busy {
+            cpu: Cpu(121),
+            pct: BusyPct(4.0)
+        }]
+    );
+    // A core neither read names is not known to be quiet.
+    let missing = warm::busy(STAT_BEFORE, STAT_AFTER, &cores("57,64"), max).unwrap_err();
+    assert!(missing.contains("cpu64"), "{missing}");
+}
+
+/// A pinned measurement that counts reads no load: beside a busy own core
+/// it measures, where the same machine timed, or with no mode set, refuses.
+#[test]
+fn a_counting_measurement_reads_no_load_and_a_timed_one_does() {
+    let busy = |mode: Option<&str>| {
+        let mut fake = Fake::pinned();
+        fake.file("/proc/stat", &[STAT_BEFORE, STAT_AFTER]);
+        if let Some(mode) = mode {
+            fake.vars.insert("BAUD_MEASURES".into(), mode.into());
+        }
+        fake
+    };
+    let fake = busy(Some("counts"));
+    assert_eq!(warm::measures(&fake), Ok(warm::Measures::Counts));
+    assert_eq!(fake.verdict(), Verdict::Counting);
+    assert!(
+        fake.slept.borrow().is_empty(),
+        "a counting run samples nothing"
+    );
+    assert!(
+        fake.read
+            .borrow()
+            .iter()
+            .all(|p| p != Path::new("/proc/stat") && !p.starts_with("/sys/class/drm")),
+        "{:?}",
+        fake.read.borrow()
+    );
+
+    for mode in [Some("time"), None] {
+        let fake = busy(mode);
+        assert_eq!(warm::measures(&fake), Ok(warm::Measures::Time));
+        let why = fake.refusal();
+        assert!(why.contains("cpu57 98% busy"), "{mode:?}: {why}");
+    }
+}
+
+/// A mode that is neither `time` nor `counts` refuses, naming it, pinned
+/// or not.
+#[test]
+fn an_unknown_mode_refuses_naming_it() {
+    for value in ["count", "Time", ""] {
+        let mut fake = Fake::pinned();
+        fake.vars.insert("BAUD_MEASURES".into(), value.into());
+        let why = fake.refusal();
+        assert!(why.contains(&format!("BAUD_MEASURES: `{value}`")), "{why}");
+        fake.file("/proc/self/status", &["Cpus_allowed_list:\t0-127\n"]);
+        let why = fake.refusal();
+        assert!(
+            why.contains(&format!("BAUD_MEASURES: `{value}`")),
+            "unpinned: {why}"
+        );
+    }
+}
+
+/// A counting run gives no figure on the clock and a timed one does, and
+/// the benches the counter gate runs print theirs through that choice.
+#[test]
+fn a_counting_run_prints_no_rate_and_a_timed_one_does() {
+    let rate = || String::from("cat new: 512.0 MB/s");
+    assert_eq!(warm::Measures::Counts.figure(rate), None);
+    assert_eq!(warm::Measures::Time.figure(rate), Some(rate()));
+    for bench in ["ingest2", "frame"] {
+        let text = read(&repo().join(format!("baud-bench/benches/{bench}.rs")));
+        assert!(text.contains("refuse_while_counting("), "{bench}");
+        assert!(text.contains("measures.figure("), "{bench}");
+    }
+}
+
+/// The GPU refuses only when both reads are at or above the line: one busy
+/// read is a frame the compositor drew.
+#[test]
+fn the_gpu_refuses_only_when_both_reads_are_busy() {
+    let max = BusyPct(10.0);
+    assert!(warm::gpu_busy([BusyPct(12.0), BusyPct(41.0)], max));
+    assert!(warm::gpu_busy([BusyPct(10.0), BusyPct(10.0)], max));
+    assert!(!warm::gpu_busy([BusyPct(12.0), BusyPct(6.0)], max));
+    assert!(!warm::gpu_busy([BusyPct(6.0), BusyPct(12.0)], max));
+    assert_eq!(warm::percent("37\n"), Ok(BusyPct(37.0)));
+    assert!(warm::percent("busy").is_err());
+}
+
+/// A machine given as text: each file a queue of reads, the last repeated,
+/// the DRM folder's entries one a line, the environment, and a log of what was read
+/// and how long it slept.
+struct Fake {
+    files: RefCell<HashMap<PathBuf, VecDeque<Read>>>,
+    drm: Read,
+    vars: HashMap<String, String>,
+    read: RefCell<Vec<PathBuf>>,
+    slept: RefCell<Vec<Duration>>,
+}
+
+impl Fake {
+    /// CPU 57 of 0-127, its sibling 121, the stat reads above and a card1
+    /// whose GPU reads 4 then 6.
+    fn pinned() -> Fake {
+        let mut fake = Fake {
+            files: RefCell::new(HashMap::new()),
+            drm: Read::Text("card1\ncard1-DP-1\nrenderD128\nversion\n".into()),
+            vars: HashMap::new(),
+            read: RefCell::new(Vec::new()),
+            slept: RefCell::new(Vec::new()),
+        };
+        fake.file("/proc/self/status", &["Cpus_allowed_list:\t57\n"]);
+        fake.file("/sys/devices/system/cpu/online", &["0-127\n"]);
+        fake.file(
+            "/sys/devices/system/cpu/cpu57/topology/thread_siblings_list",
+            &["57,121\n"],
+        );
+        fake.file("/proc/stat", &[STAT_BEFORE, STAT_BEFORE]);
+        fake.file(GPU, &["4\n", "6\n"]);
+        fake
+    }
+
+    fn file(&mut self, path: &str, reads: &[&str]) {
+        self.set(
+            path,
+            reads.iter().map(|t| Read::Text((*t).into())).collect(),
+        );
+    }
+
+    fn set(&mut self, path: &str, reads: VecDeque<Read>) {
+        self.files.get_mut().insert(PathBuf::from(path), reads);
+    }
+
+    fn verdict(&self) -> Verdict {
+        warm::on_own_cores(self)
+    }
+
+    fn refusal(&self) -> String {
+        match self.verdict() {
+            Verdict::Refused(why) => why,
+            other => panic!("not refused: {other:?}"),
+        }
+    }
+}
+
+const GPU: &str = "/sys/class/drm/card1/device/gpu_busy_percent";
+
+impl Machine for Fake {
+    fn read(&self, path: &Path) -> Read {
+        self.read.borrow_mut().push(path.to_path_buf());
+        let mut files = self.files.borrow_mut();
+        let Some(reads) = files.get_mut(path) else {
+            return Read::Absent;
+        };
+        if reads.len() > 1 {
+            reads.pop_front().unwrap()
+        } else {
+            reads.front().cloned().unwrap_or(Read::Absent)
+        }
+    }
+
+    fn drm(&self) -> Read {
+        self.drm.clone()
+    }
+
+    fn var(&self, name: &str) -> Option<String> {
+        self.vars.get(name).cloned()
+    }
+
+    fn sleep(&self, how_long: Duration) {
+        self.slept.borrow_mut().push(how_long);
+    }
+}
+
+/// Pinned and quiet: load on other cores, a warm build anywhere, changes
+/// nothing. It samples the CPUs for 500 ms and the GPU twice 100 ms apart.
+#[test]
+fn a_pinned_measurement_on_quiet_cores_runs_whatever_runs_elsewhere() {
+    let mut fake = Fake::pinned();
+    // cpu0 went from idle to fully busy; it is not the measurement's.
+    fake.file(
+        "/proc/stat",
+        &[
+            STAT_BEFORE,
+            STAT_AFTER
+                .replace("cpu57 90 0 8 1000 2", "cpu57 0 0 0 1100 0")
+                .replace("cpu121 4 0 0 1090 6", "cpu121 0 0 0 1100 0")
+                .as_str(),
+        ],
+    );
+    assert_eq!(fake.verdict(), Verdict::Quiet);
+    assert_eq!(
+        *fake.slept.borrow(),
+        [Duration::from_millis(500), Duration::from_millis(100)]
+    );
+    // Only card1's own device is read; a connector's is not a GPU.
+    let read = fake.read.borrow();
+    assert_eq!(
+        read.iter()
+            .filter(|p| p.ends_with("gpu_busy_percent"))
+            .count(),
+        2
+    );
+    assert!(
+        read.iter()
+            .all(|p| !p.starts_with("/sys/class/drm/card1-DP-1"))
+    );
+}
+
+/// Load on an own core, or on its SMT sibling, refuses and names the core
+/// and its busy percent.
+#[test]
+fn load_on_an_own_core_or_its_sibling_refuses_naming_it() {
+    let mut fake = Fake::pinned();
+    fake.file("/proc/stat", &[STAT_BEFORE, STAT_AFTER]);
+    let why = fake.refusal();
+    assert!(why.contains("cpu57 98% busy"), "{why}");
+    assert!(!why.contains("cpu121"), "4% is under the line: {why}");
+    assert!(!why.contains("cpu0 "), "{why}");
+
+    let mut fake = Fake::pinned();
+    fake.vars.insert("BAUD_QUIET_BUSY".into(), "3".into());
+    fake.file(
+        "/proc/stat",
+        &[
+            STAT_BEFORE,
+            &STAT_AFTER.replace("cpu57 90 0 8 1000 2", "cpu57 0 0 0 1100 0"),
+        ],
+    );
+    let why = fake.refusal();
+    assert!(why.contains("cpu121 4% busy"), "the sibling: {why}");
+    assert!(!why.contains("cpu57 "), "{why}");
+}
+
+/// A GPU busy on both reads refuses and names the card and its readings;
+/// busy on one read does not.
+#[test]
+fn a_busy_gpu_refuses_naming_the_card() {
+    let mut fake = Fake::pinned();
+    fake.file(GPU, &["12\n", "41\n"]);
+    let why = fake.refusal();
+    assert!(why.contains("card1 12% then 41% busy"), "{why}");
+
+    let mut fake = Fake::pinned();
+    fake.file(GPU, &["41\n", "6\n"]);
+    assert_eq!(fake.verdict(), Verdict::Quiet);
+
+    let mut fake = Fake::pinned();
+    fake.vars.insert("BAUD_QUIET_GPU_BUSY".into(), "50".into());
+    fake.file(GPU, &["41\n", "45\n"]);
+    assert_eq!(fake.verdict(), Verdict::Quiet);
+}
+
+/// Absent and unreadable differ. No GPU file, or no DRM folder, is no GPU
+/// check; a GPU file that exists and cannot be read refuses, and so does
+/// any of the CPU files that cannot be read, each named.
+#[test]
+fn an_absent_gpu_is_no_check_and_an_unreadable_file_refuses() {
+    let mut fake = Fake::pinned();
+    fake.set(GPU, VecDeque::new());
+    assert_eq!(fake.verdict(), Verdict::Quiet);
+    assert_eq!(*fake.slept.borrow(), [Duration::from_millis(500)]);
+
+    let mut fake = Fake::pinned();
+    fake.drm = Read::Absent;
+    assert_eq!(fake.verdict(), Verdict::Quiet);
+
+    let mut fake = Fake::pinned();
+    fake.drm = Read::Unreadable("Permission denied".into());
+    let why = fake.refusal();
+    assert!(why.contains("/sys/class/drm: Permission denied"), "{why}");
+
+    let mut fake = Fake::pinned();
+    fake.set(
+        GPU,
+        [Read::Unreadable("Device or resource busy".into())].into(),
+    );
+    let why = fake.refusal();
+    assert!(
+        why.contains(&format!("{GPU}: Device or resource busy")),
+        "{why}"
+    );
+
+    let mut fake = Fake::pinned();
+    fake.set(GPU, [Read::Text("12\n".into()), Read::Absent].into());
+    let why = fake.refusal();
+    assert!(why.contains(GPU), "a file gone by the second read: {why}");
+
+    let mut fake = Fake::pinned();
+    fake.file(GPU, &["12\n", "busy\n"]);
+    let why = fake.refusal();
+    assert!(why.contains(GPU), "{why}");
+
+    for (path, gone) in [
+        ("/proc/stat", Read::Unreadable("Permission denied".into())),
+        ("/proc/stat", Read::Absent),
+        (
+            "/proc/self/status",
+            Read::Unreadable("Permission denied".into()),
+        ),
+        ("/sys/devices/system/cpu/online", Read::Absent),
+        (
+            "/sys/devices/system/cpu/cpu57/topology/thread_siblings_list",
+            Read::Unreadable("Permission denied".into()),
+        ),
+        (
+            "/sys/devices/system/cpu/cpu57/topology/thread_siblings_list",
+            Read::Absent,
+        ),
+    ] {
+        let mut fake = Fake::pinned();
+        fake.set(path, [gone.clone()].into());
+        let why = fake.refusal();
+        assert!(why.contains(path), "{path} {gone:?}: {why}");
+    }
+}
+
+/// An unpinned measurement is not judged by its cores: it reads its
+/// affinity and nothing else, and the warm-build tests decide.
+#[test]
+fn an_unpinned_measurement_reads_no_load() {
+    let mut fake = Fake::pinned();
+    fake.file("/proc/self/status", &["Cpus_allowed_list:\t0-127\n"]);
+    fake.file("/proc/stat", &[STAT_BEFORE, STAT_AFTER]);
+    fake.file(GPU, &["90\n"]);
+    assert_eq!(fake.verdict(), Verdict::Unpinned);
+    assert_eq!(
+        *fake.read.borrow(),
+        [
+            PathBuf::from("/proc/self/status"),
+            PathBuf::from("/sys/devices/system/cpu/online")
+        ]
+    );
+    assert!(fake.slept.borrow().is_empty());
+}
+
+/// The lines and the sample come from the environment; a value that is not
+/// a number refuses, naming the variable.
+#[test]
+fn the_lines_and_the_sample_come_from_the_environment() {
+    let mut fake = Fake::pinned();
+    fake.vars.insert("BAUD_QUIET_SAMPLE".into(), "200".into());
+    fake.vars.insert("BAUD_QUIET_BUSY".into(), "99".into());
+    fake.file("/proc/stat", &[STAT_BEFORE, STAT_AFTER]);
+    assert_eq!(fake.verdict(), Verdict::Quiet);
+    assert_eq!(fake.slept.borrow()[0], Duration::from_millis(200));
+
+    for name in [
+        "BAUD_QUIET_BUSY",
+        "BAUD_QUIET_SAMPLE",
+        "BAUD_QUIET_GPU_BUSY",
+    ] {
+        let mut fake = Fake::pinned();
+        fake.vars.insert(name.into(), "five".into());
+        let why = fake.refusal();
+        assert!(why.contains(name) && why.contains("five"), "{why}");
+    }
 }

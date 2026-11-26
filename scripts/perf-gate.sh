@@ -61,7 +61,9 @@
 # things the counts would otherwise follow are held fixed for every run:
 #
 #   * the environment (`env -i`): ingest2's timed loop reads a variable each
-#     chunk, and the lookup's cost grows with the environment it scans;
+#     chunk, and the lookup's cost grows with the environment it scans.
+#     It holds `BAUD_MEASURES=counts`: counts do not move with load, so the
+#     bench's guard reads none, and the bench prints no figure on the clock;
 #   * the addresses (`setarch -R`): a randomised stack moves where the
 #     loop's locals fall in a page, which changes which branch `memcmp`
 #     takes and which D1 set a line maps to;
@@ -284,7 +286,7 @@ run() {
   cp "${binof[$bench]}" "$dir/$bench"
   (
     cd "$dir"
-    exec "${pin[@]}" "$ns" -r -p -f --mount-proc env -i PATH=/usr/bin:/bin LC_ALL=C "${planted[@]}" \
+    exec "${pin[@]}" "$ns" -r -p -f --mount-proc env -i PATH=/usr/bin:/bin LC_ALL=C BAUD_MEASURES=counts "${planted[@]}" \
       "$sa" -R "$vg" --tool=callgrind \
       --toggle-collect="$fn" --cache-sim=yes \
       --D1="$d1,$line" --LL="$ll,$line" \
