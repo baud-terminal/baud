@@ -4,10 +4,11 @@
 //! call from now fails with the code given -- a target's allocation, a
 //! submission, a step of the cell path's memory, a buffer's memory,
 //! binding or mapping, an image's memory, binding or view, the sheets'
-//! sampler -- as a lost device or memory running out would, and a count of
-//! the targets made and not yet dropped says whether a failure left one
-//! behind; a second count, the `Gpu`'s tally, says the same of the other
-//! device objects the crate makes.
+//! sampler, the pipelines' layouts, pass and cache, a pipeline's shader
+//! modules and the pipeline -- as a lost device or memory running out
+//! would, and a count of the targets made and not yet dropped says whether
+//! a failure left one behind; a second count, the `Gpu`'s tally, says the
+//! same of the other device objects the crate makes.
 
 use crate::frame::Failed;
 use std::io::Write;
@@ -48,7 +49,6 @@ pub(crate) enum Export {
 
 #[derive(Default)]
 struct State {
-    fail: Option<(Calls, Failed)>,
     live: Live,
     /// Landings held: the end handed out for the next frame, and the side
     /// whose write turns it readable.
@@ -63,33 +63,48 @@ struct State {
     export: Export,
 }
 
-/// The forced failure waiting, and the targets alive.
+/// The targets alive, and the landings, sync files, wakes and exports
+/// forced; the failure waiting is the `Gpu`'s tally's
+/// (`crate::frame::Tally`), which the pipelines' worker shares.
 #[derive(Default)]
 pub(crate) struct Hooks(Mutex<State>);
 
-impl Hooks {
-    fn with<R>(&self, f: impl FnOnce(&mut State) -> R) -> R {
-        f(&mut self.0.lock().unwrap_or_else(|e| e.into_inner()))
+/// **The forced failure waiting**: the `n`-th fallible device call from
+/// now fails with the code given.
+#[derive(Default)]
+pub(crate) struct Turns(Mutex<Option<(Calls, Failed)>>);
+
+impl Turns {
+    pub(crate) fn fail_at(&self, n: Calls, code: Failed) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some((n, code));
     }
 
-    pub(crate) fn fail_at(&self, n: Calls, code: Failed) {
-        self.with(|s| s.fail = Some((n, code)));
+    /// No failure waiting.
+    pub(crate) fn none(&self) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     /// **A fallible device call**: the forced failure when its turn has
     /// come, once.
     pub(crate) fn call(&self) -> Result<(), Failed> {
-        self.with(|s| match s.fail {
+        let mut fail = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        match *fail {
             Some((Calls(0), code)) => {
-                s.fail = None;
+                *fail = None;
                 Err(code)
             }
             Some((Calls(n), code)) => {
-                s.fail = Some((Calls(n - 1), code));
+                *fail = Some((Calls(n - 1), code));
                 Ok(())
             }
             None => Ok(()),
-        })
+        }
+    }
+}
+
+impl Hooks {
+    fn with<R>(&self, f: impl FnOnce(&mut State) -> R) -> R {
+        f(&mut self.0.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     pub(crate) fn made(&self) {

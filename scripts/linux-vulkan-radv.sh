@@ -58,6 +58,7 @@ expect=(
   sheets_that_fail_part_way_leave_nothing_on_radv
   a_presenter_that_fails_part_way_leaves_nothing_on_radv
   a_read_that_fails_part_way_leaves_nothing_on_radv
+  pipelines_that_fail_part_way_leave_nothing_on_radv
   the_cell_path_is_the_instance_path_on_radv
   the_cell_path_is_the_cpu_path_on_radv
   two_targets_in_turn_are_each_the_whole_frame_on_radv

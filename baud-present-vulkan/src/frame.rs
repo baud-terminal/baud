@@ -62,17 +62,40 @@ pub struct Gpu {
     pub(crate) tally: Tally,
 }
 
-/// **The device objects made and not destroyed**, counted for the crate's
-/// tests and shared with what makes them away from the [`Gpu`]: the
-/// pipelines and the worker that builds them. Nothing is kept without
-/// `test-hooks`.
+/// **The device objects made and not destroyed, and the failure forced**,
+/// for the crate's tests, shared with what makes them away from the
+/// [`Gpu`]: the pipelines and the worker that builds them. Nothing is kept
+/// without `test-hooks`.
 #[derive(Clone, Default)]
 pub(crate) struct Tally {
     #[cfg(feature = "test-hooks")]
     objects: std::sync::Arc<std::sync::Mutex<crate::hooks::Live>>,
+    #[cfg(feature = "test-hooks")]
+    turns: std::sync::Arc<crate::hooks::Turns>,
 }
 
 impl Tally {
+    /// **A fallible device call's turn** at the failure forced; always
+    /// through without `test-hooks`.
+    pub(crate) fn call(&self) -> Result<(), Failed> {
+        #[cfg(feature = "test-hooks")]
+        return self.turns.call();
+        #[cfg(not(feature = "test-hooks"))]
+        Ok(())
+    }
+
+    /// The `n`-th fallible device call from now fails with `code`.
+    #[cfg(feature = "test-hooks")]
+    pub(crate) fn fail_at(&self, n: crate::hooks::Calls, code: Failed) {
+        self.turns.fail_at(n, code);
+    }
+
+    /// No failure waiting.
+    #[cfg(feature = "test-hooks")]
+    pub(crate) fn fail_none(&self) {
+        self.turns.none();
+    }
+
     /// One object made.
     pub(crate) fn made(&self) {
         #[cfg(feature = "test-hooks")]
@@ -1001,10 +1024,7 @@ impl Gpu {
     /// **A fallible device call's turn** at the failure the crate's tests
     /// force (`hooks.rs`); always through without `test-hooks`.
     pub(crate) fn call(&self) -> Result<(), Failed> {
-        #[cfg(any(test, feature = "test-hooks"))]
-        return self.hooks.call();
-        #[cfg(not(any(test, feature = "test-hooks")))]
-        Ok(())
+        self.tally.call()
     }
 
     /// A target made, counted for the crate's tests.
@@ -1039,11 +1059,20 @@ impl Gpu {
     /// **The `n`-th fallible device call from now fails with `code`**: a
     /// target's allocation, a submission, a step of the cell path's
     /// memory (`CellMemory::new`), a buffer's memory, binding or mapping,
-    /// an image's memory, binding or view, or the sheets' sampler, as a
-    /// lost device or memory running out would.
-    #[cfg(any(test, feature = "test-hooks"))]
+    /// an image's memory, binding or view, the sheets' sampler, the
+    /// pipelines' set layouts, pipeline layouts, render pass and cache, or
+    /// a pipeline's shader modules and the pipeline, as a lost device or
+    /// memory running out would.
+    #[cfg(feature = "test-hooks")]
     pub fn fail_at(&self, n: crate::hooks::Calls, code: Failed) {
-        self.hooks.fail_at(n, code);
+        self.tally.fail_at(n, code);
+    }
+
+    /// **No fallible device call fails from now**: the failure
+    /// [`Gpu::fail_at`] forced, if it has not come, taken back.
+    #[cfg(feature = "test-hooks")]
+    pub fn fail_none(&self) {
+        self.tally.fail_none();
     }
 
     /// **The targets made and not yet dropped.**

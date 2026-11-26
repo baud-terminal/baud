@@ -433,12 +433,22 @@ impl Shape {
             let words =
                 ash::util::read_spv(&mut std::io::Cursor::new(s.0)).map_err(|_| Failed::Spirv)?;
             let info = vk::ShaderModuleCreateInfo::default().code(&words);
+            self.tally.call()?;
             // SAFETY: valid SPIR-V words (spirv-val, `shaders_reproduce`).
             let made = unsafe { d.create_shader_module(&info, None) }?;
             self.tally.made();
             Ok(made)
         };
-        let (vm, fm) = (module(&vs)?, module(&fs)?);
+        let vm = module(&vs)?;
+        let fm = match module(&fs) {
+            Ok(m) => m,
+            Err(e) => {
+                // SAFETY: nothing was built from it.
+                unsafe { d.destroy_shader_module(vm, None) };
+                self.tally.dropped();
+                return Err(e);
+            }
+        };
         let entry = c"main";
         let stages = [
             vk::PipelineShaderStageCreateInfo::default()
@@ -481,10 +491,14 @@ impl Shape {
             })
             .render_pass(self.pass)
             .subpass(0)];
-        // SAFETY: every handle is this device's; the cache is internally
-        // synchronised (it was not made externally synchronised), so a
-        // worker and the frame may build through it at once.
-        let made = unsafe { d.create_graphics_pipelines(self.cache, &info, None) };
+        let made = self.tally.call().and_then(|()| {
+            // SAFETY: every handle is this device's; the cache is internally
+            // synchronised (it was not made externally synchronised), so a
+            // worker and the frame may build through it at once.
+            unsafe { d.create_graphics_pipelines(self.cache, &info, None) }
+                .map(|p| p[0])
+                .map_err(|(_, r)| Failed::Vulkan(r))
+        });
         // SAFETY: the modules are not used past pipeline creation.
         unsafe {
             d.destroy_shader_module(vm, None);
@@ -492,9 +506,102 @@ impl Shape {
         }
         self.tally.dropped();
         self.tally.dropped();
-        let p = made.map(|p| p[0]).map_err(|(_, r)| Failed::Vulkan(r))?;
+        let p = made?;
         self.tally.made();
         Ok(p)
+    }
+}
+
+/// **What [`Pipelines::new`] has made so far**: the set layouts, the
+/// pipeline layouts and the render pass, kept as each is made and
+/// destroyed newest first when `new` returns early. [`Making::whole`] gives
+/// them up once the pipelines hold every one.
+struct Making<'g> {
+    gpu: &'g Gpu,
+    made: Vec<Part>,
+}
+
+/// One object [`Making`] keeps.
+enum Part {
+    Set(vk::DescriptorSetLayout),
+    Layout(vk::PipelineLayout),
+    Pass(vk::RenderPass),
+}
+
+impl Making<'_> {
+    /// A descriptor set layout of `set`'s bindings, each one descriptor.
+    #[allow(unsafe_code)]
+    fn set(&mut self, set: Set) -> Result<vk::DescriptorSetLayout, Failed> {
+        let bindings: Vec<vk::DescriptorSetLayoutBinding<'_>> = (0u32..)
+            .zip(set)
+            .map(|(n, (kind, stages))| {
+                vk::DescriptorSetLayoutBinding::default()
+                    .binding(n)
+                    .descriptor_type(kind.vk())
+                    .descriptor_count(1)
+                    .stage_flags(*stages)
+            })
+            .collect();
+        let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
+        self.gpu.call()?;
+        // SAFETY: a device of the caller's.
+        let made = unsafe { self.gpu.device.create_descriptor_set_layout(&info, None) }?;
+        self.kept(Part::Set(made));
+        Ok(made)
+    }
+
+    /// A pipeline layout over set layouts already made.
+    #[allow(unsafe_code)]
+    fn layout(
+        &mut self,
+        info: &vk::PipelineLayoutCreateInfo<'_>,
+    ) -> Result<vk::PipelineLayout, Failed> {
+        self.gpu.call()?;
+        // SAFETY: the set layouts it names were made on this device.
+        let made = unsafe { self.gpu.device.create_pipeline_layout(info, None) }?;
+        self.kept(Part::Layout(made));
+        Ok(made)
+    }
+
+    /// The render pass.
+    #[allow(unsafe_code)]
+    fn pass(&mut self, info: &vk::RenderPassCreateInfo<'_>) -> Result<vk::RenderPass, Failed> {
+        self.gpu.call()?;
+        // SAFETY: a device of the caller's.
+        let made = unsafe { self.gpu.device.create_render_pass(info, None) }?;
+        self.kept(Part::Pass(made));
+        Ok(made)
+    }
+
+    fn kept(&mut self, part: Part) {
+        self.gpu.object_made();
+        self.made.push(part);
+    }
+
+    /// Every object made is the pipelines' now, and none is destroyed here.
+    fn whole(mut self) {
+        self.made.clear();
+    }
+}
+
+impl Drop for Making<'_> {
+    /// What was made, destroyed newest first: nothing uses it, as the
+    /// pipelines it was made for were never whole.
+    #[allow(unsafe_code)]
+    fn drop(&mut self) {
+        let d = &self.gpu.device;
+        for part in self.made.drain(..).rev() {
+            // SAFETY: no pipeline was built against it, and nothing else
+            // names it.
+            unsafe {
+                match part {
+                    Part::Pass(p) => d.destroy_render_pass(p, None),
+                    Part::Layout(l) => d.destroy_pipeline_layout(l, None),
+                    Part::Set(s) => d.destroy_descriptor_set_layout(s, None),
+                }
+            }
+            self.gpu.object_dropped();
+        }
     }
 }
 
@@ -549,44 +656,24 @@ impl Pipelines {
     #[allow(unsafe_code)]
     pub fn new(gpu: &Gpu) -> Result<Pipelines, Failed> {
         let d = &gpu.device;
-        let tally = gpu.tally.clone();
-        let layout_of = |set: Set| {
-            let bindings: Vec<vk::DescriptorSetLayoutBinding<'_>> = (0u32..)
-                .zip(set)
-                .map(|(n, (kind, stages))| {
-                    vk::DescriptorSetLayoutBinding::default()
-                        .binding(n)
-                        .descriptor_type(kind.vk())
-                        .descriptor_count(1)
-                        .stage_flags(*stages)
-                })
-                .collect();
-            let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
-            // SAFETY: a device of the caller's.
-            let made = unsafe { d.create_descriptor_set_layout(&info, None) };
-            if made.is_ok() {
-                tally.made();
-            }
-            made
+        let mut making = Making {
+            gpu,
+            made: Vec::new(),
         };
         let [s0, s1, s2] = INSTANCE_SETS;
-        let sets = [layout_of(s0)?, layout_of(s1)?, layout_of(s2)?];
-        let cell_set = layout_of(CELL_SETS[0])?;
-        let info = vk::PipelineLayoutCreateInfo::default().set_layouts(&sets);
-        // SAFETY: layouts just made on this device.
-        let layout = unsafe { d.create_pipeline_layout(&info, None) }?;
-        tally.made();
+        let sets = [making.set(s0)?, making.set(s1)?, making.set(s2)?];
+        let cell_set = making.set(CELL_SETS[0])?;
+        let layout = making.layout(&vk::PipelineLayoutCreateInfo::default().set_layouts(&sets))?;
         let cell_sets = [cell_set, sets[1]];
         let push = [vk::PushConstantRange::default()
             .stage_flags(VERTEX)
             .offset(0)
             .size(CELL_PUSH)];
-        let info = vk::PipelineLayoutCreateInfo::default()
-            .set_layouts(&cell_sets)
-            .push_constant_ranges(&push);
-        // SAFETY: as above.
-        let cell_layout = unsafe { d.create_pipeline_layout(&info, None) }?;
-        tally.made();
+        let cell_layout = making.layout(
+            &vk::PipelineLayoutCreateInfo::default()
+                .set_layouts(&cell_sets)
+                .push_constant_ranges(&push),
+        )?;
         let attachment = [vk::AttachmentDescription::default()
             .format(vk::Format::B8G8R8A8_UNORM)
             .samples(vk::SampleCountFlags::TYPE_1)
@@ -600,16 +687,18 @@ impl Pipelines {
         let subpass = [vk::SubpassDescription::default()
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
             .color_attachments(&colour)];
-        let pass_info = vk::RenderPassCreateInfo::default()
-            .attachments(&attachment)
-            .subpasses(&subpass);
-        // SAFETY: as above.
-        let pass = unsafe { d.create_render_pass(&pass_info, None) }?;
-        tally.made();
+        let pass = making.pass(
+            &vk::RenderPassCreateInfo::default()
+                .attachments(&attachment)
+                .subpasses(&subpass),
+        )?;
         let cache_info = vk::PipelineCacheCreateInfo::default();
-        // SAFETY: as above.
+        gpu.call()?;
+        // SAFETY: a device of the caller's.
         let cache = unsafe { d.create_pipeline_cache(&cache_info, None) }?;
-        tally.made();
+        gpu.object_made();
+        making.whole();
+        let tally = gpu.tally.clone();
         let shape = Shape {
             device: d.clone(),
             cache,

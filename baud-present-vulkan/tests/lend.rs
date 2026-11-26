@@ -7,7 +7,8 @@
 //! **Cell memory that fails part way leaves nothing made**: each step of
 //! [`CellMemory::new`] forced to fail in turn, on each arm, and every
 //! device object made before it destroyed when it returns; the same of the
-//! sheets, of a presenter, and of a frame read back.
+//! sheets, of a presenter, of the pipelines and one built, and of a frame
+//! read back.
 //!
 //! **A 4K screen's copies are lent on the machine's committed arm**: the arm
 //! is a fact about the machine -- its GPU, and the firmware that sets how
@@ -27,7 +28,7 @@ use baud_present_vulkan::cells::{CellMemory, CellSizes};
 use baud_present_vulkan::frame::{Failed, Gpu};
 use baud_present_vulkan::hooks::{Calls, Live};
 use baud_present_vulkan::lend::{Arm, Elems, Uploaded};
-use baud_present_vulkan::pipeline::Pipelines;
+use baud_present_vulkan::pipeline::{Blend, Fragment, Pipelines};
 use baud_present_vulkan::present::Presenter;
 use baud_present_vulkan::vk::Has;
 use baud_present_wayland::Px;
@@ -192,6 +193,7 @@ fn fails_whole(gpu: &Gpu, arm: Arm) {
                 failed += 1;
             }
             Ok((mem, slices)) => {
+                gpu.fail_none();
                 assert!(
                     gpu.objects_live().0 > before.0,
                     "the control: a whole memory holds objects"
@@ -262,6 +264,7 @@ fn each_step_fails<T>(
                 failed += 1;
             }
             Ok(made) => {
+                gpu.fail_none();
                 unmake(made);
                 assert_eq!(gpu.objects_live(), before, "{what}: given back whole");
                 return failed;
@@ -348,9 +351,76 @@ fn presenter_fails_whole(gpu: &Gpu) {
     );
     assert_eq!(
         failed,
-        steps(gpu, arm) + SHEETS_STEPS,
+        PIPELINES_STEPS + steps(gpu, arm) + SHEETS_STEPS,
         "{arm:?}: every step failed once"
     );
+}
+
+/// The fallible device calls pipelines are made through: the four set
+/// layouts, the two pipeline layouts, the render pass and the cache.
+const PIPELINES_STEPS: u32 = 8;
+
+/// The fallible device calls a pipeline is built through: its two shader
+/// modules and the pipeline.
+const BUILD_STEPS: u32 = 3;
+
+/// **Pipelines that fail part way leave nothing made**: each of their set
+/// layouts, pipeline layouts, render pass and cache, then each of one
+/// pipeline's shader modules and the pipeline, forced to fail in turn, and
+/// every object made before it destroyed. The controls: pipelines with one
+/// built hold the pipelines' objects and the pipeline, and the steps failed
+/// are those every one. Named break: a set layout, layout or the pass left
+/// alive when a later one fails, or the vertex stage's module when the
+/// fragment stage's fails.
+fn pipelines_fail_whole(gpu: &Gpu) {
+    assert_eq!(
+        gpu.objects_live(),
+        Live(0),
+        "the control: nothing made before"
+    );
+    let failed = each_step_fails(
+        gpu,
+        "pipelines",
+        || {
+            let mut pipes = Pipelines::new(gpu)?;
+            match pipes.get(Fragment::Glyph, Blend::Normal) {
+                Ok(_) => Ok(pipes),
+                Err(e) => {
+                    assert_eq!(
+                        gpu.objects_live(),
+                        Live(PIPELINES_HOLD),
+                        "pipelines: a failed build leaves no module"
+                    );
+                    pipes.destroy();
+                    Err(e)
+                }
+            }
+        },
+        |pipes| {
+            assert_eq!(
+                gpu.objects_live(),
+                Live(PIPELINES_HOLD + 1),
+                "the control: the pipelines' objects and the one built"
+            );
+            pipes.destroy();
+        },
+    );
+    assert_eq!(
+        failed,
+        PIPELINES_STEPS + BUILD_STEPS,
+        "every step failed once"
+    );
+}
+
+#[test]
+fn pipelines_that_fail_part_way_leave_nothing_on_lavapipe() {
+    pipelines_fail_whole(&common::lavapipe());
+}
+
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn pipelines_that_fail_part_way_leave_nothing_on_radv() {
+    pipelines_fail_whole(&common::radv());
 }
 
 /// **A read that fails part way leaves nothing made**: its buffer's
