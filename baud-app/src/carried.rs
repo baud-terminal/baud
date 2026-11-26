@@ -380,6 +380,7 @@ impl Carried {
 /// takes nothing and keeps no screen. `ridden` is the lines the whole
 /// screen scrolled since the last frame (`trail_rides`). Returns the carry,
 /// which the driver's ghost in flight moves by.
+#[cfg(any(test, target_os = "macos"))]
 pub(crate) fn carry<M: Moment>(
     carried: &mut Carried,
     term: &Term<'_>,
@@ -389,11 +390,36 @@ pub(crate) fn carry<M: Moment>(
     (chase, last): (&mut Chase<M>, &mut Option<(Row, Col)>),
     cell_h: f32,
 ) -> Option<Carry> {
+    let c = screen_carry(carried, term, cursor, (kind, key), ridden);
+    rebase(c, (chase, last), cell_h)
+}
+
+/// **The program's scroll under the followed cursor**, read off the
+/// screen: [`Carried::frame`] under a trail that takes it, and nothing,
+/// keeping no screen, under `kind` off or `key` stay.
+pub(crate) fn screen_carry(
+    carried: &mut Carried,
+    term: &Term<'_>,
+    cursor: Option<(Row, Col)>,
+    (kind, key): (CursorTrail, TrailScroll),
+    ridden: Rows,
+) -> Option<Carry> {
     if kind == CursorTrail::Off || key == TrailScroll::Stay {
         carried.forget();
         return None;
     }
-    let c = carried.frame(term, cursor, ridden)?;
+    carried.frame(term, cursor, ridden)
+}
+
+/// **The trail less a carry read before**, `c`: the chase moves what it
+/// holds of the text with the cursor's line, and the last cell moves too.
+/// Returns the carry.
+pub(crate) fn rebase<M: Moment>(
+    c: Option<Carry>,
+    (chase, last): (&mut Chase<M>, &mut Option<(Row, Col)>),
+    cell_h: f32,
+) -> Option<Carry> {
+    let c = c?;
     chase.rebase(c.px(cell_h));
     *last = last.map(|(r, col)| (c.row(r), col));
     Some(c)
@@ -758,11 +784,17 @@ pub(crate) mod tests {
             3,
             "the switch, a program's resize and the window's forget the screen"
         );
-        let plan = body(timed, "pub(crate) fn plan(");
-        let (rode, took) = (plan.find("self.chase.ride("), plan.find(call));
+        let plan = body(timed, "pub(crate) fn plan_following(");
+        let rebase = concat!("crate::carried::", "rebase(");
+        let (rode, took) = (plan.find("self.chase.ride("), plan.find(rebase));
         assert!(
             rode.zip(took).is_some_and(|(r, c)| r < c),
-            "plan takes the carry after its ride"
+            "the frame takes the plan's carry after its ride"
+        );
+        let facts = body(timed, "pub(crate) fn facts(");
+        assert!(
+            facts.contains(concat!("crate::carried::", "screen_carry(")),
+            "the plan reads the program's scroll off the screen"
         );
     }
 }

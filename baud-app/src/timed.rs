@@ -505,6 +505,47 @@ impl Timed {
         Some(form)
     }
 
+    /// **What the next plan reads of the screen for the timed effects**:
+    /// the thumb's window while a scrollbar is shown, the screen's size and
+    /// the rows the window looks back, the program's scroll under the
+    /// followed cursor (`carried.rs`) against the lines ridden so far,
+    /// whether the shell has drawn while the splash holds for it, and the
+    /// fireworks asked for.
+    pub(crate) fn facts(
+        &mut self,
+        term: &Term<'_>,
+        followed: Option<crate::effects::TrailCursor>,
+    ) -> Facts {
+        let (cols, rows) = term.geometry();
+        let carried = crate::carried::screen_carry(
+            &mut self.carried,
+            term,
+            followed.map(crate::effects::TrailCursor::cell),
+            (self.trail, self.scroll),
+            self.riding,
+        );
+        Facts {
+            scrollbar: match term.scrollbar_shown() {
+                baud_domain::ScrollbarShown::Shown => Some(ScrollbarPlan {
+                    window: crate::effects::window_of(term),
+                }),
+                baud_domain::ScrollbarShown::Hidden => None,
+            },
+            moved: ScreenMove {
+                cols,
+                rows,
+                back: term.window_back(),
+                carried,
+            },
+            style: term.cursor_style(),
+            splash: match self.splash.gated(self.motion) {
+                true => crate::splash::SplashGate::of(term),
+                false => crate::splash::SplashGate::Waiting,
+            },
+            fireworks: crate::fireworks::FireworksAsked::of(term),
+        }
+    }
+
     /// [`Timed::plan_following`] with the trail following the screen's
     /// cursor.
     #[cfg(test)]
@@ -517,18 +558,19 @@ impl Timed {
         widths: baud_render::Widths,
     ) -> Plan {
         let followed = crate::effects::trail_cursor(term);
-        self.plan_following(now, term, followed, rect, cell, widths)
+        let facts = self.facts(term, followed);
+        self.plan_following(now, facts, followed, rect, cell, widths)
     }
 
     /// **The next frame's effects at `now`**, the macOS frame's order: the
     /// thumb as the reveal shows it, the trail spawned where the frame's
     /// planned cursor (`followed`) now is and advanced, the fade, the blink phases. `rect` is the
     /// renderer's cursor rectangle for a cell and a style; `scroll` the
-    /// thumb's frame.
+    /// thumb's frame. What it reads of the screen is the plan's, `facts`.
     pub(crate) fn plan_following(
         &mut self,
         now: Instant,
-        term: &Term<'_>,
+        facts: Facts,
         followed: Option<crate::effects::TrailCursor>,
         rect: impl Fn(Row, Col, CursorStyle) -> Rect,
         cell: Cell,
@@ -538,21 +580,18 @@ impl Timed {
         let secs = self.clock.secs(now);
         let look = self.bar.look(host);
         self.bar.drawn = look;
-        let scroll = match term.scrollbar_shown() {
-            baud_domain::ScrollbarShown::Shown => Some(Scroll {
-                window: crate::effects::window_of(term),
-                look,
-                widths,
-                scroller: self.bar.scroller(),
-            }),
-            baud_domain::ScrollbarShown::Hidden => None,
-        };
+        let scroll = facts.scrollbar.map(|s| Scroll {
+            window: s.window,
+            look,
+            widths,
+            scroller: self.bar.scroller(),
+        });
         // The lines the screen scrolled since the last frame ride the trail
         // first, at this frame's instant, as the macOS pump's ride comes
         // before the frame on the display link's: a ghost this frame
         // spawns starts from where the cursor now is.
         let riding = core::mem::replace(&mut self.riding, Rows::ZERO);
-        if let Some((dy, floor)) = crate::trail::ride_px(riding, term.geometry().1, cell.px.1) {
+        if let Some((dy, floor)) = crate::trail::ride_px(riding, facts.moved.rows, cell.px.1) {
             self.chase.ride(dy, host, floor, cell.px.1);
             self.ghost = self.ghost.and_then(|g| {
                 let p = crate::trail::ghost_progress(g.start, secs);
@@ -571,12 +610,8 @@ impl Timed {
         // holds of the text moves with it, and only the rest of the move
         // trails, as on macOS (`carried.rs`). A frame the whole screen's
         // scroll rode is the ride's.
-        let carried = crate::carried::carry(
-            &mut self.carried,
-            term,
-            cursor_cell,
-            (self.trail, self.scroll),
-            riding,
+        let carried = crate::carried::rebase(
+            facts.moved.carried,
             (&mut self.chase, &mut self.last_cell),
             cell.px.1,
         );
@@ -611,7 +646,7 @@ impl Timed {
         self.last_cell = cursor_cell;
         // Looking back drops a sweep in flight, as the chase arms snap: its
         // live rows are not what the window shows there.
-        if term.window_back().index() != 0 {
+        if facts.moved.back.index() != 0 {
             self.ghost = None;
         }
         let ghost = self.ghost.and_then(|g| {
@@ -646,10 +681,10 @@ impl Timed {
             | CursorTrail::Orb
             | CursorTrail::Liquid => {
                 // Looking back forgets where the cursor was, as on macOS.
-                if term.window_back().index() != 0 {
+                if facts.moved.back.index() != 0 {
                     self.chase.snap();
                 }
-                let style = term.cursor_style();
+                let style = facts.style;
                 let r = followed.map(|f| {
                     let (row, col) = f.cell();
                     rect(row, col, f.style(style))
@@ -668,17 +703,19 @@ impl Timed {
             self.switch = None;
         }
         let slide = switch.and_then(|f| f.slide);
-        let splash = self.splash.look(Some(secs), term, self.motion);
+        let splash = self
+            .splash
+            .look_gated(Some(secs), facts.splash, self.motion);
         // The fireworks, at the cell size the frame is drawn at, a point a
         // pixel as the cell's height in points says.
         let cells = crate::fireworks::Cells {
             w: cell.px.0,
             h: cell.px.1,
-            back: term.window_back().index(),
+            back: facts.moved.back.index(),
         };
-        let shows = self.fireworks.frame(
+        let shows = self.fireworks.frame_asked(
             secs,
-            term,
+            facts.fireworks,
             cells,
             cell.px.1 / cell.height.0.max(1.0),
             self.motion,
@@ -701,10 +738,117 @@ impl Timed {
     }
 }
 
+/// **The thumb's window over the history**, read by the plan while the
+/// program shows a scrollbar.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ScrollbarPlan {
+    pub(crate) window: baud_render::Window,
+}
+
+/// **The screen the trail moves over**: its size, the rows the window
+/// looks back, and how far the program's scroll took the followed
+/// cursor's line since the last plan.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ScreenMove {
+    /// Read by the Linux driver's frame, which sizes the copied signal by it.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub(crate) cols: baud_domain::Cols,
+    pub(crate) rows: Rows,
+    pub(crate) back: Rows,
+    pub(crate) carried: Option<crate::carried::Carry>,
+}
+
+/// **What a frame's timed effects read of the screen**, from the plan:
+/// none of them reads the terminal.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Facts {
+    pub(crate) scrollbar: Option<ScrollbarPlan>,
+    pub(crate) moved: ScreenMove,
+    pub(crate) style: CursorStyle,
+    pub(crate) splash: crate::splash::SplashGate,
+    pub(crate) fireworks: crate::fireworks::FireworksAsked,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::TrailPick;
+
+    /// What a plan reads of a 40x10 screen looking 3 rows back, with the
+    /// thumb's window `scrollbar` and no fireworks asked for.
+    fn facts(scrollbar: Option<ScrollbarPlan>) -> Facts {
+        Facts {
+            scrollbar,
+            moved: ScreenMove {
+                cols: baud_domain::Cols::of_index(40),
+                rows: Rows::of_count(10),
+                back: Rows::of_count(3),
+                carried: None,
+            },
+            style: CursorStyle::SteadyBlock,
+            splash: crate::splash::SplashGate::Waiting,
+            fireworks: crate::fireworks::FireworksAsked {
+                cursor: (Row::from_index(0), Col::ZERO),
+                request: None,
+            },
+        }
+    }
+
+    /// **The timed effects are driven by the plan, with no terminal**: the
+    /// thumb is drawn over the window the plan names and not drawn when it
+    /// names none, and no fireworks start that the plan did not ask for.
+    #[test]
+    fn a_plan_with_no_terminal_drives_the_timed_effects() {
+        let t0 = Instant::now();
+        let mut fx = Timed::new(t0, TrailPick::Default, ScreenTransition::Off);
+        let window = baud_render::Window {
+            retained: Rows::of_count(30),
+            back: Rows::of_count(3),
+            rows: Rows::of_count(10),
+        };
+        let p = fx.plan_following(
+            t0,
+            facts(Some(ScrollbarPlan { window })),
+            None,
+            rect,
+            CELL,
+            widths(),
+        );
+        let drawn = p
+            .scroll
+            .map(|s| (s.window.retained, s.window.back, s.window.rows));
+        assert_eq!(
+            drawn,
+            Some((Rows::of_count(30), Rows::of_count(3), Rows::of_count(10))),
+            "the thumb over the plan's window"
+        );
+        assert!(p.fireworks.iter().all(Option::is_none), "none asked for");
+        let later = t0 + Duration::from_millis(16);
+        let p = fx.plan_following(later, facts(None), None, rect, CELL, widths());
+        assert!(p.scroll.is_none(), "no scrollbar in the plan, no thumb");
+    }
+
+    /// **`plan_following` reads nothing of the terminal**: its signature and
+    /// body name no `Term` and read no `term.`; the control: the body found
+    /// reads the plan's facts.
+    #[test]
+    fn the_timed_plan_reads_no_terminal() {
+        const SRC: &str = include_str!("timed.rs");
+        let start = SRC
+            .find(concat!("pub(crate) fn ", "plan_following("))
+            .expect("plan_following");
+        let body = &SRC[start..];
+        let body = &body[..body.find("\n    }\n").expect("its end")];
+        assert!(body.contains("facts.moved"), "the control");
+        assert!(
+            !body.contains(concat!("Term", "<")),
+            "no terminal in the signature"
+        );
+        assert!(
+            !body.contains(concat!("term", ".")),
+            "no read of the terminal"
+        );
+    }
     use baud_core::Owned;
     use baud_domain::{BytePos, FrameNo, ImageBudget, KittyId, ReadLen, WinSize};
 

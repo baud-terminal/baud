@@ -104,7 +104,12 @@ impl Fireworks {
 
     /// Whether `term` has had a request no frame has seen.
     fn unseen(&self, term: &Term<'_>) -> bool {
-        term.fireworks().is_some() && Some(term.fireworks_requests()) != self.seen
+        self.unseen_asked(FireworksAsked::of(term))
+    }
+
+    /// Whether `asked` holds a request no frame has seen.
+    fn unseen_asked(&self, asked: FireworksAsked) -> bool {
+        asked.request.is_some_and(|r| Some(r.count) != self.seen)
     }
 
     /// **The shows for a frame at `now`**, which advances them: a request
@@ -112,6 +117,7 @@ impl Fireworks {
     /// that holds; a show past its end is gone; each moving show's bursts
     /// born since the last frame take the cursor's centre now. `scale` is
     /// device pixels a point.
+    #[cfg(any(test, target_os = "macos"))]
     pub(crate) fn frame(
         &mut self,
         now: f64,
@@ -120,11 +126,23 @@ impl Fireworks {
         scale: f32,
         motion: SystemMotion,
     ) -> Vec<Show> {
+        self.frame_asked(now, FireworksAsked::of(term), cells, scale, motion)
+    }
+
+    /// The frame `Fireworks::frame` makes, from what the frame's plan read, `asked`.
+    pub(crate) fn frame_asked(
+        &mut self,
+        now: f64,
+        asked: FireworksAsked,
+        cells: Cells,
+        scale: f32,
+        motion: SystemMotion,
+    ) -> Vec<Show> {
         self.shows.retain(|s| now < s.end());
-        let cursor = cells.centre(term.cursor());
-        if self.unseen(term) {
-            self.seen = Some(term.fireworks_requests());
-            let at = term.fireworks().map_or(cursor, |c| cells.centre(c));
+        let cursor = cells.centre(asked.cursor);
+        if let Some(r) = asked.request.filter(|_| self.unseen_asked(asked)) {
+            self.seen = Some(r.count);
+            let at = cells.centre(r.at);
             self.request(now, at, motion);
         }
         let mut out = Vec::with_capacity(self.shows.len());
@@ -219,6 +237,34 @@ impl Fireworks {
 #[cfg(test)]
 fn end() -> f64 {
     f64::from(HOLD + FADE)
+}
+
+/// **What the terminal asked of the fireworks**, read by the frame's plan:
+/// the cursor the bursts are born at, and the last request, if any.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct FireworksAsked {
+    pub(crate) cursor: (Row, Col),
+    pub(crate) request: Option<FireworksRequest>,
+}
+
+/// A request for fireworks: the cell it named, and the count of requests,
+/// which tells a new one from one a frame has seen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct FireworksRequest {
+    pub(crate) at: (Row, Col),
+    pub(crate) count: ReportCount,
+}
+
+impl FireworksAsked {
+    pub(crate) fn of(term: &Term<'_>) -> FireworksAsked {
+        FireworksAsked {
+            cursor: term.cursor(),
+            request: term.fireworks().map(|at| FireworksRequest {
+                at,
+                count: term.fireworks_requests(),
+            }),
+        }
+    }
 }
 
 #[cfg(test)]

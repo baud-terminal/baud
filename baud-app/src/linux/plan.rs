@@ -5,7 +5,8 @@
 //! lines under links, the tip, a held window's line and the composition --
 //! each read once and handed to the frame, which reads none of them from
 //! the terminal or the session itself. The trail starts from the planned
-//! cursor, and the visual bell is timed from what the plan read.
+//! cursor, and the visual bell, the thumb, the trail's screen, the splash
+//! and the fireworks are timed from what the plan read.
 
 use baud_core::{CursorStyle, Term};
 use baud_domain::{Col, Cols, CursorGuide, RegisBlink, Row, Seal};
@@ -95,6 +96,10 @@ pub(crate) struct FramePlan {
     /// What the visual bell reads of the screen: the `?5` counts, the
     /// video and how a ring shows.
     pub(crate) bell: crate::bell::BellFacts,
+    pub(crate) scrollbar: Option<crate::timed::ScrollbarPlan>,
+    pub(crate) moved: crate::timed::ScreenMove,
+    pub(crate) splash: crate::splash::SplashGate,
+    pub(crate) fireworks: crate::fireworks::FireworksAsked,
 }
 
 /// **The cells an input method's candidate window is asked to open over**:

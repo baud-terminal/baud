@@ -158,6 +158,32 @@ impl Splash {
         }
     }
 
+    /// [`Splash::look_gated`] with the gate read off `term` while the splash
+    /// can hold for it.
+    #[cfg(any(test, target_os = "macos"))]
+    pub(crate) fn look(
+        &mut self,
+        now: Option<f64>,
+        term: &Term<'_>,
+        motion: SystemMotion,
+    ) -> Option<SplashLook> {
+        let gate = match self.gated(motion) {
+            true => SplashGate::of(term),
+            false => SplashGate::Waiting,
+        };
+        self.look_gated(now, gate, motion)
+    }
+
+    /// Whether the next look can hold for the shell: held, or playing under
+    /// reduced motion, which holds from that look.
+    pub(crate) fn gated(&self, motion: SystemMotion) -> bool {
+        match self.state {
+            State::Held(_) => true,
+            State::Playing(_) => motion == SystemMotion::Reduced,
+            State::Waiting | State::Due | State::Fading(_) | State::Gone => false,
+        }
+    }
+
     /// **The look for a frame at `now`**, which advances the state: nothing
     /// while it waits for the window (the logo whole under reduced
     /// motion); then the plasma from the first frame with a clock, gone
@@ -167,10 +193,10 @@ impl Splash {
     /// macOS -- starts no clock. Reduced motion arriving while the logo
     /// comes out shows it whole at once, and once the plasma that carries
     /// it out has lit takes it down, as it cuts a trail in flight.
-    pub(crate) fn look(
+    pub(crate) fn look_gated(
         &mut self,
         now: Option<f64>,
-        term: &Term<'_>,
+        gate: SplashGate,
         motion: SystemMotion,
     ) -> Option<SplashLook> {
         if motion == SystemMotion::Reduced {
@@ -217,7 +243,7 @@ impl Splash {
             State::Due => self.state = State::Fading(now),
             State::Held(since) => {
                 let since = since.unwrap_or(now);
-                self.state = match drawn(term) || now - since >= CAP {
+                self.state = match gate == SplashGate::Drawn || now - since >= CAP {
                     true => State::Due,
                     false => State::Held(Some(since)),
                 };
@@ -447,6 +473,23 @@ impl LaunchLog {
             ));
         }
         Some(lines)
+    }
+}
+
+/// **Whether the shell has drawn**, read by the frame's plan while the
+/// splash holds for it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum SplashGate {
+    Waiting,
+    Drawn,
+}
+
+impl SplashGate {
+    pub(crate) fn of(term: &Term<'_>) -> SplashGate {
+        match drawn(term) {
+            true => SplashGate::Drawn,
+            false => SplashGate::Waiting,
+        }
     }
 }
 

@@ -1775,8 +1775,13 @@ impl Driver {
         if previewed {
             self.show_pointer();
         }
+        let facts = self.timed.facts(&self.term, cursor.followed);
         FramePlan {
             cursor,
+            scrollbar: facts.scrollbar,
+            moved: facts.moved,
+            splash: facts.splash,
+            fireworks: facts.fireworks,
             bell: crate::bell::BellFacts::of(&self.term),
             guide: self.term.cursor_guide().unwrap_or(self.cursor_guide),
             regis_blink: self.term.regis_blink(),
@@ -4442,6 +4447,7 @@ impl Driver {
         // its write generation closed before the frame's first ask of the
         // display; the draw (`draw_kept`) paints under the same seal.
         let frame = self.plan();
+        let moved = frame.moved;
         // The moment the frame is first seen: the next refresh where the
         // compositor's presentation feedback says one, else now -- what
         // the macOS frame plans for with its display link's target.
@@ -4501,7 +4507,7 @@ impl Driver {
         self.renderer.set_tip(self.plan_text.tip.clone());
         // What a copy says, over that slot for its moment, and none under the
         // link preview, which keeps the bar (`copied.rs`).
-        let (cols, rows) = self.term.geometry();
+        let (cols, rows) = (moved.cols, moved.rows);
         let signal = self
             .copied
             .frame(seen_at, preview, highlight.as_ref(), cols, rows);
@@ -4510,7 +4516,7 @@ impl Driver {
             crate::held::on_view(
                 &h.line,
                 h.row,
-                self.term.window_back(),
+                moved.back,
                 cols,
                 rows,
                 self.copied.message().held,
@@ -4571,7 +4577,13 @@ impl Driver {
         self.timed.keyed(self.caret.last_key());
         let plan = self.timed.plan_following(
             seen_at,
-            &self.term,
+            crate::timed::Facts {
+                scrollbar: frame.scrollbar,
+                moved,
+                style: frame.cursor.style,
+                splash: frame.splash,
+                fireworks: frame.fireworks,
+            },
             frame.cursor.followed,
             |r, c, style| renderer.cursor_rect(r, c, style),
             cell,
@@ -4606,7 +4618,7 @@ impl Driver {
         // drawn in: the strip at its left, then the grid.
         self.renderer.place_marks(
             &self.term,
-            self.term.window_back(),
+            moved.back,
             baud_render::Leaving::None,
             Px::of(0),
         );
@@ -4621,7 +4633,7 @@ impl Driver {
             self.window.draw_for(seen_at);
         }
         let inputs = baud_present_vulkan::present::Inputs {
-            back: self.term.window_back(),
+            back: moved.back,
             highlight,
             composition: &self.plan_text.preedit,
             predictions: &[],
@@ -4670,7 +4682,7 @@ impl Driver {
         // The rows the window shows, `window_back` lines up the history
         // while the wheel or the thumb holds it there: the rows the
         // selection, the link under a click and the thumb already read.
-        let back = self.term.window_back();
+        let back = moved.back;
         // A frame a timed effect owed is drawn for the moment it is seen,
         // and held to it.
         if self.frame_for == FrameFor::Moment {
@@ -5898,7 +5910,7 @@ mod tests {
     #[test]
     fn present_reads_no_planning_input() {
         const SRC: &str = include_str!("linux.rs");
-        const CEILING: usize = 33;
+        const CEILING: usize = 27;
         let body = present_body(SRC);
         // Each `self.` name read, not a longer name it begins.
         let planning_reads = |code: &str| {
