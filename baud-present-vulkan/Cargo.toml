@@ -15,11 +15,11 @@ categories = ["gui", "os::linux-apis"]
 # The tests and their fixtures stay in the repository.
 include = ["/src/", "/shaders/", "/README.md", "/LICENSE", "/NOTICE", "/LICENSES/"]
 
-[dependencies]
-baud-present-wayland = { workspace = true }
-
 # Linux only: the crate is empty elsewhere.
 [target.'cfg(target_os = "linux")'.dependencies]
+# The window the frames are shown in, and the dmabuf feedback the device is
+# chosen by.
+baud-present-wayland = { workspace = true }
 # Vulkan's bindings; the loader is opened at run time by the crate's own
 # dlopen (`loader.rs`): a box without libvulkan runs on shared memory
 # rather than failing to start.
