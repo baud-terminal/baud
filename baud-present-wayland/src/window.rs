@@ -679,6 +679,34 @@ pub struct Window {
     export_refused: ExportRefusal,
     clip: Clip,
     events: VecDeque<Event>,
+    /// Whether [`Window::frame_notice`] has said that no frame is drawn.
+    no_frame: Notice,
+}
+
+/// **What the window says about its frame**, once
+/// ([`Window::frame_notice`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameNotice {
+    /// An acknowledged configure left the decorations with the client, and
+    /// baud draws none.
+    NoFrame,
+}
+
+impl core::fmt::Display for FrameNotice {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            FrameNotice::NoFrame => f.write_str(
+                "wayland: the compositor leaves decorations to the client; baud draws no frame",
+            ),
+        }
+    }
+}
+
+/// Whether a [`FrameNotice`] is still to be given or has been.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Notice {
+    Owed,
+    Given,
 }
 
 impl Window {
@@ -786,6 +814,7 @@ impl Window {
             export_refused: ExportRefusal::Clear,
             clip: Clip::default(),
             events: VecDeque::new(),
+            no_frame: Notice::Owed,
         })
     }
 
@@ -1228,6 +1257,21 @@ impl Window {
     /// configure left them.
     pub fn decoration(&self) -> DecorationMode {
         self.decorations.mode()
+    }
+
+    /// **That no frame is drawn**, once: the first call after an
+    /// acknowledged configure has left the decorations with the client
+    /// ([`Window::decoration`]) gives [`FrameNotice::NoFrame`], and every
+    /// other call `None`.
+    pub fn frame_notice(&mut self) -> Option<FrameNotice> {
+        if self.no_frame == Notice::Given
+            || self.size.is_none()
+            || self.decoration() != DecorationMode::ClientSide
+        {
+            return None;
+        }
+        self.no_frame = Notice::Given;
+        Some(FrameNotice::NoFrame)
     }
 
     /// The compositor's recommended bound on the window's size, the

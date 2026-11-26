@@ -1446,6 +1446,11 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         if let Some(why) = d.window.export_refused() {
             crate::info!("print: the window's export refused a handle: {why:?}");
         }
+        // Read every turn: a configure that changes the decoration mode
+        // and not the size sends no `Configured`.
+        if let Some(n) = d.window.frame_notice() {
+            crate::info!("{n}");
+        }
         while let Some(e) = d.window.next_event() {
             match e {
                 Event::Configured { width, height } => d.configure(width, height),
@@ -6139,5 +6144,20 @@ mod tests {
             None,
             "a ghost's sweep is not paced"
         );
+    }
+
+    /// The driver reads the window's frame notice in one place, and logs
+    /// it.
+    #[test]
+    fn the_driver_logs_the_frame_notice_from_one_read() {
+        const SRC: &str = include_str!("linux.rs");
+        let (product, _) = SRC
+            .rsplit_once(concat!("#[cfg(test)]\n", "mod tests {"))
+            .expect("the test module");
+        assert_eq!(product.matches(".frame_notice()").count(), 1);
+        assert!(product.contains(concat!(
+            "if let Some(n) = d.window.frame_notice() {\n",
+            "            crate::info!(\"{n}\");"
+        )));
     }
 }

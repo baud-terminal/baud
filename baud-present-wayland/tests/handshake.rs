@@ -2993,6 +2993,92 @@ fn the_window_asks_for_server_side_decorations_and_follows_the_answer() {
     assert_eq!(w.decoration(), DecorationMode::ClientSide);
 }
 
+#[test]
+fn a_window_whose_decorations_stay_with_the_client_says_once_that_no_frame_is_drawn() {
+    use baud_present_wayland::FrameNotice;
+    const CLIENT_SIDE: u32 = 1;
+    const SERVER_SIDE: u32 = 2;
+    let manager = [("zxdg_decoration_manager_v1", 2)];
+
+    // The compositor answers client-side: said once, and not again after
+    // a second configure.
+    let (mut conn, mut server, mut w, top, xdg, sent) = opened_with(|_| {}, &manager);
+    let deco = decoration_for(&sent, top).expect("a decoration for the toplevel");
+    assert_eq!(w.frame_notice(), None, "before a configure");
+    server.send(
+        deco,
+        "zxdg_toplevel_decoration_v1",
+        "configure",
+        &[Arg::Uint(CLIENT_SIDE)],
+    );
+    configure(&mut server, top, xdg, 640, 480, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    let n = w.frame_notice();
+    assert_eq!(n, Some(FrameNotice::NoFrame), "client-side answered");
+    assert_eq!(
+        n.unwrap().to_string(),
+        "wayland: the compositor leaves decorations to the client; baud draws no frame"
+    );
+    assert_eq!(w.frame_notice(), None, "said once");
+    configure(&mut server, top, xdg, 640, 480, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert_eq!(w.frame_notice(), None, "not again after a second configure");
+
+    // Server-side granted: nothing said.
+    let (mut conn, mut server, mut w, top, xdg, sent) = opened_with(|_| {}, &manager);
+    let deco = decoration_for(&sent, top).expect("a decoration for the toplevel");
+    server.send(
+        deco,
+        "zxdg_toplevel_decoration_v1",
+        "configure",
+        &[Arg::Uint(SERVER_SIDE)],
+    );
+    configure(&mut server, top, xdg, 640, 480, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert_eq!(w.frame_notice(), None, "server-side granted");
+
+    // No decoration manager: said once, after the first configure.
+    let (mut conn, mut server, mut w, top, xdg, _) = opened_with(|_| {}, &[]);
+    configure(&mut server, top, xdg, 640, 480, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert_eq!(w.frame_notice(), Some(FrameNotice::NoFrame), "no manager");
+    assert_eq!(w.frame_notice(), None, "said once, no manager");
+
+    // Server-side, then client-side at a later configure: said once then.
+    let (mut conn, mut server, mut w, top, xdg, sent) = opened_with(|_| {}, &manager);
+    let deco = decoration_for(&sent, top).expect("a decoration for the toplevel");
+    server.send(
+        deco,
+        "zxdg_toplevel_decoration_v1",
+        "configure",
+        &[Arg::Uint(SERVER_SIDE)],
+    );
+    configure(&mut server, top, xdg, 640, 480, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert_eq!(w.frame_notice(), None, "server-side first");
+    server.send(
+        deco,
+        "zxdg_toplevel_decoration_v1",
+        "configure",
+        &[Arg::Uint(CLIENT_SIDE)],
+    );
+    configure(&mut server, top, xdg, 640, 480, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert_eq!(w.decoration(), DecorationMode::ClientSide);
+    assert_eq!(
+        w.frame_notice(),
+        Some(FrameNotice::NoFrame),
+        "client-side later"
+    );
+    assert_eq!(w.frame_notice(), None, "said once, later");
+}
+
 /// The decoration object `requests` made for `top`, if they made one.
 fn decoration_for(requests: &[Request], top: ObjectId) -> Option<ObjectId> {
     requests
