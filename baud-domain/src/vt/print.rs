@@ -374,3 +374,38 @@ pub const SELECTED_AREAS: usize = 16;
 /// read: a read that finishes more joins the rest to the last, after a form
 /// feed, so nothing printed is lost.
 pub const PRINT_QUEUE: usize = 8;
+
+/// A length on paper in millimetres, the unit a print dialog's page setup
+/// gives (`[[source: xdg-portal-print]]`: "Paper width in millimeters"):
+/// finite and not below zero, so a page laid out from one has a size.
+#[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
+pub struct PaperMm(f64);
+
+/// A length on paper in PostScript points, 72 to the inch, the unit of a
+/// PDF page (`[[source: pdf-reference-1-4]]`, "default user space").
+#[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
+pub struct PaperPt(f64);
+
+impl PaperMm {
+    /// `mm`, or `None` when it is not finite or is below zero.
+    pub fn of(mm: f64) -> Option<PaperMm> {
+        (mm.is_finite() && mm >= 0.0).then_some(PaperMm(mm))
+    }
+
+    /// The length in millimetres.
+    pub const fn get(self) -> f64 {
+        self.0
+    }
+
+    /// The same length in points: 72 to the inch of 25.4 mm.
+    pub fn to_pt(self) -> PaperPt {
+        PaperPt(self.0 * 72.0 / 25.4)
+    }
+}
+
+impl PaperPt {
+    /// The length in points.
+    pub const fn get(self) -> f64 {
+        self.0
+    }
+}

@@ -1113,6 +1113,36 @@ fn write_only<W: baud_domain::WriteOnly<u32>>() {
 }
 const _: fn() = write_only::<baud_domain::WcSlice<'static, u32>>;
 const _: fn() = write_only::<&'static mut [u32]>;
+// dbus::portal
+const _: fn(&str) -> Option<baud_domain::dbus::HandleToken> = baud_domain::dbus::HandleToken::parse;
+const _: fn(u32) -> baud_domain::dbus::HandleToken = baud_domain::dbus::HandleToken::numbered;
+const _: for<'a> fn(&'a baud_domain::dbus::HandleToken) -> &'a str =
+    baud_domain::dbus::HandleToken::as_str;
+const _: for<'a, 'b> fn(
+    baud_domain::dbus::BusName<'a>,
+    &'b baud_domain::dbus::HandleToken,
+) -> Option<baud_domain::dbus::RequestPath> = baud_domain::dbus::RequestPath::predict;
+const _: for<'a> fn(&'a baud_domain::dbus::RequestPath) -> baud_domain::dbus::ObjectPath<'a> =
+    baud_domain::dbus::RequestPath::as_path;
+const _: for<'a, 'b> fn(
+    &'a baud_domain::dbus::RequestPath,
+    baud_domain::dbus::ObjectPath<'b>,
+) -> baud_domain::dbus::Handle<'b> = baud_domain::dbus::RequestPath::matches;
+const _: fn(baud_domain::dbus::U32) -> baud_domain::dbus::ResponseCode =
+    baud_domain::dbus::ResponseCode::of;
+const _: for<'b> fn(
+    &'b baud_domain::dbus::Trusted<'static>,
+) -> Option<baud_domain::dbus::PortalResponse<'static>> =
+    baud_domain::dbus::PortalResponse::from_trusted;
+const _: fn(
+    baud_domain::dbus::DictRead<
+        'static,
+        baud_domain::dbus::Str<'static>,
+        baud_domain::dbus::Variant<'static>,
+    >,
+) -> baud_domain::dbus::PageSetup = baud_domain::dbus::PageSetup::read;
+const _: fn(f64) -> Option<baud_domain::PaperMm> = baud_domain::PaperMm::of;
+const _: fn(baud_domain::PaperMm) -> baud_domain::PaperPt = baud_domain::PaperMm::to_pt;
 // dbus::Sig
 const _: fn(&'static [u8]) -> Result<baud_domain::dbus::Sig<'static>, baud_domain::dbus::SigError> =
     baud_domain::dbus::Sig::parse;
@@ -2099,6 +2129,9 @@ const WITNESSED: &[(&str, &str)] = &[
     ("ErrorName", "E0080"),
     ("BusName", "E0080"),
     ("CrmHold", "E0451"),
+    ("HandleToken", "E0451"),
+    ("RequestPath", "E0451"),
+    ("PortalResponse", "E0308"),
     ("WcSlice", "E0369"),
     ("WcSlice", "E0599"),
     ("WcSlice", "E0608"),

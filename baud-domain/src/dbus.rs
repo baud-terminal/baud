@@ -47,6 +47,7 @@ mod decode;
 mod header;
 mod name;
 mod notify;
+mod portal;
 mod sig;
 mod value;
 
@@ -73,6 +74,10 @@ pub use name::{
     Str,
 };
 pub use notify::{ADD_MATCH, CLOSE_NOTIFICATION, FdoNotify, GET_CAPABILITIES, NOTIFY};
+pub use portal::{
+    Handle, HandleToken, PORTAL, PORTAL_PATH, PRINT, PageSetup, PortalResponse, REQUEST, RESPONSE,
+    RequestPath, ResponseCode,
+};
 pub use sig::{Depth, Sig, SigCodes, SigError, SigLen};
 pub use value::{
     Align, Args, Array, Basic, Boolean, Byte, Bytes, Dict, Double, FdCount, FdIndex, FlatPairs,
