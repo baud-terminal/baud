@@ -327,6 +327,7 @@ pub(crate) fn badge_text(
 /// inside the alpha iTerm2 draws the badge at, in iTerm2's box and margins
 /// at `scale` device pixels a point, in bold. Nothing while `[screen]
 /// badge` is off, and nothing for a text of white space alone.
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn badge_look(
     term: &Term<'_>,
     shown: crate::config::BadgeShown,
@@ -335,6 +336,26 @@ pub(crate) fn badge_look(
     page: baud_render::Argb,
     scale: f64,
 ) -> Option<baud_render::BadgeLook> {
+    badge_of(term, shown, session, selection).map(|b| b.look(page, scale))
+}
+
+/// **What the badge says**: its text and the colour a program set for it,
+/// read from the terminal and the session; how it is drawn is
+/// [`BadgeText::look`]'s.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) struct BadgeText {
+    text: String,
+    colour: Option<(u8, u8, u8)>,
+}
+
+/// **The badge's text and colour**, or nothing while `[screen] badge` is
+/// off or the text is white space alone.
+pub(crate) fn badge_of(
+    term: &Term<'_>,
+    shown: crate::config::BadgeShown,
+    session: &Session,
+    selection: &dyn Fn() -> Option<String>,
+) -> Option<BadgeText> {
     if shown == crate::config::BadgeShown::Off {
         return None;
     }
@@ -345,27 +366,39 @@ pub(crate) fn badge_look(
     if text.chars().all(char::is_whitespace) {
         return None;
     }
-    let (colour, drawn_at) = match term.badge_colour().and_then(|c| c.as_rgb()) {
-        Some((r, g, b)) => (
-            baud_render::Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)),
-            Chan::from_u8(0xFF),
-        ),
-        None => (baud_render::BADGE, baud_render::DRAWN_AT),
-    };
-    let s = scale as f32;
-    let px =
-        |points: f32| baud_font::Px::of(u32::try_from((points * s).round() as i64).unwrap_or(0));
-    Some(baud_render::BadgeLook {
+    Some(BadgeText {
         text,
-        colour,
-        outline: page.with_alpha(drawn_at),
-        drawn_at,
-        fraction: baud_render::BOX,
-        top: px(baud_render::MARGINS.0),
-        right: px(baud_render::MARGINS.1),
-        scale: s,
-        style: baud_render::FaceStyle::Bold,
+        colour: term.badge_colour().and_then(|c| c.as_rgb()),
     })
+}
+
+impl BadgeText {
+    /// **The badge as drawn**: outlined in `page`, the background colour,
+    /// at `scale` device pixels a point.
+    pub(crate) fn look(self, page: baud_render::Argb, scale: f64) -> baud_render::BadgeLook {
+        let (colour, drawn_at) = match self.colour {
+            Some((r, g, b)) => (
+                baud_render::Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)),
+                Chan::from_u8(0xFF),
+            ),
+            None => (baud_render::BADGE, baud_render::DRAWN_AT),
+        };
+        let s = scale as f32;
+        let px = |points: f32| {
+            baud_font::Px::of(u32::try_from((points * s).round() as i64).unwrap_or(0))
+        };
+        baud_render::BadgeLook {
+            text: self.text,
+            colour,
+            outline: page.with_alpha(drawn_at),
+            drawn_at,
+            fraction: baud_render::BOX,
+            top: px(baud_render::MARGINS.0),
+            right: px(baud_render::MARGINS.1),
+            scale: s,
+            style: baud_render::FaceStyle::Bold,
+        }
+    }
 }
 
 /// The phase a ReGIS page's blinking pixels show: text blink's slow one,
@@ -868,14 +901,20 @@ mod tests {
             None,
             "white space alone"
         );
-        let src = [crate::app_source::app_source(), include_str!("linux.rs")];
-        for s in src {
+        let src = [
+            (crate::app_source::app_source(), "badge_look"),
+            (include_str!("linux.rs"), "badge_of"),
+        ];
+        for (s, read) in src {
             // Read with its white space taken out, so a reflow keeps it.
             let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
             assert!(
-                s.contains(concat!(
-                    "letbadge=crate::",
-                    "effects::badge_look(&self.term,self.badge,&self.session,&selection,"
+                s.contains(&format!(
+                    "letbadge=crate::effects::{read}(&self.term,self.badge,&self.session,&selection{}",
+                    match read {
+                        "badge_of" => ")",
+                        _ => ",",
+                    }
                 )),
                 "the term, the setting, the session and the selection"
             );

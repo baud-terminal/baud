@@ -378,6 +378,8 @@ struct Driver {
     pressed: crate::pressed::Pressed,
     /// Where the input method puts the cursor in it (`marked::caret`).
     composing_caret: baud_render::Caret,
+    /// The overlays' text the next frame shows, refilled by `plan`.
+    plan_text: plan::PlanText,
     /// Text blink, the cursor trail, the alternate screen's fade and the
     /// scrollbar's thumb, each owing a deadline or a frame (`timed.rs`).
     timed: crate::timed::Timed,
@@ -996,6 +998,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         finding: None,
         pressed: crate::pressed::Pressed::default(),
         composing_caret: baud_render::Caret::End,
+        plan_text: plan::PlanText::default(),
         // `BAUD_GPU=off` keeps every frame on the CPU arm, read once.
         gpu: crate::gpu_arm::GpuArm::new(std::env::var("BAUD_GPU").ok().as_deref()),
         paced_said: None,
@@ -1674,9 +1677,11 @@ impl Driver {
     }
 
     /// **What the next frame shows, read from the terminal and the
-    /// session**: the cursor, the guide, ReGIS's blink, the highlight and the
-    /// write seal (`plan.rs`). The composition is drawn at the cursor only
-    /// while the find field is closed.
+    /// session**: the cursor, the guide, ReGIS's blink, the highlight, the
+    /// write seal and where the input method's window opens, and the
+    /// overlays' text into `plan_text` (`plan.rs`). The composition is drawn
+    /// at the cursor only while the find field is closed. The link scan
+    /// runs here, and the pointer shown for a preview it read again.
     fn plan(&mut self) -> FramePlan {
         let composed = match self.finding {
             Some(_) => None,
@@ -1687,12 +1692,96 @@ impl Driver {
                 self.composing_caret,
             ),
         };
+        let cursor = plan::CursorPlan::of(&self.term, composed.as_ref());
+        let highlight = self.seat.highlight(&self.term);
+        // A `selection` the badge names reads what a copy would copy.
+        let selection = || self.seat.selected_text(&self.term);
+        let badge = crate::effects::badge_of(&self.term, self.badge, &self.session, &selection);
+        self.plan_text.badge = badge;
+        // The find field and every match's mark, on the window drawn, and
+        // the input method's composition in the field while it is open.
+        self.plan_text.find = self.finding.as_ref().map(|f| {
+            f.look_typing(
+                &self.term,
+                self.term.window_back(),
+                &self.composing,
+                &self.composing_hints,
+                self.composing_caret,
+            )
+        });
+        // The view's link slots, brought to the view shown now: the link
+        // preview and the scan read the rows holding a slot from them.
+        let scrolled = self.seat.scrolled();
+        let views = self.views.sync(&self.term, scrolled);
+        // The link preview, read again where the pointer is while Ctrl is
+        // held: a read may have changed what is under it.
+        let host = self.uris.names();
+        let mods = self.window.modifiers();
+        let previewed = self
+            .seat
+            .hover_refresh(&self.term, mods, host, Some(&views));
+        // The lines at rest for this frame (`lined.rs`).
+        let text = &mut self.plan_text;
+        text.lines.clear();
+        text.struck.clear();
+        match self.link_config.lines() {
+            Some(_) => {
+                if self.seat.paths.observe(&self.term, scrolled) == crate::paths::Moved::Yes {
+                    self.lines.forget();
+                }
+                self.lines.scan(
+                    &self.term,
+                    scrolled,
+                    &views,
+                    &mut crate::paths::Links {
+                        uris: &mut self.uris,
+                        urls: self.link_config.urls_read(),
+                        paths: &mut self.seat.paths,
+                    },
+                );
+                text.lines.extend_from_slice(self.lines.lines());
+                text.struck.extend_from_slice(self.lines.struck());
+            }
+            None => self.lines.off(),
+        }
+        text.hover_struck.clear();
+        text.hover_struck
+            .extend_from_slice(self.seat.hover_struck());
+        text.hover = self.seat.hover_look().cloned();
+        text.hover_over = self.seat.hover_over().cloned();
+        text.tip = self.line_tip.look().cloned();
+        // A held window's line, against the cursor's row (`held.rs`).
+        text.held = match &self.holding {
+            crate::held::Holding::No => None,
+            crate::held::Holding::Yes(line) => Some(plan::HeldText {
+                line: line.clone(),
+                row: self.term.cursor().0,
+            }),
+        };
+        // The candidate window: at the input method's own cursor in the
+        // composition, as drawn; while the find field is open, at its
+        // caret.
+        let ime = match &text.find {
+            Some(look) => Some(plan::ImeRect {
+                at: (look.field.row, look.field.caret),
+                width: baud_domain::Cols::of_index(1),
+            }),
+            None => crate::marked::candidate_cells(&self.term, composed.as_ref())
+                .map(|(at, width)| plan::ImeRect { at, width }),
+        };
+        text.preedit = composed;
+        // The pointer shown for the preview read above, once the scan is
+        // done with the view's slots.
+        if previewed {
+            self.show_pointer();
+        }
         FramePlan {
-            cursor: plan::CursorPlan::of(&self.term, composed.as_ref()),
+            cursor,
             guide: self.term.cursor_guide().unwrap_or(self.cursor_guide),
             regis_blink: self.term.regis_blink(),
-            highlight: self.seat.highlight(&self.term),
+            highlight,
             seal: self.term.seal_writes(),
+            ime,
         }
     }
 
@@ -4376,75 +4465,24 @@ impl Driver {
         let guide = frame.guide;
         self.renderer
             .set_cursor_guide(crate::effects::guide_look(guide, self.type_px()));
-        // A `selection` the badge names reads what a copy would copy.
-        let selection = || self.seat.selected_text(&self.term);
         let page = self.renderer.background_of(&self.term);
-        let badge = crate::effects::badge_look(
-            &self.term,
-            self.badge,
-            &self.session,
-            &selection,
-            page,
-            scale,
-        );
+        let badge = self.plan_text.badge.take().map(|b| b.look(page, scale));
         self.renderer.set_badge(badge);
-        // The find field and every match's mark, on the window drawn, and
-        // the input method's composition in the field while it is open.
-        let look = self.finding.as_ref().map(|f| {
-            f.look_typing(
-                &self.term,
-                self.term.window_back(),
-                &self.composing,
-                &self.composing_hints,
-                self.composing_caret,
-            )
-        });
-        let field = look.as_ref().map(|l| l.field.clone());
+        let look = self.plan_text.find.take();
         self.renderer.set_find(&self.term, look);
-        // The view's link slots, brought to the view shown now: the link
-        // preview and the scan read the rows holding a slot from them.
-        let scrolled = self.seat.scrolled();
-        let views = self.views.sync(&self.term, scrolled);
-        // The link preview, read again where the pointer is while Ctrl is
-        // held: a read may have changed what is under it.
-        let host = self.uris.names();
-        let mods = self.window.modifiers();
-        let previewed = self
-            .seat
-            .hover_refresh(&self.term, mods, host, Some(&views));
-        // The lines at rest for this frame (`lined.rs`).
         match self.link_config.lines() {
             Some(style) => {
-                if self.seat.paths.observe(&self.term, scrolled) == crate::paths::Moved::Yes {
-                    self.lines.forget();
-                }
-                self.lines.scan(
-                    &self.term,
-                    scrolled,
-                    &views,
-                    &mut crate::paths::Links {
-                        uris: &mut self.uris,
-                        urls: self.link_config.urls_read(),
-                        paths: &mut self.seat.paths,
-                    },
-                );
-                self.renderer.set_link_lines(self.lines.lines(), style);
+                self.renderer.set_link_lines(&self.plan_text.lines, style);
                 self.renderer
                     .set_line_colour(self.link_config.line_colour());
                 self.renderer
-                    .set_link_strikes(self.lines.struck(), self.seat.hover_struck());
+                    .set_link_strikes(&self.plan_text.struck, &self.plan_text.hover_struck);
             }
             None => {
-                self.lines.off();
                 self.renderer.set_link_lines(&[], Default::default());
                 self.renderer
-                    .set_link_strikes(&[], self.seat.hover_struck());
+                    .set_link_strikes(&[], &self.plan_text.hover_struck);
             }
-        }
-        // The pointer shown for the preview read above, once the scan is done
-        // with the view's slots.
-        if previewed {
-            self.show_pointer();
         }
         self.renderer
             .set_link_missing(self.link_config.missing_color);
@@ -4455,35 +4493,35 @@ impl Driver {
             }
             None => {}
         }
-        self.renderer.set_link(self.seat.hover_look().cloned());
-        self.renderer.set_link_hover(self.seat.hover_over());
-        self.renderer.set_tip(self.line_tip.look().cloned());
+        let preview = crate::copied::Preview::of(self.plan_text.hover.as_ref());
+        self.renderer.set_link(self.plan_text.hover.take());
+        self.renderer
+            .set_link_hover(self.plan_text.hover_over.as_ref());
+        self.renderer.set_tip(self.plan_text.tip.clone());
         // What a copy says, over that slot for its moment, and none under the
         // link preview, which keeps the bar (`copied.rs`).
         let (cols, rows) = self.term.geometry();
-        let preview = crate::copied::Preview::of(self.seat.hover_look());
         let signal = self
             .copied
             .frame(seen_at, preview, highlight.as_ref(), cols, rows);
         // A held window's line, after whatever that slot shows (`held.rs`).
-        let held = match &self.holding {
-            crate::held::Holding::No => None,
-            crate::held::Holding::Yes(line) => crate::held::on_view(
-                line,
-                self.term.cursor().0,
+        let held = self.plan_text.held.as_ref().and_then(|h| {
+            crate::held::on_view(
+                &h.line,
+                h.row,
                 self.term.window_back(),
                 cols,
                 rows,
                 self.copied.message().held,
                 crate::held::Address::of(preview, self.copied.message().link.place),
-            ),
-        };
+            )
+        });
         match (signal.look, held) {
             (Some(look), held) => self
                 .renderer
                 .set_tip(crate::held::with_line(Some(look), held)),
             (None, Some(held)) => self.renderer.set_tip(crate::held::with_line(
-                self.line_tip.look().cloned(),
+                self.plan_text.tip.take(),
                 Some(held),
             )),
             (None, None) => {}
@@ -4495,21 +4533,9 @@ impl Driver {
         // cursor, the last stands. While the find field is open both are
         // the field's: the composition in it, the window at its caret.
         let m = self.renderer.metrics();
-        let (composition, rect) = match &field {
-            Some(f) => (None, Some(crate::marked::field_cell(f, m.cell_w, m.cell_h))),
-            None => {
-                let c = crate::marked::composition(
-                    &self.term,
-                    &self.composing,
-                    &self.composing_hints,
-                    self.composing_caret,
-                );
-                let r = crate::marked::candidate_rect(&self.term, c.as_ref(), m.cell_w, m.cell_h);
-                (c, r)
-            }
-        };
-        let composed = composition.clone();
-        self.renderer.set_composition(composition);
+        let rect = frame.ime.map(|r| r.px(m.cell_w, m.cell_h));
+        self.renderer
+            .set_composition(self.plan_text.preedit.clone());
         // In the surface's points, "surface local coordinates": the grid
         // begins at the frame's origin past the exit-status strip, and the
         // frame's pixels are the scale's a point (`surface.rs`).
@@ -4595,7 +4621,7 @@ impl Driver {
         let inputs = baud_present_vulkan::present::Inputs {
             back: self.term.window_back(),
             highlight,
-            composition: &composed,
+            composition: &self.plan_text.preedit,
             predictions: &[],
         };
         // What effect pacing weighs this frame by: whether it draws a trail
@@ -5870,7 +5896,7 @@ mod tests {
     #[test]
     fn present_reads_no_planning_input() {
         const SRC: &str = include_str!("linux.rs");
-        const CEILING: usize = 75;
+        const CEILING: usize = 34;
         let body = present_body(SRC);
         // Each `self.` name read, not a longer name it begins.
         let planning_reads = |code: &str| {

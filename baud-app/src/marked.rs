@@ -120,6 +120,7 @@ pub fn composition(
 /// **The cursor's cell**, as `[x, y, width, height]` in pixels from the
 /// grid's top-left corner, for a cell `w` by `h` pixels: where the
 /// candidate window is asked to open.
+#[cfg(any(target_os = "macos", test))]
 pub fn cursor_cell(term: &Term<'_>, w: Px, h: Px) -> [Px; 4] {
     let (r, c) = term.cursor();
     let at = |i: usize, size: Px| {
@@ -134,6 +135,7 @@ pub fn cursor_cell(term: &Term<'_>, w: Px, h: Px) -> [Px; 4] {
 
 /// **The find field's caret cell**, as [`cursor_cell`] gives the cursor's:
 /// where the candidate window opens while the field takes the keys.
+#[cfg(target_os = "macos")]
 pub fn field_cell(field: &baud_render::Field, w: Px, h: Px) -> [Px; 4] {
     let at = |i: usize, size: Px| {
         Px::of(
@@ -155,33 +157,67 @@ pub fn field_cell(field: &baud_render::Field, w: Px, h: Px) -> [Px; 4] {
 /// ([`cursor_cell`]). `None` while the input method hides its cursor: the
 /// last rectangle stands, as foot leaves it (`[[source:
 /// foot-2705e36-render]]` 1839-1872).
-#[cfg(any(target_os = "linux", test))]
+#[cfg(test)]
 pub fn candidate_rect(
     term: &Term<'_>,
     composition: Option<&Composition>,
     w: Px,
     h: Px,
 ) -> Option<[Px; 4]> {
+    candidate_cells(term, composition).map(|(at, n)| cells_rect(at, n, w, h))
+}
+
+/// **The cells the candidate window is asked to open over**, as
+/// `candidate_rect` places them: the cell and the count of cells, a
+/// double-width line's counted at twice the columns.
+#[cfg(any(target_os = "linux", test))]
+pub fn candidate_cells(
+    term: &Term<'_>,
+    composition: Option<&Composition>,
+) -> Option<((baud_domain::Row, baud_domain::Col), baud_domain::Cols)> {
     let Some(c) = composition else {
-        return Some(cursor_cell(term, w, h));
+        return Some((term.cursor(), baud_domain::Cols::of_index(1)));
     };
     let view = term.view(baud_domain::Rows::ZERO);
     let cols = c.width_on(&view);
     let (row, col, n) = c.caret_cells(cols)?;
     let doubled = row.index() < view.rows().index()
         && view.rendition(row) != baud_domain::LineRendition::Single;
-    let cw = match doubled {
-        true => w.value().saturating_mul(2),
-        false => w.value(),
+    let k = match doubled {
+        true => 2,
+        false => 1,
     };
-    let at =
-        |i: usize, size: u32| Px::of(u32::try_from(i).unwrap_or(u32::MAX).saturating_mul(size));
-    Some([
-        at(col.index(), cw),
-        at(row.index(), h.value()),
-        at(n.index(), cw),
+    Some((
+        (
+            row,
+            baud_domain::Col::at_index(col.index().saturating_mul(k)),
+        ),
+        baud_domain::Cols::of_index(n.index().saturating_mul(k)),
+    ))
+}
+
+/// **Cells as `[x, y, width, height]` in pixels** from the grid's top-left
+/// corner, for a cell `w` by `h` pixels: `width` cells from `at`, one row.
+#[cfg(any(target_os = "linux", test))]
+pub fn cells_rect(
+    at: (baud_domain::Row, baud_domain::Col),
+    width: baud_domain::Cols,
+    w: Px,
+    h: Px,
+) -> [Px; 4] {
+    let px = |i: usize, size: Px| {
+        Px::of(
+            u32::try_from(i)
+                .unwrap_or(u32::MAX)
+                .saturating_mul(size.value()),
+        )
+    };
+    [
+        px(at.1.index(), w),
+        px(at.0.index(), h),
+        px(width.index(), w),
         h,
-    ])
+    ]
 }
 
 /// **A rectangle of the grid, in the frame's pixels**: `rect`, grid
@@ -406,7 +442,7 @@ mod tests {
             "app.rs places it"
         );
         assert!(
-            linux.contains("crate::marked::candidate_rect("),
+            linux.contains("crate::marked::candidate_cells("),
             "linux.rs places it at the input method's cursor"
         );
         assert!(

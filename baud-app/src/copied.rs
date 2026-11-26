@@ -809,7 +809,7 @@ mod tests {
         // nothing, from one reading.
         for (src, reading) in [
             (crate::app_source::app_source(), "self.hover.look()"),
-            (include_str!("linux.rs"), "self.seat.hover_look()"),
+            (include_str!("linux.rs"), "self.plan_text.hover.as_ref()"),
         ] {
             let want = format!("crate::copied::Preview::of({reading})");
             assert_eq!(src.matches(&want).count(), 1, "{want}");

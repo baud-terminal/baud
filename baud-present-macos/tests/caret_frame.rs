@@ -2960,9 +2960,9 @@ mod checks {
     /// which a write since the frame's last seal is after, so an ask before
     /// the seal reads the rows again, once an ask. `present` and the cell
     /// driver seal before `set_images` and `place_marks`, the CPU driver
-    /// here before `place_marks`, and the Linux driver in its `plan`, which
-    /// `present` runs before its first `place_marks` and before its link
-    /// scan, which reads under the seal the plan took.
+    /// here before `place_marks`, and the Linux driver in its `plan`, after
+    /// its link scan as on macOS, which `present` runs before its first
+    /// `place_marks`.
     pub fn every_driver_seals_once_a_frame_before_it_builds() {
         let here = include_str!("caret_frame.rs");
         let read = |p: &str| {
@@ -3041,8 +3041,8 @@ mod checks {
             "the Linux driver plans, and so seals, before its first ask"
         );
         assert!(
-            at(&shown, "self.plan()") < at(&shown, "self.lines.scan("),
-            "the Linux driver's link scan reads under the seal its plan took"
+            at(&planned, "self.lines.scan(") < at(&planned, "seal_writes()"),
+            "the Linux driver's plan seals after its link scan"
         );
         let library = read("baud-render/src/cell_frame.rs");
         let build = body_of(&library, "pub fn build<P>(", "\n}\n");

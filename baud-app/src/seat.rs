@@ -3042,7 +3042,8 @@ mod tests {
     /// **The Linux driver shows the pointer again at every change of the
     /// link preview, and keeps a hidden one hidden**: every function of
     /// `linux.rs` that moves the preview -- a pointer event, a change of
-    /// the modifiers, a frame's read, the keyboard's coming and going --
+    /// the modifiers, a frame's plan, the thumb a frame draws, the
+    /// keyboard's coming and going --
     /// shows the pointer again; showing it asks the seat with the
     /// program's `OSC 22` shape and sends nothing while a key has it
     /// hidden, since a shape set shows it (`[[source: wayland]]`). The
@@ -3074,7 +3075,7 @@ mod tests {
                 names.push(name);
             }
         }
-        assert_eq!(names.len(), 4, "the four sites: {names:?}");
+        assert_eq!(names.len(), 5, "the five sites: {names:?}");
         let head = concat!("    fn show_", "pointer(&mut self) {");
         assert_eq!(SRC.matches(head).count(), 1);
         let show = SRC.split(head).nth(1).expect(head);

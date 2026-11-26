@@ -1,11 +1,15 @@
 //! **What a frame shows, read from the terminal before it is drawn**: the
-//! cursor, the cursor guide, ReGIS's blink, the selection's highlight and
-//! the write seal, each read once and handed to the frame, which reads
-//! none of them from the terminal itself.
+//! cursor, the cursor guide, ReGIS's blink, the selection's highlight, the
+//! write seal, where the input method's window opens and the overlays'
+//! text -- the badge, the find field, the link under the pointer, the
+//! lines under links, the tip, a held window's line and the composition --
+//! each read once and handed to the frame, which reads none of them from
+//! the terminal or the session itself.
 
 use baud_core::{CursorStyle, Term};
-use baud_domain::{Col, CursorGuide, RegisBlink, Row, Seal};
-use baud_render::{Composition, Highlight};
+use baud_domain::{Col, Cols, CursorGuide, RegisBlink, Row, Seal};
+use baud_font::Px;
+use baud_render::{Composition, FindLook, Highlight, LinkHover, LinkLine, LinkLook, TipLook};
 
 /// Whether a cursor is on the screen being drawn: the live screen's while
 /// `DECTCEM` shows it, or the status line's while DECSASD selects the line.
@@ -72,6 +76,59 @@ pub(crate) struct FramePlan {
     pub(crate) highlight: Option<Highlight>,
     /// The write generation this frame closed, before its first read.
     pub(crate) seal: Seal,
+    /// Where the input method's candidate window is asked to open; `None`
+    /// while it hides its cursor, so the last stands.
+    pub(crate) ime: Option<ImeRect>,
+}
+
+/// **The cells an input method's candidate window is asked to open over**:
+/// its caret's or its range's in the composition as drawn, the cursor's
+/// with none, the find field's caret while the field is open.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct ImeRect {
+    pub(crate) at: (Row, Col),
+    pub(crate) width: Cols,
+}
+
+impl ImeRect {
+    /// As `[x, y, width, height]` in pixels from the grid's top-left
+    /// corner, for a cell `w` by `h` pixels.
+    pub(crate) fn px(self, w: Px, h: Px) -> [Px; 4] {
+        crate::marked::cells_rect(self.at, self.width, w, h)
+    }
+}
+
+/// **A held window's line**, and the cursor's row it is placed against.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) struct HeldText {
+    pub(crate) line: String,
+    pub(crate) row: Row,
+}
+
+/// **The text a frame's overlays show**, read from the terminal and the
+/// session before the frame, its buffers refilled in place each frame.
+#[derive(Default)]
+pub(crate) struct PlanText {
+    /// The badge's text and colour.
+    pub(crate) badge: Option<crate::effects::BadgeText>,
+    /// The find field, with the composition typed in it, and the matches
+    /// on the window drawn, while the field is open.
+    pub(crate) find: Option<FindLook>,
+    /// The input method's composition at the cursor, while the find field
+    /// is closed.
+    pub(crate) preedit: Option<Composition>,
+    /// The link previewed under the pointer, and the spans it underlines.
+    pub(crate) hover: Option<LinkLook>,
+    pub(crate) hover_over: Option<LinkHover>,
+    /// The struck lines the link under the pointer holds.
+    pub(crate) hover_struck: Vec<LinkLine>,
+    /// The lines under links at rest, and those struck through.
+    pub(crate) lines: Vec<LinkLine>,
+    pub(crate) struck: Vec<LinkLine>,
+    /// The tip over the status line's lights.
+    pub(crate) tip: Option<TipLook>,
+    /// A held window's line.
+    pub(crate) held: Option<HeldText>,
 }
 
 #[cfg(test)]
@@ -79,7 +136,6 @@ mod tests {
     use super::*;
     use baud_core::Owned;
     use baud_domain::WinSize;
-    use baud_font::Px;
     use baud_render::{Blend, Damage, PxSize, Renderer};
 
     /// **The planned cursor is the cell the renderer draws it in**, on a
