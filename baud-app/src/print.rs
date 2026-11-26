@@ -317,37 +317,41 @@ pub fn job_title(window: &str, cut: PrintCut, stripped: Stripped) -> String {
 }
 
 #[cfg(any(target_os = "linux", test))]
-/// Points in a millimetre, as the portal's page setup is in millimetres.
-const POINTS_PER_MM: f64 = 72.0 / 25.4;
-
-#[cfg(any(target_os = "linux", test))]
 /// **The sheet the dialog chose**, in points: its paper and margins, A4
-/// with one-inch margins for what it left out, and the printable width and
-/// height between the margins.
+/// (210 by 297 mm) for a width or height it left out or gave as zero, a
+/// one-inch margin for one it left out, and the printable width and height
+/// between the margins. The page setup holds only lengths, finite and not
+/// below zero ([`baud_domain::PaperMm`]); the points are
+/// [`baud_domain::PaperMm::to_pt`]'s.
 pub fn sheet(setup: crate::bus::PageSetup) -> (baud_render::print_pdf::Sheet, f64, f64) {
-    let mm = |v: Option<f64>, or: f64| v.filter(|v| v.is_finite() && *v >= 0.0).unwrap_or(or);
-    let (width, height) = (mm(setup.width, 210.0), mm(setup.height, 297.0));
-    let (top, left) = (mm(setup.top, 25.4), mm(setup.left, 25.4));
-    let (bottom, right) = (mm(setup.bottom, 25.4), mm(setup.right, 25.4));
+    use baud_domain::PaperMm;
+    let length = |mm: f64| PaperMm::of(mm).expect("a finite length, not below zero");
+    let paper =
+        |v: Option<PaperMm>, or: f64| v.filter(|m| m.get() > 0.0).unwrap_or_else(|| length(or));
+    let margin = |v: Option<PaperMm>| v.unwrap_or_else(|| length(25.4));
+    let (width, height) = (paper(setup.width, 210.0), paper(setup.height, 297.0));
+    let (top, left) = (margin(setup.top), margin(setup.left));
+    let (bottom, right) = (margin(setup.bottom), margin(setup.right));
     // Margins that leave no room are dropped rather than printing nothing.
-    let (left, right) = match left + right < width {
+    let (left, right) = match left.get() + right.get() < width.get() {
         true => (left, right),
-        false => (0.0, 0.0),
+        false => (length(0.0), length(0.0)),
     };
-    let (top, bottom) = match top + bottom < height {
+    let (top, bottom) = match top.get() + bottom.get() < height.get() {
         true => (top, bottom),
-        false => (0.0, 0.0),
+        false => (length(0.0), length(0.0)),
     };
+    let pt = |m: PaperMm| m.to_pt().get();
     let sheet = baud_render::print_pdf::Sheet {
-        width: width * POINTS_PER_MM,
-        height: height * POINTS_PER_MM,
-        left: left * POINTS_PER_MM,
-        top: top * POINTS_PER_MM,
+        width: pt(width),
+        height: pt(height),
+        left: pt(left),
+        top: pt(top),
     };
     (
         sheet,
-        (width - left - right) * POINTS_PER_MM,
-        (height - top - bottom) * POINTS_PER_MM,
+        pt(width) - pt(left) - pt(right),
+        pt(height) - pt(top) - pt(bottom),
     )
 }
 
@@ -684,25 +688,56 @@ mod tests {
     fn the_sheet_is_the_dialog_s_paper() {
         use crate::bus::PageSetup;
         let near = |a: f64, b: f64| (a - b).abs() < 0.01;
+        let mm = baud_domain::PaperMm::of;
         let (s, w, h) = sheet(PageSetup {
-            width: Some(210.0),
-            height: Some(297.0),
-            top: Some(0.0),
-            bottom: Some(0.0),
-            left: Some(0.0),
-            right: Some(0.0),
+            width: mm(210.0),
+            height: mm(297.0),
+            top: mm(0.0),
+            bottom: mm(0.0),
+            left: mm(0.0),
+            right: mm(0.0),
         });
         assert!(near(s.width, 595.28) && near(s.height, 841.89), "{s:?}");
         assert!(near(w, s.width) && near(h, s.height));
         let (s, w, _) = sheet(PageSetup::default());
         assert!(near(s.left, 72.0) && near(s.top, 72.0) && near(w, 595.28 - 144.0));
         let (s, w, _) = sheet(PageSetup {
-            width: Some(100.0),
-            left: Some(60.0),
-            right: Some(60.0),
+            width: mm(100.0),
+            left: mm(60.0),
+            right: mm(60.0),
             ..PageSetup::default()
         });
         assert!(near(s.left, 0.0) && near(w, s.width), "{s:?}");
+    }
+
+    /// **A paper no page can be falls back to A4, and a margin no sheet
+    /// can have to the default margin**: a width or height that is missing,
+    /// zero, negative or not a number lays out on 210 by 297 mm, and a
+    /// negative left margin on one inch.
+    #[test]
+    fn a_paper_or_margin_past_the_text_falls_back() {
+        use crate::bus::PageSetup;
+        let mm = baud_domain::PaperMm::of;
+        let (a4, w, h) = sheet(PageSetup::default());
+        for bad in [-5.0, f64::NAN, 0.0] {
+            for setup in [
+                PageSetup {
+                    width: mm(bad),
+                    ..PageSetup::default()
+                },
+                PageSetup {
+                    height: mm(bad),
+                    ..PageSetup::default()
+                },
+            ] {
+                assert_eq!(sheet(setup), (a4, w, h), "{setup:?}");
+            }
+        }
+        let (s, _, _) = sheet(PageSetup {
+            left: mm(-1.0),
+            ..PageSetup::default()
+        });
+        assert_eq!(s, a4, "the default margin");
     }
 
     /// **A job is a PDF; a job of no text is none.**

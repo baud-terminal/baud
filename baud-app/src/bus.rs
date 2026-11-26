@@ -224,33 +224,9 @@ pub(crate) struct PrintToken(Word);
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct PortalVersion(pub(crate) u32);
 
-/// The paper the user chose, in millimetres, as the portal's
-/// `page-setup` gives it; a key it leaves out is `None`.
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
-pub(crate) struct PageSetup {
-    pub(crate) width: Option<f64>,
-    pub(crate) height: Option<f64>,
-    pub(crate) top: Option<f64>,
-    pub(crate) bottom: Option<f64>,
-    pub(crate) left: Option<f64>,
-    pub(crate) right: Option<f64>,
-}
-
-impl PageSetup {
-    /// The page setup the portal's answer holds, each key the codec read
-    /// as millimetres.
-    fn of(p: baud_domain::dbus::PageSetup) -> PageSetup {
-        let mm = |m: Option<baud_domain::PaperMm>| m.map(baud_domain::PaperMm::get);
-        PageSetup {
-            width: mm(p.width),
-            height: mm(p.height),
-            top: mm(p.top),
-            bottom: mm(p.bottom),
-            left: mm(p.left),
-            right: mm(p.right),
-        }
-    }
-}
+/// The paper the user chose, as the portal's `page-setup` gives it: each
+/// key in millimetres, `None` where it is left out or no length.
+pub(crate) use baud_domain::dbus::PageSetup;
 
 /// **How many `Response`s carried a code the Request protocol does not
 /// give** (`[[source: xdg-portal-request]]` gives 0, 1 and 2): each ended
@@ -1882,7 +1858,7 @@ impl Session {
                 "token" => token = value.read::<U32>().map(|t| PrintToken(Word(t.get()))),
                 "page-setup" => {
                     if let Some(d) = value.read::<Dict<'static, Str<'static>, Variant<'static>>>() {
-                        setup = PageSetup::of(baud_domain::dbus::PageSetup::read(d));
+                        setup = PageSetup::read(d);
                     }
                 }
                 _ => {}
@@ -3659,6 +3635,22 @@ mod tests {
     /// A `Response` on `path` with no SENDER: `code`, and the dialog's page
     /// setup and token.
     fn unsent_response(path: &str, code: Word, token: Option<Word>) -> Vec<u8> {
+        setup_response(
+            path,
+            code,
+            token,
+            &[("Width", 210.0), ("Height", 297.0), ("MarginTop", 6.35)],
+        )
+    }
+
+    /// A `Response` on `path` with no SENDER: `code`, the page setup's
+    /// `setup` keys, each a `d`, and the token.
+    fn setup_response(
+        path: &str,
+        code: Word,
+        token: Option<Word>,
+        setup: &[(&str, f64)],
+    ) -> Vec<u8> {
         let mut b = Writer::default();
         b.word(code);
         b.array(Align::EIGHT, |w| {
@@ -3666,7 +3658,7 @@ mod tests {
             w.string("page-setup");
             w.signature("a{sv}");
             w.array(Align::EIGHT, |w| {
-                for (k, v) in [("Width", 210.0), ("Height", 297.0), ("MarginTop", 6.35)] {
+                for &(k, v) in setup {
                     w.align(Align::EIGHT);
                     w.string(k);
                     w.signature("d");
@@ -3699,9 +3691,9 @@ mod tests {
 
     fn a4() -> PageSetup {
         PageSetup {
-            width: Some(210.0),
-            height: Some(297.0),
-            top: Some(6.35),
+            width: baud_domain::PaperMm::of(210.0),
+            height: baud_domain::PaperMm::of(297.0),
+            top: baud_domain::PaperMm::of(6.35),
             ..PageSetup::default()
         }
     }
@@ -4001,6 +3993,32 @@ mod tests {
             .filter(|(_, w)| *w == rule)
             .map(|(at, _)| Len(at))
             .collect()
+    }
+
+    /// **A page setup past the text lays out on A4 with the default
+    /// margins**: the portal's `Width` of -5, `Height` of NaN and
+    /// `MarginLeft` of -1 (`[[source: xdg-portal-print]]`: millimetres)
+    /// are no lengths, and the sheet is the one a setup that left them out
+    /// gives.
+    #[test]
+    fn a_page_setup_past_the_text_lays_out_on_a4() {
+        let mut s = with_portal();
+        s.prepare_print("", "t");
+        let bad = setup_response(
+            PATH_1,
+            Word(0),
+            Some(Word(7)),
+            &[("Width", -5.0), ("Height", f64::NAN), ("MarginLeft", -1.0)],
+        );
+        let h = s.received(&with_sender(&bad, ":1.9"));
+        let [Heard::PrintReady(_, setup)] = h.as_slice() else {
+            panic!("{h:?}");
+        };
+        assert_eq!(*setup, PageSetup::default());
+        assert_eq!(
+            crate::print::sheet(*setup),
+            crate::print::sheet(PageSetup::default())
+        );
     }
 
     /// **A `Response` is the portal's only from the connection that holds
