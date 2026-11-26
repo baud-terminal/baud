@@ -55,6 +55,9 @@
 //! - `comments --check BASE [-- PATHSPEC...]`: the comment lines a change
 //!   adds, searched for the public rules and for the terms of a file kept
 //!   outside the repository, named by `BAUD_COMMENT_TERMS`.
+//! - `code-map --out DIR [--prune ROOT --keep N]`: the tree's files, public
+//!   items, crates and gates, written from the code into DIR, and the
+//!   oldest maps under ROOT pruned to the newest N.
 
 #![forbid(unsafe_code)]
 
@@ -62,6 +65,7 @@ pub mod audit;
 pub mod changelog;
 pub mod citations;
 pub mod cmd;
+pub mod code_map;
 pub mod comments;
 pub mod copy_audit;
 pub mod crates;

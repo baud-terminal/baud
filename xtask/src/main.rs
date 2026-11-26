@@ -19,9 +19,9 @@ use xtask::scan_audit::{self, Limit};
 use xtask::sources;
 use xtask::third_party::{self, Mode, Outcome};
 use xtask::{
-    changelog, citations, credits, feature_arms, feature_suites, features, features_since, fnv,
-    forbidden, loop_head, no_python, paths, pdf_search, pmc, scoped_test, test_scope, text,
-    vt_table,
+    changelog, citations, code_map, credits, feature_arms, feature_suites, features,
+    features_since, fnv, forbidden, loop_head, no_python, paths, pdf_search, pmc, scoped_test,
+    test_scope, text, vt_table,
 };
 
 fn main() -> ExitCode {
@@ -251,6 +251,10 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
                 .map_err(|e| e.to_string())?;
             Ok(ExitCode::from(exit.0))
         }
+        ["code-map", rest @ ..] => {
+            let exit = code_map::run(rest, root, &mut stdout).map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(exit.0))
+        }
         ["comments", rest @ ..] => {
             let terms = env::var_os(comments::TERMS_VAR);
             let exit = comments::run(
@@ -275,7 +279,8 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
                  [--print] [--self-test] | pdf-search <key> [<term>...] \
                  | loop-head [--fn NAME] [--no-pageoff] A [B] | vt-table <results> [<baseline>] \
                  | pmc <export.xml> | forbidden <patterns> <controls> <file>... \
-                 | comments --check <base> [-- <pathspec>...]"
+                 | comments --check <base> [-- <pathspec>...] \
+                 | code-map --out <dir> [--prune <root> --keep <n>]"
             );
             Ok(ExitCode::from(2))
         }
