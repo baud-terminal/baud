@@ -492,4 +492,26 @@ mod tests {
             "the control"
         );
     }
+
+    /// **A cold build among warm frames leaves their average as it was**:
+    /// after a hundred frames at half the period, one cold frame of 11.5
+    /// periods keeps every refresh, and so do the hundred warm frames after
+    /// it. The control: the same frame built warm halves.
+    #[test]
+    fn a_cold_frame_among_warm_ones_leaves_their_average() {
+        let slow = times(HZ240, Share(11.5));
+        let mut e = EffectPacer::new();
+        let mut ds = run(&mut e, Frames(100), Share(0.5), HZ240);
+        e.frame(K, slow, Missed::No, Cold::Yes, Some(HZ240));
+        ds.push(e.divisor());
+        ds.extend(run(&mut e, Frames(100), Share(0.5), HZ240));
+        assert!(ds.iter().all(|&d| d == Divisor::Full), "{ds:?}");
+        let mut e = EffectPacer::new();
+        run(&mut e, Frames(100), Share(0.5), HZ240);
+        assert_eq!(
+            e.frame(K, slow, Missed::No, Cold::No, Some(HZ240)),
+            Some(Divisor::Half),
+            "the control"
+        );
+    }
 }
