@@ -6744,6 +6744,86 @@ mod tests {
         );
     }
 
+    /// **`idle_does_nothing`: a second with no input and no change sends no
+    /// batch and owes no frame.** A path printed, its batch sent and
+    /// answered, and the frame the answer owes scanned, as the driver's
+    /// frame scans; then the probes' turns for one second, one each
+    /// sixtieth on the test's clock, with no read, no key and no cell
+    /// written. Each turn is the Linux driver's `paths_turn`: a batch it
+    /// sends is a probe run, and a frame it owes is a build, since the
+    /// driver builds a frame for a turn that owes one.
+    ///
+    /// Named break: `Probes::deadline` and `Probes::tick` made to send a
+    /// batch every turn -- the idle second counts sixty probe runs.
+    #[test]
+    fn idle_does_nothing() {
+        let f = Fake::with(&[("/etc", Entry::Dir), ("/etc/hosts", Entry::File)]);
+        let (mut pr, _) = probes(f);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.write_at(BytePos::ZERO, b"/etc/hosts\r\n");
+        t.feed(BytePos::ZERO, ReadLen::from_index(12));
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        paths.all_written_here();
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let s = Scrolled::START;
+        let t0 = Instant::now();
+        let scan = |t: &Term<'_>, lines: &mut Lines, uris: &mut Uris, paths: &mut Paths| {
+            let _ = lines.scan_alone(
+                t,
+                s,
+                &mut Links {
+                    uris,
+                    urls: Turned::On,
+                    paths,
+                },
+            );
+        };
+        let turn = |pr: &mut Probes<Instant>,
+                    at: Instant,
+                    t: &Term<'_>,
+                    lines: &mut Lines,
+                    uris: &mut Uris,
+                    paths: &mut Paths| {
+            pr.turn(
+                at,
+                Seen {
+                    term: t,
+                    scrolled: s,
+                    lines,
+                    uris,
+                    urls: Turned::On,
+                    paths,
+                },
+                || Some(1),
+            )
+        };
+        scan(&t, &mut lines, &mut uris, &mut paths);
+        let _ = turn(&mut pr, t0, &t, &mut lines, &mut uris, &mut paths);
+        let sent = t0 + Duration::from_millis(200);
+        let _ = turn(&mut pr, sent, &t, &mut lines, &mut uris, &mut paths);
+        assert_eq!(pr.counts.batches, 1, "the control: the path's batch went");
+        // The answer, merged on the turn it arrives on, owes the frame that
+        // draws it.
+        while turn(&mut pr, sent, &t, &mut lines, &mut uris, &mut paths).frame != Owed::Yes {
+            std::thread::yield_now();
+        }
+        scan(&t, &mut lines, &mut uris, &mut paths);
+        let (batches, mut builds) = (pr.counts.batches, 0);
+        for k in 1..=60 {
+            let at = sent + Duration::from_secs(1) * k / 60;
+            if turn(&mut pr, at, &t, &mut lines, &mut uris, &mut paths).frame == Owed::Yes {
+                builds += 1;
+            }
+        }
+        assert_eq!(
+            (pr.counts.batches - batches, builds),
+            (0, 0),
+            "an idle second: probe runs and builds"
+        );
+    }
+
     /// **A program named local owes a frame, and its rows are read again**:
     /// a row nothing was filed over reads as not known, so a naming moves
     /// what a link on it looks like, and may join two rows the writer ended
