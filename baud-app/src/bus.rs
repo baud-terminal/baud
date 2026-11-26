@@ -75,7 +75,8 @@ use baud_domain::dbus::{
     Connection, Dict, Double, Emit, EncodeError, Encoded, FdAnswer, FdIndex, FdoNotify, FdsAgreed,
     GET_CAPABILITIES, Handle, HandleToken, Handshake, HolderChange, I32, ImageData, Inbound,
     InterfaceName, MemberName, MethodCall, NOTIFY, Negotiating, NoFds, ObjectPath, Peer,
-    RequestPath, ResponseCode, Return, Signal, Str, Trusted, U32, UnixFd, Variant, auth_line,
+    PortalResponse, RequestPath, ResponseCode, Return, Signal, Str, Trusted, U32, UnixFd, Variant,
+    auth_line,
 };
 
 /// The portal's `color-scheme`.
@@ -205,6 +206,10 @@ pub(crate) enum Heard {
     PrintReady(PrintToken, PageSetup),
     /// A print exchange ended: printed, cancelled, or failed and why.
     PrintEnded(PrintEnd),
+    /// A `Response` on the waited-for path from a connection that does
+    /// not hold the portal's name: refused, the exchange still waiting,
+    /// with who sent it and how many so far.
+    PrintRefused(String),
     /// The handshake failed or the bus went away; nothing more will come.
     Closed(String),
 }
@@ -263,6 +268,24 @@ impl UnknownCodes {
     /// One more.
     const fn counted(self) -> UnknownCodes {
         UnknownCodes(self.0.saturating_add(1))
+    }
+}
+
+/// **How many `Response`s came on a waited-for path from a connection
+/// that does not hold the portal's name**: each refused, ending nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) struct RefusedResponses(u32);
+
+impl std::fmt::Display for RefusedResponses {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl RefusedResponses {
+    /// One more.
+    const fn counted(self) -> RefusedResponses {
+        RefusedResponses(self.0.saturating_add(1))
     }
 }
 
@@ -1052,20 +1075,22 @@ enum Waiting {
 /// Slots for the notification server's replies: 32 calls in flight.
 type Notifying = baud_domain::dbus::Awaiting<Waiting, 32>;
 
-/// Whether the bus has been asked to say when the notification server's
-/// name changes hands: asked once, with the first holder known.
+/// Whether the bus has been asked to say when a watched name (the
+/// notification server's, the portal's) changes hands: asked once, with
+/// the first holder known.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum HolderWatch {
     Unasked,
     Asked,
 }
 
-/// **Who holds the notification server's name**, and who said so.
+/// **Who holds a watched name** (the notification server's, the
+/// portal's), and who said so.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Holder {
     /// Nothing has named it.
     Unknown,
-    /// The SENDER of the server's first reply, which the bus sets.
+    /// The SENDER of the first reply from the name, which the bus sets.
     Replied(Peer),
     /// What the bus's own `NameOwnerChanged` said last: a connection, or
     /// none. No reply names the holder after it.
@@ -1141,13 +1166,18 @@ impl Pending {
     }
 }
 
-/// The match rule for a `Response` on `path`.
+/// The match rule for a `Response` on `path`, sent by the portal's name:
+/// the bus delivers it only from the connection that holds the name.
 fn response_rule(path: &str) -> String {
     format!(
-        "type='signal',interface='{}',member='Response',path='{path}'",
+        "type='signal',sender='{}',interface='{}',member='Response',path='{path}'",
+        baud_domain::dbus::PORTAL.as_str(),
         baud_domain::dbus::REQUEST.as_str()
     )
 }
+
+/// The match rule for the bus's `NameOwnerChanged` of the portal's name.
+const PORTAL_HOLDER_RULE: &str = "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',path='/org/freedesktop/DBus',arg0='org.freedesktop.portal.Desktop'";
 
 /// The print portal's `version`, from `Properties.Get`'s reply: a `v`
 /// holding a `u`.
@@ -1203,6 +1233,13 @@ pub(crate) struct Session {
     version_asked: Vec<baud_domain::dbus::Serial>,
     /// The `Response`s whose code the Request protocol does not give.
     unknown_codes: UnknownCodes,
+    /// The connection that owns the portal's name: the SENDER of the
+    /// first reply from it, until the bus's own `NameOwnerChanged` names
+    /// another or none. A `Response` is acted on only from it.
+    portal: Holder,
+    portal_watch: HolderWatch,
+    /// The `Response`s refused for coming from another connection.
+    refused: RefusedResponses,
     /// The handle tokens sent so far, so each Request path is new.
     handles: Word,
 }
@@ -1231,6 +1268,9 @@ impl Session {
             print: None,
             version_asked: Vec::new(),
             unknown_codes: UnknownCodes::default(),
+            portal: Holder::Unknown,
+            portal_watch: HolderWatch::Unasked,
+            refused: RefusedResponses::default(),
             handles: Word(0),
         };
         s.ask_appearance();
@@ -1343,6 +1383,56 @@ impl Session {
         if let Ok(e) = Body::of(&(RULE,)).and_then(|b| ADD_MATCH.encode(&b, &mut self.serials)) {
             self.send(e.into_bytes(), Vec::new());
         }
+    }
+
+    /// The portal's holder from `r`, a reply to one of its calls, where
+    /// nothing has named one; with it known, `AddMatch` for the bus's
+    /// `NameOwnerChanged` of the portal's name, which names the holder
+    /// from then on.
+    fn hold_portal(&mut self, r: &Return<'_>) {
+        if self.portal != Holder::Unknown {
+            return;
+        }
+        let Some(peer) = Peer::from_reply(r) else {
+            return;
+        };
+        self.portal = Holder::Replied(peer);
+        if self.portal_watch == HolderWatch::Asked {
+            return;
+        }
+        self.portal_watch = HolderWatch::Asked;
+        self.match_rule(&ADD_MATCH, PORTAL_HOLDER_RULE);
+    }
+
+    /// **The bus says the portal's name changed hands**: the holder from
+    /// then on. A print exchange waiting for its `Response` when the
+    /// holder goes or changes ends, its match removed, with the change
+    /// said: the Request it waits on belonged to the connection gone.
+    fn portal_changed(&mut self, change: HolderChange) -> Option<Heard> {
+        let now = match change {
+            HolderChange::To(peer) => Some(peer),
+            HolderChange::Gone => None,
+        };
+        let before = self.portal.peer().copied();
+        self.portal = Holder::Told(now);
+        if before == now {
+            return None;
+        }
+        let pending = self.print.take()?;
+        self.match_rule(&REMOVE_MATCH, &pending.rule);
+        let name =
+            |p: Option<Peer>| p.map_or_else(|| "none".to_owned(), |p| p.name().as_str().to_owned());
+        Some(print_failed(match now {
+            Some(_) => format!(
+                "ended: the print portal's name passed from {} to {} while the dialog was open",
+                name(before),
+                name(now)
+            ),
+            None => format!(
+                "ended: the print portal's name was released by {} while the dialog was open",
+                name(before)
+            ),
+        }))
     }
 
     /// **Show a notification**: `Notify`, its reply the server's id for
@@ -1463,6 +1553,12 @@ impl Session {
     #[cfg(test)]
     fn unknown_codes(&self) -> UnknownCodes {
         self.unknown_codes
+    }
+
+    /// The `Response`s refused for coming from another connection.
+    #[cfg(test)]
+    fn refused(&self) -> RefusedResponses {
+        self.refused
     }
 
     /// Whether the session has failed and will say nothing more.
@@ -1766,17 +1862,22 @@ impl Session {
         if !ours {
             return None;
         }
+        let Some(trusted) = self.portal.peer().and_then(|p| p.vouch(s)) else {
+            self.refused = self.refused.counted();
+            let from = s.header().sender().map_or("no sender", |b| b.as_str());
+            return Some(Heard::PrintRefused(format!(
+                "a Response from {from}, which does not hold the print portal's name, refused ({} so far)",
+                self.refused
+            )));
+        };
         let pending = self.print.take()?;
         self.match_rule(&REMOVE_MATCH, &pending.rule);
-        let Ok((code, results)) = s
-            .body()
-            .read::<(U32, Dict<'static, Str<'static>, Variant<'static>>)>()
-        else {
+        let Some(response) = PortalResponse::from_trusted(&trusted) else {
             return Some(print_failed("a Response that is not ua{sv}"));
         };
         let mut setup = PageSetup::default();
         let mut token = None;
-        for (key, value) in results {
+        for (key, value) in response.results() {
             match key.as_str() {
                 "token" => token = value.read::<U32>().map(|t| PrintToken(Word(t.get()))),
                 "page-setup" => {
@@ -1787,7 +1888,7 @@ impl Session {
                 _ => {}
             }
         }
-        Some(match (ResponseCode::of(code), pending.step, token) {
+        Some(match (response.code, pending.step, token) {
             (ResponseCode::Success, PrintStep::Prepare, Some(token)) => {
                 Heard::PrintReady(token, setup)
             }
@@ -1818,9 +1919,11 @@ impl Session {
             Inbound::Return(r) => {
                 if let Some(i) = self.version_asked.iter().position(|s| *s == r.reply_to) {
                     self.version_asked.swap_remove(i);
+                    self.hold_portal(r);
                     return Some(vec![Heard::PrintPortal(version_in(r))]);
                 }
                 if self.print.as_ref().is_some_and(|p| p.call == r.reply_to) {
+                    self.hold_portal(r);
                     self.handle_returned(r);
                     return Some(Vec::new());
                 }
@@ -1838,6 +1941,13 @@ impl Session {
                 let p = self.print.take()?;
                 self.match_rule(&REMOVE_MATCH, &p.rule);
                 Some(vec![print_failed(name)])
+            }
+            Inbound::Signal(s)
+                if let Some(change) = s
+                    .from_bus()
+                    .and_then(|bus| HolderChange::of(&bus, baud_domain::dbus::PORTAL)) =>
+            {
+                Some(self.portal_changed(change).into_iter().collect())
             }
             Inbound::Signal(s) => self.heard_response(s).map(|h| vec![h]),
             Inbound::Called(_) | Inbound::Unknown(_) => None,
@@ -3540,8 +3650,15 @@ mod tests {
 
     const PATH_1: &str = "/org/freedesktop/portal/desktop/request/1_42/baud_1";
 
-    /// A `Response` on `path`: `code`, and the dialog's page setup and token.
+    /// A `Response` on `path` from `:1.9`, the portal's holder in
+    /// [`with_portal`]: `code`, and the dialog's page setup and token.
     fn response(path: &str, code: Word, token: Option<Word>) -> Vec<u8> {
+        response_from(":1.9", path, code, token)
+    }
+
+    /// A `Response` on `path` with no SENDER: `code`, and the dialog's page
+    /// setup and token.
+    fn unsent_response(path: &str, code: Word, token: Option<Word>) -> Vec<u8> {
         let mut b = Writer::default();
         b.word(code);
         b.array(Align::EIGHT, |w| {
@@ -3596,7 +3713,7 @@ mod tests {
     /// fails.
     #[test]
     fn the_dialog_s_answer_is_matched_before_it_is_asked() {
-        let mut s = named();
+        let mut s = with_portal();
         let n = s.outgoing().len();
         s.sent(Len(n));
         s.prepare_print("wayland:h-1", "baud \u{2014} print");
@@ -3652,7 +3769,7 @@ mod tests {
     #[test]
     fn the_document_prints_with_the_dialog_s_token() {
         let path_2 = "/org/freedesktop/portal/desktop/request/1_42/baud_2";
-        let mut s = named();
+        let mut s = with_portal();
         s.prepare_print("", "t");
         s.received(&response(PATH_1, Word(0), Some(Word(7))));
         let n = s.outgoing().len();
@@ -3679,14 +3796,14 @@ mod tests {
             [Heard::PrintEnded(PrintEnd::Printed)]
         );
 
-        let mut c = named();
+        let mut c = with_portal();
         c.prepare_print("", "t");
         assert_eq!(
             c.received(&response(PATH_1, Word(1), None)),
             [Heard::PrintEnded(PrintEnd::Cancelled)]
         );
 
-        let mut e = named();
+        let mut e = with_portal();
         e.prepare_print("", "t");
         let serial = last_serial(&e);
         let n = e.outgoing().len();
@@ -3751,7 +3868,7 @@ mod tests {
     #[test]
     fn a_moved_handle_is_followed() {
         let moved = "/org/freedesktop/portal/desktop/request/1_42/elsewhere";
-        let mut s = named();
+        let mut s = with_portal();
         s.prepare_print("", "t");
         let serial = last_serial(&s);
         let n = s.outgoing().len();
@@ -3788,7 +3905,7 @@ mod tests {
     #[test]
     fn an_ended_or_unknown_response_fails_and_the_unknown_is_counted() {
         for (code, counted) in [(2, UnknownCodes(0)), (7, UnknownCodes(1))] {
-            let mut s = named();
+            let mut s = with_portal();
             s.prepare_print("", "t");
             let h = s.received(&response(PATH_1, Word(code), Some(Word(1))));
             let [Heard::PrintEnded(PrintEnd::Failed(e))] = h.as_slice() else {
@@ -3802,5 +3919,191 @@ mod tests {
                 "{code}: the exchange is over"
             );
         }
+    }
+
+    /// `msg` with a SENDER field, as the bus sets it on every message it
+    /// routes (`[[source: dbus-spec]]`, "Header Fields"): field code 7, a
+    /// STRING, after the fields already there.
+    fn with_sender(msg: &[u8], sender: &str) -> Vec<u8> {
+        let size =
+            |at| usize::try_from(u32::from_le_bytes(msg[at..at + 4].try_into().unwrap())).unwrap();
+        let body = &msg[msg.len() - size(4)..];
+        let mut w = Writer::default();
+        w.buf.extend_from_slice(&msg[..16 + size(12)]);
+        w.align(Align::EIGHT);
+        w.buf.push(7);
+        w.signature("s");
+        w.string(sender);
+        let len = u32::try_from(w.buf.len() - 16).unwrap();
+        w.buf[12..16].copy_from_slice(&len.to_le_bytes());
+        w.align(Align::EIGHT);
+        w.buf.extend_from_slice(body);
+        w.buf
+    }
+
+    /// A `Response` on `path` from the connection `sender`.
+    fn response_from(sender: &str, path: &str, code: Word, token: Option<Word>) -> Vec<u8> {
+        with_sender(&unsent_response(path, code, token), sender)
+    }
+
+    /// The bus's `NameOwnerChanged`: the print portal's name passed from
+    /// `old` to `new`, each empty for none.
+    fn portal_changed_hands(old: &str, new: &str) -> Vec<u8> {
+        let mut b = Writer::default();
+        b.string("org.freedesktop.portal.Desktop");
+        b.string(old);
+        b.string(new);
+        let signal = marshal_signal(
+            &Call {
+                destination: "",
+                path: "/org/freedesktop/DBus",
+                interface: "org.freedesktop.DBus",
+                member: "NameOwnerChanged",
+                signature: "sss",
+                body: b.buf,
+            },
+            Serial(Word(902)),
+        );
+        with_sender(&signal, "org.freedesktop.DBus")
+    }
+
+    /// A session named `:1.42` whose print portal answered its `version`
+    /// from `:1.9`, which holds the portal's name; what it sent, sent.
+    fn with_portal() -> Session {
+        let mut s = named();
+        s.ask_print_portal();
+        let serial = last_serial(&s);
+        let mut b = Writer::default();
+        b.signature("u");
+        b.word(Word(4));
+        let version = with_sender(&reply_to(serial, METHOD_RETURN, "v", b.buf, ""), ":1.9");
+        assert_eq!(
+            s.received(&version),
+            [Heard::PrintPortal(Ok(PortalVersion(4)))]
+        );
+        assert_eq!(
+            watches_portal(&s).len(),
+            1,
+            "the bus asked to watch the name"
+        );
+        let n = s.outgoing().len();
+        s.sent(Len(n));
+        s
+    }
+
+    /// Where, in what `s` would send, it asks the bus to watch the
+    /// portal's name: each offset of the rule.
+    fn watches_portal(s: &Session) -> Vec<Len> {
+        let rule = PORTAL_HOLDER_RULE.as_bytes();
+        s.outgoing()
+            .windows(rule.len())
+            .enumerate()
+            .filter(|(_, w)| *w == rule)
+            .map(|(at, _)| Len(at))
+            .collect()
+    }
+
+    /// **A `Response` is the portal's only from the connection that holds
+    /// its name**: `:1.66`'s, on the predicted path, ends nothing; `:1.9`'s,
+    /// the holder's, ends the exchange.
+    #[test]
+    fn a_response_from_another_connection_ends_nothing() {
+        let mut s = with_portal();
+        s.prepare_print("", "t");
+        let h = s.received(&response_from(":1.66", PATH_1, Word(0), Some(Word(7))));
+        assert!(
+            !h.iter()
+                .any(|h| matches!(h, Heard::PrintReady(..) | Heard::PrintEnded(_))),
+            "{h:?}"
+        );
+        assert_eq!(s.refused(), RefusedResponses(1));
+        let [Heard::PrintRefused(e)] = h.as_slice() else {
+            panic!("{h:?}");
+        };
+        assert!(e.contains(":1.66"), "{e}");
+        assert_eq!(
+            s.received(&response_from(":1.9", PATH_1, Word(0), Some(Word(7)))),
+            [Heard::PrintReady(PrintToken(Word(7)), a4())],
+            "the holder's"
+        );
+        assert_eq!(s.refused(), RefusedResponses(1));
+    }
+
+    /// **After the name passes from `:1.9` to `:1.10`, the old holder's
+    /// `Response` ends nothing**, a later reply from it does not make it
+    /// the holder again, and the new holder's ends the exchange. The bus
+    /// is asked once for the name's changes.
+    #[test]
+    fn after_the_portal_changes_hands_the_old_holder_s_response_ends_nothing() {
+        let mut s = with_portal();
+        assert_eq!(s.received(&portal_changed_hands(":1.9", ":1.10")), []);
+        s.prepare_print("", "t");
+        let serial = last_serial(&s);
+        let mut path = Writer::default();
+        path.string(PATH_1);
+        let late = with_sender(&reply_to(serial, METHOD_RETURN, "o", path.buf, ""), ":1.9");
+        assert_eq!(s.received(&late), []);
+        assert_eq!(watches_portal(&s), [], "asked once");
+        let h = s.received(&response_from(":1.9", PATH_1, Word(0), Some(Word(7))));
+        assert!(
+            !h.iter()
+                .any(|h| matches!(h, Heard::PrintReady(..) | Heard::PrintEnded(_))),
+            "the old holder: {h:?}"
+        );
+        assert_eq!(
+            s.received(&response_from(":1.10", PATH_1, Word(0), Some(Word(7)))),
+            [Heard::PrintReady(PrintToken(Word(7)), a4())],
+            "the new holder"
+        );
+    }
+
+    /// **A change of hands while the dialog is open ends the exchange**,
+    /// with the change said, and the match removed: neither holder's
+    /// `Response` is waited for after it. A name released ends it too.
+    #[test]
+    fn a_change_of_hands_while_the_dialog_is_open_ends_it() {
+        for (new, said) in [(":1.10", ":1.10"), ("", "released")] {
+            let mut s = with_portal();
+            s.prepare_print("", "t");
+            let n = s.outgoing().len();
+            s.sent(Len(n));
+            let h = s.received(&portal_changed_hands(":1.9", new));
+            let [Heard::PrintEnded(PrintEnd::Failed(e))] = h.as_slice() else {
+                panic!("{new:?}: {h:?}");
+            };
+            assert!(e.contains(said) && e.contains(":1.9"), "{e}");
+            assert!(s.outgoing().windows(11).any(|w| w == b"RemoveMatch"));
+            for sender in [":1.9", ":1.10"] {
+                let h = s.received(&response_from(sender, PATH_1, Word(0), Some(Word(7))));
+                assert!(
+                    !h.iter()
+                        .any(|h| matches!(h, Heard::PrintReady(..) | Heard::PrintEnded(_))),
+                    "{new:?}, {sender}: {h:?}"
+                );
+            }
+        }
+    }
+
+    /// **The `Response` match names the portal as its sender**, so the bus
+    /// delivers that signal only from the name's holder; and before any
+    /// reply has named the holder, no `Response` is the portal's.
+    #[test]
+    fn the_response_match_names_the_portal_as_sender() {
+        let mut s = named();
+        s.prepare_print("", "t");
+        let rule = format!(
+            "type='signal',sender='org.freedesktop.portal.Desktop',interface='org.freedesktop.portal.Request',member='Response',path='{PATH_1}'"
+        );
+        let out = s.outgoing();
+        assert!(
+            out.windows(rule.len()).any(|w| w == rule.as_bytes()),
+            "{}",
+            String::from_utf8_lossy(out)
+        );
+        let h = s.received(&response(PATH_1, Word(0), Some(Word(7))));
+        assert!(
+            matches!(h.as_slice(), [Heard::PrintRefused(_)]),
+            "no reply has named the portal's holder: {h:?}"
+        );
     }
 }

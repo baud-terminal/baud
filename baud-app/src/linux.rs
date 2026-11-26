@@ -2808,6 +2808,7 @@ impl Driver {
                 crate::info!("print: no print portal ({e}); a program's print is ignored");
             }
             Heard::PrintReady(token, setup) => self.print_ready(token, setup),
+            Heard::PrintRefused(e) => crate::warn!("print: {e}"),
             Heard::PrintEnded(end) => {
                 match end {
                     crate::bus::PrintEnd::Printed => crate::info!("print: printed"),
