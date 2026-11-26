@@ -3361,14 +3361,6 @@ enum ImageRows {
     Repainted,
 }
 
-/// Whether a layout reads the predicted echoes as written: the cell
-/// path's, which draws them, or the instance and CPU paths', which do not.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Predicted {
-    Read,
-    Unread,
-}
-
 /// Nothing written over any row, for a layout with no [`Beside`].
 static NOTHING_WRITTEN: crate::bidi::Written = crate::bidi::Written::NOTHING;
 
@@ -3393,18 +3385,15 @@ struct MarksKey {
 }
 
 /// **What a renderer's layout reads besides the window's cells**: the
-/// composition and, on the cell path, the predicted echoes, written over
-/// the rows they are on (`bidi::Written`), and the echoes the cell path
-/// draws this frame ([`Renderer::set_predicted`]); and the row a smooth
-/// scroll's slide draws above the window, laid out over the window one
-/// line up, as it was drawn when it was that window's first
+/// composition, written over the row it is on (`bidi::Written`); and the
+/// row a smooth scroll's slide draws above the window, laid out over the
+/// window one line up, as it was drawn when it was that window's first
 /// ([`Renderer::copy_leaving`]), with its cells in that order. That
 /// layout is made on the first slide: it holds the algorithm's working
 /// state for a paragraph of [`crate::CONTEXT`] codepoints.
 #[derive(Default)]
 struct Beside {
     written: crate::bidi::Written,
-    predicted: Vec<(Row, Col, Codepoint)>,
     leaving: Option<crate::bidi::Reorder>,
     leaving_cells: Vec<PackedCell>,
 }
@@ -4260,7 +4249,7 @@ pub struct Renderer<'f, 'a> {
     placeholder_leaving: Option<Box<crate::bidi::Reorder>>,
     /// **What that layout reads besides the window's cells** (`Beside`),
     /// made the first time a frame has any: one pointer on a renderer that
-    /// never composes, predicts or slides.
+    /// never composes or slides.
     beside: Option<Box<Beside>>,
     /// **The window and the status line in that order, kept with their
     /// keys** (`crate::bidi::DrawnOrder`): for the pictures drawn in text,
@@ -5678,42 +5667,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.composition = c;
     }
 
-    /// **The predicted echoes the cell path draws on its next frame**, each
-    /// a codepoint at its logical cell, or none: its layout
-    /// ([`Renderer::lay_out_bidi_copied`]) reads each as written there, so a
-    /// prediction's row is drawn in the order its echo will be. The
-    /// instance and CPU paths draw no prediction, and their layout reads
-    /// none.
-    pub fn set_predicted(&mut self, p: impl IntoIterator<Item = (Row, Col, Codepoint)>) {
-        let mut p = p.into_iter().peekable();
-        if self.beside.is_none() && p.peek().is_none() {
-            return;
-        }
-        let beside = self.beside.get_or_insert_with(Box::default);
-        beside.predicted.clear();
-        beside.predicted.extend(p);
-    }
-
     /// **What the layout of the window `back` lines up reads as written**:
     /// the composition, on the live view and on a row of the main display,
     /// in the rendition of the cell it starts on and over the columns its
-    /// line is drawn in ([`Composition::width_on`]), and, `with` the cell
-    /// path's, each predicted echo on a single-width row.
+    /// line is drawn in ([`Composition::width_on`]).
     ///
     /// Inlined into each of its two callers: left to the compiler with two,
     /// `btop`'s frames retired 0.06% more instructions with nothing
     /// written.
     #[inline(always)]
-    fn write_over(&mut self, term: &impl TermRead, back: Rows, with: Predicted) {
-        let predicting = match self.beside.as_deref_mut() {
-            Some(b) => {
-                b.written.clear();
-                with == Predicted::Read && !b.predicted.is_empty()
-            }
-            None => false,
-        };
+    fn write_over(&mut self, term: &impl TermRead, back: Rows) {
+        if let Some(b) = self.beside.as_deref_mut() {
+            b.written.clear();
+        }
         // Nearly every frame: nothing to write, and no row is read.
-        if self.composition.is_none() && !predicting {
+        if self.composition.is_none() {
             return;
         }
         let back = term.looking_back(back);
@@ -5722,9 +5690,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         let vp = term.view(back);
         let beside = self.beside.get_or_insert_with(Box::default);
-        // A predicted echo is not written over a line that is not
-        // single-width.
-        let single = |r: Row| r.index() < vp.rows().index() && !vp.rendition(r).is_double();
         if let Some(c) = self
             .composition
             .as_ref()
@@ -5736,19 +5701,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .map_or(PackedCell::EMPTY.style, |cell| cell.style);
             let cells = c.written(c.width_on(&vp), style);
             beside.written.write(&vp, c.row, c.col, &cells);
-        }
-        if predicting {
-            let Beside {
-                written, predicted, ..
-            } = &mut **beside;
-            for &(r, col, cp) in predicted.iter().filter(|&&(r, _, _)| single(r)) {
-                let cell = PackedCell {
-                    content: baud_domain::Content::codepoint(cp),
-                    style: PackedCell::EMPTY.style,
-                    flags: baud_domain::CellFlags::NONE,
-                };
-                written.write(&vp, r, col, &[cell]);
-            }
         }
     }
 
@@ -5837,14 +5789,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// no compare of its own. The marks are drawn again only where the
     /// layout did not keep every row's order (`Renderer::marks_after_layout`).
     pub fn lay_out_bidi(&mut self, term: &impl TermRead, back: Rows) {
-        self.lay_out_bidi_with(term, back, Predicted::Unread);
-    }
-
-    fn lay_out_bidi_with(&mut self, term: &impl TermRead, back: Rows, with: Predicted) {
         // A display ([`crate::rebreak`]) moves cells between rows with no
         // row reordered, so the marks follow it as they follow an order.
         let was = self.reordered();
-        self.write_over(term, back, with);
+        self.write_over(term, back);
         match self.beside.as_deref().filter(|b| !b.written.is_empty()) {
             Some(b) => self
                 .bidi
@@ -5899,7 +5847,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// find marks and the link underline drawn again if the frame before
     /// was reordered or this one is: a line SCP set right to left is drawn
     /// in reverse with the mode reset, the composition's row read as its
-    /// text written ([`crate::bidi::Written`]). No predicted echo is read.
+    /// text written ([`crate::bidi::Written`]).
     fn keep_bidi_displayed(
         &mut self,
         term: &impl TermRead,
@@ -5920,7 +5868,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// [`Renderer::keep_bidi_displayed`]'s layout over what is written:
     /// out of line, as [`crate::bidi::Written::write`] is, so a frame with
-    /// no composition and no echo ever shown pays one test for it.
+    /// no composition ever shown pays one test for it.
     #[inline(never)]
     fn keep_written(
         &mut self,
@@ -5928,7 +5876,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         back: Rows,
         changes: crate::bidi::Changes,
     ) -> crate::bidi::Rejoin {
-        self.write_over(term, back, Predicted::Unread);
+        self.write_over(term, back);
         let b = self.beside.get_or_insert_with(Box::default);
         self.bidi.keep_displayed(term, back, changes, &b.written)
     }
@@ -5952,7 +5900,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 Some(self.keep_bidi_displayed(term, back, crate::bidi::Changes::Copied))
             }
             _ => {
-                self.lay_out_bidi_with(term, back, Predicted::Read);
+                self.lay_out_bidi(term, back);
                 None
             }
         }
@@ -18052,5 +18000,55 @@ mod splash_cursor {
         }
         r.set_splash_cursor(CursorPhase::SHOWN);
         assert_eq!(r.splash(), &shown[..], "shown again");
+    }
+}
+
+#[cfg(test)]
+mod no_predicted_echo {
+    /// The names a predicted echo reaches the renderer by. Each is spelled
+    /// in two halves so this module's own source does not name it.
+    const NAMES: [&str; 4] = [
+        concat!("set_", "predicted"),
+        concat!("predic", "tions"),
+        concat!("Predicted", "::"),
+        concat!("enum ", "Predicted"),
+    ];
+
+    /// The lines of `src` that name one of [`NAMES`] outside a comment.
+    fn naming(src: &str) -> Vec<&str> {
+        src.lines()
+            .filter(|line| {
+                let code = line.split("//").next().unwrap_or("");
+                NAMES.iter().any(|name| code.contains(name))
+            })
+            .collect()
+    }
+
+    /// **No path draws a predicted echo**: no line of `baud-render/src`
+    /// outside a comment names the setter, the frame input, the layout's
+    /// reading or its type. The control: the matcher finds the one line of
+    /// a fixed source that declares the setter, and none in a comment.
+    #[test]
+    fn no_predicted_echo_path_is_left() {
+        let control = concat!(
+            "    /// set_",
+            "predicted\n    pub fn set_",
+            "predicted(&mut self) {}\n"
+        );
+        assert_eq!(naming(control).len(), 1, "the control's declaration");
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "rs") {
+                let src = std::fs::read_to_string(&path).unwrap();
+                let file = path.file_name().unwrap().to_string_lossy().into_owned();
+                for line in naming(&src) {
+                    found.push(format!("{file}: {}", line.trim()));
+                }
+            }
+        }
+        found.sort();
+        assert!(found.is_empty(), "lines naming a predicted echo: {found:?}");
     }
 }

@@ -495,7 +495,7 @@ fn cell_frame(
 
 /// **The cell frame `r` builds into set `at`**, the window `back` lines
 /// into the history, as the app's `present` builds it with `composition`
-/// shown, which `r` was handed too, and no prediction or slide, the
+/// shown, which `r` was handed too, and no slide, the
 /// frame's writes sealed first. With no set free (`at` none) the build
 /// returns after its layout, and nothing is built.
 fn cell_frame_on(
@@ -514,7 +514,6 @@ fn cell_frame_on(
     r.place_lights(t);
     let inputs = CellInputs {
         back,
-        predictions: core::iter::empty(),
         live: None,
         composition,
         highlight: None,

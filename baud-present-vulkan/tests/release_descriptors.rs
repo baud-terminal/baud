@@ -32,7 +32,6 @@ const NONE: Inputs<'static> = Inputs {
     back: Rows::ZERO,
     highlight: None,
     composition: &None,
-    predictions: &[],
 };
 
 /// The frame `t` makes through `r`, landed.

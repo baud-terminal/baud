@@ -17,22 +17,17 @@ use crate::{
     Candidate, Cold, Composition, GlyphMap, Highlight, Instance, Leaving, Lent, Overlay, Renderer,
     Resolved, Scene, StyleStamp, Tally, WalkKey,
 };
-use baud_domain::{
-    CellFlags, Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, RowExtent, RowRot,
-    Rows, Seal,
-};
+use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, RowExtent, RowRot, Rows, Seal};
 use baud_domain::{FrameDamage, TermRead};
 use baud_font::Px;
 
 /// **What a cell frame is built from**, beyond the terminal and the
 /// renderer's own state.
-pub struct CellInputs<'i, P> {
+pub struct CellInputs<'i> {
     /// How far the window looks back into the history.
     pub back: Rows,
-    /// Row 9's predicted echoes, each a codepoint at its logical cell.
-    pub predictions: P,
     /// The cursor as the frame presents it, its cell and its style, before
-    /// the echoes and a composition move it.
+    /// a composition moves it.
     pub live: Option<(Row, Col, CursorStyle)>,
     /// An input method's composition on the view, or none.
     pub composition: &'i Option<Composition>,
@@ -151,18 +146,15 @@ pub struct CellFrame {
 /// [`Renderer::damage`] of `term` against the last frame built, for a
 /// driver that does not hand the damage in.
 #[allow(clippy::too_many_arguments)]
-pub fn build<P>(
+pub fn build(
     renderer: &mut Renderer<'_, '_>,
     term: &impl TermRead,
     seal: Seal,
-    inputs: &CellInputs<'_, P>,
+    inputs: &CellInputs<'_>,
     cell: &mut CellParts<'_, '_, '_>,
     used: &mut Vec<RowExtent>,
     building: impl FnOnce() -> Option<SetIx>,
-) -> Option<CellFrame>
-where
-    P: Iterator<Item = (Row, Col, Codepoint)> + DoubleEndedIterator + Clone,
-{
+) -> Option<CellFrame> {
     let damage = renderer.damage(term, inputs.back);
     build_with(renderer, term, seal, &damage, inputs, cell, used, building)
 }
@@ -200,19 +192,16 @@ pub fn prepare(
 /// written since its own copy, which the damage since the last frame is a
 /// part of.
 #[allow(clippy::too_many_arguments)]
-pub fn build_with<P>(
+pub fn build_with(
     renderer: &mut Renderer<'_, '_>,
     term: &impl TermRead,
     seal: Seal,
     damage: &FrameDamage,
-    inputs: &CellInputs<'_, P>,
+    inputs: &CellInputs<'_>,
     cell: &mut CellParts<'_, '_, '_>,
     used: &mut Vec<RowExtent>,
     building: impl FnOnce() -> Option<SetIx>,
-) -> Option<CellFrame>
-where
-    P: Iterator<Item = (Row, Col, Codepoint)> + DoubleEndedIterator + Clone,
-{
+) -> Option<CellFrame> {
     let work = crate::renderer::atlas_work(&renderer.atlas_stats());
     let (leaving, pan, highlight) = (inputs.leaving, inputs.pan, inputs.highlight);
     let sliding = leaving == Leaving::Drawn;
@@ -223,11 +212,7 @@ where
     // reordered. With BDSM reset, once a letter that takes a
     // joining form has been drawn, the last frame's joins are
     // kept for the rows the copy's compare finds changed.
-    // Row 9's predicted echoes, on the live view, are laid out
-    // as written, so a prediction's row is drawn in the order
-    // its echo will be.
     let joins_seen = renderer.joins_seen();
-    renderer.set_predicted(inputs.predictions.clone().filter(|_| back.index() == 0));
     // With BDSM reset and every row's joins to find again
     // (`crate::Rejoin::Every`), a frame that returns below before its
     // rejoin leaves that answer owed, so the next frame's is `Every`
@@ -320,12 +305,6 @@ where
         renderer.copy_leaving(term, back, row);
     }
     let cursor_at = inputs.live;
-    // Row 9: the drawn cursor sits after the last predicted
-    // glyph, for the shader and for the overlay's own paint.
-    let cursor_at = match (cursor_at, inputs.predictions.clone().next_back()) {
-        (Some((_, _, style)), Some((row, col, _))) => Some((row, col.after(), style)),
-        (c, _) => c,
-    };
     // A composition puts the drawn cursor after itself, as the
     // instance and CPU paths do in their convert.
     let cursor_at = match (cursor_at, &composition) {
@@ -694,48 +673,6 @@ where
         cell.records,
     );
     let walked = cell.records.len();
-    // Row 9: the predicted echoes, each a masked cell and a
-    // record in the rendition of the cell to its left, on the
-    // live view only. A cell the walk above already drew a
-    // record for -- a mark, or a glyph inside a ligature
-    // window -- is left to that record: two records for one
-    // cell would draw two glyphs on top of each other, and the
-    // echo is a frame away.
-    if back.index() == 0 {
-        for (row, col, cp) in inputs.predictions.clone() {
-            // The rendition is the cell to the left's, Mosh's
-            // heuristic: what was typed before this is what
-            // this will look like, where the cell under the
-            // cursor may hold the shell's own dimmed guess.
-            // The logical cell, read from the core's view: the
-            // window drawn may show another cell there.
-            let at = if col.index() > 0 {
-                col.index() - 1
-            } else {
-                col.index()
-            };
-            let style = term
-                .view(back)
-                .row(row)
-                .get(at)
-                .map_or(PackedCell::EMPTY.style, |c| c.style);
-            cell.exceptions.predicted(
-                renderer,
-                (row, col),
-                PackedCell {
-                    content: Content::codepoint(cp),
-                    style,
-                    flags: CellFlags::NONE,
-                },
-                overlay.tables(&cell.styles_mem[set][..]),
-                cursor,
-                highlight,
-                view.cols(),
-                &mut cell.overlay_mem[set][..],
-                cell.records,
-            );
-        }
-    }
     // The composition: its cells masked off the shader and its
     // records -- glyphs and underline -- after the walk's, the
     // same records the instance and CPU paths draw.

@@ -45,7 +45,7 @@ use crate::lend::{Arm, Elems};
 use crate::pipeline::{Blend as PipeBlend, Fragment, Fx, Pipelines, Skipped};
 use crate::sheets::Sheets;
 use baud_core::{Seal, Term};
-use baud_domain::{Codepoint, Col, PackedCell, Row, RowExtent, Rows};
+use baud_domain::{PackedCell, Row, RowExtent, Rows};
 use baud_font::Px as FontPx;
 use baud_present_wayland::dmabuf::Point;
 use baud_present_wayland::{Changed, Px};
@@ -169,13 +169,12 @@ pub enum Owes {
 }
 
 /// **What a frame is built from beyond the terminal and the renderer**: the
-/// view's look back, the selection, the composition and the predicted
-/// echoes. No pan and no leaving row: the Linux driver draws none.
+/// view's look back, the selection and the composition. No pan and no
+/// leaving row: the Linux driver draws none.
 pub struct Inputs<'i> {
     pub back: Rows,
     pub highlight: Option<SelectedSpan>,
     pub composition: &'i Option<Composition>,
-    pub predictions: &'i [(Row, Col, Codepoint)],
 }
 
 /// Who holds a target.
@@ -481,7 +480,6 @@ impl Presenter {
         });
         let cell_inputs = CellInputs {
             back: inputs.back,
-            predictions: inputs.predictions.iter().copied(),
             live,
             composition: inputs.composition,
             highlight: renderer.highlight(),

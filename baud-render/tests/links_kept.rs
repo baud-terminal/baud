@@ -1431,7 +1431,7 @@ struct LentDrawn {
 }
 
 /// **The cell frame `r` builds into set `at`**, as the app's `present`
-/// builds it with no composition, prediction or slide, the links as `h`
+/// builds it with no composition or slide, the links as `h`
 /// hands them, the frame's writes sealed first (`Term::seal_writes`).
 fn cell_frame(
     r: &mut Renderer<'_, '_>,
@@ -1455,7 +1455,6 @@ fn cell_frame(
         .map(|(row, col)| (row, col, t.cursor_style()));
     let inputs = CellInputs {
         back,
-        predictions: core::iter::empty(),
         live,
         composition: &None,
         highlight: None,

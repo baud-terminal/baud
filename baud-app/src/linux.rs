@@ -4734,7 +4734,6 @@ impl Driver {
             back: moved.back,
             highlight: span,
             composition: &self.plan_text.preedit,
-            predictions: &[],
         };
         // What effect pacing weighs this frame by: whether it draws a trail
         // or the fireworks, and whether the frame before was shown late.

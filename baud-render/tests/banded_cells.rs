@@ -130,7 +130,6 @@ fn built(
     r.place_lights(t);
     let inputs = CellInputs {
         back,
-        predictions: core::iter::empty(),
         live: None,
         composition: &None,
         highlight: None,

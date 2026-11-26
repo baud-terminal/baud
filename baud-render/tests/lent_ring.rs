@@ -131,7 +131,6 @@ fn cell_frame(
         .map(|(row, col)| (row, col, t.cursor_style()));
     let inputs = CellInputs {
         back,
-        predictions: core::iter::empty(),
         live,
         composition: &None,
         highlight: None,

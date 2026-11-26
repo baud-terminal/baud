@@ -385,8 +385,8 @@ impl<'m> Cells<'m> {
 }
 
 /// **The cell frame `r` builds into set `at`** over the window `back`
-/// lines up, as the app's `present` builds it with no composition,
-/// prediction or slide, the frame's writes sealed first
+/// lines up, as the app's `present` builds it with no composition
+/// or slide, the frame's writes sealed first
 /// (`Term::seal_writes`): the allocations the build alone made, and the
 /// slots its set lent and left short.
 fn cell_frame(
@@ -409,7 +409,6 @@ fn cell_frame(
         .map(|(row, col)| (row, col, t.cursor_style()));
     let inputs = CellInputs {
         back,
-        predictions: core::iter::empty(),
         live,
         composition: &None,
         highlight: None,

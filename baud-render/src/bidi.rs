@@ -2117,13 +2117,13 @@ fn paragraph_columns(rows: &[ParaRow<'_>]) -> Vec<(usize, usize)> {
 struct Chars(usize);
 
 /// **Cells a layout reads in place of the core's**: an input method's
-/// composition and a predicted echo, each drawn as the same text written
-/// there would be drawn. The row they are on is laid out with their
-/// characters in the cells they cover, so it is drawn in the order a write
-/// would give it: a Latin letter typed after Latin text in a right-to-left
-/// paragraph lands right of that text, which moves left to make room, as
-/// the echo will draw it. Empty on nearly every frame, and then a layout
-/// reads the core's cells alone.
+/// composition, drawn as the same text written there would be drawn. The
+/// row it is on is laid out with its characters in the cells they cover,
+/// so it is drawn in the order a write would give it: a Latin letter typed
+/// after Latin text in a right-to-left paragraph lands right of that text,
+/// which moves left to make room, as the committed text will be drawn.
+/// Empty on nearly every frame, and then a layout reads the core's cells
+/// alone.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Written {
     rows: Vec<(Row, Vec<PackedCell>)>,

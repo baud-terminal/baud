@@ -152,10 +152,6 @@ struct Arms<'f, 'a> {
     fireworks: Vec<baud_render::fireworks::Show>,
     /// An input method's composition both arms draw, or none.
     composition: Option<Composition>,
-    /// Row 9's predicted echoes, each a codepoint at its logical cell,
-    /// which the cell arm draws as the app draws them; the instance arm
-    /// draws none, as the app's instance and CPU paths draw none.
-    predictions: Vec<(Row, Col, Codepoint)>,
     /// The find field and its marks both arms draw, or none.
     find: Option<baud_render::FindLook>,
     /// The link preview both arms draw, or none.
@@ -419,13 +415,10 @@ impl Arms<'_, '_> {
         // The window in the order each row is drawn in, laid out for this
         // frame as the app lays it out: the core's own view when no row is
         // reordered.
-        // The composition and the predicted echoes, on the live view, laid
-        // out as written: set before the layout, as the app sets them.
+        // The composition, on the live view, laid out as written: set
+        // before the layout, as the app sets it.
         self.renderer.set_composition(self.composition.clone());
         let joins_seen = self.renderer.joins_seen();
-        let live_back = self.back.index() == 0;
-        self.renderer
-            .set_predicted(self.predictions.iter().copied().filter(|_| live_back));
         // One write generation closed a frame, before anything reads, as
         // the app's frame closes it.
         let seal = t.seal_writes();
@@ -511,11 +504,6 @@ impl Arms<'_, '_> {
                 .flatten()
                 .map(|(r, c)| (r, c, t.cursor_style()))
         });
-        // The drawn cursor after the last predicted echo, as the app puts it.
-        let shown = match (shown, self.predictions.last().filter(|_| live_back)) {
-            (Some((_, _, style)), Some(&(row, col, _))) => Some((row, col.after(), style)),
-            (c, _) => c,
-        };
         // No cursor over an address or a message, as the app has it.
         let shown = self.renderer.clear_of_messages(t, shown);
         // A slide's leaving row, as the shader reads it, walked into the map
@@ -583,34 +571,6 @@ impl Arms<'_, '_> {
         self.used
             .extend((0..view.rows().index()).map(|y| view.extent(Row::from_index(y))));
         self.walked_composition = composition.clone();
-        // The predicted echoes as the app draws them on the cell path: each
-        // a masked cell and a record, in the rendition of the logical cell
-        // to its left.
-        if live_back {
-            for &(row, col, cp) in &self.predictions {
-                let at = col.index().saturating_sub(1);
-                let style = t
-                    .view(self.back)
-                    .row(row)
-                    .get(at)
-                    .map_or(PackedCell::EMPTY.style, |c| c.style);
-                self.exceptions.predicted(
-                    &mut self.renderer,
-                    (row, col),
-                    PackedCell {
-                        content: baud_domain::Content::codepoint(cp),
-                        style,
-                        flags: baud_domain::CellFlags::NONE,
-                    },
-                    baud_render::RowTables::one(&*self.styles_mem),
-                    cursor,
-                    self.highlight,
-                    view.cols(),
-                    self.overlay_mem,
-                    &mut self.records,
-                );
-            }
-        }
         // The composition as the app draws it on the cell path: its cells
         // masked, its records after the walk's.
         if let Some(c) = &composition {
@@ -1738,7 +1698,6 @@ macro_rules! arms {
             splash: None,
             fireworks: Vec::new(),
             composition: None,
-            predictions: Vec::new(),
             find: None,
             link: None,
             lines: Vec::new(),
@@ -14513,138 +14472,6 @@ fn a_composition_over_varied_text_draws_as_written_on_every_arm() {
         assert!(differing(&composed, &plain) > 0, "{text:?}: drawn");
         let d = differing(&composed, &written);
         assert_eq!(d, 0, "{text:?}: as written, {d} pixels");
-    }
-}
-
-/// **A predicted echo on a right-to-left row draws as its echo will**: the row is
-/// laid out with the predicted character in its cell, so `c` typed after `ab` in a
-/// Hebrew paragraph is drawn right of the `b`, the `ab` moved left, and the cursor
-/// on the cell after it in logical order, which the paragraph draws left of `abc`
-/// -- the frame the shell's echo then draws, pixel for pixel, on the cell path,
-/// which draws the predictions. At the cursor's drawn cell it read `cab`. The `ab`
-/// is red and so is the echo, as Mosh guesses it: the rendition of the logical cell
-/// to its left.
-#[test]
-fn a_predicted_echo_on_a_right_to_left_row_draws_as_its_echo() {
-    let (built, noto) = rtl_faces();
-    let faces = [
-        Face::parse(&built).expect("parse"),
-        Face::parse(&noto).expect("parse"),
-    ];
-    let fresh = || {
-        Renderer::new(
-            Stack::new(&faces).unwrap(),
-            PxSize::of(14.0).unwrap(),
-            Theme::dark(),
-            Blend::Native,
-            Cols::of_index(usize::from(WS.ws_col)),
-            Rows::of_index(usize::from(WS.ws_row)),
-        )
-        .unwrap()
-    };
-    let line = "\u{5E9}\u{5DC}\u{5D5}\u{5DD} \x1b[31mab";
-    arms!(fresh() => arms, t);
-    arms.reads = Reads::Copy;
-    feed(
-        &mut t,
-        format!(
-            "\x1bc\x1b[2 q\x1b[3;1H{line}\x1b[4;3HThe quick brown fox jumps 0123456789\x1b[3;8H"
-        )
-        .as_bytes(),
-    );
-    let (row, col) = t.cursor();
-    let (_, plain) = arms.draw(&mut t);
-    arms.predictions = vec![(row, col, baud_domain::Codepoint::from_char('c'))];
-    let (_, predicted) = arms.draw(&mut t);
-    assert!(
-        arms.renderer.bidi().reordered(row),
-        "the premise: the row is reordered"
-    );
-    arms.predictions.clear();
-    feed(&mut t, b"c");
-    let (_, echoed) = arms.draw(&mut t);
-    assert!(differing(&predicted, &plain) > 0, "the prediction is drawn");
-    let d = differing(&predicted, &echoed);
-    assert_eq!(d, 0, "the prediction is the echo's frame, {d} pixels");
-}
-
-/// **A predicted bracket on a right-to-left row draws mirrored, as its
-/// echo does**: `(` or `[` typed after a Hebrew letter at the end of a
-/// right-to-left paragraph resolves to R, and UAX #9 L4
-/// (`[[source: uax9-bidi]]`) depicts a character "by a mirrored glyph if
-/// and only if (a) the resolved directionality of that character is R, and
-/// (b) the Bidi_Mirrored property value of that character is Yes". So the
-/// prediction is the character the row's order draws in its cell, `)` or
-/// `]`, and its frame is the echo's, pixel for pixel, on the cell path.
-/// The premise: on both frames the order swaps that cell's character.
-/// The control: a `c` at the same cell, which nothing mirrors.
-#[test]
-fn a_predicted_bracket_on_a_right_to_left_row_draws_mirrored_as_its_echo() {
-    let (built, noto) = rtl_faces();
-    let faces = [
-        Face::parse(&built).expect("parse"),
-        Face::parse(&noto).expect("parse"),
-    ];
-    let fresh = || {
-        Renderer::new(
-            Stack::new(&faces).unwrap(),
-            PxSize::of(14.0).unwrap(),
-            Theme::dark(),
-            Blend::Native,
-            Cols::of_index(usize::from(WS.ws_col)),
-            Rows::of_index(usize::from(WS.ws_row)),
-        )
-        .unwrap()
-    };
-    let line = "\u{5E9}\u{5DC}\u{5D5}\u{5DD} \u{5D0}";
-    for (ch, mirrored) in [('(', true), ('[', true), ('c', false)] {
-        arms!(fresh() => arms, t);
-        arms.reads = Reads::Copy;
-        feed(
-            &mut t,
-            format!(
-                "\x1bc\x1b[2 q\x1b[3;1H{line}\x1b[4;3HThe quick brown fox jumps 0123456789\x1b[3;7H"
-            )
-            .as_bytes(),
-        );
-        let (row, col) = t.cursor();
-        let (_, plain) = arms.draw(&mut t);
-        arms.predictions = vec![(row, col, baud_domain::Codepoint::from_char(ch))];
-        let (_, predicted) = arms.draw(&mut t);
-        // The order the cell path lays the row out in, the one that draws
-        // the predictions.
-        let swapped = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>| {
-            arms.with_cells(t, |_, r, _| {
-                let orders = r.bidi();
-                (
-                    orders.reordered(row),
-                    orders.swapped(row, orders.visual_col(row, col)).is_some(),
-                )
-            })
-        };
-        assert_eq!(
-            swapped(&mut arms, &mut t),
-            (true, mirrored),
-            "{ch:?}: the premise: the row is reordered, and the predicted frame's order \
-             mirrors it"
-        );
-        arms.predictions.clear();
-        feed(&mut t, ch.to_string().as_bytes());
-        let (_, echoed) = arms.draw(&mut t);
-        assert_eq!(
-            swapped(&mut arms, &mut t),
-            (true, mirrored),
-            "{ch:?}: the premise: the echo's order mirrors it"
-        );
-        assert!(
-            differing(&predicted, &plain) > 0,
-            "{ch:?}: the prediction is drawn"
-        );
-        let d = differing(&predicted, &echoed);
-        assert_eq!(
-            d, 0,
-            "{ch:?}: the prediction is the echo's frame, {d} pixels"
-        );
     }
 }
 

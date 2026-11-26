@@ -3636,7 +3636,7 @@ impl Gpu {
                 }
                 // The rest of the records after every cell pass: the parts of
                 // glyphs above their rows, then what the caller appended -- a
-                // prediction, a composition, the trail -- drawn as the instance
+                // composition, the trail -- drawn as the instance
                 // path draws them; then the images over the text, and baud's
                 // own overlays over them, the thumb and the fade last.
                 let chrome = usize::try_from(input.chrome.value()).map_or(n, |c| c.min(n));

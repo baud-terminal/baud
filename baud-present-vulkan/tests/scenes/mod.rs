@@ -30,7 +30,7 @@
 //! reads, as `glyph.vert` maps it, a texel a pixel.
 //!
 //! **What a scene sets.** The terminal is the scene's own, fed with
-//! [`feed`]; the selection, the composition, the predicted echoes and how
+//! [`feed`]; the selection, the composition and how
 //! far the window looks back are [`Arms`]' fields, which the cell frame's
 //! build and the renderer are handed each draw; anything else -- the
 //! cursor's look and phase, a bell's tint, the other video, the theme -- is
@@ -50,7 +50,7 @@
 
 use crate::common::{Bar, Cover, Rounding, Tie, Ties, assert_frame_covered};
 use baud_core::Term;
-use baud_domain::{BytePos, Codepoint, Col, ReadLen, Row, RowExtent, Rows, WinSize};
+use baud_domain::{BytePos, ReadLen, Row, RowExtent, Rows, WinSize};
 use baud_font::Px as FontPx;
 use baud_present_vulkan::cells::{
     CellDraw, CellDrawn, CellMemory, CellSizes, CellSlices, Finish, MapSide,
@@ -269,8 +269,6 @@ pub struct Arms<'g, 'f, 'a> {
     pub highlight: Option<Highlight>,
     /// An input method's composition, or none.
     pub composition: Option<Composition>,
-    /// Row 9's predicted echoes, each a codepoint at its logical cell.
-    pub predictions: Vec<(Row, Col, Codepoint)>,
     /// How the device rounds a blend: term by term on llvmpipe, once
     /// elsewhere.
     pub bar: Bar,
@@ -310,7 +308,6 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
             back: Rows::ZERO,
             highlight: None,
             composition: None,
-            predictions: Vec::new(),
             bar: bar(gpu),
             held: Some(Held {
                 pipes,
@@ -385,7 +382,6 @@ impl<'g, 'f, 'a> Arms<'g, 'f, 'a> {
         });
         let inputs = CellInputs {
             back: self.back,
-            predictions: self.predictions.iter().copied(),
             live,
             composition: &self.composition,
             highlight: self.highlight,

@@ -130,7 +130,7 @@ impl<'m> Cells<'m> {
 
 /// **One cell frame into the next set in turn, as the app's `present`
 /// builds it**: the frame's writes sealed first, its damage read, and the
-/// frame built with no composition, prediction or slide. What it counted.
+/// frame built with no composition or slide. What it counted.
 fn cell(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, cell: &mut Cells<'_>) -> Counts {
     framed(r, t, cell).0
 }
@@ -151,7 +151,6 @@ fn framed(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, cell: &mut Cells<'_>) -> (
         .map(|(row, col)| (row, col, t.cursor_style()));
     let inputs = CellInputs {
         back,
-        predictions: core::iter::empty(),
         live,
         composition: &None,
         highlight: None,

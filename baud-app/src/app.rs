@@ -3028,7 +3028,6 @@ impl App {
                 let live = live_cursor(&self.term).map(|(r, c)| (r, c, self.term.cursor_style()));
                 let inputs = baud_render::cell_frame::CellInputs {
                     back: self.term.window_back(),
-                    predictions: core::iter::empty(),
                     live,
                     composition: &composition,
                     highlight,

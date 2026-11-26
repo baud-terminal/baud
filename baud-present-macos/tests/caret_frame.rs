@@ -800,7 +800,7 @@ mod checks {
     /// **The cell path's frame as `App::present` builds it**, into `set`:
     /// the inputs `present` sets on the renderer first, then the frame
     /// itself through the function `present` builds it with
-    /// (`baud_render::cell_frame::build_with`). No composition, no prediction,
+    /// (`baud_render::cell_frame::build_with`). No composition,
     /// no slide and no notice. Every call here is one `present` makes, in
     /// its order (`the_cell_driver_builds_as_present_builds`), and the
     /// frame's writes are sealed first (`Term::seal_writes`).
@@ -832,7 +832,6 @@ mod checks {
             .map(|(row, col)| (row, col, t.cursor_style()));
         let frame_inputs = CellInputs {
             back,
-            predictions: core::iter::empty(),
             live,
             composition: &None,
             highlight: None,
@@ -3045,7 +3044,7 @@ mod checks {
             "the Linux driver's plan seals after its link scan"
         );
         let library = read("baud-render/src/cell_frame.rs");
-        let build = body_of(&library, "pub fn build<P>(", "\n}\n");
+        let build = body_of(&library, "pub fn build(", "\n}\n");
         assert!(
             build.contains("term:&implTermRead,seal:Seal,"),
             "the build takes the seal: {build}"
@@ -3137,7 +3136,7 @@ mod checks {
         // calls are the ones present must not make.
         let library = read("baud-render/src/cell_frame.rs");
         let moved: std::collections::BTreeSet<String> = calls(
-            &body_of(&library, "pub fn build_with<P>(", "\n}\n"),
+            &body_of(&library, "pub fn build_with(", "\n}\n"),
             &[
                 ("renderer.bidi().", "self.renderer.bidi()."),
                 ("renderer.", "self.renderer."),

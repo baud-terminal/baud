@@ -289,17 +289,13 @@ the screen; step 3 joins Arabic letters.
   `a_pointer_on_a_double_width_right_to_left_line_names_the_letter_drawn`,
   `a_composition_on_a_right_to_left_row_draws_as_the_text_written`).
 - **What you are typing is drawn where it will land.** An input method's
-  composition and a predicted echo are laid out as if they were written
-  in their cells, so their line is drawn in the order a write of the same
-  text gives it: `cd` composed after `ab` in a Hebrew line is drawn
-  `abcd`, the `ab` moved left to make room, and the cursor on the cell
-  after it in logical order, which the paragraph draws left of `abcd`, as the text will be once it is sent and echoed
-  (`a_composition_on_a_right_to_left_row_draws_as_the_text_written`, on
-  every arm, and
-  `a_predicted_echo_on_a_right_to_left_row_draws_as_its_echo`). A
-  bracket typed after a Hebrew letter is drawn mirrored, as its echo is
-  (UAX #9 L4,
-  `a_predicted_bracket_on_a_right_to_left_row_draws_mirrored_as_its_echo`).
+  composition is laid out as if it were written in its cells, so its line
+  is drawn in the order a write of the same text gives it: `cd` composed
+  after `ab` in a Hebrew line is drawn `abcd`, the `ab` moved left to make
+  room, and the cursor on the cell after it in logical order, which the
+  paragraph draws left of `abcd`, as the text will be once it is sent and
+  echoed (`a_composition_on_a_right_to_left_row_draws_as_the_text_written`,
+  on every arm).
 - **Arabic letters join.** Each letter is drawn in the form its neighbours
   give it, initial, medial, final or alone, by the Unicode Standard's rules
   (`[[source: unicode-ch9]]` 9.2.2, from ArabicShaping.txt, `[[source:
@@ -990,8 +986,6 @@ eight rounds with the first dropped, on mains:
 - **A picture placed under a kitty placeholder picture** (a relative
   placement whose parent is virtual) is placed from the placeholders'
   stored column on a row drawn in another order.
-- **A predicted echo on a double-width line** is not laid out as
-  written: its line is laid out without it.
 - **The row sliding out of a smooth scroll, at its edges**: a space
   carrying a combining mark there gets no stress mark (`SGR 64`), judged
   from the space alone, where on a still row the mark it carries gives it
@@ -1006,10 +1000,7 @@ eight rounds with the first dropped, on mains:
   the cell under the composed letter, not those its hints give it; a
   composition is drawn in the rendition of the cell it starts on, where
   its commit is written in the current one, so a form SAPV 5-8 gives is
-  read from that cell; and with BDSM reset, once a joining letter has
-  been drawn, the layout the cell path keeps reads no predicted echo
-  (`Renderer::keep_written`), where with it set an echo is laid out as
-  written.
+  read from that cell.
 - **Telling programs it is supported**: DECRQM 8 is the only probe; no
   terminfo entry says so.
 

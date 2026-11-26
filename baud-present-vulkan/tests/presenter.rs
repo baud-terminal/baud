@@ -42,7 +42,6 @@ const NONE: Inputs<'static> = Inputs {
     back: Rows::ZERO,
     highlight: None,
     composition: &None,
-    predictions: &[],
 };
 
 /// The frame `term` makes through `r`, sealed as the driver seals it, and

@@ -1,7 +1,7 @@
-//! **Compositions and predicted echoes, drawn alike on every path**:
-//! screens fed as bytes with an input method's composition or a predicted
-//! echo on them, drawn by the scene harness (`scenes::Arms`) on the cell
-//! path, the instance path and the CPU path, each frame held to the cell
+//! **Compositions, drawn alike on every path**: screens fed as bytes with
+//! an input method's composition on them, drawn by the scene harness
+//! (`scenes::Arms`) on the cell path, the instance path and the CPU path,
+//! each frame held to the cell
 //! path's bars -- the cell frame the instance frame exactly, and both the
 //! CPU path's premultiplied frame, exact where no record blends and within
 //! a step where one does -- on lavapipe on both memory arms, and on RADV
@@ -27,16 +27,6 @@
 //! - [`a_composition_over_varied_text_draws_as_written_on_every_arm`]:
 //!   `xyz` over digits SAPV 2 varies, and two vavs where SAPV 17 slants one
 //!   italic cell of a Hebrew line, each the frame of its text written.
-//! - [`a_predicted_echo_on_a_right_to_left_row_draws_as_its_echo`], with
-//!   a `c` predicted after a red `ab` in a Hebrew paragraph: the cell
-//!   path's frame the echo's, which every path draws alike.
-//! - [`a_predicted_bracket_on_a_right_to_left_row_draws_mirrored_as_its_echo`]:
-//!   `(` and `[` predicted at the end of a right-to-left paragraph, drawn
-//!   mirrored as their echo is, and the control `c`, which nothing mirrors.
-//!
-//! The instance and CPU paths draw no predicted echo, so a predicted frame
-//! is the cell path's alone, held to the echo's frame, pixel for pixel, and
-//! the echo's frame to the bars.
 //!
 //! Not drawn here, each for its reason:
 //!
@@ -536,158 +526,4 @@ fn a_composition_over_varied_text_draws_as_written_on_every_arm_on_radv() {
     let gpu = radv();
     varied_text(&gpu, Arm::Staging);
     varied_text(&gpu, gpu.arm(1));
-}
-
-/// **The cell frame of `t` with a predicted echo**, which the instance and
-/// CPU paths do not draw: what the cell path left undrawn none.
-fn predicted_frame(arms: &mut Arms<'_, '_, '_>, t: &mut Term<'_>, what: &str) -> Vec<u32> {
-    let (cell, skipped) = arms.cell_frame(t);
-    assert_eq!(
-        (skipped.images.0, skipped.trails.0),
-        (0, 0),
-        "{what}: the cell path left {skipped:?} undrawn"
-    );
-    cell
-}
-
-/// **A predicted echo on a right-to-left row, on `arm`**: the row is laid
-/// out with the predicted character in its cell, so `c` typed after `ab`
-/// in a Hebrew paragraph is drawn right of the `b`, the `ab` moved left,
-/// and the cursor on the cell after it in logical order, which the
-/// paragraph draws left of `abc` -- the frame the echo then draws, pixel
-/// for pixel, on the cell path, which draws the predictions. The `ab` is
-/// red and so is the echo: the rendition of the logical cell to its left.
-fn predicted_echo(gpu: &Gpu, arm: Arm) {
-    let (built, noto) = rtl_faces();
-    let faces = [
-        Face::parse(&built).expect("the built face"),
-        Face::parse(&noto).expect("the Noto subset"),
-    ];
-    let line = "\u{5E9}\u{5DC}\u{5D5}\u{5DD} \x1b[31mab";
-    let mut owned = Owned::new(&WS);
-    let mut t = Term::new(owned.storage(), &WS);
-    let mut arms = Arms::new(gpu, arm, fresh(&faces), &t);
-    feed(
-        &mut t,
-        format!(
-            "\x1bc\x1b[2 q\x1b[3;1H{line}\x1b[4;3HThe quick brown fox jumps 0123456789\x1b[3;8H"
-        )
-        .as_bytes(),
-    );
-    let (row, col) = t.cursor();
-    let plain = arms.check(&mut t, &format!("{arm:?}: no prediction"));
-    arms.predictions = vec![(row, col, Codepoint::from_char('c'))];
-    let predicted = predicted_frame(&mut arms, &mut t, &format!("{arm:?}: predicted"));
-    assert!(
-        arms.renderer.bidi().reordered(row),
-        "{arm:?}: the premise: the row is reordered"
-    );
-    arms.predictions.clear();
-    feed(&mut t, b"c");
-    let echoed = arms.check(&mut t, &format!("{arm:?}: echoed"));
-    assert!(
-        differing(&predicted, &plain.cell) > 0,
-        "{arm:?}: the prediction is drawn"
-    );
-    let d = differing(&predicted, &echoed.cell);
-    assert_eq!(
-        d, 0,
-        "{arm:?}: the prediction is the echo's frame, {d} pixels"
-    );
-}
-
-#[test]
-fn a_predicted_echo_on_a_right_to_left_row_draws_as_its_echo() {
-    let gpu = lavapipe();
-    predicted_echo(&gpu, Arm::InPlace);
-    predicted_echo(&gpu, Arm::Staging);
-}
-
-#[test]
-#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
-fn a_predicted_echo_on_a_right_to_left_row_draws_as_its_echo_on_radv() {
-    let gpu = radv();
-    predicted_echo(&gpu, Arm::Staging);
-    predicted_echo(&gpu, gpu.arm(1));
-}
-
-/// **A predicted bracket on a right-to-left row, on `arm`**: `(` or `[`
-/// typed after a Hebrew letter at the end of a right-to-left paragraph
-/// resolves to R, and UAX #9 L4 depicts it by its mirrored glyph, so the
-/// prediction is the character the row's order draws in its cell, `)` or
-/// `]`, and its frame is the echo's, pixel for pixel, on the cell path. The
-/// premise: on both frames the cell path's order swaps that cell's
-/// character. The control: a `c` at the same cell, which nothing mirrors.
-fn predicted_bracket(gpu: &Gpu, arm: Arm) {
-    let (built, noto) = rtl_faces();
-    let faces = [
-        Face::parse(&built).expect("the built face"),
-        Face::parse(&noto).expect("the Noto subset"),
-    ];
-    let line = "\u{5E9}\u{5DC}\u{5D5}\u{5DD} \u{5D0}";
-    for (ch, mirrored) in [('(', true), ('[', true), ('c', false)] {
-        let what = format!("{arm:?}: {ch:?}");
-        let mut owned = Owned::new(&WS);
-        let mut t = Term::new(owned.storage(), &WS);
-        let mut arms = Arms::new(gpu, arm, fresh(&faces), &t);
-        feed(
-            &mut t,
-            format!(
-                "\x1bc\x1b[2 q\x1b[3;1H{line}\x1b[4;3HThe quick brown fox jumps 0123456789\x1b[3;7H"
-            )
-            .as_bytes(),
-        );
-        let (row, col) = t.cursor();
-        // The order the cell path's last build laid the row out in, the
-        // one that draws the predictions.
-        let swapped = |arms: &Arms<'_, '_, '_>| {
-            let orders = arms.renderer.bidi();
-            (
-                orders.reordered(row),
-                orders.swapped(row, orders.visual_col(row, col)).is_some(),
-            )
-        };
-        let plain = arms.check(&mut t, &format!("{what}: no prediction"));
-        arms.predictions = vec![(row, col, Codepoint::from_char(ch))];
-        let predicted = predicted_frame(&mut arms, &mut t, &format!("{what}: predicted"));
-        assert_eq!(
-            swapped(&arms),
-            (true, mirrored),
-            "{what}: the premise: the row is reordered, and the predicted frame's order \
-             mirrors it"
-        );
-        arms.predictions.clear();
-        feed(&mut t, ch.to_string().as_bytes());
-        let echoed = arms.check(&mut t, &format!("{what}: echoed"));
-        arms.build(&mut t);
-        assert_eq!(
-            swapped(&arms),
-            (true, mirrored),
-            "{what}: the premise: the echo's order mirrors it"
-        );
-        assert!(
-            differing(&predicted, &plain.cell) > 0,
-            "{what}: the prediction is drawn"
-        );
-        let d = differing(&predicted, &echoed.cell);
-        assert_eq!(
-            d, 0,
-            "{what}: the prediction is the echo's frame, {d} pixels"
-        );
-    }
-}
-
-#[test]
-fn a_predicted_bracket_on_a_right_to_left_row_draws_mirrored_as_its_echo() {
-    let gpu = lavapipe();
-    predicted_bracket(&gpu, Arm::InPlace);
-    predicted_bracket(&gpu, Arm::Staging);
-}
-
-#[test]
-#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
-fn a_predicted_bracket_on_a_right_to_left_row_draws_mirrored_as_its_echo_on_radv() {
-    let gpu = radv();
-    predicted_bracket(&gpu, Arm::Staging);
-    predicted_bracket(&gpu, gpu.arm(1));
 }

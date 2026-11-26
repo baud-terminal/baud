@@ -67,8 +67,8 @@ impl<'m> Cells<'m> {
 }
 
 /// **One cell frame into `at`, as the app's `present` builds it**: the
-/// frame's writes sealed first, then the frame built with no composition,
-/// prediction or slide. How many sized lines it converted.
+/// frame's writes sealed first, then the frame built with no composition
+/// or slide. How many sized lines it converted.
 fn frame(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, cell: &mut Cells<'_>, at: SetIx) -> u64 {
     let seal = t.seal_writes();
     let t = &*t;
@@ -84,7 +84,6 @@ fn frame(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, cell: &mut Cells<'_>, at: S
         .map(|(row, col)| (row, col, t.cursor_style()));
     let inputs = CellInputs {
         back,
-        predictions: core::iter::empty(),
         live,
         composition: &None,
         highlight: None,
