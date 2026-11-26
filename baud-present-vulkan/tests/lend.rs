@@ -8,7 +8,8 @@
 //! [`CellMemory::new`] forced to fail in turn, on each arm, and every
 //! device object made before it destroyed when it returns; the same of the
 //! sheets, of a presenter, of the pipelines and one built, of a frame
-//! drawn on the instance path, and of a frame read back.
+//! drawn on the instance path -- whole, framed by its chrome, and an
+//! effect drawn over one -- and of a frame read back.
 //!
 //! **A 4K screen's copies are lent on the machine's committed arm**: the arm
 //! is a fact about the machine -- its GPU, and the firmware that sets how
@@ -20,20 +21,24 @@
 #![cfg(target_os = "linux")]
 
 mod common;
+mod scenes;
 
 use ash::vk;
 use baud_core::{Owned, Term};
 use baud_domain::WinSize;
+use baud_font::Face;
 use baud_present_vulkan::cells::{CellMemory, CellSizes};
-use baud_present_vulkan::draw::{Pass, Records, Scene, Texel, Texels};
-use baud_present_vulkan::frame::{Failed, Gpu};
+use baud_present_vulkan::chrome::Chrome;
+use baud_present_vulkan::draw::{Framing, Pass, Records, Scene, Texel, Texels};
+use baud_present_vulkan::frame::{Failed, Gpu, Premultiplied};
 use baud_present_vulkan::hooks::{Calls, Live};
 use baud_present_vulkan::lend::{Arm, Elems, Uploaded};
-use baud_present_vulkan::pipeline::{Blend, Fragment, Pipelines};
+use baud_present_vulkan::pipeline::{Blend, Fragment, Fx, Pipelines};
 use baud_present_vulkan::present::Presenter;
 use baud_present_vulkan::vk::Has;
 use baud_present_wayland::Px;
 use baud_render::screens::SETS;
+use baud_render::{Stack, Theme};
 use std::path::{Path, PathBuf};
 
 /// Rows of eight words.
@@ -433,23 +438,73 @@ const SUBMIT_STEPS: u32 = 4;
 /// its staging buffer's and the copy's command buffer.
 const TEXTURE_STEPS: u32 = IMAGE_STEPS + BUFFER_STEPS + SUBMIT_STEPS;
 
-/// The fallible device calls a whole frame without framing or an effect
-/// is drawn through, its pipelines built: the `U` buffer, the records'
-/// buffer, the backgrounds' texture, the descriptor pool, its sets, the
-/// target's view, the framebuffer and the command buffer submitted.
-const DRAW_STEPS: u32 = 2 * BUFFER_STEPS + TEXTURE_STEPS + 4 + SUBMIT_STEPS;
+/// **The frames drawn on the instance path a fault is forced in**.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Frame {
+    /// A whole frame without framing or an effect.
+    Whole,
+    /// A whole frame framed by its chrome, each of the three strips with a
+    /// record of its own.
+    Framed,
+    /// An effect by one pass drawn over a frame.
+    Effect,
+}
 
-/// **A frame that fails part way leaves nothing made**: each step of a
-/// whole frame on the instance path forced to fail in turn, and every
-/// device object made before it destroyed. The controls: the frame drawn
-/// whole after them is the frame drawn before them pixel for pixel and
-/// leaves the objects as they were, and the steps failed are a whole
-/// frame's every one. Named break: a buffer, the backgrounds' texture, the
-/// pool or the view left alive when a later step fails, or the texture's
-/// image when its staging buffer fails.
-fn draw_fails_whole(gpu: &Gpu) {
+impl Frame {
+    /// Its name in a failure's message.
+    fn name(self) -> &'static str {
+        match self {
+            Frame::Whole => "draw",
+            Frame::Framed => "framed draw",
+            Frame::Effect => "effect draw",
+        }
+    }
+
+    /// **The fallible device calls it is drawn through**, its pipelines
+    /// built: its buffers', the backgrounds' texture's, the descriptor
+    /// pool's, its sets', the target's view's, the framebuffer's and the
+    /// command buffer's submitted. Its buffers are the grid's `U` and the
+    /// records', and a framed frame's three strips' `U`s besides, and an
+    /// effect's uniform.
+    fn steps(self) -> u32 {
+        let buffers = match self {
+            Frame::Whole => 2,
+            Frame::Framed => 2 + 3,
+            Frame::Effect => 2 + 1,
+        };
+        buffers * BUFFER_STEPS + TEXTURE_STEPS + 4 + SUBMIT_STEPS
+    }
+}
+
+/// **A frame that fails part way leaves nothing made**: each step of
+/// `frame` on the instance path forced to fail in turn, and every device
+/// object made before it destroyed. The controls: the frame drawn whole
+/// after them, over the target cleared as before, is the frame drawn
+/// before them pixel for pixel and leaves the objects as they were, and
+/// the steps failed are the frame's every one. Named break: a buffer --
+/// a strip's `U` or an effect's uniform among them -- the backgrounds'
+/// texture, the pool or the view left alive when a later step fails, or
+/// the texture's image when its staging buffer fails.
+fn draw_fails_whole(gpu: &Gpu, frame: Frame) {
     let mut pipes = Pipelines::new(gpu).expect("the pipelines");
-    let t = gpu.target(Px(16), Px(8)).expect("a target");
+    let data = scenes::jetbrains_mono();
+    let faces = [Face::parse(&data).expect("JetBrains Mono")];
+    let renderer = scenes::renderer(
+        Stack::new(&faces).expect("a stack"),
+        Theme::dark(),
+        WinSize {
+            ws_col: 4,
+            ws_row: 2,
+        },
+    );
+    let (w, h) = match frame {
+        Frame::Framed => {
+            let (w, h) = renderer.whole_size();
+            (Px(w.value()), Px(h.value()))
+        }
+        Frame::Whole | Frame::Effect => (Px(16), Px(8)),
+    };
+    let t = gpu.target(w, h).expect("a target");
     let bg: Vec<u8> = (0..8u32)
         .flat_map(|i| (0xff00_0000 | (i * 0x0010_2030)).to_le_bytes())
         .collect();
@@ -472,8 +527,15 @@ fn draw_fails_whole(gpu: &Gpu) {
         &curves,
     );
     let records = common::record((4, 2), (8, 8), (0, 0), (0xfff0_e010, 0));
+    let strips = [
+        common::record((0, 0), (4, 4), (0, 0), (0xff20_40e0, 0)),
+        common::record((1, 0), (4, 4), (0, 0), (0xff40_e020, 0)),
+        common::record((0, 1), (4, 4), (0, 0), (0xffe0_2040, 0)),
+    ];
     let scene = Scene {
-        u: [16.0, 8.0, 4.0, 4.0, 4.0, 2.0, 8.0, 8.0, 1.0, 1.0, 0.0, 0.0],
+        u: [
+            w.0 as f32, h.0 as f32, 4.0, 4.0, 4.0, 2.0, 8.0, 8.0, 1.0, 1.0, 0.0, 0.0,
+        ],
         backgrounds: Texels {
             width: Px(4),
             height: Px(2),
@@ -483,18 +545,23 @@ fn draw_fails_whole(gpu: &Gpu) {
         sheets: &sheets,
         records: &records,
         count: Records(1),
-        framing: None,
+        framing: (frame == Frame::Framed).then(|| Framing {
+            chrome: Chrome::of(&renderer, (w, h)),
+            strips: [&strips[0], &strips[1], &strips[2]],
+        }),
     };
-    gpu.draw(&mut pipes, &t, &scene, Pass::Whole)
-        .expect("the frame before");
+    let effect_u = [0x40u8; 144];
+    let draw = |pipes: &mut Pipelines| match frame {
+        Frame::Whole | Frame::Framed => gpu.draw(pipes, &t, &scene, Pass::Whole),
+        Frame::Effect => gpu.draw_effect(pipes, &t, &scene, Fx::Fire, Blend::Normal, &effect_u),
+    };
+    let page = Premultiplied(0xff10_2030);
+    gpu.clear(&t, page, None).expect("the target cleared");
+    draw(&mut pipes).expect("the frame before");
     let want = gpu.read(&t).expect("the frame before, read back");
-    let failed = each_step_fails(
-        gpu,
-        "draw",
-        || gpu.draw(&mut pipes, &t, &scene, Pass::Whole),
-        |()| (),
-    );
-    assert_eq!(failed, DRAW_STEPS, "every step failed once");
+    gpu.clear(&t, page, None).expect("the target cleared again");
+    let failed = each_step_fails(gpu, frame.name(), || draw(&mut pipes), |()| ());
+    assert_eq!(failed, frame.steps(), "every step failed once");
     assert_eq!(
         gpu.read(&t).expect("the frame after, read back"),
         want,
@@ -508,13 +575,35 @@ fn draw_fails_whole(gpu: &Gpu) {
 
 #[test]
 fn a_frame_that_fails_part_way_leaves_nothing_on_lavapipe() {
-    draw_fails_whole(&common::lavapipe());
+    draw_fails_whole(&common::lavapipe(), Frame::Whole);
 }
 
 #[test]
 #[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
 fn a_frame_that_fails_part_way_leaves_nothing_on_radv() {
-    draw_fails_whole(&common::radv());
+    draw_fails_whole(&common::radv(), Frame::Whole);
+}
+
+#[test]
+fn a_framed_frame_that_fails_part_way_leaves_nothing_on_lavapipe() {
+    draw_fails_whole(&common::lavapipe(), Frame::Framed);
+}
+
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn a_framed_frame_that_fails_part_way_leaves_nothing_on_radv() {
+    draw_fails_whole(&common::radv(), Frame::Framed);
+}
+
+#[test]
+fn an_effect_that_fails_part_way_leaves_nothing_on_lavapipe() {
+    draw_fails_whole(&common::lavapipe(), Frame::Effect);
+}
+
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn an_effect_that_fails_part_way_leaves_nothing_on_radv() {
+    draw_fails_whole(&common::radv(), Frame::Effect);
 }
 
 /// **A read that fails part way leaves nothing made**: its buffer's
