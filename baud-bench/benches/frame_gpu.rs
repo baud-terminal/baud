@@ -735,6 +735,7 @@ fn main() {
             commits: Tally::default(),
         }
     });
+    let quiet = baud_bench::warm::quiet_begin(baud_bench::warm::Load::CoresAndGpu);
     for round in 0..rounds {
         // The round's final frames, by arm: a hash of the pixels and how
         // many differ from the first, which is the margin's clear.
@@ -2023,6 +2024,10 @@ upload {}, gpu {}, place {}{}",
                 if ok { "" } else { "  MISMATCH" }
             );
         }
+    }
+    // A run whose own cores or GPU were shared voids and exits non-zero.
+    if quiet.end().is_err() {
+        std::process::exit(1);
     }
     if mismatched {
         eprintln!("frame_gpu: a cell arm's final frame is not the copy's");

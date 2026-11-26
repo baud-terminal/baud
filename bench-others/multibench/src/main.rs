@@ -6,7 +6,9 @@ mod report;
 mod screens;
 mod transport;
 // The guard every measurement in this repository runs first, a file of
-// baud-bench's: this workspace links nothing from that one.
+// baud-bench's: this workspace links nothing from that one, and calls its
+// start guard alone.
+#[allow(dead_code)]
 #[path = "../../../baud-bench/src/warm.rs"]
 mod warm;
 

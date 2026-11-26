@@ -12,7 +12,8 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use baud_bench::warm::{
-    self, Busy, BusyPct, CoreSet, Cpu, Load, Machine, PAUSE, Pid, Placement, Read, Verdict, Warm,
+    self, Busy, BusyPct, Conditions, CoreSet, Cpu, Load, Machine, PAUSE, Pid, Placement, Read,
+    Shares, Tick, Verdict, Void, Warm,
 };
 
 fn repo() -> PathBuf {
@@ -1238,4 +1239,298 @@ fn every_measurement_that_draws_on_the_gpu_asks_about_the_gpu() {
         assert!(drawing.iter().any(|d| d == known), "{known}: {drawing:?}");
     }
     assert!(repo.join("baud-bench/src/host/shader_cache.rs").exists());
+}
+
+/// This process's /proc/self/stat before a run, its command holding spaces
+/// and parentheses, and after one that used 95 ticks of user time and 3 of
+/// system time.
+const SELF_BEFORE: &str =
+    "4242 (ingest2 (x) y) R 1 4242 4242 0 -1 4194304 100 0 0 0 0 0 0 0 20 0 1 0 100 1000 10\n";
+const SELF_AFTER: &str =
+    "4242 (ingest2 (x) y) R 1 4242 4242 0 -1 4194304 100 0 0 0 95 3 0 0 20 0 1 0 100 1000 10\n";
+
+/// This process's CPU time is its user and system ticks, counted after the
+/// command, whatever the command holds.
+#[test]
+fn this_process_time_is_its_user_and_system_ticks() {
+    assert_eq!(warm::self_ticks(SELF_BEFORE), Ok(Tick(0)));
+    assert_eq!(warm::self_ticks(SELF_AFTER), Ok(Tick(98)));
+    assert!(warm::self_ticks("4242 ingest2 R 1").is_err());
+    assert!(warm::self_ticks("4242 (ingest2) R 1 2").is_err());
+}
+
+/// Others' load on the own cores is their busy ticks less this process's
+/// own time, as a share of all their ticks: the bench keeps its own core
+/// busy, so its cores' busy alone says nothing.
+#[test]
+fn others_load_is_the_cores_busy_less_this_process_time() {
+    let own = cores("57");
+    // cpu57 was busy 98 of 100 ticks, all of them this process's.
+    let all_mine = [Tick(0), Tick(98)];
+    assert_eq!(
+        warm::others_busy(STAT_BEFORE, STAT_AFTER, &own, all_mine),
+        Ok(BusyPct(0.0))
+    );
+    // Half of them: the other 48 were someone else's.
+    assert_eq!(
+        warm::others_busy(STAT_BEFORE, STAT_AFTER, &own, [Tick(0), Tick(50)]),
+        Ok(BusyPct(48.0))
+    );
+    // Over two cores: 98 + 4 busy of 200, 98 of them this process's.
+    assert_eq!(
+        warm::others_busy(STAT_BEFORE, STAT_AFTER, &cores("57,121"), all_mine),
+        Ok(BusyPct(2.0))
+    );
+    // More of this process's time than the cores show is no one else's.
+    assert_eq!(
+        warm::others_busy(STAT_BEFORE, STAT_AFTER, &own, [Tick(0), Tick(200)]),
+        Ok(BusyPct(0.0))
+    );
+    assert!(warm::others_busy(STAT_BEFORE, STAT_AFTER, &cores("64"), all_mine).is_err());
+}
+
+/// The rest of the machine is every online CPU neither the run's own nor
+/// their siblings, and a group's busy is its busy ticks over all of them.
+#[test]
+fn the_rest_of_the_machine_is_every_other_online_cpu() {
+    let rest = warm::rest_of(&cores("0-127"), &cores("57"), &cores("121"));
+    assert_eq!(rest.to_string(), "0-56,58-120,122-127");
+    // cpu0 busy all of its 100 ticks, cpu122 never ticked.
+    assert_eq!(
+        warm::group_busy(STAT_BEFORE, STAT_AFTER, &cores("0,122")),
+        Ok(Some(BusyPct(100.0)))
+    );
+    assert_eq!(
+        warm::group_busy(STAT_BEFORE, STAT_AFTER, &cores("121")),
+        Ok(Some(BusyPct(4.0)))
+    );
+    assert_eq!(
+        warm::group_busy(STAT_BEFORE, STAT_AFTER, &CoreSet::default()),
+        Ok(None)
+    );
+}
+
+fn shares() -> Shares {
+    Shares {
+        own: cores("57"),
+        others: BusyPct(4.0),
+        siblings: Some(BusyPct(4.0)),
+        rest: Some(BusyPct(100.0)),
+        gpu: None,
+        over: Duration::from_secs(1),
+    }
+}
+
+/// A run is void when others' load on its own cores, or its siblings',
+/// reaches the line, or the GPU reaches its line; the rest of the machine
+/// is recorded and never voids.
+#[test]
+fn a_run_is_void_when_its_cores_or_the_gpu_reach_the_line() {
+    let (busy, gpu) = (BusyPct(5.0), BusyPct(75.0));
+    assert_eq!(warm::void_reason(&shares(), busy, gpu), None);
+    let others = Shares {
+        others: BusyPct(5.0),
+        ..shares()
+    };
+    let why = warm::void_reason(&others, busy, gpu).expect("others at the line");
+    assert!(why.contains("others' load on own cores 57 was 5%"), "{why}");
+    let siblings = Shares {
+        siblings: Some(BusyPct(30.0)),
+        ..shares()
+    };
+    let why = warm::void_reason(&siblings, busy, gpu).expect("siblings over");
+    assert!(why.contains("siblings were 30% busy"), "{why}");
+    let drawn = Shares {
+        gpu: Some(BusyPct(80.0)),
+        ..shares()
+    };
+    let why = warm::void_reason(&drawn, busy, gpu).expect("gpu over");
+    assert!(why.contains("gpu was 80% busy"), "{why}");
+    let idle = Shares {
+        gpu: Some(BusyPct(58.0)),
+        ..shares()
+    };
+    assert_eq!(warm::void_reason(&idle, busy, gpu), None);
+}
+
+/// The conditions print as one line.
+#[test]
+fn a_runs_conditions_print_as_one_line() {
+    assert_eq!(
+        shares().to_string(),
+        "own cores 57 others 4%; siblings 4%; rest of the machine 100% busy"
+    );
+    let drawn = Shares {
+        siblings: None,
+        rest: None,
+        gpu: Some(BusyPct(6.0)),
+        ..shares()
+    };
+    assert_eq!(
+        drawn.to_string(),
+        "own cores 57 others 4%; siblings none; rest of the machine none busy; gpu 6%"
+    );
+}
+
+/// The pinned fake on a machine whose /proc/stat names each CPU: cpu57 its
+/// own, cpu121 its sibling, cpu0 and cpu122 the rest.
+fn run_fake(self_after: &str) -> Fake {
+    let mut fake = Fake::pinned();
+    fake.file("/sys/devices/system/cpu/online", &["0,57,121-122\n"]);
+    fake.file("/proc/stat", &[STAT_BEFORE, STAT_AFTER]);
+    fake.file("/proc/self/stat", &[SELF_BEFORE, self_after]);
+    fake
+}
+
+fn run(fake: &Fake, load: Load) -> Result<Conditions, Void> {
+    warm::begin_on(fake, load).end_on(fake)
+}
+
+/// A pinned run whose own core someone else used is void; one that used it
+/// alone records the conditions it ran in.
+#[test]
+fn a_pinned_run_is_void_when_load_arrives_mid_run() {
+    let fake = run_fake(SELF_BEFORE);
+    let Err(Void(why)) = run(&fake, Load::Cores) else {
+        panic!("not void")
+    };
+    assert!(
+        why.contains("others' load on own cores 57 was 98%"),
+        "{why}"
+    );
+
+    let fake = run_fake(SELF_AFTER);
+    let Ok(Conditions::Measured(shares)) = run(&fake, Load::Cores) else {
+        panic!("not measured")
+    };
+    assert_eq!(shares.own, cores("57"));
+    assert_eq!(shares.others, BusyPct(0.0));
+    assert_eq!(shares.siblings, Some(BusyPct(4.0)));
+    assert_eq!(shares.rest, Some(BusyPct(100.0)));
+    assert_eq!(shares.gpu, None);
+    assert!(
+        fake.read
+            .borrow()
+            .iter()
+            .all(|p| !p.starts_with("/sys/class/drm")),
+        "a run that does not draw reads no GPU"
+    );
+}
+
+/// A counting run reads nothing at its start or its end, never voids and
+/// says it counted; the same run timed is void, and so is one whose mode
+/// cannot be read.
+#[test]
+fn a_counting_run_never_voids() {
+    let mut fake = run_fake(SELF_BEFORE);
+    fake.vars.insert("BAUD_MEASURES".into(), "counts".into());
+    assert_eq!(run(&fake, Load::Cores), Ok(Conditions::Counting));
+    assert_eq!(run(&fake, Load::CoresAndGpu), Ok(Conditions::Counting));
+    assert!(fake.read.borrow().is_empty(), "{:?}", fake.read.borrow());
+
+    let fake = run_fake(SELF_BEFORE);
+    assert!(
+        run(&fake, Load::Cores).is_err(),
+        "timed, the same run voids"
+    );
+
+    let mut fake = run_fake(SELF_BEFORE);
+    fake.vars.insert("BAUD_MEASURES".into(), "both".into());
+    let Err(Void(why)) = run(&fake, Load::Cores) else {
+        panic!("not void")
+    };
+    assert!(why.contains("BAUD_MEASURES: `both`"), "{why}");
+}
+
+/// A run that draws reads the GPU at its end with the start's line.
+#[test]
+fn a_drawing_run_is_void_when_the_gpu_reaches_its_line() {
+    let mut fake = run_fake(SELF_AFTER);
+    fake.file(GPU, &["80\n", "91\n"]);
+    let Err(Void(why)) = run(&fake, Load::CoresAndGpu) else {
+        panic!("not void")
+    };
+    assert!(why.contains("gpu was 80% busy"), "{why}");
+
+    let mut fake = run_fake(SELF_AFTER);
+    fake.file(GPU, &["60\n", "58\n"]);
+    let Ok(Conditions::Measured(shares)) = run(&fake, Load::CoresAndGpu) else {
+        panic!("not measured")
+    };
+    assert_eq!(shares.gpu, Some(BusyPct(58.0)));
+}
+
+/// An unpinned run records its conditions and never voids: every online
+/// CPU is its own, and the start's guard stands in.
+#[test]
+fn an_unpinned_run_records_and_never_voids() {
+    let mut fake = run_fake(SELF_BEFORE);
+    fake.file("/proc/self/status", &["Cpus_allowed_list:\t0,57,121-122\n"]);
+    let Ok(Conditions::Measured(shares)) = run(&fake, Load::CoresAndGpu) else {
+        panic!("not measured")
+    };
+    assert_eq!(shares.own, cores("0,57,121-122"));
+    // 100 + 98 + 4 + 0 busy of 300, none of it this process's.
+    assert_eq!(shares.others.to_string(), "67%");
+    assert_eq!((shares.siblings, shares.rest), (None, None));
+
+    let mut fake = run_fake(SELF_AFTER);
+    fake.file("/proc/self/status", &["Cpus_allowed_list:\t0,57,121-122\n"]);
+    fake.set(
+        "/proc/self/stat",
+        [Read::Unreadable("Permission denied".into())].into(),
+    );
+    let Ok(Conditions::Unread(why)) = run(&fake, Load::Cores) else {
+        panic!("not recorded as unread")
+    };
+    assert!(why.contains("/proc/self/stat: Permission denied"), "{why}");
+}
+
+/// What a pinned run cannot read, at its start or its end, voids it,
+/// naming the file.
+#[test]
+fn a_pinned_run_that_cannot_read_its_conditions_is_void() {
+    let mut fake = run_fake(SELF_AFTER);
+    fake.set(
+        "/proc/self/stat",
+        [Read::Unreadable("Permission denied".into())].into(),
+    );
+    let Err(Void(why)) = run(&fake, Load::Cores) else {
+        panic!("not void")
+    };
+    assert!(why.contains("/proc/self/stat: Permission denied"), "{why}");
+
+    let mut fake = run_fake(SELF_AFTER);
+    fake.set(
+        "/proc/stat",
+        [Read::Text(STAT_BEFORE.into()), Read::Absent].into(),
+    );
+    let Err(Void(why)) = run(&fake, Load::Cores) else {
+        panic!("not void")
+    };
+    assert!(why.contains("/proc/stat: absent"), "{why}");
+
+    let mut fake = run_fake(SELF_AFTER);
+    fake.set(
+        "/sys/devices/system/cpu/cpu57/topology/thread_siblings_list",
+        [Read::Absent].into(),
+    );
+    let Err(Void(why)) = run(&fake, Load::Cores) else {
+        panic!("not void")
+    };
+    assert!(why.contains("thread_siblings_list: absent"), "{why}");
+
+    let mut fake = run_fake(SELF_AFTER);
+    fake.set(
+        GPU,
+        [
+            Read::Text("4\n".into()),
+            Read::Unreadable("Device or resource busy".into()),
+        ]
+        .into(),
+    );
+    let Err(Void(why)) = run(&fake, Load::CoresAndGpu) else {
+        panic!("not void")
+    };
+    assert!(why.contains(GPU), "{why}");
 }

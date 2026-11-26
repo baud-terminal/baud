@@ -20,6 +20,15 @@
 //! file is not checked, and one whose file cannot be read refuses; so does
 //! a CPU file absent or unreadable.
 //!
+//! **A check at the start cannot see load that arrives mid-run**, so
+//! [`quiet_begin`] and [`Quiet::end`] bracket a timed run. Pinned, a run is
+//! void when others' load on its own cores (their busy ticks less this
+//! process's own CPU time), or its siblings' load, reached
+//! `BAUD_QUIET_BUSY`, or, for a run that draws, the GPU reached its line.
+//! `end` prints the conditions to stderr on one `quiet:` line, with the rest
+//! of the machine's busy beside them, or a `void:` line naming why. An
+//! unpinned run's conditions are recorded and never void it.
+//!
 //! An idle watcher counts, since the next save starts a build halfway
 //! through the measurement. It is found on the whole machine, not in one
 //! checkout: a timing A/B runs binaries built in a scratch copy of the tree,
@@ -36,7 +45,7 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// The pause, under a checkout's root.
 pub const PAUSE: &str = ".devenv/state/warm.pause";
@@ -290,8 +299,6 @@ pub fn refuse_while_warm() {
 /// Exit before measuring when [`refusal_on`] has a reason with the GPU
 /// read: the guard of a measurement that draws on the GPU. Unpinned, it is
 /// [`refuse_while_warm`].
-// `bench-others/multibench` takes this file by `#[path]` and draws on no GPU.
-#[allow(dead_code)]
 pub fn refuse_while_warm_on_gpu() {
     exit_on(refusal_on(Load::CoresAndGpu));
 }
@@ -623,9 +630,9 @@ pub fn siblings(own: &CoreSet, topology: impl Fn(Cpu) -> Read) -> Result<CoreSet
     Ok(CoreSet(all))
 }
 
-/// A count of a CPU's ticks.
-#[derive(Debug, Clone, Copy)]
-struct Tick(u64);
+/// A count of clock ticks, as /proc/stat and /proc/self/stat count them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Tick(pub u64);
 
 /// One CPU's line of [`STAT`]: its idle and iowait ticks, and all its
 /// ticks.
@@ -712,7 +719,7 @@ fn text(read: Read, path: &Path) -> Result<String, String> {
 }
 
 /// The lines a pinned measurement is held to.
-struct Quiet {
+struct Lines {
     busy: BusyPct,
     sample: Duration,
     gpu: BusyPct,
@@ -720,7 +727,7 @@ struct Quiet {
 
 /// The lines from the environment, each defaulted when unset; the GPU's is
 /// read only when the GPU is.
-fn quiet(m: &impl Machine, load: Load) -> Result<Quiet, String> {
+fn lines(m: &impl Machine, load: Load) -> Result<Lines, String> {
     let line = |name: &str, default: BusyPct| match m.var(name) {
         None => Ok(default),
         Some(v) => percent(&v).map_err(|e| format!("{name}: {e}")),
@@ -733,7 +740,7 @@ fn quiet(m: &impl Machine, load: Load) -> Result<Quiet, String> {
                 .map_err(|_| format!("{QUIET_SAMPLE}: `{v}` is not a number of milliseconds"))?,
         ),
     };
-    Ok(Quiet {
+    Ok(Lines {
         busy: line(QUIET_BUSY, BusyPct(5.0))?,
         sample,
         gpu: match load {
@@ -743,10 +750,19 @@ fn quiet(m: &impl Machine, load: Load) -> Result<Quiet, String> {
     })
 }
 
-/// Each GPU busy on both of two reads [`GPU_GAP`] apart, as a line naming
-/// the card and its readings. A card with no `gpu_busy_percent` is not
-/// checked; one that cannot be read is an error naming it.
-fn gpu_load(m: &impl Machine, max: BusyPct) -> Result<Vec<String>, String> {
+/// A GPU's two reads of its busy percent, [`GPU_GAP`] apart.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Card {
+    /// Its name in [`DRM`].
+    pub name: String,
+    /// What it read, in order.
+    pub reads: [BusyPct; 2],
+}
+
+/// Every GPU with a `gpu_busy_percent`, read twice [`GPU_GAP`] apart. A card
+/// with no such file is not read; one that cannot be read is an error
+/// naming it.
+fn gpu_pairs(m: &impl Machine) -> Result<Vec<Card>, String> {
     let names = match m.drm() {
         Read::Absent => return Ok(Vec::new()),
         Read::Unreadable(e) => return Err(format!("{DRM}: {e}")),
@@ -772,17 +788,31 @@ fn gpu_load(m: &impl Machine, max: BusyPct) -> Result<Vec<String>, String> {
         return Ok(Vec::new());
     }
     m.sleep(GPU_GAP);
-    let mut found = Vec::new();
+    let mut cards = Vec::new();
     for (name, path, a) in first {
         let b = percent(&text(m.read(&path), &path)?)
             .map_err(|e| format!("{}: {e}", path.display()))?;
-        if gpu_busy([a, b], max) {
-            found.push(format!(
-                "{name} {a} then {b} busy, at or above {QUIET_GPU_BUSY}'s {max}"
-            ));
-        }
+        cards.push(Card {
+            name: name.to_string(),
+            reads: [a, b],
+        });
     }
-    Ok(found)
+    Ok(cards)
+}
+
+/// Each GPU busy on both of its two reads, as a line naming the card and
+/// its readings.
+fn gpu_load(m: &impl Machine, max: BusyPct) -> Result<Vec<String>, String> {
+    Ok(gpu_pairs(m)?
+        .into_iter()
+        .filter(|c| gpu_busy(c.reads, max))
+        .map(|c| {
+            format!(
+                "{} {} then {} busy, at or above {QUIET_GPU_BUSY}'s {max}",
+                c.name, c.reads[0], c.reads[1]
+            )
+        })
+        .collect())
 }
 
 /// Whether a measurement pinned to some CPUs may start: unpinned, nothing
@@ -810,7 +840,7 @@ fn judge(m: &impl Machine, load: Load) -> Result<Verdict, String> {
         Placement::Pinned(_) if measures == Measures::Counts => return Ok(Verdict::Counting),
         Placement::Pinned(pinned) => pinned,
     };
-    let quiet = quiet(m, load)?;
+    let quiet = lines(m, load)?;
     let cores = siblings(&pinned, |cpu| m.read(&siblings_path(cpu)))?;
     let before = text(m.read(Path::new(STAT)), Path::new(STAT))?;
     m.sleep(quiet.sample);
@@ -842,4 +872,388 @@ fn judge(m: &impl Machine, load: Load) -> Result<Verdict, String> {
     }
     why.push_str("\nstart again once it has ended, or pin the measurement to quiet cores");
     Ok(Verdict::Refused(why))
+}
+
+/// This process's own statistics: its 14th and 15th fields are its user
+/// and system time in ticks.
+pub const SELF_STAT: &str = "/proc/self/stat";
+
+/// This process's CPU time, user and system, from its [`SELF_STAT`] text.
+/// The fields are counted after the command's closing parenthesis, since a
+/// command may hold spaces and parentheses.
+pub fn self_ticks(stat: &str) -> Result<Tick, String> {
+    let (_, rest) = stat
+        .rsplit_once(')')
+        .ok_or_else(|| String::from("no command in parentheses"))?;
+    // The state, the third field, is the first after the command.
+    let fields: Vec<&str> = rest.split_whitespace().collect();
+    let field = |at: usize, name: &str| {
+        fields
+            .get(at)
+            .and_then(|f| f.parse::<u64>().ok())
+            .ok_or_else(|| format!("no {name} field"))
+    };
+    Ok(Tick(field(11, "utime")? + field(12, "stime")?))
+}
+
+/// The ticks a group of cores spent between two reads: busy, and in all.
+struct Spent {
+    busy: Tick,
+    total: Tick,
+}
+
+fn spent(before: &str, after: &str, cores: &CoreSet) -> Result<Spent, String> {
+    let (before, after) = (ticks(before)?, ticks(after)?);
+    let (mut busy, mut total) = (0, 0);
+    for &cpu in &cores.0 {
+        let (Some(a), Some(b)) = (before.get(&cpu), after.get(&cpu)) else {
+            return Err(format!("no line for {cpu}"));
+        };
+        let all = b.total.0.saturating_sub(a.total.0);
+        total += all;
+        busy += all.saturating_sub(b.idle.0.saturating_sub(a.idle.0));
+    }
+    Ok(Spent {
+        busy: Tick(busy),
+        total: Tick(total),
+    })
+}
+
+/// `part` as a share of `whole`; nothing ticked is idle.
+fn share(part: Tick, whole: Tick) -> BusyPct {
+    if whole.0 > 0 {
+        BusyPct(100.0 * part.0 as f64 / whole.0 as f64)
+    } else {
+        BusyPct(0.0)
+    }
+}
+
+/// The share of a group of cores' ticks that were busy between two reads
+/// of [`STAT`], or `None` for a group of no cores.
+pub fn group_busy(before: &str, after: &str, cores: &CoreSet) -> Result<Option<BusyPct>, String> {
+    if cores.0.is_empty() {
+        return Ok(None);
+    }
+    let spent = spent(before, after, cores)?;
+    Ok(Some(share(spent.busy, spent.total)))
+}
+
+/// Others' load on the measurement's own cores: their busy ticks between
+/// two reads of [`STAT`], less this process's CPU time over the same
+/// interval (`mine`, before and after), as a share of all their ticks. The
+/// measurement keeps its own cores busy, so their busy alone cannot say
+/// whether anything else ran there.
+pub fn others_busy(
+    before: &str,
+    after: &str,
+    own: &CoreSet,
+    mine: [Tick; 2],
+) -> Result<BusyPct, String> {
+    let spent = spent(before, after, own)?;
+    let mine = mine[1].0.saturating_sub(mine[0].0);
+    Ok(share(Tick(spent.busy.0.saturating_sub(mine)), spent.total))
+}
+
+/// The online CPUs that are neither the measurement's own nor their
+/// siblings.
+pub fn rest_of(online: &CoreSet, own: &CoreSet, siblings: &CoreSet) -> CoreSet {
+    online
+        .0
+        .iter()
+        .filter(|c| !own.0.contains(c) && !siblings.0.contains(c))
+        .copied()
+        .collect()
+}
+
+/// What a run shared its machine with, over the run.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shares {
+    /// The measurement's own cores: the online CPUs of its affinity.
+    pub own: CoreSet,
+    /// Others' load on them, this process's own time taken out.
+    pub others: BusyPct,
+    /// Their SMT siblings outside the affinity, busy in full, since the
+    /// measurement does not run there; `None` when there are none.
+    pub siblings: Option<BusyPct>,
+    /// Every other online CPU; `None` when there are none.
+    pub rest: Option<BusyPct>,
+    /// The busiest GPU, as the lower of its two reads; `None` for a
+    /// measurement that does not draw, or a machine with no GPU file.
+    pub gpu: Option<BusyPct>,
+    /// The run's length.
+    pub over: Duration,
+}
+
+impl std::fmt::Display for Shares {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let or_none =
+            |p: Option<BusyPct>| p.map_or_else(|| String::from("none"), |p| p.to_string());
+        write!(
+            f,
+            "own cores {} others {}; siblings {}; rest of the machine {} busy",
+            self.own,
+            self.others,
+            or_none(self.siblings),
+            or_none(self.rest)
+        )?;
+        if let Some(gpu) = self.gpu {
+            write!(f, "; gpu {gpu}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Why a pinned run's conditions void its result, or `None`: others' load
+/// on its own cores, or its siblings' load, at or above `busy`, or the GPU
+/// at or above `gpu`. The rest of the machine is recorded and never voids.
+pub fn void_reason(shares: &Shares, busy: BusyPct, gpu: BusyPct) -> Option<String> {
+    let mut why = Vec::new();
+    if shares.others >= busy {
+        why.push(format!(
+            "others' load on own cores {} was {}, at or above {QUIET_BUSY}'s {busy}",
+            shares.own, shares.others
+        ));
+    }
+    if let Some(siblings) = shares.siblings.filter(|s| *s >= busy) {
+        why.push(format!(
+            "their siblings were {siblings} busy, at or above {QUIET_BUSY}'s {busy}"
+        ));
+    }
+    if let Some(g) = shares.gpu.filter(|g| *g >= gpu) {
+        why.push(format!(
+            "the gpu was {g} busy, at or above {QUIET_GPU_BUSY}'s {gpu}"
+        ));
+    }
+    (!why.is_empty()).then(|| why.join("; "))
+}
+
+/// What a run's conditions were.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Conditions {
+    /// Read over the run.
+    Measured(Shares),
+    /// An unpinned run's, which could not be read, and why.
+    Unread(String),
+    /// None to read: this machine shows no per-CPU ticks.
+    NotHere,
+    /// A counting run's: no load was read.
+    Counting,
+}
+
+/// A run whose result does not stand, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Void(pub String);
+
+/// Whether a run's cores are its affinity alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pin {
+    Pinned,
+    Unpinned,
+}
+
+/// The CPUs a run's conditions are read over.
+struct Groups {
+    pin: Pin,
+    own: CoreSet,
+    siblings: CoreSet,
+    rest: CoreSet,
+}
+
+/// The run's groups: unpinned, every online CPU is its own.
+fn groups(m: &impl Machine) -> Result<Groups, String> {
+    let status = text(m.read(Path::new(STATUS)), Path::new(STATUS))?;
+    let allowed = allowed(&status).map_err(|e| format!("{STATUS}: {e}"))?;
+    let online = text(m.read(Path::new(ONLINE)), Path::new(ONLINE))?;
+    let online = cpu_list(&online).map_err(|e| format!("{ONLINE}: {e}"))?;
+    match placement(&allowed, &online) {
+        Placement::Unpinned => Ok(Groups {
+            pin: Pin::Unpinned,
+            own: online,
+            siblings: CoreSet::default(),
+            rest: CoreSet::default(),
+        }),
+        Placement::Pinned(own) => {
+            let all = siblings(&own, |cpu| m.read(&siblings_path(cpu)))?;
+            let siblings: CoreSet = all.0.difference(&own.0).copied().collect();
+            let rest = rest_of(&online, &own, &siblings);
+            Ok(Groups {
+                pin: Pin::Pinned,
+                own,
+                siblings,
+                rest,
+            })
+        }
+    }
+}
+
+/// One read of the machine's ticks and this process's.
+struct Snapshot {
+    stat: String,
+    mine: Tick,
+}
+
+fn snapshot(m: &impl Machine) -> Result<Snapshot, String> {
+    let mine = text(m.read(Path::new(SELF_STAT)), Path::new(SELF_STAT))?;
+    let mine = self_ticks(&mine).map_err(|e| format!("{SELF_STAT}: {e}"))?;
+    let stat = text(m.read(Path::new(STAT)), Path::new(STAT))?;
+    Ok(Snapshot { stat, mine })
+}
+
+/// A run's start as [`quiet_begin`] read it.
+enum Start {
+    NotHere,
+    Counting,
+    Unread(Pin, String),
+    Read(Begun),
+}
+
+struct Begun {
+    groups: Groups,
+    lines: Option<Lines>,
+    at: Snapshot,
+}
+
+/// A run in progress: what its start read, for [`Quiet::end`] to compare.
+#[must_use = "a run's conditions are read only by `end`"]
+pub struct Quiet {
+    load: Load,
+    began: Instant,
+    start: Start,
+}
+
+/// Begin a run: read the ticks of the machine and of this process, and on
+/// Linux nothing else is read until [`Quiet::end`]. Off Linux there is
+/// nothing to read.
+pub fn quiet_begin(load: Load) -> Quiet {
+    if cfg!(target_os = "linux") {
+        begin_on(&Host, load)
+    } else {
+        Quiet {
+            load,
+            began: Instant::now(),
+            start: Start::NotHere,
+        }
+    }
+}
+
+/// [`quiet_begin`] on `m`.
+pub fn begin_on(m: &impl Machine, load: Load) -> Quiet {
+    let start = begun(m, load);
+    Quiet {
+        load,
+        began: Instant::now(),
+        start,
+    }
+}
+
+fn begun(m: &impl Machine, load: Load) -> Start {
+    match measures(m) {
+        Ok(Measures::Counts) => return Start::Counting,
+        Ok(Measures::Time) => {}
+        Err(why) => return Start::Unread(Pin::Pinned, why),
+    }
+    // A run whose placement cannot be read is held as a pinned one.
+    let groups = match groups(m) {
+        Ok(groups) => groups,
+        Err(why) => return Start::Unread(Pin::Pinned, why),
+    };
+    let lines = match groups.pin {
+        Pin::Unpinned => None,
+        Pin::Pinned => match lines(m, load) {
+            Ok(lines) => Some(lines),
+            Err(why) => return Start::Unread(Pin::Pinned, why),
+        },
+    };
+    match snapshot(m) {
+        Ok(at) => Start::Read(Begun { groups, lines, at }),
+        Err(why) => Start::Unread(groups.pin, why),
+    }
+}
+
+/// What cannot be read voids a pinned run and is recorded for an unpinned
+/// one.
+fn unread(pin: Pin, why: String) -> Result<Conditions, Void> {
+    match pin {
+        Pin::Pinned => Err(Void(format!("the run's conditions cannot be read ({why})"))),
+        Pin::Unpinned => Ok(Conditions::Unread(why)),
+    }
+}
+
+/// What the run shared its machine with, read at its end.
+fn measure(m: &impl Machine, begun: &Begun, load: Load, began: Instant) -> Result<Shares, String> {
+    let after = snapshot(m)?;
+    let over = began.elapsed();
+    let (before, groups) = (&begun.at, &begun.groups);
+    let in_stat = |e: String| format!("{STAT}: {e}");
+    let others = others_busy(
+        &before.stat,
+        &after.stat,
+        &groups.own,
+        [before.mine, after.mine],
+    )
+    .map_err(in_stat)?;
+    let siblings = group_busy(&before.stat, &after.stat, &groups.siblings).map_err(in_stat)?;
+    let rest = group_busy(&before.stat, &after.stat, &groups.rest).map_err(in_stat)?;
+    let gpu = match load {
+        Load::Cores => None,
+        Load::CoresAndGpu => gpu_pairs(m)?
+            .iter()
+            .map(|c| {
+                if c.reads[0] <= c.reads[1] {
+                    c.reads[0]
+                } else {
+                    c.reads[1]
+                }
+            })
+            .fold(None, |most: Option<BusyPct>, p| match most {
+                Some(most) if most >= p => Some(most),
+                _ => Some(p),
+            }),
+    };
+    Ok(Shares {
+        own: groups.own.clone(),
+        others,
+        siblings,
+        rest,
+        gpu,
+        over,
+    })
+}
+
+impl Quiet {
+    /// End a run: read what it shared its machine with, and print it to
+    /// stderr as one `quiet:` line, or a `void:` line naming why its result
+    /// does not stand. A run that voids prints no rate and exits non-zero.
+    /// An unpinned run, which the start's guard stands in for, never voids.
+    pub fn end(self) -> Result<Conditions, Void> {
+        let ended = self.end_on(&Host);
+        match &ended {
+            Ok(Conditions::Measured(shares)) => eprintln!("quiet: {shares}"),
+            Ok(Conditions::Unread(why)) => eprintln!("quiet: conditions not read ({why})"),
+            Ok(Conditions::NotHere) => {}
+            Ok(Conditions::Counting) => eprintln!("quiet: counting; no load read"),
+            Err(Void(why)) => eprintln!("void: {why}"),
+        }
+        ended
+    }
+
+    /// [`Quiet::end`] on `m`, printing nothing.
+    pub fn end_on(self, m: &impl Machine) -> Result<Conditions, Void> {
+        let begun = match self.start {
+            Start::NotHere => return Ok(Conditions::NotHere),
+            Start::Counting => return Ok(Conditions::Counting),
+            Start::Unread(pin, why) => return unread(pin, why),
+            Start::Read(begun) => begun,
+        };
+        let shares = match measure(m, &begun, self.load, self.began) {
+            Ok(shares) => shares,
+            Err(why) => return unread(begun.groups.pin, why),
+        };
+        if let Some(lines) = &begun.lines {
+            if let Some(why) = void_reason(&shares, lines.busy, lines.gpu) {
+                return Err(Void(why));
+            }
+        }
+        Ok(Conditions::Measured(shares))
+    }
 }

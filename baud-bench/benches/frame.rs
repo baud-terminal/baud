@@ -679,6 +679,7 @@ fn main() {
     let mut best: Option<Rep> = None;
     // Each rep's hash of its frames, under `FRAME_HASH=on`.
     let mut hashes = Vec::new();
+    let quiet = baud_bench::warm::quiet_begin(baud_bench::warm::Load::Cores);
     for rep in 0..reps {
         if rep > 0 {
             r = fresh();
@@ -921,6 +922,10 @@ fn main() {
         if best.as_ref().is_none_or(|b| rep.total < b.total) {
             best = Some(rep);
         }
+    }
+    // A run whose own cores were shared voids: it prints no rate.
+    if quiet.end().is_err() {
+        std::process::exit(1);
     }
     // A fresh renderer draws over the last rep's buffer, so a rep whose
     // frames differ is a frame that depends on more than the recording.

@@ -452,7 +452,12 @@ fn main() {
     }
     eprintln!("ambiguous width: {:?}", t.ambiguous_width());
 
+    let quiet = baud_bench::warm::quiet_begin(baud_bench::warm::Load::Cores);
     let (fed, per_rep) = timed(&mut t, &data, reps);
+    // A run whose own cores were shared voids: it prints no rate.
+    if quiet.end().is_err() {
+        std::process::exit(1);
+    }
 
     let mut rates: Vec<f64> = per_rep
         .iter()
