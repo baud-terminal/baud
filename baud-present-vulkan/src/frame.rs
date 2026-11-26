@@ -966,7 +966,8 @@ impl Gpu {
     }
 
     /// Record with `record` into a fresh command buffer, submit it alone,
-    /// and wait for it on the CPU.
+    /// and wait for it on the CPU. A failure at any step frees the command
+    /// buffer and the fence made before it.
     #[allow(unsafe_code)]
     pub(crate) fn submit_and_wait(
         &self,
@@ -979,15 +980,26 @@ impl Gpu {
             .command_buffer_count(1);
         // SAFETY: the pool is this device's.
         let cb = unsafe { d.allocate_command_buffers(&alloc) }?[0];
+        self.object_made();
+        let mut held = Submitting {
+            gpu: self,
+            cb,
+            fence: None,
+        };
         let begin = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        self.call()?;
         // SAFETY: a fresh buffer, begun once.
         unsafe { d.begin_command_buffer(cb, &begin) }?;
         record(cb);
+        self.call()?;
         // SAFETY: the buffer was begun above.
         unsafe { d.end_command_buffer(cb) }?;
+        self.call()?;
         // SAFETY: a device of this struct.
         let fence = unsafe { d.create_fence(&vk::FenceCreateInfo::default(), None) }?;
+        self.object_made();
+        held.fence = Some(fence);
         let cbs = [cb];
         let submit = [vk::SubmitInfo::default().command_buffers(&cbs)];
         let done = self.call().and_then(|()| {
@@ -1000,11 +1012,7 @@ impl Gpu {
             .map_err(Failed::from)
         });
         self.waited();
-        // SAFETY: the queue has finished with both, or never took them.
-        unsafe {
-            d.destroy_fence(fence, None);
-            d.free_command_buffers(self.pool, &cbs);
-        }
+        drop(held);
         done
     }
 
@@ -1057,7 +1065,8 @@ impl Gpu {
     }
 
     /// **The `n`-th fallible device call from now fails with `code`**: a
-    /// target's allocation, a submission, a step of the cell path's
+    /// target's allocation, a submission, a lone submission's beginning,
+    /// end and fence (`Gpu::submit_and_wait`), a step of the cell path's
     /// memory (`CellMemory::new`), a buffer's memory, binding or mapping,
     /// an image's memory, binding or view, the sheets' sampler, the
     /// pipelines' set layouts, pipeline layouts, render pass and cache, a
@@ -1145,5 +1154,30 @@ impl Drop for Gpu {
             self.device.destroy_command_pool(self.pool, None);
             self.device.destroy_device(None);
         }
+    }
+}
+
+/// **A command buffer submitted alone, and its fence once made**, freed
+/// newest first when [`Gpu::submit_and_wait`] returns, early or once the
+/// wait has finished.
+struct Submitting<'g> {
+    gpu: &'g Gpu,
+    cb: vk::CommandBuffer,
+    fence: Option<vk::Fence>,
+}
+
+impl Drop for Submitting<'_> {
+    #[allow(unsafe_code)]
+    fn drop(&mut self) {
+        let (gpu, d) = (self.gpu, &self.gpu.device);
+        // SAFETY: the queue has finished with both, or never took them.
+        unsafe {
+            if let Some(f) = self.fence.take() {
+                d.destroy_fence(f, None);
+                gpu.object_dropped();
+            }
+            d.free_command_buffers(gpu.pool, &[self.cb]);
+        }
+        gpu.object_dropped();
     }
 }

@@ -2,7 +2,8 @@
 //! crate's own tests: the `test-hooks` feature, which baud's own build
 //! leaves off (`xtask/tests/test_hooks.rs`). The `n`-th fallible device
 //! call from now fails with the code given -- a target's allocation, a
-//! submission, a step of the cell path's memory, a buffer's memory,
+//! submission, a lone submission's beginning, end and fence, a step of the
+//! cell path's memory, a buffer's memory,
 //! binding or mapping, an image's memory, binding or view, the sheets'
 //! sampler, the pipelines' layouts, pass and cache, a pipeline's shader
 //! modules and the pipeline, an instance frame's descriptor pool, sets,

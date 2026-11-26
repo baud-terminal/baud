@@ -424,15 +424,20 @@ fn pipelines_that_fail_part_way_leave_nothing_on_radv() {
     pipelines_fail_whole(&common::radv());
 }
 
+/// The fallible device calls a command buffer submitted alone and waited
+/// for is made through: its beginning, its end, its fence and the
+/// submission.
+const SUBMIT_STEPS: u32 = 4;
+
 /// The fallible device calls a texture is uploaded through: its image's,
-/// its staging buffer's and the copy's submission.
-const TEXTURE_STEPS: u32 = IMAGE_STEPS + BUFFER_STEPS + 1;
+/// its staging buffer's and the copy's command buffer.
+const TEXTURE_STEPS: u32 = IMAGE_STEPS + BUFFER_STEPS + SUBMIT_STEPS;
 
 /// The fallible device calls a whole frame without framing or an effect
 /// is drawn through, its pipelines built: the `U` buffer, the records'
 /// buffer, the backgrounds' texture, the descriptor pool, its sets, the
-/// target's view, the framebuffer and the submission.
-const DRAW_STEPS: u32 = 2 * BUFFER_STEPS + TEXTURE_STEPS + 4 + 1;
+/// target's view, the framebuffer and the command buffer submitted.
+const DRAW_STEPS: u32 = 2 * BUFFER_STEPS + TEXTURE_STEPS + 4 + SUBMIT_STEPS;
 
 /// **A frame that fails part way leaves nothing made**: each step of a
 /// whole frame on the instance path forced to fail in turn, and every
@@ -513,10 +518,12 @@ fn a_frame_that_fails_part_way_leaves_nothing_on_radv() {
 }
 
 /// **A read that fails part way leaves nothing made**: its buffer's
-/// memory, binding and mapping and the submission forced to fail in turn,
-/// and the buffer destroyed after each. The controls: the read whole is
-/// every pixel, and the steps failed are a buffer's and the submission.
-/// Named break: the buffer left alive when its memory or binding fails.
+/// memory, binding and mapping, then its command buffer's beginning, end,
+/// fence and submission, forced to fail in turn, and the buffer and the
+/// command buffer destroyed after each. The controls: the read whole is
+/// every pixel, and the steps failed are a buffer's and a submission's.
+/// Named break: the buffer left alive when its memory or binding fails, or
+/// the command buffer when its beginning, end or fence fails.
 fn read_fails_whole(gpu: &Gpu) {
     let t = gpu.target(Px(8), Px(4)).expect("a target");
     assert_eq!(
@@ -530,7 +537,11 @@ fn read_fails_whole(gpu: &Gpu) {
         || gpu.read(&t),
         |words| assert_eq!(words.len(), 8 * 4, "the control: every pixel"),
     );
-    assert_eq!(failed, BUFFER_STEPS + 1, "every step failed once");
+    assert_eq!(
+        failed,
+        BUFFER_STEPS + SUBMIT_STEPS,
+        "every step failed once"
+    );
     gpu.drop_target(t);
 }
 
