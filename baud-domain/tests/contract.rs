@@ -1087,6 +1087,18 @@ const _: for<'a> fn(
 ) -> baud_domain::WcSlice<'a, u32> = baud_domain::WcSlice::slice;
 const _: for<'a, 'c> fn(&'a mut baud_domain::WcSlice<'static, u32>, &'c [u32]) =
     baud_domain::WcSlice::copy_from;
+const _: for<'a> fn(&'a mut baud_domain::WcSlice<'static, u32>, u32) = baud_domain::WcSlice::fill;
+// WriteOnly
+fn write_only<W: baud_domain::WriteOnly<u32>>() {
+    let _: for<'a> fn(&'a W) -> usize = W::len;
+    let _: for<'a> fn(&'a W) -> bool = W::is_empty;
+    let _: for<'a> fn(&'a mut W, usize, u32) = W::set;
+    let _: for<'a> fn(&'a mut W, core::ops::Range<usize>) -> W::Part<'a> = W::slice;
+    let _: for<'a, 'c> fn(&'a mut W, &'c [u32]) = W::copy_from;
+    let _: for<'a> fn(&'a mut W, u32) = W::fill;
+}
+const _: fn() = write_only::<baud_domain::WcSlice<'static, u32>>;
+const _: fn() = write_only::<&'static mut [u32]>;
 // dbus::Sig
 const _: fn(&'static [u8]) -> Result<baud_domain::dbus::Sig<'static>, baud_domain::dbus::SigError> =
     baud_domain::dbus::Sig::parse;
@@ -2044,6 +2056,8 @@ const WITNESSED: &[(&str, &str)] = &[
     ("WcSlice", "E0369"),
     ("WcSlice", "E0599"),
     ("WcSlice", "E0608"),
+    ("WriteOnly", "E0599"),
+    ("WriteOnly", "E0608"),
     ("Attrs", "E0369"),
     ("BytePos", "E0369"),
     ("CellFlags", "E0603"),
