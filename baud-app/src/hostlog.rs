@@ -8,9 +8,12 @@
 //! change so a part is parsed under one mode (`reads::feed`). So the log
 //! runs from the byte after `?46 h` to the end of `?46 l`.
 //!
-//! **Where**: the name `OSC 46` gave; `-` is baud's standard output, as
-//! xterm's; a relative name is read from the directory the shell started
-//! in, and with no name the log is `baud.log.<host>.<date>.<pid>` there,
+//! **Where**: the name `OSC 46` gave, a file in the directory the shell
+//! started in, the log directory. A name that is not one file name there
+//! -- empty, `.`, `..`, `-`, or holding a `/` or a NUL -- is refused and
+//! starts no log, and the file it names is opened only as itself, never
+//! through a link, and only a regular file. With no name the log is
+//! `baud.log.<host>.<date>.<pid>` there,
 //! after xterm's `Xterm.log.<host>.<date>.<pid>`, the date and time local,
 //! as xterm's `localtime` gives them (`pty::start_dir`). The file is
 //! appended to, created `0644` if absent, and refused unless the real user
@@ -91,23 +94,27 @@ impl Tee for NoLog {
 /// Where a started log goes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
-    File(PathBuf),
-    Stdout,
+    /// The file a program named, in the log directory.
+    Named(PathBuf),
+    /// The generated name, in the log directory.
+    Generated(PathBuf),
 }
 
-/// The target of a start: `-` standard output, an absolute name itself, a
-/// relative one in `dir`, and none the generated name in `dir`.
-pub fn target(name: Option<&[u8]>, dir: &Path, generated: impl FnOnce() -> String) -> Target {
+/// The target of a start: a program's name is a file in `dir`, and none
+/// the generated name in `dir`. A name that is not one file name -- empty,
+/// `.`, `..`, `-`, or holding a `/` or a NUL -- is refused.
+pub fn target(
+    name: Option<&[u8]>,
+    dir: &Path,
+    generated: impl FnOnce() -> String,
+) -> Option<Target> {
     match name {
-        Some(b"-") => Target::Stdout,
-        Some(n) => {
-            let p = Path::new(OsStr::from_bytes(n));
-            match p.is_absolute() {
-                true => Target::File(p.to_path_buf()),
-                false => Target::File(dir.join(p)),
-            }
-        }
-        None => Target::File(dir.join(generated())),
+        Some(b"" | b"." | b"..") => None,
+        Some(b"-") => None,
+        Some(n) if n.contains(&b'/') => None,
+        Some(n) if n.contains(&0) => None,
+        Some(n) => Some(Target::Named(dir.join(OsStr::from_bytes(n)))),
+        None => Some(Target::Generated(dir.join(generated()))),
     }
 }
 
@@ -262,7 +269,7 @@ enum Quitting {
     Done,
 }
 
-/// The app's log: the directory a start without an absolute name goes to,
+/// The app's log: the directory every start goes to,
 /// the writer, made at the first start, and the name made for a start with
 /// none, kept for the next.
 pub struct HostLog {
@@ -451,9 +458,13 @@ impl Tee for HostLog {
                 // Made at the first start with no name and kept, as xterm's
                 // `GenerateLogPath`.
                 let (kept, namer) = (&mut self.generated, self.namer);
-                let t = target(term.log_file(), &self.dir, || {
+                let Some(t) = target(term.log_file(), &self.dir, || {
                     kept.get_or_insert_with(namer).clone()
-                });
+                }) else {
+                    crate::warn!("log: a log name is one file name in {}", self.dir.display());
+                    term.stop_log();
+                    return;
+                };
                 self.epoch = Epoch(self.epoch.0 + 1);
                 self.opened = Opened::Open;
                 self.said = Said::No;
@@ -488,18 +499,12 @@ fn generate() -> String {
 /// Where the writer writes.
 enum Sink {
     File(std::fs::File),
-    Stdout,
 }
 
 impl Sink {
     fn write_all(&mut self, part: &[u8]) -> std::io::Result<()> {
         match self {
             Sink::File(f) => f.write_all(part),
-            // Flushed at each part: Rust's standard output holds a line.
-            Sink::Stdout => {
-                let mut out = std::io::stdout();
-                out.write_all(part).and_then(|()| out.flush())
-            }
         }
     }
 }
@@ -543,24 +548,28 @@ fn write_log(rx: Receiver<Msg>, failed: Sender<(Epoch, String)>, queued: Arc<Ato
 
 /// Open a target with xterm's checks: appended, created `0644`, opened
 /// without blocking, then refused unless the real user owns it and no one
-/// else may write it. Once open, the descriptor blocks again, on this
-/// thread alone.
+/// else may write it. A program's name is opened only as itself, never
+/// through a link, and only a regular file. Once open, the descriptor
+/// blocks again, on this thread alone.
 fn open(t: &Target) -> Result<Sink, String> {
-    let path = match t {
-        Target::Stdout => return Ok(Sink::Stdout),
-        Target::File(p) => p,
+    let (path, links) = match t {
+        Target::Named(p) => (p, crate::sys::O_NOFOLLOW),
+        Target::Generated(p) => (p, 0),
     };
     let shown = path.display();
     let f = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
         .mode(0o644)
-        .custom_flags(crate::sys::O_NONBLOCK)
+        .custom_flags(crate::sys::O_NONBLOCK | links)
         .open(path)
         .map_err(|e| format!("cannot open {shown}: {e}"))?;
     let meta = f
         .metadata()
         .map_err(|e| format!("cannot read {shown}: {e}"))?;
+    if matches!(t, Target::Named(_)) && !meta.file_type().is_file() {
+        return Err(format!("{shown} is not a regular file"));
+    }
     // SAFETY: `getuid` takes nothing and cannot fail.
     if meta.uid() != unsafe { crate::sys::getuid() } {
         return Err(format!("{shown} is not yours"));
@@ -591,8 +600,16 @@ mod tests {
         ws_col: 20,
     };
 
+    /// A fresh directory beside the test binary, in the build's target
+    /// directory.
     fn scratch(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("baud-hostlog-{}-{name}", std::process::id()));
+        let exe = std::env::current_exe().expect("the test binary");
+        let d = exe
+            .parent()
+            .and_then(Path::parent)
+            .expect("the target directory")
+            .join("hostlog-scratch")
+            .join(format!("{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).expect("scratch");
         d
@@ -682,23 +699,23 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// **With no name, the generated one in the start directory; an
-    /// absolute name as given, a relative one in the directory, `-` the
-    /// standard output.**
+    /// **With no name, the generated one in the start directory; a
+    /// program's name a file in the directory, and an empty one or one
+    /// holding a NUL refused.**
     #[test]
     fn the_target_is_named_or_generated() {
         let dir = Path::new("/home/u");
         let name = || "g".to_string();
-        assert_eq!(target(None, dir, name), Target::File(dir.join("g")));
         assert_eq!(
-            target(Some(b"/var/x.log"), dir, name),
-            Target::File(PathBuf::from("/var/x.log"))
+            target(None, dir, name),
+            Some(Target::Generated(dir.join("g")))
         );
         assert_eq!(
-            target(Some(b"x/y.log"), dir, name),
-            Target::File(dir.join("x/y.log"))
+            target(Some(b"x.log"), dir, name),
+            Some(Target::Named(dir.join("x.log")))
         );
-        assert_eq!(target(Some(b"-"), dir, name), Target::Stdout);
+        assert_eq!(target(Some(b""), dir, name), None);
+        assert_eq!(target(Some(b"x\0.log"), dir, name), None);
         assert_eq!(
             generated_name("h", &utc(Duration::from_secs(1_760_965_384)), Pid(42)),
             "baud.log.h.2025.10.20.13.03.04.42"
@@ -758,7 +775,7 @@ mod tests {
 
     /// **A file others may write is refused, and the core's log stops**, as
     /// xterm's `open_userfile` refuses it; so is a FIFO with no reader, at
-    /// once and without blocking, and a directory. The refusal comes from
+    /// once and without blocking. The refusal comes from
     /// the writer's thread and stops the core at the feed's first look at
     /// the log after it arrives -- the look after each part of a read
     /// (`reads::feed`) -- so whether the core is still started when the
@@ -780,7 +797,7 @@ mod tests {
             .status()
             .expect("mkfifo");
         assert!(made.success(), "mkfifo");
-        for name in [&b"shared.log"[..], b"fifo", b"."] {
+        for name in [&b"shared.log"[..], b"fifo"] {
             for answers in [Answers::Free, Answers::First] {
                 let mut s = Owned::new(&WS);
                 let mut t = Term::new(s.storage(), &WS);
@@ -816,6 +833,147 @@ mod tests {
             "nothing written"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A start of the log `name` names, in a log directory `dir`, the
+    /// writer answering before each of the feed's looks at the log, then
+    /// settled: the opens asked, and whether the core is still started.
+    fn start_named(dir: &Path, name: &[u8]) -> (Epoch, LogMode) {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_logging(Logging::On);
+        let mut seq = b"\x1b]46;".to_vec();
+        seq.extend_from_slice(name);
+        seq.extend_from_slice(b"\x07\x1b[?46hx");
+        let mut log = HostLog::new(dir.to_path_buf());
+        crate::reads::feed(&mut t, [&seq[..]], |_| {}, |_| {}, &mut Prompt(&mut log));
+        log.settle(&mut t);
+        let epoch = log.epoch;
+        log.finish();
+        (epoch, t.log_mode())
+    }
+
+    /// The names in `dir`, sorted.
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .expect("the dir")
+            .map(|e| {
+                e.expect("an entry")
+                    .file_name()
+                    .into_string()
+                    .expect("a name")
+            })
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// **A name with a `/` starts no log**, absolute or relative: nothing
+    /// is opened and nothing is made outside the log directory. With no
+    /// name, the generated log still opens in the directory and holds what
+    /// the host sent.
+    #[test]
+    fn a_name_with_a_slash_starts_no_log() {
+        let root = scratch("slash");
+        let (dir, outside) = (root.join("logs"), root.join("outside"));
+        std::fs::create_dir_all(dir.join("sub")).expect("the log dir");
+        std::fs::create_dir_all(&outside).expect("the other dir");
+        let absolute = outside.join("abs.log");
+        let names: [&[u8]; 3] = [
+            absolute.as_os_str().as_bytes(),
+            b"../outside/up.log",
+            b"sub/down.log",
+        ];
+        for name in names {
+            let why = String::from_utf8_lossy(name).into_owned();
+            let (epoch, mode) = start_named(&dir, name);
+            assert_eq!(names_in(&outside), Vec::<String>::new(), "{why}: outside");
+            assert_eq!(
+                names_in(&dir.join("sub")),
+                Vec::<String>::new(),
+                "{why}: sub"
+            );
+            assert_eq!(epoch, Epoch(0), "{why}: no open asked");
+            assert_eq!(mode, LogMode::Stopped, "{why}: refused");
+        }
+        let (epoch, mode) = start_named(&dir, b"");
+        assert_eq!((epoch, mode), (Epoch(1), LogMode::Started), "generated");
+        let made = names_in(&dir);
+        assert_eq!(made.len(), 2, "{made:?}");
+        assert!(made[0].starts_with("baud.log."), "{made:?}");
+        assert_eq!(std::fs::read(dir.join(&made[0])).expect("the log"), b"x");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **A name that is `.` or `..` starts no log**: nothing is opened.
+    #[test]
+    fn a_dot_name_starts_no_log() {
+        let dir = scratch("dots");
+        for name in [&b"."[..], b".."] {
+            let why = String::from_utf8_lossy(name).into_owned();
+            let (epoch, mode) = start_named(&dir, name);
+            assert_eq!(epoch, Epoch(0), "{why}: no open asked");
+            assert_eq!(mode, LogMode::Stopped, "{why}: refused");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A link named in the log directory is not followed**: the file it
+    /// points at is unchanged and the log stops.
+    #[test]
+    fn a_link_in_the_log_directory_is_not_followed() {
+        let root = scratch("link");
+        let (dir, outside) = (root.join("logs"), root.join("outside"));
+        std::fs::create_dir_all(&dir).expect("the log dir");
+        std::fs::create_dir_all(&outside).expect("the other dir");
+        let kept = outside.join("kept.log");
+        std::fs::write(&kept, b"kept").expect("the file");
+        std::fs::set_permissions(&kept, std::os::unix::fs::PermissionsExt::from_mode(0o644))
+            .expect("chmod");
+        std::os::unix::fs::symlink(&kept, dir.join("l.log")).expect("the link");
+        let (_, mode) = start_named(&dir, b"l.log");
+        assert_eq!(
+            std::fs::read(&kept).expect("the file"),
+            b"kept",
+            "unchanged"
+        );
+        assert_eq!(mode, LogMode::Stopped, "refused");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **A program's `-` starts no log**: nothing is opened, and nothing is
+    /// written to the standard output.
+    #[test]
+    fn a_program_set_dash_starts_no_log() {
+        let dir = scratch("dash");
+        let (epoch, mode) = start_named(&dir, b"-");
+        assert_eq!(epoch, Epoch(0), "no open asked");
+        assert_eq!(mode, LogMode::Stopped, "refused");
+        assert_eq!(names_in(&dir), Vec::<String>::new(), "nothing made");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A program's name is a regular file in the log directory**: a
+    /// missing one is made there and nowhere else, and a pipe is refused
+    /// with nothing written to it.
+    #[test]
+    fn a_program_set_name_is_a_regular_file_in_the_log_directory() {
+        let root = scratch("regular");
+        let dir = root.join("logs");
+        std::fs::create_dir_all(&dir).expect("the log dir");
+        let (epoch, mode) = start_named(&dir, b"new.log");
+        assert_eq!((epoch, mode), (Epoch(1), LogMode::Started), "made");
+        assert_eq!(std::fs::read(dir.join("new.log")).expect("the log"), b"x");
+        assert_eq!(names_in(&root), ["logs"], "nowhere else");
+        let mut r = held_pipe(&dir);
+        let (_, mode) = start_named(&dir, b"q.fifo");
+        assert_eq!(mode, LogMode::Stopped, "a pipe refused");
+        let mut buf = [0u8; 16];
+        match std::io::Read::read(&mut r, &mut buf) {
+            Ok(n) => assert_eq!(n, 0, "nothing written"),
+            Err(e) => assert_eq!(e.kind(), std::io::ErrorKind::WouldBlock, "{e}"),
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// **A writer that falls behind drops what does not fit, and counts
@@ -890,12 +1048,14 @@ mod tests {
     /// 64 KiB, so the writer is still writing while the test looks.
     const MANY: usize = 1 << 20;
 
-    /// The host's last reads, the log still started when the shell exits.
+    /// The host's last reads, the log still started when the shell exits,
+    /// into the pipe as the generated name.
     fn session(log: &mut HostLog) -> Vec<u8> {
         let mut s = Owned::new(&WS);
         let mut t = Term::new(s.storage(), &WS);
         t.set_logging(Logging::On);
-        let mut read = b"\x1b]46;q.fifo\x07\x1b[?46h".to_vec();
+        log.namer = || "q.fifo".to_string();
+        let mut read = b"\x1b[?46h".to_vec();
         let body = vec![b'x'; MANY];
         read.extend_from_slice(&body);
         // As the pty gives it, 4096 bytes a read.
