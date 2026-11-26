@@ -149,7 +149,7 @@ impl Vulkan {
     }
 
     #[allow(unsafe_code)]
-    fn kind(&self, pd: vk::PhysicalDevice) -> Kind {
+    pub(crate) fn kind(&self, pd: vk::PhysicalDevice) -> Kind {
         let mut drm = vk::PhysicalDeviceDrmPropertiesEXT::default();
         let has_drm = self.has(pd, PHYSICAL_DEVICE_DRM);
         let mut props = vk::PhysicalDeviceProperties2::default();

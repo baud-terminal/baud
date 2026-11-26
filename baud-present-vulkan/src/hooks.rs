@@ -24,6 +24,15 @@ pub struct Live(pub usize);
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Fenced(pub u64);
 
+/// Whether a wake at a release point is made as the kernel answers, or
+/// refused.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Wakes {
+    #[default]
+    Asked,
+    Refused,
+}
+
 #[derive(Default)]
 struct State {
     fail: Option<(Calls, Failed)>,
@@ -35,6 +44,8 @@ struct State {
     sync_files: Option<crate::sys::SyncFiles>,
     /// The frames' ends the kernel took as their target's write fence.
     fenced: Fenced,
+    /// Whether wakes at a release point are refused.
+    wakes: Wakes,
 }
 
 /// The forced failure waiting, and the targets alive.
@@ -110,6 +121,17 @@ impl Hooks {
     /// [`Hooks::refuse_sync_files`] holds, else `answer`.
     pub(crate) fn sync_files(&self, answer: crate::sys::SyncFiles) -> crate::sys::SyncFiles {
         self.with(|s| s.sync_files.unwrap_or(answer))
+    }
+
+    /// **Wakes at a release point refused from now**, as a kernel without
+    /// the request refuses them.
+    pub(crate) fn refuse_wakes(&self) {
+        self.with(|s| s.wakes = Wakes::Refused);
+    }
+
+    /// Whether wakes at a release point are refused.
+    pub(crate) fn wakes(&self) -> Wakes {
+        self.with(|s| s.wakes)
     }
 
     /// A frame's end taken as its target's write fence.

@@ -485,6 +485,15 @@ impl Gpu {
         Ok(Timeline { semaphore, fd })
     }
 
+    /// The device's render node, where the driver names one: where its
+    /// timelines' syncobjs are asked about ([`crate::sys::wake_at`]).
+    pub(crate) fn render_node(&self) -> Option<crate::choose::Node> {
+        match self.vulkan.kind(self.physical) {
+            crate::choose::Kind::Gpu { render, .. } => render,
+            crate::choose::Kind::Cpu => None,
+        }
+    }
+
     /// The value `tl` stands at now.
     #[allow(unsafe_code)]
     pub fn reached(&self, tl: &Timeline) -> Result<Point, Failed> {
@@ -1016,6 +1025,14 @@ impl Gpu {
     #[cfg(feature = "test-hooks")]
     pub fn refuse_sync_files(&self) {
         self.hooks.refuse_sync_files();
+    }
+
+    /// **Wakes at a release point refused from now**
+    /// ([`crate::sys::wake_at`]), as a kernel without the request refuses
+    /// them.
+    #[cfg(feature = "test-hooks")]
+    pub fn refuse_wakes(&self) {
+        self.hooks.refuse_wakes();
     }
 
     /// **The frames' ends the kernel took as their target's write fence**

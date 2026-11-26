@@ -1052,3 +1052,113 @@ fn targets_that_refuse_a_sync_file_keep_frames_waited_for_and_counted() {
     gpu.release_landings();
     p.destroy(&gpu);
 }
+
+/// **A frame owed to a release point is woken when it is reached**, on
+/// RADV with explicit sync: two frames shown with points hold both
+/// targets, so the third is owed with a descriptor for the loop to poll,
+/// not yet readable though each timeline stands at the point just before
+/// its release point; the first target's release point signalled, as the
+/// compositor signals it, turns it readable within a bound, the frame is
+/// owed, and the next is drawn into that target. Named break: an owed
+/// frame with nothing to wake the loop when the compositor lets a target
+/// go.
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn a_frame_owed_to_a_release_point_is_woken_when_it_is_reached_on_radv() {
+    let gpu = radv_explicit();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = warm(&gpu, &mut r, &mut t);
+    let mut released = Vec::new();
+    for k in 0..2 {
+        feed(&mut t, b"x");
+        assert_eq!(
+            frame(&gpu, &mut p, &mut r, &mut t),
+            Frame::Drew(TargetIx(k))
+        );
+        let (acquire, release) = p.points(TargetIx(k)).expect("explicit points");
+        assert_eq!(acquire.0 + 1, release.0, "the release point is the next");
+        p.shown(TargetIx(k), DmabufShown::Yes);
+        released.push(release);
+    }
+    assert_eq!(
+        p.release_fd().map(|_| ()),
+        None,
+        "no wake while one is free"
+    );
+    feed(&mut t, b"y");
+    assert_eq!(frame(&gpu, &mut p, &mut r, &mut t), Frame::Owed);
+    for (k, release) in released.iter().enumerate() {
+        let (_, tl) = p.target(TargetIx(k)).expect("a target");
+        let at = gpu.reached(tl.expect("a timeline")).expect("its value");
+        assert_eq!(at.0 + 1, release.0, "the point before the release reached");
+    }
+    let wake = p.release_fd().expect("a wake for the owed frame");
+    assert_eq!(readable(wake), Readable::No, "no release point reached");
+    assert_eq!(p.counts().unwoken.0, 0, "the kernel took the wake");
+    let (_, tl) = p.target(TargetIx(0)).expect("a target");
+    gpu.signal(tl.expect("a timeline"), released[0])
+        .expect("the compositor's release");
+    until_readable(|| {
+        p.release_fd()
+            .map(|fd| fd.try_clone_to_owned().expect("a copy"))
+    });
+    assert_eq!(p.release_reached(), Owes::Frame, "the owed frame");
+    assert_eq!(p.release_fd().map(|_| ()), None, "the wake given up");
+    assert_eq!(
+        frame(&gpu, &mut p, &mut r, &mut t),
+        Frame::Drew(TargetIx(0)),
+        "drawn into the target released"
+    );
+    p.destroy(&gpu);
+}
+
+/// **A wake the kernel refuses is counted, and the owed frame is drawn at
+/// the next wake of the loop**, on RADV with explicit sync: wakes refused,
+/// both targets held to their release points, each frame asked is owed
+/// with no descriptor to poll and counted as unwoken, and once the first
+/// target's release point is reached the next frame asked is drawn into
+/// it. Named break: a frame owed with nothing to wake the loop, and
+/// nothing to say so.
+#[test]
+#[ignore = "needs an AMD GPU: scripts/linux-vulkan-radv.sh"]
+fn a_refused_wake_is_counted_and_the_frame_drawn_at_the_next_wake_on_radv() {
+    let gpu = radv_explicit();
+    let data = jetbrains_mono();
+    let faces = [Face::parse(&data).expect("the face")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut p = warm(&gpu, &mut r, &mut t);
+    gpu.refuse_wakes();
+    let mut released = Vec::new();
+    for k in 0..2 {
+        feed(&mut t, b"x");
+        assert_eq!(
+            frame(&gpu, &mut p, &mut r, &mut t),
+            Frame::Drew(TargetIx(k))
+        );
+        let (_, release) = p.points(TargetIx(k)).expect("explicit points");
+        p.shown(TargetIx(k), DmabufShown::Yes);
+        released.push(release);
+    }
+    for n in 1..=2 {
+        feed(&mut t, b"y");
+        assert_eq!(frame(&gpu, &mut p, &mut r, &mut t), Frame::Owed);
+        assert_eq!(p.release_fd().map(|_| ()), None, "no wake made");
+        assert_eq!(p.counts().unwoken.0, n, "each owed frame counted");
+    }
+    let (_, tl) = p.target(TargetIx(0)).expect("a target");
+    gpu.signal(tl.expect("a timeline"), released[0])
+        .expect("the compositor's release");
+    assert_eq!(
+        frame(&gpu, &mut p, &mut r, &mut t),
+        Frame::Drew(TargetIx(0)),
+        "drawn into the target released"
+    );
+    assert_eq!(p.counts().unwoken.0, 2, "a frame drawn is not counted");
+    p.destroy(&gpu);
+}

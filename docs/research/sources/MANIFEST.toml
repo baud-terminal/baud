@@ -7245,6 +7245,19 @@ bytes  = 7322
 status = "external"
 group  = "J"
 
+[sources.linux-uapi-drm]
+key    = "linux-uapi-drm"
+title  = "Linux v6.12, include/uapi/drm/drm.h -- DRM_IOCTL_SYNCOBJ_FD_TO_HANDLE, DRM_IOCTL_SYNCOBJ_DESTROY and DRM_IOCTL_SYNCOBJ_EVENTFD"
+author = "The Linux kernel developers"
+year   = 2024
+venue  = "Linux"
+url    = "https://raw.githubusercontent.com/torvalds/linux/v6.12/include/uapi/drm/drm.h"
+file   = ""
+sha256 = "3ab6ac01bf91067aed96b70d7fa7847a86e7f726d74278151f085143688659cc"
+bytes  = 45915
+status = "external"
+group  = "J"
+
 [sources.vulkan-synchronization]
 key    = "vulkan-synchronization"
 title  = "Vulkan specification, chapters/synchronization.adoc -- semaphores, fences, and their POSIX file descriptor import and export"

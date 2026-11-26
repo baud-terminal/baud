@@ -17,7 +17,8 @@
 //! The rows stay owed to the next frame drawn. A target is the compositor's
 //! from the frame shown into it until its release -- the `wl_buffer.release`
 //! of a frame shown without points ([`Presenter::released`]), or its release
-//! point reached for one shown with points.
+//! point reached for one shown with points, which a descriptor the loop
+//! polls says ([`Presenter::release_fd`]).
 //!
 //! **One frame flies at a time** ([`Frame::Busy`]): where the target has a
 //! timeline, the frame's own submission signals its acquire point, nothing
@@ -48,7 +49,7 @@ use baud_render::{
     Candidate, Composition, GlyphMap, Highlight, Instance, Kind, Leaving, Lent, Overlay, Redraw,
     Renderer, StyleStamp,
 };
-use std::os::fd::BorrowedFd;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
 /// The cell path's pipelines, every one a frame may draw through.
 const CELL_PIPES: [(Fragment, PipeBlend); 5] = [
@@ -99,6 +100,10 @@ pub struct Counts {
     /// ([`Flies::Waits`], or an end the device or the target refused for
     /// that frame).
     pub waited: Skipped,
+    /// Frames owed to a release point with nothing to wake the loop when
+    /// it is reached: no wake was made ([`crate::sys::wake_at`] answered
+    /// none), so the frame waits for the next thing that wakes the loop.
+    pub unwoken: Skipped,
 }
 
 /// **Whether a frame drawn is left in flight**, answered once per target
@@ -215,6 +220,8 @@ pub struct Presenter {
     owes: Owes,
     /// Whether a frame drawn flies, answered when the targets are made.
     flies: Flies,
+    /// Readable once a release point a frame is owed to is reached.
+    release: Option<OwnedFd>,
 }
 
 impl Presenter {
@@ -262,6 +269,7 @@ impl Presenter {
             owes: Owes::Nothing,
             // Until the targets answer, a frame without points waits.
             flies: Flies::of(gpu, crate::sys::SyncFiles::Refused),
+            release: None,
         })
     }
 
@@ -365,6 +373,7 @@ impl Presenter {
         }
         let Some(k) = self.free(gpu)? else {
             self.counts.owed.0 += 1;
+            self.wake_at_release(gpu);
             return Ok(Frame::Owed);
         };
         // The frame's cost runs from here, a target in hand, to its fence.
@@ -526,6 +535,8 @@ impl Presenter {
         }
         self.next = TargetIx((k.0 + 1) % TARGETS);
         self.counts.drew.0 += 1;
+        // The frame a release point was owed is drawn.
+        self.release = None;
         Ok(Frame::Drew(k))
     }
 
@@ -561,6 +572,55 @@ impl Presenter {
                 lent_used: &mut self.lent_used,
             },
         );
+    }
+
+    /// **A wake for the frame owed**, where every target waits for its
+    /// release point: one descriptor the kernel signals when any of them is
+    /// reached ([`crate::sys::wake_at`]), registered once per owed frame. A
+    /// target shown without points is freed by its `wl_buffer.release`,
+    /// which wakes the loop itself. Refused, the frame waits for the next
+    /// thing that wakes the loop, counted.
+    fn wake_at_release(&mut self, gpu: &Gpu) {
+        if self.release.is_some() {
+            return;
+        }
+        let points: Vec<(BorrowedFd<'_>, Point)> = self
+            .slots
+            .iter()
+            .filter_map(|s| match (s.holder, &s.timeline) {
+                (Holder::Until(p), Some(tl)) => Some((tl.fd.as_fd(), p)),
+                _ => None,
+            })
+            .collect();
+        if points.is_empty() {
+            return;
+        }
+        self.release = gpu
+            .render_node()
+            .and_then(|node| crate::sys::wake_at(node, &points));
+        #[cfg(feature = "test-hooks")]
+        if gpu.hooks.wakes() == crate::hooks::Wakes::Refused {
+            self.release = None;
+        }
+        if self.release.is_none() {
+            self.counts.unwoken.0 += 1;
+        }
+    }
+
+    /// The descriptor a release point the frame owed waits for makes
+    /// readable, for the loop to poll beside [`Presenter::done_fd`].
+    pub fn release_fd(&self) -> Option<BorrowedFd<'_>> {
+        self.release.as_ref().map(AsFd::as_fd)
+    }
+
+    /// **A release point the owed frame waited for is reached**, as
+    /// [`Presenter::release_fd`] turned readable: the wake given up, and
+    /// the frame owed.
+    pub fn release_reached(&mut self) -> Owes {
+        match self.release.take() {
+            Some(_) => Owes::Frame,
+            None => Owes::Nothing,
+        }
     }
 
     /// **The frame in flight, met if it has finished** (`CellMemory::land`):
@@ -702,6 +762,7 @@ impl Presenter {
     }
 
     fn drop_slots(&mut self, gpu: &Gpu) {
+        self.release = None;
         for s in self.slots.drain(..) {
             self.mem.forget(gpu, &s.target);
             if let Some(tl) = s.timeline {

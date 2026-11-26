@@ -27,7 +27,7 @@ grep -q '^Gpu ' <<<"$probe" || {
   exit 1
 }
 
-out=$(cargo test -p baud-present-vulkan --test radv --test instance_path --test effect_pixels --test fireworks_pixels --test layouts --test sheets --test lend --test cell_path --test scenes_basic --test scenes_bidi --test scenes_compose --test scenes_fonts --test scenes_chrome --test blend_rounding --test premultiply_store --test presenter --test descriptors --test cell_effects -- --ignored 2>&1) || {
+out=$(cargo test -p baud-present-vulkan --test radv --test instance_path --test effect_pixels --test fireworks_pixels --test layouts --test sheets --test lend --test cell_path --test scenes_basic --test scenes_bidi --test scenes_compose --test scenes_fonts --test scenes_chrome --test blend_rounding --test premultiply_store --test presenter --test descriptors --test release_descriptors --test cell_effects -- --ignored 2>&1) || {
   echo "$out" >&2
   exit 1
 }
@@ -106,7 +106,10 @@ expect=(
   a_frame_asked_while_one_flies_is_busy_and_never_waits_on_radv
   the_acquire_point_is_the_gpus_to_signal_on_radv
   a_thousand_frames_leave_the_descriptors_as_they_were_on_radv
+  a_thousand_wakes_at_a_release_point_leave_the_descriptors_as_they_were_on_radv
   a_frame_without_points_flies_with_its_end_on_the_target_on_radv
+  a_frame_owed_to_a_release_point_is_woken_when_it_is_reached_on_radv
+  a_refused_wake_is_counted_and_the_frame_drawn_at_the_next_wake_on_radv
   every_effect_is_drawn_by_the_cell_path_as_the_cpu_path_draws_it_on_radv
   the_fireworks_are_drawn_by_the_cell_path_as_the_cpu_path_draws_them_on_radv
   a_smear_is_drawn_by_the_cell_path_as_the_cpu_path_draws_it_on_radv

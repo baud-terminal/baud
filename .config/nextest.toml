@@ -71,7 +71,7 @@ test-group = 'metal'
 # lavapipe's on the CPU and radv's on the GPU, so they share the bound the
 # Metal tests are held to.
 [[profile.default.overrides]]
-filter = 'package(baud-present-vulkan) & (binary(lavapipe) | binary(radv) | binary(instance_path) | binary(effect_building) | binary(effect_pixels) | binary(fireworks_pixels) | binary(layouts) | binary(sheets) | binary(lend) | binary(cell_path) | binary(blend_rounding) | binary(premultiply_store) | binary(scenes_basic) | binary(scenes_bidi) | binary(scenes_compose) | binary(scenes_fonts) | binary(scenes_chrome) | binary(presenter) | binary(descriptors) | binary(cell_effects) | binary(shipped_stages))'
+filter = 'package(baud-present-vulkan) & (binary(lavapipe) | binary(radv) | binary(instance_path) | binary(effect_building) | binary(effect_pixels) | binary(fireworks_pixels) | binary(layouts) | binary(sheets) | binary(lend) | binary(cell_path) | binary(blend_rounding) | binary(premultiply_store) | binary(scenes_basic) | binary(scenes_bidi) | binary(scenes_compose) | binary(scenes_fonts) | binary(scenes_chrome) | binary(presenter) | binary(descriptors) | binary(release_descriptors) | binary(cell_effects) | binary(shipped_stages))'
 test-group = 'metal'
 
 # 16 threads holding 4 spawned terminals each, all at once.

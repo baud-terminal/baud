@@ -14,10 +14,16 @@
 //! dmabuf takes sync files at all is asked once per target set
 //! (`[[source: linux-uapi-dma-buf]]`).
 //!
-//! This module declares `ioctl` as the extern it is, the way the Wayland crates declare
-//! theirs, and is the crate's other place `unsafe` is allowed.
+//! **A wake at a release point**: a frame owed while both targets wait
+//! for their release points has an eventfd the kernel signals when either
+//! is reached, which the loop polls (`[[source: linux-uapi-drm]]`).
+//!
+//! This module declares `ioctl`, `poll` and `eventfd` as the externs they
+//! are, the way the Wayland crates declare theirs, and is the crate's
+//! other place `unsafe` is allowed.
 
 use crate::choose::Node;
+use baud_present_wayland::dmabuf::Point;
 use std::fs::File;
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 
@@ -95,8 +101,9 @@ const POLLIN: i16 = 1;
 #[repr(transparent)]
 struct Nfds(u64);
 
-/// A wait in milliseconds, `0` for none; or what `poll` answered: the
-/// descriptors ready, or `-1`.
+/// A C `int`: a wait in milliseconds, `0` for none, or an eventfd's
+/// flags; or what a call answered: the descriptors `poll` found ready, the
+/// descriptor `eventfd` made, or `-1`.
 #[repr(transparent)]
 struct Int(i32);
 
@@ -198,4 +205,88 @@ pub fn put_write_fence(dmabuf: BorrowedFd<'_>, end: BorrowedFd<'_>) -> SyncFiles
         true => SyncFiles::Taken,
         false => SyncFiles::Refused,
     }
+}
+
+/// `struct drm_syncobj_eventfd`: the syncobj's handle, flags (`0`: the
+/// point signalled), the timeline point, the eventfd, and padding
+/// (`[[source: linux-uapi-drm]]`).
+#[repr(C)]
+struct SyncobjEventfd {
+    handle: Handle,
+    flags: Handle,
+    point: Value,
+    fd: i32,
+    pad: Handle,
+}
+
+/// A 64-bit field of a kernel struct: a timeline point.
+#[repr(transparent)]
+struct Value(u64);
+
+/// `DRM_IOWR(0xCF, struct drm_syncobj_eventfd)`: read-write, twenty-four
+/// bytes, type `'d'`.
+const SYNCOBJ_EVENTFD: u64 = 0xC018_64CF;
+
+// The request number carries the struct's size, which the kernel checks.
+const _: () = assert!(core::mem::size_of::<SyncobjEventfd>() == 24);
+
+/// An eventfd's starting count.
+#[repr(transparent)]
+struct Count(u32);
+
+/// `EFD_CLOEXEC | EFD_NONBLOCK`.
+const EFD_FLAGS: Int = Int(0o2_000_000 | 0o4_000);
+
+#[allow(unsafe_code)]
+unsafe extern "C" {
+    fn eventfd(initval: Count, flags: Int) -> Int;
+}
+
+/// **A descriptor readable once any of `points` is reached**, each a
+/// timeline's syncobj fd and a point on it, asked of `render`'s node with
+/// `DRM_IOCTL_SYNCOBJ_EVENTFD`, which registers "an eventfd to be
+/// signalled by a syncobj. The eventfd counter will be incremented by
+/// one" (`[[source: linux-uapi-drm]]`); a point already reached signals
+/// it at once. `None` where the node cannot be opened, an fd is not a
+/// syncobj, or the kernel refuses the request. Each handle made on the
+/// node is destroyed once its eventfd is registered.
+#[allow(unsafe_code)]
+pub fn wake_at(render: Node, points: &[(BorrowedFd<'_>, Point)]) -> Option<OwnedFd> {
+    let path = format!("/dev/dri/renderD{}", render.minor.0);
+    let node = File::options().read(true).write(true).open(path).ok()?;
+    // SAFETY: no pointers; the call answers a new descriptor or -1.
+    let raw = unsafe { eventfd(Count(0), EFD_FLAGS) };
+    // SAFETY: a descriptor the call just made, which the caller now owns.
+    let wake = (raw.0 >= 0).then(|| unsafe { OwnedFd::from_raw_fd(raw.0) })?;
+    for &(fd, point) in points {
+        let mut h = SyncobjHandle {
+            fd: fd.as_raw_fd(),
+            ..SyncobjHandle::default()
+        };
+        // SAFETY: an open DRM node and the request's own struct, which the
+        // kernel reads and writes and does not keep.
+        if unsafe { ioctl(node.as_raw_fd(), SYNCOBJ_FD_TO_HANDLE, &mut h) } != 0 {
+            return None;
+        }
+        let mut e = SyncobjEventfd {
+            handle: h.handle,
+            flags: Handle(0),
+            point: Value(point.0),
+            fd: wake.as_raw_fd(),
+            pad: Handle(0),
+        };
+        // SAFETY: as above; the kernel takes its own references to the
+        // syncobj and the eventfd.
+        let ok = unsafe { ioctl(node.as_raw_fd(), SYNCOBJ_EVENTFD, &mut e) } == 0;
+        let mut d = SyncobjDestroy {
+            handle: h.handle,
+            pad: Handle(0),
+        };
+        // SAFETY: as above; the handle was just made on this node.
+        unsafe { ioctl(node.as_raw_fd(), SYNCOBJ_DESTROY, &mut d) };
+        if !ok {
+            return None;
+        }
+    }
+    Some(wake)
 }

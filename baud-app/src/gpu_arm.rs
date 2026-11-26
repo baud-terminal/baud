@@ -597,6 +597,24 @@ impl GpuArm {
             _ => Owes::Nothing,
         }
     }
+
+    /// The descriptor a release point the owed frame waits for makes
+    /// readable.
+    pub fn release_fd(&self) -> Option<BorrowedFd<'_>> {
+        match &self.state {
+            State::On(on) => on.presenter.release_fd(),
+            _ => None,
+        }
+    }
+
+    /// **A release point the owed frame waited for is reached**: the frame
+    /// is owed.
+    pub fn release_reached(&mut self) -> Owes {
+        match &mut self.state {
+            State::On(on) => on.presenter.release_reached(),
+            _ => Owes::Nothing,
+        }
+    }
 }
 
 impl On {
